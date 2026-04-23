@@ -10,8 +10,8 @@ interface WorldCardEmergingProps {
 
 export function WorldCardEmerging({ world, onPress }: WorldCardEmergingProps) {
   const name = world.display_name || world.name;
-  // Placeholder until signal count is available from the store
-  const signalCount = '7 signals across 3 weeks';
+  const authoredSubtitle = world.card_subtitle?.trim() || null;
+  const subtitle = authoredSubtitle;
 
   return (
     <Pressable
@@ -22,9 +22,11 @@ export function WorldCardEmerging({ world, onPress }: WorldCardEmergingProps) {
       <Text style={styles.title} numberOfLines={2}>
         {name}
       </Text>
-      <Text style={styles.sub} numberOfLines={2}>
-        {signalCount}
-      </Text>
+      {subtitle ? (
+        <Text style={styles.sub} numberOfLines={2}>
+          {subtitle}
+        </Text>
+      ) : null}
       <View style={styles.tag}>
         <Text style={styles.tagText}>EMERGING</Text>
       </View>

@@ -14,7 +14,8 @@ export function WorldCard({ world, onPress }: WorldCardProps) {
   const palette = useWorldPalette(world.id);
   const upcoming = useUpcomingDatesForWorld(world.id);
   const name = world.display_name || world.name;
-  const subtitle = deriveSubtitle(world, upcoming);
+  const authoredSubtitle = world.card_subtitle?.trim() || null;
+  const subtitle = authoredSubtitle ?? deriveSubtitle(world, upcoming);
 
   return (
     <Pressable

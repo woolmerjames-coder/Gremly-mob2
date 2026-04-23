@@ -2,7 +2,7 @@ import { View, StyleSheet } from 'react-native';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
 import MascotIcon from '../MascotIcon';
-import { useWorldPalette, useWorldNarrative } from '../../lib/store/worldsSelectors';
+import { useWorldPalette } from '../../lib/store/worldsSelectors';
 import type { World } from '../../lib/supabase/types';
 
 interface WorldHeroProps {
@@ -11,9 +11,9 @@ interface WorldHeroProps {
 
 export function WorldHero({ world }: WorldHeroProps) {
   const palette = useWorldPalette(world.id);
-  const narrative = useWorldNarrative(world.id);
   const { label, color } = resolveVelocityChip(world, palette);
   const velocityText = formatVelocityNumber(world.signal_velocity);
+  const summary = world.summary?.trim() || null;
 
   return (
     <View style={styles.hero}>
@@ -24,7 +24,7 @@ export function WorldHero({ world }: WorldHeroProps) {
           {label}
           {velocityText ? ` · ${velocityText}` : ''}
         </Text>
-        {narrative ? <Text style={styles.quote}>{narrative}</Text> : null}
+        {summary ? <Text style={styles.quote}>{summary}</Text> : null}
       </View>
     </View>
   );

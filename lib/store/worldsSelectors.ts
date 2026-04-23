@@ -14,7 +14,7 @@ import { lightTokens } from '../../design/tokens';
 import { buildUpcomingDatesForWorld, type UpcomingDate } from '../worlds/upcomingDates';
 import type { GremlyState } from './useGremlyStore';
 import type { Chapter, ChapterType, DropType, AssignedBy } from '../supabase/types';
-import type { Todo, Habit, Note } from '../types';
+import type { Todo, Habit, Note, DcoWorldsSummary } from '../types';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Base state selectors (not memoized)
@@ -552,7 +552,12 @@ const _selectWorldsSummaryMemo = createSelector(
 
 export type WeeklySummaryCardState =
   | { kind: 'new_unread'; summary: any /* WeeklySummary type already exists in types.ts */ }
+  | { kind: 'authored'; summary: DcoWorldsSummary }
   | { kind: 'in_progress'; summary: WorldsSummary };
+
+export function selectDcoWorldsSummary(state: GremlyState): DcoWorldsSummary | null {
+  return state.dco?.worlds_summary ?? null;
+}
 
 export function selectWeeklySummaryCardState(
   state: GremlyState,
@@ -569,6 +574,11 @@ export function selectWeeklySummaryCardState(
     if (currentWeek && !currentWeek.last_viewed_at) {
       return { kind: 'new_unread', summary: currentWeek };
     }
+  }
+
+  const dcoSummary = selectDcoWorldsSummary(state);
+  if (dcoSummary?.headline) {
+    return { kind: 'authored', summary: dcoSummary };
   }
 
   return { kind: 'in_progress', summary: _selectWorldsSummaryMemo(state) };

@@ -3,7 +3,11 @@ import { format } from 'date-fns';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
 import { useWorldPalette, useChapterDrops } from '../../lib/store/worldsSelectors';
-import { resolveChapterLabel, resolveChapterPhases } from '../../lib/worlds/chapterDisplay';
+import {
+  resolveChapterLabel,
+  resolveChapterPhases,
+  type PhaseBarState,
+} from '../../lib/worlds/chapterDisplay';
 import type { Chapter } from '../../lib/supabase/types';
 
 interface ChapterHeroCardProps {
@@ -16,9 +20,10 @@ export function ChapterHeroCard({ chapter }: ChapterHeroCardProps) {
   const openCount = drops.todos.filter((t) => !t.completed_at).length;
   const doneCount = drops.todos.filter((t) => !!t.completed_at).length;
   const label = resolveChapterLabel(chapter);
+  const summary = chapter.summary?.trim() || null;
   const targetText = chapter.target_description || chapter.target_summary || '';
   const targetDate = chapter.end_date ? format(new Date(chapter.end_date), 'MMM d') : '\u2014';
-  const phases = resolveChapterPhases(chapter);
+  const phases = buildPhaseBar(chapter);
 
   return (
     <View style={styles.card}>
@@ -26,6 +31,7 @@ export function ChapterHeroCard({ chapter }: ChapterHeroCardProps) {
       <View style={styles.body}>
         <Text style={[styles.lbl, { color: palette.dot }]}>{label}</Text>
         <Text style={styles.title}>{chapter.title}</Text>
+        {summary ? <Text style={styles.summary}>{summary}</Text> : null}
         {targetText ? <Text style={styles.target}>{targetText}</Text> : null}
         <View style={styles.metaRow}>
           <View style={styles.metaItem}>
@@ -75,6 +81,22 @@ export function ChapterHeroCard({ chapter }: ChapterHeroCardProps) {
   );
 }
 
+function buildPhaseBar(chapter: import('../../lib/supabase/types').Chapter): PhaseBarState {
+  const authoredLabels = chapter.phase_labels;
+  const authoredCurrent = chapter.current_phase_key;
+  if (authoredLabels && authoredLabels.length > 0) {
+    const current = authoredCurrent ?? authoredLabels[0];
+    const idx = Math.max(authoredLabels.indexOf(current), 0);
+    return {
+      segments: authoredLabels.map((_, i) => i <= idx),
+      labels: authoredLabels.map((l) => l.toUpperCase()),
+      currentIndex: idx,
+      label: authoredLabels[idx]?.toUpperCase() ?? '',
+    };
+  }
+  return resolveChapterPhases(chapter);
+}
+
 const styles = StyleSheet.create({
   card: {
     marginHorizontal: 16,
@@ -109,6 +131,13 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: lightTokens.colors.subtleGreen,
     marginTop: 8,
+  },
+  summary: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 13,
+    lineHeight: 19,
+    color: lightTokens.colors.worldsInk,
+    marginTop: 6,
   },
   metaRow: {
     flexDirection: 'row',

@@ -11,7 +11,8 @@ interface WorldCardDormantProps {
 
 export function WorldCardDormant({ world, onPress }: WorldCardDormantProps) {
   const name = world.display_name || world.name;
-  const subtitle = deriveDormantSubtitle(world);
+  const authoredSubtitle = world.card_subtitle?.trim() || null;
+  const subtitle = authoredSubtitle ?? deriveDormantSubtitle(world);
   return (
     <Pressable
       onPress={() => onPress(world.id)}
@@ -21,9 +22,11 @@ export function WorldCardDormant({ world, onPress }: WorldCardDormantProps) {
       <Text style={styles.title} numberOfLines={2}>
         {name}
       </Text>
-      <Text style={styles.sub} numberOfLines={2}>
-        {subtitle}
-      </Text>
+      {subtitle ? (
+        <Text style={styles.sub} numberOfLines={2}>
+          {subtitle}
+        </Text>
+      ) : null}
     </Pressable>
   );
 }

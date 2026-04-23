@@ -8,6 +8,7 @@ import { useWorldDrops, useWorldPalette } from '../../../lib/store/worldsSelecto
 import { getDateService } from '../../../lib/date/DateService';
 import { useUnifiedOverlayController } from '../../../hooks/useUnifiedOverlayController';
 import type { WorldModuleProps } from './types';
+import type { KeyPriority } from '../../../lib/supabase/types';
 import type { Todo } from '../../../lib/types';
 
 const CAP = 5;
@@ -17,8 +18,13 @@ export function NextActionsModule({ world }: WorldModuleProps) {
   const drops = useWorldDrops(world.id);
   const palette = useWorldPalette(world.id);
   const open = drops.todos.filter((t) => !t.completed_at);
-  if (open.length === 0) return null;
 
+  // Authored actions from key_priorities (kind='action'), sorted by rank
+  const authoredActions = (world.key_priorities ?? [])
+    .filter((p) => p.kind === 'action')
+    .sort((a, b) => a.rank - b.rank);
+
+  // Todo fallback: existing sort by due_date
   const sorted = [...open].sort((a, b) => {
     const ad = a.due_date ?? '';
     const bd = b.due_date ?? '';
@@ -27,18 +33,69 @@ export function NextActionsModule({ world }: WorldModuleProps) {
     if (bd) return 1;
     return (b.created_at ?? '').localeCompare(a.created_at ?? '');
   });
-  const visible = sorted.slice(0, CAP);
+
+  const useAuthored = authoredActions.length > 0;
+  if (!useAuthored && open.length === 0) return null;
 
   // TODO(4a.5): navigate to all-todos-for-world view
   const onSeeAll = undefined;
 
   return (
     <ModuleSection label={`NEXT ACTIONS \u00b7 ${open.length} OPEN`} seeAllOnPress={onSeeAll}>
-      {visible.map((t) => (
-        <TodoRow key={t.id} todo={t} accent={palette.dot} onPress={() => openEdit({ record: t })} />
-      ))}
+      {useAuthored
+        ? authoredActions.slice(0, CAP).map((p) => {
+            const linkedTodo =
+              p.entity_ref?.type === 'todo'
+                ? (drops.todos.find((t) => t.id === p.entity_ref!.id) ?? null)
+                : null;
+            return (
+              <AuthoredActionRow
+                key={`${p.rank}-${p.text}`}
+                priority={p}
+                linkedTodo={linkedTodo}
+                accent={palette.dot}
+                onPress={linkedTodo ? () => openEdit({ record: linkedTodo }) : undefined}
+              />
+            );
+          })
+        : sorted
+            .slice(0, CAP)
+            .map((t) => (
+              <TodoRow
+                key={t.id}
+                todo={t}
+                accent={palette.dot}
+                onPress={() => openEdit({ record: t })}
+              />
+            ))}
     </ModuleSection>
   );
+}
+
+interface AuthoredActionRowProps {
+  priority: KeyPriority;
+  linkedTodo: Todo | null;
+  accent: string;
+  onPress?: () => void;
+}
+
+function AuthoredActionRow({ priority, accent, onPress }: AuthoredActionRowProps) {
+  const inner = (
+    <View style={[styles.row, !onPress && styles.rowStatic]}>
+      <View style={[styles.chk, { borderColor: accent }]} />
+      <Text style={styles.title} numberOfLines={2}>
+        {priority.text}
+      </Text>
+      {priority.due_date ? (
+        <Text style={styles.due}>{formatShortDue(priority.due_date)}</Text>
+      ) : null}
+      {onPress ? <ChevronRight size={14} color={lightTokens.colors.warmGrey} /> : null}
+    </View>
+  );
+  if (onPress) {
+    return <Pressable onPress={onPress}>{inner}</Pressable>;
+  }
+  return inner;
 }
 
 interface TodoRowProps {
@@ -85,6 +142,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+  },
+  rowStatic: {
+    opacity: 0.85,
   },
   chk: {
     width: 18,

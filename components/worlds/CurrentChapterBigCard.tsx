@@ -39,7 +39,8 @@ export function CurrentChapterBigCard({ chapter, worldId, onPress }: CurrentChap
   const label = resolveChapterLabel(chapter);
   const countdown = resolveCountdown(chapter);
   const phase = resolveChapterPhases(chapter);
-  const summary = chapter.target_summary ?? chapter.target_description ?? chapter.description;
+  const targetLine = chapter.target_summary?.trim() || chapter.target_description || null;
+  const cardSubtitle = chapter.card_subtitle?.trim() || null;
 
   return (
     <Pressable
@@ -51,7 +52,8 @@ export function CurrentChapterBigCard({ chapter, worldId, onPress }: CurrentChap
       <View style={styles.body}>
         <Text style={[styles.label, { color: palette.base }]}>{label}</Text>
         <Text style={styles.title}>{chapter.title}</Text>
-        {summary ? <Text style={styles.summary}>{truncate(summary, 120)}</Text> : null}
+        {cardSubtitle ? <Text style={styles.cardSubtitle}>{cardSubtitle}</Text> : null}
+        {targetLine ? <Text style={styles.summary}>{truncate(targetLine, 120)}</Text> : null}
         <View style={styles.footer}>
           <View style={styles.phaseRow}>
             {phase.segments.map((active, i) => (
@@ -107,6 +109,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: -0.2,
     color: lightTokens.colors.worldsInk,
+    marginBottom: 4,
+  },
+  cardSubtitle: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    lineHeight: 16,
+    color: lightTokens.colors.warmGrey,
     marginBottom: 4,
   },
   summary: {

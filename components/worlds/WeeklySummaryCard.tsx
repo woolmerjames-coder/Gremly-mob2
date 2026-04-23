@@ -32,6 +32,17 @@ export function WeeklySummaryCard({ onPressNew }: WeeklySummaryCardProps) {
     );
   }
 
+  if (state.kind === 'authored') {
+    const rangeText = formatCurrentWeekRange();
+    return (
+      <View style={styles.cardSoft}>
+        <Text style={styles.lblSoft}>THIS WEEK{rangeText ? ` · ${rangeText}` : ''}</Text>
+        <Text style={styles.headSoft}>{state.summary.headline}</Text>
+        {state.summary.body ? <Text style={styles.bodySoft}>{state.summary.body}</Text> : null}
+      </View>
+    );
+  }
+
   if (state.kind === 'in_progress') {
     const rangeText = formatCurrentWeekRange();
     const s = state.summary;

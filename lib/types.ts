@@ -1611,6 +1611,14 @@ export interface DcoDeltas {
 
 export type DcoTone = 'relaxed' | 'focused' | 'stretched' | 'recovering' | 'celebratory';
 
+export interface DcoWorldsSummary {
+  headline: string;
+  body: string;
+  featured?: Array<{ world_id: string; reason: string }>;
+  updated_at: string;
+  source: 'classifier' | 'dco';
+}
+
 export interface DailyContextObject {
   user_id: string;
   date: string;
@@ -1627,4 +1635,5 @@ export interface DailyContextObject {
   weekly_digest: string | null;
   input_sources: string[];
   model_used: string;
+  worlds_summary?: DcoWorldsSummary;
 }
