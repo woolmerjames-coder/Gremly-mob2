@@ -7,6 +7,7 @@
  */
 
 import { createSelector } from 'reselect';
+import { useShallow } from 'zustand/react/shallow';
 import { useGremlyStore } from './useGremlyStore';
 import { getDateService } from '../date/DateService';
 import { lightTokens } from '../../design/tokens';
@@ -503,7 +504,7 @@ export const useWorldObservationForWorld = (worldId: string) =>
   );
 
 export const useWeeklySummaryCardState = () =>
-  useGremlyStore((s) => selectWeeklySummaryCardState(s));
+  useGremlyStore(useShallow((s) => selectWeeklySummaryCardState(s)));
 
 export const usePendingProposalCount = () => useGremlyStore(selectPendingProposalCount);
 export const useAllPeople = () => useGremlyStore((s) => selectAllPeopleForUser(s));
