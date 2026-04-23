@@ -12,6 +12,8 @@ import { WorldDetailHeader } from '../../components/worlds/WorldDetailHeader';
 import { WorldHero } from '../../components/worlds/WorldHero';
 import { CurrentChapterBigCard } from '../../components/worlds/CurrentChapterBigCard';
 import { NoCurrentChapterCard } from '../../components/worlds/NoCurrentChapterCard';
+import { GremlyNoticedSlot } from '../../components/worlds/GremlyNoticedSlot';
+import { WorldActionButtons } from '../../components/worlds/WorldActionButtons';
 
 type RouteT = RouteProp<RootStackParamList, 'WorldDetail'>;
 type NavT = NativeStackNavigationProp<RootStackParamList, 'WorldDetail'>;
@@ -37,14 +39,12 @@ export default function WorldDetailScreen() {
     );
   }
 
+  const worldName = world.display_name || world.name;
+
   return (
     <SafeAreaView style={styles.container} edges={['top']} testID={`world-detail-${world.id}`}>
-      <WorldDetailHeader
-        title={world.display_name || world.name}
-        onBack={() => nav.goBack()}
-        worldId={world.id}
-      />
-      <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
+      <WorldDetailHeader title={worldName} onBack={() => nav.goBack()} worldId={world.id} />
+      <ScrollView contentContainerStyle={{ paddingBottom: 12 }}>
         <WorldHero world={world} />
         {currentChapter ? (
           <CurrentChapterBigCard
@@ -55,8 +55,14 @@ export default function WorldDetailScreen() {
         ) : (
           <NoCurrentChapterCard worldId={world.id} />
         )}
-        <Text style={styles.placeholder}>World detail assembles in batches 3 through 4.</Text>
+        <GremlyNoticedSlot worldId={world.id} />
+        <View style={{ height: 60 }} />
       </ScrollView>
+      <WorldActionButtons
+        worldName={worldName}
+        onAddPress={() => console.log('[WorldDetail] add to world', world.id)}
+        onChatPress={() => console.log('[WorldDetail] chat with world', world.id)}
+      />
     </SafeAreaView>
   );
 }
@@ -76,13 +82,5 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     fontSize: 14,
     color: lightTokens.colors.warmGrey,
-  },
-  placeholder: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 13,
-    color: lightTokens.colors.warmGrey,
-    textAlign: 'center',
-    marginTop: 40,
-    paddingHorizontal: 24,
   },
 });

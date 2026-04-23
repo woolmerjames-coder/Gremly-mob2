@@ -1032,6 +1032,7 @@ export interface GremlyState {
   // WORLDS & CHAPTERS ACTIONS
   // ═══════════════════════════════════════════════════════════════════
   refreshWorldsGraph: () => Promise<void>;
+  dismissWorldObservation: (observationId: string) => Promise<void>;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -10044,6 +10045,23 @@ export const useGremlyStore = create<GremlyState>()(
             });
           } catch (err) {
             console.warn('[GremlyStore] refreshWorldsGraph failed:', err);
+          }
+        },
+
+        dismissWorldObservation: async (observationId: string) => {
+          // Optimistic remove.
+          const prev = get().worldObservations;
+          set({ worldObservations: prev.filter((o) => o.id !== observationId) });
+          try {
+            const { error } = await supabase
+              .from('world_observations')
+              .update({ dismissed_at: getDateService().now().toISOString() })
+              .eq('id', observationId);
+            if (error) throw error;
+          } catch (err) {
+            // Roll back on failure.
+            console.warn('[GremlyStore] dismissWorldObservation failed:', err);
+            set({ worldObservations: prev });
           }
         },
       }),
