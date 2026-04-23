@@ -13,9 +13,7 @@ import {
   collectSignalForLiveClassifier,
   collectSignalForBackfillClassifier,
 } from './signalCollector';
-import {
-  classifyWorldsWeekly,
-} from './worldsClassifier';
+import { classifyWorldsWeekly } from './worldsClassifier';
 import {
   findEarliestDropDate,
   computeWindows,
@@ -30,6 +28,7 @@ import { createWorldsWriterTest } from './worldsWriterTest';
 import { createWorldsBootstrap } from './worldsBootstrap';
 import { createWorldsWeeklyRun } from './worldsWeeklyRun';
 import { createWorldsWeeklyScheduler } from './worldsWeeklyScheduler';
+import { createDropAssignmentBackfill } from './dropAssignmentBackfill';
 
 // Cloudflare Workers middleware to inject env bindings
 const bindings = new InngestMiddleware({
@@ -7371,7 +7370,10 @@ const classifyWorldsTest = inngest.createFunction(
         const end = new Date();
         const start = new Date(end.getTime() - windowDays * 24 * 60 * 60 * 1000);
         return collectSignalForBackfillClassifier(
-          userId, env, start.toISOString(), end.toISOString(),
+          userId,
+          env,
+          start.toISOString(),
+          end.toISOString(),
         );
       }
       return collectSignalForLiveClassifier(userId, env);
@@ -7435,18 +7437,8 @@ const runWorldsHarness = inngest.createFunction(
       const activeChapters = chapterBookToActiveChapters(chapterBook);
 
       const run = await step.run(`window-${w.index}`, async () => {
-        const bundle = await collectSignalForBackfillClassifier(
-          userId,
-          env,
-          w.start,
-          w.end,
-        );
-        const output = await classifyWorldsWeekly(
-          bundle,
-          activeWorlds,
-          activeChapters,
-          env,
-        );
+        const bundle = await collectSignalForBackfillClassifier(userId, env, w.start, w.end);
+        const output = await classifyWorldsWeekly(bundle, activeWorlds, activeChapters, env);
         const topTitle = bundle.calendarSummary.top_titles[0]?.title ?? null;
         return {
           window_index: w.index,
@@ -7466,13 +7458,7 @@ const runWorldsHarness = inngest.createFunction(
 
       runs.push(run);
 
-      const merged = mergeRunIntoState(
-        worldBook,
-        chapterBook,
-        lifeContextBook,
-        events,
-        run,
-      );
+      const merged = mergeRunIntoState(worldBook, chapterBook, lifeContextBook, events, run);
       worldBook = merged.worldBook;
       chapterBook = merged.chapterBook;
       lifeContextBook = merged.lifeContextBook;
@@ -7480,13 +7466,7 @@ const runWorldsHarness = inngest.createFunction(
     }
 
     // ── Step 4: build summary ───────────────────────────────────
-    const summary = buildSummary(
-      runs,
-      worldBook,
-      chapterBook,
-      lifeContextBook,
-      events,
-    );
+    const summary = buildSummary(runs, worldBook, chapterBook, lifeContextBook, events);
 
     const finalization = {
       user_id: userId,
@@ -7650,6 +7630,7 @@ const inngestHandler = serve({
     createWorldsBootstrap(inngest),
     createWorldsWeeklyRun(inngest),
     createWorldsWeeklyScheduler(inngest),
+    createDropAssignmentBackfill(inngest),
   ],
   servePath: '/',
 });
