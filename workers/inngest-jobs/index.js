@@ -6913,13 +6913,13 @@ Style rules for overridden card_subtitle strings.
 
 Maximum 60 characters. Never use em dashes, en dashes, or double hyphens. Never use ampersands except inside literal proper nouns.
 
-Match the classifier's voice: a declarative present-tense or present-continuous phrase without second-person pronouns. Do not start with "You are", "You have", "You're", or similar. Examples of the intended style: "Racing toward public launch before end of April", "Habits holding through a busy social stretch", "Dave's birthday approaches as you plan family visits", "Clearing final blockers before public launch". Do not write second-person sentences like "You are making progress" or "You have been working hard".
+Match the classifier's voice: a declarative phrase in present tense or present continuous. Do not use first-person or second-person pronouns. Do not write full sentences that address the reader directly.
 
-Every override subtitle must contain at least one concrete anchor: a proper noun (person, place, event name), a temporal reference (a date, a day-of-week, "today", "tomorrow", "this week", "in N days"), or a quantified state change (a specific completion, a transition). If you cannot include a concrete anchor, return null instead. Generic progress language like "solid progress", "making headway", "good momentum" is not an override; it is drift.
+Every override subtitle must contain at least one concrete anchor. An anchor is a specific named entity, a specific time reference, or a specific quantified state change. Abstract language describing progress, momentum, pace, or general state without naming something specific does not qualify as an anchor.
 
-If the classifier's current card_subtitle already contains a temporal anchor (a date, a deadline, a day reference), you must either preserve that anchor or replace it with an equally or more specific anchor. Stripping a temporal anchor and replacing with generic progress language is never a valid override — return null instead.
+If the classifier's current card_subtitle contains a temporal anchor, the override must either preserve that anchor or replace it with one that is more specific or more proximate. Removing a temporal anchor without replacement is not permitted.
 
-If you cannot produce an override that matches these rules AND is materially more accurate than the classifier's current subtitle, return null.
+If you cannot produce an override that meets every rule above and is materially more informative than the classifier's current subtitle, return null.
 
 CRITICAL:
 - lead_story and secondary MUST use exact domain and thread names from the Life Map.
