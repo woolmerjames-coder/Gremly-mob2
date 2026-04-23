@@ -3,7 +3,7 @@ import { useMemo } from 'react';
 import { format } from 'date-fns';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
-import MascotIcon from '../MascotIcon';
+import MascotLottie from '../../app/components/MascotLottie';
 import { getDateService } from '../../lib/date';
 
 export function WorldsHeader() {
@@ -14,7 +14,7 @@ export function WorldsHeader() {
         <Text style={styles.greet}>Your worlds</Text>
         <Text style={styles.greetSub}>{dateStr}</Text>
       </View>
-      <MascotIcon size={62} />
+      <MascotLottie width={62} />
     </View>
   );
 }
@@ -31,7 +31,7 @@ const styles = StyleSheet.create({
   greet: {
     fontFamily: 'PlusJakartaSans-Bold',
     fontSize: 24,
-    color: lightTokens.colors.deepForest,
+    color: lightTokens.colors.worldsInk,
     letterSpacing: -0.4,
     lineHeight: 28,
   },
