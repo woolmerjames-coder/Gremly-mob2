@@ -1,67 +1,108 @@
 import { View, Pressable, StyleSheet } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { format } from 'date-fns';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
+import { useMostRecentClosedChapterForWorld } from '../../lib/store/worldsSelectors';
+import type { RootStackParamList } from '../../navigation/RootNavigator';
 
 interface NoCurrentChapterCardProps {
   worldId: string;
 }
 
 export function NoCurrentChapterCard({ worldId }: NoCurrentChapterCardProps) {
-  return (
-    <View style={styles.card}>
-      <Text style={styles.heading}>No active chapter</Text>
-      <Text style={styles.sub}>
-        Chapters help you track bounded effort — a project, season, or milestone.
-      </Text>
+  const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const mostRecent = useMostRecentClosedChapterForWorld(worldId);
+
+  if (mostRecent) {
+    const closedDate = mostRecent.closed_at
+      ? format(new Date(mostRecent.closed_at), 'MMM d')
+      : null;
+    return (
       <Pressable
-        onPress={() => console.log('[NoCurrentChapterCard] add chapter pressed', worldId)}
-        style={styles.button}
-        testID="add-chapter-cta"
+        onPress={() => nav.navigate('ChapterDetail', { chapterId: mostRecent.id })}
+        style={styles.anchorCard}
+        testID="no-current-chapter-anchor"
       >
-        <Text style={styles.buttonLabel}>+ add a chapter</Text>
+        <Text style={styles.anchorLabel}>LAST CHAPTER</Text>
+        <Text style={styles.anchorTitle} numberOfLines={2}>
+          {mostRecent.title}
+        </Text>
+        {closedDate ? (
+          <Text style={styles.anchorMeta}>Closed {closedDate} · No open chapter</Text>
+        ) : (
+          <Text style={styles.anchorMeta}>No open chapter</Text>
+        )}
       </Pressable>
+    );
+  }
+
+  return (
+    <View style={styles.emptyCard} testID="no-current-chapter-empty">
+      <Text style={styles.emptyLabel}>NO OPEN CHAPTER</Text>
+      <Text style={styles.emptyBody}>
+        Chapters appear here when Gremly notices a pattern, or when you create one.
+      </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
+  anchorCard: {
     marginHorizontal: 16,
     marginTop: 12,
-    marginBottom: 4,
-    paddingVertical: 20,
+    padding: 14,
     paddingHorizontal: 16,
-    borderWidth: 1.5,
-    borderColor: lightTokens.colors.oatDeeper,
-    borderStyle: 'dashed',
+    backgroundColor: lightTokens.colors.worldsCard,
+    borderWidth: 1,
+    borderColor: lightTokens.colors.worldsCardBorder,
     borderRadius: 14,
-    alignItems: 'center',
+    opacity: 0.88,
   },
-  heading: {
+  anchorLabel: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1,
+    color: lightTokens.colors.warmGrey,
+    marginBottom: 4,
+  },
+  anchorTitle: {
     fontFamily: 'Inter-Medium',
     fontSize: 15,
     fontWeight: '600',
+    letterSpacing: -0.2,
+    color: lightTokens.colors.worldsInk,
+    marginBottom: 4,
+  },
+  anchorMeta: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 11,
+    color: lightTokens.colors.warmGrey,
+  },
+  emptyCard: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    padding: 16,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: lightTokens.colors.worldsCardBorder,
+    borderRadius: 14,
+  },
+  emptyLabel: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1,
     color: lightTokens.colors.warmGrey,
     marginBottom: 6,
   },
-  sub: {
+  emptyBody: {
     fontFamily: 'Inter-Regular',
-    fontSize: 13,
-    lineHeight: 19,
-    color: lightTokens.colors.warmGrey,
-    textAlign: 'center',
-    marginBottom: 14,
-  },
-  button: {
-    paddingVertical: 8,
-    paddingHorizontal: 20,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: lightTokens.colors.oatDeeper,
-  },
-  buttonLabel: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 13,
+    fontSize: 12,
+    lineHeight: 17,
     color: lightTokens.colors.warmGrey,
   },
 });
