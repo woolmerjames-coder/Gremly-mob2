@@ -6772,11 +6772,21 @@ async function updateLifeMapAndFocus(lifeMap, worldPictureText, env, context = {
   const { activeWorlds = [], activeChapters = [] } = context;
   const t0 = Date.now();
 
+  const formatPriorities = (kp) => {
+    if (!Array.isArray(kp) || kp.length === 0) return '(none)';
+    return kp
+      .slice(0, 5)
+      .map((p) => `#${p.rank ?? '?'} [${p.kind ?? '?'}] ${p.text ?? ''}`)
+      .join(' ; ');
+  };
+
   let worldsSection = '';
   if (activeWorlds.length > 0) {
     worldsSection += '\n\n=== ACTIVE WORLDS ===\n';
     for (const w of activeWorlds) {
-      worldsSection += `  id: ${w.id} | name: ${w.name} | card_subtitle: ${w.card_subtitle || '(none)'} | phase: ${w.phase}\n`;
+      worldsSection += `  id: ${w.id} | name: ${w.name} | phase: ${w.phase}\n`;
+      worldsSection += `    card_subtitle: ${w.card_subtitle || '(none)'}\n`;
+      worldsSection += `    key_priorities: ${formatPriorities(w.key_priorities)}\n`;
     }
   }
   let chaptersSection = '';
@@ -6784,6 +6794,8 @@ async function updateLifeMapAndFocus(lifeMap, worldPictureText, env, context = {
     chaptersSection += '\n=== ACTIVE CHAPTERS ===\n';
     for (const c of activeChapters) {
       chaptersSection += `  id: ${c.id} | title: ${c.title} | phase: ${c.phase}\n`;
+      chaptersSection += `    card_subtitle: ${c.card_subtitle || '(none)'}\n`;
+      chaptersSection += `    key_priorities: ${formatPriorities(c.key_priorities)}\n`;
     }
   }
 
@@ -6851,6 +6863,7 @@ Also produce a week_mood_arc: a single sentence describing how the user's emotio
 
 JOB 4 - WORLDS SUMMARY
 Produce a worlds_summary block capturing the theme across the user's active worlds today. The headline is a single sentence up to 80 characters, editorial tone, not a metric. The body is 2-3 sentences expanding the headline, noting what is connecting, shifting, or imminent today. Featured is 2-3 worlds to spotlight with a one-clause reason each. Use world ids from the ACTIVE WORLDS list where available; otherwise use the Life Map domain name. If the world picture contains a classifier worlds_summary seeded this week, you may refresh it but keep it close in spirit unless activity today has materially shifted the picture.
+Style rules for worlds_summary text. Maximum 80 characters for headline. Maximum 220 characters for body. Never use em dashes, en dashes, or double hyphens. Never use ampersands except inside literal proper nouns. Plain second person.
 
 JOB 5 - PER-WORLD AND CHAPTER OVERRIDES
 This job uses the ACTIVE WORLDS and ACTIVE CHAPTERS lists. If those lists are empty, skip this job and emit empty arrays for world_overrides and chapter_overrides.
@@ -6860,6 +6873,8 @@ For each world in ACTIVE WORLDS, decide whether today's activity warrants overri
 key_priorities items each have rank (integer 1-5), text (up to 100 characters), kind (one of: action, date, blocker, momentum, decision), optional entity_ref string, optional due_date ISO date string, and confidence (0-1 number).
 
 For each chapter in ACTIVE CHAPTERS, apply the same evaluation scoped to the chapter's drops and dates. Emit a chapter_overrides array with entries containing chapter_id (from ACTIVE CHAPTERS), card_subtitle (nullable), and key_priorities (nullable).
+Style rules for overridden card_subtitle strings. Maximum 60 characters. Never use em dashes, en dashes, or double hyphens. Never use ampersands except inside literal proper nouns. Plain second person, no rhetorical flourish. If you cannot produce an improved subtitle within these rules, return null instead of a weaker rewrite.
+When reranking key_priorities, preserve the existing schema: each item has rank (integer 1-5), text (max 100 characters), kind (action, date, blocker, momentum, decision), optional entity_ref, optional due_date ISO date, and confidence (0-1). Only rerank if today's activity makes the existing order wrong. Do not invent new priorities; only reorder and lightly edit text if a date or blocker has moved. Emit null if the existing ranking still reflects reality.
 
 CRITICAL:
 - lead_story and secondary MUST use exact domain and thread names from the Life Map.
