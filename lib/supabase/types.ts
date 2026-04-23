@@ -744,6 +744,16 @@ export type SignalVelocityDelta = 'growing' | 'stable' | 'declining';
 export type AssignedBy = 'classifier' | 'user' | 'migration';
 export type DropType = 'note' | 'todo' | 'habit';
 export type EntitySource = 'classifier' | 'user' | 'migration';
+export type SummarySource = 'classifier' | 'dco' | 'user';
+
+export interface KeyPriority {
+  rank: number;
+  text: string;
+  kind: 'action' | 'date' | 'blocker' | 'momentum' | 'decision';
+  entity_ref?: { id: string; type: 'todo' | 'note' | 'habit' | 'chapter' };
+  due_date?: string;
+  confidence?: number;
+}
 
 export type WorldArchetype =
   | 'creative'
@@ -792,6 +802,13 @@ export interface World {
   last_run_id: string | null;
   created_at: string;
   updated_at: string;
+  card_subtitle: string | null;
+  summary: string | null;
+  key_priorities: KeyPriority[];
+  summary_source: SummarySource | null;
+  summary_updated_at: string | null;
+  card_subtitle_source: SummarySource | null;
+  card_subtitle_updated_at: string | null;
 }
 
 export interface Chapter {
@@ -816,6 +833,13 @@ export interface Chapter {
   last_run_id: string | null;
   created_at: string;
   updated_at: string;
+  card_subtitle: string | null;
+  summary: string | null;
+  key_priorities: KeyPriority[];
+  summary_source: SummarySource | null;
+  summary_updated_at: string | null;
+  card_subtitle_source: SummarySource | null;
+  card_subtitle_updated_at: string | null;
 }
 
 export interface LifeContext {
