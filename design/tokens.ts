@@ -38,6 +38,76 @@ export const lightTokens = {
     linen: '#F9F6F1',
     deep: '#1A3328',
     charcoal: '#222222',
+
+    // Worlds & Chapters (Phase 4a.2)
+    // Warmer oat surface tones, intentional brand shift for the Worlds tab.
+    oatDeep: '#EDE6D0', // Worlds tab body background
+    oatLight: '#F4EDD7', // Worlds card and detail-page surface
+    oatDeeper: '#DDD3B8', // Card borders and inactive phase bars
+    warmGrey: '#7A7665', // Section labels and secondary text in Worlds surfaces
+
+    // Ambergold accents for evolution markers, current chapter glow, emerging treatment
+    ambergold: '#C19858',
+    ambergoldDeep: '#8C6A2A',
+    ambergoldTint: 'rgba(193, 152, 88, 0.2)',
+    ambergoldGlow: 'rgba(193, 152, 88, 0.28)',
+
+    // Gremly noticed slot (purple observation callout)
+    noticedBg: '#E8E3F0',
+    noticedBorder: '#A299C9',
+    noticedText: '#5A5A6E',
+    noticedLabel: '#7A6EB2',
+  },
+  // Archetype palette (keyed by WorldArchetype — top-level to stay out of colors)
+  worldPalette: {
+    creative: {
+      base: '#2E5540',
+      tint: 'rgba(143,163,136,0.22)',
+      dot: '#8FA388',
+      textOnBase: '#F4EDD7',
+    },
+    professional: {
+      base: '#3A4C60',
+      tint: 'rgba(138,148,165,0.22)',
+      dot: '#8A94A5',
+      textOnBase: '#F4EDD7',
+    },
+    wellness_body: {
+      base: '#8C6A2A',
+      tint: 'rgba(193,152,88,0.2)',
+      dot: '#C19858',
+      textOnBase: '#F4EDD7',
+    },
+    wellness_mind: {
+      base: '#5B4F8C',
+      tint: 'rgba(162,153,201,0.22)',
+      dot: '#A299C9',
+      textOnBase: '#F4EDD7',
+    },
+    relational: {
+      base: '#8C3F1E',
+      tint: 'rgba(197,139,125,0.22)',
+      dot: '#C58B7D',
+      textOnBase: '#F4EDD7',
+    },
+    domestic: {
+      base: '#6A6F76',
+      tint: 'rgba(122,118,101,0.12)',
+      dot: '#A59E88',
+      textOnBase: '#F4EDD7',
+    },
+    learning: {
+      base: '#3A4C60',
+      tint: 'rgba(138,148,165,0.22)',
+      dot: '#8A94A5',
+      textOnBase: '#F4EDD7',
+    },
+    generic: {
+      base: '#3A4C60',
+      tint: 'rgba(138,148,165,0.22)',
+      dot: '#8A94A5',
+      textOnBase: '#F4EDD7',
+    },
   },
   chat: {
     assistantText: '#1F1F1F',
@@ -146,7 +216,22 @@ export const darkTokens = {
     linen: '#1A3328',
     deep: '#1A3328',
     charcoal: '#F8FAF9',
+
+    // Worlds & Chapters (Phase 4a.2) - dark mode variants
+    oatDeep: '#2A2722',
+    oatLight: '#332F28',
+    oatDeeper: '#44402F',
+    warmGrey: '#A89B7C',
+    ambergold: '#C19858',
+    ambergoldDeep: '#8C6A2A',
+    ambergoldTint: 'rgba(193, 152, 88, 0.2)',
+    ambergoldGlow: 'rgba(193, 152, 88, 0.28)',
+    noticedBg: '#2F2B3A',
+    noticedBorder: '#7A6EB2',
+    noticedText: '#B5B0D0',
+    noticedLabel: '#A299C9',
   },
+  worldPalette: lightTokens.worldPalette,
   chat: {
     assistantText: '#EDEDED',
     assistantTextBold: '#D4E5D6',

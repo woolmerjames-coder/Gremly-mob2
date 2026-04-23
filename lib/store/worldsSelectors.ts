@@ -8,7 +8,8 @@
 
 import { createSelector } from 'reselect';
 import { useGremlyStore } from './useGremlyStore';
-import { today } from '../date/DateService';
+import { getDateService } from '../date/DateService';
+import { lightTokens } from '../../design/tokens';
 import type { GremlyState } from './useGremlyStore';
 import type { Chapter, DropType, AssignedBy } from '../supabase/types';
 import type { Todo, Habit, Note } from '../types';
@@ -173,59 +174,6 @@ export interface WorldPalette {
   textOnBase: string;
 }
 
-// NOTE: values mirror the spec appendix A and the mockup palette.
-// These move to design/tokens.ts in sub-phase 4a.2 under `worldPalette` key.
-const ARCHETYPE_PALETTE: Record<import('../supabase/types').WorldArchetype, WorldPalette> = {
-  creative: {
-    base: '#2E5540',
-    tint: 'rgba(143,163,136,0.22)',
-    dot: '#8FA388',
-    textOnBase: '#F4EDD7',
-  },
-  professional: {
-    base: '#3A4C60',
-    tint: 'rgba(138,148,165,0.22)',
-    dot: '#8A94A5',
-    textOnBase: '#F4EDD7',
-  },
-  wellness_body: {
-    base: '#8C6A2A',
-    tint: 'rgba(193,152,88,0.2)',
-    dot: '#C19858',
-    textOnBase: '#F4EDD7',
-  },
-  wellness_mind: {
-    base: '#5B4F8C',
-    tint: 'rgba(162,153,201,0.22)',
-    dot: '#A299C9',
-    textOnBase: '#F4EDD7',
-  },
-  relational: {
-    base: '#8C3F1E',
-    tint: 'rgba(197,139,125,0.22)',
-    dot: '#C58B7D',
-    textOnBase: '#F4EDD7',
-  },
-  domestic: {
-    base: '#6A6F76',
-    tint: 'rgba(122,118,101,0.12)',
-    dot: '#A59E88',
-    textOnBase: '#F4EDD7',
-  },
-  learning: {
-    base: '#3A4C60',
-    tint: 'rgba(138,148,165,0.22)',
-    dot: '#8A94A5',
-    textOnBase: '#F4EDD7',
-  },
-  generic: {
-    base: '#3A4C60',
-    tint: 'rgba(138,148,165,0.22)',
-    dot: '#8A94A5',
-    textOnBase: '#F4EDD7',
-  },
-};
-
 // Priority order for tie-breaking between equal-weight archetypes.
 const ARCHETYPE_PRIORITY: import('../supabase/types').WorldArchetype[] = [
   'creative',
@@ -240,13 +188,13 @@ const ARCHETYPE_PRIORITY: import('../supabase/types').WorldArchetype[] = [
 
 export function selectWorldPalette(state: GremlyState, worldId: string): WorldPalette {
   const world = state.worlds.find((w) => w.id === worldId);
-  if (!world) return ARCHETYPE_PALETTE.generic;
+  if (!world) return lightTokens.worldPalette.generic;
 
   // Future path: honor world.visual_style.color when classifier authors it (deferred to 4b).
   // For 4a, always use archetype-derived palette.
 
   const archetypes = world.archetypes ?? [];
-  if (archetypes.length === 0) return ARCHETYPE_PALETTE.generic;
+  if (archetypes.length === 0) return lightTokens.worldPalette.generic;
 
   // Find max weight; if tie, use priority order.
   let bestType = archetypes[0].type;
@@ -262,7 +210,7 @@ export function selectWorldPalette(state: GremlyState, worldId: string): WorldPa
       }
     }
   }
-  return ARCHETYPE_PALETTE[bestType] ?? ARCHETYPE_PALETTE.generic;
+  return lightTokens.worldPalette[bestType] ?? lightTokens.worldPalette.generic;
 }
 
 // ============================================================================
@@ -278,7 +226,7 @@ function daysBetween(a: Date, b: Date): number {
 export function selectWorldDormancy(
   state: GremlyState,
   worldId: string,
-  now: Date = today(),
+  now: Date = getDateService().now(),
 ): DormancyState {
   const world = state.worlds.find((w) => w.id === worldId);
   if (!world) return 'active';
@@ -314,7 +262,7 @@ export function selectWorldDormancy(
 export function selectWorldIsEmerging(
   state: GremlyState,
   worldId: string,
-  now: Date = today(),
+  now: Date = getDateService().now(),
 ): boolean {
   const world = state.worlds.find((w) => w.id === worldId);
   if (!world) return false;
@@ -367,7 +315,10 @@ function startOfIsoWeek(d: Date): Date {
   return r;
 }
 
-export function selectWeekInProgressHeadline(state: GremlyState, now: Date = today()): string {
+export function selectWeekInProgressHeadline(
+  state: GremlyState,
+  now: Date = getDateService().now(),
+): string {
   const weekStart = startOfIsoWeek(now);
   const weekStartIso = weekStart.toISOString();
 
@@ -434,7 +385,7 @@ export type WeeklySummaryCardState =
 
 export function selectWeeklySummaryCardState(
   state: GremlyState,
-  now: Date = today(),
+  now: Date = getDateService().now(),
 ): WeeklySummaryCardState {
   const summaries = (state as unknown as { weeklySummaries?: any[] }).weeklySummaries ?? [];
   if (summaries.length === 0) return { kind: 'never' };

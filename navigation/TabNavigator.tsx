@@ -1,9 +1,12 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Image, StyleSheet } from 'react-native';
+import { Globe } from 'lucide-react-native';
 import TodayScreen from '../app/tabs/TodayScreen';
 import SpacesScreen from '../app/tabs/SpacesScreen';
+import WorldsScreen from '../app/tabs/WorldsScreen';
 import CatchAllNotepad from '../app/screens/CatchAllNotepad';
 import AskGremlyScreen from '../app/tabs/AskGremlyScreen';
+import { useGremlyStore } from '../lib/store/useGremlyStore';
 
 // Tab bar icon images (v1.20 brand refresh)
 import TODAY_ICON from '../assets/todayicon1.22.png';
@@ -19,6 +22,7 @@ export type TabParamList = {
   MindDrop: undefined;
   AskGremly: { prefillPrompt?: string } | undefined;
   Spaces: undefined;
+  Worlds: undefined;
 };
 
 const Tab = createBottomTabNavigator<TabParamList>();
@@ -35,10 +39,13 @@ const LINEN_GRAY = '#E3E0D9';
  * - Today: Daily view with todos, habits, and schedule
  * - MindDrop: Quick capture notepad
  * - AskGremly: Chat with Gremly
- * - Spaces: Browse and manage Spaces
+ * - Spaces: Browse and manage Spaces (non-testers)
+ * - Worlds: Worlds & Chapters index (testers only)
  */
 
 export default function TabNavigator() {
+  const isTester = useGremlyStore((s) => s.isTester);
+
   return (
     <Tab.Navigator
       initialRouteName="MindDrop"
@@ -105,19 +112,30 @@ export default function TabNavigator() {
           ),
         }}
       />
-      <Tab.Screen
-        name="Spaces"
-        component={SpacesScreen}
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <Image
-              source={SPACES_ICON}
-              style={{ width: 32, height: 32, opacity: focused ? 1 : 0.4 }}
-              resizeMode="contain"
-            />
-          ),
-        }}
-      />
+      {isTester ? (
+        <Tab.Screen
+          name="Worlds"
+          component={WorldsScreen}
+          options={{
+            tabBarIcon: ({ color, size }) => <Globe color={color} size={size} />,
+            tabBarLabel: 'Worlds',
+          }}
+        />
+      ) : (
+        <Tab.Screen
+          name="Spaces"
+          component={SpacesScreen}
+          options={{
+            tabBarIcon: ({ focused }) => (
+              <Image
+                source={SPACES_ICON}
+                style={{ width: 32, height: 32, opacity: focused ? 1 : 0.4 }}
+                resizeMode="contain"
+              />
+            ),
+          }}
+        />
+      )}
     </Tab.Navigator>
   );
 }
