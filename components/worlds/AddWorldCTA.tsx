@@ -20,11 +20,11 @@ const styles = StyleSheet.create({
   card: {
     borderWidth: 1.5,
     borderStyle: 'dashed',
-    borderColor: 'rgba(15,47,32,0.25)',
+    borderColor: lightTokens.colors.worldsInkOutline,
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    minHeight: 80,
+    height: 140,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 3,

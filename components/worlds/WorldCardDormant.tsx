@@ -18,8 +18,12 @@ export function WorldCardDormant({ world, onPress }: WorldCardDormantProps) {
       style={styles.card}
       testID={`world-card-dormant-${world.id}`}
     >
-      <Text style={styles.title}>{name}</Text>
-      <Text style={styles.sub}>{subtitle}</Text>
+      <Text style={styles.title} numberOfLines={2}>
+        {name}
+      </Text>
+      <Text style={styles.sub} numberOfLines={2}>
+        {subtitle}
+      </Text>
     </Pressable>
   );
 }
@@ -32,14 +36,14 @@ function deriveDormantSubtitle(world: World): string {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: 'rgba(122,118,101,0.08)',
+    backgroundColor: lightTokens.colors.dormantSurface,
     borderWidth: 1.5,
     borderStyle: 'dashed',
-    borderColor: 'rgba(122,118,101,0.35)',
+    borderColor: lightTokens.colors.dormantBorder,
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    minHeight: 80,
+    height: 140,
     justifyContent: 'center',
   },
   title: {
@@ -52,7 +56,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     fontSize: 11,
     lineHeight: 15,
-    color: '#A59E88',
+    color: lightTokens.colors.doneTextMuted,
     marginTop: 4,
   },
 });
