@@ -2,7 +2,16 @@
  * Design tokens for the Gremly design system - Updated with brand colors
  */
 
-export type Tokens = typeof lightTokens;
+type _RawTokens = typeof lightTokens;
+// Tokens['colors'] only exposes string-valued keys so that structural consumers
+// (e.g. Box bg prop: keyof Tokens['colors']) don't accidentally accept object/array
+// palette entries (worldPalette, avatarPalette). Access those via lightTokens directly.
+type _StringColors = {
+  [K in keyof _RawTokens['colors'] as _RawTokens['colors'][K] extends string
+    ? K
+    : never]: _RawTokens['colors'][K];
+};
+export type Tokens = Omit<_RawTokens, 'colors'> & { colors: _StringColors };
 
 export const lightTokens = {
   colors: {
@@ -41,8 +50,11 @@ export const lightTokens = {
 
     // Worlds & Chapters (Phase 4a.2)
     // Warmer oat surface tones, intentional brand shift for the Worlds tab.
+    // @deprecated — use worldsSurface. Remove after 4a component sweep lands.
     oatDeep: '#EDE6D0', // Worlds tab body background
+    // @deprecated — use worldsCard. Remove after 4a component sweep lands.
     oatLight: '#F4EDD7', // Worlds card and detail-page surface
+    // @deprecated — use worldsCardBorder for borders. Remove after 4a component sweep lands.
     oatDeeper: '#DDD3B8', // Card borders and inactive phase bars
     warmGrey: '#7A7665', // Section labels and secondary text in Worlds surfaces
 
@@ -57,57 +69,125 @@ export const lightTokens = {
     noticedBorder: '#A299C9',
     noticedText: '#5A5A6E',
     noticedLabel: '#7A6EB2',
-  },
-  // Archetype palette (keyed by WorldArchetype — top-level to stay out of colors)
-  worldPalette: {
-    creative: {
-      base: '#2E5540',
-      tint: 'rgba(143,163,136,0.22)',
-      dot: '#8FA388',
-      textOnBase: '#F4EDD7',
+
+    // Archetype palette (keyed by WorldArchetype)
+    worldPalette: {
+      creative: {
+        base: '#2E5540',
+        tint: 'rgba(143,163,136,0.22)',
+        dot: '#8FA388',
+        textOnBase: '#F4EDD7',
+      },
+      professional: {
+        base: '#3A4C60',
+        tint: 'rgba(138,148,165,0.22)',
+        dot: '#8A94A5',
+        textOnBase: '#F4EDD7',
+      },
+      wellness_body: {
+        base: '#8C6A2A',
+        tint: 'rgba(193,152,88,0.2)',
+        dot: '#C19858',
+        textOnBase: '#F4EDD7',
+      },
+      wellness_mind: {
+        base: '#5B4F8C',
+        tint: 'rgba(162,153,201,0.22)',
+        dot: '#A299C9',
+        textOnBase: '#F4EDD7',
+      },
+      relational: {
+        base: '#8C3F1E',
+        tint: 'rgba(197,139,125,0.22)',
+        dot: '#C58B7D',
+        textOnBase: '#F4EDD7',
+      },
+      domestic: {
+        base: '#6A6F76',
+        tint: 'rgba(122,118,101,0.12)',
+        dot: '#A59E88',
+        textOnBase: '#F4EDD7',
+      },
+      learning: {
+        base: '#3A4C60',
+        tint: 'rgba(138,148,165,0.22)',
+        dot: '#8A94A5',
+        textOnBase: '#F4EDD7',
+      },
+      generic: {
+        base: '#3A4C60',
+        tint: 'rgba(138,148,165,0.22)',
+        dot: '#8A94A5',
+        textOnBase: '#F4EDD7',
+      },
     },
-    professional: {
-      base: '#3A4C60',
-      tint: 'rgba(138,148,165,0.22)',
-      dot: '#8A94A5',
-      textOnBase: '#F4EDD7',
-    },
-    wellness_body: {
-      base: '#8C6A2A',
-      tint: 'rgba(193,152,88,0.2)',
-      dot: '#C19858',
-      textOnBase: '#F4EDD7',
-    },
-    wellness_mind: {
-      base: '#5B4F8C',
-      tint: 'rgba(162,153,201,0.22)',
-      dot: '#A299C9',
-      textOnBase: '#F4EDD7',
-    },
-    relational: {
-      base: '#8C3F1E',
-      tint: 'rgba(197,139,125,0.22)',
-      dot: '#C58B7D',
-      textOnBase: '#F4EDD7',
-    },
-    domestic: {
-      base: '#6A6F76',
-      tint: 'rgba(122,118,101,0.12)',
-      dot: '#A59E88',
-      textOnBase: '#F4EDD7',
-    },
-    learning: {
-      base: '#3A4C60',
-      tint: 'rgba(138,148,165,0.22)',
-      dot: '#8A94A5',
-      textOnBase: '#F4EDD7',
-    },
-    generic: {
-      base: '#3A4C60',
-      tint: 'rgba(138,148,165,0.22)',
-      dot: '#8A94A5',
-      textOnBase: '#F4EDD7',
-    },
+
+    // Worlds surfaces — grounded in brand tokens, not mockup-oat
+    worldsSurface: '#F9F6F1', // body — same as linenCream, explicit alias for Worlds tab
+    worldsCard: '#FFFFFF', // opaque card surface — pure white for layering over linen
+    worldsCardBorder: 'rgba(46,85,64,0.08)', // moss at 8% — subtle brand-green hairline on cards
+
+    // Primary ink scale (deepForest-derived — green-inflected black, stays on-brand)
+    worldsInk: '#1A3328', // primary text — alias to deepForest for Worlds semantics
+    worldsInkSoft: 'rgba(26,58,40,0.68)', // secondary body text on cards
+    worldsInkMute: 'rgba(26,58,40,0.6)', // muted labels (e.g. COOLING velocity chip)
+    worldsInkOutline: 'rgba(26,58,40,0.25)', // dashed outlines (AddWorldCTA, etc.)
+
+    // Text/icon on a dark (worldsInk) background — used by WeeklySummaryCard new-unread variant
+    onInkLabel: 'rgba(249,246,241,0.65)', // linenCream at 65%
+    onInkBody: 'rgba(249,246,241,0.82)',
+    onInkCta: 'rgba(249,246,241,0.88)',
+
+    // Completion states (todos, strikethrough, dormant treatment)
+    sageGreen: '#97AF8F', // mid-tone sage between sageMist and moss — checkbox fill
+    doneTextMuted: 'rgba(26,58,40,0.4)', // strikethrough + dormant world title (deepForest at 40%)
+
+    // Dormant world card (warmGrey at alpha — same semantic as existing warmGrey token)
+    dormantSurface: 'rgba(122,118,101,0.08)',
+    dormantBorder: 'rgba(122,118,101,0.35)',
+
+    // Emerging / "new" treatment (ambergold at alpha — ambergold is Gremly's golden-pear accent)
+    emergingSurface: 'rgba(193,152,88,0.08)',
+    emergingBorder: 'rgba(194,152,88,0.55)', // Note: mockup uses 194 not 193; preserve
+    emergingTag: 'rgba(193,152,88,0.25)',
+
+    // Noticed slot (periwinkleSmoke at alpha — brand purple)
+    noticedSurfaceFaint: 'rgba(156,166,224,0.05)',
+    noticedSurfaceSoft: 'rgba(156,166,224,0.1)',
+    noticedEdgeSoft: 'rgba(156,166,224,0.25)',
+    noticedEdgeStrong: 'rgba(156,166,224,0.35)',
+
+    // Neutral chip — ContextsChipRow + ParentWorldPill (sage-mist with moss text for brand unity)
+    chipNeutralBg: 'rgba(191,216,192,0.22)', // sageMist at 22%
+    chipNeutralBorder: 'rgba(46,85,64,0.22)', // moss at 22%
+    chipNeutralDot: '#BFD8C0', // sageMist solid
+    chipNeutralText: '#2E5540', // moss solid
+
+    // Chapter decoration (sageMist at alpha — phase-bar container, action buttons)
+    chapterDecorBg: 'rgba(191,216,192,0.18)', // sageMist at 18% — subtle sage wash
+    chapterActionBg: 'rgba(191,216,192,0.35)', // sageMist at 35% — action button surface
+    chapterActionBorder: 'rgba(46,85,64,0.3)', // moss at 30% — action button border
+
+    // Subtle green (secondary text on chapter hero card)
+    subtleGreen: 'rgba(26,58,40,0.55)', // deepForest at 55%
+
+    // Avatar rotation — PeopleRow + PeopleInvolvedModule
+    avatarPalette: [
+      { bg: '#D5E4D0', fg: '#1A3A28' },
+      { bg: '#EBDDC5', fg: '#6B4A2E' },
+      { bg: '#E2DFEE', fg: '#5A3B5A' },
+      { bg: '#D9E1EA', fg: '#2C4A5C' },
+      { bg: '#F1D8C9', fg: '#8C3F1E' },
+      { bg: '#D0E0DA', fg: '#2E5540' },
+      { bg: '#E8D6DF', fg: '#7B3F57' },
+      { bg: '#DDE3D0', fg: '#4B5A33' },
+    ] as const,
+
+    // @deprecated — use sageGreen. Remove after 4a component sweep lands.
+    doneCheck: '#97AF8F',
+    // @deprecated — use worldsCard / worldsCardBorder. Remove after 4a component sweep lands.
+    oatCard: '#FFFFFF',
+    oatCardBorder: 'rgba(46,85,64,0.08)',
   },
   chat: {
     assistantText: '#1F1F1F',
@@ -218,8 +298,11 @@ export const darkTokens = {
     charcoal: '#F8FAF9',
 
     // Worlds & Chapters (Phase 4a.2) - dark mode variants
+    // @deprecated — use worldsSurface. Remove after 4a component sweep lands.
     oatDeep: '#2A2722',
+    // @deprecated — use worldsCard. Remove after 4a component sweep lands.
     oatLight: '#332F28',
+    // @deprecated — use worldsCardBorder for borders. Remove after 4a component sweep lands.
     oatDeeper: '#44402F',
     warmGrey: '#A89B7C',
     ambergold: '#C19858',
@@ -230,8 +313,65 @@ export const darkTokens = {
     noticedBorder: '#7A6EB2',
     noticedText: '#B5B0D0',
     noticedLabel: '#A299C9',
+
+    worldPalette: lightTokens.colors.worldPalette,
+
+    // Worlds surfaces (dark mode)
+    worldsSurface: '#121716', // surface dark
+    worldsCard: '#1A201F', // lifted card
+    worldsCardBorder: 'rgba(191,216,192,0.08)', // sageMist at 8%
+
+    // Ink inverted: text is near-linen, background is deep
+    worldsInk: '#F8FAF9',
+    worldsInkSoft: 'rgba(248,250,249,0.68)',
+    worldsInkMute: 'rgba(248,250,249,0.6)',
+    worldsInkOutline: 'rgba(248,250,249,0.25)',
+
+    // On-ink in dark mode — text on a sageMist or linen dark-accent bg
+    onInkLabel: 'rgba(26,58,40,0.65)',
+    onInkBody: 'rgba(26,58,40,0.82)',
+    onInkCta: 'rgba(26,58,40,0.88)',
+
+    // Completion
+    sageGreen: '#97AF8F',
+    doneTextMuted: 'rgba(248,250,249,0.4)',
+
+    // Dormant
+    dormantSurface: 'rgba(168,155,124,0.08)',
+    dormantBorder: 'rgba(168,155,124,0.35)',
+
+    // Emerging
+    emergingSurface: 'rgba(193,152,88,0.12)',
+    emergingBorder: 'rgba(194,152,88,0.55)',
+    emergingTag: 'rgba(193,152,88,0.3)',
+
+    // Noticed
+    noticedSurfaceFaint: 'rgba(156,166,224,0.08)',
+    noticedSurfaceSoft: 'rgba(156,166,224,0.14)',
+    noticedEdgeSoft: 'rgba(156,166,224,0.3)',
+    noticedEdgeStrong: 'rgba(156,166,224,0.4)',
+
+    // Neutral chip
+    chipNeutralBg: 'rgba(191,216,192,0.15)',
+    chipNeutralBorder: 'rgba(191,216,192,0.3)',
+    chipNeutralDot: '#BFD8C0',
+    chipNeutralText: '#BFD8C0',
+
+    // Chapter decoration
+    chapterDecorBg: 'rgba(191,216,192,0.12)',
+    chapterActionBg: 'rgba(191,216,192,0.25)',
+    chapterActionBorder: 'rgba(191,216,192,0.4)',
+
+    subtleGreen: 'rgba(248,250,249,0.55)',
+
+    avatarPalette: lightTokens.colors.avatarPalette,
+
+    // @deprecated — use sageGreen. Remove after 4a component sweep lands.
+    doneCheck: '#97AF8F',
+    // @deprecated — use worldsCard / worldsCardBorder. Remove after 4a component sweep lands.
+    oatCard: '#1A201F',
+    oatCardBorder: 'rgba(191,216,192,0.08)',
   },
-  worldPalette: lightTokens.worldPalette,
   chat: {
     assistantText: '#EDEDED',
     assistantTextBold: '#D4E5D6',
