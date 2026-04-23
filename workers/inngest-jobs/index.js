@@ -6866,15 +6866,28 @@ Produce a worlds_summary block capturing the theme across the user's active worl
 Style rules for worlds_summary text. Maximum 80 characters for headline. Maximum 220 characters for body. Never use em dashes, en dashes, or double hyphens. Never use ampersands except inside literal proper nouns. Plain second person.
 
 JOB 5 - PER-WORLD AND CHAPTER OVERRIDES
-This job uses the ACTIVE WORLDS and ACTIVE CHAPTERS lists. If those lists are empty, skip this job and emit empty arrays for world_overrides and chapter_overrides.
 
-For each world in ACTIVE WORLDS, decide whether today's activity warrants overriding card_subtitle or reranking key_priorities. Conditions that warrant an override: a dated item within 3 days is surfacing today that is not currently reflected in card_subtitle; a todo was completed today that cleared the top key_priorities item; a chapter within this world transitioned phase or started or closed today; an upcoming event within the world is date-proximate enough to feel live this week. Emit a world_overrides array with entries containing world_id (from ACTIVE WORLDS), card_subtitle (new subtitle string or null if no subtitle override is warranted), and key_priorities (reranked array or null if no reranking is warranted). Omit entries where neither field has a value to set.
+This job uses the ACTIVE WORLDS and ACTIVE CHAPTERS lists. If those lists are empty, emit empty arrays and skip this job.
+
+DEFAULT BEHAVIOR IS TO NOT OVERRIDE. For each world and chapter, the current card_subtitle and key_priorities were authored by the weekly classifier based on the full 4-week window and are assumed correct. You override only when today's or this week's data adds information the classifier could not have known.
+
+A card_subtitle override requires ONE of these grounded triggers, which you must be able to point to in the data:
+1. A calendar event or dated item within the next 3 days for this world or chapter that is not reflected in the current subtitle.
+2. A todo completed today that materially changes the state described in the current subtitle.
+3. A chapter within this world transitioned phase, started, or closed today.
+4. A journal entry from today that introduces a new concrete development (not a mood shift, not a rephrasing).
+
+If none of these triggers is concretely present in today's data, return null for card_subtitle. Do not override simply because you can phrase it with today-inflected language. Do not override to make the sentence feel fresher. Cosmetic rewrites are not overrides.
+
+A key_priorities override requires that today's activity changed the correct ranking order of existing priorities, or a new priority became genuinely more important than an existing one. Only rerank; do not invent new priorities. If the existing ranking still reflects reality, return null.
+
+Emit a world_overrides array with entries containing world_id (from ACTIVE WORLDS), card_subtitle (new subtitle string or null), and key_priorities (reranked array or null). Omit entries where both fields are null.
+
+For each chapter in ACTIVE CHAPTERS, apply the same strict evaluation. Emit a chapter_overrides array with entries containing chapter_id, card_subtitle (nullable), and key_priorities (nullable). Omit entries where both fields are null.
 
 key_priorities items each have rank (integer 1-5), text (up to 100 characters), kind (one of: action, date, blocker, momentum, decision), optional entity_ref string, optional due_date ISO date string, and confidence (0-1 number).
 
-For each chapter in ACTIVE CHAPTERS, apply the same evaluation scoped to the chapter's drops and dates. Emit a chapter_overrides array with entries containing chapter_id (from ACTIVE CHAPTERS), card_subtitle (nullable), and key_priorities (nullable).
-Style rules for overridden card_subtitle strings. Maximum 60 characters. Never use em dashes, en dashes, or double hyphens. Never use ampersands except inside literal proper nouns. Plain second person, no rhetorical flourish. If you cannot produce an improved subtitle within these rules, return null instead of a weaker rewrite.
-When reranking key_priorities, preserve the existing schema: each item has rank (integer 1-5), text (max 100 characters), kind (action, date, blocker, momentum, decision), optional entity_ref, optional due_date ISO date, and confidence (0-1). Only rerank if today's activity makes the existing order wrong. Do not invent new priorities; only reorder and lightly edit text if a date or blocker has moved. Emit null if the existing ranking still reflects reality.
+Style rules for overridden card_subtitle strings. Maximum 60 characters. Never use em dashes, en dashes, or double hyphens. Never use ampersands except inside literal proper nouns. Plain second person, no rhetorical flourish. If you cannot produce an improved subtitle within these rules, return null.
 
 CRITICAL:
 - lead_story and secondary MUST use exact domain and thread names from the Life Map.
