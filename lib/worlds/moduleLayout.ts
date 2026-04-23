@@ -12,6 +12,7 @@
 import type { Chapter, World, WorldModuleLayoutEntry } from '../supabase/types';
 
 export const DEFAULT_MODULE_LAYOUT: WorldModuleLayoutEntry[] = [
+  { module: 'upcoming_dates', weight: 0.35 },
   { module: 'next_actions', weight: 0.3 },
   { module: 'recent_thoughts', weight: 0.25 },
   { module: 'reflection_timeline', weight: 0.2 },

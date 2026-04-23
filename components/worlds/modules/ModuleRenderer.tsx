@@ -9,9 +9,11 @@ import { RecentThoughtsModule } from './RecentThoughtsModule';
 import { ReflectionTimelineModule } from './ReflectionTimelineModule';
 import { ChapterStripModule } from './ChapterStripModule';
 import { PeopleInvolvedModule } from './PeopleInvolvedModule';
+import { UpcomingDatesModule } from './UpcomingDatesModule';
 import type { WorldModuleProps } from './types';
 
 const MODULE_REGISTRY: Record<string, ComponentType<WorldModuleProps>> = {
+  upcoming_dates: UpcomingDatesModule,
   next_actions: NextActionsModule,
   habit_streaks: HabitStreaksModule,
   recent_thoughts: RecentThoughtsModule,

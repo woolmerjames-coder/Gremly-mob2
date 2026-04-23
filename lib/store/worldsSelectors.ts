@@ -11,6 +11,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useGremlyStore } from './useGremlyStore';
 import { getDateService } from '../date/DateService';
 import { lightTokens } from '../../design/tokens';
+import { buildUpcomingDatesForWorld, type UpcomingDate } from '../worlds/upcomingDates';
 import type { GremlyState } from './useGremlyStore';
 import type { Chapter, ChapterType, DropType, AssignedBy } from '../supabase/types';
 import type { Todo, Habit, Note } from '../types';
@@ -189,13 +190,13 @@ const ARCHETYPE_PRIORITY: import('../supabase/types').WorldArchetype[] = [
 
 export function selectWorldPalette(state: GremlyState, worldId: string): WorldPalette {
   const world = state.worlds.find((w) => w.id === worldId);
-  if (!world) return lightTokens.worldPalette.generic;
+  if (!world) return lightTokens.colors.worldPalette.generic;
 
   // Future path: honor world.visual_style.color when classifier authors it (deferred to 4b).
   // For 4a, always use archetype-derived palette.
 
   const archetypes = world.archetypes ?? [];
-  if (archetypes.length === 0) return lightTokens.worldPalette.generic;
+  if (archetypes.length === 0) return lightTokens.colors.worldPalette.generic;
 
   // Find max weight; if tie, use priority order.
   let bestType = archetypes[0].type;
@@ -211,7 +212,7 @@ export function selectWorldPalette(state: GremlyState, worldId: string): WorldPa
       }
     }
   }
-  return lightTokens.worldPalette[bestType] ?? lightTokens.worldPalette.generic;
+  return lightTokens.colors.worldPalette[bestType] ?? lightTokens.colors.worldPalette.generic;
 }
 
 // ============================================================================
@@ -383,13 +384,34 @@ function startOfIsoWeek(d: Date): Date {
   return r;
 }
 
-export function selectWeekInProgressHeadline(
+/**
+ * Multi-clause cross-world summary that evolves with activity.
+ * Each clause is optional and only emitted if its signal is strong enough.
+ * The component joins non-null clauses with " · " separator.
+ */
+export interface WorldsSummary {
+  dropClause: string; // always present
+  topWorldClause: string | null;
+  chapterCountdownClause: string | null;
+  chapterClosedClause: string | null;
+  peopleClause: string | null;
+  trajectoryClause: string | null;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function pluralize(n: number, singular: string, plural?: string): string {
+  return `${n} ${n === 1 ? singular : (plural ?? singular + 's')}`;
+}
+
+export function selectWorldsSummary(
   state: GremlyState,
   now: Date = getDateService().now(),
-): string {
+): WorldsSummary {
   const weekStart = startOfIsoWeek(now);
   const weekStartIso = weekStart.toISOString();
 
+  // Drop clause — always present
   const dropsThisWeek = [
     ...state.todos.filter((t) => t.created_at >= weekStartIso),
     ...state.habits.filter((h) => h.created_at >= weekStartIso),
@@ -397,79 +419,159 @@ export function selectWeekInProgressHeadline(
   ];
   const dropCount = dropsThisWeek.length;
 
-  if (dropCount === 0) {
-    return 'Gremly is listening. Drop something when you have a moment.';
-  }
-
-  // Top world by new drop link count this week
+  // Active worlds this week
   const linksThisWeek = state.dropWorldLinks.filter((l) => l.created_at >= weekStartIso);
-  const worldCounts = new Map<string, number>();
+  const worldTouchCounts = new Map<string, number>();
   for (const l of linksThisWeek) {
-    worldCounts.set(l.world_id, (worldCounts.get(l.world_id) ?? 0) + 1);
+    worldTouchCounts.set(l.world_id, (worldTouchCounts.get(l.world_id) ?? 0) + 1);
   }
-  let topWorldName = '';
-  if (worldCounts.size > 0) {
-    let topCount = -1;
-    for (const [wid, count] of worldCounts) {
-      const w = state.worlds.find((ww) => ww.id === wid);
-      const wname = w?.display_name ?? w?.name ?? '';
-      if (count > topCount || (count === topCount && wname.localeCompare(topWorldName) < 0)) {
-        topCount = count;
-        topWorldName = wname;
-      }
+  const activeWorldCount = worldTouchCounts.size;
+
+  const dropClause =
+    dropCount === 0
+      ? 'Quiet week so far. Drop something when you have a moment.'
+      : `${pluralize(dropCount, 'drop')} across ${pluralize(activeWorldCount || 1, 'world')} this week.`;
+
+  // Top world clause — only emit if there's a clear leader (top > 1.5× second)
+  let topWorldClause: string | null = null;
+  if (worldTouchCounts.size >= 2) {
+    const sorted = [...worldTouchCounts.entries()].sort((a, b) => b[1] - a[1]);
+    const [topId, topCount] = sorted[0];
+    const secondCount = sorted[1][1];
+    if (topCount >= secondCount * 1.5) {
+      const w = state.worlds.find((x) => x.id === topId);
+      const name = w?.display_name ?? w?.name;
+      if (name) topWorldClause = `Most active in ${name}.`;
     }
+  } else if (worldTouchCounts.size === 1) {
+    const [topId] = [...worldTouchCounts.keys()];
+    const w = state.worlds.find((x) => x.id === topId);
+    const name = w?.display_name ?? w?.name;
+    if (name) topWorldClause = `All in ${name}.`;
   }
 
-  // Nearest upcoming chapter within 30 days
-  const thirtyOut = new Date(now);
-  thirtyOut.setDate(thirtyOut.getDate() + 30);
+  // Chapter countdown — nearest open chapter ending within 14 days
+  const fourteenOut = new Date(now.getTime() + 14 * DAY_MS);
   const upcomingChapters = state.chapters
     .filter((c) => c.end_date && c.phase !== 'closed')
     .filter((c) => {
       const ed = new Date(c.end_date as string);
-      return ed >= now && ed <= thirtyOut;
+      return ed >= now && ed <= fourteenOut;
     })
     .sort((a, b) => (a.end_date ?? '').localeCompare(b.end_date ?? ''));
 
-  let chapterReminder = '';
+  let chapterCountdownClause: string | null = null;
   if (upcomingChapters[0]) {
     const c = upcomingChapters[0];
-    const days = Math.ceil(
-      (new Date(c.end_date as string).getTime() - now.getTime()) / (1000 * 60 * 60 * 24),
-    );
-    chapterReminder = `${c.title} in ${days} days`;
+    const days = Math.ceil((new Date(c.end_date as string).getTime() - now.getTime()) / DAY_MS);
+    if (days === 0) chapterCountdownClause = `${c.title} ends today.`;
+    else if (days === 1) chapterCountdownClause = `${c.title} ends tomorrow.`;
+    else chapterCountdownClause = `${c.title} ends in ${days} days.`;
   }
 
-  const parts: string[] = [`${dropCount} drops this week.`];
-  if (topWorldName) parts.push(`Mostly ${topWorldName}.`);
-  if (chapterReminder) parts.push(`${chapterReminder}.`);
-  return parts.join(' ');
+  // Chapter closed this week — only if no countdown (countdown is more action-relevant)
+  const closedThisWeek = state.chapters
+    .filter((c) => c.phase === 'closed' && c.closed_at && c.closed_at >= weekStartIso)
+    .sort((a, b) => (b.closed_at ?? '').localeCompare(a.closed_at ?? ''));
+
+  let chapterClosedClause: string | null = null;
+  if (closedThisWeek[0] && !chapterCountdownClause) {
+    chapterClosedClause = `${closedThisWeek[0].title} wrapped.`;
+  }
+
+  // People clause — top @-mentioned people across this week's notes
+  const peopleCounts = new Map<string, number>();
+  for (const n of state.notes) {
+    if (n.created_at < weekStartIso) continue;
+    const tags = Array.isArray(n.tags) ? n.tags : [];
+    for (const raw of tags) {
+      if (typeof raw !== 'string' || !raw.startsWith('@')) continue;
+      const name = titleCase(raw.slice(1).trim());
+      if (!name) continue;
+      peopleCounts.set(name, (peopleCounts.get(name) ?? 0) + 1);
+    }
+  }
+  let peopleClause: string | null = null;
+  if (peopleCounts.size > 0) {
+    const top = [...peopleCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 2)
+      .map(([name]) => name);
+    if (top.length === 1 && (peopleCounts.get(top[0]) ?? 0) >= 3) {
+      peopleClause = `Thinking a lot about ${top[0]}.`;
+    } else if (top.length === 2) {
+      peopleClause = `Top this week: ${top.join(', ')}.`;
+    }
+  }
+
+  // Trajectory clause — active world that flipped to 'declining'
+  let trajectoryClause: string | null = null;
+  const decliningWorlds = state.worlds.filter(
+    (w) => w.signal_velocity_delta === 'declining' && worldTouchCounts.has(w.id),
+  );
+  if (decliningWorlds.length > 0) {
+    const w = decliningWorlds[0];
+    const name = w.display_name ?? w.name;
+    trajectoryClause = `${name} trending down.`;
+  }
+
+  return {
+    dropClause,
+    topWorldClause,
+    chapterCountdownClause,
+    chapterClosedClause,
+    peopleClause,
+    trajectoryClause,
+  };
 }
+
+// Memoized variant: createSelector caches on the six state slices so that
+// selectWorldsSummary only runs (and returns a new object) when one of the
+// input arrays actually changes reference. This gives useShallow a stable
+// summary reference to compare against, preventing the getSnapshot loop.
+const _selectWorldsSummaryMemo = createSelector(
+  (s: GremlyState) => s.todos,
+  (s: GremlyState) => s.habits,
+  (s: GremlyState) => s.notes,
+  (s: GremlyState) => s.dropWorldLinks,
+  (s: GremlyState) => s.worlds,
+  (s: GremlyState) => s.chapters,
+  (_todos, _habits, _notes, _dropWorldLinks, _worlds, _chapters): WorldsSummary =>
+    selectWorldsSummary(
+      {
+        todos: _todos,
+        habits: _habits,
+        notes: _notes,
+        dropWorldLinks: _dropWorldLinks,
+        worlds: _worlds,
+        chapters: _chapters,
+      } as GremlyState,
+      getDateService().now(),
+    ),
+);
 
 export type WeeklySummaryCardState =
   | { kind: 'new_unread'; summary: any /* WeeklySummary type already exists in types.ts */ }
-  | { kind: 'read_or_in_progress'; headline: string }
-  | { kind: 'never' };
+  | { kind: 'in_progress'; summary: WorldsSummary };
 
 export function selectWeeklySummaryCardState(
   state: GremlyState,
   now: Date = getDateService().now(),
 ): WeeklySummaryCardState {
-  const summaries = (state as unknown as { weeklySummaries?: any[] }).weeklySummaries ?? [];
-  if (summaries.length === 0) return { kind: 'never' };
+  const weeklySummaries = (state as unknown as { weeklySummaries?: any[] }).weeklySummaries ?? [];
 
-  const weekStart = startOfIsoWeek(now);
-  const weekStartIsoDate = weekStart.toISOString().slice(0, 10);
-
-  const currentWeek = summaries.find(
-    (s: any) => (s.week_start_date ?? '').slice(0, 10) === weekStartIsoDate,
-  );
-
-  if (currentWeek && !currentWeek.last_viewed_at) {
-    return { kind: 'new_unread', summary: currentWeek };
+  if (weeklySummaries.length > 0) {
+    const weekStart = startOfIsoWeek(now);
+    const weekStartIsoDate = weekStart.toISOString().slice(0, 10);
+    const currentWeek = weeklySummaries.find(
+      (s: any) => (s.week_start_date ?? '').slice(0, 10) === weekStartIsoDate,
+    );
+    if (currentWeek && !currentWeek.last_viewed_at) {
+      return { kind: 'new_unread', summary: currentWeek };
+    }
   }
 
-  return { kind: 'read_or_in_progress', headline: selectWeekInProgressHeadline(state, now) };
+  return { kind: 'in_progress', summary: _selectWorldsSummaryMemo(state) };
 }
 
 // ============================================================================
@@ -556,6 +658,179 @@ export const useWeeklySummaryCardState = () =>
 
 export const usePendingProposalCount = () => useGremlyStore(selectPendingProposalCount);
 export const useAllPeople = () => useGremlyStore(selectAllPeopleMemo);
+
+// ============================================================================
+// Upcoming dates per world
+// ============================================================================
+
+export function selectUpcomingDatesForWorld(
+  state: GremlyState,
+  worldId: string,
+  now: Date = getDateService().now(),
+): UpcomingDate[] {
+  const chapterRefs = state.chapters.filter((c) => c.primary_world_id === worldId);
+  const chapterLinkIds = new Set(
+    state.chapterWorldLinks
+      .filter((l) => l.world_id === worldId && l.relevance_score >= 0.5)
+      .map((l) => l.chapter_id),
+  );
+  const allChapters = [
+    ...chapterRefs,
+    ...state.chapters.filter((c) => chapterLinkIds.has(c.id) && c.primary_world_id !== worldId),
+  ];
+
+  const refs = selectWorldIdToDropRefs(state).get(worldId) ?? [];
+  const todoIds = new Set(refs.filter((r) => r.drop_type === 'todo').map((r) => r.drop_id));
+  const noteIds = new Set(refs.filter((r) => r.drop_type === 'note').map((r) => r.drop_id));
+  const todos = state.todos.filter((t) => todoIds.has(t.id));
+  const notes = state.notes.filter((n) => noteIds.has(n.id));
+
+  return buildUpcomingDatesForWorld(allChapters, todos, notes, now);
+}
+
+// Per-worldId memoized selector factory — stable reference when inputs unchanged.
+const _upcomingDatesSelectors = new Map<string, (s: GremlyState) => UpcomingDate[]>();
+function getUpcomingDatesSelector(worldId: string) {
+  if (!_upcomingDatesSelectors.has(worldId)) {
+    _upcomingDatesSelectors.set(
+      worldId,
+      createSelector(
+        (s: GremlyState) => selectWorldIdToDropRefs(s).get(worldId),
+        (s: GremlyState) => s.chapters,
+        (s: GremlyState) => s.chapterWorldLinks,
+        (s: GremlyState) => s.todos,
+        (s: GremlyState) => s.notes,
+        (refs, chapters, chapterWorldLinks, todos, notes) => {
+          const chapterRefs = chapters.filter((c) => c.primary_world_id === worldId);
+          const chapterLinkIds = new Set(
+            chapterWorldLinks
+              .filter((l) => l.world_id === worldId && l.relevance_score >= 0.5)
+              .map((l) => l.chapter_id),
+          );
+          const allChapters = [
+            ...chapterRefs,
+            ...chapters.filter((c) => chapterLinkIds.has(c.id) && c.primary_world_id !== worldId),
+          ];
+          const safeRefs = refs ?? [];
+          const todoIds = new Set(
+            safeRefs.filter((r) => r.drop_type === 'todo').map((r) => r.drop_id),
+          );
+          const noteIds = new Set(
+            safeRefs.filter((r) => r.drop_type === 'note').map((r) => r.drop_id),
+          );
+          return buildUpcomingDatesForWorld(
+            allChapters,
+            todos.filter((t) => todoIds.has(t.id)),
+            notes.filter((n) => noteIds.has(n.id)),
+            getDateService().now(),
+          );
+        },
+      ),
+    );
+  }
+  return _upcomingDatesSelectors.get(worldId)!;
+}
+
+export const useUpcomingDatesForWorld = (worldId: string) =>
+  useGremlyStore(useShallow(getUpcomingDatesSelector(worldId)));
+
+// ============================================================================
+// World narrative
+// ============================================================================
+
+/**
+ * Short 1–2 clause narrative synthesized from live state.
+ * Prefers concrete data (people, chapter, velocity direction) over silence.
+ * Returns null if not enough signal — hero then hides the quote slot entirely.
+ */
+export function selectWorldNarrative(
+  state: GremlyState,
+  worldId: string,
+  now: Date = getDateService().now(),
+): string | null {
+  const world = state.worlds.find((w) => w.id === worldId);
+  if (!world) return null;
+
+  const refs = selectWorldIdToDropRefs(state).get(worldId) ?? [];
+  const noteIds = new Set(refs.filter((r) => r.drop_type === 'note').map((r) => r.drop_id));
+  const worldNotes = state.notes.filter((n) => noteIds.has(n.id));
+
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const recentNotes = worldNotes.filter((n) => n.created_at >= thirtyDaysAgo);
+
+  // Top people in this world's notes over last 30 days
+  const peopleCounts = new Map<string, number>();
+  for (const n of recentNotes) {
+    const tags = Array.isArray(n.tags) ? n.tags : [];
+    for (const raw of tags) {
+      if (typeof raw !== 'string' || !raw.startsWith('@')) continue;
+      const name = titleCase(raw.slice(1).trim());
+      if (!name) continue;
+      peopleCounts.set(name, (peopleCounts.get(name) ?? 0) + 1);
+    }
+  }
+  const topPeople = [...peopleCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([name]) => name);
+
+  // Chapter arc — open chapter count + closed-this-quarter count
+  const worldChapters = selectWorldIdToChapters(state).get(worldId) ?? [];
+  const openCount = worldChapters.filter((c) => c.phase !== 'closed').length;
+  const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  const closedThisQuarter = worldChapters.filter(
+    (c) => c.phase === 'closed' && c.closed_at && c.closed_at >= ninetyDaysAgo,
+  ).length;
+
+  const clauses: string[] = [];
+
+  if (topPeople.length === 2) {
+    clauses.push(`Mostly ${topPeople[0]} and ${topPeople[1]}.`);
+  } else if (topPeople.length === 1) {
+    clauses.push(`Mostly about ${topPeople[0]}.`);
+  }
+
+  if (closedThisQuarter > 0 && openCount > 0) {
+    clauses.push(
+      `${closedThisQuarter} chapter${closedThisQuarter === 1 ? '' : 's'} closed this quarter, ${openCount} still open.`,
+    );
+  } else if (openCount > 0) {
+    clauses.push(`${openCount} open chapter${openCount === 1 ? '' : 's'}.`);
+  } else if (closedThisQuarter > 0) {
+    clauses.push(
+      `${closedThisQuarter} chapter${closedThisQuarter === 1 ? '' : 's'} closed this quarter.`,
+    );
+  }
+
+  if (world.signal_velocity_delta === 'growing') {
+    clauses.push('Trending up.');
+  } else if (world.signal_velocity_delta === 'declining') {
+    clauses.push('Cooling a bit.');
+  }
+
+  if (clauses.length === 0) return null;
+  return clauses.join(' ');
+}
+
+export const useWorldNarrative = (worldId: string) =>
+  useGremlyStore((s) => selectWorldNarrative(s, worldId));
+
+// ============================================================================
+// Most recent closed chapter per world
+// ============================================================================
+
+export function selectMostRecentClosedChapterForWorld(
+  state: GremlyState,
+  worldId: string,
+): Chapter | null {
+  const candidates = (selectWorldIdToChapters(state).get(worldId) ?? [])
+    .filter((c) => c.phase === 'closed')
+    .sort((a, b) => (b.closed_at ?? '').localeCompare(a.closed_at ?? ''));
+  return candidates[0] ?? null;
+}
+
+export const useMostRecentClosedChapterForWorld = (worldId: string) =>
+  useGremlyStore((s) => selectMostRecentClosedChapterForWorld(s, worldId));
 
 export function selectCurrentChapterForWorld(state: GremlyState, worldId: string): Chapter | null {
   const candidates = state.chapters.filter(
