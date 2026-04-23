@@ -5455,6 +5455,16 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) return;
 
+          // Kick off Worlds graph refresh in parallel with the main sync.
+          // Isolated failure — main sync path is unaffected if the Worlds fetch fails.
+          // This covers both initialize fast-paths which delegate to refreshFromServer
+          // for returning users with persisted data (Worlds arrays are not in partialize).
+          const worldsGraphPromise = get()
+            .refreshWorldsGraph()
+            .catch((err) => {
+              console.warn('[GremlyStore] refreshFromServer — refreshWorldsGraph failed:', err);
+            });
+
           // Background sync — never set isLoading since user already has cached data.
           // Loading indicators should only show during cold init (no cached data).
 
@@ -5705,6 +5715,10 @@ export const useGremlyStore = create<GremlyState>()(
 
             // Refresh ritual progress including gauge state (Soul Document v8)
             get().refreshRitualProgress();
+
+            // Ensure Worlds graph refresh has settled before returning.
+            // Failures are already swallowed by the .catch() above, so this is safe to await.
+            await worldsGraphPromise;
           } catch (error) {
             console.error('[GremlyStore] refreshFromServer failed:', error);
             // No isLoading to reset — background sync never sets it
