@@ -24,15 +24,12 @@ export function WorldCard({ world, onPress }: WorldCardProps) {
       testID={`world-card-${world.id}`}
     >
       <View>
-        <View style={styles.hdr}>
-          <View style={[styles.dot, { backgroundColor: palette.dot }]} />
-        </View>
         <Text style={styles.name} numberOfLines={2}>
           {name}
         </Text>
       </View>
       {subtitle ? (
-        <Text style={styles.sub} numberOfLines={2}>
+        <Text style={styles.sub} numberOfLines={3}>
           {subtitle}
         </Text>
       ) : null}
@@ -70,11 +67,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 13,
     height: 140,
-    justifyContent: 'space-between',
     overflow: 'hidden',
   },
-  hdr: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 2 },
-  dot: { width: 9, height: 9, borderRadius: 4.5 },
   name: {
     fontFamily: 'PlusJakartaSans-Bold',
     fontSize: 15,

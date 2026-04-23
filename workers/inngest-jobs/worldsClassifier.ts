@@ -381,11 +381,13 @@ This is not a post-generation validation step. It is a filter you apply while ge
 
 Confidence. Every candidate and proposal gets a confidence between 0 and 1. Think of 0.5 as the minimum emission threshold for non-evolution outputs, 0.7 as the downstream weekly-update surfacing threshold and the minimum for evolution, 0.9 as very strong. Do not inflate confidence to surface weak candidates.
 
-Authored content for new World candidates. For each new_world_candidate you emit, you must also author the following fields. display_name is a short human-friendly label, at most 3 words and at most 20 characters, derived from proposed_name. Never contains ampersands, the word "and", or any other conjunction. Use sentence case. Omit articles ("the", "a") and possessives ("my", "your") unless essential. One word is preferred when it reads naturally. card_subtitle is a single clause, maximum 60 characters, that captures the defining quality or current momentum of this World. Write it as a present-tense or present-continuous phrase. summary is a paragraph, maximum 280 characters, describing the World's identity, its arc inside the current window, and what the user has been building or expressing within it. Write in second person. key_priorities is an array of up to 5 items ordered by importance, each with rank (integer 1 to 5), text (maximum 100 characters), kind (one of: action, date, blocker, momentum, decision), optional entity_ref string, optional due_date ISO date string, and confidence (number between 0 and 1).
+Style rules for all authored text fields. These apply to display_name, card_subtitle, summary, target_summary, key_priorities.text, worlds_summary.headline, worlds_summary.body, and worlds_summary.featured.reason. Never use em dashes or en dashes. Never use double hyphens as a substitute. Use periods, commas, semicolons, or parenthetical phrases instead. Never use ampersands except where they appear inside a literal proper noun like "R&D" or "AT&T". Write plainly, in second person where natural, without rhetorical flourish. Prefer concrete nouns and verbs over abstract summary language. Do not hedge with words like "perhaps", "somewhat", or "seems".
 
-Authored content for new Chapter candidates. For each new_chapter_candidate you emit, you must also author the following fields. target_summary is a clause, maximum 120 characters, describing what this chapter is working toward, or null for season-type chapters without a defined target. card_subtitle is a single clause, maximum 60 characters, naming the arc's central tension or goal in present tense. summary is a paragraph, maximum 280 characters, describing the chapter's arc, its current moment, and what completing or progressing it means for the user. Write in second person. key_priorities follows the same structure as World key_priorities. phase_labels is an ordered list of 3 to 5 short phase name strings describing the arc's stages, labelled from the arc's current vantage point. current_phase_key is the string from phase_labels that best describes where this chapter sits right now.
+Authored content for new World candidates. For each new_world_candidate you emit, you must also author the following fields. display_name is a short human-friendly label, at most 3 words and at most 20 characters, derived from proposed_name. Never contains ampersands, the word "and", or any other conjunction. Use sentence case. Omit articles ("the", "a") and possessives ("my", "your") unless essential. One word is preferred when it reads naturally. card_subtitle is a single clause, maximum 60 characters, that captures the defining quality or current momentum of this World. Write it as a present-tense or present-continuous phrase. summary is 2 to 3 short sentences, maximum 180 characters total, describing the World's identity, its arc inside the current window, and what the user has been building or expressing within it. Write in second person. key_priorities is an array of up to 5 items ordered by importance, each with rank (integer 1 to 5), text (maximum 100 characters), kind (one of: action, date, blocker, momentum, decision), optional entity_ref string, optional due_date ISO date string, and confidence (number between 0 and 1).
 
-Cross-world summary. You must include a worlds_summary block at the top level of your output. worlds_summary is a short synthesis of the user's full graph as it stands at the end of this window. headline is a single sentence, maximum 80 characters, capturing the dominant theme or shift across all active Worlds. body is a short paragraph, maximum 280 characters, elaborating on the user's current moment across their life, written in second person. featured is a list of 2 to 3 objects, each with world_id (the id of an existing active World, or the proposed_name for a new candidate) and reason (maximum 60 characters) explaining why this World is notable this window.
+Authored content for new Chapter candidates. For each new_chapter_candidate you emit, you must also author the following fields. target_summary is a single clause, maximum 90 characters, describing what this chapter is working toward, or null for season-type chapters without a defined target. card_subtitle is a single clause, maximum 60 characters, naming the arc's central tension or goal in present tense. summary is 2 to 3 short sentences, maximum 180 characters total, describing the chapter's arc, its current moment, and what completing or progressing it means for the user. Write in second person. key_priorities follows the same structure as World key_priorities. phase_labels is an ordered list of 3 to 5 short phase name strings describing the arc's stages, labelled from the arc's current vantage point. current_phase_key is the string from phase_labels that best describes where this chapter sits right now.
+
+Cross-world summary. You must include a worlds_summary block at the top level of your output. worlds_summary is a short synthesis of the user's full graph as it stands at the end of this window. headline is a single sentence, maximum 80 characters, capturing the dominant theme or shift across all active Worlds. body is 2 to 3 short sentences, maximum 180 characters total, elaborating on the user's current moment across their life, written in second person. featured is a list of 2 to 3 objects, each with world_id (the id of an existing active World, or the proposed_name for a new candidate) and reason (maximum 60 characters) explaining why this World is notable this window.
 
 Refreshing existing entities. You are not only authoring new entities. On every run you refresh authored content for every existing active World and every existing active Chapter. Refresh is unconditional, not gated on signal shift. For every velocity_update entry you emit, you must also include new_display_name, new_card_subtitle, new_summary, and new_key_priorities. new_display_name must follow the same rules as display_name on new_world_candidates: at most 3 words, at most 20 characters, sentence case, no ampersands, no "and" or other conjunctions, no articles or possessives unless essential, one word preferred. For every chapter_update entry you emit, you must also include new_card_subtitle, new_summary, new_key_priorities, new_target_summary, new_phase_labels, and new_current_phase_key. new_target_summary follows the same rules as target_summary on new_chapter_candidates. new_phase_labels is an ordered list of 3 to 5 short phase name strings describing the arc's stages from the arc's current vantage point. new_current_phase_key is the string from new_phase_labels that best describes where this chapter sits right now. For season-type chapters without a defined target, new_target_summary may be null, but new_phase_labels and new_current_phase_key are still required. When refreshing existing entities, check the source fields before writing. If an entity's summary_source equals user, do not author a new_summary, new_key_priorities, new_display_name, new_target_summary, new_phase_labels, or new_current_phase_key for it (leave them null). If its card_subtitle_source equals user, do not author a new_card_subtitle for it (leave it null). User-sourced fields are never overwritten.
 
@@ -452,7 +454,7 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
         required: ['headline', 'body', 'featured'],
         properties: {
           headline: { type: 'string', maxLength: 80 },
-          body: { type: 'string', maxLength: 280 },
+          body: { type: 'string', maxLength: 220 },
           featured: {
             type: 'array',
             minItems: 2,
@@ -494,7 +496,7 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
             display_name: { type: 'string', maxLength: 20 },
             description: { type: 'string' },
             card_subtitle: { type: 'string', maxLength: 60 },
-            summary: { type: 'string', maxLength: 280 },
+            summary: { type: 'string', maxLength: 220 },
             key_priorities: { type: 'array', maxItems: 5, items: KEY_PRIORITY_SCHEMA },
             archetypes: { type: 'array', minItems: 1, items: ARCHETYPE_WEIGHT_SCHEMA },
             confidence: { type: 'number', minimum: 0, maximum: 1 },
@@ -543,9 +545,9 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
             start_date: { type: ['string', 'null'] },
             end_date: { type: ['string', 'null'] },
             target_description: { type: ['string', 'null'] },
-            target_summary: { type: ['string', 'null'], maxLength: 120 },
+            target_summary: { type: ['string', 'null'], maxLength: 110 },
             card_subtitle: { type: 'string', maxLength: 60 },
-            summary: { type: 'string', maxLength: 280 },
+            summary: { type: 'string', maxLength: 220 },
             key_priorities: { type: 'array', maxItems: 5, items: KEY_PRIORITY_SCHEMA },
             phase_labels: { type: 'array', minItems: 3, maxItems: 5, items: { type: 'string' } },
             current_phase_key: { type: 'string' },
@@ -566,7 +568,7 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
             new_end_date: { type: ['string', 'null'] },
             new_description: { type: ['string', 'null'] },
             new_target_description: { type: ['string', 'null'] },
-            new_target_summary: { type: ['string', 'null'], maxLength: 120 },
+            new_target_summary: { type: ['string', 'null'], maxLength: 110 },
             new_phase_labels: {
               oneOf: [
                 { type: 'array', minItems: 3, maxItems: 5, items: { type: 'string' } },
@@ -575,7 +577,7 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
             },
             new_current_phase_key: { type: ['string', 'null'] },
             new_card_subtitle: { type: ['string', 'null'], maxLength: 60 },
-            new_summary: { type: ['string', 'null'] },
+            new_summary: { type: ['string', 'null'], maxLength: 220 },
             new_key_priorities: {
               oneOf: [{ type: 'array', maxItems: 5, items: KEY_PRIORITY_SCHEMA }, { type: 'null' }],
             },
@@ -629,7 +631,7 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
             rationale: { type: 'string' },
             new_display_name: { type: ['string', 'null'], maxLength: 20 },
             new_card_subtitle: { type: ['string', 'null'], maxLength: 60 },
-            new_summary: { type: ['string', 'null'] },
+            new_summary: { type: ['string', 'null'], maxLength: 220 },
             new_key_priorities: {
               oneOf: [{ type: 'array', maxItems: 5, items: KEY_PRIORITY_SCHEMA }, { type: 'null' }],
             },

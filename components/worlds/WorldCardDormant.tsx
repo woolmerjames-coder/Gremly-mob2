@@ -23,7 +23,7 @@ export function WorldCardDormant({ world, onPress }: WorldCardDormantProps) {
         {name}
       </Text>
       {subtitle ? (
-        <Text style={styles.sub} numberOfLines={2}>
+        <Text style={styles.sub} numberOfLines={3}>
           {subtitle}
         </Text>
       ) : null}
@@ -60,6 +60,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 15,
     color: lightTokens.colors.doneTextMuted,
-    marginTop: 4,
+    marginTop: 6,
   },
 });
