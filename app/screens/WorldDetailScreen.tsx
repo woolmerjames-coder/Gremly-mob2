@@ -6,10 +6,12 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { ChevronLeft } from 'lucide-react-native';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
-import { useWorldById } from '../../lib/store/worldsSelectors';
+import { useWorldById, useCurrentChapterForWorld } from '../../lib/store/worldsSelectors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { WorldDetailHeader } from '../../components/worlds/WorldDetailHeader';
 import { WorldHero } from '../../components/worlds/WorldHero';
+import { CurrentChapterBigCard } from '../../components/worlds/CurrentChapterBigCard';
+import { NoCurrentChapterCard } from '../../components/worlds/NoCurrentChapterCard';
 
 type RouteT = RouteProp<RootStackParamList, 'WorldDetail'>;
 type NavT = NativeStackNavigationProp<RootStackParamList, 'WorldDetail'>;
@@ -18,6 +20,7 @@ export default function WorldDetailScreen() {
   const route = useRoute<RouteT>();
   const nav = useNavigation<NavT>();
   const world = useWorldById(route.params.worldId);
+  const currentChapter = useCurrentChapterForWorld(route.params.worldId);
 
   if (!world) {
     return (
@@ -43,7 +46,16 @@ export default function WorldDetailScreen() {
       />
       <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
         <WorldHero world={world} />
-        <Text style={styles.placeholder}>World detail assembles in batches 2 through 4.</Text>
+        {currentChapter ? (
+          <CurrentChapterBigCard
+            chapter={currentChapter}
+            worldId={world.id}
+            onPress={(chapterId) => nav.navigate('ChapterDetail', { chapterId })}
+          />
+        ) : (
+          <NoCurrentChapterCard worldId={world.id} />
+        )}
+        <Text style={styles.placeholder}>World detail assembles in batches 3 through 4.</Text>
       </ScrollView>
     </SafeAreaView>
   );

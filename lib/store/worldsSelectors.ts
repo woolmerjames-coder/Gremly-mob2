@@ -11,7 +11,7 @@ import { useGremlyStore } from './useGremlyStore';
 import { getDateService } from '../date/DateService';
 import { lightTokens } from '../../design/tokens';
 import type { GremlyState } from './useGremlyStore';
-import type { Chapter, DropType, AssignedBy } from '../supabase/types';
+import type { Chapter, ChapterType, DropType, AssignedBy } from '../supabase/types';
 import type { Todo, Habit, Note } from '../types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -507,6 +507,28 @@ export const useWeeklySummaryCardState = () =>
 
 export const usePendingProposalCount = () => useGremlyStore(selectPendingProposalCount);
 export const useAllPeople = () => useGremlyStore((s) => selectAllPeopleForUser(s));
+
+export function selectCurrentChapterForWorld(state: GremlyState, worldId: string): Chapter | null {
+  const candidates = state.chapters.filter(
+    (c) => c.primary_world_id === worldId && c.phase !== 'closed',
+  );
+  if (candidates.length === 0) return null;
+  const priority: Record<ChapterType, number> = {
+    milestone: 0,
+    bounded: 1,
+    season: 2,
+  };
+  candidates.sort((a, b) => {
+    const pa = priority[a.chapter_type] ?? 99;
+    const pb = priority[b.chapter_type] ?? 99;
+    if (pa !== pb) return pa - pb;
+    return (b.start_date ?? '').localeCompare(a.start_date ?? '');
+  });
+  return candidates[0];
+}
+
+export const useCurrentChapterForWorld = (worldId: string): Chapter | null =>
+  useGremlyStore((s) => selectCurrentChapterForWorld(s, worldId));
 
 // ============================================================================
 // Composite drop hooks
