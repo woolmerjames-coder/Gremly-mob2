@@ -326,6 +326,10 @@ export async function writeClassifierOutput(
     if (update.new_target_description != null) {
       patch.target_description = update.new_target_description;
     }
+    if (update.new_target_summary != null) patch.target_summary = update.new_target_summary;
+    if (update.new_phase_labels != null) patch.phase_labels = update.new_phase_labels;
+    if (update.new_current_phase_key != null)
+      patch.current_phase_key = update.new_current_phase_key;
     if (update.close_chapter) {
       patch.phase = 'closed';
       patch.closed_at = now();
@@ -371,6 +375,9 @@ export async function writeClassifierOutput(
       patch.phase = 'dormant';
     }
     const worldProt = worldSourceProtection.get(vu.world_id);
+    if (vu.new_display_name != null && !worldProt?.noSummary) {
+      patch.display_name = vu.new_display_name;
+    }
     if (vu.new_card_subtitle != null && !worldProt?.noCardSubtitle) {
       patch.card_subtitle = vu.new_card_subtitle;
       patch.card_subtitle_source = 'classifier';

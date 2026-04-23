@@ -215,6 +215,9 @@ export interface ChapterUpdate {
   new_end_date: string | null;
   new_description: string | null;
   new_target_description: string | null;
+  new_target_summary: string | null;
+  new_phase_labels: string[] | null;
+  new_current_phase_key: string | null;
   new_card_subtitle: string | null;
   new_summary: string | null;
   new_key_priorities: KeyPriority[] | null;
@@ -248,6 +251,7 @@ export interface VelocityUpdate {
   drops_prior_4_weeks: number;
   recommend_dormant: boolean;
   rationale: string;
+  new_display_name: string | null;
   new_card_subtitle: string | null;
   new_summary: string | null;
   new_key_priorities: KeyPriority[] | null;
@@ -377,7 +381,7 @@ This is not a post-generation validation step. It is a filter you apply while ge
 
 Confidence. Every candidate and proposal gets a confidence between 0 and 1. Think of 0.5 as the minimum emission threshold for non-evolution outputs, 0.7 as the downstream weekly-update surfacing threshold and the minimum for evolution, 0.9 as very strong. Do not inflate confidence to surface weak candidates.
 
-Authored content for new World candidates. For each new_world_candidate you emit, you must also author the following fields. display_name is a short human-friendly label, maximum 32 characters, derived from the proposed_name. Use sentence case. Omit filler words such as "my", "the", or gerunds unless they are essential to meaning. card_subtitle is a single clause, maximum 60 characters, that captures the defining quality or current momentum of this World. Write it as a present-tense or present-continuous phrase. summary is a paragraph, maximum 280 characters, describing the World's identity, its arc inside the current window, and what the user has been building or expressing within it. Write in second person. key_priorities is an array of up to 5 items ordered by importance, each with rank (integer 1 to 5), text (maximum 100 characters), kind (one of: action, date, blocker, momentum, decision), optional entity_ref string, optional due_date ISO date string, and confidence (number between 0 and 1).
+Authored content for new World candidates. For each new_world_candidate you emit, you must also author the following fields. display_name is a short human-friendly label, at most 3 words and at most 20 characters, derived from proposed_name. Never contains ampersands, the word "and", or any other conjunction. Use sentence case. Omit articles ("the", "a") and possessives ("my", "your") unless essential. One word is preferred when it reads naturally. card_subtitle is a single clause, maximum 60 characters, that captures the defining quality or current momentum of this World. Write it as a present-tense or present-continuous phrase. summary is a paragraph, maximum 280 characters, describing the World's identity, its arc inside the current window, and what the user has been building or expressing within it. Write in second person. key_priorities is an array of up to 5 items ordered by importance, each with rank (integer 1 to 5), text (maximum 100 characters), kind (one of: action, date, blocker, momentum, decision), optional entity_ref string, optional due_date ISO date string, and confidence (number between 0 and 1).
 
 Authored content for new Chapter candidates. For each new_chapter_candidate you emit, you must also author the following fields. target_summary is a clause, maximum 120 characters, describing what this chapter is working toward, or null for season-type chapters without a defined target. card_subtitle is a single clause, maximum 60 characters, naming the arc's central tension or goal in present tense. summary is a paragraph, maximum 280 characters, describing the chapter's arc, its current moment, and what completing or progressing it means for the user. Write in second person. key_priorities follows the same structure as World key_priorities. phase_labels is an ordered list of 3 to 5 short phase name strings describing the arc's stages, labelled from the arc's current vantage point. current_phase_key is the string from phase_labels that best describes where this chapter sits right now.
 
@@ -487,7 +491,7 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
           ],
           properties: {
             proposed_name: { type: 'string' },
-            display_name: { type: 'string', maxLength: 32 },
+            display_name: { type: 'string', maxLength: 20 },
             description: { type: 'string' },
             card_subtitle: { type: 'string', maxLength: 60 },
             summary: { type: 'string', maxLength: 280 },
@@ -562,7 +566,15 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
             new_end_date: { type: ['string', 'null'] },
             new_description: { type: ['string', 'null'] },
             new_target_description: { type: ['string', 'null'] },
-            new_card_subtitle: { type: ['string', 'null'] },
+            new_target_summary: { type: ['string', 'null'], maxLength: 120 },
+            new_phase_labels: {
+              oneOf: [
+                { type: 'array', minItems: 3, maxItems: 5, items: { type: 'string' } },
+                { type: 'null' },
+              ],
+            },
+            new_current_phase_key: { type: ['string', 'null'] },
+            new_card_subtitle: { type: ['string', 'null'], maxLength: 60 },
             new_summary: { type: ['string', 'null'] },
             new_key_priorities: {
               oneOf: [{ type: 'array', maxItems: 5, items: KEY_PRIORITY_SCHEMA }, { type: 'null' }],
@@ -615,7 +627,8 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
             drops_prior_4_weeks: { type: 'integer', minimum: 0 },
             recommend_dormant: { type: 'boolean' },
             rationale: { type: 'string' },
-            new_card_subtitle: { type: ['string', 'null'] },
+            new_display_name: { type: ['string', 'null'], maxLength: 20 },
+            new_card_subtitle: { type: ['string', 'null'], maxLength: 60 },
             new_summary: { type: ['string', 'null'] },
             new_key_priorities: {
               oneOf: [{ type: 'array', maxItems: 5, items: KEY_PRIORITY_SCHEMA }, { type: 'null' }],
