@@ -3,7 +3,7 @@
  *
  * Trigger: app/drops.assignment-backfill
  * Required event data: { user_id: string }
- * Optional event data: { batch_size?: number }  -- default 30
+ * Optional event data: { batch_size?: number }  -- default 20
  *
  * Classifies every existing drop for a single user against their current
  * Worlds/Chapters/Life Contexts graph, using batched gpt-4.1-mini calls, and
@@ -24,6 +24,9 @@ import { createClient } from '@supabase/supabase-js';
 // -- gpt-4.1-mini pricing constants ------------------------------------------
 const COST_PER_M_INPUT_USD = 0.4; // USD per million input tokens
 const COST_PER_M_OUTPUT_USD = 1.6; // USD per million output tokens
+
+const DEFAULT_BATCH_SIZE = 20;
+const MAX_OUTPUT_TOKENS = 8000;
 
 function estimateCost(inputTokens: number, outputTokens: number): number {
   return (
@@ -217,7 +220,7 @@ export function createDropAssignmentBackfill(inngest: Inngest<{ id: 'gremly' }>)
       const userId: string = event.data?.user_id;
       if (!userId) throw new Error('user_id is required in event.data');
 
-      const batchSize: number = event.data?.batch_size ?? 30;
+      const batchSize: number = event.data?.batch_size ?? DEFAULT_BATCH_SIZE;
 
       // ── Step 1: capture backfill start timestamp ─────────────────
       const backfillStart: string = await step.run('resolve-start', async () => {
@@ -377,7 +380,7 @@ export function createDropAssignmentBackfill(inngest: Inngest<{ id: 'gremly' }>)
               body: JSON.stringify({
                 model: 'gpt-4.1-mini',
                 temperature: 0.1,
-                max_tokens: 4000,
+                max_tokens: MAX_OUTPUT_TOKENS,
                 response_format: { type: 'json_object' },
                 messages: [
                   { role: 'system', content: SYSTEM_PROMPT },
@@ -395,6 +398,15 @@ export function createDropAssignmentBackfill(inngest: Inngest<{ id: 'gremly' }>)
             const inputTokens: number = completion.usage?.prompt_tokens ?? 0;
             const outputTokens: number = completion.usage?.completion_tokens ?? 0;
             const rawContent: string = completion.choices?.[0]?.message?.content ?? '';
+            const finishReason: string = completion.choices?.[0]?.finish_reason ?? 'unknown';
+
+            if (finishReason !== 'stop') {
+              throw new Error(
+                `batch_output_truncated: batch ${i + 1} returned finish_reason=${finishReason} ` +
+                  `(expected 'stop'); batch_size=${batch.length}, max_tokens=${MAX_OUTPUT_TOKENS}. ` +
+                  `Reduce batch_size in the event payload or raise max_tokens.`,
+              );
+            }
 
             let parsed: ClassifierResponse;
             try {
