@@ -14,6 +14,7 @@ import { CurrentChapterBigCard } from '../../components/worlds/CurrentChapterBig
 import { NoCurrentChapterCard } from '../../components/worlds/NoCurrentChapterCard';
 import { GremlyNoticedSlot } from '../../components/worlds/GremlyNoticedSlot';
 import { WorldActionButtons } from '../../components/worlds/WorldActionButtons';
+import { ModuleRenderer } from '../../components/worlds/modules/ModuleRenderer';
 
 type RouteT = RouteProp<RootStackParamList, 'WorldDetail'>;
 type NavT = NativeStackNavigationProp<RootStackParamList, 'WorldDetail'>;
@@ -55,6 +56,7 @@ export default function WorldDetailScreen() {
         ) : (
           <NoCurrentChapterCard worldId={world.id} />
         )}
+        <ModuleRenderer world={world} />
         <GremlyNoticedSlot worldId={world.id} />
         <View style={{ height: 60 }} />
       </ScrollView>
