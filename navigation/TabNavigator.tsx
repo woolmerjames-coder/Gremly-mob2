@@ -7,6 +7,7 @@ import WorldsScreen from '../app/tabs/WorldsScreen';
 import CatchAllNotepad from '../app/screens/CatchAllNotepad';
 import AskGremlyScreen from '../app/tabs/AskGremlyScreen';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
+import { lightTokens } from '../design/tokens';
 
 // Tab bar icon images (v1.20 brand refresh)
 import TODAY_ICON from '../assets/todayicon1.22.png';
@@ -27,11 +28,6 @@ export type TabParamList = {
 
 const Tab = createBottomTabNavigator<TabParamList>();
 
-// Brand colors
-const MOSS_GREEN = '#2E5540';
-const LINEN_CREAM = '#F9F6F1';
-const LINEN_GRAY = '#E3E0D9';
-
 /**
  * TabNavigator - Main bottom tab navigation
  *
@@ -51,8 +47,8 @@ export default function TabNavigator() {
       initialRouteName="MindDrop"
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: MOSS_GREEN,
-        tabBarInactiveTintColor: MOSS_GREEN,
+        tabBarActiveTintColor: lightTokens.colors.moss,
+        tabBarInactiveTintColor: lightTokens.colors.moss,
         tabBarStyle: {
           height: 72,
           paddingTop: 6,
@@ -62,8 +58,8 @@ export default function TabNavigator() {
           right: 0,
           bottom: 0,
           borderTopWidth: StyleSheet.hairlineWidth,
-          borderTopColor: LINEN_GRAY,
-          backgroundColor: LINEN_CREAM,
+          borderTopColor: lightTokens.colors.border,
+          backgroundColor: lightTokens.colors.linenCream,
         },
         tabBarLabelStyle: {
           fontSize: 11,

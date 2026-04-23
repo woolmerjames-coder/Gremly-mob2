@@ -28,7 +28,7 @@ export default function ChapterDetailScreen() {
       <SafeAreaView style={styles.container} edges={['top']}>
         <View style={styles.hdr}>
           <Pressable onPress={() => nav.goBack()} style={styles.iconBtn}>
-            <ChevronLeft size={22} color={lightTokens.colors.deepForest} />
+            <ChevronLeft size={22} color={lightTokens.colors.worldsInk} />
           </Pressable>
         </View>
         <View style={styles.empty}>
@@ -42,7 +42,7 @@ export default function ChapterDetailScreen() {
     <SafeAreaView style={styles.container} edges={['top']} testID={`chapter-detail-${chapter.id}`}>
       <View style={styles.hdr}>
         <Pressable onPress={() => nav.goBack()} style={styles.iconBtn} testID="chapter-detail-back">
-          <ChevronLeft size={22} color={lightTokens.colors.deepForest} />
+          <ChevronLeft size={22} color={lightTokens.colors.worldsInk} />
         </Pressable>
         <View style={styles.titleWrap}>
           <View style={styles.titleInner}>
@@ -61,7 +61,7 @@ export default function ChapterDetailScreen() {
           style={styles.iconBtn}
           testID="chapter-detail-menu"
         >
-          <MoreHorizontal size={20} color={lightTokens.colors.deepForest} />
+          <MoreHorizontal size={20} color={lightTokens.colors.worldsInk} />
         </Pressable>
       </View>
       <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
@@ -79,7 +79,7 @@ export default function ChapterDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: lightTokens.colors.oatDeep },
+  container: { flex: 1, backgroundColor: lightTokens.colors.worldsSurface },
   hdr: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -101,7 +101,7 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     letterSpacing: -0.3,
-    color: lightTokens.colors.deepForest,
+    color: lightTokens.colors.worldsInk,
     maxWidth: 240,
   },
   underline: {

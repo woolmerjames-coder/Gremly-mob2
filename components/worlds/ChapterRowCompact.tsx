@@ -45,7 +45,7 @@ export function ChapterRowCompact({ chapter, onPress }: ChapterRowCompactProps) 
             key={i}
             style={[
               styles.phaseSeg,
-              { backgroundColor: active ? palette.dot : lightTokens.colors.oatDeeper },
+              { backgroundColor: active ? palette.dot : lightTokens.colors.worldsCardBorder },
             ]}
           />
         ))}
@@ -97,9 +97,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingLeft: 16,
     paddingRight: 14,
-    backgroundColor: 'rgba(250,244,222,0.85)',
+    backgroundColor: lightTokens.colors.oatCard,
     borderWidth: 1,
-    borderColor: 'rgba(26,58,40,0.06)',
+    borderColor: lightTokens.colors.oatCardBorder,
     borderRadius: 13,
     position: 'relative',
     overflow: 'hidden',
@@ -112,7 +112,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     letterSpacing: -0.1,
-    color: lightTokens.colors.deepForest,
+    color: lightTokens.colors.worldsInk,
   },
   sub: {
     fontFamily: 'Inter-Regular',
@@ -125,7 +125,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Medium',
     fontSize: 15,
     fontWeight: '700',
-    color: lightTokens.colors.deepForest,
+    color: lightTokens.colors.worldsInk,
   },
   dateRem: {
     fontFamily: 'Inter-Regular',

@@ -45,6 +45,6 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Medium',
     fontSize: 11,
     fontWeight: '600',
-    color: lightTokens.colors.deepForest,
+    color: lightTokens.colors.worldsInk,
   },
 });

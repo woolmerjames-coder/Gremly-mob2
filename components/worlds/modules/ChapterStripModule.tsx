@@ -51,7 +51,7 @@ function ChapterChip({ chapter, accent, onPress }: ChapterChipProps) {
       <View
         style={[
           styles.chipBar,
-          { backgroundColor: isOpen ? accent : lightTokens.colors.oatDeeper },
+          { backgroundColor: isOpen ? accent : lightTokens.colors.worldsCardBorder },
         ]}
       />
       <View style={styles.chipBody}>
@@ -69,9 +69,9 @@ const styles = StyleSheet.create({
   strip: { paddingHorizontal: 16, gap: 8 },
   chip: {
     width: 180,
-    backgroundColor: 'rgba(250,244,222,0.85)',
+    backgroundColor: lightTokens.colors.oatCard,
     borderWidth: 1,
-    borderColor: 'rgba(26,58,40,0.05)',
+    borderColor: lightTokens.colors.oatCardBorder,
     borderRadius: 13,
     overflow: 'hidden',
     position: 'relative',
@@ -91,7 +91,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     letterSpacing: -0.1,
-    color: lightTokens.colors.deepForest,
+    color: lightTokens.colors.worldsInk,
     lineHeight: 16,
   },
   chipMeta: {

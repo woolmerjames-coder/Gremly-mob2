@@ -64,7 +64,7 @@ export default function WorldMenuSheet({ sheetId, payload }: WorldMenuSheetProps
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: lightTokens.colors.oatLight,
+    backgroundColor: lightTokens.colors.oatCard,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingTop: 12,
@@ -75,7 +75,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: 'rgba(15,47,32,0.18)',
+    backgroundColor: lightTokens.colors.worldsInkOutline,
     marginBottom: 14,
   },
   menu: { paddingHorizontal: 8 },
@@ -84,12 +84,12 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Medium',
     fontSize: 15,
     fontWeight: '500',
-    color: lightTokens.colors.deepForest,
+    color: lightTokens.colors.worldsInk,
   },
-  itemDanger: { color: '#C8533C' },
+  itemDanger: { color: lightTokens.colors.danger },
   divider: {
     height: 1,
-    backgroundColor: 'rgba(15,47,32,0.08)',
+    backgroundColor: lightTokens.colors.oatCardBorder,
     marginVertical: 6,
     marginHorizontal: 14,
   },

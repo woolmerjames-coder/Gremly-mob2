@@ -59,7 +59,7 @@ export function CurrentChapterBigCard({ chapter, worldId, onPress }: CurrentChap
                 key={i}
                 style={[
                   styles.phaseSeg,
-                  { backgroundColor: active ? palette.dot : lightTokens.colors.oatDeeper },
+                  { backgroundColor: active ? palette.dot : lightTokens.colors.worldsCardBorder },
                 ]}
               />
             ))}
@@ -79,9 +79,9 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginTop: 12,
     marginBottom: 4,
-    backgroundColor: lightTokens.colors.oatLight,
+    backgroundColor: lightTokens.colors.oatCard,
     borderWidth: 1,
-    borderColor: lightTokens.colors.oatDeeper,
+    borderColor: lightTokens.colors.worldsCardBorder,
     borderRadius: 14,
     flexDirection: 'row',
     overflow: 'hidden',
@@ -106,7 +106,7 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '600',
     letterSpacing: -0.2,
-    color: lightTokens.colors.deepForest,
+    color: lightTokens.colors.worldsInk,
     marginBottom: 4,
   },
   summary: {

@@ -116,7 +116,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: -0.1,
-    color: lightTokens.colors.deepForest,
+    color: lightTokens.colors.worldsInk,
   },
   body: {
     fontFamily: 'Inter-Regular',
@@ -129,10 +129,10 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginBottom: 6,
     padding: 13,
-    backgroundColor: 'rgba(162,153,201,0.05)',
+    backgroundColor: lightTokens.colors.noticedSurfaceFaint,
     borderWidth: 1,
     borderStyle: 'dashed',
-    borderColor: 'rgba(162,153,201,0.25)',
+    borderColor: lightTokens.colors.noticedEdgeSoft,
     borderRadius: 12,
   },
   emptyLabel: {

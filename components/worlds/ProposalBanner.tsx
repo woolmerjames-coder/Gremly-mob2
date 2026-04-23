@@ -26,10 +26,10 @@ const styles = StyleSheet.create({
     marginTop: 10,
     paddingVertical: 10,
     paddingHorizontal: 14,
-    backgroundColor: 'rgba(162,153,201,0.1)',
+    backgroundColor: lightTokens.colors.noticedSurfaceSoft,
     borderWidth: 1,
     borderStyle: 'dashed',
-    borderColor: 'rgba(162,153,201,0.35)',
+    borderColor: lightTokens.colors.noticedEdgeStrong,
     borderRadius: 12,
   },
   tag: {

@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet } from 'react-native';
 import { format } from 'date-fns';
+import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
 import type { Chapter } from '../../lib/supabase/types';
 
@@ -35,9 +36,9 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 10,
     paddingHorizontal: 12,
-    backgroundColor: 'rgba(250,244,222,0.5)',
+    backgroundColor: lightTokens.colors.oatCard,
     borderWidth: 1,
-    borderColor: 'rgba(26,58,40,0.04)',
+    borderColor: lightTokens.colors.oatCardBorder,
     borderRadius: 12,
   },
   name: {
@@ -45,12 +46,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     letterSpacing: -0.1,
-    color: '#5A5440',
+    color: lightTokens.colors.warmGrey,
   },
   sub: {
     fontFamily: 'Inter-Regular',
     fontSize: 10,
-    color: '#A59E88',
+    color: lightTokens.colors.doneTextMuted,
     marginTop: 2,
   },
 });

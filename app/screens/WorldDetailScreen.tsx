@@ -30,7 +30,7 @@ export default function WorldDetailScreen() {
       <SafeAreaView style={styles.container} edges={['top']}>
         <View style={styles.hdr}>
           <Pressable onPress={() => nav.goBack()} style={styles.back}>
-            <ChevronLeft size={24} color={lightTokens.colors.deepForest} />
+            <ChevronLeft size={24} color={lightTokens.colors.worldsInk} />
           </Pressable>
         </View>
         <View style={styles.empty}>
@@ -70,7 +70,7 @@ export default function WorldDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: lightTokens.colors.oatDeep },
+  container: { flex: 1, backgroundColor: lightTokens.colors.worldsSurface },
   hdr: {
     flexDirection: 'row',
     alignItems: 'center',

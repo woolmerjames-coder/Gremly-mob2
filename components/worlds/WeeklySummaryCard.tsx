@@ -32,23 +32,29 @@ export function WeeklySummaryCard({ onPressNew }: WeeklySummaryCardProps) {
     );
   }
 
-  if (state.kind === 'read_or_in_progress') {
+  if (state.kind === 'in_progress') {
     const rangeText = formatCurrentWeekRange();
+    const s = state.summary;
+    const clauses = [
+      s.dropClause,
+      s.topWorldClause,
+      s.chapterCountdownClause,
+      s.chapterClosedClause,
+      s.peopleClause,
+      s.trajectoryClause,
+    ].filter((c): c is string => !!c);
     return (
       <View style={styles.cardSoft}>
         <Text style={styles.lblSoft}>THIS WEEK{rangeText ? ` · ${rangeText}` : ''}</Text>
-        <Text style={styles.headSoft}>{state.headline}</Text>
+        <Text style={styles.headSoft}>{clauses[0]}</Text>
+        {clauses.length > 1 ? (
+          <Text style={styles.bodySoft}>{clauses.slice(1).join(' · ')}</Text>
+        ) : null}
       </View>
     );
   }
 
-  // never
-  return (
-    <View style={styles.cardSoft}>
-      <Text style={styles.headSoft}>Your first weekly summary lands Monday.</Text>
-      <Text style={styles.bodySoft}>Gremly is building your patterns from now.</Text>
-    </View>
-  );
+  return null;
 }
 
 // Helpers: local, do not export.
@@ -77,10 +83,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 17,
     paddingVertical: 15,
     borderRadius: 18,
-    backgroundColor: lightTokens.colors.deepForest,
+    backgroundColor: lightTokens.colors.worldsInk,
     borderWidth: 2,
-    borderColor: 'rgba(193,152,88,0.45)',
-    shadowColor: '#C19858',
+    borderColor: lightTokens.colors.ambergoldGlow,
+    shadowColor: lightTokens.colors.ambergold,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.35,
     shadowRadius: 14,
@@ -108,7 +114,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
     letterSpacing: 1.2,
-    color: 'rgba(244,237,215,0.65)',
+    color: lightTokens.colors.onInkLabel,
   },
   headOnDark: {
     fontFamily: 'Inter-Medium',
@@ -122,14 +128,14 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     fontSize: 12,
     lineHeight: 17,
-    color: 'rgba(244,237,215,0.82)',
+    color: lightTokens.colors.onInkBody,
     marginTop: 5,
   },
   ctaOnDark: {
     fontFamily: 'Inter-Medium',
     fontSize: 11,
     fontWeight: '500',
-    color: 'rgba(244,237,215,0.88)',
+    color: lightTokens.colors.onInkCta,
     marginTop: 10,
   },
   cardSoft: {
@@ -138,9 +144,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 17,
     paddingVertical: 15,
     borderRadius: 18,
-    backgroundColor: 'rgba(250,244,222,0.85)',
+    backgroundColor: lightTokens.colors.oatCard,
     borderWidth: 1,
-    borderColor: 'rgba(26,58,40,0.08)',
+    borderColor: lightTokens.colors.oatCardBorder,
   },
   lblSoft: {
     fontFamily: 'Inter-Medium',
@@ -154,7 +160,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     lineHeight: 20,
-    color: lightTokens.colors.deepForest,
+    color: lightTokens.colors.worldsInk,
     marginTop: 6,
   },
   bodySoft: {

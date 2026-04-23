@@ -50,7 +50,7 @@ export default function ChapterMenuSheet({ sheetId, payload }: ChapterMenuSheetP
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: lightTokens.colors.oatLight,
+    backgroundColor: lightTokens.colors.oatCard,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingTop: 12,
@@ -61,7 +61,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: 'rgba(15,47,32,0.18)',
+    backgroundColor: lightTokens.colors.worldsInkOutline,
     marginBottom: 14,
   },
   menu: {
@@ -75,14 +75,14 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Medium',
     fontSize: 15,
     fontWeight: '500',
-    color: lightTokens.colors.deepForest,
+    color: lightTokens.colors.worldsInk,
   },
   itemDanger: {
     color: lightTokens.colors.danger,
   },
   divider: {
     height: 1,
-    backgroundColor: lightTokens.colors.oatDeeper,
+    backgroundColor: lightTokens.colors.worldsCardBorder,
     marginVertical: 4,
   },
 });

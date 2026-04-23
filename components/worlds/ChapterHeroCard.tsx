@@ -48,7 +48,7 @@ export function ChapterHeroCard({ chapter }: ChapterHeroCardProps) {
                 key={i}
                 style={[
                   styles.phaseSeg,
-                  { backgroundColor: active ? palette.dot : lightTokens.colors.oatDeeper },
+                  { backgroundColor: active ? palette.dot : lightTokens.colors.worldsCardBorder },
                 ]}
               />
             ))}
@@ -60,7 +60,7 @@ export function ChapterHeroCard({ chapter }: ChapterHeroCardProps) {
                 style={[
                   styles.phaseLbl,
                   i === phases.currentIndex && {
-                    color: lightTokens.colors.deepForest,
+                    color: lightTokens.colors.worldsInk,
                     fontWeight: '700',
                   },
                 ]}
@@ -79,9 +79,9 @@ const styles = StyleSheet.create({
   card: {
     marginHorizontal: 16,
     marginTop: 10,
-    backgroundColor: 'rgba(250,244,222,0.85)',
+    backgroundColor: lightTokens.colors.oatCard,
     borderWidth: 1,
-    borderColor: 'rgba(26,58,40,0.06)',
+    borderColor: lightTokens.colors.oatCardBorder,
     borderRadius: 16,
     overflow: 'hidden',
     position: 'relative',
@@ -101,13 +101,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: -0.3,
     lineHeight: 24,
-    color: lightTokens.colors.deepForest,
+    color: lightTokens.colors.worldsInk,
   },
   target: {
     fontFamily: 'Inter-Regular',
     fontSize: 12,
     lineHeight: 18,
-    color: '#4d5a4f',
+    color: lightTokens.colors.subtleGreen,
     marginTop: 8,
   },
   metaRow: {
@@ -116,7 +116,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(26,58,40,0.06)',
+    borderTopColor: lightTokens.colors.oatCardBorder,
   },
   metaItem: { flex: 1 },
   metaLbl: {
@@ -132,13 +132,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     marginTop: 2,
-    color: lightTokens.colors.deepForest,
+    color: lightTokens.colors.worldsInk,
   },
   phases: {
     marginTop: 14,
     padding: 10,
     paddingHorizontal: 12,
-    backgroundColor: 'rgba(151,175,143,0.08)',
+    backgroundColor: lightTokens.colors.chapterDecorBg,
     borderRadius: 10,
   },
   phaseSegRow: { flexDirection: 'row', gap: 4, marginBottom: 5 },

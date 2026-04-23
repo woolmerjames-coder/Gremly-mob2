@@ -18,7 +18,7 @@ export function WorldDetailHeader({ title, onBack, worldId }: WorldDetailHeaderP
   return (
     <View style={styles.hdr}>
       <Pressable onPress={onBack} style={styles.iconBtn} testID="world-detail-back">
-        <ChevronLeft size={22} color={lightTokens.colors.deepForest} />
+        <ChevronLeft size={22} color={lightTokens.colors.worldsInk} />
       </Pressable>
       <View style={styles.titleWrap}>
         <View style={styles.titleInner}>
@@ -27,7 +27,7 @@ export function WorldDetailHeader({ title, onBack, worldId }: WorldDetailHeaderP
         </View>
       </View>
       <Pressable onPress={onMenu} style={styles.iconBtn} testID="world-detail-menu">
-        <MoreHorizontal size={20} color={lightTokens.colors.deepForest} />
+        <MoreHorizontal size={20} color={lightTokens.colors.worldsInk} />
       </Pressable>
     </View>
   );
@@ -55,7 +55,7 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     letterSpacing: -0.3,
-    color: lightTokens.colors.deepForest,
+    color: lightTokens.colors.worldsInk,
   },
   underline: {
     marginTop: 3,
