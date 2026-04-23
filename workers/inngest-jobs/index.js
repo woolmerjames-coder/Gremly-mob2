@@ -332,9 +332,19 @@ const generateSingleUserDco = inngest.createFunction(
         return buildWorldPicture(snapshot);
       });
 
+      // Step 2b: Fetch active worlds and open chapters for DCO override evaluation
+      const worldsAndChapters = await step.run('fetch-worlds-and-chapters', async () => {
+        return fetchActiveWorldsAndChapters(userId, env);
+      });
+
       // Step 3: Flash reads the world picture, updates threads, picks daily focus
       const flashResult = await step.run('flash-daily-update', async () => {
-        return updateLifeMapAndFocus(worldPicture.lifeMap, worldPicture.text, env);
+        return updateLifeMapAndFocus(
+          worldPicture.lifeMap,
+          worldPicture.text,
+          env,
+          worldsAndChapters,
+        );
       });
 
       // Step 4: Merge Flash's thread updates back into the Life Map
@@ -350,6 +360,26 @@ const generateSingleUserDco = inngest.createFunction(
 
       // Step 6: Assemble backward-compatible DCO
       const dco = assembleDcoFromFocus(flashResult.daily_focus, headline, snapshot, flashResult);
+
+      // Step 6b: Apply per-world DCO overrides (before final upsert)
+      await step.run('apply-world-overrides', async () => {
+        return applyWorldOverrides(
+          flashResult.world_overrides,
+          worldsAndChapters.activeWorlds,
+          userId,
+          env,
+        );
+      });
+
+      // Step 6c: Apply per-chapter DCO overrides (before final upsert)
+      await step.run('apply-chapter-overrides', async () => {
+        return applyChapterOverrides(
+          flashResult.chapter_overrides,
+          worldsAndChapters.activeChapters,
+          userId,
+          env,
+        );
+      });
 
       // Step 7: Store updated Life Map + DCO to Supabase
       await step.run('store-results', async () => {
@@ -6666,6 +6696,17 @@ function buildWorldPicture(snapshot) {
     parts.push('  Write something with a completely different structure and angle.');
   }
 
+  // ── Section 11b: Previous classifier worlds_summary ──
+  if (prevDco?.worlds_summary) {
+    const ws = prevDco.worlds_summary;
+    parts.push('\n=== CLASSIFIER WORLDS SUMMARY (seeded this week) ===');
+    parts.push(`  headline: "${ws.headline}"`);
+    if (ws.body) parts.push(`  body: "${ws.body}"`);
+    parts.push(
+      '  Refresh if activity today has materially shifted the picture, otherwise keep close in spirit.',
+    );
+  }
+
   // ── Section 12: User profile ──
   if (raw.userProfile?.profile_text) {
     parts.push('\n=== USER PROFILE ===');
@@ -6727,8 +6768,24 @@ function buildWorldPicture(snapshot) {
   return { text, lifeMap };
 }
 
-async function updateLifeMapAndFocus(lifeMap, worldPictureText, env) {
+async function updateLifeMapAndFocus(lifeMap, worldPictureText, env, context = {}) {
+  const { activeWorlds = [], activeChapters = [] } = context;
   const t0 = Date.now();
+
+  let worldsSection = '';
+  if (activeWorlds.length > 0) {
+    worldsSection += '\n\n=== ACTIVE WORLDS ===\n';
+    for (const w of activeWorlds) {
+      worldsSection += `  id: ${w.id} | name: ${w.name} | card_subtitle: ${w.card_subtitle || '(none)'} | phase: ${w.phase}\n`;
+    }
+  }
+  let chaptersSection = '';
+  if (activeChapters.length > 0) {
+    chaptersSection += '\n=== ACTIVE CHAPTERS ===\n';
+    for (const c of activeChapters) {
+      chaptersSection += `  id: ${c.id} | title: ${c.title} | phase: ${c.phase}\n`;
+    }
+  }
 
   const systemPrompt = `You are producing a Daily Context Object (DCO) — a snapshot of what is true about this person's life TODAY.
 
@@ -6792,6 +6849,18 @@ Pick the MOST MEANINGFUL entries, not an exhaustive list. Cap at 8-10 entries fo
 
 Also produce a week_mood_arc: a single sentence describing how the user's emotional state shifted across the week, based on journal moods, chat emotional signals, and any other sentiment data. If insufficient emotional data exists, return null.
 
+JOB 4 - WORLDS SUMMARY
+Produce a worlds_summary block capturing the theme across the user's active worlds today. The headline is a single sentence up to 80 characters, editorial tone, not a metric. The body is 2-3 sentences expanding the headline, noting what is connecting, shifting, or imminent today. Featured is 2-3 worlds to spotlight with a one-clause reason each. Use world ids from the ACTIVE WORLDS list where available; otherwise use the Life Map domain name. If the world picture contains a classifier worlds_summary seeded this week, you may refresh it but keep it close in spirit unless activity today has materially shifted the picture.
+
+JOB 5 - PER-WORLD AND CHAPTER OVERRIDES
+This job uses the ACTIVE WORLDS and ACTIVE CHAPTERS lists. If those lists are empty, skip this job and emit empty arrays for world_overrides and chapter_overrides.
+
+For each world in ACTIVE WORLDS, decide whether today's activity warrants overriding card_subtitle or reranking key_priorities. Conditions that warrant an override: a dated item within 3 days is surfacing today that is not currently reflected in card_subtitle; a todo was completed today that cleared the top key_priorities item; a chapter within this world transitioned phase or started or closed today; an upcoming event within the world is date-proximate enough to feel live this week. Emit a world_overrides array with entries containing world_id (from ACTIVE WORLDS), card_subtitle (new subtitle string or null if no subtitle override is warranted), and key_priorities (reranked array or null if no reranking is warranted). Omit entries where neither field has a value to set.
+
+key_priorities items each have rank (integer 1-5), text (up to 100 characters), kind (one of: action, date, blocker, momentum, decision), optional entity_ref string, optional due_date ISO date string, and confidence (0-1 number).
+
+For each chapter in ACTIVE CHAPTERS, apply the same evaluation scoped to the chapter's drops and dates. Emit a chapter_overrides array with entries containing chapter_id (from ACTIVE CHAPTERS), card_subtitle (nullable), and key_priorities (nullable).
+
 CRITICAL:
 - lead_story and secondary MUST use exact domain and thread names from the Life Map.
 - "detail" adds COLOR to the headline — a short, specific note (max 1 sentence, max 80 chars) that gives context the headline can't. Written in second person — "you" not "the user". Must NOT repeat the same information as lead_story. Instead, surface what makes today different: a feeling, a tension, a countdown, a contrast. If the headline says "island transition today", the detail should NOT say "travel day with a flight" — it should say something the headline missed.
@@ -6842,10 +6911,29 @@ OUTPUT — return ONLY this JSON:
       "event": "short factual statement of what happened"
     }
   ],
-  "week_mood_arc": "single sentence about emotional trajectory this week, or null"
+  "week_mood_arc": "single sentence about emotional trajectory this week, or null",
+  "worlds_summary": {
+    "headline": "single sentence up to 80 characters",
+    "body": "2-3 sentences expanding the headline",
+    "featured": [{"world_id": "world id from ACTIVE WORLDS or Life Map domain name", "reason": "one-clause reason"}]
+  },
+  "world_overrides": [
+    {
+      "world_id": "id from ACTIVE WORLDS",
+      "card_subtitle": "new subtitle or null",
+      "key_priorities": null
+    }
+  ],
+  "chapter_overrides": [
+    {
+      "chapter_id": "id from ACTIVE CHAPTERS",
+      "card_subtitle": "new subtitle or null",
+      "key_priorities": null
+    }
+  ]
 }`;
 
-  const userMessage = worldPictureText;
+  const userMessage = worldPictureText + worldsSection + chaptersSection;
 
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${env.GEMINI_API_KEY}`;
 
@@ -6969,6 +7057,144 @@ function mergeLifeMapUpdates(lifeMap, threadUpdates) {
   return lifeMap;
 }
 
+// ── DCO helper: fetch active worlds and open chapters for a user ───────────────────
+async function fetchActiveWorldsAndChapters(userId, env) {
+  const supaHeaders = {
+    apikey: env.SUPABASE_SERVICE_KEY,
+    Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+  };
+  const [worldsRes, chaptersRes] = await Promise.all([
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/worlds?owner_id=eq.${userId}&phase=in.(active,evolving,candidate)&select=id,name,phase,card_subtitle,card_subtitle_source,key_priorities,summary_source`,
+      { headers: supaHeaders },
+    ),
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/chapters?owner_id=eq.${userId}&phase=in.(suggested,upcoming,active)&select=id,title,phase,primary_world_id,card_subtitle,card_subtitle_source,key_priorities,summary_source`,
+      { headers: supaHeaders },
+    ),
+  ]);
+  const activeWorlds = worldsRes.ok ? await worldsRes.json() : [];
+  const activeChapters = chaptersRes.ok ? await chaptersRes.json() : [];
+  console.log(
+    `[DCO] fetchActiveWorldsAndChapters: ${activeWorlds.length} worlds, ${activeChapters.length} chapters for ${userId.slice(0, 8)}`,
+  );
+  return { activeWorlds, activeChapters };
+}
+
+// ── DCO helper: apply per-world card_subtitle / key_priorities overrides ──────────
+async function applyWorldOverrides(overrides, activeWorlds, userId, env) {
+  if (!Array.isArray(overrides) || overrides.length === 0) {
+    return { updated: 0, skipped: 0, errors: [] };
+  }
+  const supaHeaders = {
+    apikey: env.SUPABASE_SERVICE_KEY,
+    Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+    'Content-Type': 'application/json',
+  };
+  const now = new Date().toISOString();
+  let updated = 0;
+  let skipped = 0;
+  const errors = [];
+  for (const override of overrides) {
+    const world = activeWorlds.find((w) => w.id === override.world_id);
+    if (!world) {
+      skipped++;
+      continue;
+    }
+    const patch = {};
+    if (override.card_subtitle != null && world.card_subtitle_source !== 'user') {
+      patch.card_subtitle = override.card_subtitle;
+      patch.card_subtitle_source = 'dco';
+      patch.card_subtitle_updated_at = now;
+    }
+    if (override.key_priorities != null && world.summary_source !== 'user') {
+      patch.key_priorities = override.key_priorities;
+      patch.summary_source = 'dco';
+      patch.summary_updated_at = now;
+    }
+    if (Object.keys(patch).length === 0) {
+      skipped++;
+      continue;
+    }
+    patch.updated_at = now;
+    const res = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/worlds?id=eq.${override.world_id}&owner_id=eq.${userId}`,
+      {
+        method: 'PATCH',
+        headers: { ...supaHeaders, Prefer: 'return=minimal' },
+        body: JSON.stringify(patch),
+      },
+    );
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      errors.push(`world ${override.world_id}: ${res.status} ${errText.slice(0, 100)}`);
+    } else {
+      updated++;
+    }
+  }
+  console.log(
+    `[DCO] applyWorldOverrides: ${updated} updated, ${skipped} skipped, ${errors.length} errors`,
+  );
+  return { updated, skipped, errors };
+}
+
+// ── DCO helper: apply per-chapter card_subtitle / key_priorities overrides ───────
+async function applyChapterOverrides(overrides, activeChapters, userId, env) {
+  if (!Array.isArray(overrides) || overrides.length === 0) {
+    return { updated: 0, skipped: 0, errors: [] };
+  }
+  const supaHeaders = {
+    apikey: env.SUPABASE_SERVICE_KEY,
+    Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+    'Content-Type': 'application/json',
+  };
+  const now = new Date().toISOString();
+  let updated = 0;
+  let skipped = 0;
+  const errors = [];
+  for (const override of overrides) {
+    const chapter = activeChapters.find((c) => c.id === override.chapter_id);
+    if (!chapter) {
+      skipped++;
+      continue;
+    }
+    const patch = {};
+    if (override.card_subtitle != null && chapter.card_subtitle_source !== 'user') {
+      patch.card_subtitle = override.card_subtitle;
+      patch.card_subtitle_source = 'dco';
+      patch.card_subtitle_updated_at = now;
+    }
+    if (override.key_priorities != null && chapter.summary_source !== 'user') {
+      patch.key_priorities = override.key_priorities;
+      patch.summary_source = 'dco';
+      patch.summary_updated_at = now;
+    }
+    if (Object.keys(patch).length === 0) {
+      skipped++;
+      continue;
+    }
+    patch.updated_at = now;
+    const res = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/chapters?id=eq.${override.chapter_id}&owner_id=eq.${userId}`,
+      {
+        method: 'PATCH',
+        headers: { ...supaHeaders, Prefer: 'return=minimal' },
+        body: JSON.stringify(patch),
+      },
+    );
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      errors.push(`chapter ${override.chapter_id}: ${res.status} ${errText.slice(0, 100)}`);
+    } else {
+      updated++;
+    }
+  }
+  console.log(
+    `[DCO] applyChapterOverrides: ${updated} updated, ${skipped} skipped, ${errors.length} errors`,
+  );
+  return { updated, skipped, errors };
+}
+
 // ============================================================================
 // Phase 2: Backward-compatible DCO assembly + simplified headline
 // ============================================================================
@@ -7049,6 +7275,11 @@ function assembleDcoFromFocus(dailyFocus, headline, snapshot, flashResult) {
     // Week recap (from JOB 3)
     week_recap: flashResult?.week_recap || [],
     week_mood_arc: flashResult?.week_mood_arc || null,
+
+    // Worlds summary (from JOB 4)
+    worlds_summary: flashResult?.worlds_summary
+      ? { ...flashResult.worlds_summary, updated_at: new Date().toISOString(), source: 'dco' }
+      : null,
 
     // Metadata
     user_id: snapshot.userId,
@@ -7721,10 +7952,12 @@ export default {
             }
 
             const worldPicture = buildWorldPicture(snapshot);
+            const worldsAndChapters = await fetchActiveWorldsAndChapters(u.user_id, env);
             const flashResult = await updateLifeMapAndFocus(
               worldPicture.lifeMap,
               worldPicture.text,
               env,
+              worldsAndChapters,
             );
             const mapCopy = JSON.parse(JSON.stringify(worldPicture.lifeMap));
             const updatedMap = mergeLifeMapUpdates(mapCopy, flashResult.thread_updates);
@@ -7738,6 +7971,19 @@ export default {
               headline,
               snapshot,
               flashResult,
+            );
+
+            await applyWorldOverrides(
+              flashResult.world_overrides,
+              worldsAndChapters.activeWorlds,
+              u.user_id,
+              env,
+            );
+            await applyChapterOverrides(
+              flashResult.chapter_overrides,
+              worldsAndChapters.activeChapters,
+              u.user_id,
+              env,
             );
 
             const now = new Date();
