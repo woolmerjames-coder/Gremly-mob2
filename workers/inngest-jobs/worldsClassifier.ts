@@ -41,25 +41,55 @@ export interface ClassifierEnv {
 // ─── Enums and constants ─────────────────────────────────────────────────────
 
 export type Archetype =
-  | 'creative' | 'professional' | 'wellness_body' | 'wellness_mind'
-  | 'learning' | 'relational' | 'domestic' | 'generic';
+  | 'creative'
+  | 'professional'
+  | 'wellness_body'
+  | 'wellness_mind'
+  | 'learning'
+  | 'relational'
+  | 'domestic'
+  | 'generic';
 
 const ARCHETYPES: Archetype[] = [
-  'creative', 'professional', 'wellness_body', 'wellness_mind',
-  'learning', 'relational', 'domestic', 'generic',
+  'creative',
+  'professional',
+  'wellness_body',
+  'wellness_mind',
+  'learning',
+  'relational',
+  'domestic',
+  'generic',
 ];
 
 export type ModuleKey =
-  | 'reflection_timeline' | 'habit_streaks' | 'next_actions'
-  | 'recent_thoughts' | 'upcoming_events' | 'people_involved'
-  | 'artifact_gallery' | 'mood_over_time' | 'symptom_tracker'
-  | 'supplement_log' | 'chapter_strip' | 'active_goals' | 'progress_bar';
+  | 'reflection_timeline'
+  | 'habit_streaks'
+  | 'next_actions'
+  | 'recent_thoughts'
+  | 'upcoming_events'
+  | 'people_involved'
+  | 'artifact_gallery'
+  | 'mood_over_time'
+  | 'symptom_tracker'
+  | 'supplement_log'
+  | 'chapter_strip'
+  | 'active_goals'
+  | 'progress_bar';
 
 const MODULES: ModuleKey[] = [
-  'reflection_timeline', 'habit_streaks', 'next_actions',
-  'recent_thoughts', 'upcoming_events', 'people_involved',
-  'artifact_gallery', 'mood_over_time', 'symptom_tracker',
-  'supplement_log', 'chapter_strip', 'active_goals', 'progress_bar',
+  'reflection_timeline',
+  'habit_streaks',
+  'next_actions',
+  'recent_thoughts',
+  'upcoming_events',
+  'people_involved',
+  'artifact_gallery',
+  'mood_over_time',
+  'symptom_tracker',
+  'supplement_log',
+  'chapter_strip',
+  'active_goals',
+  'progress_bar',
 ];
 
 export type VelocityDelta = 'growing' | 'stable' | 'declining' | 'dormant';
@@ -71,13 +101,23 @@ export type ChapterType = 'project' | 'goal' | 'arc' | 'transition' | 'ritual';
 export type ChapterPhase = 'suggested' | 'upcoming' | 'active' | 'closing' | 'closed';
 export type LifeContextKind = 'employer' | 'role' | 'obligation' | 'calendar_source' | 'custom';
 export const LIFE_CONTEXT_KINDS: LifeContextKind[] = [
-  'employer', 'role', 'obligation', 'calendar_source', 'custom',
+  'employer',
+  'role',
+  'obligation',
+  'calendar_source',
+  'custom',
 ];
 
 // ─── Input shapes ────────────────────────────────────────────────────────────
 
-export interface ArchetypeWeight { type: Archetype; weight: number; }
-export interface ModuleWeight { module: ModuleKey; weight: number; }
+export interface ArchetypeWeight {
+  type: Archetype;
+  weight: number;
+}
+export interface ModuleWeight {
+  module: ModuleKey;
+  weight: number;
+}
 
 export interface Evidence {
   drop_id: string;
@@ -119,9 +159,22 @@ export interface ActiveLifeContextInput {
 
 // ─── Output shapes ───────────────────────────────────────────────────────────
 
+export interface KeyPriority {
+  rank: number;
+  text: string;
+  kind: 'action' | 'date' | 'blocker' | 'momentum' | 'decision';
+  entity_ref?: string;
+  due_date?: string;
+  confidence: number;
+}
+
 export interface NewWorldCandidate {
   proposed_name: string;
+  display_name: string;
   description: string;
+  card_subtitle: string;
+  summary: string;
+  key_priorities: KeyPriority[];
   archetypes: ArchetypeWeight[];
   confidence: number;
   first_signal_at: string;
@@ -140,6 +193,12 @@ export interface NewChapterCandidate {
   start_date: string | null;
   end_date: string | null;
   target_description: string | null;
+  target_summary: string | null;
+  card_subtitle: string;
+  summary: string;
+  key_priorities: KeyPriority[];
+  phase_labels: string[];
+  current_phase_key: string;
   primary_world_name: string;
   related_world_names: string[];
   evidence: Evidence[];
@@ -156,6 +215,9 @@ export interface ChapterUpdate {
   new_end_date: string | null;
   new_description: string | null;
   new_target_description: string | null;
+  new_card_subtitle: string | null;
+  new_summary: string | null;
+  new_key_priorities: KeyPriority[] | null;
   close_chapter: boolean;
   reason: string;
   evidence: Evidence[];
@@ -186,6 +248,9 @@ export interface VelocityUpdate {
   drops_prior_4_weeks: number;
   recommend_dormant: boolean;
   rationale: string;
+  new_card_subtitle: string | null;
+  new_summary: string | null;
+  new_key_priorities: KeyPriority[] | null;
 }
 
 export interface EvolutionProposal {
@@ -237,8 +302,15 @@ export interface ClassifierRunMetadata {
   output_tokens: number;
 }
 
+export interface WorldsSummary {
+  headline: string;
+  body: string;
+  featured: { world_id: string; reason: string }[];
+}
+
 export interface ClassifierOutput {
   run_metadata: ClassifierRunMetadata;
+  worlds_summary: WorldsSummary | null;
   new_world_candidates: NewWorldCandidate[];
   new_chapter_candidates: NewChapterCandidate[];
   chapter_updates: ChapterUpdate[];
@@ -303,9 +375,32 @@ For life_contexts: enumerate every entry in life_context_book regardless of end_
 
 This is not a post-generation validation step. It is a filter you apply while generating candidates. If you find yourself drafting a candidate that fails this check, discard it before it enters your output array. Do not emit a candidate and flag it with a note; simply do not emit it.
 
-Confidence. Every candidate and proposal gets a confidence between 0 and 1. Think of 0.5 as the minimum emission threshold for non-evolution outputs, 0.7 as the downstream weekly-update surfacing threshold and the minimum for evolution, 0.9 as very strong. Do not inflate confidence to surface weak candidates.`;
+Confidence. Every candidate and proposal gets a confidence between 0 and 1. Think of 0.5 as the minimum emission threshold for non-evolution outputs, 0.7 as the downstream weekly-update surfacing threshold and the minimum for evolution, 0.9 as very strong. Do not inflate confidence to surface weak candidates.
+
+Authored content for new World candidates. For each new_world_candidate you emit, you must also author the following fields. display_name is a short human-friendly label, maximum 32 characters, derived from the proposed_name. Use sentence case. Omit filler words such as "my", "the", or gerunds unless they are essential to meaning. card_subtitle is a single clause, maximum 60 characters, that captures the defining quality or current momentum of this World. Write it as a present-tense or present-continuous phrase. summary is a paragraph, maximum 280 characters, describing the World's identity, its arc inside the current window, and what the user has been building or expressing within it. Write in second person. key_priorities is an array of up to 5 items ordered by importance, each with rank (integer 1 to 5), text (maximum 100 characters), kind (one of: action, date, blocker, momentum, decision), optional entity_ref string, optional due_date ISO date string, and confidence (number between 0 and 1).
+
+Authored content for new Chapter candidates. For each new_chapter_candidate you emit, you must also author the following fields. target_summary is a clause, maximum 120 characters, describing what this chapter is working toward, or null for season-type chapters without a defined target. card_subtitle is a single clause, maximum 60 characters, naming the arc's central tension or goal in present tense. summary is a paragraph, maximum 280 characters, describing the chapter's arc, its current moment, and what completing or progressing it means for the user. Write in second person. key_priorities follows the same structure as World key_priorities. phase_labels is an ordered list of 3 to 5 short phase name strings describing the arc's stages, labelled from the arc's current vantage point. current_phase_key is the string from phase_labels that best describes where this chapter sits right now.
+
+Cross-world summary. You must include a worlds_summary block at the top level of your output. worlds_summary is a short synthesis of the user's full graph as it stands at the end of this window. headline is a single sentence, maximum 80 characters, capturing the dominant theme or shift across all active Worlds. body is a short paragraph, maximum 280 characters, elaborating on the user's current moment across their life, written in second person. featured is a list of 2 to 3 objects, each with world_id (the id of an existing active World, or the proposed_name for a new candidate) and reason (maximum 60 characters) explaining why this World is notable this window.
+
+Refreshing existing entities. You are not only authoring new entities. On every run, refreshing authored content for existing active Worlds and Chapters is also valid and preferred when their signal has materially shifted this window. When refreshing an existing World, include updated card_subtitle, summary, and key_priorities inside the corresponding velocity_update entry. When refreshing an existing Chapter, include updated card_subtitle, summary, and key_priorities inside the corresponding chapter_update entry. When refreshing existing entities, check the source fields before writing. If an entity's summary_source equals user, do not author a new summary, key_priorities, or display_name for it. If its card_subtitle_source equals user, do not author a new card_subtitle for it.
+
+User-sourced entity protection. Never propose structural changes, including rename, emerge, absorb, split, transform, or close, to any World, Chapter, or Life Context where the source field equals user. You may still emit velocity_updates and authored-content updates for those entities, subject to the source protection rules above.`;
 
 // ─── Tool definition ─────────────────────────────────────────────────────────
+
+const KEY_PRIORITY_SCHEMA = {
+  type: 'object',
+  required: ['rank', 'text', 'kind', 'confidence'],
+  properties: {
+    rank: { type: 'integer', minimum: 1, maximum: 5 },
+    text: { type: 'string', maxLength: 100 },
+    kind: { type: 'string', enum: ['action', 'date', 'blocker', 'momentum', 'decision'] },
+    entity_ref: { type: 'string' },
+    due_date: { type: 'string' },
+    confidence: { type: 'number', minimum: 0, maximum: 1 },
+  },
+};
 
 const ARCHETYPE_WEIGHT_SCHEMA = {
   type: 'object',
@@ -333,10 +428,11 @@ const EVIDENCE_SCHEMA = {
 const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
   name: 'submit_classifier_output',
   description:
-    'Submit the classifier output. Call exactly once with all eight arrays present. Any array may be empty.',
+    'Submit the classifier output. Call exactly once with all required fields present. Any array may be empty.',
   input_schema: {
     type: 'object',
     required: [
+      'worlds_summary',
       'new_world_candidates',
       'new_chapter_candidates',
       'chapter_updates',
@@ -347,18 +443,55 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
       'reclassification_proposals',
     ],
     properties: {
+      worlds_summary: {
+        type: 'object',
+        required: ['headline', 'body', 'featured'],
+        properties: {
+          headline: { type: 'string', maxLength: 80 },
+          body: { type: 'string', maxLength: 280 },
+          featured: {
+            type: 'array',
+            minItems: 2,
+            maxItems: 3,
+            items: {
+              type: 'object',
+              required: ['world_id', 'reason'],
+              properties: {
+                world_id: { type: 'string' },
+                reason: { type: 'string', maxLength: 60 },
+              },
+            },
+          },
+        },
+      },
       new_world_candidates: {
         type: 'array',
         items: {
           type: 'object',
           required: [
-            'proposed_name', 'description', 'archetypes', 'confidence',
-            'first_signal_at', 'last_signal_at', 'drop_count',
-            'distinct_day_count', 'evidence', 'seed_module_layout', 'reason',
+            'proposed_name',
+            'display_name',
+            'description',
+            'card_subtitle',
+            'summary',
+            'key_priorities',
+            'archetypes',
+            'confidence',
+            'first_signal_at',
+            'last_signal_at',
+            'drop_count',
+            'distinct_day_count',
+            'evidence',
+            'seed_module_layout',
+            'reason',
           ],
           properties: {
             proposed_name: { type: 'string' },
+            display_name: { type: 'string', maxLength: 32 },
             description: { type: 'string' },
+            card_subtitle: { type: 'string', maxLength: 60 },
+            summary: { type: 'string', maxLength: 280 },
+            key_priorities: { type: 'array', maxItems: 5, items: KEY_PRIORITY_SCHEMA },
             archetypes: { type: 'array', minItems: 1, items: ARCHETYPE_WEIGHT_SCHEMA },
             confidence: { type: 'number', minimum: 0, maximum: 1 },
             first_signal_at: { type: 'string' },
@@ -386,9 +519,18 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
         items: {
           type: 'object',
           required: [
-            'proposed_title', 'description', 'chapter_type',
-            'primary_world_name', 'related_world_names',
-            'evidence', 'confidence',
+            'proposed_title',
+            'description',
+            'chapter_type',
+            'card_subtitle',
+            'summary',
+            'key_priorities',
+            'phase_labels',
+            'current_phase_key',
+            'primary_world_name',
+            'related_world_names',
+            'evidence',
+            'confidence',
           ],
           properties: {
             proposed_title: { type: 'string' },
@@ -397,6 +539,12 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
             start_date: { type: ['string', 'null'] },
             end_date: { type: ['string', 'null'] },
             target_description: { type: ['string', 'null'] },
+            target_summary: { type: ['string', 'null'], maxLength: 120 },
+            card_subtitle: { type: 'string', maxLength: 60 },
+            summary: { type: 'string', maxLength: 280 },
+            key_priorities: { type: 'array', maxItems: 5, items: KEY_PRIORITY_SCHEMA },
+            phase_labels: { type: 'array', minItems: 3, maxItems: 5, items: { type: 'string' } },
+            current_phase_key: { type: 'string' },
             primary_world_name: { type: 'string' },
             related_world_names: { type: 'array', items: { type: 'string' } },
             evidence: { type: 'array', minItems: 2, items: EVIDENCE_SCHEMA },
@@ -414,6 +562,11 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
             new_end_date: { type: ['string', 'null'] },
             new_description: { type: ['string', 'null'] },
             new_target_description: { type: ['string', 'null'] },
+            new_card_subtitle: { type: ['string', 'null'] },
+            new_summary: { type: ['string', 'null'] },
+            new_key_priorities: {
+              oneOf: [{ type: 'array', maxItems: 5, items: KEY_PRIORITY_SCHEMA }, { type: 'null' }],
+            },
             close_chapter: { type: 'boolean' },
             reason: { type: 'string' },
             evidence: { type: 'array', minItems: 2, items: EVIDENCE_SCHEMA },
@@ -424,10 +577,7 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
         type: 'array',
         items: {
           type: 'object',
-          required: [
-            'proposed_name', 'description', 'kind', 'confidence',
-            'evidence', 'reason',
-          ],
+          required: ['proposed_name', 'description', 'kind', 'confidence', 'evidence', 'reason'],
           properties: {
             proposed_name: { type: 'string' },
             description: { type: 'string' },
@@ -446,9 +596,13 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
         items: {
           type: 'object',
           required: [
-            'world_id', 'signal_velocity', 'signal_velocity_delta',
-            'drops_last_4_weeks', 'drops_prior_4_weeks',
-            'recommend_dormant', 'rationale',
+            'world_id',
+            'signal_velocity',
+            'signal_velocity_delta',
+            'drops_last_4_weeks',
+            'drops_prior_4_weeks',
+            'recommend_dormant',
+            'rationale',
           ],
           properties: {
             world_id: { type: 'string' },
@@ -461,6 +615,11 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
             drops_prior_4_weeks: { type: 'integer', minimum: 0 },
             recommend_dormant: { type: 'boolean' },
             rationale: { type: 'string' },
+            new_card_subtitle: { type: ['string', 'null'] },
+            new_summary: { type: ['string', 'null'] },
+            new_key_priorities: {
+              oneOf: [{ type: 'array', maxItems: 5, items: KEY_PRIORITY_SCHEMA }, { type: 'null' }],
+            },
           },
         },
       },
@@ -469,8 +628,13 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
         items: {
           type: 'object',
           required: [
-            'event_type', 'parent_world_ids', 'proposed_children',
-            'reason', 'drops_to_reassign', 'confidence', 'sustained_over_rebuilds',
+            'event_type',
+            'parent_world_ids',
+            'proposed_children',
+            'reason',
+            'drops_to_reassign',
+            'confidence',
+            'sustained_over_rebuilds',
           ],
           properties: {
             event_type: { type: 'string', enum: ['split', 'emerge', 'transform', 'absorb'] },
@@ -512,8 +676,12 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
         items: {
           type: 'object',
           required: [
-            'world_id', 'world_name', 'reason', 'confidence',
-            'drops_last_4_weeks', 'evidence',
+            'world_id',
+            'world_name',
+            'reason',
+            'confidence',
+            'drops_last_4_weeks',
+            'evidence',
           ],
           properties: {
             world_id: { type: 'string' },
@@ -530,8 +698,14 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
         items: {
           type: 'object',
           required: [
-            'world_id', 'world_name', 'target_kind', 'target_name',
-            'reason', 'confidence', 'sustained_over_rebuilds', 'evidence',
+            'world_id',
+            'world_name',
+            'target_kind',
+            'target_name',
+            'reason',
+            'confidence',
+            'sustained_over_rebuilds',
+            'evidence',
           ],
           properties: {
             world_id: { type: 'string' },
@@ -565,7 +739,13 @@ export async function classifyWorldsWeekly(
   env: ClassifierEnv,
 ): Promise<ClassifierOutput> {
   const effectiveToday = computeEffectiveToday(bundle);
-  const userPrompt = buildUserPrompt(bundle, activeWorlds, activeChapters, activeLifeContexts, effectiveToday);
+  const userPrompt = buildUserPrompt(
+    bundle,
+    activeWorlds,
+    activeChapters,
+    activeLifeContexts,
+    effectiveToday,
+  );
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -587,9 +767,7 @@ export async function classifyWorldsWeekly(
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(
-      `classifyWorldsWeekly: Anthropic API ${res.status} ${res.statusText}\n${body}`,
-    );
+    throw new Error(`classifyWorldsWeekly: Anthropic API ${res.status} ${res.statusText}\n${body}`);
   }
   if (!res.body) {
     throw new Error('classifyWorldsWeekly: Anthropic stream had no body');
@@ -611,6 +789,7 @@ export async function classifyWorldsWeekly(
   const decoder = new TextDecoder();
   let buffer = '';
 
+  // eslint-disable-next-line no-constant-condition
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -639,15 +818,9 @@ export async function classifyWorldsWeekly(
 
         if (evt.type === 'message_start') {
           inputTokens = evt.message?.usage?.input_tokens ?? 0;
-        } else if (
-          evt.type === 'content_block_start' &&
-          evt.content_block?.type === 'tool_use'
-        ) {
+        } else if (evt.type === 'content_block_start' && evt.content_block?.type === 'tool_use') {
           toolName = evt.content_block.name ?? '';
-        } else if (
-          evt.type === 'content_block_delta' &&
-          evt.delta?.type === 'input_json_delta'
-        ) {
+        } else if (evt.type === 'content_block_delta' && evt.delta?.type === 'input_json_delta') {
           toolInputJson += evt.delta.partial_json ?? '';
         } else if (evt.type === 'message_delta') {
           if (evt.delta?.stop_reason) stopReason = evt.delta.stop_reason;
@@ -691,8 +864,12 @@ export async function classifyWorldsWeekly(
       input_tokens: inputTokens,
       output_tokens: outputTokens,
     },
+    worlds_summary: (parsed.worlds_summary as WorldsSummary) ?? null,
     new_world_candidates: normalizeArrayField(parsed.new_world_candidates, 'new_world_candidates'),
-    new_chapter_candidates: normalizeArrayField(parsed.new_chapter_candidates, 'new_chapter_candidates'),
+    new_chapter_candidates: normalizeArrayField(
+      parsed.new_chapter_candidates,
+      'new_chapter_candidates',
+    ),
     chapter_updates: normalizeArrayField(parsed.chapter_updates, 'chapter_updates'),
     new_life_context_candidates: normalizeArrayField(
       parsed.new_life_context_candidates,
@@ -700,8 +877,14 @@ export async function classifyWorldsWeekly(
     ),
     velocity_updates: normalizeArrayField(parsed.velocity_updates, 'velocity_updates'),
     evolution_proposals: normalizeArrayField(parsed.evolution_proposals, 'evolution_proposals'),
-    reactivation_proposals: normalizeArrayField(parsed.reactivation_proposals, 'reactivation_proposals'),
-    reclassification_proposals: normalizeArrayField(parsed.reclassification_proposals, 'reclassification_proposals'),
+    reactivation_proposals: normalizeArrayField(
+      parsed.reactivation_proposals,
+      'reactivation_proposals',
+    ),
+    reclassification_proposals: normalizeArrayField(
+      parsed.reclassification_proposals,
+      'reclassification_proposals',
+    ),
   };
 }
 
@@ -722,10 +905,7 @@ function buildUserPrompt(
   activeLifeContexts: ActiveLifeContextInput[],
   effectiveToday: string,
 ): string {
-  const parts: string[] = [
-    `effective_today: ${effectiveToday}`,
-    `bundle_mode: ${bundle.mode}`,
-  ];
+  const parts: string[] = [`effective_today: ${effectiveToday}`, `bundle_mode: ${bundle.mode}`];
   if (bundle.mode === 'backfill') {
     parts.push(`window_start: ${bundle.windowStart}`);
     parts.push(`window_end: ${bundle.windowEnd}`);
@@ -744,7 +924,11 @@ function buildUserPrompt(
   parts.push('signal_bundle:');
 
   // Strip metadata from the bundle before serializing; keep the signal.
-  const { userId: _u, collectedAt: _c, ...signal } = bundle as SignalBundle & {
+  const {
+    userId: _u,
+    collectedAt: _c,
+    ...signal
+  } = bundle as SignalBundle & {
     userId: string;
     collectedAt: string;
   };
