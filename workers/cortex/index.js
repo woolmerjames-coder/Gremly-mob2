@@ -11058,6 +11058,8 @@ You never propose new Worlds, Chapters, or Life Contexts. You assign only to ent
 
 Provide one short sentence describing your overall judgement for this drop.
 
+Never propose structural changes (rename, merge, split, emerge, absorb, close) to any World, Chapter, or Life Context where the source field equals user. You may still assign drops to them.
+
 Respond with a single JSON object containing exactly these four fields. world_links is an array of objects, each with a world_id string and a relevance_score number between 0 and 1. chapter_links is an array of objects, each with a chapter_id string and a relevance_score number between 0 and 1. context_links is an array of objects, each with a context_id string and a relevance_score number between 0 and 1. reason is a string containing your one-sentence judgement. Return only the JSON object with no surrounding text or markdown fences.`;
 
         // Build the drop payload from only the fields that were provided
