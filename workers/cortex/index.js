@@ -10922,6 +10922,378 @@ Return ONLY valid JSON, no explanation:
       }
 
       // ═══════════════════════════════════════════════════════════════════════════
+      // ASSIGN WORLDS (Phase 3.2) - Link a drop to Worlds, Chapters, Life Contexts
+      // ═══════════════════════════════════════════════════════════════════════════
+      //
+      // Structured-output path: json_object mode (responseFormat: 'json').
+      // aiClassify does not support json_schema / OpenAI structured outputs.
+      // Output shape is described in the system prompt via prose only.
+      //
+      // Trigger: POST / with { type: 'assign-worlds', entity_id, entity_type, text, ... }
+      // Auth: JWT required (authenticatedUserId from Bearer token)
+      // Rate limit: 60/min under tag 'assign-worlds'
+      // ═══════════════════════════════════════════════════════════════════════════
+
+      if (type === 'assign-worlds') {
+        const rl = await checkIpRateLimit(request, env, 'assign-worlds', 60);
+        if (!rl.allowed) return rateLimitResponse('assign-worlds', rl.count, rl.limit);
+
+        const authenticatedUserId = await extractAuthenticatedUserId(request, env);
+        if (!authenticatedUserId) return unauthorizedResponse();
+
+        // Validate required fields
+        const entityId = body.entity_id;
+        const entityType = body.entity_type;
+        const rawText = body.text;
+
+        if (!entityId || typeof entityId !== 'string' || !/^[0-9a-f-]{36}$/i.test(entityId)) {
+          return new Response(JSON.stringify({ error: 'invalid_entity_id' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        if (!entityType || !['todo', 'habit', 'note'].includes(entityType)) {
+          return new Response(JSON.stringify({ error: 'invalid_entity_type' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        if (!rawText || typeof rawText !== 'string' || rawText.trim().length === 0) {
+          return new Response(JSON.stringify({ error: 'missing_text' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        const text = rawText.substring(0, 4000);
+        const uid = authenticatedUserId;
+
+        const supabaseHeaders = {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+        };
+
+        // Load active graph in parallel
+        let worlds = [];
+        let chapters = [];
+        let lifeContexts = [];
+
+        try {
+          const [worldsRes, chaptersRes, ctxRes] = await Promise.all([
+            fetch(
+              `${env.SUPABASE_URL}/rest/v1/worlds?owner_id=eq.${uid}&phase=in.(candidate,active,evolving)&select=id,name,description`,
+              { headers: supabaseHeaders },
+            ),
+            fetch(
+              `${env.SUPABASE_URL}/rest/v1/chapters?owner_id=eq.${uid}&phase=in.(suggested,upcoming,active,closed)&select=id,title,description,primary_world_id,phase,start_date,end_date`,
+              { headers: supabaseHeaders },
+            ),
+            fetch(
+              `${env.SUPABASE_URL}/rest/v1/life_contexts?owner_id=eq.${uid}&active=is.true&select=id,name,kind,description`,
+              { headers: supabaseHeaders },
+            ),
+          ]);
+
+          if (!worldsRes.ok || !chaptersRes.ok || !ctxRes.ok) {
+            throw new Error('graph_load_failed');
+          }
+
+          [worlds, chapters, lifeContexts] = await Promise.all([
+            worldsRes.json(),
+            chaptersRes.json(),
+            ctxRes.json(),
+          ]);
+        } catch (err) {
+          console.log('[AssignWorlds] Graph load failed', {
+            error: err.message,
+            uid: uid.slice(0, 8),
+          });
+          return j({
+            world_links: 0,
+            chapter_links: 0,
+            context_links: 0,
+            reason: null,
+            skipped: true,
+            skipped_reason: 'graph_load_failed',
+          });
+        }
+
+        // Short-circuit if graph is empty
+        if (worlds.length === 0 && chapters.length === 0 && lifeContexts.length === 0) {
+          return j({
+            world_links: 0,
+            chapter_links: 0,
+            context_links: 0,
+            reason: null,
+            skipped: true,
+            skipped_reason: 'empty_graph',
+          });
+        }
+
+        // Build prompts
+        const assignWorldsSystemPrompt = `You assign a single Gremly drop to the user's existing graph of Worlds, Chapters, and Life Contexts.
+
+A World is a long-lived identity area in the user's life, a domain where the user reflects, plans, builds habits, or engages over time.
+
+A Chapter is a bounded arc within one or more Worlds, with a defined start and sometimes an end.
+
+A Life Context is a structural part of the user's life that constrains or shapes how they spend time, but is not itself a growth area.
+
+Your only job is to decide which of the user's existing Worlds, Chapters, and Life Contexts this drop belongs to, and with what confidence. You never propose new entities. You assign only to entities present in the provided lists.
+
+A drop may belong to zero, one, or many Worlds. The same applies to Chapters and Life Contexts. Multi-label is normal and expected.
+
+A drop belongs to a World when its content is semantically a signal about that World's identity area.
+
+A drop belongs to a Chapter when its content is semantically about the chapter's subject matter. If the chapter has a start_date and end_date, weigh whether the drop's effective date sits within or near that window. Closed chapters may still receive drops when the drop is retroactively about the chapter's arc.
+
+A drop belongs to a Life Context when its content is a signal that occurred within that constraint, rather than being an expression of growth inside it.
+
+Relevance score is a continuous value between 0 and 1 representing your confidence that the drop is genuinely about that entity. Use higher scores for clear, primary relevance and lower scores for tangential relevance. Do not emit a link at all when your confidence is below 0.3.
+
+Empty arrays are valid output. When the drop does not fit any existing entity, produce an output with all link arrays empty. Do not force a drop into the nearest available entity.
+
+You never propose new Worlds, Chapters, or Life Contexts. You assign only to entities that appear in the provided lists.
+
+Provide one short sentence describing your overall judgement for this drop.
+
+Respond with a single JSON object containing exactly these four fields. world_links is an array of objects, each with a world_id string and a relevance_score number between 0 and 1. chapter_links is an array of objects, each with a chapter_id string and a relevance_score number between 0 and 1. context_links is an array of objects, each with a context_id string and a relevance_score number between 0 and 1. reason is a string containing your one-sentence judgement. Return only the JSON object with no surrounding text or markdown fences.`;
+
+        // Build the drop payload from only the fields that were provided
+        const dropPayload = { text, entity_type: entityType };
+        if (body.bucket) dropPayload.bucket = body.bucket;
+        if (body.subtype) dropPayload.subtype = body.subtype;
+        if (body.smart_title) dropPayload.smart_title = body.smart_title;
+        if (Array.isArray(body.tags) && body.tags.length > 0) dropPayload.tags = body.tags;
+        if (Array.isArray(body.people) && body.people.length > 0) dropPayload.people = body.people;
+        if (body.extracted_date) dropPayload.extracted_date = body.extracted_date;
+
+        const userPrompt = [
+          'drop:',
+          JSON.stringify(dropPayload),
+          '',
+          'active_worlds:',
+          JSON.stringify(
+            worlds.map((w) => ({ id: w.id, name: w.name, description: w.description })),
+          ),
+          '',
+          'active_chapters:',
+          JSON.stringify(
+            chapters.map((c) => ({
+              id: c.id,
+              title: c.title,
+              description: c.description,
+              primary_world_id: c.primary_world_id,
+              phase: c.phase,
+              start_date: c.start_date,
+              end_date: c.end_date,
+            })),
+          ),
+          '',
+          'active_life_contexts:',
+          JSON.stringify(
+            lifeContexts.map((lc) => ({
+              id: lc.id,
+              name: lc.name,
+              kind: lc.kind,
+              description: lc.description,
+            })),
+          ),
+        ].join('\n');
+
+        const t0 = Date.now();
+
+        const result = await aiClassify({
+          mode: 'realtime',
+          ...getProviders('mini', env),
+          env,
+          systemPrompt: assignWorldsSystemPrompt,
+          messages: [{ role: 'user', content: userPrompt }],
+          temperature: 0.1,
+          maxOutputTokens: 500,
+          responseFormat: 'json',
+          endpoint: 'assign-worlds',
+        });
+
+        const latency = Date.now() - t0;
+
+        if (!result.parsed) {
+          console.log('[AssignWorlds] Parse failure', {
+            latency_ms: latency,
+            uid: uid.slice(0, 8),
+          });
+          return j({
+            world_links: 0,
+            chapter_links: 0,
+            context_links: 0,
+            reason: null,
+            skipped: true,
+            skipped_reason: 'parse_failure',
+          });
+        }
+
+        const parsed = result.parsed;
+
+        // Validate and filter output
+        const validWorldIds = new Set(worlds.map((w) => w.id));
+        const validChapterIds = new Set(chapters.map((c) => c.id));
+        const validContextIds = new Set(lifeContexts.map((lc) => lc.id));
+
+        const rawWorldLinks = Array.isArray(parsed.world_links) ? parsed.world_links : [];
+        const rawChapterLinks = Array.isArray(parsed.chapter_links) ? parsed.chapter_links : [];
+        const rawContextLinks = Array.isArray(parsed.context_links) ? parsed.context_links : [];
+
+        function isValidScore(s) {
+          return typeof s === 'number' && isFinite(s) && s >= 0 && s <= 1;
+        }
+
+        const validWorldLinks = rawWorldLinks.filter(
+          (l) => validWorldIds.has(l.world_id) && isValidScore(l.relevance_score),
+        );
+        const validChapterLinks = rawChapterLinks.filter(
+          (l) => validChapterIds.has(l.chapter_id) && isValidScore(l.relevance_score),
+        );
+        const validContextLinks = rawContextLinks.filter(
+          (l) => validContextIds.has(l.context_id) && isValidScore(l.relevance_score),
+        );
+
+        const discarded =
+          rawWorldLinks.length -
+          validWorldLinks.length +
+          (rawChapterLinks.length - validChapterLinks.length) +
+          (rawContextLinks.length - validContextLinks.length);
+        if (discarded > 0) {
+          console.log('[AssignWorlds] Discarded invalid links', {
+            discarded,
+            uid: uid.slice(0, 8),
+          });
+        }
+
+        const reasonRaw = typeof parsed.reason === 'string' ? parsed.reason : null;
+        const reason = reasonRaw ? reasonRaw.substring(0, 500) : null;
+
+        // Upsert to each link table independently
+        const upsertHeaders = {
+          ...supabaseHeaders,
+          Prefer: 'resolution=merge-duplicates,return=minimal',
+        };
+
+        let upsertedWorlds = 0;
+        let upsertedChapters = 0;
+        let upsertedContexts = 0;
+
+        if (validWorldLinks.length > 0) {
+          try {
+            const rows = validWorldLinks.map((l) => ({
+              drop_id: entityId,
+              drop_type: entityType,
+              world_id: l.world_id,
+              owner_id: uid,
+              relevance_score: l.relevance_score,
+              assigned_by: 'classifier',
+              reason,
+            }));
+            const res = await fetch(`${env.SUPABASE_URL}/rest/v1/drop_world_links`, {
+              method: 'POST',
+              headers: upsertHeaders,
+              body: JSON.stringify(rows),
+            });
+            if (res.ok) {
+              upsertedWorlds = rows.length;
+            } else {
+              const errText = await res.text().catch(() => '');
+              console.log('[AssignWorlds] drop_world_links upsert failed', {
+                status: res.status,
+                error: errText.substring(0, 200),
+              });
+            }
+          } catch (err) {
+            console.log('[AssignWorlds] drop_world_links upsert error', { error: err.message });
+          }
+        }
+
+        if (validChapterLinks.length > 0) {
+          try {
+            const rows = validChapterLinks.map((l) => ({
+              drop_id: entityId,
+              drop_type: entityType,
+              chapter_id: l.chapter_id,
+              owner_id: uid,
+              relevance_score: l.relevance_score,
+              assigned_by: 'classifier',
+              reason,
+            }));
+            const res = await fetch(`${env.SUPABASE_URL}/rest/v1/drop_chapter_links`, {
+              method: 'POST',
+              headers: upsertHeaders,
+              body: JSON.stringify(rows),
+            });
+            if (res.ok) {
+              upsertedChapters = rows.length;
+            } else {
+              const errText = await res.text().catch(() => '');
+              console.log('[AssignWorlds] drop_chapter_links upsert failed', {
+                status: res.status,
+                error: errText.substring(0, 200),
+              });
+            }
+          } catch (err) {
+            console.log('[AssignWorlds] drop_chapter_links upsert error', { error: err.message });
+          }
+        }
+
+        if (validContextLinks.length > 0) {
+          try {
+            const rows = validContextLinks.map((l) => ({
+              drop_id: entityId,
+              drop_type: entityType,
+              context_id: l.context_id,
+              owner_id: uid,
+              relevance_score: l.relevance_score,
+              assigned_by: 'classifier',
+              reason,
+            }));
+            const res = await fetch(`${env.SUPABASE_URL}/rest/v1/drop_context_links`, {
+              method: 'POST',
+              headers: upsertHeaders,
+              body: JSON.stringify(rows),
+            });
+            if (res.ok) {
+              upsertedContexts = rows.length;
+            } else {
+              const errText = await res.text().catch(() => '');
+              console.log('[AssignWorlds] drop_context_links upsert failed', {
+                status: res.status,
+                error: errText.substring(0, 200),
+              });
+            }
+          } catch (err) {
+            console.log('[AssignWorlds] drop_context_links upsert error', { error: err.message });
+          }
+        }
+
+        console.log('[AssignWorlds]', {
+          entity_id: entityId.slice(0, 8),
+          entity_type: entityType,
+          world_links: upsertedWorlds,
+          chapter_links: upsertedChapters,
+          context_links: upsertedContexts,
+          wasFallback: result.wasFallback,
+          latency_ms: latency,
+          uid: uid.slice(0, 8),
+        });
+
+        return j({
+          world_links: upsertedWorlds,
+          chapter_links: upsertedChapters,
+          context_links: upsertedContexts,
+          reason,
+          skipped: false,
+        });
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════════
       // JOURNAL ANALYZE (v4.2) - Analyze journal entries for themes & patterns
       // ═══════════════════════════════════════════════════════════════════════════
       //

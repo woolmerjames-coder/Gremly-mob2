@@ -7,49 +7,25 @@
  * Extract activity from current text
  */
 export function extractActivity(text: string): string | null {
-  // Direct activity mentions - check patterns in order of specificity
+  // Direct activity mentions
   const patterns = [
-    // Match "start/begin + activity" first (more specific)
-    /(?:start|begin)\s+([a-z]+ing)\b/i,
-    // Then "want to start/begin + activity"
-    /(?:want to|wanna)\s+(?:start|begin)\s+([a-z]+ing)\b/i,
-    // Simple "I want to + verb" (single word only)
-    /(?:i want to|i'd like to|i wanna|let's|i'm going to|i'll)\s+([a-z]+)\s*$/i,
-    // Other patterns - use anchors to avoid matching too much
-    /(?:habit for|trying to|planning to)\s+([a-z]+(?:ing)?)\b/i,
-    /(?:track|log|practice)\s+(?:my\s+)?([a-z]+(?:ing)?)\b/i,
-    /^([a-z]+(?:ing)?)\s+(?:habit|routine|practice)\b/i,
+    /(?:habit for|want to start|begin|trying to)\s+([^,.]+?)(?:\s+more|\s+regularly)?/i,
+    /(?:track|log|do|practice)\s+(?:my\s+)?([^,.]+?)(?:\s+habit|\s+routine)?/i,
+    /([^,.]+?)\s+(?:habit|routine|practice)/i,
+    /(?:start|begin)\s+([^,.]+?)(?:\s+more|\s+again)?/i,
   ];
 
   for (const pattern of patterns) {
     const match = text.match(pattern);
     if (match && match[1]) {
-      let activity = match[1]
+      const activity = match[1]
         .trim()
         .replace(/^(a|an|the|my)\s+/i, '')
         .replace(/\s+(more|regularly|daily|weekly|habit|routine)$/i, '');
 
-      // Convert gerunds to base form
-      if (activity.endsWith('ing')) {
-        // Handle double consonants: "running" -> "run", "jogging" -> "jog"
-        if (
-          activity.length > 4 &&
-          activity[activity.length - 4] === activity[activity.length - 5]
-        ) {
-          // Double consonant before 'ing': remove 'ing' and one consonant
-          activity = activity.slice(0, -4);
-        } else {
-          // No double consonant: just remove 'ing'
-          activity = activity.slice(0, -3);
-        }
-      }
-
       // Filter out non-activities
-      if (
-        !['it', 'this', 'that', 'habit', 'start', 'begin', 'do'].includes(activity.toLowerCase())
-      ) {
-        // Capitalize first letter
-        return activity.charAt(0).toUpperCase() + activity.slice(1);
+      if (!['it', 'this', 'that', 'habit'].includes(activity.toLowerCase())) {
+        return activity;
       }
     }
   }
@@ -127,14 +103,12 @@ export function extractActivityFromContext(currentText: string, recentMessages?:
     // Then check for activity keywords
     for (const activity of activityWords) {
       if (lowerMessage.includes(activity)) {
-        // Found the activity! Clean it up and capitalize
-        let cleaned = activity;
+        // Found the activity! Clean it up
         if (activity.endsWith('ing')) {
-          // Convert gerund to base form: "running" -> "Run"
-          cleaned = activity.replace(/ing$/, '').replace(/nn$/, 'n').replace(/mm$/, 'm');
+          // Convert gerund to base form: "running" -> "run"
+          return activity.replace(/ing$/, '').replace(/tt$/, 't').replace(/mm$/, 'm');
         }
-        // Capitalize first letter
-        return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+        return activity;
       }
     }
 

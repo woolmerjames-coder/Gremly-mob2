@@ -10,7 +10,6 @@ export type IntentKind =
   | 'reflection'
   | 'idea'
   | 'question'
-  | 'social' // Social interactions, compliments, gratitude - not actions
   | 'ambiguous'
   | 'habit_reminder' // Phase 11.2: Reminder configuration in habit context
   | 'none';

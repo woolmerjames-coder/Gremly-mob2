@@ -196,17 +196,19 @@ export function ManualAddOverlay({
       try {
         const inputText = payload.data.entry.trim();
 
-        if (DEBUG) {
-          console.log('[OVERLAY][CATCHALL] start', { len: inputText.length, classifyFlag });
-        }
+        console.log('[OVERLAY][CATCHALL] Classification check:', {
+          classifyFlag,
+          hasEntry: !!payload.data?.entry,
+          inputLength: payload.data?.entry?.length,
+        });
 
         let res: CortexOutput | null = null;
 
         if (classifyFlag && inputText) {
           try {
-            if (DEBUG) console.log('[OVERLAY][CATCHALL] invoking engine.classify...');
+            console.log('[OVERLAY][CATCHALL] Classification enabled, calling cortex.classify');
             res = await cortex.classify({ text: inputText, spaceId: null });
-            if (DEBUG) console.log('[OVERLAY][CATCHALL] result:', res);
+            console.log('[OVERLAY][CATCHALL] Classification result:', res);
           } catch (e) {
             if (DEBUG) console.error('[OVERLAY][CATCHALL] error, fallback:', String(e));
             // ManagedCortexEngine handles fallback to heuristic automatically
@@ -224,6 +226,7 @@ export function ManualAddOverlay({
         const trimmedText = inputText.trim();
 
         if (!res) {
+          console.log('[OVERLAY][CATCHALL] Classification skipped or no result');
           finalPayload = {
             type: 'note',
             title: trimmedText || 'Quick note',

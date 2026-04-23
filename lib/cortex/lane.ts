@@ -27,13 +27,4 @@ export interface CortexContextBase {
   contextWindow?: Array<{ role: 'user' | 'assistant'; text: string }>;
   /** Phase 11.2: Track consecutive questions to prevent overload */
   consecutiveQuestions?: number;
-  /** Phase 14: Conversation context for cross-message memory */
-  conversationContext?: {
-    lastActivity?: string | null;
-    lastFrequency?: string | null;
-    lastDuration?: string | null;
-    contextExpiry?: number;
-    buildingMode?: 'habit' | 'todo' | 'note' | null;
-    buildingStartedAt?: number;
-  };
 }
