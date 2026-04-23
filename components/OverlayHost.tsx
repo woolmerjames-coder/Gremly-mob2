@@ -18,6 +18,7 @@ import { ActivityLog, type ActivityEvent } from '../lib/activityLog';
 import { emitOverlaySaved, type OverlaySavedPayload } from '../lib/events/overlaySaved';
 import SpaceAssignmentActionSheet from './spaces/SpaceAssignmentActionSheet';
 import WorldMenuSheet from './worlds/sheets/WorldMenuSheet';
+import ChapterMenuSheet from './worlds/sheets/ChapterMenuSheet';
 
 registerSheet('demo-sheet', ({ sheetId }) => {
   return (
@@ -40,6 +41,9 @@ registerSheet('space-assignment', SpaceAssignmentActionSheet);
 
 // World-level actions sheet
 registerSheet('world-menu', WorldMenuSheet);
+
+// Chapter-level actions sheet
+registerSheet('chapter-menu', ChapterMenuSheet);
 
 type DestinationPickerPayload = {
   itemId: string;

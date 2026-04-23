@@ -1,9 +1,10 @@
 import { View, Pressable, StyleSheet } from 'react-native';
-import { format, differenceInCalendarDays } from 'date-fns';
+import { differenceInCalendarDays } from 'date-fns';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
 import { useWorldPalette } from '../../lib/store/worldsSelectors';
 import { getDateService } from '../../lib/date';
+import { resolveChapterLabel, resolveChapterPhases } from '../../lib/worlds/chapterDisplay';
 import type { Chapter } from '../../lib/supabase/types';
 
 interface CurrentChapterBigCardProps {
@@ -14,15 +15,6 @@ interface CurrentChapterBigCardProps {
 
 function truncate(text: string, max: number): string {
   return text.length > max ? text.slice(0, max).trimEnd() + '…' : text;
-}
-
-function resolveLabel(chapter: Chapter): string {
-  const typePart = chapter.chapter_type.toUpperCase();
-  if (chapter.start_date) {
-    const since = format(new Date(chapter.start_date), 'MMM d');
-    return `CURRENT CHAPTER · ${typePart} · SINCE ${since}`;
-  }
-  return `CURRENT CHAPTER · ${typePart}`;
 }
 
 function resolveCountdown(chapter: Chapter): string | null {
@@ -42,31 +34,11 @@ function resolveCountdown(chapter: Chapter): string | null {
   return null;
 }
 
-function resolvePhaseBar(chapter: Chapter): { segments: boolean[]; label: string } {
-  if (chapter.phase_labels && chapter.phase_labels.length > 0 && chapter.current_phase_key) {
-    const idx = chapter.phase_labels.indexOf(chapter.current_phase_key);
-    const label = idx >= 0 ? chapter.phase_labels[idx].toUpperCase() : '';
-    return {
-      segments: chapter.phase_labels.map((_, i) => i <= idx),
-      label,
-    };
-  }
-  switch (chapter.chapter_type) {
-    case 'milestone':
-      return { segments: [true, false, false], label: 'BUILDING' };
-    case 'bounded':
-      return { segments: [true, false, false], label: 'STARTING' };
-    case 'season':
-    default:
-      return { segments: [true, false, false], label: 'EARLY' };
-  }
-}
-
 export function CurrentChapterBigCard({ chapter, worldId, onPress }: CurrentChapterBigCardProps) {
   const palette = useWorldPalette(worldId);
-  const label = resolveLabel(chapter);
+  const label = resolveChapterLabel(chapter);
   const countdown = resolveCountdown(chapter);
-  const phase = resolvePhaseBar(chapter);
+  const phase = resolveChapterPhases(chapter);
   const summary = chapter.target_summary ?? chapter.target_description ?? chapter.description;
 
   return (
