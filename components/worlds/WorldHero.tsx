@@ -2,16 +2,16 @@ import { View, StyleSheet } from 'react-native';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
 import MascotIcon from '../MascotIcon';
-import { useWorldPalette } from '../../lib/store/worldsSelectors';
+import { useWorldPalette, useWorldNarrative } from '../../lib/store/worldsSelectors';
 import type { World } from '../../lib/supabase/types';
 
 interface WorldHeroProps {
   world: World;
-  narrativeQuote?: string | null;
 }
 
-export function WorldHero({ world, narrativeQuote }: WorldHeroProps) {
+export function WorldHero({ world }: WorldHeroProps) {
   const palette = useWorldPalette(world.id);
+  const narrative = useWorldNarrative(world.id);
   const { label, color } = resolveVelocityChip(world, palette);
   const velocityText = formatVelocityNumber(world.signal_velocity);
 
@@ -24,13 +24,7 @@ export function WorldHero({ world, narrativeQuote }: WorldHeroProps) {
           {label}
           {velocityText ? ` · ${velocityText}` : ''}
         </Text>
-        {narrativeQuote ? (
-          <Text style={styles.quote}>{narrativeQuote}</Text>
-        ) : (
-          <Text style={styles.quotePlaceholder}>
-            Your pattern for this world appears here after your next weekly summary.
-          </Text>
-        )}
+        {narrative ? <Text style={styles.quote}>{narrative}</Text> : null}
       </View>
     </View>
   );
@@ -46,7 +40,7 @@ function resolveVelocityChip(
     case 'stable':
       return { label: 'STEADY', color: lightTokens.colors.ambergoldDeep };
     case 'declining':
-      return { label: 'COOLING', color: 'rgba(15,47,32,0.6)' };
+      return { label: 'COOLING', color: lightTokens.colors.worldsInkMute };
     default:
       return { label: 'STEADY', color: lightTokens.colors.ambergoldDeep };
   }
@@ -66,9 +60,9 @@ const styles = StyleSheet.create({
     marginTop: 10,
     padding: 14,
     paddingHorizontal: 16,
-    backgroundColor: 'rgba(250,244,222,0.85)',
+    backgroundColor: lightTokens.colors.oatCard,
     borderWidth: 1,
-    borderColor: 'rgba(26,58,40,0.05)',
+    borderColor: lightTokens.colors.oatCardBorder,
     borderRadius: 16,
     flexDirection: 'row',
     alignItems: 'center',
@@ -86,15 +80,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     fontSize: 13,
     lineHeight: 19,
-    color: lightTokens.colors.deepForest,
-    marginTop: 6,
-  },
-  quotePlaceholder: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 12,
-    lineHeight: 17,
-    color: lightTokens.colors.warmGrey,
-    fontStyle: 'italic',
+    color: lightTokens.colors.worldsInk,
     marginTop: 6,
   },
 });
