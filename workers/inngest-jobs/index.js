@@ -6776,7 +6776,11 @@ async function updateLifeMapAndFocus(lifeMap, worldPictureText, env, context = {
     if (!Array.isArray(kp) || kp.length === 0) return '(none)';
     return kp
       .slice(0, 5)
-      .map((p) => `#${p.rank ?? '?'} [${p.kind ?? '?'}] ${p.text ?? ''}`)
+      .map((p) => {
+        const date = p.due_date ? ` due ${p.due_date}` : '';
+        const ref = p.entity_ref ? ` ref:${p.entity_ref}` : '';
+        return `#${p.rank ?? '?'} [${p.kind ?? '?'}] ${p.text ?? ''}${date}${ref}`;
+      })
       .join(' ; ');
   };
 
@@ -6870,6 +6874,7 @@ JOB 5 - PER-WORLD AND CHAPTER OVERRIDES
 This job uses the ACTIVE WORLDS and ACTIVE CHAPTERS lists. If those lists are empty, emit empty arrays and skip this job.
 
 DEFAULT BEHAVIOR IS TO NOT OVERRIDE. For each world and chapter, the current card_subtitle and key_priorities were authored by the weekly classifier based on the full 4-week window and are assumed correct. You override only when today's or this week's data adds information the classifier could not have known.
+The weekly classifier ran recently and already knew about every ongoing arc, every stable theme, and every ongoing sprint. An override is only warranted when a specific new fact has landed that the classifier did not have: a date that has moved closer, a completion that has shifted the priority order, a chapter that transitioned phase, a calendar event that is now imminent. If today's data only reflects the same ongoing arc the classifier already captured, do not override. Reiterating an existing theme in different words is drift.
 
 A card_subtitle override requires ONE of these grounded triggers, which you must be able to point to in the data:
 1. A calendar event or dated item within the next 3 days for this world or chapter that is not reflected in the current subtitle.
@@ -6887,7 +6892,17 @@ For each chapter in ACTIVE CHAPTERS, apply the same strict evaluation. Emit a ch
 
 key_priorities items each have rank (integer 1-5), text (up to 100 characters), kind (one of: action, date, blocker, momentum, decision), optional entity_ref string, optional due_date ISO date string, and confidence (0-1 number).
 
-Style rules for overridden card_subtitle strings. Maximum 60 characters. Never use em dashes, en dashes, or double hyphens. Never use ampersands except inside literal proper nouns. Plain second person, no rhetorical flourish. If you cannot produce an improved subtitle within these rules, return null.
+Style rules for overridden card_subtitle strings.
+
+Maximum 60 characters. Never use em dashes, en dashes, or double hyphens. Never use ampersands except inside literal proper nouns.
+
+Match the classifier's voice: a declarative present-tense or present-continuous phrase without second-person pronouns. Do not start with "You are", "You have", "You're", or similar. Examples of the intended style: "Racing toward public launch before end of April", "Habits holding through a busy social stretch", "Dave's birthday approaches as you plan family visits", "Clearing final blockers before public launch". Do not write second-person sentences like "You are making progress" or "You have been working hard".
+
+Every override subtitle must contain at least one concrete anchor: a proper noun (person, place, event name), a temporal reference (a date, a day-of-week, "today", "tomorrow", "this week", "in N days"), or a quantified state change (a specific completion, a transition). If you cannot include a concrete anchor, return null instead. Generic progress language like "solid progress", "making headway", "good momentum" is not an override; it is drift.
+
+If the classifier's current card_subtitle already contains a temporal anchor (a date, a deadline, a day reference), you must either preserve that anchor or replace it with an equally or more specific anchor. Stripping a temporal anchor and replacing with generic progress language is never a valid override — return null instead.
+
+If you cannot produce an override that matches these rules AND is materially more accurate than the classifier's current subtitle, return null.
 
 CRITICAL:
 - lead_story and secondary MUST use exact domain and thread names from the Life Map.
