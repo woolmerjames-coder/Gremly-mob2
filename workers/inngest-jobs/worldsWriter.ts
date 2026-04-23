@@ -19,9 +19,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
-import type {
-  ClassifierOutput,
-} from './worldsClassifier';
+import type { ClassifierOutput } from './worldsClassifier';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -37,6 +35,7 @@ export interface WriteResult {
   life_contexts: { inserted: number; existing: number };
   velocity_updates: number;
   chapter_world_links_inserted: number;
+  worlds_summary_written: boolean;
   applied: { reactivation_proposals: number };
   deferred: { reclassification_proposals: number; evolution_proposals: number };
   errors: string[];
@@ -79,6 +78,7 @@ export async function writeClassifierOutput(
     life_contexts: { inserted: 0, existing: 0 },
     velocity_updates: 0,
     chapter_world_links_inserted: 0,
+    worlds_summary_written: false,
     applied: { reactivation_proposals: 0 },
     deferred: { reclassification_proposals: 0, evolution_proposals: 0 },
     errors: [],
@@ -86,8 +86,14 @@ export async function writeClassifierOutput(
 
   // ── Step 1: load existing state ───────────────────────────────
   const [worldsRes, chaptersRes, lcRes] = await Promise.all([
-    db.from('worlds').select('id, name').eq('owner_id', ownerId),
-    db.from('chapters').select('id, title, primary_world_id').eq('owner_id', ownerId),
+    db
+      .from('worlds')
+      .select('id, name, card_subtitle_source, summary_source')
+      .eq('owner_id', ownerId),
+    db
+      .from('chapters')
+      .select('id, title, primary_world_id, card_subtitle_source, summary_source')
+      .eq('owner_id', ownerId),
     db.from('life_contexts').select('id, name, kind').eq('owner_id', ownerId),
   ]);
 
@@ -107,11 +113,32 @@ export async function writeClassifierOutput(
     existingWorlds.set((w.name as string).toLowerCase().trim(), w.id as string);
   }
 
+  // Map: world_id → source protection flags
+  const worldSourceProtection = new Map<string, { noCardSubtitle: boolean; noSummary: boolean }>();
+  for (const w of worldsRes.data ?? []) {
+    worldSourceProtection.set(w.id as string, {
+      noCardSubtitle: (w.card_subtitle_source as string | null) === 'user',
+      noSummary: (w.summary_source as string | null) === 'user',
+    });
+  }
+
   // Map: `${normalised_title}::${primary_world_id ?? ''}` → id
   const existingChapters = new Map<string, string>();
   for (const c of chaptersRes.data ?? []) {
     const key = `${(c.title as string).toLowerCase().trim()}::${c.primary_world_id ?? ''}`;
     existingChapters.set(key, c.id as string);
+  }
+
+  // Map: chapter_id → source protection flags
+  const chapterSourceProtection = new Map<
+    string,
+    { noCardSubtitle: boolean; noSummary: boolean }
+  >();
+  for (const c of chaptersRes.data ?? []) {
+    chapterSourceProtection.set(c.id as string, {
+      noCardSubtitle: (c.card_subtitle_source as string | null) === 'user',
+      noSummary: (c.summary_source as string | null) === 'user',
+    });
   }
 
   // Map: `${normalised_name}::${kind}` → id
@@ -134,7 +161,15 @@ export async function writeClassifierOutput(
       .insert({
         owner_id: ownerId,
         name: candidate.proposed_name,
+        display_name: candidate.display_name,
         description: candidate.description,
+        card_subtitle: candidate.card_subtitle,
+        card_subtitle_source: 'classifier',
+        card_subtitle_updated_at: now(),
+        summary: candidate.summary,
+        key_priorities: candidate.key_priorities,
+        summary_source: 'classifier',
+        summary_updated_at: now(),
         archetypes: candidate.archetypes,
         phase: 'candidate',
         source: 'classifier',
@@ -148,7 +183,9 @@ export async function writeClassifierOutput(
       .select('id')
       .single();
     if (error || !data) {
-      result.errors.push(`insert world '${candidate.proposed_name}': ${error?.message ?? 'no data'}`);
+      result.errors.push(
+        `insert world '${candidate.proposed_name}': ${error?.message ?? 'no data'}`,
+      );
       continue;
     }
     existingWorlds.set(key, data.id as string);
@@ -158,9 +195,7 @@ export async function writeClassifierOutput(
   // ── Step 3: insert new chapters ───────────────────────────────
   for (const candidate of output.new_chapter_candidates) {
     if (candidate.confidence < 0.5) continue;
-    const primaryWorldId = existingWorlds.get(
-      candidate.primary_world_name.toLowerCase().trim(),
-    );
+    const primaryWorldId = existingWorlds.get(candidate.primary_world_name.toLowerCase().trim());
     if (primaryWorldId === undefined) {
       result.errors.push(
         `chapter '${candidate.proposed_title}' references unknown world '${candidate.primary_world_name}'`,
@@ -184,6 +219,16 @@ export async function writeClassifierOutput(
         end_date: candidate.end_date,
         primary_world_id: primaryWorldId,
         target_description: candidate.target_description,
+        target_summary: candidate.target_summary,
+        card_subtitle: candidate.card_subtitle,
+        card_subtitle_source: 'classifier',
+        card_subtitle_updated_at: now(),
+        summary: candidate.summary,
+        key_priorities: candidate.key_priorities,
+        summary_source: 'classifier',
+        summary_updated_at: now(),
+        phase_labels: candidate.phase_labels,
+        current_phase_key: candidate.current_phase_key,
         source: 'classifier',
         confidence: candidate.confidence,
         proposed_at: now(),
@@ -285,15 +330,25 @@ export async function writeClassifierOutput(
       patch.phase = 'closed';
       patch.closed_at = now();
     }
+    const chapterProt = chapterSourceProtection.get(update.chapter_id);
+    if (update.new_card_subtitle != null && !chapterProt?.noCardSubtitle) {
+      patch.card_subtitle = update.new_card_subtitle;
+      patch.card_subtitle_source = 'classifier';
+      patch.card_subtitle_updated_at = now();
+    }
+    if (update.new_summary != null && !chapterProt?.noSummary) {
+      patch.summary = update.new_summary;
+      patch.key_priorities = update.new_key_priorities ?? [];
+      patch.summary_source = 'classifier';
+      patch.summary_updated_at = now();
+    }
     const { error: updateError } = await db
       .from('chapters')
       .update(patch)
       .eq('id', update.chapter_id)
       .eq('owner_id', ownerId);
     if (updateError) {
-      result.errors.push(
-        `chapter_update '${update.chapter_id}': ${updateError.message}`,
-      );
+      result.errors.push(`chapter_update '${update.chapter_id}': ${updateError.message}`);
       continue;
     }
     if (update.close_chapter) {
@@ -314,6 +369,18 @@ export async function writeClassifierOutput(
     };
     if (vu.recommend_dormant) {
       patch.phase = 'dormant';
+    }
+    const worldProt = worldSourceProtection.get(vu.world_id);
+    if (vu.new_card_subtitle != null && !worldProt?.noCardSubtitle) {
+      patch.card_subtitle = vu.new_card_subtitle;
+      patch.card_subtitle_source = 'classifier';
+      patch.card_subtitle_updated_at = now();
+    }
+    if (vu.new_summary != null && !worldProt?.noSummary) {
+      patch.summary = vu.new_summary;
+      patch.key_priorities = vu.new_key_priorities ?? [];
+      patch.summary_source = 'classifier';
+      patch.summary_updated_at = now();
     }
     const { error: vuError } = await db
       .from('worlds')
@@ -341,9 +408,7 @@ export async function writeClassifierOutput(
       .eq('owner_id', ownerId)
       .eq('phase', 'dormant');
     if (reactError) {
-      result.errors.push(
-        `reactivation_proposal '${proposal.world_id}': ${reactError.message}`,
-      );
+      result.errors.push(`reactivation_proposal '${proposal.world_id}': ${reactError.message}`);
       continue;
     }
     result.applied.reactivation_proposals++;
@@ -372,12 +437,35 @@ export async function writeClassifierOutput(
       payload_json: { ...proposal, run_id },
     });
     if (evoError) {
-      result.errors.push(
-        `defer evolution_proposal '${proposal.event_type}': ${evoError.message}`,
-      );
+      result.errors.push(`defer evolution_proposal '${proposal.event_type}': ${evoError.message}`);
       continue;
     }
     result.deferred.evolution_proposals++;
+  }
+
+  // ── Step 8b: write worlds_summary to user_daily_state ────────
+  if (output.worlds_summary) {
+    const today = now().slice(0, 10);
+    const existingDsoRes = await db
+      .from('user_daily_state')
+      .select('dco')
+      .eq('user_id', ownerId)
+      .eq('date', today)
+      .maybeSingle();
+    const existingDco = (existingDsoRes.data?.dco as Record<string, unknown>) ?? {};
+    const { error: dsError } = await db.from('user_daily_state').upsert(
+      {
+        user_id: ownerId,
+        date: today,
+        dco: { ...existingDco, worlds_summary: output.worlds_summary },
+      },
+      { onConflict: 'user_id,date' },
+    );
+    if (dsError) {
+      result.errors.push(`worlds_summary upsert to user_daily_state: ${dsError.message}`);
+    } else {
+      result.worlds_summary_written = true;
+    }
   }
 
   // ── Step 9: run-completed event ───────────────────────────────
