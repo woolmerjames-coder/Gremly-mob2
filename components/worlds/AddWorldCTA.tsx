@@ -9,7 +9,7 @@ interface AddWorldCTAProps {
 
 export function AddWorldCTA({ onPress }: AddWorldCTAProps) {
   return (
-    <Pressable onPress={onPress} style={styles.card} testID="add-world-cta">
+    <Pressable onPress={onPress} style={styles.row} testID="add-world-cta">
       <Plus size={18} color={lightTokens.colors.warmGrey} />
       <Text style={styles.label}>add world</Text>
     </Pressable>
@@ -17,21 +17,21 @@ export function AddWorldCTA({ onPress }: AddWorldCTAProps) {
 }
 
 const styles = StyleSheet.create({
-  card: {
-    borderWidth: 1.5,
+  row: {
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
     borderStyle: 'dashed',
     borderColor: lightTokens.colors.worldsInkOutline,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    height: 140,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 3,
+    gap: 8,
+    backgroundColor: 'transparent',
   },
   label: {
     fontFamily: 'Inter-Medium',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
     color: lightTokens.colors.warmGrey,
   },

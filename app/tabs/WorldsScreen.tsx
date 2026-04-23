@@ -4,7 +4,6 @@ import { useState, useCallback } from 'react';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { lightTokens } from '../../design/tokens';
-import { Text } from '../../ui';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { WorldsHeader } from '../../components/worlds/WorldsHeader';
@@ -72,10 +71,9 @@ export default function WorldsScreen() {
         <ProposalBanner onPress={handlePressProposals} />
         <WeeklySummaryCard onPressNew={handlePressWeeklySummary} />
         <PastSummariesLink />
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionLabel}>WORLDS</Text>
+        <View style={{ marginTop: 20 }}>
+          <WorldsGrid onPressWorld={handlePressWorld} onPressAdd={handlePressAdd} />
         </View>
-        <WorldsGrid onPressWorld={handlePressWorld} onPressAdd={handlePressAdd} />
         <ContextsChipRow />
         <OpenChaptersSection onPressChapter={handlePressChapter} />
         <RecentClosedChaptersSection onPressChapter={handlePressChapter} />
@@ -89,17 +87,4 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: lightTokens.colors.worldsSurface },
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 100 },
-  sectionHeader: {
-    marginTop: 18,
-    paddingHorizontal: 22,
-    paddingBottom: 10,
-  },
-  sectionLabel: {
-    fontFamily: 'Inter-Medium',
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-    color: lightTokens.colors.warmGrey,
-    textTransform: 'uppercase',
-  },
 });
