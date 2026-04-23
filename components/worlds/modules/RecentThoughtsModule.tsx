@@ -4,12 +4,14 @@ import { lightTokens } from '../../../design/tokens';
 import { Text } from '../../../ui';
 import { ModuleSection } from './ModuleSection';
 import { useWorldDrops } from '../../../lib/store/worldsSelectors';
+import { useUnifiedOverlayController } from '../../../hooks/useUnifiedOverlayController';
 import type { WorldModuleProps } from './types';
 import type { Note } from '../../../lib/types';
 
 const CAP = 4;
 
 export function RecentThoughtsModule({ world }: WorldModuleProps) {
+  const { openEdit } = useUnifiedOverlayController();
   const drops = useWorldDrops(world.id);
   const thoughts = drops.notes.filter((n) => n.subtype !== 'journal');
   if (thoughts.length === 0) return null;
@@ -18,17 +20,13 @@ export function RecentThoughtsModule({ world }: WorldModuleProps) {
     (b.created_at ?? '').localeCompare(a.created_at ?? ''),
   );
   const visible = sorted.slice(0, CAP);
-  const onSeeAll =
-    sorted.length > CAP ? () => console.log('[RecentThoughtsModule] see all', world.id) : undefined;
+  // TODO(4a.5): navigate to all-thoughts-for-world view
+  const onSeeAll = undefined;
 
   return (
     <ModuleSection label={`RECENT THOUGHTS \u00B7 ${thoughts.length}`} seeAllOnPress={onSeeAll}>
       {visible.map((n) => (
-        <ThoughtCard
-          key={n.id}
-          note={n}
-          onPress={() => console.log('[RecentThoughtsModule] tap', n.id)}
-        />
+        <ThoughtCard key={n.id} note={n} onPress={() => openEdit({ record: n })} />
       ))}
     </ModuleSection>
   );
@@ -72,9 +70,9 @@ const styles = StyleSheet.create({
     marginBottom: 5,
     padding: 11,
     paddingHorizontal: 13,
-    backgroundColor: 'rgba(250,244,222,0.85)',
+    backgroundColor: lightTokens.colors.oatCard,
     borderWidth: 1,
-    borderColor: 'rgba(26,58,40,0.05)',
+    borderColor: lightTokens.colors.oatCardBorder,
     borderRadius: 12,
   },
   title: {
@@ -83,7 +81,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: 17,
     letterSpacing: -0.1,
-    color: lightTokens.colors.deepForest,
+    color: lightTokens.colors.worldsInk,
   },
   meta: {
     fontFamily: 'Inter-Regular',

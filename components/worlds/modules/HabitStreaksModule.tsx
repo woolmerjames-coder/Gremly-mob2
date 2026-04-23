@@ -5,20 +5,22 @@ import { lightTokens } from '../../../design/tokens';
 import { Text } from '../../../ui';
 import { ModuleSection } from './ModuleSection';
 import { useWorldDrops, useWorldPalette } from '../../../lib/store/worldsSelectors';
+import { useUnifiedOverlayController } from '../../../hooks/useUnifiedOverlayController';
 import type { WorldModuleProps } from './types';
 import type { Habit } from '../../../lib/types';
 
 const CAP = 4;
 
 export function HabitStreaksModule({ world }: WorldModuleProps) {
+  const { openEdit } = useUnifiedOverlayController();
   const drops = useWorldDrops(world.id);
   const palette = useWorldPalette(world.id);
   const active = drops.habits.filter((h) => !h.archived);
   if (active.length === 0) return null;
 
   const visible = active.slice(0, CAP);
-  const onSeeAll =
-    active.length > CAP ? () => console.log('[HabitStreaksModule] see all', world.id) : undefined;
+  // TODO(4a.5): navigate to all-habits-for-world view
+  const onSeeAll = undefined;
 
   return (
     <ModuleSection label={`HABIT STREAKS \u00b7 ${active.length} ACTIVE`} seeAllOnPress={onSeeAll}>
@@ -27,7 +29,7 @@ export function HabitStreaksModule({ world }: WorldModuleProps) {
           key={h.id}
           habit={h}
           accent={palette.dot}
-          onPress={() => console.log('[HabitStreaksModule] tap', h.id)}
+          onPress={() => openEdit({ record: h })}
         />
       ))}
     </ModuleSection>
@@ -76,9 +78,9 @@ const styles = StyleSheet.create({
     marginBottom: 5,
     padding: 11,
     paddingHorizontal: 13,
-    backgroundColor: 'rgba(250,244,222,0.85)',
+    backgroundColor: lightTokens.colors.oatCard,
     borderWidth: 1,
-    borderColor: 'rgba(26,58,40,0.05)',
+    borderColor: lightTokens.colors.oatCardBorder,
     borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
@@ -97,7 +99,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Medium',
     fontSize: 13,
     fontWeight: '600',
-    color: lightTokens.colors.deepForest,
+    color: lightTokens.colors.worldsInk,
   },
   meta: {
     fontFamily: 'Inter-Regular',

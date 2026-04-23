@@ -6,12 +6,14 @@ import { Text } from '../../../ui';
 import { ModuleSection } from './ModuleSection';
 import { useWorldDrops, useWorldPalette } from '../../../lib/store/worldsSelectors';
 import { getDateService } from '../../../lib/date/DateService';
+import { useUnifiedOverlayController } from '../../../hooks/useUnifiedOverlayController';
 import type { WorldModuleProps } from './types';
 import type { Todo } from '../../../lib/types';
 
 const CAP = 5;
 
 export function NextActionsModule({ world }: WorldModuleProps) {
+  const { openEdit } = useUnifiedOverlayController();
   const drops = useWorldDrops(world.id);
   const palette = useWorldPalette(world.id);
   const open = drops.todos.filter((t) => !t.completed_at);
@@ -27,18 +29,13 @@ export function NextActionsModule({ world }: WorldModuleProps) {
   });
   const visible = sorted.slice(0, CAP);
 
-  const onSeeAll =
-    sorted.length > CAP ? () => console.log('[NextActionsModule] see all', world.id) : undefined;
+  // TODO(4a.5): navigate to all-todos-for-world view
+  const onSeeAll = undefined;
 
   return (
     <ModuleSection label={`NEXT ACTIONS \u00b7 ${open.length} OPEN`} seeAllOnPress={onSeeAll}>
       {visible.map((t) => (
-        <TodoRow
-          key={t.id}
-          todo={t}
-          accent={palette.dot}
-          onPress={() => console.log('[NextActionsModule] tap', t.id)}
-        />
+        <TodoRow key={t.id} todo={t} accent={palette.dot} onPress={() => openEdit({ record: t })} />
       ))}
     </ModuleSection>
   );
@@ -81,9 +78,9 @@ const styles = StyleSheet.create({
     marginBottom: 5,
     padding: 11,
     paddingHorizontal: 13,
-    backgroundColor: 'rgba(250,244,222,0.85)',
+    backgroundColor: lightTokens.colors.oatCard,
     borderWidth: 1,
-    borderColor: 'rgba(26,58,40,0.05)',
+    borderColor: lightTokens.colors.oatCardBorder,
     borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
@@ -101,7 +98,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
     lineHeight: 17,
-    color: lightTokens.colors.deepForest,
+    color: lightTokens.colors.worldsInk,
   },
   due: {
     fontFamily: 'Inter-Medium',

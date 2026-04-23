@@ -1,12 +1,16 @@
 import { View, Pressable, StyleSheet } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { lightTokens } from '../../../design/tokens';
 import { Text } from '../../../ui';
 import { ModuleSection } from './ModuleSection';
 import { useWorldPeople } from '../../../lib/store/worldsSelectors';
 import { avatarForIndex } from '../../../lib/worlds/peopleAvatars';
+import type { RootStackParamList } from '../../../navigation/RootNavigator';
 import type { WorldModuleProps } from './types';
 
 export function PeopleInvolvedModule({ world }: WorldModuleProps) {
+  const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const people = useWorldPeople(world.id);
   if (people.length === 0) return null;
 
@@ -18,7 +22,7 @@ export function PeopleInvolvedModule({ world }: WorldModuleProps) {
           return (
             <Pressable
               key={p.id}
-              onPress={() => console.log('[PeopleInvolvedModule] tap', p.id)}
+              onPress={() => nav.navigate('PersonDetail', { personName: p.name })}
               style={styles.item}
               testID={`world-person-${p.id}`}
             >

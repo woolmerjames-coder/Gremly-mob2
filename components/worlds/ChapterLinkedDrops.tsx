@@ -2,6 +2,7 @@ import { View, Pressable, StyleSheet } from 'react-native';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
 import { useChapterDrops } from '../../lib/store/worldsSelectors';
+import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import type { Chapter } from '../../lib/supabase/types';
 import type { Todo, Note } from '../../lib/types';
 
@@ -10,6 +11,7 @@ interface ChapterLinkedDropsProps {
 }
 
 export function ChapterLinkedDrops({ chapter }: ChapterLinkedDropsProps) {
+  const { openEdit } = useUnifiedOverlayController();
   const drops = useChapterDrops(chapter.id);
   const open = drops.todos.filter((t) => !t.completed_at).slice(0, 5);
   const openCount = drops.todos.filter((t) => !t.completed_at).length;
@@ -26,10 +28,16 @@ export function ChapterLinkedDrops({ chapter }: ChapterLinkedDropsProps) {
         <>
           <SectionHeader
             label={`TO DO · ${openCount} OPEN`}
-            onSeeAll={openCount > 5 ? () => console.log('see all open') : undefined}
+            onSeeAll={
+              openCount > 5
+                ? () => {
+                    /* TODO(4a.5): all open todos for chapter */
+                  }
+                : undefined
+            }
           />
           {open.map((t) => (
-            <TodoRow key={t.id} todo={t} />
+            <TodoRow key={t.id} todo={t} onPress={() => openEdit({ record: t })} />
           ))}
         </>
       ) : null}
@@ -38,7 +46,13 @@ export function ChapterLinkedDrops({ chapter }: ChapterLinkedDropsProps) {
         <>
           <SectionHeader
             label={`DONE RECENTLY · ${doneCount}`}
-            onSeeAll={doneCount > 4 ? () => console.log('see all done') : undefined}
+            onSeeAll={
+              doneCount > 4
+                ? () => {
+                    /* TODO(4a.5): all done todos for chapter */
+                  }
+                : undefined
+            }
           />
           {done.map((t) => (
             <TodoRow key={t.id} todo={t} done />
@@ -50,10 +64,16 @@ export function ChapterLinkedDrops({ chapter }: ChapterLinkedDropsProps) {
         <>
           <SectionHeader
             label="THOUGHTS IN THIS CHAPTER"
-            onSeeAll={drops.notes.length > 3 ? () => console.log('see all notes') : undefined}
+            onSeeAll={
+              drops.notes.length > 3
+                ? () => {
+                    /* TODO(4a.5): all notes for chapter */
+                  }
+                : undefined
+            }
           />
           {notes.map((n) => (
-            <ThoughtRow key={n.id} note={n} />
+            <ThoughtRow key={n.id} note={n} onPress={() => openEdit({ record: n })} />
           ))}
         </>
       ) : null}
@@ -74,22 +94,22 @@ function SectionHeader({ label, onSeeAll }: { label: string; onSeeAll?: () => vo
   );
 }
 
-function TodoRow({ todo, done }: { todo: Todo; done?: boolean }) {
+function TodoRow({ todo, done, onPress }: { todo: Todo; done?: boolean; onPress?: () => void }) {
   return (
-    <View style={todoStyles.row}>
+    <Pressable onPress={onPress} style={todoStyles.row}>
       <View style={[todoStyles.chk, done && todoStyles.chkOn]}>
         {done ? <View style={todoStyles.chkMark} /> : null}
       </View>
       <Text style={[todoStyles.text, done && todoStyles.textDone]} numberOfLines={2}>
         {todo.title || todo.name || '(untitled)'}
       </Text>
-    </View>
+    </Pressable>
   );
 }
 
-function ThoughtRow({ note }: { note: Note }) {
+function ThoughtRow({ note, onPress }: { note: Note; onPress: () => void }) {
   return (
-    <Pressable onPress={() => console.log('thought tap', note.id)} style={thoughtStyles.row}>
+    <Pressable onPress={onPress} style={thoughtStyles.row}>
       <Text style={thoughtStyles.title} numberOfLines={2}>
         {note.title || 'untitled'}
       </Text>
@@ -122,7 +142,7 @@ const sectionStyles = StyleSheet.create({
     fontFamily: 'Inter-Medium',
     fontSize: 11,
     fontWeight: '600',
-    color: lightTokens.colors.deepForest,
+    color: lightTokens.colors.worldsInk,
   },
 });
 
@@ -132,9 +152,9 @@ const todoStyles = StyleSheet.create({
     marginBottom: 5,
     padding: 11,
     paddingHorizontal: 13,
-    backgroundColor: 'rgba(250,244,222,0.85)',
+    backgroundColor: lightTokens.colors.oatCard,
     borderWidth: 1,
-    borderColor: 'rgba(26,58,40,0.05)',
+    borderColor: lightTokens.colors.oatCardBorder,
     borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
@@ -144,12 +164,15 @@ const todoStyles = StyleSheet.create({
     width: 19,
     height: 19,
     borderWidth: 1.8,
-    borderColor: '#97AF8F',
+    borderColor: lightTokens.colors.doneCheck,
     borderRadius: 5,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  chkOn: { backgroundColor: '#97AF8F', borderColor: '#97AF8F' },
+  chkOn: {
+    backgroundColor: lightTokens.colors.doneCheck,
+    borderColor: lightTokens.colors.doneCheck,
+  },
   chkMark: {
     width: 4,
     height: 8,
@@ -165,9 +188,9 @@ const todoStyles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
     lineHeight: 17,
-    color: lightTokens.colors.deepForest,
+    color: lightTokens.colors.worldsInk,
   },
-  textDone: { textDecorationLine: 'line-through', color: '#A59E88' },
+  textDone: { textDecorationLine: 'line-through', color: lightTokens.colors.doneTextMuted },
 });
 
 const thoughtStyles = StyleSheet.create({
@@ -176,9 +199,9 @@ const thoughtStyles = StyleSheet.create({
     marginBottom: 5,
     padding: 11,
     paddingHorizontal: 13,
-    backgroundColor: 'rgba(250,244,222,0.85)',
+    backgroundColor: lightTokens.colors.oatCard,
     borderWidth: 1,
-    borderColor: 'rgba(26,58,40,0.05)',
+    borderColor: lightTokens.colors.oatCardBorder,
     borderRadius: 12,
   },
   title: {
@@ -187,7 +210,7 @@ const thoughtStyles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: -0.1,
     lineHeight: 17,
-    color: lightTokens.colors.deepForest,
+    color: lightTokens.colors.worldsInk,
   },
   meta: {
     fontFamily: 'Inter-Regular',

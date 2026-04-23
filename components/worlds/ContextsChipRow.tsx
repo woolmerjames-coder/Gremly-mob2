@@ -1,13 +1,9 @@
-import { View, Pressable, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
 import { useLifeContexts } from '../../lib/store/worldsSelectors';
 
-interface ContextsChipRowProps {
-  onPressContext: (contextId: string) => void;
-}
-
-export function ContextsChipRow({ onPressContext }: ContextsChipRowProps) {
+export function ContextsChipRow() {
   const contexts = useLifeContexts().filter((c) => c.active);
   if (contexts.length === 0) return null;
 
@@ -15,17 +11,12 @@ export function ContextsChipRow({ onPressContext }: ContextsChipRowProps) {
     <View style={styles.row}>
       <Text style={styles.label}>CONTEXTS</Text>
       {contexts.map((c) => (
-        <Pressable
-          key={c.id}
-          onPress={() => onPressContext(c.id)}
-          style={styles.chip}
-          testID={`context-chip-${c.id}`}
-        >
+        <View key={c.id} style={styles.chip}>
           <View style={styles.chipDot} />
           <Text style={styles.chipText}>
             {c.name} · {c.kind}
           </Text>
-        </Pressable>
+        </View>
       ))}
     </View>
   );
@@ -56,21 +47,21 @@ const styles = StyleSheet.create({
     gap: 5,
     paddingVertical: 5,
     paddingHorizontal: 10,
-    backgroundColor: 'rgba(138,148,165,0.18)',
+    backgroundColor: lightTokens.colors.chipNeutralBg,
     borderWidth: 1,
-    borderColor: 'rgba(138,148,165,0.3)',
+    borderColor: lightTokens.colors.chipNeutralBorder,
     borderRadius: 999,
   },
   chipDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#8A94A5',
+    backgroundColor: lightTokens.colors.chipNeutralDot,
   },
   chipText: {
     fontFamily: 'Inter-Medium',
     fontSize: 11,
     fontWeight: '600',
-    color: '#3A4C60',
+    color: lightTokens.colors.chipNeutralText,
   },
 });

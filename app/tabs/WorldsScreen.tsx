@@ -38,11 +38,6 @@ export default function WorldsScreen() {
     // summary detail lands in a later batch
   }
 
-  function handlePressPastSummaries() {
-    console.log('[WorldsScreen] press past summaries');
-    // past summaries screen lands in a later batch
-  }
-
   function handlePressWorld(worldId: string) {
     nav.navigate('WorldDetail', { worldId });
   }
@@ -52,18 +47,12 @@ export default function WorldsScreen() {
     // create sheet lands in 4a.5
   }
 
-  function handlePressContext(contextId: string) {
-    console.log('[WorldsScreen] press context', contextId);
-    // navigation lands in 4a.3
-  }
-
   function handlePressChapter(chapterId: string) {
     nav.navigate('ChapterDetail', { chapterId });
   }
 
-  function handlePressPerson(personId: string) {
-    console.log('[WorldsScreen] press person', personId);
-    // navigation lands in 4a.3
+  function handlePressPerson(personName: string) {
+    nav.navigate('PersonDetail', { personName });
   }
 
   return (
@@ -82,12 +71,12 @@ export default function WorldsScreen() {
         <WorldsHeader />
         <ProposalBanner onPress={handlePressProposals} />
         <WeeklySummaryCard onPressNew={handlePressWeeklySummary} />
-        <PastSummariesLink onPress={handlePressPastSummaries} />
+        <PastSummariesLink />
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionLabel}>WORLDS</Text>
         </View>
         <WorldsGrid onPressWorld={handlePressWorld} onPressAdd={handlePressAdd} />
-        <ContextsChipRow onPressContext={handlePressContext} />
+        <ContextsChipRow />
         <OpenChaptersSection onPressChapter={handlePressChapter} />
         <RecentClosedChaptersSection onPressChapter={handlePressChapter} />
         <PeopleRow onPressPerson={handlePressPerson} />
@@ -97,7 +86,7 @@ export default function WorldsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: lightTokens.colors.oatDeep },
+  container: { flex: 1, backgroundColor: lightTokens.colors.worldsSurface },
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 100 },
   sectionHeader: {

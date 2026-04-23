@@ -5,7 +5,7 @@ import { useAllPeople } from '../../lib/store/worldsSelectors';
 import { avatarForIndex } from '../../lib/worlds/peopleAvatars';
 
 interface PeopleRowProps {
-  onPressPerson: (personId: string) => void;
+  onPressPerson: (personName: string) => void;
 }
 
 export function PeopleRow({ onPressPerson }: PeopleRowProps) {
@@ -23,7 +23,7 @@ export function PeopleRow({ onPressPerson }: PeopleRowProps) {
           return (
             <Pressable
               key={p.id}
-              onPress={() => onPressPerson(p.id)}
+              onPress={() => onPressPerson(p.name)}
               style={styles.item}
               testID={`people-${p.id}`}
             >

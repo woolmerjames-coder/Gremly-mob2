@@ -4,12 +4,14 @@ import { lightTokens } from '../../../design/tokens';
 import { Text } from '../../../ui';
 import { ModuleSection } from './ModuleSection';
 import { useWorldDrops, useWorldPalette } from '../../../lib/store/worldsSelectors';
+import { useUnifiedOverlayController } from '../../../hooks/useUnifiedOverlayController';
 import type { WorldModuleProps } from './types';
 import type { Note } from '../../../lib/types';
 
 const CAP = 6;
 
 export function ReflectionTimelineModule({ world }: WorldModuleProps) {
+  const { openEdit } = useUnifiedOverlayController();
   const drops = useWorldDrops(world.id);
   const palette = useWorldPalette(world.id);
   const journals = drops.notes.filter((n) => n.subtype === 'journal');
@@ -20,9 +22,8 @@ export function ReflectionTimelineModule({ world }: WorldModuleProps) {
   );
   const visible = sorted.slice(0, CAP);
   const onSeeAll =
-    sorted.length > CAP
-      ? () => console.log('[ReflectionTimelineModule] see all', world.id)
-      : undefined;
+    // TODO(4a.5): navigate to all-reflections-for-world view
+    undefined;
 
   const grouped = groupByDay(visible);
 
@@ -39,7 +40,7 @@ export function ReflectionTimelineModule({ world }: WorldModuleProps) {
             {group.entries.map((n) => (
               <Pressable
                 key={n.id}
-                onPress={() => console.log('[ReflectionTimelineModule] tap', n.id)}
+                onPress={() => openEdit({ record: n })}
                 style={styles.entry}
                 testID={`reflection-entry-${n.id}`}
               >
@@ -127,9 +128,9 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     padding: 11,
     paddingHorizontal: 13,
-    backgroundColor: 'rgba(250,244,222,0.7)',
+    backgroundColor: lightTokens.colors.oatCard,
     borderWidth: 1,
-    borderColor: 'rgba(26,58,40,0.05)',
+    borderColor: lightTokens.colors.oatCardBorder,
     borderRadius: 12,
   },
   entryTitle: {
@@ -137,14 +138,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: -0.1,
-    color: lightTokens.colors.deepForest,
+    color: lightTokens.colors.worldsInk,
     marginBottom: 3,
   },
   body: {
     fontFamily: 'Inter-Regular',
     fontSize: 12,
     lineHeight: 17,
-    color: lightTokens.colors.deepForest,
+    color: lightTokens.colors.worldsInk,
     opacity: 0.65,
   },
 });
