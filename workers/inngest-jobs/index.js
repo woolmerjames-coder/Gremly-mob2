@@ -6786,20 +6786,35 @@ async function updateLifeMapAndFocus(lifeMap, worldPictureText, env, context = {
 
   let worldsSection = '';
   if (activeWorlds.length > 0) {
-    worldsSection += '\n\n=== ACTIVE WORLDS ===\n';
+    worldsSection +=
+      '\n\n=== ACTIVE WORLDS (with authored context from the weekly classifier) ===\n';
     for (const w of activeWorlds) {
-      worldsSection += `  id: ${w.id} | name: ${w.name} | phase: ${w.phase}\n`;
-      worldsSection += `    card_subtitle: ${w.card_subtitle || '(none)'}\n`;
-      worldsSection += `    key_priorities: ${formatPriorities(w.key_priorities)}\n`;
+      const summaryExcerpt = (w.summary || '').slice(0, 180);
+      const velocity = w.signal_velocity_delta || 'stable';
+      worldsSection += `\n  id: ${w.id} | name: ${w.display_name || w.name} | phase: ${w.phase} | trend: ${velocity}\n`;
+      worldsSection += `    current card_subtitle: ${w.card_subtitle || '(none)'}\n`;
+      if (summaryExcerpt)
+        worldsSection += `    summary (classifier-authored): ${summaryExcerpt}${w.summary && w.summary.length > 180 ? '...' : ''}\n`;
+      worldsSection += `    current key_priorities: ${formatPriorities(w.key_priorities)}\n`;
     }
   }
   let chaptersSection = '';
   if (activeChapters.length > 0) {
-    chaptersSection += '\n=== ACTIVE CHAPTERS ===\n';
+    chaptersSection +=
+      '\n=== ACTIVE CHAPTERS (with authored context from the weekly classifier) ===\n';
     for (const c of activeChapters) {
-      chaptersSection += `  id: ${c.id} | title: ${c.title} | phase: ${c.phase}\n`;
-      chaptersSection += `    card_subtitle: ${c.card_subtitle || '(none)'}\n`;
-      chaptersSection += `    key_priorities: ${formatPriorities(c.key_priorities)}\n`;
+      const summaryExcerpt = (c.summary || '').slice(0, 180);
+      const phaseLadder =
+        Array.isArray(c.phase_labels) && c.phase_labels.length > 0
+          ? c.phase_labels.join(' → ')
+          : '(none)';
+      chaptersSection += `\n  id: ${c.id} | title: ${c.title} | phase: ${c.phase}\n`;
+      chaptersSection += `    current card_subtitle: ${c.card_subtitle || '(none)'}\n`;
+      if (c.target_summary) chaptersSection += `    target: ${c.target_summary}\n`;
+      chaptersSection += `    phase ladder: ${phaseLadder}${c.current_phase_key ? ` (currently: ${c.current_phase_key})` : ''}\n`;
+      if (summaryExcerpt)
+        chaptersSection += `    summary (classifier-authored): ${summaryExcerpt}${c.summary && c.summary.length > 180 ? '...' : ''}\n`;
+      chaptersSection += `    current key_priorities: ${formatPriorities(c.key_priorities)}\n`;
     }
   }
 
@@ -6883,6 +6898,8 @@ A card_subtitle override requires ONE of these grounded triggers, which you must
 4. A journal entry from today that introduces a new concrete development (not a mood shift, not a rephrasing).
 
 If none of these triggers is concretely present in today's data, return null for card_subtitle. Do not override simply because you can phrase it with today-inflected language. Do not override to make the sentence feel fresher. Cosmetic rewrites are not overrides.
+
+When deciding to override, consult the authored context shown for each world and chapter. The classifier's summary, target, and phase ladder are ground truth from the weekly analysis. If the existing card_subtitle references a date or deadline that is still supported by the target or phase ladder, the anchor is still valid — either preserve it or replace it with an equally specific anchor (a closer milestone, a more proximate event). Never strip a valid anchor without a replacement. If today's data contradicts a prior anchor (a deadline moved, an event passed, a chapter transitioned phase), update the subtitle to reflect the new reality.
 
 A key_priorities override requires that today's activity changed the correct ranking order of existing priorities, or a new priority became genuinely more important than an existing one. Only rerank; do not invent new priorities. If the existing ranking still reflects reality, return null.
 
@@ -7108,11 +7125,11 @@ async function fetchActiveWorldsAndChapters(userId, env) {
   };
   const [worldsRes, chaptersRes] = await Promise.all([
     fetch(
-      `${env.SUPABASE_URL}/rest/v1/worlds?owner_id=eq.${userId}&phase=in.(active,evolving,candidate)&select=id,name,phase,card_subtitle,card_subtitle_source,key_priorities,summary_source`,
+      `${env.SUPABASE_URL}/rest/v1/worlds?owner_id=eq.${userId}&phase=in.(active,evolving,candidate)&select=id,name,display_name,phase,card_subtitle,card_subtitle_source,summary,key_priorities,summary_source,signal_velocity_delta`,
       { headers: supaHeaders },
     ),
     fetch(
-      `${env.SUPABASE_URL}/rest/v1/chapters?owner_id=eq.${userId}&phase=in.(suggested,upcoming,active)&select=id,title,phase,primary_world_id,card_subtitle,card_subtitle_source,key_priorities,summary_source`,
+      `${env.SUPABASE_URL}/rest/v1/chapters?owner_id=eq.${userId}&phase=in.(suggested,upcoming,active)&select=id,title,phase,primary_world_id,card_subtitle,card_subtitle_source,summary,target_summary,phase_labels,current_phase_key,key_priorities,summary_source`,
       { headers: supaHeaders },
     ),
   ]);
