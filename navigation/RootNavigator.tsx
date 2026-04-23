@@ -38,6 +38,8 @@ import { MorningBriefSheet } from '../app/components/morning-brief/MorningBriefS
 import WeeklySummaryScreen from '../app/screens/WeeklySummaryScreen';
 import WeeklySummaryV2Screen from '../app/screens/WeeklySummaryV2Screen';
 import HubScreen from '../app/tabs/HubScreen';
+import WorldDetailScreen from '../app/screens/WorldDetailScreen';
+import ChapterDetailScreen from '../app/screens/ChapterDetailScreen';
 
 // Wrapper to bridge navigation params to MorningBriefSheet props
 function MorningBriefWrapper({ navigation, route }: any) {
@@ -102,6 +104,8 @@ export type RootStackParamList = {
   WeeklySummaryV2: { weekStartDate?: string } | undefined;
   SweepTest: undefined; // DEV only
   HubScreen: undefined;
+  WorldDetail: { worldId: string };
+  ChapterDetail: { chapterId: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -317,6 +321,18 @@ export default function RootNavigator() {
             name="HubScreen"
             component={HubScreen}
             options={{ headerShown: false, animation: 'slide_from_right' }}
+          />
+          <Stack.Screen
+            name="WorldDetail"
+            component={WorldDetailScreen}
+            options={{ headerShown: false, animation: 'slide_from_right' }}
+            getId={({ params }) => params?.worldId}
+          />
+          <Stack.Screen
+            name="ChapterDetail"
+            component={ChapterDetailScreen}
+            options={{ headerShown: false, animation: 'slide_from_right' }}
+            getId={({ params }) => params?.chapterId}
           />
           {__DEV__ && (
             <Stack.Screen

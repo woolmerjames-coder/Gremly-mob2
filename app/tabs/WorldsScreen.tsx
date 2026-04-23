@@ -1,9 +1,12 @@
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useState, useCallback } from 'react';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { WorldsHeader } from '../../components/worlds/WorldsHeader';
 import { ProposalBanner } from '../../components/worlds/ProposalBanner';
 import { WeeklySummaryCard } from '../../components/worlds/WeeklySummaryCard';
@@ -15,6 +18,7 @@ import { RecentClosedChaptersSection } from '../../components/worlds/RecentClose
 import { PeopleRow } from '../../components/worlds/PeopleRow';
 
 export default function WorldsScreen() {
+  const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const refreshWorldsGraph = useGremlyStore((s) => s.refreshWorldsGraph);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -40,8 +44,7 @@ export default function WorldsScreen() {
   }
 
   function handlePressWorld(worldId: string) {
-    console.log('[WorldsScreen] press world', worldId);
-    // navigation lands in 4a.3
+    nav.navigate('WorldDetail', { worldId });
   }
 
   function handlePressAdd() {
@@ -55,8 +58,7 @@ export default function WorldsScreen() {
   }
 
   function handlePressChapter(chapterId: string) {
-    console.log('[WorldsScreen] press chapter', chapterId);
-    // navigation lands in 4a.3
+    nav.navigate('ChapterDetail', { chapterId });
   }
 
   function handlePressPerson(personId: string) {
