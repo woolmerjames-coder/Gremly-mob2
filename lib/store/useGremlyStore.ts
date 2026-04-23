@@ -50,6 +50,16 @@ import {
   GAUGE_WEIGHTS,
 } from '../constants/soulDocument';
 import type { Milestone } from '../schemas';
+import type {
+  World,
+  Chapter,
+  LifeContext,
+  ChapterWorldLink,
+  DropWorldLink,
+  DropChapterLink,
+  DropContextLink,
+  WorldObservation,
+} from '../supabase/types';
 import type { QueuedDrop } from '../minddrop/dropQueue';
 import { eventBus } from '../events';
 import { parseHabitFrequency } from '../sweep/habitHelpers';
@@ -400,7 +410,7 @@ export type PendingDrop = Record<string, any>;
 // STORE INTERFACE
 // ═══════════════════════════════════════════════════════════════════════════════
 
-interface GremlyState {
+export interface GremlyState {
   // ═══════════════════════════════════════════════════════════════════
   // RAW DATA (populated on app start)
   // ═══════════════════════════════════════════════════════════════════
@@ -420,6 +430,18 @@ interface GremlyState {
   generalChatRunningSummary: string | null;
   milestones: Milestone[];
   queueItems: QueuedDrop[];
+
+  // ═══════════════════════════════════════════════════════════════════
+  // WORLDS & CHAPTERS GRAPH (Phase 4)
+  // ═══════════════════════════════════════════════════════════════════
+  worlds: World[];
+  chapters: Chapter[];
+  lifeContexts: LifeContext[];
+  chapterWorldLinks: ChapterWorldLink[];
+  dropWorldLinks: DropWorldLink[];
+  dropChapterLinks: DropChapterLink[];
+  dropContextLinks: DropContextLink[];
+  worldObservations: WorldObservation[];
 
   // ═══════════════════════════════════════════════════════════════════
   // SPACE SUGGESTIONS STATE
@@ -1005,6 +1027,11 @@ interface GremlyState {
   // Gap slotting actions
   slotTaskIntoGap: (id: string, entityType: 'todo' | 'habit', startIso: string) => void;
   unslotTask: (id: string, entityType: 'todo' | 'habit') => void;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // WORLDS & CHAPTERS ACTIONS
+  // ═══════════════════════════════════════════════════════════════════
+  refreshWorldsGraph: () => Promise<void>;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1027,6 +1054,15 @@ const initialState = {
   generalChatAutoTitle: null as string | null,
   generalChatRunningSummary: null as string | null,
   milestones: [] as Milestone[],
+  // Worlds & Chapters graph
+  worlds: [] as World[],
+  chapters: [] as Chapter[],
+  lifeContexts: [] as LifeContext[],
+  chapterWorldLinks: [] as ChapterWorldLink[],
+  dropWorldLinks: [] as DropWorldLink[],
+  dropChapterLinks: [] as DropChapterLink[],
+  dropContextLinks: [] as DropContextLink[],
+  worldObservations: [] as WorldObservation[],
   // Space suggestions
   spaceSuggestions: [] as SpaceSuggestion[],
   spaceSuggestionsLoaded: false,
@@ -1247,6 +1283,14 @@ export const useGremlyStore = create<GremlyState>()(
               sweepEventsCountRes,
               notificationPrefsRes,
               weeklySummariesRes,
+              worldsRes,
+              chaptersRes,
+              lifeContextsRes,
+              chapterWorldLinksRes,
+              dropWorldLinksRes,
+              dropChapterLinksRes,
+              dropContextLinksRes,
+              worldObservationsRes,
             ] = await Promise.all([
               fetchAllPaginated<Todo>(() =>
                 supabase
@@ -1326,6 +1370,18 @@ export const useGremlyStore = create<GremlyState>()(
                 .eq('user_id', userId)
                 .order('week_start_date', { ascending: false })
                 .limit(12),
+              supabase.from('worlds').select('*').eq('owner_id', userId),
+              supabase.from('chapters').select('*').eq('owner_id', userId),
+              supabase.from('life_contexts').select('*').eq('owner_id', userId),
+              supabase.from('chapter_world_links').select('*').eq('owner_id', userId),
+              supabase.from('drop_world_links').select('*').eq('owner_id', userId),
+              supabase.from('drop_chapter_links').select('*').eq('owner_id', userId),
+              supabase.from('drop_context_links').select('*').eq('owner_id', userId),
+              supabase
+                .from('world_observations')
+                .select('*')
+                .eq('owner_id', userId)
+                .is('dismissed_at', null),
             ]);
 
             // Check for errors (chats/milestones are optional - don't fail if tables don't exist)
@@ -1368,6 +1424,35 @@ export const useGremlyStore = create<GremlyState>()(
               console.warn('[GremlyStore] sweep events count error:', sweepEventsCountRes.error);
             if (weeklySummariesRes.error)
               console.warn('[GremlyStore] weekly_summaries fetch error:', weeklySummariesRes.error);
+
+            // Worlds & Chapters primary entities: throw on error
+            if (worldsRes.error) throw worldsRes.error;
+            if (chaptersRes.error) throw chaptersRes.error;
+            if (lifeContextsRes.error) throw lifeContextsRes.error;
+
+            // Worlds & Chapters link tables + observations: warn and degrade gracefully
+            if (chapterWorldLinksRes.error)
+              console.warn(
+                '[GremlyStore] chapter_world_links fetch error:',
+                chapterWorldLinksRes.error,
+              );
+            if (dropWorldLinksRes.error)
+              console.warn('[GremlyStore] drop_world_links fetch error:', dropWorldLinksRes.error);
+            if (dropChapterLinksRes.error)
+              console.warn(
+                '[GremlyStore] drop_chapter_links fetch error:',
+                dropChapterLinksRes.error,
+              );
+            if (dropContextLinksRes.error)
+              console.warn(
+                '[GremlyStore] drop_context_links fetch error:',
+                dropContextLinksRes.error,
+              );
+            if (worldObservationsRes.error)
+              console.warn(
+                '[GremlyStore] world_observations fetch error:',
+                worldObservationsRes.error,
+              );
 
             // Fetch identity from user_profiles
             const { data: userProfile, error: userProfileError } = await supabase
@@ -1477,6 +1562,14 @@ export const useGremlyStore = create<GremlyState>()(
               habitProgress: progressRes.data ?? [],
               spaceChats: chatsRes.data ?? [],
               milestones: milestonesRes.data ?? [],
+              worlds: (worldsRes.data ?? []) as World[],
+              chapters: (chaptersRes.data ?? []) as Chapter[],
+              lifeContexts: (lifeContextsRes.data ?? []) as LifeContext[],
+              chapterWorldLinks: (chapterWorldLinksRes.data ?? []) as ChapterWorldLink[],
+              dropWorldLinks: (dropWorldLinksRes.data ?? []) as DropWorldLink[],
+              dropChapterLinks: (dropChapterLinksRes.data ?? []) as DropChapterLink[],
+              dropContextLinks: (dropContextLinksRes.data ?? []) as DropContextLink[],
+              worldObservations: (worldObservationsRes.data ?? []) as WorldObservation[],
               dailyBrief: dailyBriefRes.data ?? null,
               weeklySummaries: (weeklySummariesRes.data ?? []) as WeeklySummary[],
               spaceChatMessages: [], // Messages are loaded on-demand per chat
@@ -9909,6 +10002,48 @@ export const useGremlyStore = create<GremlyState>()(
             if (error) {
               console.error(`[GremlyStore] clearEntityChat failed:`, error);
             }
+          }
+        },
+
+        refreshWorldsGraph: async () => {
+          const userId = get().userId;
+          if (!userId) return;
+          try {
+            const [
+              worldsRes,
+              chaptersRes,
+              lifeContextsRes,
+              chapterWorldLinksRes,
+              dropWorldLinksRes,
+              dropChapterLinksRes,
+              dropContextLinksRes,
+              worldObservationsRes,
+            ] = await Promise.all([
+              supabase.from('worlds').select('*').eq('owner_id', userId),
+              supabase.from('chapters').select('*').eq('owner_id', userId),
+              supabase.from('life_contexts').select('*').eq('owner_id', userId),
+              supabase.from('chapter_world_links').select('*').eq('owner_id', userId),
+              supabase.from('drop_world_links').select('*').eq('owner_id', userId),
+              supabase.from('drop_chapter_links').select('*').eq('owner_id', userId),
+              supabase.from('drop_context_links').select('*').eq('owner_id', userId),
+              supabase
+                .from('world_observations')
+                .select('*')
+                .eq('owner_id', userId)
+                .is('dismissed_at', null),
+            ]);
+            set({
+              worlds: (worldsRes.data ?? []) as World[],
+              chapters: (chaptersRes.data ?? []) as Chapter[],
+              lifeContexts: (lifeContextsRes.data ?? []) as LifeContext[],
+              chapterWorldLinks: (chapterWorldLinksRes.data ?? []) as ChapterWorldLink[],
+              dropWorldLinks: (dropWorldLinksRes.data ?? []) as DropWorldLink[],
+              dropChapterLinks: (dropChapterLinksRes.data ?? []) as DropChapterLink[],
+              dropContextLinks: (dropContextLinksRes.data ?? []) as DropContextLink[],
+              worldObservations: (worldObservationsRes.data ?? []) as WorldObservation[],
+            });
+          } catch (err) {
+            console.warn('[GremlyStore] refreshWorldsGraph failed:', err);
           }
         },
       }),

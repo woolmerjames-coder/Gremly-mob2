@@ -1,0 +1,10 @@
+-- ============================================================================
+-- Migration: 20260423000000_worlds_4a_schema_additions
+-- Purpose:   Phase 4a -- Worlds & Chapters schema additions
+--            (worlds, chapters, life_contexts, chapter_world_links,
+--             world_observations, and supporting columns)
+--
+-- STATUS: Already applied to the live Supabase project via MCP on 2026-04-23.
+-- This file exists for git history and local dev parity only.
+-- Do not re-run against any database that has already received this migration.
+-- ============================================================================

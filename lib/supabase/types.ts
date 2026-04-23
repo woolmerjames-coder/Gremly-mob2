@@ -731,3 +731,169 @@ export const Constants = {
     Enums: {},
   },
 } as const;
+
+// ============================================================================
+// Worlds & Chapters graph (Phase 4)
+// ============================================================================
+
+export type WorldPhase = 'candidate' | 'active' | 'evolving' | 'dormant' | 'archived';
+export type ChapterPhase = 'suggested' | 'upcoming' | 'active' | 'closed';
+export type ChapterType = 'bounded' | 'season' | 'milestone';
+export type LifeContextKind = 'employer' | 'role' | 'obligation' | 'calendar_source' | 'custom';
+export type SignalVelocityDelta = 'growing' | 'stable' | 'declining';
+export type AssignedBy = 'classifier' | 'user' | 'migration';
+export type DropType = 'note' | 'todo' | 'habit';
+export type EntitySource = 'classifier' | 'user' | 'migration';
+
+export type WorldArchetype =
+  | 'creative'
+  | 'professional'
+  | 'wellness_body'
+  | 'wellness_mind'
+  | 'relational'
+  | 'domestic'
+  | 'learning'
+  | 'generic';
+
+export interface ArchetypeWeight {
+  type: WorldArchetype;
+  weight: number;
+}
+
+export interface WorldModuleLayoutEntry {
+  module: string;
+  weight: number;
+  config?: unknown;
+}
+
+export interface WorldVisualStyle {
+  color?: string | null;
+}
+
+export interface World {
+  id: string;
+  owner_id: string;
+  name: string;
+  display_name: string | null;
+  description: string | null;
+  archetypes: ArchetypeWeight[];
+  phase: WorldPhase;
+  source: EntitySource;
+  confidence: number | null;
+  signal_velocity: string | number | null;
+  signal_velocity_delta: SignalVelocityDelta | null;
+  first_signal_at: string | null;
+  last_signal_at: string | null;
+  module_layout: WorldModuleLayoutEntry[] | null;
+  visual_style: WorldVisualStyle | null;
+  life_map_cluster_id: string | null;
+  proposed_at: string | null;
+  confirmed_at: string | null;
+  last_run_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Chapter {
+  id: string;
+  owner_id: string;
+  title: string;
+  description: string | null;
+  chapter_type: ChapterType;
+  phase: ChapterPhase;
+  primary_world_id: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  target_description: string | null;
+  target_summary: string | null;
+  phase_labels: string[] | null;
+  current_phase_key: string | null;
+  source: EntitySource;
+  confidence: number | null;
+  proposed_at: string | null;
+  confirmed_at: string | null;
+  closed_at: string | null;
+  last_run_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LifeContext {
+  id: string;
+  owner_id: string;
+  name: string;
+  description: string | null;
+  kind: LifeContextKind;
+  start_date: string | null;
+  end_date: string | null;
+  active: boolean;
+  source: EntitySource;
+  calendar_source: string | null;
+  proposed_at: string | null;
+  confirmed_at: string | null;
+  last_run_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChapterWorldLink {
+  chapter_id: string;
+  world_id: string;
+  owner_id: string;
+  relevance_score: number;
+}
+
+export interface DropWorldLink {
+  drop_id: string;
+  drop_type: DropType;
+  world_id: string;
+  owner_id: string;
+  relevance_score: number;
+  assigned_by: AssignedBy;
+  reason: string | null;
+  created_at: string;
+  last_confirmed_at: string | null;
+}
+
+export interface DropChapterLink {
+  drop_id: string;
+  drop_type: DropType;
+  chapter_id: string;
+  owner_id: string;
+  relevance_score: number;
+  assigned_by: AssignedBy;
+  reason: string | null;
+  created_at: string;
+  last_confirmed_at: string | null;
+}
+
+export interface DropContextLink {
+  drop_id: string;
+  drop_type: DropType;
+  context_id: string;
+  owner_id: string;
+  relevance_score: number;
+  assigned_by: AssignedBy;
+  reason: string | null;
+  created_at: string;
+  last_confirmed_at: string | null;
+}
+
+export type WorldObservationKind = 'pattern' | 'cross_reference' | 'trajectory' | 'risk';
+export type WorldObservationGeneratedBy = 'observation_generator' | 'user_request' | 'classifier';
+
+export interface WorldObservation {
+  id: string;
+  owner_id: string;
+  world_id: string;
+  text: string;
+  kind: WorldObservationKind;
+  source_drop_ids: string[];
+  source_chapter_ids: string[];
+  confidence: number | null;
+  generated_at: string;
+  dismissed_at: string | null;
+  shown_count: number;
+  generated_by: WorldObservationGeneratedBy;
+  run_id: string | null;
+}
