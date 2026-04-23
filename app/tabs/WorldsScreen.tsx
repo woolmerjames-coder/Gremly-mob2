@@ -6,6 +6,9 @@ import { WorldsHeader } from '../../components/worlds/WorldsHeader';
 import { WeeklySummaryCard } from '../../components/worlds/WeeklySummaryCard';
 import { PastSummariesLink } from '../../components/worlds/PastSummariesLink';
 import { WorldsGrid } from '../../components/worlds/WorldsGrid';
+import { ContextsChipRow } from '../../components/worlds/ContextsChipRow';
+import { OpenChaptersSection } from '../../components/worlds/OpenChaptersSection';
+import { RecentClosedChaptersSection } from '../../components/worlds/RecentClosedChaptersSection';
 
 export default function WorldsScreen() {
   function handleSummaryPress() {
@@ -26,6 +29,16 @@ export default function WorldsScreen() {
     // create sheet lands in 4a.5
   }
 
+  function handlePressContext(contextId: string) {
+    console.log('[WorldsScreen] press context', contextId);
+    // navigation lands in 4a.3
+  }
+
+  function handlePressChapter(chapterId: string) {
+    console.log('[WorldsScreen] press chapter', chapterId);
+    // navigation lands in 4a.3
+  }
+
   return (
     <SafeAreaView style={styles.container} edges={['top']} testID="worlds-screen">
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
@@ -36,6 +49,9 @@ export default function WorldsScreen() {
           <Text style={styles.sectionLabel}>WORLDS</Text>
         </View>
         <WorldsGrid onPressWorld={handlePressWorld} onPressAdd={handlePressAdd} />
+        <ContextsChipRow onPressContext={handlePressContext} />
+        <OpenChaptersSection onPressChapter={handlePressChapter} />
+        <RecentClosedChaptersSection onPressChapter={handlePressChapter} />
       </ScrollView>
     </SafeAreaView>
   );
