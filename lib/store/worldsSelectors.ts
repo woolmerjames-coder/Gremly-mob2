@@ -352,6 +352,24 @@ export function selectAllPeopleForUser(state: GremlyState, limit: number = 6): W
     }));
 }
 
+// Memoized via createSelector so the returned array reference is stable when
+// state.notes hasn't changed — prevents useSyncExternalStore tearing/loops.
+const selectAllPeopleMemo = createSelector(
+  (s: GremlyState) => s.notes,
+  (notes) => {
+    const counts = extractPeopleFromNotes(notes);
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([name, dropCount]) => ({
+        id: name.toLowerCase(),
+        name,
+        initials: initialsOf(name),
+        dropCount,
+      }));
+  },
+);
+
 // ============================================================================
 // Weekly summary card
 // ============================================================================
@@ -477,14 +495,14 @@ export const useChapterById = (chapterId: string) =>
 export const useLifeContexts = () => useGremlyStore(selectLifeContexts);
 
 export const useChaptersForWorld = (worldId: string) =>
-  useGremlyStore((s) => selectWorldIdToChapters(s).get(worldId) ?? []);
+  useGremlyStore(useShallow((s) => selectWorldIdToChapters(s).get(worldId) ?? []));
 
 export const useWorldDropRefs = (worldId: string) =>
-  useGremlyStore((s) => selectWorldIdToDropRefs(s).get(worldId) ?? []);
+  useGremlyStore(useShallow((s) => selectWorldIdToDropRefs(s).get(worldId) ?? []));
 export const useChapterDropRefs = (chapterId: string) =>
-  useGremlyStore((s) => selectChapterIdToDropRefs(s).get(chapterId) ?? []);
+  useGremlyStore(useShallow((s) => selectChapterIdToDropRefs(s).get(chapterId) ?? []));
 export const useContextDropRefs = (contextId: string) =>
-  useGremlyStore((s) => selectContextIdToDropRefs(s).get(contextId) ?? []);
+  useGremlyStore(useShallow((s) => selectContextIdToDropRefs(s).get(contextId) ?? []));
 
 export const useWorldPalette = (worldId: string) =>
   useGremlyStore((s) => selectWorldPalette(s, worldId));
@@ -492,8 +510,38 @@ export const useWorldDormancy = (worldId: string) =>
   useGremlyStore((s) => selectWorldDormancy(s, worldId));
 export const useWorldIsEmerging = (worldId: string) =>
   useGremlyStore((s) => selectWorldIsEmerging(s, worldId));
-export const useWorldPeople = (worldId: string) =>
-  useGremlyStore((s) => selectWorldPeople(s, worldId));
+// Per-worldId memoized selector factory — stable reference when inputs unchanged.
+const _worldPeopleSelectors = new Map<string, (s: GremlyState) => WorldPerson[]>();
+function getWorldPeopleSelector(worldId: string) {
+  if (!_worldPeopleSelectors.has(worldId)) {
+    _worldPeopleSelectors.set(
+      worldId,
+      createSelector(
+        (s: GremlyState) => selectWorldIdToDropRefs(s).get(worldId),
+        (s: GremlyState) => s.notes,
+        (refs, notes) => {
+          const noteIds = new Set(
+            (refs ?? []).filter((r) => r.drop_type === 'note').map((r) => r.drop_id),
+          );
+          const worldNotes = notes.filter((n) => noteIds.has(n.id));
+          const counts = extractPeopleFromNotes(worldNotes);
+          return Array.from(counts.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 6)
+            .map(([name, dropCount]) => ({
+              id: name.toLowerCase(),
+              name,
+              initials: initialsOf(name),
+              dropCount,
+            }));
+        },
+      ),
+    );
+  }
+  return _worldPeopleSelectors.get(worldId)!;
+}
+
+export const useWorldPeople = (worldId: string) => useGremlyStore(getWorldPeopleSelector(worldId));
 
 export const useWorldObservationForWorld = (worldId: string) =>
   useGremlyStore(
@@ -507,7 +555,7 @@ export const useWeeklySummaryCardState = () =>
   useGremlyStore(useShallow((s) => selectWeeklySummaryCardState(s)));
 
 export const usePendingProposalCount = () => useGremlyStore(selectPendingProposalCount);
-export const useAllPeople = () => useGremlyStore((s) => selectAllPeopleForUser(s));
+export const useAllPeople = () => useGremlyStore(selectAllPeopleMemo);
 
 export function selectCurrentChapterForWorld(state: GremlyState, worldId: string): Chapter | null {
   const candidates = state.chapters.filter(
@@ -541,30 +589,54 @@ export interface WorldDrops {
   notes: Note[];
 }
 
+// Each drop type uses its own useShallow subscription so that element-wise
+// identity comparison (Object.is on store item references) prevents tearing.
 export const useWorldDrops = (worldId: string): WorldDrops => {
-  return useGremlyStore((s) => {
-    const refs = selectWorldIdToDropRefs(s).get(worldId) ?? [];
-    const todoIds = new Set(refs.filter((r) => r.drop_type === 'todo').map((r) => r.drop_id));
-    const habitIds = new Set(refs.filter((r) => r.drop_type === 'habit').map((r) => r.drop_id));
-    const noteIds = new Set(refs.filter((r) => r.drop_type === 'note').map((r) => r.drop_id));
-    return {
-      todos: s.todos.filter((t: Todo) => todoIds.has(t.id)),
-      habits: s.habits.filter((h: Habit) => habitIds.has(h.id)),
-      notes: s.notes.filter((n: Note) => noteIds.has(n.id)),
-    };
-  });
+  const todos = useGremlyStore(
+    useShallow((s) => {
+      const refs = selectWorldIdToDropRefs(s).get(worldId) ?? [];
+      const ids = new Set(refs.filter((r) => r.drop_type === 'todo').map((r) => r.drop_id));
+      return s.todos.filter((t: Todo) => ids.has(t.id));
+    }),
+  );
+  const habits = useGremlyStore(
+    useShallow((s) => {
+      const refs = selectWorldIdToDropRefs(s).get(worldId) ?? [];
+      const ids = new Set(refs.filter((r) => r.drop_type === 'habit').map((r) => r.drop_id));
+      return s.habits.filter((h: Habit) => ids.has(h.id));
+    }),
+  );
+  const notes = useGremlyStore(
+    useShallow((s) => {
+      const refs = selectWorldIdToDropRefs(s).get(worldId) ?? [];
+      const ids = new Set(refs.filter((r) => r.drop_type === 'note').map((r) => r.drop_id));
+      return s.notes.filter((n: Note) => ids.has(n.id));
+    }),
+  );
+  return { todos, habits, notes };
 };
 
 export const useChapterDrops = (chapterId: string): WorldDrops => {
-  return useGremlyStore((s) => {
-    const refs = selectChapterIdToDropRefs(s).get(chapterId) ?? [];
-    const todoIds = new Set(refs.filter((r) => r.drop_type === 'todo').map((r) => r.drop_id));
-    const habitIds = new Set(refs.filter((r) => r.drop_type === 'habit').map((r) => r.drop_id));
-    const noteIds = new Set(refs.filter((r) => r.drop_type === 'note').map((r) => r.drop_id));
-    return {
-      todos: s.todos.filter((t: Todo) => todoIds.has(t.id)),
-      habits: s.habits.filter((h: Habit) => habitIds.has(h.id)),
-      notes: s.notes.filter((n: Note) => noteIds.has(n.id)),
-    };
-  });
+  const todos = useGremlyStore(
+    useShallow((s) => {
+      const refs = selectChapterIdToDropRefs(s).get(chapterId) ?? [];
+      const ids = new Set(refs.filter((r) => r.drop_type === 'todo').map((r) => r.drop_id));
+      return s.todos.filter((t: Todo) => ids.has(t.id));
+    }),
+  );
+  const habits = useGremlyStore(
+    useShallow((s) => {
+      const refs = selectChapterIdToDropRefs(s).get(chapterId) ?? [];
+      const ids = new Set(refs.filter((r) => r.drop_type === 'habit').map((r) => r.drop_id));
+      return s.habits.filter((h: Habit) => ids.has(h.id));
+    }),
+  );
+  const notes = useGremlyStore(
+    useShallow((s) => {
+      const refs = selectChapterIdToDropRefs(s).get(chapterId) ?? [];
+      const ids = new Set(refs.filter((r) => r.drop_type === 'note').map((r) => r.drop_id));
+      return s.notes.filter((n: Note) => ids.has(n.id));
+    }),
+  );
+  return { todos, habits, notes };
 };
