@@ -183,6 +183,55 @@ export const lightTokens = {
       { bg: '#DDE3D0', fg: '#4B5A33' },
     ] as const,
 
+    // Phase B: chapter arc-shape accents (mockup 06)
+    // Experience arc — pink family, used on ClosedExperienceChapter
+    experienceAccent: '#D4537E', // timeline markers, CLOSED pill, epigraph left-border
+    experienceAccentSoft: '#F4C0D1', // timeline vertical line, experience-arc avatar bg
+    experienceAccentDeep: '#72243E', // timeline date/location labels
+
+    // Commitment arc — periwinkle family, used on ClosedCommitmentChapter
+    commitmentAccent: '#7F77DD', // CLOSED pill, epigraph left-border, phase-spine fill
+    commitmentHeldFill: '#C0DD97', // held-vs-slip strip success bar
+    commitmentSlipMarker: '#EF9F27', // slip tick marks
+
+    // Outcome arc — reuses existing moss/forest greens, aliased for clarity
+    outcomeAccent: '#2E5540', // alias of mossGreen
+    outcomeAccentSoft: 'rgba(46,85,64,0.22)', // alias of worldPalette.creative.tint
+
+    // Process arc — reuses sageGreen, aliased for clarity
+    processAccent: '#97AF8F', // alias of sageGreen
+
+    // Phase B: chapter closed-banner (dark background on closed-chapter hero)
+    chapterBannerBg: '#222222', // alias of charcoalInk
+    chapterBannerText: '#F5F0E6', // near-linen for banner text
+    chapterBannerMuted: '#B4B2A9', // subdued text on banner (duration, subtitle)
+    chapterBannerDivider: '#5F5E5A', // held-vs-slip strip background
+
+    // Phase B: blocker badges and accents (mockup 05 project chapter UNFOLDING)
+    blockerRed: '#A32D2D', // blocker pill text
+    blockerRedBg: '#FCEBEB', // blocker pill background
+    blockerRedBorder: 'rgba(163,45,45,0.28)', // blocker left-border on todo rows
+
+    // Phase B: ALSO TOUCHED chip palette (per world_type, mockup 06)
+    chipProjectBorder: '#C0DD97',
+    chipProjectText: '#173404',
+    chipPracticeBorder: '#FAC775',
+    chipPracticeText: '#854F0B',
+    chipRelationshipBorder: '#CECBF6',
+    chipRelationshipText: '#3C3489',
+    chipDomesticBorder: 'rgba(122,118,101,0.35)', // reuses warmGrey at alpha
+    chipDomesticText: '#7A7665', // reuses warmGrey
+
+    // Phase B: dashed-frame borders (NO OPEN CHAPTER block on domestic worlds, mockup 05)
+    dashedFrameBorder: '#B4B2A9', // dashed frame around "no chapter" empty state
+    dashedFrameLabel: '#5F5E5A', // label text inside dashed frame
+
+    // Phase B: velocity dot colors — hero status line (mockup 05)
+    velocityDotGrowing: '#97AF8F', // sageGreen — "Growing" status
+    velocityDotSteady: '#888780', // warmGrey-ish — "Steady" status
+    velocityDotCooling: '#B4B2A9', // paler grey — "Cooling" status
+    velocityDotDormant: 'rgba(122,118,101,0.35)', // warmGrey at 35% — "Dormant"
+
     // @deprecated — use sageGreen. Remove after 4a component sweep lands.
     doneCheck: '#97AF8F',
     // @deprecated — use worldsCard / worldsCardBorder. Remove after 4a component sweep lands.
@@ -365,6 +414,55 @@ export const darkTokens = {
     subtleGreen: 'rgba(248,250,249,0.55)',
 
     avatarPalette: lightTokens.colors.avatarPalette,
+
+    // Phase B: chapter arc-shape accents (mockup 06)
+    // Experience arc — pink family, used on ClosedExperienceChapter
+    experienceAccent: '#D4537E',
+    experienceAccentSoft: '#F4C0D1',
+    experienceAccentDeep: '#72243E',
+
+    // Commitment arc — periwinkle family, used on ClosedCommitmentChapter
+    commitmentAccent: '#7F77DD',
+    commitmentHeldFill: '#C0DD97',
+    commitmentSlipMarker: '#EF9F27',
+
+    // Outcome arc — reuses existing moss/forest greens, aliased for clarity
+    outcomeAccent: '#2E5540',
+    outcomeAccentSoft: 'rgba(46,85,64,0.22)',
+
+    // Process arc — reuses sageGreen, aliased for clarity
+    processAccent: '#97AF8F',
+
+    // Phase B: chapter closed-banner
+    chapterBannerBg: '#222222',
+    chapterBannerText: '#F5F0E6',
+    chapterBannerMuted: '#B4B2A9',
+    chapterBannerDivider: '#5F5E5A',
+
+    // Phase B: blocker badges and accents
+    blockerRed: '#A32D2D',
+    blockerRedBg: '#FCEBEB',
+    blockerRedBorder: 'rgba(163,45,45,0.28)',
+
+    // Phase B: ALSO TOUCHED chip palette (per world_type)
+    chipProjectBorder: '#C0DD97',
+    chipProjectText: '#173404',
+    chipPracticeBorder: '#FAC775',
+    chipPracticeText: '#854F0B',
+    chipRelationshipBorder: '#CECBF6',
+    chipRelationshipText: '#3C3489',
+    chipDomesticBorder: 'rgba(168,155,124,0.35)', // matches darkTokens warmGrey
+    chipDomesticText: '#A89B7C', // matches darkTokens warmGrey
+
+    // Phase B: dashed-frame borders
+    dashedFrameBorder: '#B4B2A9',
+    dashedFrameLabel: '#5F5E5A',
+
+    // Phase B: velocity dot colors — hero status line
+    velocityDotGrowing: '#97AF8F',
+    velocityDotSteady: '#888780',
+    velocityDotCooling: '#B4B2A9',
+    velocityDotDormant: 'rgba(122,118,101,0.35)',
 
     // @deprecated — use sageGreen. Remove after 4a component sweep lands.
     doneCheck: '#97AF8F',
