@@ -84,6 +84,7 @@ export interface Phase2EnrichmentResult {
   extracted_days?: number[] | null; // Array of day numbers (0=Sunday, 1=Monday, ... 6=Saturday) for specific days like "Tuesdays and Thursdays"
   people?: string[];
   mood?: string[] | null; // AI-extracted moods for journal entries
+  priority_kind?: 'action' | 'blocker' | 'waiting' | 'decision' | 'momentum' | null;
   latency_ms?: number;
   // Date intelligence fields
   target_date?: string | null; // Deadline date in YYYY-MM-DD format
@@ -1158,6 +1159,7 @@ export function callEnrichPhase2Streaming(
           extracted_start_date: data.extracted_start_date || finalResult.extracted_start_date,
           extracted_frequency: data.extracted_frequency || finalResult.extracted_frequency,
           extracted_days: data.extracted_days || finalResult.extracted_days,
+          priority_kind: data.priority_kind ?? finalResult.priority_kind,
           people: data.people || finalResult.people,
           // Event-specific fields
           target_date: data.target_date || finalResult.target_date,

@@ -100,6 +100,7 @@ function applyEnrichmentToItem(
     confirmationMessage?: string | null;
     people?: string[];
     mood?: string[] | null;
+    priorityKind?: 'action' | 'blocker' | 'waiting' | 'decision' | 'momentum' | null;
     // Date Intelligence fields (Phase C)
     targetDate?: string | null;
     scheduledDate?: string | null;
@@ -123,6 +124,7 @@ function applyEnrichmentToItem(
     target_per_period: result.targetPerPeriod ?? item.target_per_period,
     days_active: result.extractedDays ?? item.days_active,
     mood: (result.mood as Mood[] | null) ?? item.mood,
+    priority_kind: result.priorityKind ?? item.priority_kind,
     views: {
       ...item.views,
       minddrop_stage: 'enriched',

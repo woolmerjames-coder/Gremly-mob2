@@ -8,7 +8,7 @@
 import type { MindDropBucket, LogSubtype } from './types';
 import { FEATURE_FLAGS } from '../config/featureFlags';
 import { env, getEnv } from '../env';
-import { getDateService } from '../date/DateService';
+import { getDateService, nowTimestamp } from '../date/DateService';
 import { validateEnrichmentResult, verifyAIDate } from './phase2Validation';
 import { eventBus } from '../events/EventBus';
 import { callEnrichPhase2Streaming, Phase2EnrichmentResult } from '../cortex/CortexClient';
@@ -33,6 +33,7 @@ export interface Phase2Result {
   confirmationMessage: string | null;
   mood: string[] | null; // AI-extracted moods for journal entries
   energyType: 'deep_focus' | 'administrative' | 'physical' | 'social' | 'quick' | null;
+  priorityKind: 'action' | 'blocker' | 'waiting' | 'decision' | 'momentum' | null;
   // Date Intelligence fields (Phase C)
   targetDate: string | null; // When something IS or is DUE (event/deadline)
   scheduledDate: string | null; // When user will DO the work
@@ -174,6 +175,11 @@ async function callEnrichAPI(
       confirmationMessage: json.confirmation_message ?? null,
       mood: Array.isArray(json.mood) ? json.mood : null,
       energyType,
+      priorityKind: ['action', 'blocker', 'waiting', 'decision', 'momentum'].includes(
+        json.priority_kind,
+      )
+        ? json.priority_kind
+        : null,
       // Date Intelligence fields
       targetDate: json.target_date ?? null,
       scheduledDate: json.scheduled_date ?? null,
@@ -416,6 +422,13 @@ export async function runPhase2(
         );
         updatePayload.prep_buffer_minutes = buffers.prep_buffer_minutes;
         updatePayload.cooldown_buffer_minutes = buffers.cooldown_buffer_minutes;
+
+        // priority_kind — todos only, with source tracking
+        if (result.priorityKind) {
+          updatePayload.priority_kind = result.priorityKind;
+          updatePayload.priority_kind_source = 'classifier';
+          updatePayload.priority_kind_updated_at = nowTimestamp();
+        }
 
         // Date Intelligence: Use targetDate/scheduledDate for proper date columns
         // targetDate = deadline (when something is DUE)
