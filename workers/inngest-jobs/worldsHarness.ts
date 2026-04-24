@@ -25,10 +25,7 @@
  *             handover §8, audit §7.3
  */
 
-import {
-  collectSignalForBackfillClassifier,
-  type SignalBundle,
-} from './signalCollector';
+import { collectSignalForBackfillClassifier, type SignalBundle } from './signalCollector';
 import {
   classifyWorldsWeekly,
   type ActiveWorldInput,
@@ -48,8 +45,8 @@ export interface HarnessEnv {
 
 export interface HarnessOptions {
   userId: string;
-  startDate: string | null;  // null = auto-detect from earliest drop
-  endDate: string | null;    // null = today
+  startDate: string | null; // null = auto-detect from earliest drop
+  endDate: string | null; // null = today
   windowDays: number;
   strideDays: number;
 }
@@ -179,10 +176,7 @@ export interface HarnessResult {
 
 // ─── Helpers (exported so the Inngest wrapper can call them step-by-step) ───
 
-export async function findEarliestDropDate(
-  userId: string,
-  env: HarnessEnv,
-): Promise<string> {
+export async function findEarliestDropDate(userId: string, env: HarnessEnv): Promise<string> {
   const headers = {
     apikey: env.SUPABASE_SERVICE_KEY,
     Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
@@ -203,9 +197,7 @@ export async function findEarliestDropDate(
   );
   const dates = results.filter((d): d is string => d !== null).sort();
   if (dates.length === 0) {
-    throw new Error(
-      `findEarliestDropDate: no drop signal found for user ${userId}.`,
-    );
+    throw new Error(`findEarliestDropDate: no drop signal found for user ${userId}.`);
   }
   return dates[0];
 }
@@ -255,9 +247,7 @@ export function sectionCountsOf(bundle: SignalBundle): Record<string, number> {
   };
 }
 
-export function worldBookToActiveWorlds(
-  worldBook: HarnessWorldBookEntry[],
-): ActiveWorldInput[] {
+export function worldBookToActiveWorlds(worldBook: HarnessWorldBookEntry[]): ActiveWorldInput[] {
   return worldBook
     .filter((w) => w.phase === 'active')
     .map((w) => ({
@@ -267,6 +257,8 @@ export function worldBookToActiveWorlds(
       archetypes: w.archetypes,
       first_signal_at: w.first_signal_at,
       last_signal_at: w.last_signal_at,
+      mascot_slug: null,
+      mascot_slug_source: null,
     }));
 }
 
@@ -296,8 +288,7 @@ function makeWorldId(
   windowIndex: number,
   worldBook: HarnessWorldBookEntry[],
 ): string {
-  const safeName =
-    typeof name === 'string' && name.trim().length > 0 ? name.trim() : 'unnamed';
+  const safeName = typeof name === 'string' && name.trim().length > 0 ? name.trim() : 'unnamed';
   const slug = safeName
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
@@ -312,8 +303,7 @@ function makeChapterId(
   windowIndex: number,
   chapterBook: HarnessChapterBookEntry[],
 ): string {
-  const safeTitle =
-    typeof title === 'string' && title.trim().length > 0 ? title.trim() : 'unnamed';
+  const safeTitle = typeof title === 'string' && title.trim().length > 0 ? title.trim() : 'unnamed';
   const slug = safeTitle
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
@@ -329,8 +319,7 @@ function makeLifeContextId(
   windowIndex: number,
   book: HarnessLifeContextBookEntry[],
 ): string {
-  const safeName =
-    typeof name === 'string' && name.trim().length > 0 ? name.trim() : 'unnamed';
+  const safeName = typeof name === 'string' && name.trim().length > 0 ? name.trim() : 'unnamed';
   const slug = safeName
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
@@ -372,7 +361,7 @@ export function mergeRunIntoState(
   // pre-check can reference them even after reactivation changes their phase.
   const initiallyDormant = new Map<
     string,
-    { id: string; archetypes: typeof nextWB[0]['archetypes'] }
+    { id: string; archetypes: (typeof nextWB)[0]['archetypes'] }
   >();
   for (const w of worldBook) {
     if (w.phase === 'dormant') {
@@ -441,9 +430,7 @@ export function mergeRunIntoState(
         ...ctx,
         event_type: 'evolution_emerge',
         world_name: firstChild?.name ?? 'unknown',
-        world_id: firstChild
-          ? makeWorldId(firstChild.name, run.window_index, nextWB)
-          : 'unknown',
+        world_id: firstChild ? makeWorldId(firstChild.name, run.window_index, nextWB) : 'unknown',
         confidence: e.confidence,
         detail: { parent_world_ids: e.parent_world_ids, reason: e.reason },
       });
@@ -523,9 +510,8 @@ export function mergeRunIntoState(
     // Check for archetype overlap: any archetype with weight ≥ 0.3 in both.
     const isUnexpected =
       dormantMatch !== undefined &&
-      dormantMatch.archetypes.some((a) =>
-        a.weight >= 0.3 &&
-        c.archetypes.some((ca) => ca.type === a.type && ca.weight >= 0.3),
+      dormantMatch.archetypes.some(
+        (a) => a.weight >= 0.3 && c.archetypes.some((ca) => ca.type === a.type && ca.weight >= 0.3),
       );
     const id = makeWorldId(c.proposed_name, run.window_index, nextWB);
     nextWB.push({
@@ -744,14 +730,8 @@ export function buildSummary(
   lifeContextBook: HarnessLifeContextBookEntry[],
   events: HarnessEvent[],
 ): HarnessSummary {
-  const totalIn = runs.reduce(
-    (s, r) => s + (r.output.run_metadata.input_tokens ?? 0),
-    0,
-  );
-  const totalOut = runs.reduce(
-    (s, r) => s + (r.output.run_metadata.output_tokens ?? 0),
-    0,
-  );
+  const totalIn = runs.reduce((s, r) => s + (r.output.run_metadata.input_tokens ?? 0), 0);
+  const totalOut = runs.reduce((s, r) => s + (r.output.run_metadata.output_tokens ?? 0), 0);
   // Sonnet 4.6 approximate pricing: $3/M input, $15/M output
   const cost = (totalIn / 1_000_000) * 3 + (totalOut / 1_000_000) * 15;
 
@@ -760,9 +740,7 @@ export function buildSummary(
     let windowsPresent = 0;
     for (const run of runs) {
       const appeared =
-        run.output.new_world_candidates.some(
-          (c) => c.proposed_name === wb.current_name,
-        ) ||
+        run.output.new_world_candidates.some((c) => c.proposed_name === wb.current_name) ||
         run.output.velocity_updates.some((v) => v.world_id === wb.id) ||
         run.output.evolution_proposals.some(
           (ev) =>
@@ -782,27 +760,18 @@ export function buildSummary(
     (s, r) => s + r.output.new_chapter_candidates.length,
     0,
   );
-  const totalChapterUpdates = runs.reduce(
-    (s, r) => s + r.output.chapter_updates.length,
-    0,
-  );
-  const totalChaptersClosed = events.filter(
-    (e) => e.event_type === 'chapter_closed',
-  ).length;
+  const totalChapterUpdates = runs.reduce((s, r) => s + r.output.chapter_updates.length, 0);
+  const totalChaptersClosed = events.filter((e) => e.event_type === 'chapter_closed').length;
   const totalDistinctChapters = chapterBook.length;
 
-  const totalReactivations = events.filter(
-    (e) => e.event_type === 'world_reactivated',
-  ).length;
+  const totalReactivations = events.filter((e) => e.event_type === 'world_reactivated').length;
   const unexpectedNewVsReactivate = events.filter(
     (e) =>
       e.event_type === 'emerged' &&
       (e.detail as Record<string, unknown> | undefined)?.unexpected_vs_dormant_world !== undefined,
   ).length;
 
-  const totalReclassifications = events.filter(
-    (e) => e.event_type === 'world_reclassified',
-  ).length;
+  const totalReclassifications = events.filter((e) => e.event_type === 'world_reclassified').length;
 
   return {
     total_worlds_emerged: worldBook.length,
@@ -817,17 +786,10 @@ export function buildSummary(
     total_reactivations: totalReactivations,
     unexpected_new_vs_reactivate: unexpectedNewVsReactivate,
     total_reclassifications: totalReclassifications,
-    total_evolution_proposals: runs.reduce(
-      (s, r) => s + r.output.evolution_proposals.length,
-      0,
-    ),
-    total_velocity_updates: runs.reduce(
-      (s, r) => s + r.output.velocity_updates.length,
-      0,
-    ),
-    total_dormancy_recommendations: events.filter(
-      (e) => e.event_type === 'dormancy_recommended',
-    ).length,
+    total_evolution_proposals: runs.reduce((s, r) => s + r.output.evolution_proposals.length, 0),
+    total_velocity_updates: runs.reduce((s, r) => s + r.output.velocity_updates.length, 0),
+    total_dormancy_recommendations: events.filter((e) => e.event_type === 'dormancy_recommended')
+      .length,
     stability_by_name: stability,
     total_input_tokens: totalIn,
     total_output_tokens: totalOut,
@@ -967,7 +929,4 @@ export function buildHarnessSummary(finalization: HarnessResult): {
 
 // Re-export so the Inngest wrapper can invoke inside its step.run callbacks
 // without importing from signalCollector directly (keeps imports local).
-export {
-  collectSignalForBackfillClassifier,
-  classifyWorldsWeekly,
-};
+export { collectSignalForBackfillClassifier, classifyWorldsWeekly };

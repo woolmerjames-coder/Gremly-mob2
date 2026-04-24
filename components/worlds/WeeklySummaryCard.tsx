@@ -8,9 +8,10 @@ import { getDateService } from '../../lib/date';
 interface WeeklySummaryCardProps {
   onPressNew?: () => void;
   onPressHistory?: () => void;
+  onPressPastSummaries?: () => void;
 }
 
-export function WeeklySummaryCard({ onPressNew }: WeeklySummaryCardProps) {
+export function WeeklySummaryCard({ onPressNew, onPressPastSummaries }: WeeklySummaryCardProps) {
   const state = useWeeklySummaryCardState();
 
   if (state.kind === 'new_unread') {
@@ -36,9 +37,15 @@ export function WeeklySummaryCard({ onPressNew }: WeeklySummaryCardProps) {
     const rangeText = formatCurrentWeekRange();
     return (
       <View style={styles.cardSoft}>
-        <Text style={styles.lblSoft}>THIS WEEK{rangeText ? ` · ${rangeText}` : ''}</Text>
-        <Text style={styles.headSoft}>{state.summary.headline}</Text>
-        {state.summary.body ? <Text style={styles.bodySoft}>{state.summary.body}</Text> : null}
+        <View style={styles.topRow}>
+          <Text style={styles.lblSoft}>THIS WEEK{rangeText ? ` · ${rangeText}` : ''}</Text>
+          <Pressable onPress={onPressPastSummaries} hitSlop={8}>
+            <Text style={styles.pastLink}>see past summaries →</Text>
+          </Pressable>
+        </View>
+        <Text style={styles.headSoft} numberOfLines={3} ellipsizeMode="tail">
+          {state.summary.headline}
+        </Text>
       </View>
     );
   }
@@ -56,11 +63,15 @@ export function WeeklySummaryCard({ onPressNew }: WeeklySummaryCardProps) {
     ].filter((c): c is string => !!c);
     return (
       <View style={styles.cardSoft}>
-        <Text style={styles.lblSoft}>THIS WEEK{rangeText ? ` · ${rangeText}` : ''}</Text>
-        <Text style={styles.headSoft}>{clauses[0]}</Text>
-        {clauses.length > 1 ? (
-          <Text style={styles.bodySoft}>{clauses.slice(1).join(' · ')}</Text>
-        ) : null}
+        <View style={styles.topRow}>
+          <Text style={styles.lblSoft}>THIS WEEK{rangeText ? ` · ${rangeText}` : ''}</Text>
+          <Pressable onPress={onPressPastSummaries} hitSlop={8}>
+            <Text style={styles.pastLink}>see past summaries →</Text>
+          </Pressable>
+        </View>
+        <Text style={styles.headSoft} numberOfLines={3} ellipsizeMode="tail">
+          {clauses[0]}
+        </Text>
       </View>
     );
   }
@@ -153,7 +164,8 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginTop: 12,
     paddingHorizontal: 17,
-    paddingVertical: 15,
+    paddingTop: 14,
+    paddingBottom: 10,
     borderRadius: 18,
     backgroundColor: lightTokens.colors.oatCard,
     borderWidth: 1,
@@ -166,13 +178,25 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
     color: lightTokens.colors.warmGrey,
   },
+  topRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: 10,
+  },
+  pastLink: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 1.2,
+    color: lightTokens.colors.warmGrey,
+  },
   headSoft: {
     fontFamily: 'Inter-Medium',
-    fontSize: 15,
-    fontWeight: '600',
-    lineHeight: 20,
+    fontSize: 18,
+    fontWeight: '700',
+    lineHeight: 24,
     color: lightTokens.colors.worldsInk,
-    marginTop: 6,
   },
   bodySoft: {
     fontFamily: 'Inter-Regular',

@@ -371,9 +371,6 @@ export async function writeClassifierOutput(
 
   // ── Step 6: apply velocity_updates ───────────────────────────
   for (const vu of output.velocity_updates) {
-    console.log(
-      `[DIAG mascot] world=${vu.world_id} vu.new_mascot_slug=${JSON.stringify(vu.new_mascot_slug)} keys=${Object.keys(vu as object).join(',')}`,
-    );
     const patch: Record<string, unknown> = {
       signal_velocity: vu.signal_velocity,
       signal_velocity_delta: vu.signal_velocity_delta,

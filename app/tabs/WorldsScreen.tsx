@@ -9,7 +9,6 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { WorldsHeader } from '../../components/worlds/WorldsHeader';
 import { ProposalBanner } from '../../components/worlds/ProposalBanner';
 import { WeeklySummaryCard } from '../../components/worlds/WeeklySummaryCard';
-import { PastSummariesLink } from '../../components/worlds/PastSummariesLink';
 import { WorldsGrid } from '../../components/worlds/WorldsGrid';
 import { ContextsChipRow } from '../../components/worlds/ContextsChipRow';
 import { OpenChaptersSection } from '../../components/worlds/OpenChaptersSection';
@@ -26,6 +25,10 @@ export default function WorldsScreen() {
     await refreshWorldsGraph();
     setRefreshing(false);
   }, [refreshWorldsGraph]);
+
+  function handlePressPastSummaries() {
+    nav.navigate('WeeklySummary', undefined);
+  }
 
   function handlePressProposals() {
     console.log('[WorldsScreen] press proposals');
@@ -69,12 +72,15 @@ export default function WorldsScreen() {
       >
         <WorldsHeader />
         <ProposalBanner onPress={handlePressProposals} />
-        <WeeklySummaryCard onPressNew={handlePressWeeklySummary} />
-        <PastSummariesLink />
+        <WeeklySummaryCard
+          onPressNew={handlePressWeeklySummary}
+          onPressPastSummaries={handlePressPastSummaries}
+        />
         <View style={{ marginTop: 20 }}>
           <WorldsGrid onPressWorld={handlePressWorld} onPressAdd={handlePressAdd} />
         </View>
-        <ContextsChipRow />
+        {/* TODO(4a.6): Contexts section hidden until we clarify its purpose to users. */}
+        {/* <ContextsChipRow /> */}
         <OpenChaptersSection onPressChapter={handlePressChapter} />
         <RecentClosedChaptersSection onPressChapter={handlePressChapter} />
         <PeopleRow onPressPerson={handlePressPerson} />

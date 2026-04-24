@@ -1,5 +1,4 @@
 import { Pressable, View, StyleSheet, Image } from 'react-native';
-import { ChevronRight } from 'lucide-react-native';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
 import { useWorldPalette, useUpcomingDatesForWorld } from '../../lib/store/worldsSelectors';
@@ -42,9 +41,6 @@ export function WorldCard({ world, onPress }: WorldCardProps) {
           {subtitle}
         </Text>
       ) : null}
-      <View style={styles.chevronCircle}>
-        <ChevronRight size={14} color={lightTokens.colors.worldsInkSoft} strokeWidth={2} />
-      </View>
     </Pressable>
   );
 }
@@ -78,7 +74,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 13,
-    height: 140,
+    height: 116,
     overflow: 'hidden',
     position: 'relative',
   },
@@ -108,16 +104,5 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     color: lightTokens.colors.worldsInkSoft,
     marginTop: 12,
-  },
-  chevronCircle: {
-    position: 'absolute',
-    bottom: 10,
-    right: 10,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: 'rgba(0, 0, 0, 0.06)',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });

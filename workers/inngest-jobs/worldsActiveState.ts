@@ -3,7 +3,11 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-import type { ActiveWorldInput, ActiveChapterInput, ActiveLifeContextInput } from './worldsClassifier';
+import type {
+  ActiveWorldInput,
+  ActiveChapterInput,
+  ActiveLifeContextInput,
+} from './worldsClassifier';
 
 export interface ActiveStateEnv {
   SUPABASE_URL: string;
@@ -21,14 +25,20 @@ export interface ActiveStateEnv {
 export async function loadActiveState(
   ownerId: string,
   env: ActiveStateEnv,
-): Promise<{ activeWorlds: ActiveWorldInput[]; activeChapters: ActiveChapterInput[]; activeLifeContexts: ActiveLifeContextInput[] }> {
+): Promise<{
+  activeWorlds: ActiveWorldInput[];
+  activeChapters: ActiveChapterInput[];
+  activeLifeContexts: ActiveLifeContextInput[];
+}> {
   const db = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY, {
     auth: { persistSession: false },
   });
 
   const { data: worlds, error: wErr } = await db
     .from('worlds')
-    .select('id, name, description, archetypes, first_signal_at, last_signal_at')
+    .select(
+      'id, name, description, archetypes, first_signal_at, last_signal_at, mascot_slug, mascot_slug_source',
+    )
     .eq('owner_id', ownerId)
     .in('phase', ['candidate', 'active', 'evolving']);
   if (wErr) throw wErr;
@@ -49,9 +59,7 @@ export async function loadActiveState(
     .eq('active', true);
   if (lcErr) throw lcErr;
 
-  const worldNameById = new Map(
-    (worlds ?? []).map((w: any) => [w.id as string, w.name as string]),
-  );
+  const worldNameById = new Map((worlds ?? []).map((w: any) => [w.id as string, w.name as string]));
 
   return {
     activeWorlds: (worlds ?? []).map((w: any) => ({
@@ -61,6 +69,8 @@ export async function loadActiveState(
       archetypes: w.archetypes,
       first_signal_at: w.first_signal_at as string,
       last_signal_at: w.last_signal_at as string,
+      mascot_slug: w.mascot_slug ?? null,
+      mascot_slug_source: (w.mascot_slug_source as 'classifier' | 'user' | null) ?? null,
     })),
     activeChapters: (chapters ?? []).map((c: any) => ({
       id: c.id as string,
