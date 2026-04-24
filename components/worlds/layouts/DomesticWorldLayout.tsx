@@ -1,19 +1,16 @@
 // components/worlds/layouts/DomesticWorldLayout.tsx
 
 import { View, Pressable, StyleSheet } from 'react-native';
-import { format } from 'date-fns';
 import { lightTokens } from '../../../design/tokens';
 import { Text } from '../../../ui';
 import { ArchetypeWorldHero } from '../ArchetypeWorldHero';
 import { RecurringHabitsModule } from '../sections/RecurringHabitsModule';
-import {
-  useWorldDrops,
-  useRecentDropsForWorld,
-  useChaptersForWorld,
-} from '../../../lib/store/worldsSelectors';
+import { UnfoldingSection } from '../sections/UnfoldingSection';
+import { RecentSection } from '../sections/RecentSection';
+import { useWorldDrops, useChaptersForWorld } from '../../../lib/store/worldsSelectors';
 import { capitalizeVelocity } from './archetypeHelpers';
 import type { World, Chapter } from '../../../lib/supabase/types';
-import type { Todo, Habit, Note } from '../../../lib/types';
+import type { Todo } from '../../../lib/types';
 
 interface DomesticWorldLayoutProps {
   world: World;
@@ -72,7 +69,7 @@ export function DomesticWorldLayout({ world, currentChapter }: DomesticWorldLayo
       />
 
       {currentChapter ? (
-        <DomesticUnfoldingSection chapter={currentChapter} />
+        <UnfoldingSection chapter={currentChapter} worldId={world.id} />
       ) : (
         <DomesticNoChapterFrame />
       )}
@@ -86,58 +83,10 @@ export function DomesticWorldLayout({ world, currentChapter }: DomesticWorldLayo
 
       <DomesticNeedsYouSection worldId={world.id} openTodos={openTodos} />
 
-      <DomesticRecentSection worldId={world.id} drops={drops} />
+      <RecentSection worldId={world.id} limit={1} />
     </View>
   );
 }
-
-// ─── UNFOLDING (when domestic world has a chapter) ────────────────────────────
-
-function DomesticUnfoldingSection({ chapter }: { chapter: Chapter }) {
-  return (
-    <View style={domesticUnfoldingStyles.container}>
-      <Text style={domesticUnfoldingStyles.sectionLabel}>UNFOLDING</Text>
-      <View style={domesticUnfoldingStyles.card}>
-        <Text style={domesticUnfoldingStyles.chapterTitle} numberOfLines={2}>
-          {chapter.title}
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-const domesticUnfoldingStyles = StyleSheet.create({
-  container: { paddingHorizontal: 16, marginBottom: 26 },
-  sectionLabel: {
-    fontFamily: 'Inter-Medium',
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    color: lightTokens.colors.mossGreen,
-    textTransform: 'uppercase',
-    paddingHorizontal: 2,
-    marginBottom: 10,
-  },
-  card: {
-    backgroundColor: lightTokens.colors.worldsCard,
-    borderRadius: 14,
-    paddingVertical: 18,
-    paddingHorizontal: 18,
-    borderLeftWidth: 4,
-    borderLeftColor: lightTokens.colors.mossGreen,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 16,
-    elevation: 2,
-  },
-  chapterTitle: {
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 17,
-    lineHeight: 22,
-    color: lightTokens.colors.worldsInk,
-  },
-});
 
 // ─── NO OPEN CHAPTER dashed frame ────────────────────────────────────────────
 
@@ -268,102 +217,6 @@ const needsYouStyles = StyleSheet.create({
   seeAllText: {
     fontFamily: 'Inter-Medium',
     fontSize: 12,
-    color: lightTokens.colors.worldsInk,
-  },
-});
-
-// ─── RECENT section ──────────────────────────────────────────────────────────
-
-interface DomesticRecentSectionProps {
-  worldId: string;
-  drops: { todos: Todo[]; habits: Habit[]; notes: Note[] };
-}
-
-function DomesticRecentSection({ worldId, drops }: DomesticRecentSectionProps) {
-  const recentRefs = useRecentDropsForWorld(worldId, 1);
-
-  const recentDrops = recentRefs
-    .map((ref) => {
-      if (ref.drop_type === 'todo') {
-        const t = drops.todos.find((x) => x.id === ref.drop_id);
-        return t
-          ? { id: ref.drop_id, label: t.name || t.title || '(untitled)', created_at: t.created_at }
-          : null;
-      }
-      if (ref.drop_type === 'habit') {
-        const h = drops.habits.find((x) => x.id === ref.drop_id);
-        return h ? { id: ref.drop_id, label: h.name, created_at: h.created_at } : null;
-      }
-      if (ref.drop_type === 'note') {
-        const n = drops.notes.find((x) => x.id === ref.drop_id);
-        return n
-          ? {
-              id: ref.drop_id,
-              label: n.title || n.body?.slice(0, 40) || '(note)',
-              created_at: n.created_at,
-            }
-          : null;
-      }
-      return null;
-    })
-    .filter((x): x is NonNullable<typeof x> => x !== null);
-
-  if (recentDrops.length === 0) return null;
-
-  return (
-    <View style={domesticRecentStyles.container}>
-      <Text style={domesticRecentStyles.sectionLabel}>RECENT</Text>
-      {recentDrops.map((drop) => {
-        const formattedDate = drop.created_at
-          ? format(new Date(drop.created_at), 'MMM d').toUpperCase()
-          : '';
-        if (!formattedDate) return null;
-        return (
-          <View key={drop.id} style={domesticRecentStyles.row}>
-            <Text style={domesticRecentStyles.recentDate}>{formattedDate}</Text>
-            <Text style={domesticRecentStyles.recentBody} numberOfLines={1}>
-              {drop.label}
-            </Text>
-          </View>
-        );
-      })}
-    </View>
-  );
-}
-
-const domesticRecentStyles = StyleSheet.create({
-  container: { paddingHorizontal: 16, marginBottom: 26 },
-  sectionLabel: {
-    fontFamily: 'Inter-Medium',
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    color: lightTokens.colors.warmGrey,
-    textTransform: 'uppercase',
-    paddingHorizontal: 2,
-    marginBottom: 8,
-  },
-  row: {
-    paddingVertical: 10,
-    paddingHorizontal: 2,
-    flexDirection: 'row',
-    gap: 12,
-    alignItems: 'flex-start',
-  },
-  recentDate: {
-    fontFamily: 'Inter-Medium',
-    fontSize: 11,
-    fontWeight: '600',
-    color: lightTokens.colors.warmGrey,
-    minWidth: 44,
-    letterSpacing: 0.4,
-    marginTop: 1,
-  },
-  recentBody: {
-    flex: 1,
-    fontFamily: 'Inter-Regular',
-    fontSize: 14,
-    lineHeight: 19,
     color: lightTokens.colors.worldsInk,
   },
 });

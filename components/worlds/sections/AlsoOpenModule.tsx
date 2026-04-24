@@ -9,22 +9,40 @@ interface AlsoOpenModuleProps {
   worldId: string;
   onPressSeeAll?: () => void;
   onPressTodo?: (todoId: string) => void;
+  /**
+   * Section label. Defaults to "ALSO OPEN" (project context).
+   * Practice uses "OPEN". Other archetypes can customize.
+   * The count is appended automatically.
+   */
+  label?: string;
+  /**
+   * Right-side italic caption ("beyond the sprint"). Default undefined = no caption.
+   * Set explicitly to show. Project passes "beyond the sprint".
+   */
+  caption?: string;
 }
 
 const MAX_ROWS = 4;
 
-export function AlsoOpenModule({ worldId, onPressSeeAll, onPressTodo }: AlsoOpenModuleProps) {
+export function AlsoOpenModule({
+  worldId,
+  onPressSeeAll,
+  onPressTodo,
+  label = 'ALSO OPEN',
+  caption,
+}: AlsoOpenModuleProps) {
   const todos = useOpenNonChapterTodosForWorld(worldId);
   if (todos.length === 0) return null;
 
   const visible = todos.slice(0, MAX_ROWS);
   const fullCount = todos.length;
+  const labelText = `${label} \u00B7 ${fullCount}`;
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.label}>ALSO OPEN · {fullCount}</Text>
-        <Text style={styles.caption}>beyond the sprint</Text>
+        <Text style={styles.label}>{labelText}</Text>
+        {caption ? <Text style={styles.caption}>{caption}</Text> : null}
       </View>
 
       {visible.map((todo, idx) => {
