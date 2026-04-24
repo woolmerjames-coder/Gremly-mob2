@@ -1292,3 +1292,49 @@ export function selectRecentDropsForWorld(
 
 export const useRecentDropsForWorld = (worldId: string, limit: number = 2) =>
   useGremlyStore(useShallow((s) => selectRecentDropsForWorld(s, worldId, limit)));
+
+// ─── Habit 13-week grid ────────────────────────────────────────────────────────
+
+/**
+ * Returns a boolean array of length `weeksBack` (oldest → newest, current week
+ * last) where `true` means the user logged at least one progress entry for this
+ * habit in that calendar week (Mon–Sun).
+ *
+ * Used by RecurringHabitsModule (world BUILDING section) and
+ * ChapterRhythmSection (chapter THIS CHAPTER'S RHYTHM section).
+ *
+ * When `sinceDate` is provided the first week is the ISO week containing that
+ * date; weeksBack is still respected as a max cap.
+ */
+export interface HabitWeekGrid {
+  weeks: boolean[]; // length == weeksBack, oldest first
+  hitCount: number;
+}
+
+export function selectHabitWeekGrid(
+  state: GremlyState,
+  habitId: string,
+  weeksBack: number = 13,
+): HabitWeekGrid {
+  const now = getDateService().now();
+  const currentWeekStart = startOfIsoWeek(now);
+
+  // Build one boolean per week, from (weeksBack-1) weeks ago to current week
+  const weeks = Array.from({ length: weeksBack }, (_, i) => {
+    const weekOffset = weeksBack - 1 - i; // i=0 → oldest week
+    const ms = weekOffset * 7 * 24 * 60 * 60 * 1000;
+    const weekStart = new Date(currentWeekStart.getTime() - ms);
+    const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const wStartStr = weekStart.toISOString().slice(0, 10);
+    const wEndStr = weekEnd.toISOString().slice(0, 10);
+
+    return state.habitProgress.some(
+      (p) => p.habit_id === habitId && p.occurred_day >= wStartStr && p.occurred_day < wEndStr,
+    );
+  });
+
+  return { weeks, hitCount: weeks.filter(Boolean).length };
+}
+
+export const useHabitWeekGrid = (habitId: string, weeksBack: number = 13) =>
+  useGremlyStore(useShallow((s) => selectHabitWeekGrid(s, habitId, weeksBack)));

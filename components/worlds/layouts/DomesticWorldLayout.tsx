@@ -74,12 +74,7 @@ export function DomesticWorldLayout({ world, currentChapter }: DomesticWorldLayo
         <DomesticNoChapterFrame />
       )}
 
-      <RecurringHabitsModule
-        worldId={world.id}
-        onPressHabit={() => {
-          /* TODO(phaseC): navigate to habit */
-        }}
-      />
+      <RecurringHabitsModule worldId={world.id} />
 
       <DomesticNeedsYouSection worldId={world.id} openTodos={openTodos} />
 

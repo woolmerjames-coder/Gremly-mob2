@@ -1,83 +1,81 @@
 // components/worlds/sections/RecurringHabitsModule.tsx
+//
+// BUILDING · last 13 weeks — rendered on world pages for Practice and Domestic
+// archetypes. Each habit shows its name, "X of 13 weeks hit" count, and a row
+// of 13 square tiles (amber = hit, cream = miss, last tile darker to mark the
+// current week).
 
-import { View, Pressable, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { lightTokens } from '../../../design/tokens';
 import { Text } from '../../../ui';
-import {
-  useActiveHabitsForWorld,
-  useHabitLastActivity,
-  type HabitLastActivity,
-} from '../../../lib/store/worldsSelectors';
+import { useActiveHabitsForWorld, useHabitWeekGrid } from '../../../lib/store/worldsSelectors';
 import type { Habit } from '../../../lib/types';
+
+const WEEKS_BACK = 13;
 
 interface RecurringHabitsModuleProps {
   worldId: string;
-  onPressHabit?: (habitId: string) => void;
 }
 
-export function RecurringHabitsModule({ worldId, onPressHabit }: RecurringHabitsModuleProps) {
+export function RecurringHabitsModule({ worldId }: RecurringHabitsModuleProps) {
   const habits = useActiveHabitsForWorld(worldId);
   if (habits.length === 0) return null;
 
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>RECURRING</Text>
+      <Text style={styles.label}>BUILDING · last {WEEKS_BACK} weeks</Text>
       {habits.map((habit, idx) => {
         const isLast = idx === habits.length - 1;
-        return (
-          <HabitRow
-            key={habit.id}
-            habit={habit}
-            isLast={isLast}
-            onPress={() => onPressHabit?.(habit.id)}
-          />
-        );
+        return <HabitGridRow key={habit.id} habit={habit} isLast={isLast} />;
       })}
     </View>
   );
 }
 
-interface HabitRowProps {
+interface HabitGridRowProps {
   habit: Habit;
   isLast: boolean;
-  onPress: () => void;
 }
 
-function HabitRow({ habit, isLast, onPress }: HabitRowProps) {
-  const activity = useHabitLastActivity(habit.id);
-  const statusColor = resolveStatusColor(activity);
-  const statusText = activity?.text ?? '\u2014';
+function HabitGridRow({ habit, isLast }: HabitGridRowProps) {
+  const grid = useHabitWeekGrid(habit.id, WEEKS_BACK);
 
   return (
-    <Pressable
-      style={[styles.row, !isLast && styles.rowDivider]}
-      onPress={onPress}
-      testID={`recurring-habit-${habit.id}`}
-    >
-      <Text style={styles.habitName} numberOfLines={1}>
-        {habit.name || '(untitled)'}
-      </Text>
-      <Text style={[styles.statusText, { color: statusColor }]}>{statusText}</Text>
-    </Pressable>
+    <View style={[styles.habitWrap, !isLast && styles.habitDivider]}>
+      {/* Name + count row */}
+      <View style={styles.habitHeader}>
+        <Text style={styles.habitName} numberOfLines={1}>
+          {habit.name || '(untitled)'}
+        </Text>
+        <Text style={styles.hitCount}>
+          {grid.hitCount} of {WEEKS_BACK} weeks hit
+        </Text>
+      </View>
+
+      {/* 13-tile grid */}
+      <View style={styles.tileRow}>
+        {grid.weeks.map((hit, i) => {
+          const isCurrentWeek = i === WEEKS_BACK - 1;
+          return (
+            <View
+              key={i}
+              style={[
+                styles.tile,
+                hit ? (isCurrentWeek ? styles.tileHitCurrent : styles.tileHit) : styles.tileMiss,
+              ]}
+            />
+          );
+        })}
+      </View>
+    </View>
   );
 }
 
-function resolveStatusColor(activity: HabitLastActivity | null): string {
-  if (!activity) return lightTokens.colors.warmGrey;
-  switch (activity.status) {
-    case 'on':
-    case 'done':
-    case 'paid':
-      return lightTokens.colors.mossGreen;
-    case 'pending':
-      return lightTokens.colors.warmGrey;
-    default:
-      return lightTokens.colors.warmGrey;
-  }
-}
-
 const styles = StyleSheet.create({
-  container: { marginBottom: 26, paddingHorizontal: 16 },
+  container: {
+    marginBottom: 26,
+    paddingHorizontal: 16,
+  },
   label: {
     fontFamily: 'Inter-Medium',
     fontSize: 12,
@@ -86,29 +84,57 @@ const styles = StyleSheet.create({
     color: lightTokens.colors.warmGrey,
     textTransform: 'uppercase',
     paddingHorizontal: 2,
-    marginBottom: 10,
+    marginBottom: 14,
   },
-  row: {
-    paddingVertical: 10,
+  habitWrap: {
+    paddingBottom: 16,
     paddingHorizontal: 2,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
   },
-  rowDivider: {
+  habitDivider: {
+    marginBottom: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: lightTokens.colors.worldsCardBorder,
   },
+  habitHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: 6,
+  },
   habitName: {
     flex: 1,
-    marginRight: 12,
+    marginRight: 8,
     fontFamily: 'Inter-Regular',
-    fontSize: 14,
-    lineHeight: 19,
+    fontSize: 11,
     color: lightTokens.colors.worldsInk,
   },
-  statusText: {
-    fontFamily: 'Inter-Medium',
-    fontSize: 11,
+  hitCount: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 9,
+    color: lightTokens.colors.warmGrey,
+    flexShrink: 0,
+  },
+  tileRow: {
+    flexDirection: 'row',
+    gap: 3,
+  },
+  tile: {
+    flex: 1,
+    aspectRatio: 1,
+    borderRadius: 2,
+  },
+  tileHit: {
+    backgroundColor: lightTokens.colors.ambergold,
+  },
+  tileHitCurrent: {
+    // Current week: deeper amber
+    backgroundColor: '#BA7517',
+    borderWidth: 1,
+    borderColor: '#412402',
+  },
+  tileMiss: {
+    backgroundColor: '#F5F1E8',
+    borderWidth: 0.5,
+    borderColor: '#E5DFD2',
   },
 });
