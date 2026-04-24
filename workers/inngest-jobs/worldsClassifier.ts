@@ -108,34 +108,142 @@ export const LIFE_CONTEXT_KINDS: LifeContextKind[] = [
   'custom',
 ];
 
-const MASCOT_CATALOG: string[] = [
-  'adventurer_gremly',
-  'artist_gremly',
-  'astrogremly',
-  'beach_gremly',
-  'chef_gremly',
-  'clipboardgremly',
-  'coffee_gremly',
-  'cozy_gremly',
-  'cozyscarf_gremly',
-  'doctor_gremly',
-  'explorer_gremly',
-  'fistbumpgremly',
-  'fitness_gremly',
-  'gardener_gremly',
-  'gremly-mascot',
-  'hoodie_gremly',
-  'JournalGremly',
-  'meditation_gremly',
-  'music_gremly',
-  'photographer_gremly',
-  'running-removebg',
-  'safari_gremly',
-  'scholar_gremly',
-  'ski_gremly',
+type MascotCatalogEntry = {
+  slug: string;
+  archetype_tags: string[];
+  visual: string;
+};
+
+const MASCOT_CATALOG: MascotCatalogEntry[] = [
+  {
+    slug: 'adventurer_gremly',
+    archetype_tags: ['learning', 'study', 'academic', 'curiosity'],
+    visual: 'graduation cap with tassel, round glasses, holding a stack of colorful books',
+  },
+  {
+    slug: 'artist_gremly',
+    archetype_tags: ['finance', 'wealth', 'investing', 'business'],
+    visual: 'top hat, monocle, holding gold coin marked with a dollar sign',
+  },
+  {
+    slug: 'astrogremly',
+    archetype_tags: ['exploration', 'frontier', 'ambition', 'wonder'],
+    visual: 'round space helmet with bubble visor, serene smile',
+  },
+  {
+    slug: 'beach_gremly',
+    archetype_tags: ['vacation', 'leisure', 'relaxation'],
+    visual:
+      'sunglasses, hawaiian shirt, reclining in a deck chair holding a cocktail with umbrella straw',
+  },
+  {
+    slug: 'chef_gremly',
+    archetype_tags: ['cooking', 'nourishment', 'domestic craft'],
+    visual: 'chef hat, apron, holding a whisk',
+  },
+  {
+    slug: 'clipboardgremly',
+    archetype_tags: ['execution', 'tracking', 'admin', 'task focus'],
+    visual: 'holding a clipboard with checkboxes',
+  },
+  {
+    slug: 'coffee_gremly',
+    archetype_tags: ['rest', 'pause', 'dormancy', 'recovery'],
+    visual: 'curled up sleeping, eyes closed, peaceful',
+  },
+  {
+    slug: 'cozy_gremly',
+    archetype_tags: ['home comfort', 'warmth', 'self-care', 'hibernation'],
+    visual: 'wrapped in a cream blanket, holding a mug',
+  },
+  {
+    slug: 'cozyscarf_gremly',
+    archetype_tags: ['celebration', 'milestone', 'joy'],
+    visual: 'striped party hat, arms raised, open-mouthed grin',
+  },
+  {
+    slug: 'doctor_gremly',
+    archetype_tags: ['medical care', 'caregiving', 'healing', 'physical health'],
+    visual: 'stethoscope around neck, holding a red heart',
+  },
+  {
+    slug: 'explorer_gremly',
+    archetype_tags: ['visual art', 'creative craft', 'painting'],
+    visual: 'green beret, holding a paintbrush',
+  },
+  {
+    slug: 'fistbumpgremly',
+    archetype_tags: ['motivation', 'momentum', 'drive', 'encouragement'],
+    visual: 'arms bent at elbows in a motivated pose, eyes closed smiling',
+  },
+  {
+    slug: 'fitness_gremly',
+    archetype_tags: ['strength training', 'gym', 'body exertion', 'weights'],
+    visual: 'headband, lifting dumbbells in both hands, mid-workout',
+  },
+  {
+    slug: 'gardener_gremly',
+    archetype_tags: ['growth', 'nurture', 'patience', 'gentle care', 'recovery'],
+    visual: 'holding a potted seedling, eyes closed, peaceful',
+  },
+  {
+    slug: 'gremly-mascot',
+    archetype_tags: [],
+    visual: 'plain standing gremly with no accessories, neutral friendly smile',
+  },
+  {
+    slug: 'hoodie_gremly',
+    archetype_tags: ['playful adventure', 'bold confidence', 'frontier'],
+    visual: 'wide brown cowboy hat, winking, yellow star badge on chest',
+  },
+  {
+    slug: 'JournalGremly',
+    archetype_tags: ['reflection', 'contemplation', 'journaling', 'stillness'],
+    visual: 'small sitting upright, eyes closed, plain green, peaceful',
+  },
+  {
+    slug: 'meditation_gremly',
+    archetype_tags: ['mindfulness', 'meditation', 'stillness', 'mental wellness'],
+    visual: 'seated in lotus pose, hands together in prayer, eyes closed, serene',
+  },
+  {
+    slug: 'music_gremly',
+    archetype_tags: ['music', 'audio', 'creative flow', 'immersion'],
+    visual: 'standing with headphones on, eyes closed, content',
+  },
+  {
+    slug: 'photographer_gremly',
+    archetype_tags: ['travel', 'transition', 'movement', 'relocation'],
+    visual: 'standing with an orange suitcase, waving, alert expression',
+  },
+  {
+    slug: 'running-removebg',
+    archetype_tags: ['cardio', 'running', 'body exertion', 'movement'],
+    visual: 'headband, wristbands, mid-run with motion lines, energized',
+  },
+  {
+    slug: 'safari_gremly',
+    archetype_tags: ['outdoor exploration', 'discovery', 'adventure travel'],
+    visual: 'wide-brim safari hat, holding binoculars',
+  },
+  {
+    slug: 'scholar_gremly',
+    archetype_tags: ['professional work', 'corporate career', 'office job', 'day job'],
+    visual: 'round glasses, green tie, holding a laptop',
+  },
+  {
+    slug: 'ski_gremly',
+    archetype_tags: ['winter sport', 'seasonal outdoor adventure', 'skiing'],
+    visual: 'goggles, jacket, holding ski poles',
+  },
 ];
 
-const MASCOT_CATALOG_TEXT = MASCOT_CATALOG.join(', ');
+const MASCOT_CATALOG_SLUGS: string[] = MASCOT_CATALOG.map((m) => m.slug);
+
+const MASCOT_CATALOG_TEXT = MASCOT_CATALOG.map(
+  (m) =>
+    `  - slug: ${m.slug}\n    visual: ${m.visual}\n    archetype_tags: [${m.archetype_tags.join(', ')}]`,
+).join('\n');
 
 // ─── Input shapes ────────────────────────────────────────────────────────────
 
@@ -200,6 +308,7 @@ export interface KeyPriority {
 export interface NewWorldCandidate {
   proposed_name: string;
   display_name: string;
+  mascot_slug: string;
   description: string;
   card_subtitle: string;
   summary: string;
@@ -413,7 +522,22 @@ Confidence. Every candidate and proposal gets a confidence between 0 and 1. Thin
 
 Style rules for all authored text fields. These apply to display_name, card_subtitle, summary, target_summary, key_priorities.text, worlds_summary.headline, worlds_summary.body, and worlds_summary.featured.reason.\n\nNever use em dashes, en dashes, or double hyphens. Use standard punctuation instead. Never use ampersands except inside literal proper nouns where the ampersand is part of the organization's registered name.\n\nWrite plainly, in second person where natural, without rhetorical flourish. Prefer concrete nouns and verbs over abstract summary language. Do not use hedging or qualifying adverbs that soften claims without adding information.
 
-Mascot assignment for new and refreshed Worlds. Every new_world_candidate must include a mascot_slug. Choose a mascot that reflects the dominant archetype and emotional character of the World, not a literal keyword match to the World's name. For each velocity_update, set new_mascot_slug to a slug from the catalog if the World's character has meaningfully shifted since the last assignment, or null to leave the current mascot unchanged. Never assign a mascot slug that is not in the catalog. Available slugs: ${MASCOT_CATALOG_TEXT}.
+WORLD MASCOT ASSIGNMENT
+
+Each new_world_candidate must emit a mascot_slug. For each velocity_update of an existing world, set new_mascot_slug as follows. If the existing world currently has a null mascot_slug, assign one now by choosing from the catalog — this is a first-assignment, not a refresh, and it is always required. If the existing world already has a mascot_slug authored by the classifier, preserve it by setting new_mascot_slug to null, unless the world's archetypes or primary theme have materially shifted since the last run, in which case emit a fresh slug. Never change a mascot_slug whose source is user.
+
+To choose a slug, read the world's archetypes, key_priorities, and summary. Pick the catalog entry whose archetype_tags most closely match the world's archetypes, or whose visual description depicts an activity or mood aligned with the world's themes. If no catalog entry confidently matches, choose the slug whose archetype_tags are empty and whose visual depicts a plain gremly with no accessories.
+
+Safety constraints override any match score. These rules must never be violated under any circumstance.
+
+- Never assign a mascot whose visual depicts alcohol, cocktails, or drinking to any world whose archetypes or summary involve sobriety, addiction recovery, alcohol reduction, anxiety, or mental health.
+- Never assign a mascot whose visual depicts body exertion, strength training, weights, or running to any world whose archetypes or summary involve eating disorders, body image struggles, or restrictive eating.
+- Never assign a mascot whose visual depicts wealth, money, or financial gain to any world whose archetypes or summary involve financial stress, debt, or money scarcity.
+- Never assign a mascot whose visual depicts medical equipment or clinical care to a world focused on addiction recovery or substance sobriety.
+- When any safety constraint applies or no candidate confidently matches, assign the plain no-accessory mascot.
+
+MASCOT_CATALOG:
+${MASCOT_CATALOG_TEXT}
 
 Authored content for new World candidates. For each new_world_candidate you emit, you must also author the following fields. display_name is a short human-friendly label, at most 3 words and at most 20 characters, derived from proposed_name. Never contains ampersands, the word "and", or any other conjunction. Use sentence case. Omit articles ("the", "a") and possessives ("my", "your") unless essential. One word is preferred when it reads naturally. card_subtitle is a single clause, maximum 60 characters, that captures the defining quality or current momentum of this World. Write it as a present-tense or present-continuous phrase. summary is 2 to 3 short sentences, maximum 180 characters total, describing the World's identity, its arc inside the current window, and what the user has been building or expressing within it. Write in second person. key_priorities is an array of up to 5 items ordered by importance, each with rank (integer 1 to 5), text (maximum 100 characters), kind (one of: action, date, blocker, momentum, decision), optional entity_ref string, optional due_date ISO date string, and confidence (number between 0 and 1).
 
@@ -527,7 +651,7 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
           properties: {
             proposed_name: { type: 'string' },
             display_name: { type: 'string', maxLength: 20 },
-            mascot_slug: { type: 'string', enum: MASCOT_CATALOG },
+            mascot_slug: { type: 'string', enum: MASCOT_CATALOG_SLUGS },
             description: { type: 'string' },
             card_subtitle: { type: 'string', maxLength: 60 },
             summary: { type: 'string', maxLength: 220 },
@@ -669,7 +793,7 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
             new_key_priorities: {
               oneOf: [{ type: 'array', maxItems: 5, items: KEY_PRIORITY_SCHEMA }, { type: 'null' }],
             },
-            new_mascot_slug: { type: ['string', 'null'], enum: [...MASCOT_CATALOG, null] },
+            new_mascot_slug: { type: ['string', 'null'], enum: [...MASCOT_CATALOG_SLUGS, null] },
           },
         },
       },
