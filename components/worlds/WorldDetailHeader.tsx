@@ -8,9 +8,15 @@ interface WorldDetailHeaderProps {
   title: string;
   onBack: () => void;
   worldId: string;
+  showTitle?: boolean; // default true — existing callers unchanged
 }
 
-export function WorldDetailHeader({ title, onBack, worldId }: WorldDetailHeaderProps) {
+export function WorldDetailHeader({
+  title,
+  onBack,
+  worldId,
+  showTitle = true,
+}: WorldDetailHeaderProps) {
   const onMenu = () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (SheetManager.show as (...args: any[]) => void)('world-menu', { payload: { worldId } });
@@ -21,10 +27,12 @@ export function WorldDetailHeader({ title, onBack, worldId }: WorldDetailHeaderP
         <ChevronLeft size={22} color={lightTokens.colors.worldsInk} />
       </Pressable>
       <View style={styles.titleWrap}>
-        <View style={styles.titleInner}>
-          <Text style={styles.title}>{title}</Text>
-          <View style={styles.underline} />
-        </View>
+        {showTitle ? (
+          <View style={styles.titleInner}>
+            <Text style={styles.title}>{title}</Text>
+            <View style={styles.underline} />
+          </View>
+        ) : null}
       </View>
       <Pressable onPress={onMenu} style={styles.iconBtn} testID="world-detail-menu">
         <MoreHorizontal size={20} color={lightTokens.colors.worldsInk} />

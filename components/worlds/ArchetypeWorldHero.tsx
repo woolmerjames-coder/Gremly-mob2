@@ -3,14 +3,13 @@
 import { View, StyleSheet, Platform } from 'react-native';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
+import MascotIcon from '../MascotIcon';
 import type { World } from '../../lib/supabase/types';
 
 interface ArchetypeWorldHeroProps {
   world: World;
-  accentColor: string;
   velocityDotColor: string;
   statusLine: string;
-  underlineColor: string;
 }
 
 // iOS renders dashed; Android may render solid (RN Text decoration limitation)
@@ -18,10 +17,8 @@ const SERIF_FONT = Platform.select({ ios: 'Georgia', default: 'serif' });
 
 export function ArchetypeWorldHero({
   world,
-  accentColor,
   velocityDotColor,
   statusLine,
-  underlineColor,
 }: ArchetypeWorldHeroProps) {
   const title = world.display_name || world.name;
   const summary = world.summary?.trim() || null;
@@ -41,24 +38,14 @@ export function ArchetypeWorldHero({
             </Text>
           </View>
         </View>
-        <View style={[styles.accentCircle, { backgroundColor: accentColor }]} />
+        <View style={styles.mascotWrap}>
+          <MascotIcon size={56} />
+        </View>
       </View>
 
       {/* Serif summary (or placeholder) */}
       {summary ? (
-        <Text
-          style={[
-            styles.summary,
-            {
-              textDecorationColor: underlineColor,
-              // iOS renders dashed; Android may render solid (RN Text decoration limitation)
-              textDecorationLine: 'underline',
-              textDecorationStyle: 'dashed',
-            },
-          ]}
-        >
-          {summary}
-        </Text>
+        <Text style={styles.summary}>{summary}</Text>
       ) : (
         <Text style={[styles.summary, styles.summaryPlaceholder]}>
           No summary yet. Gremly&apos;s classifier will write one after your next weekly run.
@@ -70,8 +57,7 @@ export function ArchetypeWorldHero({
 
 const styles = StyleSheet.create({
   container: {
-    paddingLeft: 2,
-    paddingRight: 2,
+    paddingHorizontal: 16,
     paddingBottom: 32,
   },
   topRow: {
@@ -108,11 +94,10 @@ const styles = StyleSheet.create({
     color: lightTokens.colors.warmGrey,
     flexShrink: 1,
   },
-  accentCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+  mascotWrap: {
     flexShrink: 0,
+    // MascotIcon is already size-constrained via its size prop; wrapper
+    // exists purely to maintain flex row alignment.
   },
   summary: {
     fontFamily: SERIF_FONT,

@@ -41,7 +41,13 @@ export default function WorldDetailScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']} testID={`world-detail-${world.id}`}>
-      <WorldDetailHeader title={worldName} onBack={() => nav.goBack()} worldId={world.id} />
+      <WorldDetailHeader
+        title={worldName}
+        onBack={() => nav.goBack()}
+        worldId={world.id}
+        showTitle={false} // Phase B: body hero owns the title on all archetype pages
+        // (B.3a-polish will upgrade to scroll-aware reveal)
+      />
       <ScrollView contentContainerStyle={{ paddingBottom: 12 }}>
         <ArchetypeLayoutDispatcher world={world} currentChapter={currentChapter} />
         <GremlyNoticedSlot worldId={world.id} />

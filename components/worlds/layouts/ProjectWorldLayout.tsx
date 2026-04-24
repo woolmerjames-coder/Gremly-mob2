@@ -3,7 +3,7 @@
 import { View, Pressable, StyleSheet } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { differenceInCalendarDays } from 'date-fns';
+import { differenceInCalendarDays, format } from 'date-fns';
 import { lightTokens } from '../../../design/tokens';
 import { Text } from '../../../ui';
 import { ArchetypeWorldHero } from '../ArchetypeWorldHero';
@@ -49,10 +49,8 @@ export function ProjectWorldLayout({ world, currentChapter }: ProjectWorldLayout
     <View>
       <ArchetypeWorldHero
         world={world}
-        accentColor={lightTokens.colors.velocityDotGrowing}
         velocityDotColor={velocityDotColor}
         statusLine={statusLine}
-        underlineColor={lightTokens.colors.summaryUnderlineProject}
       />
 
       {currentChapter ? (
@@ -89,7 +87,21 @@ function ProjectUnfoldingSection({ chapter, blockerCount, onPress }: ProjectUnfo
   const progressFraction =
     phase.segments.length > 0 ? phase.segments.filter(Boolean).length / phase.segments.length : 0;
 
-  const dayLine = buildPhaseDayLine(chapter, phase.label);
+  const dayLine = (() => {
+    const parts: string[] = [];
+    if (chapter.current_phase_key) parts.push(chapter.current_phase_key);
+    if (chapter.start_date) {
+      const days =
+        differenceInCalendarDays(getDateService().now(), new Date(chapter.start_date)) + 1;
+      if (days > 0) parts.push(`day ${days}`);
+    }
+    return parts.join(' \u00B7 ');
+  })();
+
+  const phaseIndex = chapter.phase_labels?.indexOf(chapter.current_phase_key ?? '') ?? -1;
+  const phaseTotal = chapter.phase_labels?.length ?? 0;
+  const phaseLabelText =
+    phaseIndex >= 0 && phaseTotal > 0 ? `phase ${phaseIndex + 1} of ${phaseTotal}` : null;
 
   return (
     <View style={unfoldingStyles.container}>
@@ -121,18 +133,12 @@ function ProjectUnfoldingSection({ chapter, blockerCount, onPress }: ProjectUnfo
             ]}
           />
         </View>
+        {phaseLabelText ? (
+          <Text style={unfoldingStyles.phaseProgress}>{phaseLabelText}</Text>
+        ) : null}
       </Pressable>
     </View>
   );
-}
-
-function buildPhaseDayLine(chapter: Chapter, phaseLabel: string): string {
-  const now = getDateService().now();
-  const dayNumber = chapter.start_date
-    ? Math.max(differenceInCalendarDays(now, new Date(chapter.start_date)), 0) + 1
-    : null;
-  const dayClause = dayNumber !== null ? `Day ${dayNumber}` : null;
-  return [phaseLabel, dayClause].filter(Boolean).join(' \u00B7 ');
 }
 
 const unfoldingStyles = StyleSheet.create({
@@ -202,6 +208,12 @@ const unfoldingStyles = StyleSheet.create({
     backgroundColor: lightTokens.colors.outcomeAccent,
     borderRadius: 2,
   },
+  phaseProgress: {
+    marginTop: 6,
+    fontSize: 9,
+    color: lightTokens.colors.warmGrey,
+    fontFamily: 'Inter-Regular',
+  },
 });
 
 // ─── RECENT sub-component ────────────────────────────────────────────────────
@@ -219,12 +231,19 @@ function ProjectRecentSection({ worldId, drops }: ProjectRecentSectionProps) {
       if (ref.drop_type === 'todo') {
         const t = drops.todos.find((x) => x.id === ref.drop_id);
         return t
-          ? { id: ref.drop_id, label: t.name || t.title || '(untitled)', type: 'todo' as const }
+          ? {
+              id: ref.drop_id,
+              label: t.name || t.title || '(untitled)',
+              type: 'todo' as const,
+              created_at: t.created_at,
+            }
           : null;
       }
       if (ref.drop_type === 'habit') {
         const h = drops.habits.find((x) => x.id === ref.drop_id);
-        return h ? { id: ref.drop_id, label: h.name, type: 'habit' as const } : null;
+        return h
+          ? { id: ref.drop_id, label: h.name, type: 'habit' as const, created_at: h.created_at }
+          : null;
       }
       if (ref.drop_type === 'note') {
         const n = drops.notes.find((x) => x.id === ref.drop_id);
@@ -233,6 +252,7 @@ function ProjectRecentSection({ worldId, drops }: ProjectRecentSectionProps) {
               id: ref.drop_id,
               label: n.title || n.body?.slice(0, 40) || '(note)',
               type: 'note' as const,
+              created_at: n.created_at,
             }
           : null;
       }
@@ -246,10 +266,15 @@ function ProjectRecentSection({ worldId, drops }: ProjectRecentSectionProps) {
     <View style={recentStyles.container}>
       <Text style={recentStyles.sectionLabel}>RECENT</Text>
       {recentDrops.map((drop, idx) => {
+        const formattedDate = drop.created_at
+          ? format(new Date(drop.created_at), 'MMM d').toUpperCase()
+          : '';
+        if (!formattedDate) return null;
         const isLast = idx === recentDrops.length - 1;
         return (
           <View key={drop.id} style={[recentStyles.row, !isLast && recentStyles.rowDivider]}>
-            <Text style={recentStyles.rowLabel} numberOfLines={1}>
+            <Text style={recentStyles.recentDate}>{formattedDate}</Text>
+            <Text style={recentStyles.recentBody} numberOfLines={1}>
               {drop.label}
             </Text>
           </View>
@@ -279,15 +304,26 @@ const recentStyles = StyleSheet.create({
     paddingHorizontal: 2,
     flexDirection: 'row',
     gap: 10,
+    alignItems: 'flex-start',
   },
   rowDivider: {
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: lightTokens.colors.worldsCardBorder,
   },
-  rowLabel: {
+  recentDate: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 9,
+    fontWeight: '600',
+    color: lightTokens.colors.warmGrey,
+    minWidth: 36,
+    letterSpacing: 0.3,
+    marginTop: 1,
+  },
+  recentBody: {
+    flex: 1,
     fontFamily: 'Inter-Regular',
     fontSize: 11,
     color: lightTokens.colors.worldsInk,
-    flex: 1,
+    lineHeight: 15,
   },
 });

@@ -1,6 +1,7 @@
 // components/worlds/layouts/DomesticWorldLayout.tsx
 
 import { View, Pressable, StyleSheet } from 'react-native';
+import { format } from 'date-fns';
 import { lightTokens } from '../../../design/tokens';
 import { Text } from '../../../ui';
 import { ArchetypeWorldHero } from '../ArchetypeWorldHero';
@@ -55,10 +56,8 @@ export function DomesticWorldLayout({ world, currentChapter }: DomesticWorldLayo
     <View>
       <ArchetypeWorldHero
         world={world}
-        accentColor={lightTokens.colors.warmGrey}
         velocityDotColor={velocityDotColor}
         statusLine={statusLine}
-        underlineColor={lightTokens.colors.summaryUnderlineDomestic}
       />
 
       {currentChapter ? (
@@ -268,15 +267,23 @@ function DomesticRecentSection({ worldId, drops }: DomesticRecentSectionProps) {
     .map((ref) => {
       if (ref.drop_type === 'todo') {
         const t = drops.todos.find((x) => x.id === ref.drop_id);
-        return t ? { id: ref.drop_id, label: t.name || t.title || '(untitled)' } : null;
+        return t
+          ? { id: ref.drop_id, label: t.name || t.title || '(untitled)', created_at: t.created_at }
+          : null;
       }
       if (ref.drop_type === 'habit') {
         const h = drops.habits.find((x) => x.id === ref.drop_id);
-        return h ? { id: ref.drop_id, label: h.name } : null;
+        return h ? { id: ref.drop_id, label: h.name, created_at: h.created_at } : null;
       }
       if (ref.drop_type === 'note') {
         const n = drops.notes.find((x) => x.id === ref.drop_id);
-        return n ? { id: ref.drop_id, label: n.title || n.body?.slice(0, 40) || '(note)' } : null;
+        return n
+          ? {
+              id: ref.drop_id,
+              label: n.title || n.body?.slice(0, 40) || '(note)',
+              created_at: n.created_at,
+            }
+          : null;
       }
       return null;
     })
@@ -287,13 +294,20 @@ function DomesticRecentSection({ worldId, drops }: DomesticRecentSectionProps) {
   return (
     <View style={domesticRecentStyles.container}>
       <Text style={domesticRecentStyles.sectionLabel}>RECENT</Text>
-      {recentDrops.map((drop) => (
-        <View key={drop.id} style={domesticRecentStyles.row}>
-          <Text style={domesticRecentStyles.rowLabel} numberOfLines={1}>
-            {drop.label}
-          </Text>
-        </View>
-      ))}
+      {recentDrops.map((drop) => {
+        const formattedDate = drop.created_at
+          ? format(new Date(drop.created_at), 'MMM d').toUpperCase()
+          : '';
+        if (!formattedDate) return null;
+        return (
+          <View key={drop.id} style={domesticRecentStyles.row}>
+            <Text style={domesticRecentStyles.recentDate}>{formattedDate}</Text>
+            <Text style={domesticRecentStyles.recentBody} numberOfLines={1}>
+              {drop.label}
+            </Text>
+          </View>
+        );
+      })}
     </View>
   );
 }
@@ -315,11 +329,22 @@ const domesticRecentStyles = StyleSheet.create({
     paddingHorizontal: 2,
     flexDirection: 'row',
     gap: 10,
+    alignItems: 'flex-start',
   },
-  rowLabel: {
+  recentDate: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 9,
+    fontWeight: '600',
+    color: lightTokens.colors.warmGrey,
+    minWidth: 36,
+    letterSpacing: 0.3,
+    marginTop: 1,
+  },
+  recentBody: {
+    flex: 1,
     fontFamily: 'Inter-Regular',
     fontSize: 11,
     color: lightTokens.colors.worldsInk,
-    flex: 1,
+    lineHeight: 15,
   },
 });
