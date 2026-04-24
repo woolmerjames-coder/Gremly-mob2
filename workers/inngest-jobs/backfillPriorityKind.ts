@@ -112,6 +112,13 @@ export function createBackfillPriorityKind(inngest: Inngest<{ id: 'gremly' }>) {
       const today = new Date().toISOString().slice(0, 10);
       const dayOfWeek = new Intl.DateTimeFormat('en-US', { weekday: 'long' }).format(new Date());
 
+      // Log once per run so we can confirm the URL / binding at runtime
+      const usingBinding = !!env.CORTEX;
+      console.log(
+        '[BackfillPriorityKind] cortex routing:',
+        usingBinding ? 'service binding (env.CORTEX)' : `HTTP (${cortexUrl})`,
+      );
+
       // ── 3. Process batches ──────────────────────────────────────────────
       for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
         const batch = batches[batchIdx];
@@ -127,25 +134,34 @@ export function createBackfillPriorityKind(inngest: Inngest<{ id: 'gremly' }>) {
               }
 
               // Call Cortex enrich-phase2 (unauthenticated, stateless route)
+              // Use service binding (env.CORTEX) when available — avoids CF error 1042
+              // (Worker-to-Worker calls via workers.dev URL on the same account).
               let priorityKind: string | undefined;
               try {
-                const cortexRes = await fetch(cortexUrl, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    type: 'enrich-phase2',
-                    text: text.substring(0, 1500),
-                    bucket: 'todo',
-                    subtype: null,
-                    currentDate: today,
-                    timezone: 'UTC',
-                    dayOfWeek,
-                  }),
-                });
+                const cortexReq = new Request(
+                  usingBinding ? 'https://cortex-internal/' : cortexUrl,
+                  {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      type: 'enrich-phase2',
+                      text: text.substring(0, 1500),
+                      bucket: 'todo',
+                      subtype: null,
+                      currentDate: today,
+                      timezone: 'UTC',
+                      dayOfWeek,
+                    }),
+                  },
+                );
+                const cortexRes = usingBinding
+                  ? await (env.CORTEX as { fetch: typeof fetch }).fetch(cortexReq)
+                  : await fetch(cortexReq);
 
                 if (!cortexRes.ok) {
+                  const errBody = await cortexRes.text().catch(() => '');
                   console.warn(
-                    `[BackfillPriorityKind] cortex ${cortexRes.status} for todo ${todo.id}`,
+                    `[BackfillPriorityKind] cortex ${cortexRes.status} for todo ${todo.id} — body: ${errBody.substring(0, 300)}`,
                   );
                   return { todo_id: todo.id, outcome: 'errored' };
                 }

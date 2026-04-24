@@ -8726,6 +8726,44 @@ export default {
       }
     }
 
+    // ── GET /api/ping-cortex ─────────────────────────────────────────────────
+    // Diagnostic: makes a live enrich-phase2 call to env.CORTEX (service binding)
+    // or env.CORTEX_WORKER_URL (fallback) from inside this Worker. Returns status + body.
+    if (url.pathname === '/api/ping-cortex' && request.method === 'GET') {
+      const cortexUrl = env.CORTEX_WORKER_URL;
+      const usingBinding = !!env.CORTEX;
+      try {
+        const body = JSON.stringify({
+          type: 'enrich-phase2',
+          text: 'Buy groceries',
+          bucket: 'todo',
+          subtype: null,
+          currentDate: new Date().toISOString().slice(0, 10),
+          timezone: 'UTC',
+          dayOfWeek: new Intl.DateTimeFormat('en-US', { weekday: 'long' }).format(new Date()),
+        });
+        const req = new Request(usingBinding ? 'https://cortex-internal/' : cortexUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+        });
+        const res = usingBinding ? await env.CORTEX.fetch(req) : await fetch(req);
+        const text = await res.text().catch(() => '');
+        return corsResponse(
+          {
+            routing: usingBinding ? 'service_binding' : 'http',
+            cortexUrl: usingBinding ? '(binding: gentle-thunder-5854)' : cortexUrl,
+            status: res.status,
+            ok: res.ok,
+            body: text.slice(0, 500),
+          },
+          res.ok ? 200 : 502,
+        );
+      } catch (err) {
+        return corsResponse({ error: String(err) }, 502);
+      }
+    }
+
     // ── POST /api/backfill-event-end-dates ──
     if (url.pathname === '/api/backfill-event-end-dates' && request.method === 'POST') {
       try {
