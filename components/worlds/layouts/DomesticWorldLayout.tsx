@@ -11,7 +11,12 @@ import {
   useRecentDropsForWorld,
   useChaptersForWorld,
 } from '../../../lib/store/worldsSelectors';
-import { capitalizeVelocity, resolveDomesticVelocityDotColor } from './archetypeHelpers';
+import {
+  capitalizeVelocity,
+  resolvePillColors,
+  resolveSummaryAccents,
+  resolveMascotPose,
+} from './archetypeHelpers';
 import type { World, Chapter } from '../../../lib/supabase/types';
 import type { Todo, Habit, Note } from '../../../lib/types';
 
@@ -36,7 +41,9 @@ export function DomesticWorldLayout({ world, currentChapter }: DomesticWorldLayo
     : 'no chapter';
   const statusLine = [velocityLabel, `${itemCount} items`, thirdClause].join(' \u00B7 ');
 
-  const velocityDotColor = resolveDomesticVelocityDotColor(world.signal_velocity_delta);
+  const pillColors = resolvePillColors(world);
+  const summaryAccents = resolveSummaryAccents(world);
+  const mascotPose = resolveMascotPose(world);
 
   const openTodos = drops.todos
     .filter((t) => !t.completed_at && !t.archived)
@@ -56,8 +63,11 @@ export function DomesticWorldLayout({ world, currentChapter }: DomesticWorldLayo
     <View>
       <ArchetypeWorldHero
         world={world}
-        velocityDotColor={velocityDotColor}
         statusLine={statusLine}
+        pillColors={pillColors}
+        summaryAccent={summaryAccents.accent}
+        summaryTintBg={summaryAccents.tintBg}
+        mascotPose={mascotPose}
       />
 
       {currentChapter ? (
@@ -102,18 +112,23 @@ const domesticUnfoldingStyles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 0.6,
-    color: lightTokens.colors.warmGrey,
+    color: lightTokens.colors.mossGreen,
     textTransform: 'uppercase',
     paddingHorizontal: 2,
     marginBottom: 10,
   },
   card: {
     backgroundColor: lightTokens.colors.worldsCard,
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    borderLeftWidth: 3,
-    borderLeftColor: lightTokens.colors.warmGrey,
+    borderRadius: 14,
+    paddingVertical: 18,
+    paddingHorizontal: 18,
+    borderLeftWidth: 4,
+    borderLeftColor: lightTokens.colors.mossGreen,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 16,
+    elevation: 2,
   },
   chapterTitle: {
     fontFamily: 'Inter-SemiBold',

@@ -5,48 +5,66 @@ import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
 import MascotIcon from '../MascotIcon';
 import type { World } from '../../lib/supabase/types';
+import type { PillColors, MascotPose } from './layouts/archetypeHelpers';
 
 interface ArchetypeWorldHeroProps {
   world: World;
-  velocityDotColor: string;
   statusLine: string;
+  pillColors: PillColors;
+  summaryAccent: string;
+  summaryTintBg: string;
+  mascotPose: MascotPose;
 }
 
 export function ArchetypeWorldHero({
   world,
-  velocityDotColor,
   statusLine,
+  pillColors,
+  summaryAccent,
+  summaryTintBg,
+  mascotPose,
 }: ArchetypeWorldHeroProps) {
   const title = world.display_name || world.name;
   const summary = world.summary?.trim() || null;
 
   return (
     <View style={styles.container}>
-      {/* Name + velocity dot + accent circle row */}
+      {/* Title + pill row + mascot */}
       <View style={styles.topRow}>
         <View style={styles.titleColumn}>
           <Text style={styles.title} numberOfLines={2}>
             {title}
           </Text>
-          <View style={styles.statusRow}>
-            <View style={[styles.velocityDot, { backgroundColor: velocityDotColor }]} />
-            <Text style={styles.statusText} numberOfLines={1}>
-              {statusLine}
-            </Text>
+          <View style={styles.statusPillRow}>
+            <View style={[styles.statusPill, { backgroundColor: pillColors.bg }]}>
+              <View style={[styles.statusPillDot, { backgroundColor: pillColors.dot }]} />
+              <Text style={[styles.statusPillText, { color: pillColors.text }]} numberOfLines={1}>
+                {statusLine}
+              </Text>
+            </View>
           </View>
         </View>
         <View style={styles.mascotWrap}>
-          <MascotIcon size={64} pose={world.world_type === 'project' ? 'celebrate' : 'neutral'} />
+          <MascotIcon size={88} pose={mascotPose} />
         </View>
       </View>
 
-      {/* Serif summary (or placeholder) */}
+      {/* Summary callout */}
       {summary ? (
-        <Text style={styles.summary}>{summary}</Text>
+        <View
+          style={[
+            styles.summaryCallout,
+            { backgroundColor: summaryTintBg, borderLeftColor: summaryAccent },
+          ]}
+        >
+          <Text style={styles.summary}>{summary}</Text>
+        </View>
       ) : (
-        <Text style={[styles.summary, styles.summaryPlaceholder]}>
-          No summary yet. Gremly&apos;s classifier will write one after your next weekly run.
-        </Text>
+        <View style={styles.summaryCallout}>
+          <Text style={[styles.summary, styles.summaryPlaceholder]}>
+            No summary yet. Gremly&apos;s classifier will write one after your next weekly run.
+          </Text>
+        </View>
       )}
     </View>
   );
@@ -65,7 +83,7 @@ const styles = StyleSheet.create({
   },
   titleColumn: {
     flex: 1,
-    marginRight: 12,
+    marginRight: 14,
   },
   title: {
     fontFamily: 'PlusJakartaSans-Bold',
@@ -75,34 +93,48 @@ const styles = StyleSheet.create({
     letterSpacing: -0.8,
     color: lightTokens.colors.worldsInk,
   },
-  statusRow: {
-    marginTop: 8,
+  statusPillRow: {
+    marginTop: 14,
+    flexDirection: 'row',
+  },
+  statusPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    alignSelf: 'flex-start',
   },
-  velocityDot: {
+  statusPillDot: {
     width: 7,
     height: 7,
     borderRadius: 3.5,
   },
-  statusText: {
+  statusPillText: {
     fontFamily: 'Inter-Medium',
     fontSize: 13,
-    color: lightTokens.colors.warmGrey,
-    flexShrink: 1,
+    letterSpacing: 0.1,
   },
   mascotWrap: {
     flexShrink: 0,
-    width: 64,
-    height: 64,
+    width: 88,
+    height: 88,
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-end',
+  },
+  summaryCallout: {
+    marginTop: 28,
+    paddingLeft: 16,
+    paddingRight: 12,
+    paddingVertical: 14,
+    borderLeftWidth: 3,
+    borderRadius: 6,
   },
   summary: {
     fontFamily: 'Inter-Regular',
     fontSize: 17,
-    lineHeight: 25,
+    lineHeight: 26,
     color: lightTokens.colors.worldsInk,
   },
   summaryPlaceholder: {
