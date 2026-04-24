@@ -449,7 +449,6 @@ export interface ClassifierRunMetadata {
 
 export interface WorldsSummary {
   headline: string;
-  body: string;
   featured: { world_id: string; reason: string }[];
 }
 
@@ -522,7 +521,7 @@ This is not a post-generation validation step. It is a filter you apply while ge
 
 Confidence. Every candidate and proposal gets a confidence between 0 and 1. Think of 0.5 as the minimum emission threshold for non-evolution outputs, 0.7 as the downstream weekly-update surfacing threshold and the minimum for evolution, 0.9 as very strong. Do not inflate confidence to surface weak candidates.
 
-Style rules for all authored text fields. These apply to display_name, card_subtitle, summary, target_summary, key_priorities.text, worlds_summary.headline, worlds_summary.body, and worlds_summary.featured.reason.\n\nNever use em dashes, en dashes, or double hyphens. Use standard punctuation instead. Never use ampersands except inside literal proper nouns where the ampersand is part of the organization's registered name.\n\nWrite plainly, in second person where natural, without rhetorical flourish. Prefer concrete nouns and verbs over abstract summary language. Do not use hedging or qualifying adverbs that soften claims without adding information.
+Style rules for all authored text fields. These apply to display_name, card_subtitle, summary, target_summary, key_priorities.text, worlds_summary.headline, and worlds_summary.featured.reason.\n\nNever use em dashes, en dashes, or double hyphens. Use standard punctuation instead. Never use ampersands except inside literal proper nouns where the ampersand is part of the organization's registered name.\n\nWrite plainly, in second person where natural, without rhetorical flourish. Prefer concrete nouns and verbs over abstract summary language. Do not use hedging or qualifying adverbs that soften claims without adding information.
 
 WORLD MASCOT ASSIGNMENT
 
@@ -551,7 +550,21 @@ Authored content for new World candidates. For each new_world_candidate you emit
 
 Authored content for new Chapter candidates. For each new_chapter_candidate you emit, you must also author the following fields. target_summary is a single clause, maximum 90 characters, describing what this chapter is working toward, or null for season-type chapters without a defined target. card_subtitle is a single anchor statement, maximum 60 characters, written in present tense. It names one concrete focal element of the chapter's current arc: the most imminent dated commitment from the chapter's key_priorities, or when no dated commitment exists, the chapter's current central undertaking. Comma-separated enumerations are forbidden. If the chapter's top-ranked key_priority has a due_date within the next 14 days, or if the chapter's target_summary contains a date reference within 30 days, the subtitle must reference that temporal context. Items whose date lies in the past relative to today must never appear. summary is 2 to 3 short sentences, maximum 180 characters total, describing the chapter's arc, its current moment, and what completing or progressing it means for the user. Write in second person. key_priorities follows the same structure as World key_priorities. phase_labels is an ordered list of 3 to 5 short phase name strings describing the arc's stages, labelled from the arc's current vantage point. current_phase_key is the string from phase_labels that best describes where this chapter sits right now.
 
-Cross-world summary. You must include a worlds_summary block at the top level of your output. worlds_summary is a short synthesis of the user's full graph as it stands at the end of this window. headline is a single sentence, maximum 80 characters, capturing the dominant theme or shift across all active Worlds. body is 2 to 3 short sentences, maximum 180 characters total, elaborating on the user's current moment across their life, written in second person. featured is a list of 2 to 3 objects, each with world_id (the id of an existing active World, or the proposed_name for a new candidate) and reason (maximum 60 characters) explaining why this World is notable this window.
+Cross-world summary. You must include a worlds_summary block at the top level of your output. worlds_summary has two fields: headline and featured.
+
+headline is a single line, maximum 120 characters, written in Gremly's voice. Gremly is a sharp, warm thinking partner who observes the user's life without performing emotion about it. The headline is Gremly noticing the dominant force in play across the user's worlds this week, not announcing a theme, not summarizing categories, not rallying the user toward action. Written from a third-person observational stance. Never address the user as "you" or include possessives like "your". Never use "we" or "our".
+
+The headline must name concrete anchors: specific worlds, people, events, or dated milestones present in the user's graph this week. Abstract category nouns (plans, things, themes, activity, patterns, efforts, progress) are forbidden unless directly modified by a specific named entity.
+
+Forbidden verbs for the headline: emerge, unfold, continue, gain momentum, build, accelerate, intensify, evolve, ramp, navigate, shift as a transitive verb. These are newsroom verbs that describe patterns without naming a state.
+
+Forbidden connectors: however, furthermore, additionally, moreover, particularly. Use but, and, also, plus, though instead, but prefer a period or comma over any connector at all.
+
+Forbidden tone: exclamatory punctuation, celebratory adjectives (exciting, amazing, huge), dramatic adjectives (intense, crisis, critical), therapy-voice phrasings (holding space, navigating, processing). Dry observational humor is allowed when the signal supports it, never forced.
+
+Structure: one main clause naming the dominant force this week, optionally followed by a short second clause naming what's meeting it. Avoid chaining three or more ideas with "and" or "as" or "while".
+
+featured is a list of 2 to 3 objects, each with world_id (the id of an existing active World, or the proposed_name for a new candidate) and reason (maximum 60 characters) explaining why this World is notable this window. The reason field follows the same voice rules as the headline: concrete, observational, no forbidden verbs, no therapy-voice.
 
 Refreshing existing entities. You are not only authoring new entities. On every run you refresh authored content for every existing active World and every existing active Chapter. Refresh is unconditional, not gated on signal shift. For every velocity_update entry you emit, you must also include new_display_name, new_card_subtitle, new_summary, new_key_priorities, and new_mascot_slug. When authoring new_card_subtitle on refresh, apply the same single-anchor rule as for new Worlds. If the previous card_subtitle referenced an event whose date has now passed, or a person or plan that no longer appears in key_priorities, the subtitle must be rewritten to reflect current reality rather than preserved out of inertia. If a new dated commitment has risen to the top of key_priorities since the last run, the subtitle must shift to anchor on that commitment. This applies equally to chapter_update entries for new_card_subtitle on chapters. new_display_name must follow the same rules as display_name on new_world_candidates: at most 3 words, at most 20 characters, sentence case, no ampersands, no "and" or other conjunctions, no articles or possessives unless essential, one word preferred. new_mascot_slug follows the three-case logic in WORLD MASCOT ASSIGNMENT: null if source is user, a slug if current mascot_slug is null (first-assignment), preserve via null otherwise unless archetypes have materially shifted. Never emit a slug that is not in the catalog. For every chapter_update entry you emit, you must also include new_card_subtitle, new_summary, new_key_priorities, new_target_summary, new_phase_labels, and new_current_phase_key. new_target_summary follows the same rules as target_summary on new_chapter_candidates. new_phase_labels is an ordered list of 3 to 5 short phase name strings describing the arc's stages from the arc's current vantage point. new_current_phase_key is the string from new_phase_labels that best describes where this chapter sits right now. For season-type chapters without a defined target, new_target_summary may be null, but new_phase_labels and new_current_phase_key are still required. When refreshing existing entities, check the source fields before writing. If an entity's summary_source equals user, do not author a new_summary, new_key_priorities, new_display_name, new_target_summary, new_phase_labels, or new_current_phase_key for it (leave them null). If its card_subtitle_source equals user, do not author a new_card_subtitle for it (leave it null). If its mascot_slug_source equals user, do not author a new_mascot_slug for it (leave it null). User-sourced fields are never overwritten.
 
@@ -615,10 +628,9 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
     properties: {
       worlds_summary: {
         type: 'object',
-        required: ['headline', 'body', 'featured'],
+        required: ['headline', 'featured'],
         properties: {
-          headline: { type: 'string', maxLength: 80 },
-          body: { type: 'string', maxLength: 220 },
+          headline: { type: 'string', maxLength: 120 },
           featured: {
             type: 'array',
             minItems: 2,

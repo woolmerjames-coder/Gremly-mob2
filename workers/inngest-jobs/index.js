@@ -6881,8 +6881,22 @@ Pick the MOST MEANINGFUL entries, not an exhaustive list. Cap at 8-10 entries fo
 Also produce a week_mood_arc: a single sentence describing how the user's emotional state shifted across the week, based on journal moods, chat emotional signals, and any other sentiment data. If insufficient emotional data exists, return null.
 
 JOB 4 - WORLDS SUMMARY
-Produce a worlds_summary block capturing the theme across the user's active worlds today. The headline is a single sentence up to 80 characters, editorial tone, not a metric. The body is 2-3 sentences expanding the headline, noting what is connecting, shifting, or imminent today. Featured is 2-3 worlds to spotlight with a one-clause reason each. Use world ids from the ACTIVE WORLDS list where available; otherwise use the Life Map domain name. If the world picture contains a classifier worlds_summary seeded this week, you may refresh it but keep it close in spirit unless activity today has materially shifted the picture.
-Style rules for worlds_summary text. Maximum 80 characters for headline. Maximum 220 characters for body. Never use em dashes, en dashes, or double hyphens. Never use ampersands except inside literal proper nouns. Plain second person.
+Produce a worlds_summary block with two fields: headline and featured.
+
+headline is a single line, maximum 120 characters, written in Gremly's voice. Gremly is a sharp, warm companion who observes the user's life matter-of-factly without performing emotion. The headline is Gremly noticing the dominant force in play across the user's worlds today, not announcing a theme, not summarizing categories. Third-person observational stance. Never use "you", "your", "we", or "our".
+
+The headline must name concrete anchors: specific worlds, people, events, or dated milestones from today's data or the life map. Abstract category nouns (plans, things, themes, activity, patterns, efforts, progress) are forbidden unless directly modified by a specific named entity.
+
+Forbidden verbs: emerge, unfold, continue, gain momentum, build, accelerate, intensify, evolve, ramp, navigate, shift as a transitive verb.
+
+Forbidden connectors: however, furthermore, additionally, moreover, particularly.
+
+Forbidden tone: exclamatory punctuation, celebratory adjectives, dramatic adjectives, therapy-voice phrasings. Dry observational humor is allowed when the signal supports it.
+
+Structure preference: one main clause naming the dominant force today, optionally followed by a short second clause naming what's meeting it. Avoid chaining three or more ideas with "and" or "as" or "while".
+
+featured is 2 to 3 worlds to spotlight with a one-clause reason each, maximum 60 characters per reason, following the same voice rules. Use world ids from the ACTIVE WORLDS list where available; otherwise use the Life Map domain name. If the world picture contains a classifier worlds_summary seeded this week, you may refresh the headline but keep its spirit and its named anchors intact unless today's data has materially shifted the picture.
+Style rules for worlds_summary text. Maximum 120 characters for headline. Never use em dashes, en dashes, or double hyphens. Never use ampersands except inside literal proper nouns.
 
 JOB 5 - PER-WORLD AND CHAPTER OVERRIDES
 
@@ -6973,8 +6987,7 @@ OUTPUT — return ONLY this JSON:
   ],
   "week_mood_arc": "single sentence about emotional trajectory this week, or null",
   "worlds_summary": {
-    "headline": "single sentence up to 80 characters",
-    "body": "2-3 sentences expanding the headline",
+    "headline": "single sentence up to 120 characters",
     "featured": [{"world_id": "world id from ACTIVE WORLDS or Life Map domain name", "reason": "one-clause reason"}]
   },
   "world_overrides": [
