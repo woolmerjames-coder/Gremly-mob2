@@ -326,6 +326,11 @@ export interface Todo {
 
   /** Link to an event note (for items related to a key date) */
   linked_event_id?: ID | null;
+
+  // Phase A additions
+  priority_kind?: 'action' | 'blocker' | 'waiting' | 'decision' | 'momentum' | null;
+  priority_kind_source?: 'classifier' | 'dco' | 'user' | null;
+  priority_kind_updated_at?: string | null;
 }
 
 /**

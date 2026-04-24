@@ -13,8 +13,17 @@ import { getDateService } from '../date/DateService';
 import { lightTokens } from '../../design/tokens';
 import { buildUpcomingDatesForWorld, type UpcomingDate } from '../worlds/upcomingDates';
 import type { GremlyState } from './useGremlyStore';
-import type { Chapter, ChapterType, DropType, AssignedBy } from '../supabase/types';
+import type {
+  Chapter,
+  ChapterType,
+  DropType,
+  AssignedBy,
+  World,
+  KeyMoment,
+  SlipEvent,
+} from '../supabase/types';
 import type { Todo, Habit, Note, DcoWorldsSummary } from '../types';
+import type { HabitProgressRow } from './useGremlyStore';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Base state selectors (not memoized)
@@ -925,3 +934,361 @@ export const useChapterDrops = (chapterId: string): WorldDrops => {
   );
   return { todos, habits, notes };
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase B.0 selectors
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Count of open (non-completed, non-archived) todos linked to this chapter
+ * where priority_kind = 'blocker'.
+ */
+export function selectBlockerCountForChapter(state: GremlyState, chapterId: string): number {
+  if (!chapterId) return 0;
+  const refs = selectChapterIdToDropRefs(state).get(chapterId) ?? [];
+  const todoIds = new Set(refs.filter((r) => r.drop_type === 'todo').map((r) => r.drop_id));
+  if (todoIds.size === 0) return 0;
+  let count = 0;
+  for (const t of state.todos) {
+    if (!todoIds.has(t.id)) continue;
+    if (t.completed_at) continue;
+    if (t.archived) continue;
+    if (t.priority_kind === 'blocker') count++;
+  }
+  return count;
+}
+
+export const useBlockerCountForChapter = (chapterId: string) =>
+  useGremlyStore((s) => selectBlockerCountForChapter(s, chapterId));
+
+/**
+ * Open (non-completed, non-archived) todos linked to this world that are
+ * NOT linked to the world's currently active chapter. This is the "ALSO OPEN"
+ * set from mockup 05 — todos in the world but beyond the sprint.
+ *
+ * Sort order: blockers first, then by due_date ascending (nulls last),
+ * then by created_at descending.
+ */
+export function selectOpenNonChapterTodosForWorld(state: GremlyState, worldId: string): Todo[] {
+  if (!worldId) return [];
+  const refs = selectWorldIdToDropRefs(state).get(worldId) ?? [];
+  const worldTodoIds = new Set(refs.filter((r) => r.drop_type === 'todo').map((r) => r.drop_id));
+  if (worldTodoIds.size === 0) return [];
+
+  const activeChapter = selectCurrentChapterForWorld(state, worldId);
+  const chapterTodoIds = new Set<string>();
+  if (activeChapter) {
+    const chRefs = selectChapterIdToDropRefs(state).get(activeChapter.id) ?? [];
+    for (const r of chRefs) {
+      if (r.drop_type === 'todo') chapterTodoIds.add(r.drop_id);
+    }
+  }
+
+  const results: Todo[] = [];
+  for (const t of state.todos) {
+    if (!worldTodoIds.has(t.id)) continue;
+    if (t.completed_at) continue;
+    if (t.archived) continue;
+    if (chapterTodoIds.has(t.id)) continue;
+    results.push(t);
+  }
+
+  results.sort((a, b) => {
+    // Blockers first
+    const aBlocker = a.priority_kind === 'blocker' ? 0 : 1;
+    const bBlocker = b.priority_kind === 'blocker' ? 0 : 1;
+    if (aBlocker !== bBlocker) return aBlocker - bBlocker;
+    // Due date ascending (nulls last)
+    const aDue = a.due_date ?? '';
+    const bDue = b.due_date ?? '';
+    if (aDue && bDue) return aDue.localeCompare(bDue);
+    if (aDue) return -1;
+    if (bDue) return 1;
+    // Created at descending
+    return (b.created_at ?? '').localeCompare(a.created_at ?? '');
+  });
+
+  return results;
+}
+
+export const useOpenNonChapterTodosForWorld = (worldId: string) =>
+  useGremlyStore(useShallow((s) => selectOpenNonChapterTodosForWorld(s, worldId)));
+
+/**
+ * Count of all open (non-completed, non-archived) todos linked to this world.
+ * Used for the "NEEDS YOU · N" badge on domestic world pages. Distinct from
+ * selectOpenNonChapterTodosForWorld.length — NEEDS YOU is the full open count,
+ * ALSO OPEN excludes chapter-linked todos.
+ */
+export function selectNeedsYouCountForWorld(state: GremlyState, worldId: string): number {
+  if (!worldId) return 0;
+  const refs = selectWorldIdToDropRefs(state).get(worldId) ?? [];
+  const todoIds = new Set(refs.filter((r) => r.drop_type === 'todo').map((r) => r.drop_id));
+  if (todoIds.size === 0) return 0;
+  let count = 0;
+  for (const t of state.todos) {
+    if (!todoIds.has(t.id)) continue;
+    if (t.completed_at) continue;
+    if (t.archived) continue;
+    count++;
+  }
+  return count;
+}
+
+export const useNeedsYouCountForWorld = (worldId: string) =>
+  useGremlyStore((s) => selectNeedsYouCountForWorld(s, worldId));
+
+/**
+ * Non-archived habits linked to this world. Sorted by created_at ascending
+ * (oldest/most established first).
+ */
+export function selectActiveHabitsForWorld(state: GremlyState, worldId: string): Habit[] {
+  if (!worldId) return [];
+  const refs = selectWorldIdToDropRefs(state).get(worldId) ?? [];
+  const habitIds = new Set(refs.filter((r) => r.drop_type === 'habit').map((r) => r.drop_id));
+  if (habitIds.size === 0) return [];
+  const results = state.habits.filter((h) => habitIds.has(h.id) && !h.archived);
+  results.sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? ''));
+  return results;
+}
+
+export const useActiveHabitsForWorld = (worldId: string) =>
+  useGremlyStore(useShallow((s) => selectActiveHabitsForWorld(s, worldId)));
+
+export interface HabitLastActivity {
+  status: 'on' | 'done' | 'paid' | 'pending';
+  text: string;
+  date?: string;
+}
+
+/**
+ * Derives the display idiom for a habit's current status based on its frequency
+ * and most recent completion. Used in the RECURRING section on domestic worlds.
+ *
+ * Rules (by habit frequency):
+ *   - daily: entry today → 'on'; entry in last 7 days → 'done MMM D'; else 'pending'
+ *   - weekly: entry in last 7 days → 'done MMM D'; else 'pending'
+ *   - monthly + financial tag (contains 'rent', 'bill', 'subscription', 'payment' in name): entry this month → 'paid MMM D'; else 'pending'
+ *   - monthly (other): entry this month → 'done MMM D'; else 'pending'
+ *   - anything else: entry in last 30 days → 'done MMM D'; else 'pending'
+ */
+export function selectHabitLastActivity(
+  state: GremlyState,
+  habitId: string,
+): HabitLastActivity | null {
+  const habit = state.habits.find((h) => h.id === habitId);
+  if (!habit) return null;
+
+  const progressEntries: HabitProgressRow[] = state.habitProgress.filter(
+    (p) => p.habit_id === habitId,
+  );
+
+  const today = getDateService().now();
+  const todayStr = today.toISOString().slice(0, 10);
+  const todayMonth = todayStr.slice(0, 7); // YYYY-MM
+
+  const msPerDay = 1000 * 60 * 60 * 24;
+
+  // Latest entry by occurred_day descending
+  const latest = progressEntries.reduce<HabitProgressRow | null>((best, p) => {
+    if (!best) return p;
+    return p.occurred_day > best.occurred_day ? p : best;
+  }, null);
+
+  const formatDate = (isoDay: string): string => {
+    return getDateService().formatForChip(isoDay);
+  };
+
+  const daysAgo = (isoDay: string): number => {
+    const diff =
+      new Date(todayStr + 'T00:00:00').getTime() - new Date(isoDay + 'T00:00:00').getTime();
+    return Math.round(diff / msPerDay);
+  };
+
+  const freq = (habit.frequency ?? '').toLowerCase();
+
+  if (freq === 'daily') {
+    if (!latest) return { status: 'pending', text: 'pending' };
+    if (latest.occurred_day === todayStr)
+      return { status: 'on', text: 'on', date: latest.occurred_day };
+    if (daysAgo(latest.occurred_day) <= 7)
+      return {
+        status: 'done',
+        text: `done ${formatDate(latest.occurred_day)}`,
+        date: latest.occurred_day,
+      };
+    return { status: 'pending', text: 'pending' };
+  }
+
+  if (freq === 'weekly') {
+    if (!latest) return { status: 'pending', text: 'pending' };
+    if (daysAgo(latest.occurred_day) <= 7)
+      return {
+        status: 'done',
+        text: `done ${formatDate(latest.occurred_day)}`,
+        date: latest.occurred_day,
+      };
+    return { status: 'pending', text: 'pending' };
+  }
+
+  if (freq === 'monthly') {
+    const isFinancial = /rent|bill|subscription|payment/i.test(habit.name);
+    if (!latest) return { status: 'pending', text: 'pending' };
+    if (latest.occurred_day.slice(0, 7) === todayMonth) {
+      if (isFinancial)
+        return {
+          status: 'paid',
+          text: `paid ${formatDate(latest.occurred_day)}`,
+          date: latest.occurred_day,
+        };
+      return {
+        status: 'done',
+        text: `done ${formatDate(latest.occurred_day)}`,
+        date: latest.occurred_day,
+      };
+    }
+    return { status: 'pending', text: 'pending' };
+  }
+
+  // anything else
+  if (!latest) return { status: 'pending', text: 'pending' };
+  if (daysAgo(latest.occurred_day) <= 30)
+    return {
+      status: 'done',
+      text: `done ${formatDate(latest.occurred_day)}`,
+      date: latest.occurred_day,
+    };
+  return { status: 'pending', text: 'pending' };
+}
+
+export const useHabitLastActivity = (habitId: string) =>
+  useGremlyStore((s) => selectHabitLastActivity(s, habitId));
+
+/**
+ * Returns the key_moments array for a chapter, sorted by date ascending.
+ * Returns empty array if chapter has no key_moments (null or []).
+ */
+export function selectKeyMomentsForChapter(state: GremlyState, chapterId: string): KeyMoment[] {
+  if (!chapterId) return [];
+  const chapter = state.chapters.find((c) => c.id === chapterId);
+  if (!chapter?.key_moments) return [];
+  return [...chapter.key_moments].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export const useKeyMomentsForChapter = (chapterId: string) =>
+  useGremlyStore(useShallow((s) => selectKeyMomentsForChapter(s, chapterId)));
+
+/**
+ * Returns the slip_events array for a chapter, sorted by date ascending.
+ * Returns empty array if chapter has no slip_events.
+ */
+export function selectSlipEventsForChapter(state: GremlyState, chapterId: string): SlipEvent[] {
+  if (!chapterId) return [];
+  const chapter = state.chapters.find((c) => c.id === chapterId);
+  if (!chapter?.slip_events) return [];
+  return [...chapter.slip_events].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export const useSlipEventsForChapter = (chapterId: string) =>
+  useGremlyStore(useShallow((s) => selectSlipEventsForChapter(s, chapterId)));
+
+export interface HeldDaysSummary {
+  heldDays: number;
+  slipDays: number;
+  totalDays: number;
+}
+
+/**
+ * For commitment chapters: how many days held vs slipped, and total duration.
+ * Returns zeros if chapter dates are missing. slipDays = count of slip_events.
+ */
+export function selectHeldDaysForChapter(state: GremlyState, chapterId: string): HeldDaysSummary {
+  const chapter = state.chapters.find((c) => c.id === chapterId);
+  if (!chapter?.start_date || !chapter?.end_date) {
+    return { heldDays: 0, slipDays: 0, totalDays: 0 };
+  }
+  const startMs = new Date(chapter.start_date).getTime();
+  const endMs = new Date(chapter.end_date).getTime();
+  const totalDays = Math.max(0, Math.round((endMs - startMs) / (1000 * 60 * 60 * 24)));
+  const slipDays = chapter.slip_events?.length ?? 0;
+  const heldDays = Math.max(0, totalDays - slipDays);
+  return { heldDays, slipDays, totalDays };
+}
+
+export const useHeldDaysForChapter = (chapterId: string) =>
+  useGremlyStore((s) => selectHeldDaysForChapter(s, chapterId));
+
+/**
+ * Returns worlds (other than the chapter's primary_world_id) that have at
+ * least one drop linked to this chapter via drop_world_links intersected with
+ * the chapter's drops. Used for the "ALSO TOUCHED" chip row on closed chapters.
+ *
+ * Sort: archetype-alphabetical, then world name.
+ */
+export function selectAlsoTouchedWorldsForChapter(state: GremlyState, chapterId: string): World[] {
+  if (!chapterId) return [];
+  const chapter = state.chapters.find((c) => c.id === chapterId);
+  if (!chapter) return [];
+  const primaryWorldId = chapter.primary_world_id;
+
+  // Collect drop IDs linked to this chapter
+  const chRefs = selectChapterIdToDropRefs(state).get(chapterId) ?? [];
+  const chapterDropIds = new Set(chRefs.map((r) => r.drop_id));
+  if (chapterDropIds.size === 0) return [];
+
+  // Find every world_id that has a drop_world_link for any of those drop_ids
+  const touchedWorldIds = new Set<string>();
+  for (const link of state.dropWorldLinks) {
+    if (link.world_id === primaryWorldId) continue;
+    if (chapterDropIds.has(link.drop_id)) touchedWorldIds.add(link.world_id);
+  }
+
+  const results = state.worlds.filter((w) => touchedWorldIds.has(w.id));
+  results.sort((a, b) => {
+    const at = a.world_type ?? 'zzz';
+    const bt = b.world_type ?? 'zzz';
+    if (at !== bt) return at.localeCompare(bt);
+    return (a.display_name ?? a.name).localeCompare(b.display_name ?? b.name);
+  });
+  return results;
+}
+
+export const useAlsoTouchedWorldsForChapter = (chapterId: string) =>
+  useGremlyStore(useShallow((s) => selectAlsoTouchedWorldsForChapter(s, chapterId)));
+
+/**
+ * Returns the most recent DropRefs for a world, sorted by the drop's
+ * created_at (or target_date where relevant) descending, limited to `limit`.
+ * Wraps selectWorldIdToDropRefs with ordering and slicing.
+ */
+export function selectRecentDropsForWorld(
+  state: GremlyState,
+  worldId: string,
+  limit: number = 2,
+): DropRef[] {
+  if (!worldId) return [];
+  const refs = selectWorldIdToDropRefs(state).get(worldId) ?? [];
+  if (refs.length === 0) return [];
+
+  // For each ref, look up the drop's created_at to sort.
+  const refsWithDate = refs.map((r) => {
+    let created_at = '';
+    if (r.drop_type === 'todo') {
+      const t = state.todos.find((x) => x.id === r.drop_id);
+      created_at = t?.created_at ?? '';
+    } else if (r.drop_type === 'habit') {
+      const h = state.habits.find((x) => x.id === r.drop_id);
+      created_at = h?.created_at ?? '';
+    } else if (r.drop_type === 'note') {
+      const n = state.notes.find((x) => x.id === r.drop_id);
+      created_at = n?.created_at ?? '';
+    }
+    return { ref: r, created_at };
+  });
+
+  refsWithDate.sort((a, b) => b.created_at.localeCompare(a.created_at));
+  return refsWithDate.slice(0, limit).map((x) => x.ref);
+}
+
+export const useRecentDropsForWorld = (worldId: string, limit: number = 2) =>
+  useGremlyStore(useShallow((s) => selectRecentDropsForWorld(s, worldId, limit)));

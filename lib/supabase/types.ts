@@ -739,12 +739,27 @@ export const Constants = {
 export type WorldPhase = 'candidate' | 'active' | 'evolving' | 'dormant' | 'archived';
 export type ChapterPhase = 'suggested' | 'upcoming' | 'active' | 'closed';
 export type ChapterType = 'bounded' | 'season' | 'milestone';
+export type WorldType = 'project' | 'practice' | 'relationship' | 'domestic';
+export type ArcShape = 'outcome' | 'experience' | 'process' | 'commitment';
 export type LifeContextKind = 'employer' | 'role' | 'obligation' | 'calendar_source' | 'custom';
 export type SignalVelocityDelta = 'growing' | 'stable' | 'declining';
 export type AssignedBy = 'classifier' | 'user' | 'migration';
 export type DropType = 'note' | 'todo' | 'habit';
 export type EntitySource = 'classifier' | 'user' | 'migration';
 export type SummarySource = 'classifier' | 'dco' | 'user';
+
+export interface KeyMoment {
+  date: string; // ISO date YYYY-MM-DD
+  location?: string; // optional label, e.g. 'TOKYO', 'BORA BORA'
+  text: string; // e.g. 'Arrived in Tokyo'
+  drop_id?: string; // optional back-reference to a drop
+}
+
+export interface SlipEvent {
+  date: string; // ISO date YYYY-MM-DD
+  note?: string; // e.g. "Valentine's — known exception"
+  label?: 'exception' | 'lapse' | 'recovery';
+}
 
 export interface KeyPriority {
   rank: number;
@@ -812,6 +827,10 @@ export interface World {
   mascot_slug: string | null;
   mascot_slug_source: SummarySource | null;
   mascot_slug_updated_at: string | null;
+  // Phase A additions
+  world_type: WorldType | null;
+  world_type_source: SummarySource | null;
+  world_type_updated_at: string | null;
 }
 
 export interface Chapter {
@@ -843,6 +862,24 @@ export interface Chapter {
   summary_updated_at: string | null;
   card_subtitle_source: SummarySource | null;
   card_subtitle_updated_at: string | null;
+  // Phase A additions
+  title_source: SummarySource | null;
+  title_updated_at: string | null;
+  arc_shape: ArcShape | null;
+  arc_shape_source: SummarySource | null;
+  arc_shape_updated_at: string | null;
+  epigraph: string | null;
+  epigraph_source: SummarySource | null;
+  epigraph_updated_at: string | null;
+  epigraph_accepted_at: string | null;
+  key_moments: KeyMoment[] | null;
+  key_moments_source: SummarySource | null;
+  key_moments_updated_at: string | null;
+  slip_events: SlipEvent[] | null;
+  slip_events_source: SummarySource | null;
+  slip_events_updated_at: string | null;
+  slip_tracking_enabled: boolean;
+  has_blockers_count: number;
 }
 
 export interface LifeContext {
