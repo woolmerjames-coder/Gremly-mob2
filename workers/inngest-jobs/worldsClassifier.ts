@@ -97,7 +97,10 @@ export type EvolutionEvent = 'split' | 'emerge' | 'transform' | 'absorb';
 export type DropType = 'note' | 'todo' | 'habit';
 export type EvidenceDropType = DropType | 'chat_summary' | 'temporal_anchor';
 
-export type ChapterType = 'project' | 'goal' | 'arc' | 'transition' | 'ritual';
+export type ChapterType = 'bounded' | 'season' | 'milestone';
+export type WorldType = 'project' | 'practice' | 'relationship' | 'domestic';
+export type ArcShape = 'outcome' | 'experience' | 'process' | 'commitment';
+export type PriorityKind = 'action' | 'blocker' | 'waiting' | 'decision' | 'momentum';
 export type ChapterPhase = 'suggested' | 'upcoming' | 'active' | 'closing' | 'closed';
 export type LifeContextKind = 'employer' | 'role' | 'obligation' | 'calendar_source' | 'custom';
 export const LIFE_CONTEXT_KINDS: LifeContextKind[] = [
@@ -316,6 +319,7 @@ export interface NewWorldCandidate {
   summary: string;
   key_priorities: KeyPriority[];
   archetypes: ArchetypeWeight[];
+  world_type: WorldType;
   confidence: number;
   first_signal_at: string;
   last_signal_at: string;
@@ -330,6 +334,7 @@ export interface NewChapterCandidate {
   proposed_title: string;
   description: string;
   chapter_type: ChapterType;
+  arc_shape: ArcShape;
   start_date: string | null;
   end_date: string | null;
   target_description: string | null;
@@ -361,6 +366,10 @@ export interface ChapterUpdate {
   new_card_subtitle: string | null;
   new_summary: string | null;
   new_key_priorities: KeyPriority[] | null;
+  new_arc_shape?: ArcShape | null;
+  new_epigraph?: string | null;
+  new_key_moments?: unknown[] | null;
+  new_slip_events?: unknown[] | null;
   close_chapter: boolean;
   reason: string;
   evidence: Evidence[];
@@ -396,6 +405,7 @@ export interface VelocityUpdate {
   new_summary: string | null;
   new_key_priorities: KeyPriority[] | null;
   new_mascot_slug: string | null;
+  new_world_type?: WorldType | null;
 }
 
 export interface EvolutionProposal {
@@ -475,7 +485,7 @@ What a life_context is (distinct from a World). A life_context is a constraint c
 
 Choosing a kind for a life_context. The kind field must be one of: employer, role, obligation, calendar_source, custom. Use employer when the target is a named organisation the user works for or is employed by. Use role when the target is a specific professional function the user occupies within an employer that is worth tracking separately from the employer itself. Use obligation when the target is a recurring non-employment demand on the user's time or energy. Use calendar_source when the target exists primarily as a source of calendar events and has no other signal shape. Use custom only when none of the above apply. This same enum governs reclassification_proposal.target_kind.
 
-Dedup rule for life_contexts. Before proposing a new_life_context_candidate, check active_life_contexts_in carefully. If any existing life_context represents the same underlying entity as the one you are about to propose, do NOT emit a new candidate — even if the names differ. Match semantically, not by string equality. An existing "Sage at Dentsu" (kind=employer) and a newly observed "Sage (Employer)" are the same entity and must not be duplicated. An existing "Tuesday standup" (kind=obligation) and a newly observed "Weekly Tuesday standup meeting" are the same entity. Use your judgment about what constitutes the same real-world employer, role, obligation, or calendar source. When uncertain, err on the side of NOT proposing a new one — silent skip is better than a duplicate.
+Dedup rule for life_contexts. Before proposing a new_life_context_candidate, check active_life_contexts_in carefully. If any existing life_context represents the same underlying entity as the one you are about to propose, do NOT emit a new candidate, even if the names differ. Match semantically, not by string equality. An existing "Sage at Dentsu" (kind=employer) and a newly observed "Sage (Employer)" are the same entity and must not be duplicated. An existing "Tuesday standup" (kind=obligation) and a newly observed "Weekly Tuesday standup meeting" are the same entity. Use your judgment about what constitutes the same real-world employer, role, obligation, or calendar source. When uncertain, err on the side of NOT proposing a new one. Silent skip is better than a duplicate.
 
 What a Chapter is. A Chapter is a bounded arc with a recognizable beginning and end. It can span multiple Worlds. A Chapter has temporal coherence (drops cluster within a window) and narrative coherence (drops tell a story with a start and an end). If no plausible start or end is identifiable, it is not a Chapter. Some Chapters are achievement-shaped; their target_description states what finishing looks like.
 
@@ -546,7 +556,7 @@ Safety constraints override any match score. These rules must never be violated 
 MASCOT_CATALOG:
 ${MASCOT_CATALOG_TEXT}
 
-Authored content for new World candidates. For each new_world_candidate you emit, you must also author the following fields. display_name is a short human-friendly label, at most 3 words and at most 20 characters, derived from proposed_name. Never contains ampersands, the word "and", or any other conjunction. Use sentence case. Omit articles ("the", "a") and possessives ("my", "your") unless essential. One word is preferred when it reads naturally. card_subtitle is a single anchor statement, maximum 60 characters, written as a present-tense or present-continuous phrase. It names one concrete focal element from the World's current state: the most imminent dated commitment from key_priorities, or when no dated commitment exists, the single most active undertaking the user is engaged in right now. Comma-separated enumerations of multiple themes or items are forbidden — a subtitle names one thing, not a list. If the World's top-ranked key_priority has a due_date within the next 14 days, the subtitle must reference that commitment and its temporal context (the date, the month reference, or a day-proximity phrase). Abstract summary phrasing that does not name a specific commitment or undertaking is forbidden. Items whose date lies in the past relative to today must never appear in a subtitle. summary is 2 to 3 short sentences, maximum 180 characters total, describing the World's identity, its arc inside the current window, and what the user has been building or expressing within it. Write in second person. key_priorities is an array of up to 5 items ordered by importance, each with rank (integer 1 to 5), text (maximum 100 characters), kind (one of: action, date, blocker, momentum, decision), optional entity_ref string, optional due_date ISO date string, and confidence (number between 0 and 1).
+Authored content for new World candidates. For each new_world_candidate you emit, you must also author the following fields. display_name is a short human-friendly label, at most 3 words and at most 20 characters, derived from proposed_name. Never contains ampersands, the word "and", or any other conjunction. Use sentence case. Omit articles ("the", "a") and possessives ("my", "your") unless essential. One word is preferred when it reads naturally. card_subtitle is a single anchor statement, maximum 60 characters, written as a present-tense or present-continuous phrase. It names one concrete focal element from the World's current state: the most imminent dated commitment from key_priorities, or when no dated commitment exists, the single most active undertaking the user is engaged in right now. Comma-separated enumerations of multiple themes or items are forbidden. A subtitle names one thing, not a list. If the World's top-ranked key_priority has a due_date within the next 14 days, the subtitle must reference that commitment and its temporal context (the date, the month reference, or a day-proximity phrase). Abstract summary phrasing that does not name a specific commitment or undertaking is forbidden. Items whose date lies in the past relative to today must never appear in a subtitle. summary is 2 to 3 short sentences, maximum 180 characters total, describing the World's identity, its arc inside the current window, and what the user has been building or expressing within it. Write in second person. key_priorities is an array of up to 5 items ordered by importance, each with rank (integer 1 to 5), text (maximum 100 characters), kind (one of: action, date, blocker, momentum, decision), optional entity_ref string, optional due_date ISO date string, and confidence (number between 0 and 1).
 
 Authored content for new Chapter candidates. For each new_chapter_candidate you emit, you must also author the following fields. target_summary is a single clause, maximum 90 characters, describing what this chapter is working toward, or null for season-type chapters without a defined target. card_subtitle is a single anchor statement, maximum 60 characters, written in present tense. It names one concrete focal element of the chapter's current arc: the most imminent dated commitment from the chapter's key_priorities, or when no dated commitment exists, the chapter's current central undertaking. Comma-separated enumerations are forbidden. If the chapter's top-ranked key_priority has a due_date within the next 14 days, or if the chapter's target_summary contains a date reference within 30 days, the subtitle must reference that temporal context. Items whose date lies in the past relative to today must never appear. summary is 2 to 3 short sentences, maximum 180 characters total, describing the chapter's arc, its current moment, and what completing or progressing it means for the user. Write in second person. key_priorities follows the same structure as World key_priorities. phase_labels is an ordered list of 3 to 5 short phase name strings describing the arc's stages, labelled from the arc's current vantage point. current_phase_key is the string from phase_labels that best describes where this chapter sits right now.
 
@@ -566,9 +576,33 @@ Structure: one main clause naming the dominant force this week, optionally follo
 
 featured is a list of 2 to 3 objects, each with world_id (the id of an existing active World, or the proposed_name for a new candidate) and reason (maximum 60 characters) explaining why this World is notable this window. The reason field follows the same voice rules as the headline: concrete, observational, no forbidden verbs, no therapy-voice.
 
-Refreshing existing entities. You are not only authoring new entities. On every run you refresh authored content for every existing active World and every existing active Chapter. Refresh is unconditional, not gated on signal shift. For every velocity_update entry you emit, you must also include new_display_name, new_card_subtitle, new_summary, new_key_priorities, and new_mascot_slug. When authoring new_card_subtitle on refresh, apply the same single-anchor rule as for new Worlds. If the previous card_subtitle referenced an event whose date has now passed, or a person or plan that no longer appears in key_priorities, the subtitle must be rewritten to reflect current reality rather than preserved out of inertia. If a new dated commitment has risen to the top of key_priorities since the last run, the subtitle must shift to anchor on that commitment. This applies equally to chapter_update entries for new_card_subtitle on chapters. new_display_name must follow the same rules as display_name on new_world_candidates: at most 3 words, at most 20 characters, sentence case, no ampersands, no "and" or other conjunctions, no articles or possessives unless essential, one word preferred. new_mascot_slug follows the three-case logic in WORLD MASCOT ASSIGNMENT: null if source is user, a slug if current mascot_slug is null (first-assignment), preserve via null otherwise unless archetypes have materially shifted. Never emit a slug that is not in the catalog. For every chapter_update entry you emit, you must also include new_card_subtitle, new_summary, new_key_priorities, new_target_summary, new_phase_labels, and new_current_phase_key. new_target_summary follows the same rules as target_summary on new_chapter_candidates. new_phase_labels is an ordered list of 3 to 5 short phase name strings describing the arc's stages from the arc's current vantage point. new_current_phase_key is the string from new_phase_labels that best describes where this chapter sits right now. For season-type chapters without a defined target, new_target_summary may be null, but new_phase_labels and new_current_phase_key are still required. When refreshing existing entities, check the source fields before writing. If an entity's summary_source equals user, do not author a new_summary, new_key_priorities, new_display_name, new_target_summary, new_phase_labels, or new_current_phase_key for it (leave them null). If its card_subtitle_source equals user, do not author a new_card_subtitle for it (leave it null). If its mascot_slug_source equals user, do not author a new_mascot_slug for it (leave it null). User-sourced fields are never overwritten.
+Refreshing existing entities. You are not only authoring new entities. On every run you refresh authored content for every existing active World and every existing active Chapter. Refresh is unconditional, not gated on signal shift. For every velocity_update entry you emit, you must also include new_display_name, new_card_subtitle, new_summary, new_key_priorities, new_mascot_slug, and new_world_type (following the world_type assignment rule above). When authoring new_card_subtitle on refresh, apply the same single-anchor rule as for new Worlds. If the previous card_subtitle referenced an event whose date has now passed, or a person or plan that no longer appears in key_priorities, the subtitle must be rewritten to reflect current reality rather than preserved out of inertia. If a new dated commitment has risen to the top of key_priorities since the last run, the subtitle must shift to anchor on that commitment. This applies equally to chapter_update entries for new_card_subtitle on chapters. new_display_name must follow the same rules as display_name on new_world_candidates: at most 3 words, at most 20 characters, sentence case, no ampersands, no "and" or other conjunctions, no articles or possessives unless essential, one word preferred. new_mascot_slug follows the three-case logic in WORLD MASCOT ASSIGNMENT: null if source is user, a slug if current mascot_slug is null (first-assignment), preserve via null otherwise unless archetypes have materially shifted. Never emit a slug that is not in the catalog. For every chapter_update entry you emit, you must also include new_card_subtitle, new_summary, new_key_priorities, new_target_summary, new_phase_labels, and new_current_phase_key. new_target_summary follows the same rules as target_summary on new_chapter_candidates. new_phase_labels is an ordered list of 3 to 5 short phase name strings describing the arc's stages from the arc's current vantage point. new_current_phase_key is the string from new_phase_labels that best describes where this chapter sits right now. For season-type chapters without a defined target, new_target_summary may be null, but new_phase_labels and new_current_phase_key are still required. When refreshing existing entities, check the source fields before writing. If an entity's summary_source equals user, do not author a new_summary, new_key_priorities, new_display_name, new_target_summary, new_phase_labels, or new_current_phase_key for it (leave them null). If its card_subtitle_source equals user, do not author a new_card_subtitle for it (leave it null). If its mascot_slug_source equals user, do not author a new_mascot_slug for it (leave it null). User-sourced fields are never overwritten.
 
-User-sourced entity protection. Never propose structural changes, including rename, emerge, absorb, split, transform, or close, to any World, Chapter, or Life Context where the source field equals user. You may still emit velocity_updates and authored-content updates for those entities, subject to the source protection rules above.`;
+User-sourced entity protection. Never propose structural changes, including rename, emerge, absorb, split, transform, or close, to any World, Chapter, or Life Context where the source field equals user. You may still emit velocity_updates and authored-content updates for those entities, subject to the source protection rules above.
+
+World type assignment. Every new world candidate must carry a world_type drawn from project, practice, relationship, domestic. When emitting a velocity_update for an existing world, emit new_world_type only when the world has no world_type yet (first assignment) or when the world's dominant archetype has materially shifted since the last run. Never emit new_world_type when world_type_source is user.
+
+world_type is a slow-moving identity field. Assign project when the world contains or will contain discrete chapters with defined outcomes, measurable deliverables, or shipping deadlines. Assign practice when the world is dominated by ongoing rhythms, habits, or seasonal arcs without specific end states. Assign relationship when the world's archetype is primarily relational and the signal is dominated by interactions with a specific named person or a small set of named people who are the subject of the world. Assign domestic when the world's signal is dominated by maintenance, recurring life admin, or ambient home-life tasks without narrative arcs. When uncertain between project and practice, choose practice. World_type is a slow-moving identity field. Do not change world_type on an existing world unless the dominant archetype has shifted materially since the last run.
+
+Arc shape assignment. Every new chapter candidate must carry an arc_shape drawn from outcome, experience, process, commitment. arc_shape on velocity_update is not emitted; arc_shape is immutable on existing active chapters once set, except when this run is closing the chapter. When arc_shape_source is user, never override arc_shape.
+
+arc_shape drives which authoring rules apply to target_summary, epigraph, and key_moments. Assign outcome when the chapter has a specific target state the user is moving toward, such as a ship date, a completion of a race, a signing, a launch. Assign experience when the chapter is a bounded lived event with known dates but no goal-shaped target. Assign process when the chapter is settling into or working through a phase without a specific end state. Assign commitment when the chapter is a pledge the user has made to themselves with a measurable held-or-slipped dimension. Once closed_at is set, arc_shape is frozen and never reassigned by any subsequent run.
+
+Chapter title shape. A chapter title names an arc, not a category. An arc is a movement in time with a beginning, a middle, and something the user is doing or moving through. Maximum forty-two characters. Maximum five words. Colons as category separators are forbidden. Three-way lists joined by versus are forbidden. Ampersands joining two distinct arcs are forbidden. Abstract category nouns as title leads, such as Foundation, Framework, System, Crossroads, Journey, are forbidden. A valid title either leads with a gerund describing motion or names a specific concrete goal, trip, or event. Specific names of brands, people, places, events, or dates belong in the title. If a clean arc title cannot be written, the thing is probably the world's ambient life rather than a chapter; emit no chapter candidate.
+
+World name shape. Maximum three words. Maximum twenty-two characters. When a world is centered on a single person, the world name is that person's name or common nickname alone; suffixes such as "and Relationship" or "and Relationships" are forbidden. Tight conjunctions pairing closely-related domains are preferred over redundant pairings. Employer names, specific product names, and specific project names do not belong in world names; those are chapters inside a broader world.
+
+World summary as epigraph. The summary field on a world is a single sentence, maximum one hundred sixty characters, rendered as the serif epigraph on the world detail page. Gremly voice: observational, third-person about the user, present-tense unless the world is dormant. The sentence names what is true in the world right now, not the history of the world. Newsroom verbs such as emerge, unfold, continue, gain momentum, build, accelerate, intensify, navigate are forbidden. Abstract category nouns such as plans, patterns, activity, themes, efforts, progress are forbidden when used unmodified. Therapy-voice phrasings such as holding space or processing are forbidden. Em dashes, en dashes, double hyphens, and exclamation marks are forbidden.
+
+Chapter target_summary. One to two sentences, maximum two hundred forty characters. Gremly voice, observational, anchored to specific named entities present in the chapter's signal. For an outcome chapter, name the target and what stands in the way. For a process chapter, name what the user is moving through. For an experience chapter, name the bounded event and its primary anchors. For a commitment chapter, name the pledge and its current status. Refreshed on each weekly run while the chapter is active. Never written or overwritten for a chapter whose closed_at is set.
+
+Closed chapter immutability. For any chapter whose closed_at is set in the input state, you must not emit any chapter_update that modifies its title, arc_shape, epigraph, target_summary, summary, card_subtitle, key_priorities, or any other authored field. You may emit a chapter_update for a closed chapter only if the update contains no field writes and exists solely to record that the chapter was observed. In practice, this means closed chapters should simply be skipped. The one exception is when this run is invoked with an explicit user-rewrite context in the user prompt stating that the user requested rewriting a specific field; the user prompt will name that field, and only that field may be authored.
+
+Chapter epigraph. The epigraph is a single paragraph, two to four sentences, maximum four hundred characters, written only when a chapter is being closed in this run or when the run is an explicit user-triggered epigraph rewrite. Select the memoir register that matches the chapter's arc_shape. The epigraph is Gremly voice in memoir register: reflective, retrospective, present or simple past. Third-person observational about the user. For an experience chapter, name places, people, and the emotional shape of the trip. For a commitment chapter, name what was held, what slipped, what was learned. For an outcome chapter, name what shipped, what was close, where the user is heading next. For a process chapter, name what the user moved through and what the new normal is. Newsroom verbs, celebratory adjectives, therapy-voice, em dashes, en dashes, and double hyphens are forbidden. Emit the epigraph via the new_epigraph field on the matching chapter_update. Never emit an epigraph for a chapter not being closed in this run.
+
+Chapter slip events. A slip event is emitted only when the chapter's arc_shape is commitment and the input state for that chapter shows slip_tracking_enabled is true. A slip event is an instance of the user deviating from the commitment's pledge, as evidenced by the content of a drop within the chapter's date range. Each slip carries a date matching the source drop, a short reason phrase naming the occasion or trigger, a drop_id if traceable, and a confidence score. Do not mark a drop as a slip when confidence is below zero point six. Never invent a slip the user did not mention; only extract slips from actual drop content. On a run that is closing the chapter, emit the final set of slips via new_slip_events. On a run that is not closing the chapter, do not emit slip_events. User review of slips happens in the UI, not in the classifier.
+
+Chapter key moments. Key moments are emitted only on a run that is closing the chapter or that is an explicit user-triggered chapter rewrite. A key moment is a drop the classifier selects as narratively important within the chapter's date range. Each key moment carries a drop_id, the source drop's type, the drop's date, and a short internal note naming why the moment was selected. The why_selected text is internal and may be shown to the user only as an optional tooltip. Do not emit key_moments for a chapter that is not being closed in this run. Do not emit more than twelve key_moments per chapter.`;
 
 // ─── Tool definition ─────────────────────────────────────────────────────────
 
@@ -666,6 +700,7 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
             'distinct_day_count',
             'evidence',
             'seed_module_layout',
+            'world_type',
             'reason',
           ],
           properties: {
@@ -674,9 +709,13 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
             mascot_slug: { type: 'string', enum: MASCOT_CATALOG_SLUGS },
             description: { type: 'string' },
             card_subtitle: { type: 'string', maxLength: 60 },
-            summary: { type: 'string', maxLength: 220 },
+            summary: { type: 'string', maxLength: 160 },
             key_priorities: { type: 'array', maxItems: 5, items: KEY_PRIORITY_SCHEMA },
             archetypes: { type: 'array', minItems: 1, items: ARCHETYPE_WEIGHT_SCHEMA },
+            world_type: {
+              type: 'string',
+              enum: ['project', 'practice', 'relationship', 'domestic'],
+            },
             confidence: { type: 'number', minimum: 0, maximum: 1 },
             first_signal_at: { type: 'string' },
             last_signal_at: { type: 'string' },
@@ -706,6 +745,7 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
             'proposed_title',
             'description',
             'chapter_type',
+            'arc_shape',
             'card_subtitle',
             'summary',
             'key_priorities',
@@ -720,10 +760,11 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
             proposed_title: { type: 'string' },
             description: { type: 'string' },
             chapter_type: { type: 'string', enum: ['bounded', 'season', 'milestone'] },
+            arc_shape: { type: 'string', enum: ['outcome', 'experience', 'process', 'commitment'] },
             start_date: { type: ['string', 'null'] },
             end_date: { type: ['string', 'null'] },
             target_description: { type: ['string', 'null'] },
-            target_summary: { type: ['string', 'null'], maxLength: 110 },
+            target_summary: { type: ['string', 'null'], maxLength: 240 },
             card_subtitle: { type: 'string', maxLength: 60 },
             summary: { type: 'string', maxLength: 220 },
             key_priorities: { type: 'array', maxItems: 5, items: KEY_PRIORITY_SCHEMA },
@@ -747,6 +788,13 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
             new_description: { type: ['string', 'null'] },
             new_target_description: { type: ['string', 'null'] },
             new_target_summary: { type: ['string', 'null'], maxLength: 110 },
+            new_arc_shape: {
+              type: ['string', 'null'],
+              enum: ['outcome', 'experience', 'process', 'commitment', null],
+            },
+            new_epigraph: { type: ['string', 'null'], maxLength: 400 },
+            new_key_moments: { type: ['array', 'null'], items: { type: 'object' } },
+            new_slip_events: { type: ['array', 'null'], items: { type: 'object' } },
             new_phase_labels: {
               oneOf: [
                 { type: 'array', minItems: 3, maxItems: 5, items: { type: 'string' } },
@@ -815,6 +863,10 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
               oneOf: [{ type: 'array', maxItems: 5, items: KEY_PRIORITY_SCHEMA }, { type: 'null' }],
             },
             new_mascot_slug: { type: ['string', 'null'], enum: MASCOT_CATALOG_SLUGS },
+            new_world_type: {
+              type: ['string', 'null'],
+              enum: ['project', 'practice', 'relationship', 'domestic', null],
+            },
           },
         },
       },
