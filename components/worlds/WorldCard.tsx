@@ -42,8 +42,8 @@ export function WorldCard({ world, onPress }: WorldCardProps) {
           {subtitle}
         </Text>
       ) : null}
-      <View style={styles.chevron}>
-        <ChevronRight size={16} color={lightTokens.colors.worldsInkSoft} strokeWidth={2} />
+      <View style={styles.chevronCircle}>
+        <ChevronRight size={14} color={lightTokens.colors.worldsInkSoft} strokeWidth={2} />
       </View>
     </Pressable>
   );
@@ -84,7 +84,7 @@ const styles = StyleSheet.create({
   },
   topRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     justifyContent: 'space-between',
     gap: 8,
   },
@@ -109,10 +109,15 @@ const styles = StyleSheet.create({
     color: lightTokens.colors.worldsInkSoft,
     marginTop: 12,
   },
-  chevron: {
+  chevronCircle: {
     position: 'absolute',
     bottom: 10,
     right: 10,
-    opacity: 0.5,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(0, 0, 0, 0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
