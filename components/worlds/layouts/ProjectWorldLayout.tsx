@@ -3,18 +3,17 @@
 import { View, Pressable, StyleSheet } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { differenceInCalendarDays, format } from 'date-fns';
+import { format } from 'date-fns';
 import { lightTokens } from '../../../design/tokens';
 import { Text } from '../../../ui';
 import { ArchetypeWorldHero } from '../ArchetypeWorldHero';
 import { AlsoOpenModule } from '../sections/AlsoOpenModule';
+import { UnfoldingProgress } from './UnfoldingProgress';
 import {
   useWorldDrops,
   useRecentDropsForWorld,
   useBlockerCountForChapter,
 } from '../../../lib/store/worldsSelectors';
-import { resolveChapterPhases } from '../../../lib/worlds/chapterDisplay';
-import { getDateService } from '../../../lib/date';
 import { capitalizeVelocity, resolveProjectVelocityDotColor } from './archetypeHelpers';
 import type { RootStackParamList } from '../../../navigation/RootNavigator';
 import type { World, Chapter } from '../../../lib/supabase/types';
@@ -83,25 +82,8 @@ interface ProjectUnfoldingSectionProps {
 }
 
 function ProjectUnfoldingSection({ chapter, blockerCount, onPress }: ProjectUnfoldingSectionProps) {
-  const phase = resolveChapterPhases(chapter);
-  const progressFraction =
-    phase.segments.length > 0 ? phase.segments.filter(Boolean).length / phase.segments.length : 0;
-
-  const dayLine = (() => {
-    const parts: string[] = [];
-    if (chapter.current_phase_key) parts.push(chapter.current_phase_key);
-    if (chapter.start_date) {
-      const days =
-        differenceInCalendarDays(getDateService().now(), new Date(chapter.start_date)) + 1;
-      if (days > 0) parts.push(`day ${days}`);
-    }
-    return parts.join(' \u00B7 ');
-  })();
-
-  const phaseIndex = chapter.phase_labels?.indexOf(chapter.current_phase_key ?? '') ?? -1;
-  const phaseTotal = chapter.phase_labels?.length ?? 0;
-  const phaseLabelText =
-    phaseIndex >= 0 && phaseTotal > 0 ? `phase ${phaseIndex + 1} of ${phaseTotal}` : null;
+  // Phase line shows current_phase_key only; day count is owned by UnfoldingProgress
+  const dayLine = chapter.current_phase_key ?? '';
 
   return (
     <View style={unfoldingStyles.container}>
@@ -121,21 +103,11 @@ function ProjectUnfoldingSection({ chapter, blockerCount, onPress }: ProjectUnfo
           ) : null}
         </View>
 
-        {/* Phase + day line */}
-        <Text style={unfoldingStyles.phaseLine}>{dayLine}</Text>
+        {/* Phase line: current_phase_key as stored */}
+        {dayLine ? <Text style={unfoldingStyles.phaseLine}>{dayLine}</Text> : null}
 
-        {/* Phase progress bar */}
-        <View style={unfoldingStyles.progressBarOuter}>
-          <View
-            style={[
-              unfoldingStyles.progressBarInner,
-              { width: `${Math.round(progressFraction * 100)}%` },
-            ]}
-          />
-        </View>
-        {phaseLabelText ? (
-          <Text style={unfoldingStyles.phaseProgress}>{phaseLabelText}</Text>
-        ) : null}
+        {/* Arc-shape-aware progress bar + label */}
+        <UnfoldingProgress chapter={chapter} />
       </Pressable>
     </View>
   );
@@ -195,23 +167,6 @@ const unfoldingStyles = StyleSheet.create({
     fontSize: 10,
     color: lightTokens.colors.warmGrey,
     marginBottom: 10,
-    fontFamily: 'Inter-Regular',
-  },
-  progressBarOuter: {
-    height: 3,
-    backgroundColor: lightTokens.colors.outcomeAccentSoft,
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  progressBarInner: {
-    height: 3,
-    backgroundColor: lightTokens.colors.outcomeAccent,
-    borderRadius: 2,
-  },
-  phaseProgress: {
-    marginTop: 6,
-    fontSize: 9,
-    color: lightTokens.colors.warmGrey,
     fontFamily: 'Inter-Regular',
   },
 });

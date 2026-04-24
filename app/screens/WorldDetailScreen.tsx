@@ -1,5 +1,6 @@
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ScrollView, StyleSheet, View, Pressable } from 'react-native';
+import { Animated, StyleSheet, View, Pressable } from 'react-native';
+import { useState } from 'react';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -21,6 +22,9 @@ export default function WorldDetailScreen() {
   const nav = useNavigation<NavT>();
   const world = useWorldById(route.params.worldId);
   const currentChapter = useCurrentChapterForWorld(route.params.worldId);
+
+  // Must be declared before any early return (Rules of Hooks)
+  const [scrollY] = useState(() => new Animated.Value(0));
 
   if (!world) {
     return (
@@ -45,14 +49,21 @@ export default function WorldDetailScreen() {
         title={worldName}
         onBack={() => nav.goBack()}
         worldId={world.id}
-        showTitle={false} // Phase B: body hero owns the title on all archetype pages
-        // (B.3a-polish will upgrade to scroll-aware reveal)
+        titleMode="scroll"
+        scrollY={scrollY}
       />
-      <ScrollView contentContainerStyle={{ paddingBottom: 12 }}>
+      <Animated.ScrollView
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          { useNativeDriver: false }, // opacity interpolation requires JS driver
+        )}
+        scrollEventThrottle={16}
+        contentContainerStyle={styles.scrollContent}
+      >
         <ArchetypeLayoutDispatcher world={world} currentChapter={currentChapter} />
         <GremlyNoticedSlot worldId={world.id} />
         <View style={{ height: 60 }} />
-      </ScrollView>
+      </Animated.ScrollView>
       <WorldActionButtons
         worldName={worldName}
         onAddPress={() => console.log('[WorldDetail] add to world', world.id)}
@@ -64,6 +75,7 @@ export default function WorldDetailScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: lightTokens.colors.worldsSurface },
+  scrollContent: { paddingBottom: 12 },
   hdr: {
     flexDirection: 'row',
     alignItems: 'center',
