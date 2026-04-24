@@ -108,6 +108,35 @@ export const LIFE_CONTEXT_KINDS: LifeContextKind[] = [
   'custom',
 ];
 
+const MASCOT_CATALOG: string[] = [
+  'adventurer_gremly',
+  'artist_gremly',
+  'astrogremly',
+  'beach_gremly',
+  'chef_gremly',
+  'clipboardgremly',
+  'coffee_gremly',
+  'cozy_gremly',
+  'cozyscarf_gremly',
+  'doctor_gremly',
+  'explorer_gremly',
+  'fistbumpgremly',
+  'fitness_gremly',
+  'gardener_gremly',
+  'gremly-mascot',
+  'hoodie_gremly',
+  'JournalGremly',
+  'meditation_gremly',
+  'music_gremly',
+  'photographer_gremly',
+  'running-removebg',
+  'safari_gremly',
+  'scholar_gremly',
+  'ski_gremly',
+];
+
+const MASCOT_CATALOG_TEXT = MASCOT_CATALOG.join(', ');
+
 // ─── Input shapes ────────────────────────────────────────────────────────────
 
 export interface ArchetypeWeight {
@@ -255,6 +284,7 @@ export interface VelocityUpdate {
   new_card_subtitle: string | null;
   new_summary: string | null;
   new_key_priorities: KeyPriority[] | null;
+  new_mascot_slug: string | null;
 }
 
 export interface EvolutionProposal {
@@ -383,6 +413,8 @@ Confidence. Every candidate and proposal gets a confidence between 0 and 1. Thin
 
 Style rules for all authored text fields. These apply to display_name, card_subtitle, summary, target_summary, key_priorities.text, worlds_summary.headline, worlds_summary.body, and worlds_summary.featured.reason.\n\nNever use em dashes, en dashes, or double hyphens. Use standard punctuation instead. Never use ampersands except inside literal proper nouns where the ampersand is part of the organization's registered name.\n\nWrite plainly, in second person where natural, without rhetorical flourish. Prefer concrete nouns and verbs over abstract summary language. Do not use hedging or qualifying adverbs that soften claims without adding information.
 
+Mascot assignment for new and refreshed Worlds. Every new_world_candidate must include a mascot_slug. Choose a mascot that reflects the dominant archetype and emotional character of the World, not a literal keyword match to the World's name. For each velocity_update, set new_mascot_slug to a slug from the catalog if the World's character has meaningfully shifted since the last assignment, or null to leave the current mascot unchanged. Never assign a mascot slug that is not in the catalog. Available slugs: ${MASCOT_CATALOG_TEXT}.
+
 Authored content for new World candidates. For each new_world_candidate you emit, you must also author the following fields. display_name is a short human-friendly label, at most 3 words and at most 20 characters, derived from proposed_name. Never contains ampersands, the word "and", or any other conjunction. Use sentence case. Omit articles ("the", "a") and possessives ("my", "your") unless essential. One word is preferred when it reads naturally. card_subtitle is a single clause, maximum 60 characters, that captures the defining quality or current momentum of this World. Write it as a present-tense or present-continuous phrase. summary is 2 to 3 short sentences, maximum 180 characters total, describing the World's identity, its arc inside the current window, and what the user has been building or expressing within it. Write in second person. key_priorities is an array of up to 5 items ordered by importance, each with rank (integer 1 to 5), text (maximum 100 characters), kind (one of: action, date, blocker, momentum, decision), optional entity_ref string, optional due_date ISO date string, and confidence (number between 0 and 1).
 
 Authored content for new Chapter candidates. For each new_chapter_candidate you emit, you must also author the following fields. target_summary is a single clause, maximum 90 characters, describing what this chapter is working toward, or null for season-type chapters without a defined target. card_subtitle is a single clause, maximum 60 characters, naming the arc's central tension or goal in present tense. summary is 2 to 3 short sentences, maximum 180 characters total, describing the chapter's arc, its current moment, and what completing or progressing it means for the user. Write in second person. key_priorities follows the same structure as World key_priorities. phase_labels is an ordered list of 3 to 5 short phase name strings describing the arc's stages, labelled from the arc's current vantage point. current_phase_key is the string from phase_labels that best describes where this chapter sits right now.
@@ -477,6 +509,7 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
           required: [
             'proposed_name',
             'display_name',
+            'mascot_slug',
             'description',
             'card_subtitle',
             'summary',
@@ -494,6 +527,7 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
           properties: {
             proposed_name: { type: 'string' },
             display_name: { type: 'string', maxLength: 20 },
+            mascot_slug: { type: 'string', enum: MASCOT_CATALOG },
             description: { type: 'string' },
             card_subtitle: { type: 'string', maxLength: 60 },
             summary: { type: 'string', maxLength: 220 },
@@ -635,6 +669,7 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
             new_key_priorities: {
               oneOf: [{ type: 'array', maxItems: 5, items: KEY_PRIORITY_SCHEMA }, { type: 'null' }],
             },
+            new_mascot_slug: { type: ['string', 'null'], enum: [...MASCOT_CATALOG, null] },
           },
         },
       },
