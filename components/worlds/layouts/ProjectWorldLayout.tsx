@@ -14,7 +14,7 @@ import {
   useRecentDropsForWorld,
   useBlockerCountForChapter,
 } from '../../../lib/store/worldsSelectors';
-import { capitalizeVelocity, resolvePillColors } from './archetypeHelpers';
+import { capitalizeVelocity } from './archetypeHelpers';
 import type { RootStackParamList } from '../../../navigation/RootNavigator';
 import type { World, Chapter } from '../../../lib/supabase/types';
 import type { Todo, Habit, Note } from '../../../lib/types';
@@ -42,11 +42,26 @@ export function ProjectWorldLayout({ world, currentChapter }: ProjectWorldLayout
   if (blockerClause) statusParts.push(blockerClause);
   const statusLine = statusParts.join(' \u00B7 ');
 
-  const pillColors = resolvePillColors(world);
+  const velocityDotColor = (() => {
+    switch (world.signal_velocity_delta) {
+      case 'growing':
+        return lightTokens.colors.velocityDotGrowing;
+      case 'stable':
+        return lightTokens.colors.velocityDotSteady;
+      case 'declining':
+        return lightTokens.colors.velocityDotCooling;
+      default:
+        return lightTokens.colors.velocityDotDormant;
+    }
+  })();
 
   return (
     <View>
-      <ArchetypeWorldHero world={world} statusLine={statusLine} pillColors={pillColors} />
+      <ArchetypeWorldHero
+        world={world}
+        statusLine={statusLine}
+        velocityDotColor={velocityDotColor}
+      />
 
       {currentChapter ? (
         <ProjectUnfoldingSection

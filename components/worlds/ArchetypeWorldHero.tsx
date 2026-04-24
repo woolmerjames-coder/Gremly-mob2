@@ -1,19 +1,24 @@
 // components/worlds/ArchetypeWorldHero.tsx
 
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, Platform } from 'react-native';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
 import MascotLottie from '../../app/components/MascotLottie';
 import type { World } from '../../lib/supabase/types';
-import type { PillColors } from './layouts/archetypeHelpers';
+
+const SERIF_FONT = Platform.select({ ios: 'Georgia', default: 'serif' });
 
 interface ArchetypeWorldHeroProps {
   world: World;
   statusLine: string;
-  pillColors: PillColors;
+  velocityDotColor: string;
 }
 
-export function ArchetypeWorldHero({ world, statusLine, pillColors }: ArchetypeWorldHeroProps) {
+export function ArchetypeWorldHero({
+  world,
+  statusLine,
+  velocityDotColor,
+}: ArchetypeWorldHeroProps) {
   const title = world.display_name || world.name;
   const summary = world.summary?.trim() || null;
 
@@ -25,13 +30,11 @@ export function ArchetypeWorldHero({ world, statusLine, pillColors }: ArchetypeW
           <Text style={styles.title} numberOfLines={2}>
             {title}
           </Text>
-          <View style={styles.statusPillRow}>
-            <View style={[styles.statusPill, { backgroundColor: pillColors.bg }]}>
-              <View style={[styles.statusPillDot, { backgroundColor: pillColors.dot }]} />
-              <Text style={[styles.statusPillText, { color: pillColors.text }]} numberOfLines={1}>
-                {statusLine}
-              </Text>
-            </View>
+          <View style={styles.statusRow}>
+            <View style={[styles.velocityDot, { backgroundColor: velocityDotColor }]} />
+            <Text style={styles.statusText} numberOfLines={1}>
+              {statusLine}
+            </Text>
           </View>
         </View>
         <View style={styles.mascotWrap}>
@@ -54,13 +57,13 @@ export function ArchetypeWorldHero({ world, statusLine, pillColors }: ArchetypeW
 const styles = StyleSheet.create({
   container: {
     paddingHorizontal: 16,
-    paddingBottom: 40,
+    paddingBottom: 32,
   },
   topRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',
-    marginBottom: 24,
+    marginBottom: 18,
   },
   titleColumn: {
     flex: 1,
@@ -74,41 +77,37 @@ const styles = StyleSheet.create({
     letterSpacing: -0.8,
     color: lightTokens.colors.worldsInk,
   },
-  statusPillRow: {
-    marginTop: 14,
-    flexDirection: 'row',
-  },
-  statusPill: {
+  statusRow: {
+    marginTop: 10,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    alignSelf: 'flex-start',
   },
-  statusPillDot: {
+  velocityDot: {
     width: 7,
     height: 7,
     borderRadius: 3.5,
   },
-  statusPillText: {
+  statusText: {
     fontFamily: 'Inter-Medium',
     fontSize: 13,
     letterSpacing: 0.1,
+    color: lightTokens.colors.warmGrey,
+    flexShrink: 1,
   },
   mascotWrap: {
     flexShrink: 0,
     width: 100,
-    height: 100,
+    height: 120,
     alignItems: 'center',
     justifyContent: 'flex-end',
+    overflow: 'visible',
   },
   summary: {
-    marginTop: 28,
-    fontFamily: 'Inter-Regular',
-    fontSize: 17,
-    lineHeight: 26,
+    marginTop: 24,
+    fontFamily: SERIF_FONT,
+    fontSize: 16,
+    lineHeight: 24,
     color: lightTokens.colors.worldsInk,
   },
   summaryPlaceholder: {

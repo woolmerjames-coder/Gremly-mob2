@@ -6,52 +6,6 @@
 import { lightTokens } from '../../../design/tokens';
 import type { SignalVelocityDelta, World } from '../../../lib/supabase/types';
 
-// ─── Pill colors ──────────────────────────────────────────────────────────────
-
-export interface PillColors {
-  bg: string;
-  dot: string;
-  text: string;
-}
-
-export function resolvePillColors(world: World): PillColors {
-  switch (world.world_type) {
-    case 'project':
-      return {
-        bg: lightTokens.colors.sageMist,
-        dot:
-          world.signal_velocity_delta === 'growing'
-            ? lightTokens.colors.velocityDotGrowing
-            : lightTokens.colors.velocityDotSteady,
-        text: lightTokens.colors.mossGreen,
-      };
-    case 'domestic':
-      return {
-        bg: lightTokens.colors.chipDomesticBorder,
-        dot: lightTokens.colors.warmGrey,
-        text: lightTokens.colors.worldsInk,
-      };
-    case 'practice':
-      return {
-        bg: lightTokens.colors.sageMist,
-        dot: lightTokens.colors.sageGreen,
-        text: lightTokens.colors.mossGreen,
-      };
-    case 'relationship':
-      return {
-        bg: lightTokens.colors.chipRelationshipBorder,
-        dot: lightTokens.colors.warmGrey,
-        text: lightTokens.colors.worldsInk,
-      };
-    default:
-      return {
-        bg: lightTokens.colors.sageMist,
-        dot: lightTokens.colors.warmGrey,
-        text: lightTokens.colors.worldsInk,
-      };
-  }
-}
-
 export function capitalizeVelocity(delta: SignalVelocityDelta | null): string {
   switch (delta) {
     case 'growing':
