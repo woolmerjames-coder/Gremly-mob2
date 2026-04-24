@@ -3,27 +3,17 @@
 import { View, StyleSheet } from 'react-native';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
-import MascotIcon from '../MascotIcon';
+import MascotLottie from '../../app/components/MascotLottie';
 import type { World } from '../../lib/supabase/types';
-import type { PillColors, MascotPose } from './layouts/archetypeHelpers';
+import type { PillColors } from './layouts/archetypeHelpers';
 
 interface ArchetypeWorldHeroProps {
   world: World;
   statusLine: string;
   pillColors: PillColors;
-  summaryAccent: string;
-  summaryTintBg: string;
-  mascotPose: MascotPose;
 }
 
-export function ArchetypeWorldHero({
-  world,
-  statusLine,
-  pillColors,
-  summaryAccent,
-  summaryTintBg,
-  mascotPose,
-}: ArchetypeWorldHeroProps) {
+export function ArchetypeWorldHero({ world, statusLine, pillColors }: ArchetypeWorldHeroProps) {
   const title = world.display_name || world.name;
   const summary = world.summary?.trim() || null;
 
@@ -45,26 +35,17 @@ export function ArchetypeWorldHero({
           </View>
         </View>
         <View style={styles.mascotWrap}>
-          <MascotIcon size={88} pose={mascotPose} />
+          <MascotLottie width={100} />
         </View>
       </View>
 
-      {/* Summary callout */}
+      {/* World summary */}
       {summary ? (
-        <View
-          style={[
-            styles.summaryCallout,
-            { backgroundColor: summaryTintBg, borderLeftColor: summaryAccent },
-          ]}
-        >
-          <Text style={styles.summary}>{summary}</Text>
-        </View>
+        <Text style={styles.summary}>{summary}</Text>
       ) : (
-        <View style={styles.summaryCallout}>
-          <Text style={[styles.summary, styles.summaryPlaceholder]}>
-            No summary yet. Gremly&apos;s classifier will write one after your next weekly run.
-          </Text>
-        </View>
+        <Text style={[styles.summary, styles.summaryPlaceholder]}>
+          No summary yet. Gremly&apos;s classifier will write one after your next weekly run.
+        </Text>
       )}
     </View>
   );
@@ -118,20 +99,13 @@ const styles = StyleSheet.create({
   },
   mascotWrap: {
     flexShrink: 0,
-    width: 88,
-    height: 88,
+    width: 100,
+    height: 100,
     alignItems: 'center',
     justifyContent: 'flex-end',
   },
-  summaryCallout: {
-    marginTop: 28,
-    paddingLeft: 16,
-    paddingRight: 12,
-    paddingVertical: 14,
-    borderLeftWidth: 3,
-    borderRadius: 6,
-  },
   summary: {
+    marginTop: 28,
     fontFamily: 'Inter-Regular',
     fontSize: 17,
     lineHeight: 26,

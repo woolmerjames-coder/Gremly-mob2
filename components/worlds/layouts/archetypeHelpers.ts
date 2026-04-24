@@ -52,65 +52,6 @@ export function resolvePillColors(world: World): PillColors {
   }
 }
 
-// ─── Summary callout accents ──────────────────────────────────────────────────
-
-export function resolveSummaryAccents(world: World): { accent: string; tintBg: string } {
-  switch (world.world_type) {
-    case 'project':
-      return {
-        accent: lightTokens.colors.mossGreen,
-        tintBg: 'rgba(46,85,64,0.04)',
-      };
-    case 'practice':
-      return {
-        accent: lightTokens.colors.sageGreen,
-        tintBg: 'rgba(151,175,143,0.06)',
-      };
-    case 'relationship':
-      return {
-        accent: lightTokens.colors.warmGrey,
-        tintBg: 'rgba(122,118,101,0.04)',
-      };
-    case 'domestic':
-      return {
-        accent: lightTokens.colors.warmGrey,
-        tintBg: 'rgba(122,118,101,0.04)',
-      };
-    default:
-      return {
-        accent: lightTokens.colors.warmGrey,
-        tintBg: 'rgba(122,118,101,0.04)',
-      };
-  }
-}
-
-// ─── Mascot pose ──────────────────────────────────────────────────────────────
-
-export type MascotPose = 'neutral' | 'think' | 'celebrate' | 'default';
-
-/**
- * Pose mapping for the world hero mascot.
- *
- * project: 'think' — focused, intent.
- * practice: 'neutral' — calm, ongoing rhythm.
- * relationship: 'celebrate' — joyful, connection-oriented.
- * domestic: 'neutral' — calm daily life.
- */
-export function resolveMascotPose(world: World): MascotPose {
-  switch (world.world_type) {
-    case 'project':
-      return 'think';
-    case 'practice':
-      return 'neutral';
-    case 'relationship':
-      return 'celebrate';
-    case 'domestic':
-      return 'neutral';
-    default:
-      return 'neutral';
-  }
-}
-
 export function capitalizeVelocity(delta: SignalVelocityDelta | null): string {
   switch (delta) {
     case 'growing':

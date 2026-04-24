@@ -11,12 +11,7 @@ import {
   useRecentDropsForWorld,
   useChaptersForWorld,
 } from '../../../lib/store/worldsSelectors';
-import {
-  capitalizeVelocity,
-  resolvePillColors,
-  resolveSummaryAccents,
-  resolveMascotPose,
-} from './archetypeHelpers';
+import { capitalizeVelocity, resolvePillColors } from './archetypeHelpers';
 import type { World, Chapter } from '../../../lib/supabase/types';
 import type { Todo, Habit, Note } from '../../../lib/types';
 
@@ -42,8 +37,6 @@ export function DomesticWorldLayout({ world, currentChapter }: DomesticWorldLayo
   const statusLine = [velocityLabel, `${itemCount} items`, thirdClause].join(' \u00B7 ');
 
   const pillColors = resolvePillColors(world);
-  const summaryAccents = resolveSummaryAccents(world);
-  const mascotPose = resolveMascotPose(world);
 
   const openTodos = drops.todos
     .filter((t) => !t.completed_at && !t.archived)
@@ -61,14 +54,7 @@ export function DomesticWorldLayout({ world, currentChapter }: DomesticWorldLayo
 
   return (
     <View>
-      <ArchetypeWorldHero
-        world={world}
-        statusLine={statusLine}
-        pillColors={pillColors}
-        summaryAccent={summaryAccents.accent}
-        summaryTintBg={summaryAccents.tintBg}
-        mascotPose={mascotPose}
-      />
+      <ArchetypeWorldHero world={world} statusLine={statusLine} pillColors={pillColors} />
 
       {currentChapter ? (
         <DomesticUnfoldingSection chapter={currentChapter} />

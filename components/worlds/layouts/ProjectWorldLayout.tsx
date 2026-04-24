@@ -14,12 +14,7 @@ import {
   useRecentDropsForWorld,
   useBlockerCountForChapter,
 } from '../../../lib/store/worldsSelectors';
-import {
-  capitalizeVelocity,
-  resolvePillColors,
-  resolveSummaryAccents,
-  resolveMascotPose,
-} from './archetypeHelpers';
+import { capitalizeVelocity, resolvePillColors } from './archetypeHelpers';
 import type { RootStackParamList } from '../../../navigation/RootNavigator';
 import type { World, Chapter } from '../../../lib/supabase/types';
 import type { Todo, Habit, Note } from '../../../lib/types';
@@ -48,19 +43,10 @@ export function ProjectWorldLayout({ world, currentChapter }: ProjectWorldLayout
   const statusLine = statusParts.join(' \u00B7 ');
 
   const pillColors = resolvePillColors(world);
-  const summaryAccents = resolveSummaryAccents(world);
-  const mascotPose = resolveMascotPose(world);
 
   return (
     <View>
-      <ArchetypeWorldHero
-        world={world}
-        statusLine={statusLine}
-        pillColors={pillColors}
-        summaryAccent={summaryAccents.accent}
-        summaryTintBg={summaryAccents.tintBg}
-        mascotPose={mascotPose}
-      />
+      <ArchetypeWorldHero world={world} statusLine={statusLine} pillColors={pillColors} />
 
       {currentChapter ? (
         <ProjectUnfoldingSection
