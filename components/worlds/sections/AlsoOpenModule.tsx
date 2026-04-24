@@ -54,7 +54,7 @@ export function AlsoOpenModule({ worldId, onPressSeeAll, onPressTodo }: AlsoOpen
 }
 
 const styles = StyleSheet.create({
-  container: { marginBottom: 32, paddingHorizontal: 16 },
+  container: { marginBottom: 26, paddingHorizontal: 16 },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',

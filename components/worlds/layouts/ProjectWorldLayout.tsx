@@ -121,7 +121,7 @@ function ProjectUnfoldingSection({ chapter, blockerCount, onPress }: ProjectUnfo
 const unfoldingStyles = StyleSheet.create({
   container: {
     paddingHorizontal: 16,
-    marginBottom: 32,
+    marginBottom: 26,
   },
   sectionLabel: {
     fontFamily: 'Inter-Medium',
@@ -136,7 +136,7 @@ const unfoldingStyles = StyleSheet.create({
   card: {
     backgroundColor: lightTokens.colors.worldsCard,
     borderRadius: 14,
-    paddingVertical: 18,
+    paddingVertical: 12,
     paddingHorizontal: 18,
     borderLeftWidth: 4,
     borderLeftColor: lightTokens.colors.mossGreen,
@@ -248,7 +248,7 @@ function ProjectRecentSection({ worldId, drops }: ProjectRecentSectionProps) {
 const recentStyles = StyleSheet.create({
   container: {
     paddingHorizontal: 16,
-    marginBottom: 32,
+    marginBottom: 26,
   },
   sectionLabel: {
     fontFamily: 'Inter-Medium',

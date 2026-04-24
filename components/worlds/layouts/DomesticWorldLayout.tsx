@@ -107,7 +107,7 @@ function DomesticUnfoldingSection({ chapter }: { chapter: Chapter }) {
 }
 
 const domesticUnfoldingStyles = StyleSheet.create({
-  container: { paddingHorizontal: 16, marginBottom: 32 },
+  container: { paddingHorizontal: 16, marginBottom: 26 },
   sectionLabel: {
     fontFamily: 'Inter-Medium',
     fontSize: 12,
@@ -156,7 +156,7 @@ function DomesticNoChapterFrame() {
 }
 
 const frameStyles = StyleSheet.create({
-  container: { paddingHorizontal: 16, marginBottom: 32 },
+  container: { paddingHorizontal: 16, marginBottom: 26 },
   frame: {
     paddingVertical: 18,
     paddingHorizontal: 16,
@@ -225,7 +225,7 @@ function DomesticNeedsYouSection({ worldId, openTodos }: DomesticNeedsYouSection
 }
 
 const needsYouStyles = StyleSheet.create({
-  container: { marginBottom: 32, paddingHorizontal: 16 },
+  container: { marginBottom: 26, paddingHorizontal: 16 },
   header: {
     paddingHorizontal: 2,
     marginBottom: 10,
@@ -332,7 +332,7 @@ function DomesticRecentSection({ worldId, drops }: DomesticRecentSectionProps) {
 }
 
 const domesticRecentStyles = StyleSheet.create({
-  container: { paddingHorizontal: 16, marginBottom: 32 },
+  container: { paddingHorizontal: 16, marginBottom: 26 },
   sectionLabel: {
     fontFamily: 'Inter-Medium',
     fontSize: 12,

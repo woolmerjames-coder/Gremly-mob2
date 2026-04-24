@@ -38,7 +38,7 @@ export function ArchetypeWorldHero({
           </View>
         </View>
         <View style={styles.mascotWrap}>
-          <MascotLottie width={100} />
+          <MascotLottie width={90} />
         </View>
       </View>
 
@@ -50,6 +50,10 @@ export function ArchetypeWorldHero({
           No summary yet. Gremly&apos;s classifier will write one after your next weekly run.
         </Text>
       )}
+
+      {/* End-of-hero divider — gives the page vertical structure
+          between the narrative hero and the sections below */}
+      <View style={styles.heroDivider} />
     </View>
   );
 }
@@ -57,7 +61,7 @@ export function ArchetypeWorldHero({
 const styles = StyleSheet.create({
   container: {
     paddingHorizontal: 16,
-    paddingBottom: 32,
+    paddingBottom: 20,
   },
   topRow: {
     flexDirection: 'row',
@@ -75,7 +79,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 44,
     letterSpacing: -0.8,
-    color: lightTokens.colors.worldsInk,
+    color: lightTokens.colors.mossGreen,
   },
   statusRow: {
     marginTop: 10,
@@ -97,14 +101,14 @@ const styles = StyleSheet.create({
   },
   mascotWrap: {
     flexShrink: 0,
-    width: 100,
-    height: 120,
+    width: 90,
+    height: 110,
     alignItems: 'center',
     justifyContent: 'flex-end',
     overflow: 'visible',
   },
   summary: {
-    marginTop: 24,
+    marginTop: 18,
     fontFamily: SERIF_FONT,
     fontSize: 16,
     lineHeight: 24,
@@ -113,5 +117,12 @@ const styles = StyleSheet.create({
   summaryPlaceholder: {
     color: lightTokens.colors.warmGrey,
     fontStyle: 'italic',
+  },
+  heroDivider: {
+    marginTop: 24,
+    width: 44,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: lightTokens.colors.ambergold,
   },
 });

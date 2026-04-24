@@ -77,7 +77,7 @@ function resolveStatusColor(activity: HabitLastActivity | null): string {
 }
 
 const styles = StyleSheet.create({
-  container: { marginBottom: 32, paddingHorizontal: 16 },
+  container: { marginBottom: 26, paddingHorizontal: 16 },
   label: {
     fontFamily: 'Inter-Medium',
     fontSize: 12,
