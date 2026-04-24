@@ -227,6 +227,11 @@ async function callPhase2(
       people: Array.isArray(json.people) ? json.people : [],
       mood: json.mood ?? null,
       energy_type,
+      priority_kind: ['action', 'blocker', 'waiting', 'decision', 'momentum'].includes(
+        json.priority_kind,
+      )
+        ? json.priority_kind
+        : null,
       target_date: json.target_date ?? null,
       scheduled_date: json.scheduled_date ?? null,
       event_time: json.event_time ?? null,
@@ -654,6 +659,7 @@ export async function handleTitled(drop: QueuedDrop): Promise<QueuedDrop> {
     timeEstimateMinutes: enrichment?.time_estimate_minutes || null,
     timeWindow: enrichment?.time_window || null,
     energyType: enrichment?.energy_type || null,
+    priorityKind: enrichment?.priority_kind ?? null,
     extractedDate: enrichment?.extracted_date || null,
     extractedStartDate: enrichment?.extracted_start_date || null,
     extractedFrequency: enrichment?.extracted_frequency || null,
@@ -688,6 +694,7 @@ export async function handleEnriched(drop: QueuedDrop): Promise<QueuedDrop> {
         people: drop.people || [],
         mood: drop.mood || null,
         energy_type: (drop.energyType || null) as Phase2MetadataResult['energy_type'],
+        priority_kind: drop.priorityKind ?? null,
         target_date: drop.targetDate || null,
         scheduled_date: drop.scheduledDate || null,
         event_time: drop.eventTime || null,

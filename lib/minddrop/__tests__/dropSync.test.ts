@@ -105,6 +105,7 @@ function makeEnrichment(overrides: Partial<Phase2MetadataResult> = {}): Phase2Me
     mood: null,
     dateConfidence: null,
     energy_type: null,
+    priority_kind: null,
     target_date: null,
     scheduled_date: null,
     event_time: null,
