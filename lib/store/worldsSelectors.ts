@@ -1162,7 +1162,7 @@ export function selectHabitLastActivity(
 }
 
 export const useHabitLastActivity = (habitId: string) =>
-  useGremlyStore((s) => selectHabitLastActivity(s, habitId));
+  useGremlyStore(useShallow((s) => selectHabitLastActivity(s, habitId)));
 
 /**
  * Returns the key_moments array for a chapter, sorted by date ascending.
