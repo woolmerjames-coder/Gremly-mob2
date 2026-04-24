@@ -107,7 +107,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 15,
     color: lightTokens.colors.worldsInkSoft,
-    marginTop: 6,
+    marginTop: 12,
   },
   chevron: {
     position: 'absolute',
