@@ -82,9 +82,6 @@ interface ProjectUnfoldingSectionProps {
 }
 
 function ProjectUnfoldingSection({ chapter, blockerCount, onPress }: ProjectUnfoldingSectionProps) {
-  // Phase line shows current_phase_key only; day count is owned by UnfoldingProgress
-  const dayLine = chapter.current_phase_key ?? '';
-
   return (
     <View style={unfoldingStyles.container}>
       <Text style={unfoldingStyles.sectionLabel}>UNFOLDING</Text>
@@ -103,9 +100,6 @@ function ProjectUnfoldingSection({ chapter, blockerCount, onPress }: ProjectUnfo
           ) : null}
         </View>
 
-        {/* Phase line: current_phase_key as stored */}
-        {dayLine ? <Text style={unfoldingStyles.phaseLine}>{dayLine}</Text> : null}
-
         {/* Arc-shape-aware progress bar + label */}
         <UnfoldingProgress chapter={chapter} />
       </Pressable>
@@ -116,13 +110,13 @@ function ProjectUnfoldingSection({ chapter, blockerCount, onPress }: ProjectUnfo
 const unfoldingStyles = StyleSheet.create({
   container: {
     paddingHorizontal: 16,
-    marginBottom: 26,
+    marginBottom: 32,
   },
   sectionLabel: {
     fontFamily: 'Inter-Medium',
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '700',
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
     color: lightTokens.colors.warmGrey,
     textTransform: 'uppercase',
     paddingHorizontal: 2,
@@ -130,9 +124,9 @@ const unfoldingStyles = StyleSheet.create({
   },
   card: {
     backgroundColor: lightTokens.colors.worldsCard,
-    borderRadius: 10,
-    paddingVertical: 13,
-    paddingHorizontal: 14,
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
     borderLeftWidth: 3,
     borderLeftColor: lightTokens.colors.velocityDotGrowing,
   },
@@ -140,12 +134,12 @@ const unfoldingStyles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 3,
+    marginBottom: 6,
   },
   chapterTitle: {
-    fontFamily: 'Inter-Medium',
-    fontSize: 13,
-    fontWeight: '500',
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 17,
+    lineHeight: 22,
     color: lightTokens.colors.worldsInk,
     flex: 1,
     marginRight: 8,
@@ -154,20 +148,16 @@ const unfoldingStyles = StyleSheet.create({
     backgroundColor: lightTokens.colors.blockerRedBg,
     borderWidth: 1,
     borderColor: lightTokens.colors.blockerRedBorder,
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    borderRadius: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
   },
   blockerPillText: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 9,
-    color: lightTokens.colors.blockerRed,
-  },
-  phaseLine: {
+    fontFamily: 'Inter-Medium',
     fontSize: 10,
-    color: lightTokens.colors.warmGrey,
-    marginBottom: 10,
-    fontFamily: 'Inter-Regular',
+    fontWeight: '600',
+    color: lightTokens.colors.blockerRed,
+    letterSpacing: 0.4,
   },
 });
 
@@ -242,23 +232,23 @@ function ProjectRecentSection({ worldId, drops }: ProjectRecentSectionProps) {
 const recentStyles = StyleSheet.create({
   container: {
     paddingHorizontal: 16,
-    marginBottom: 16,
+    marginBottom: 32,
   },
   sectionLabel: {
     fontFamily: 'Inter-Medium',
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '700',
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
     color: lightTokens.colors.warmGrey,
     textTransform: 'uppercase',
     paddingHorizontal: 2,
     marginBottom: 8,
   },
   row: {
-    paddingVertical: 7,
+    paddingVertical: 10,
     paddingHorizontal: 2,
     flexDirection: 'row',
-    gap: 10,
+    gap: 12,
     alignItems: 'flex-start',
   },
   rowDivider: {
@@ -267,18 +257,18 @@ const recentStyles = StyleSheet.create({
   },
   recentDate: {
     fontFamily: 'Inter-Medium',
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: '600',
     color: lightTokens.colors.warmGrey,
-    minWidth: 36,
-    letterSpacing: 0.3,
+    minWidth: 44,
+    letterSpacing: 0.4,
     marginTop: 1,
   },
   recentBody: {
     flex: 1,
     fontFamily: 'Inter-Regular',
-    fontSize: 11,
+    fontSize: 14,
+    lineHeight: 19,
     color: lightTokens.colors.worldsInk,
-    lineHeight: 15,
   },
 });

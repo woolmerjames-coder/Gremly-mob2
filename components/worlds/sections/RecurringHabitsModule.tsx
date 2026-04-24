@@ -77,19 +77,19 @@ function resolveStatusColor(activity: HabitLastActivity | null): string {
 }
 
 const styles = StyleSheet.create({
-  container: { marginBottom: 26, paddingHorizontal: 16 },
+  container: { marginBottom: 32, paddingHorizontal: 16 },
   label: {
     fontFamily: 'Inter-Medium',
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '700',
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
     color: lightTokens.colors.warmGrey,
     textTransform: 'uppercase',
     paddingHorizontal: 2,
     marginBottom: 10,
   },
   row: {
-    paddingVertical: 7,
+    paddingVertical: 10,
     paddingHorizontal: 2,
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -101,13 +101,14 @@ const styles = StyleSheet.create({
   },
   habitName: {
     flex: 1,
-    marginRight: 8,
+    marginRight: 12,
     fontFamily: 'Inter-Regular',
-    fontSize: 11,
+    fontSize: 14,
+    lineHeight: 19,
     color: lightTokens.colors.worldsInk,
   },
   statusText: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 9,
+    fontFamily: 'Inter-Medium',
+    fontSize: 11,
   },
 });

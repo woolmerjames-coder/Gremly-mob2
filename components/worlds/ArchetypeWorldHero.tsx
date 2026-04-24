@@ -1,6 +1,6 @@
 // components/worlds/ArchetypeWorldHero.tsx
 
-import { View, StyleSheet, Platform } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
 import MascotIcon from '../MascotIcon';
@@ -11,9 +11,6 @@ interface ArchetypeWorldHeroProps {
   velocityDotColor: string;
   statusLine: string;
 }
-
-// iOS renders dashed; Android may render solid (RN Text decoration limitation)
-const SERIF_FONT = Platform.select({ ios: 'Georgia', default: 'serif' });
 
 export function ArchetypeWorldHero({
   world,
@@ -39,7 +36,7 @@ export function ArchetypeWorldHero({
           </View>
         </View>
         <View style={styles.mascotWrap}>
-          <MascotIcon size={56} />
+          <MascotIcon size={64} pose={world.world_type === 'project' ? 'celebrate' : 'neutral'} />
         </View>
       </View>
 
@@ -58,13 +55,13 @@ export function ArchetypeWorldHero({
 const styles = StyleSheet.create({
   container: {
     paddingHorizontal: 16,
-    paddingBottom: 32,
+    paddingBottom: 40,
   },
   topRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',
-    marginBottom: 18,
+    marginBottom: 24,
   },
   titleColumn: {
     flex: 1,
@@ -72,37 +69,40 @@ const styles = StyleSheet.create({
   },
   title: {
     fontFamily: 'PlusJakartaSans-Bold',
-    fontSize: 20,
+    fontSize: 40,
     fontWeight: '700',
-    lineHeight: 26,
+    lineHeight: 44,
+    letterSpacing: -0.8,
     color: lightTokens.colors.worldsInk,
   },
   statusRow: {
-    marginTop: 6,
+    marginTop: 8,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
   },
   velocityDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
   },
   statusText: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 10,
+    fontFamily: 'Inter-Medium',
+    fontSize: 13,
     color: lightTokens.colors.warmGrey,
     flexShrink: 1,
   },
   mascotWrap: {
     flexShrink: 0,
-    // MascotIcon is already size-constrained via its size prop; wrapper
-    // exists purely to maintain flex row alignment.
+    width: 64,
+    height: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   summary: {
-    fontFamily: SERIF_FONT,
-    fontSize: 15,
-    lineHeight: 22.5,
+    fontFamily: 'Inter-Regular',
+    fontSize: 17,
+    lineHeight: 25,
     color: lightTokens.colors.worldsInk,
   },
   summaryPlaceholder: {

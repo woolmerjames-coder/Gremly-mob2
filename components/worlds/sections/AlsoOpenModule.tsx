@@ -54,7 +54,7 @@ export function AlsoOpenModule({ worldId, onPressSeeAll, onPressTodo }: AlsoOpen
 }
 
 const styles = StyleSheet.create({
-  container: { marginBottom: 26, paddingHorizontal: 16 },
+  container: { marginBottom: 32, paddingHorizontal: 16 },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -64,47 +64,48 @@ const styles = StyleSheet.create({
   },
   label: {
     fontFamily: 'Inter-Medium',
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '700',
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
     color: lightTokens.colors.warmGrey,
     textTransform: 'uppercase',
   },
   caption: {
     fontFamily: 'Inter-Regular',
-    fontSize: 9,
+    fontSize: 11,
     fontStyle: 'italic',
     color: lightTokens.colors.warmGrey,
   },
   row: {
-    paddingVertical: 7,
+    paddingVertical: 10,
     paddingHorizontal: 2,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
   },
   rowDivider: {
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: lightTokens.colors.worldsCardBorder,
   },
   checkbox: {
-    width: 14,
-    height: 14,
+    width: 18,
+    height: 18,
     borderWidth: 1.5,
-    borderRadius: 3,
+    borderRadius: 4,
     borderColor: lightTokens.colors.warmGrey,
     flexShrink: 0,
   },
   rowLabel: {
     flex: 1,
     fontFamily: 'Inter-Regular',
-    fontSize: 11,
+    fontSize: 14,
+    lineHeight: 19,
     color: lightTokens.colors.worldsInk,
   },
-  seeAllWrap: { marginTop: 8, paddingHorizontal: 2 },
+  seeAllWrap: { marginTop: 12, paddingHorizontal: 2, paddingVertical: 4 },
   seeAllText: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 9,
-    color: lightTokens.colors.warmGrey,
+    fontFamily: 'Inter-Medium',
+    fontSize: 12,
+    color: lightTokens.colors.worldsInk,
   },
 });

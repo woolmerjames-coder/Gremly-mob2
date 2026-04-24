@@ -32,39 +32,22 @@ export function UnfoldingProgress({ chapter }: UnfoldingProgressProps) {
 }
 
 // ─── Outcome ─────────────────────────────────────────────────────────────────
-// Phase bar + "phase N of M · day D" label
+// Text-only status: "Final hardening · day 130"
+// The phase name is the locator — phase % was an arbitrary visualization.
 
 function OutcomeProgress({ chapter }: { chapter: Chapter }) {
-  const phaseIndex = chapter.phase_labels?.indexOf(chapter.current_phase_key ?? '') ?? -1;
-  const phaseTotal = chapter.phase_labels?.length ?? 0;
   const days = chapter.start_date
     ? differenceInCalendarDays(getDateService().now(), new Date(chapter.start_date)) + 1
     : null;
 
-  const percent = (() => {
-    if (phaseTotal === 0) return 0;
-    if (phaseTotal === 1) return 100;
-    if (phaseIndex < 0) return 0;
-    return (phaseIndex / (phaseTotal - 1)) * 100;
-  })();
+  const parts: string[] = [];
+  if (chapter.current_phase_key) parts.push(chapter.current_phase_key);
+  if (days && days > 0) parts.push(`day ${days}`);
 
-  const labelParts: string[] = [];
-  if (phaseIndex >= 0 && phaseTotal > 0) {
-    labelParts.push(`phase ${phaseIndex + 1} of ${phaseTotal}`);
-  }
-  if (days && days > 0) {
-    labelParts.push(`day ${days}`);
-  }
-  const label = labelParts.join(' \u00B7 ');
+  if (parts.length === 0) return null;
+  const text = parts.join(' \u00B7 ');
 
-  return (
-    <View>
-      <View style={styles.barBg}>
-        <View style={[styles.barFill, { width: `${percent}%` }]} />
-      </View>
-      {label ? <Text style={styles.label}>{label}</Text> : null}
-    </View>
-  );
+  return <Text style={styles.outcomeStatus}>{text}</Text>;
 }
 
 // ─── Experience ───────────────────────────────────────────────────────────────
@@ -208,9 +191,14 @@ const styles = StyleSheet.create({
     borderRadius: 1,
   },
   label: {
-    marginTop: 6,
-    fontSize: 9,
+    marginTop: 8,
+    fontSize: 11,
     color: lightTokens.colors.warmGrey,
     fontFamily: 'Inter-Regular',
+  },
+  outcomeStatus: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 14,
+    color: lightTokens.colors.warmGrey,
   },
 });

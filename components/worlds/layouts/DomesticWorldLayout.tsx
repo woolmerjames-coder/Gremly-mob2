@@ -96,12 +96,12 @@ function DomesticUnfoldingSection({ chapter }: { chapter: Chapter }) {
 }
 
 const domesticUnfoldingStyles = StyleSheet.create({
-  container: { paddingHorizontal: 16, marginBottom: 26 },
+  container: { paddingHorizontal: 16, marginBottom: 32 },
   sectionLabel: {
     fontFamily: 'Inter-Medium',
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '700',
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
     color: lightTokens.colors.warmGrey,
     textTransform: 'uppercase',
     paddingHorizontal: 2,
@@ -109,16 +109,16 @@ const domesticUnfoldingStyles = StyleSheet.create({
   },
   card: {
     backgroundColor: lightTokens.colors.worldsCard,
-    borderRadius: 10,
-    paddingVertical: 13,
-    paddingHorizontal: 14,
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
     borderLeftWidth: 3,
     borderLeftColor: lightTokens.colors.warmGrey,
   },
   chapterTitle: {
-    fontFamily: 'Inter-Medium',
-    fontSize: 13,
-    fontWeight: '500',
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 17,
+    lineHeight: 22,
     color: lightTokens.colors.worldsInk,
   },
 });
@@ -140,27 +140,29 @@ function DomesticNoChapterFrame() {
 }
 
 const frameStyles = StyleSheet.create({
-  container: { paddingHorizontal: 16, marginBottom: 26 },
+  container: { paddingHorizontal: 16, marginBottom: 32 },
   frame: {
-    padding: 14,
+    paddingVertical: 18,
+    paddingHorizontal: 16,
     borderWidth: StyleSheet.hairlineWidth,
     borderStyle: 'dashed',
     borderColor: lightTokens.colors.dashedFrameBorder,
-    borderRadius: 10,
+    borderRadius: 12,
     backgroundColor: 'transparent',
   },
   frameLabel: {
     fontFamily: 'Inter-Medium',
-    fontSize: 10,
-    letterSpacing: 0.5,
+    fontSize: 12,
+    letterSpacing: 0.6,
     color: lightTokens.colors.dashedFrameLabel,
-    fontWeight: '500',
-    marginBottom: 4,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    marginBottom: 6,
   },
   frameBody: {
-    fontSize: 11,
+    fontSize: 14,
     color: lightTokens.colors.worldsInk,
-    lineHeight: 16.5,
+    lineHeight: 20,
     fontFamily: 'Inter-Regular',
   },
 });
@@ -207,49 +209,50 @@ function DomesticNeedsYouSection({ worldId, openTodos }: DomesticNeedsYouSection
 }
 
 const needsYouStyles = StyleSheet.create({
-  container: { marginBottom: 26, paddingHorizontal: 16 },
+  container: { marginBottom: 32, paddingHorizontal: 16 },
   header: {
     paddingHorizontal: 2,
     marginBottom: 10,
   },
   label: {
     fontFamily: 'Inter-Medium',
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '700',
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
     color: lightTokens.colors.warmGrey,
     textTransform: 'uppercase',
   },
   row: {
-    paddingVertical: 7,
+    paddingVertical: 10,
     paddingHorizontal: 2,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
   },
   rowDivider: {
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: lightTokens.colors.worldsCardBorder,
   },
   checkbox: {
-    width: 14,
-    height: 14,
+    width: 18,
+    height: 18,
     borderWidth: 1.5,
-    borderRadius: 3,
+    borderRadius: 4,
     borderColor: lightTokens.colors.warmGrey,
     flexShrink: 0,
   },
   rowLabel: {
     flex: 1,
     fontFamily: 'Inter-Regular',
-    fontSize: 11,
+    fontSize: 14,
+    lineHeight: 19,
     color: lightTokens.colors.worldsInk,
   },
-  seeAllWrap: { marginTop: 8, paddingHorizontal: 2 },
+  seeAllWrap: { marginTop: 12, paddingHorizontal: 2, paddingVertical: 4 },
   seeAllText: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 9,
-    color: lightTokens.colors.warmGrey,
+    fontFamily: 'Inter-Medium',
+    fontSize: 12,
+    color: lightTokens.colors.worldsInk,
   },
 });
 
@@ -313,38 +316,38 @@ function DomesticRecentSection({ worldId, drops }: DomesticRecentSectionProps) {
 }
 
 const domesticRecentStyles = StyleSheet.create({
-  container: { paddingHorizontal: 16, marginBottom: 16 },
+  container: { paddingHorizontal: 16, marginBottom: 32 },
   sectionLabel: {
     fontFamily: 'Inter-Medium',
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '700',
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
     color: lightTokens.colors.warmGrey,
     textTransform: 'uppercase',
     paddingHorizontal: 2,
     marginBottom: 8,
   },
   row: {
-    paddingVertical: 7,
+    paddingVertical: 10,
     paddingHorizontal: 2,
     flexDirection: 'row',
-    gap: 10,
+    gap: 12,
     alignItems: 'flex-start',
   },
   recentDate: {
     fontFamily: 'Inter-Medium',
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: '600',
     color: lightTokens.colors.warmGrey,
-    minWidth: 36,
-    letterSpacing: 0.3,
+    minWidth: 44,
+    letterSpacing: 0.4,
     marginTop: 1,
   },
   recentBody: {
     flex: 1,
     fontFamily: 'Inter-Regular',
-    fontSize: 11,
+    fontSize: 14,
+    lineHeight: 19,
     color: lightTokens.colors.worldsInk,
-    lineHeight: 15,
   },
 });
