@@ -1,4 +1,5 @@
 import { Pressable, View, StyleSheet, Image } from 'react-native';
+import { ChevronRight } from 'lucide-react-native';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
 import { useWorldPalette, useUpcomingDatesForWorld } from '../../lib/store/worldsSelectors';
@@ -24,22 +25,25 @@ export function WorldCard({ world, onPress }: WorldCardProps) {
       style={[styles.card, { backgroundColor: palette.tint }]}
       testID={`world-card-${world.id}`}
     >
-      <Image
-        source={resolveMascotAsset(world.mascot_slug)}
-        style={styles.mascot}
-        resizeMode="contain"
-        accessibilityIgnoresInvertColors
-        accessibilityLabel=""
-      />
-      <View style={styles.textBlock}>
-        <Text style={styles.name} numberOfLines={2}>
+      <View style={styles.topRow}>
+        <Text style={styles.name} numberOfLines={1} ellipsizeMode="tail">
           {name}
         </Text>
-        {subtitle ? (
-          <Text style={styles.sub} numberOfLines={3}>
-            {subtitle}
-          </Text>
-        ) : null}
+        <Image
+          source={resolveMascotAsset(world.mascot_slug)}
+          style={styles.mascot}
+          resizeMode="contain"
+          accessibilityIgnoresInvertColors
+          accessibilityLabel=""
+        />
+      </View>
+      {subtitle ? (
+        <Text style={styles.sub} numberOfLines={3}>
+          {subtitle}
+        </Text>
+      ) : null}
+      <View style={styles.chevron}>
+        <ChevronRight size={16} color={lightTokens.colors.worldsInkSoft} strokeWidth={2} />
       </View>
     </Pressable>
   );
@@ -77,17 +81,17 @@ const styles = StyleSheet.create({
     height: 140,
     overflow: 'hidden',
     position: 'relative',
-    justifyContent: 'flex-end',
+  },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
   },
   mascot: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    width: 52,
-    height: 52,
-  },
-  textBlock: {
-    // sits in the lower portion of the card; card uses justifyContent: flex-end
+    width: 44,
+    height: 44,
+    flexShrink: 0,
   },
   name: {
     fontFamily: 'PlusJakartaSans-Bold',
@@ -95,6 +99,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: -0.2,
     color: lightTokens.colors.worldsInk,
+    flex: 1,
+    flexShrink: 1,
   },
   sub: {
     fontFamily: 'Inter-Regular',
@@ -102,5 +108,11 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     color: lightTokens.colors.worldsInkSoft,
     marginTop: 6,
+  },
+  chevron: {
+    position: 'absolute',
+    bottom: 10,
+    right: 10,
+    opacity: 0.5,
   },
 });
