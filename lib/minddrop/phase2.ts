@@ -779,6 +779,12 @@ export async function runPhase2Streaming(
               if (result.event_time) {
                 updatePayload.due_time = result.event_time;
               }
+              // priority_kind — todos only, with source tracking
+              if (result.priority_kind) {
+                updatePayload.priority_kind = result.priority_kind;
+                updatePayload.priority_kind_source = 'classifier';
+                updatePayload.priority_kind_updated_at = nowTimestamp();
+              }
             }
 
             if (bucket === 'habit') {
