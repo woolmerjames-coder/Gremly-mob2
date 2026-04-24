@@ -275,6 +275,8 @@ export interface ActiveWorldInput {
   last_signal_at: string | null;
   mascot_slug: string | null;
   mascot_slug_source: 'classifier' | 'user' | null;
+  world_type: 'project' | 'practice' | 'relationship' | 'domestic' | null;
+  world_type_source: 'classifier' | 'dco' | 'user' | null;
 }
 
 export interface ActiveChapterInput {
@@ -287,6 +289,8 @@ export interface ActiveChapterInput {
   primary_world_name: string;
   description: string;
   target_description: string | null;
+  arc_shape: 'outcome' | 'experience' | 'process' | 'commitment' | null;
+  arc_shape_source: 'classifier' | 'dco' | 'user' | null;
 }
 
 export interface ActiveLifeContextInput {

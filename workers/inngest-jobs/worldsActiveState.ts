@@ -37,7 +37,7 @@ export async function loadActiveState(
   const { data: worlds, error: wErr } = await db
     .from('worlds')
     .select(
-      'id, name, description, archetypes, first_signal_at, last_signal_at, mascot_slug, mascot_slug_source',
+      'id, name, description, archetypes, first_signal_at, last_signal_at, mascot_slug, mascot_slug_source, world_type, world_type_source',
     )
     .eq('owner_id', ownerId)
     .in('phase', ['candidate', 'active', 'evolving']);
@@ -46,7 +46,7 @@ export async function loadActiveState(
   const { data: chapters, error: cErr } = await db
     .from('chapters')
     .select(
-      'id, title, chapter_type, phase, start_date, end_date, primary_world_id, description, target_description',
+      'id, title, chapter_type, phase, start_date, end_date, primary_world_id, description, target_description, arc_shape, arc_shape_source',
     )
     .eq('owner_id', ownerId)
     .in('phase', ['suggested', 'upcoming', 'active', 'closed']);
@@ -71,6 +71,9 @@ export async function loadActiveState(
       last_signal_at: w.last_signal_at as string,
       mascot_slug: w.mascot_slug ?? null,
       mascot_slug_source: (w.mascot_slug_source as 'classifier' | 'user' | null) ?? null,
+      world_type:
+        (w.world_type as 'project' | 'practice' | 'relationship' | 'domestic' | null) ?? null,
+      world_type_source: (w.world_type_source as 'classifier' | 'dco' | 'user' | null) ?? null,
     })),
     activeChapters: (chapters ?? []).map((c: any) => ({
       id: c.id as string,
@@ -82,6 +85,9 @@ export async function loadActiveState(
       primary_world_name: worldNameById.get(c.primary_world_id as string) ?? '',
       description: c.description as string,
       target_description: c.target_description as string | null,
+      arc_shape:
+        (c.arc_shape as 'outcome' | 'experience' | 'process' | 'commitment' | null) ?? null,
+      arc_shape_source: (c.arc_shape_source as 'classifier' | 'dco' | 'user' | null) ?? null,
     })),
     activeLifeContexts: (lcs ?? []).map((lc: any) => ({
       id: lc.id as string,
