@@ -28,6 +28,66 @@ export interface WriterEnv {
   SUPABASE_SERVICE_KEY: string;
 }
 
+/**
+ * Options passed to writeClassifierOutput to control write permissions.
+ *
+ * closure_write_allowlist: Set of chapter IDs that are permitted to receive
+ *   writes in this run EVEN IF the chapter's closed_at is already set in the
+ *   database. Used by the Inngest chapter-close handler to write closure
+ *   artifacts (epigraph, key_moments, slip_events) to a chapter that was
+ *   just closed by the user via the UI.
+ *
+ * user_rewrite_fields: Map from chapter ID to the set of field names the
+ *   user has explicitly requested be rewritten. Only these fields on those
+ *   chapters are allowed to overwrite existing content from a closed chapter.
+ *   Used by the Phase D "write my chapter" button and epigraph regenerate.
+ */
+export interface RunOptions {
+  closure_write_allowlist?: Set<string>;
+  user_rewrite_fields?: Map<string, Set<string>>;
+}
+
+export class ClosedChapterWriteError extends Error {
+  constructor(chapterId: string, fieldName: string) {
+    super(
+      `Attempted to write field '${fieldName}' to closed chapter '${chapterId}' without user-rewrite or closure-allowlist permission`,
+    );
+    this.name = 'ClosedChapterWriteError';
+  }
+}
+
+/**
+ * Guard that enforces closed-chapter immutability.
+ *
+ * The chapter argument reflects the DB state loaded at the START of this run.
+ * Three permission paths allow a write to proceed:
+ *   1. Chapter was open at start-of-run (closed_at === null in snapshot).
+ *      The weekly run may legally close this chapter and write all its
+ *      closure artifacts in one pass, because the in-memory snapshot still
+ *      shows closed_at as null throughout this run.
+ *   2. Chapter is in the closure_write_allowlist. Used when the Inngest
+ *      chapter-close handler is writing closure artifacts to a chapter that
+ *      the user already marked closed via the UI (closed_at is set at
+ *      start-of-run).
+ *   3. Chapter-field pair is in user_rewrite_fields. Used for user-triggered
+ *      single-field rewrites on an already-closed chapter, such as the
+ *      "write my chapter" button and epigraph regenerate.
+ *
+ * Any other write attempt to a chapter with closed_at set at start-of-run
+ * throws ClosedChapterWriteError.
+ */
+function assertChapterWritable(
+  chapter: { id: string; closed_at: string | null },
+  fieldName: string,
+  runOptions: RunOptions,
+): void {
+  if (chapter.closed_at === null) return;
+  if (runOptions.closure_write_allowlist?.has(chapter.id)) return;
+  const userFields = runOptions.user_rewrite_fields?.get(chapter.id);
+  if (userFields?.has(fieldName)) return;
+  throw new ClosedChapterWriteError(chapter.id, fieldName);
+}
+
 export interface WriteResult {
   run_id: string;
   worlds: { inserted: number; existing: number };
@@ -39,6 +99,35 @@ export interface WriteResult {
   applied: { reactivation_proposals: number };
   deferred: { reclassification_proposals: number; evolution_proposals: number };
   errors: string[];
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Strip em dashes, en dashes, and double hyphens (replace with commas), collapse
+ * whitespace, and enforce a max character length by truncating at the last
+ * sentence or clause boundary above 60 percent of the max.
+ *
+ * Applied to every authored field before upsert: chapter title, world name,
+ * world summary, chapter target_summary, chapter epigraph, worlds_summary
+ * headline.
+ */
+function sanitizeAuthored(raw: string | null | undefined, maxChars: number): string | null {
+  if (!raw) return null;
+  let s = raw;
+  s = s.replace(/[\u2014\u2013]/g, ','); // em dash (U+2014), en dash (U+2013)
+  s = s.replace(/--/g, ','); // double hyphen
+  s = s.replace(/,\s*,/g, ','); // collapse doubled commas from the above
+  s = s.replace(/\s+/g, ' ').trim();
+  if (s.length <= maxChars) return s;
+  const cutoff = s.slice(0, maxChars);
+  const lastSentence = cutoff.lastIndexOf('. ');
+  const lastClause = cutoff.lastIndexOf(', ');
+  const breakAt = Math.max(lastSentence, lastClause);
+  if (breakAt > maxChars * 0.6) {
+    return cutoff.slice(0, breakAt).trim();
+  }
+  return cutoff.trim();
 }
 
 // ─── Main export ──────────────────────────────────────────────────────────────
@@ -62,6 +151,7 @@ export async function writeClassifierOutput(
   output: ClassifierOutput,
   ownerId: string,
   env: WriterEnv,
+  runOptions: RunOptions = {},
 ): Promise<WriteResult> {
   // ── Step 0: initialise ────────────────────────────────────────
   const run_id = randomUUID();
@@ -88,11 +178,15 @@ export async function writeClassifierOutput(
   const [worldsRes, chaptersRes, lcRes] = await Promise.all([
     db
       .from('worlds')
-      .select('id, name, card_subtitle_source, summary_source, mascot_slug, mascot_slug_source')
+      .select(
+        'id, name, card_subtitle_source, summary_source, world_type_source, mascot_slug, mascot_slug_source',
+      )
       .eq('owner_id', ownerId),
     db
       .from('chapters')
-      .select('id, title, primary_world_id, card_subtitle_source, summary_source')
+      .select(
+        'id, title, primary_world_id, closed_at, card_subtitle_source, summary_source, title_source, arc_shape_source, epigraph_source, slip_events_source, key_moments_source',
+      )
       .eq('owner_id', ownerId),
     db.from('life_contexts').select('id, name, kind').eq('owner_id', ownerId),
   ]);
@@ -116,12 +210,18 @@ export async function writeClassifierOutput(
   // Map: world_id → source protection flags
   const worldSourceProtection = new Map<
     string,
-    { noCardSubtitle: boolean; noSummary: boolean; mascot_slug_source: string | null }
+    {
+      noCardSubtitle: boolean;
+      noSummary: boolean;
+      noWorldType: boolean;
+      mascot_slug_source: string | null;
+    }
   >();
   for (const w of worldsRes.data ?? []) {
     worldSourceProtection.set(w.id as string, {
       noCardSubtitle: (w.card_subtitle_source as string | null) === 'user',
       noSummary: (w.summary_source as string | null) === 'user',
+      noWorldType: (w.world_type_source as string | null) === 'user',
       mascot_slug_source: w.mascot_slug_source as string | null,
     });
   }
@@ -136,13 +236,32 @@ export async function writeClassifierOutput(
   // Map: chapter_id → source protection flags
   const chapterSourceProtection = new Map<
     string,
-    { noCardSubtitle: boolean; noSummary: boolean }
+    {
+      noCardSubtitle: boolean;
+      noSummary: boolean;
+      noTitle: boolean;
+      noArcShape: boolean;
+      noEpigraph: boolean;
+      noSlipEvents: boolean;
+      noKeyMoments: boolean;
+    }
   >();
   for (const c of chaptersRes.data ?? []) {
     chapterSourceProtection.set(c.id as string, {
       noCardSubtitle: (c.card_subtitle_source as string | null) === 'user',
       noSummary: (c.summary_source as string | null) === 'user',
+      noTitle: (c.title_source as string | null) === 'user',
+      noArcShape: (c.arc_shape_source as string | null) === 'user',
+      noEpigraph: (c.epigraph_source as string | null) === 'user',
+      noSlipEvents: (c.slip_events_source as string | null) === 'user',
+      noKeyMoments: (c.key_moments_source as string | null) === 'user',
     });
+  }
+
+  // Map: chapter_id → closed_at
+  const chapterClosedAt = new Map<string, string | null>();
+  for (const c of chaptersRes.data ?? []) {
+    chapterClosedAt.set(c.id as string, (c.closed_at as string | null) ?? null);
   }
 
   // Map: `${normalised_name}::${kind}` → id
@@ -164,13 +283,13 @@ export async function writeClassifierOutput(
       .from('worlds')
       .insert({
         owner_id: ownerId,
-        name: candidate.proposed_name,
+        name: sanitizeAuthored(candidate.proposed_name, 22) ?? candidate.proposed_name,
         display_name: candidate.display_name,
         description: candidate.description,
         card_subtitle: candidate.card_subtitle,
         card_subtitle_source: 'classifier',
         card_subtitle_updated_at: now(),
-        summary: candidate.summary,
+        summary: sanitizeAuthored(candidate.summary, 160),
         key_priorities: candidate.key_priorities,
         summary_source: 'classifier',
         summary_updated_at: now(),
@@ -178,6 +297,9 @@ export async function writeClassifierOutput(
         mascot_slug_source: 'classifier',
         mascot_slug_updated_at: now(),
         archetypes: candidate.archetypes,
+        world_type: candidate.world_type,
+        world_type_source: 'classifier',
+        world_type_updated_at: now(),
         phase: 'candidate',
         source: 'classifier',
         confidence: candidate.confidence,
@@ -218,7 +340,9 @@ export async function writeClassifierOutput(
       .from('chapters')
       .insert({
         owner_id: ownerId,
-        title: candidate.proposed_title,
+        title: sanitizeAuthored(candidate.proposed_title, 42) ?? candidate.proposed_title,
+        title_source: 'classifier',
+        title_updated_at: now(),
         description: candidate.description,
         chapter_type: candidate.chapter_type,
         phase: 'suggested',
@@ -226,7 +350,7 @@ export async function writeClassifierOutput(
         end_date: candidate.end_date,
         primary_world_id: primaryWorldId,
         target_description: candidate.target_description,
-        target_summary: candidate.target_summary,
+        target_summary: sanitizeAuthored(candidate.target_summary, 240),
         card_subtitle: candidate.card_subtitle,
         card_subtitle_source: 'classifier',
         card_subtitle_updated_at: now(),
@@ -236,6 +360,9 @@ export async function writeClassifierOutput(
         summary_updated_at: now(),
         phase_labels: candidate.phase_labels,
         current_phase_key: candidate.current_phase_key,
+        arc_shape: candidate.arc_shape,
+        arc_shape_source: 'classifier',
+        arc_shape_updated_at: now(),
         source: 'classifier',
         confidence: candidate.confidence,
         proposed_at: now(),
@@ -324,48 +451,117 @@ export async function writeClassifierOutput(
 
   // ── Step 5: apply chapter_updates ────────────────────────────
   for (const update of output.chapter_updates) {
-    const patch: Record<string, unknown> = {
-      updated_at: now(),
-      last_run_id: run_id,
-    };
-    if (update.new_description != null) patch.description = update.new_description;
-    if (update.new_end_date != null) patch.end_date = update.new_end_date;
-    if (update.new_target_description != null) {
-      patch.target_description = update.new_target_description;
-    }
-    if (update.new_target_summary != null) patch.target_summary = update.new_target_summary;
-    if (update.new_phase_labels != null) patch.phase_labels = update.new_phase_labels;
-    if (update.new_current_phase_key != null)
-      patch.current_phase_key = update.new_current_phase_key;
-    if (update.close_chapter) {
-      patch.phase = 'closed';
-      patch.closed_at = now();
-    }
-    const chapterProt = chapterSourceProtection.get(update.chapter_id);
-    if (update.new_card_subtitle != null && !chapterProt?.noCardSubtitle) {
-      patch.card_subtitle = update.new_card_subtitle;
-      patch.card_subtitle_source = 'classifier';
-      patch.card_subtitle_updated_at = now();
-    }
-    if (update.new_summary != null && !chapterProt?.noSummary) {
-      patch.summary = update.new_summary;
-      patch.key_priorities = update.new_key_priorities ?? [];
-      patch.summary_source = 'classifier';
-      patch.summary_updated_at = now();
-    }
-    const { error: updateError } = await db
-      .from('chapters')
-      .update(patch)
-      .eq('id', update.chapter_id)
-      .eq('owner_id', ownerId);
-    if (updateError) {
-      result.errors.push(`chapter_update '${update.chapter_id}': ${updateError.message}`);
-      continue;
-    }
-    if (update.close_chapter) {
-      result.chapters.closed++;
-    } else {
-      result.chapters.updated++;
+    try {
+      const closedAt = chapterClosedAt.get(update.chapter_id) ?? null;
+      const chapter = { id: update.chapter_id, closed_at: closedAt };
+      const chapterProt = chapterSourceProtection.get(update.chapter_id);
+
+      const patch: Record<string, unknown> = {
+        updated_at: now(),
+        last_run_id: run_id,
+      };
+
+      if (update.new_description != null) {
+        assertChapterWritable(chapter, 'description', runOptions);
+        patch.description = update.new_description;
+      }
+      if (update.new_end_date != null) {
+        assertChapterWritable(chapter, 'end_date', runOptions);
+        patch.end_date = update.new_end_date;
+      }
+      if (update.new_target_description != null) {
+        assertChapterWritable(chapter, 'target_description', runOptions);
+        patch.target_description = update.new_target_description;
+      }
+      if (update.new_target_summary != null) {
+        assertChapterWritable(chapter, 'target_summary', runOptions);
+        patch.target_summary = sanitizeAuthored(update.new_target_summary, 240);
+      }
+      if (update.new_phase_labels != null) {
+        assertChapterWritable(chapter, 'phase_labels', runOptions);
+        patch.phase_labels = update.new_phase_labels;
+      }
+      if (update.new_current_phase_key != null) {
+        assertChapterWritable(chapter, 'current_phase_key', runOptions);
+        patch.current_phase_key = update.new_current_phase_key;
+      }
+
+      // New Phase A fields — guarded, source-protected, sanitized where text
+      if (update.new_arc_shape != null && chapterProt?.noArcShape !== true) {
+        assertChapterWritable(chapter, 'arc_shape', runOptions);
+        patch.arc_shape = update.new_arc_shape;
+        patch.arc_shape_source = 'classifier';
+        patch.arc_shape_updated_at = now();
+      }
+      if (update.new_epigraph != null && chapterProt?.noEpigraph !== true) {
+        assertChapterWritable(chapter, 'epigraph', runOptions);
+        const clean = sanitizeAuthored(update.new_epigraph, 400);
+        if (clean) {
+          patch.epigraph = clean;
+          patch.epigraph_source = 'classifier';
+          patch.epigraph_updated_at = now();
+        }
+      }
+      if (update.new_key_moments != null && chapterProt?.noKeyMoments !== true) {
+        assertChapterWritable(chapter, 'key_moments', runOptions);
+        patch.key_moments = update.new_key_moments;
+        patch.key_moments_source = 'classifier';
+        patch.key_moments_updated_at = now();
+      }
+      if (update.new_slip_events != null && chapterProt?.noSlipEvents !== true) {
+        assertChapterWritable(chapter, 'slip_events', runOptions);
+        patch.slip_events = update.new_slip_events;
+        patch.slip_events_source = 'classifier';
+        patch.slip_events_updated_at = now();
+      }
+
+      // Source-protected fields
+      if (update.new_card_subtitle != null && !chapterProt?.noCardSubtitle) {
+        assertChapterWritable(chapter, 'card_subtitle', runOptions);
+        patch.card_subtitle = update.new_card_subtitle;
+        patch.card_subtitle_source = 'classifier';
+        patch.card_subtitle_updated_at = now();
+      }
+      if (update.new_summary != null && !chapterProt?.noSummary) {
+        assertChapterWritable(chapter, 'summary', runOptions);
+        patch.summary = update.new_summary;
+        patch.key_priorities = update.new_key_priorities ?? [];
+        patch.summary_source = 'classifier';
+        patch.summary_updated_at = now();
+      }
+
+      // Close MUST be last — flips closed_at for subsequent runs
+      if (update.close_chapter) {
+        patch.phase = 'closed';
+        patch.closed_at = now();
+      }
+
+      // Defense-in-depth: for open chapters, guard against concurrent user-close races
+      let query = db
+        .from('chapters')
+        .update(patch)
+        .eq('id', update.chapter_id)
+        .eq('owner_id', ownerId);
+      if (closedAt === null && !update.close_chapter) {
+        query = query.is('closed_at', null);
+      }
+
+      const { error: updateError } = await query;
+      if (updateError) {
+        result.errors.push(`chapter_update '${update.chapter_id}': ${updateError.message}`);
+        continue;
+      }
+      if (update.close_chapter) {
+        result.chapters.closed++;
+      } else {
+        result.chapters.updated++;
+      }
+    } catch (err) {
+      if (err instanceof ClosedChapterWriteError) {
+        result.errors.push(err.message);
+        continue;
+      }
+      throw err;
     }
   }
 
@@ -383,7 +579,7 @@ export async function writeClassifierOutput(
     }
     const worldProt = worldSourceProtection.get(vu.world_id);
     if (vu.new_display_name != null && !worldProt?.noSummary) {
-      patch.display_name = vu.new_display_name;
+      patch.display_name = sanitizeAuthored(vu.new_display_name, 22) ?? vu.new_display_name;
     }
     if (vu.new_card_subtitle != null && !worldProt?.noCardSubtitle) {
       patch.card_subtitle = vu.new_card_subtitle;
@@ -391,7 +587,7 @@ export async function writeClassifierOutput(
       patch.card_subtitle_updated_at = now();
     }
     if (vu.new_summary != null && !worldProt?.noSummary) {
-      patch.summary = vu.new_summary;
+      patch.summary = sanitizeAuthored(vu.new_summary, 160);
       patch.key_priorities = vu.new_key_priorities ?? [];
       patch.summary_source = 'classifier';
       patch.summary_updated_at = now();
@@ -400,6 +596,11 @@ export async function writeClassifierOutput(
       patch.mascot_slug = vu.new_mascot_slug;
       patch.mascot_slug_source = 'classifier';
       patch.mascot_slug_updated_at = now();
+    }
+    if (vu.new_world_type != null && !worldProt?.noWorldType) {
+      patch.world_type = vu.new_world_type;
+      patch.world_type_source = 'classifier';
+      patch.world_type_updated_at = now();
     }
     const { error: vuError } = await db
       .from('worlds')
