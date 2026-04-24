@@ -10294,6 +10294,20 @@ Choose ONE (strict enum):
 
 Default to "administrative" if unclear.
 
+4. priority_kind (TODOS ONLY)
+Classify the todo's state as ONE of:
+- action: a concrete undone task where the user is the blocker; they could do it now if they chose to.
+- blocker: the task cannot proceed because of an external dependency such as waiting on a specific person to respond, an approval to land, an external system to deliver, or a delivery to arrive. There is typically "waiting on" language.
+- waiting: a milder form of blocker where the user is passively awaiting something but could still work around it; distinct from blocker which implies a hard stop.
+- decision: a choice the user has to make that has not yet been made.
+- momentum: a todo that represents ongoing forward motion rather than a single discrete task.
+
+CRITICAL RULES:
+- Emotional language in the text such as stuck, frustrated, overwhelmed, or scattered does NOT qualify a todo as blocker. Those are emotional signals attached to the drop, not task-state flags.
+- When uncertain between action and blocker, choose action.
+- When uncertain between action and momentum, choose action.
+- Only return blocker when there is explicit evidence of an external dependency.
+
 --------------------------------
 DATE INTELLIGENCE (TODOS ONLY):
 --------------------------------
@@ -10501,6 +10515,7 @@ For TODOS:
   "time_estimate_minutes": number | null,
   "time_window": "morning" | "day" | "evening" | null,
   "energy_type": "deep_focus" | "administrative" | "physical" | "social" | "quick",
+  "priority_kind": "action" | "blocker" | "waiting" | "decision" | "momentum",
   "target_date": "YYYY-MM-DD" | null,
   "scheduled_date": "YYYY-MM-DD" | null,
   "date_type_ambiguous": boolean,
@@ -10639,6 +10654,17 @@ For LOGS (event):
           }
         }
 
+        // Validate priority_kind (todos only)
+        let priorityKind = null;
+        if (bucket === 'todo') {
+          const validKinds = ['action', 'blocker', 'waiting', 'decision', 'momentum'];
+          if (validKinds.includes(parsed.priority_kind)) {
+            priorityKind = parsed.priority_kind;
+          } else {
+            priorityKind = 'action'; // safe default
+          }
+        }
+
         // Validate date intelligence fields (todos only)
         let targetDate = null;
         let scheduledDate = null;
@@ -10743,6 +10769,7 @@ For LOGS (event):
           has_time_estimate: timeEstimate !== null,
           has_window: timeWindow !== null,
           has_energy: energyType !== null,
+          has_priority_kind: priorityKind !== null,
           has_target_date: targetDate !== null || noteTargetDate !== null,
           has_scheduled_date: scheduledDate !== null,
           date_ambiguous: dateTypeAmbiguous,
@@ -10762,6 +10789,7 @@ For LOGS (event):
           time_estimate_minutes: timeEstimate,
           time_window: timeWindow,
           energy_type: energyType,
+          priority_kind: priorityKind,
           // New date intelligence fields for todos
           target_date: bucket === 'todo' ? targetDate : noteTargetDate,
           scheduled_date: scheduledDate,
