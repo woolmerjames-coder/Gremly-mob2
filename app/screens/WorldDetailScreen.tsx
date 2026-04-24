@@ -9,12 +9,9 @@ import { Text } from '../../ui';
 import { useWorldById, useCurrentChapterForWorld } from '../../lib/store/worldsSelectors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { WorldDetailHeader } from '../../components/worlds/WorldDetailHeader';
-import { WorldHero } from '../../components/worlds/WorldHero';
-import { CurrentChapterBigCard } from '../../components/worlds/CurrentChapterBigCard';
-import { NoCurrentChapterCard } from '../../components/worlds/NoCurrentChapterCard';
+import { ArchetypeLayoutDispatcher } from '../../components/worlds/ArchetypeLayoutDispatcher';
 import { GremlyNoticedSlot } from '../../components/worlds/GremlyNoticedSlot';
 import { WorldActionButtons } from '../../components/worlds/WorldActionButtons';
-import { ModuleRenderer } from '../../components/worlds/modules/ModuleRenderer';
 
 type RouteT = RouteProp<RootStackParamList, 'WorldDetail'>;
 type NavT = NativeStackNavigationProp<RootStackParamList, 'WorldDetail'>;
@@ -46,17 +43,7 @@ export default function WorldDetailScreen() {
     <SafeAreaView style={styles.container} edges={['top']} testID={`world-detail-${world.id}`}>
       <WorldDetailHeader title={worldName} onBack={() => nav.goBack()} worldId={world.id} />
       <ScrollView contentContainerStyle={{ paddingBottom: 12 }}>
-        <WorldHero world={world} />
-        {currentChapter ? (
-          <CurrentChapterBigCard
-            chapter={currentChapter}
-            worldId={world.id}
-            onPress={(chapterId) => nav.navigate('ChapterDetail', { chapterId })}
-          />
-        ) : (
-          <NoCurrentChapterCard worldId={world.id} />
-        )}
-        <ModuleRenderer world={world} />
+        <ArchetypeLayoutDispatcher world={world} currentChapter={currentChapter} />
         <GremlyNoticedSlot worldId={world.id} />
         <View style={{ height: 60 }} />
       </ScrollView>

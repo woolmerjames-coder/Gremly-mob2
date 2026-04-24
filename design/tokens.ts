@@ -232,6 +232,11 @@ export const lightTokens = {
     velocityDotCooling: '#B4B2A9', // paler grey — "Cooling" status
     velocityDotDormant: 'rgba(122,118,101,0.35)', // warmGrey at 35% — "Dormant"
 
+    // Phase B.3a: serif summary underlines (archetype-specific tints on ArchetypeWorldHero)
+    summaryUnderlineProject: 'rgba(46,85,64,0.5)', // moss at 50% — project world dashed underline
+    summaryUnderlineDomestic: 'rgba(122,118,101,0.5)', // warmGrey at 50% — domestic world dashed underline
+    summaryUnderlineRelationship: 'rgba(140,63,30,0.5)', // relational clay at 50% — for B.3b
+
     // @deprecated — use sageGreen. Remove after 4a component sweep lands.
     doneCheck: '#97AF8F',
     // @deprecated — use worldsCard / worldsCardBorder. Remove after 4a component sweep lands.
@@ -463,6 +468,11 @@ export const darkTokens = {
     velocityDotSteady: '#888780',
     velocityDotCooling: '#B4B2A9',
     velocityDotDormant: 'rgba(122,118,101,0.35)',
+
+    // Phase B.3a: serif summary underlines (archetype-specific tints on ArchetypeWorldHero)
+    summaryUnderlineProject: 'rgba(46,85,64,0.5)',
+    summaryUnderlineDomestic: 'rgba(122,118,101,0.5)',
+    summaryUnderlineRelationship: 'rgba(140,63,30,0.5)',
 
     // @deprecated — use sageGreen. Remove after 4a component sweep lands.
     doneCheck: '#97AF8F',
