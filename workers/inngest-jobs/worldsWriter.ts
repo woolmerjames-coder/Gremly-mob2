@@ -88,7 +88,7 @@ export async function writeClassifierOutput(
   const [worldsRes, chaptersRes, lcRes] = await Promise.all([
     db
       .from('worlds')
-      .select('id, name, card_subtitle_source, summary_source')
+      .select('id, name, card_subtitle_source, summary_source, mascot_slug, mascot_slug_source')
       .eq('owner_id', ownerId),
     db
       .from('chapters')
@@ -114,11 +114,15 @@ export async function writeClassifierOutput(
   }
 
   // Map: world_id → source protection flags
-  const worldSourceProtection = new Map<string, { noCardSubtitle: boolean; noSummary: boolean }>();
+  const worldSourceProtection = new Map<
+    string,
+    { noCardSubtitle: boolean; noSummary: boolean; mascot_slug_source: string | null }
+  >();
   for (const w of worldsRes.data ?? []) {
     worldSourceProtection.set(w.id as string, {
       noCardSubtitle: (w.card_subtitle_source as string | null) === 'user',
       noSummary: (w.summary_source as string | null) === 'user',
+      mascot_slug_source: w.mascot_slug_source as string | null,
     });
   }
 
@@ -170,6 +174,9 @@ export async function writeClassifierOutput(
         key_priorities: candidate.key_priorities,
         summary_source: 'classifier',
         summary_updated_at: now(),
+        mascot_slug: candidate.mascot_slug,
+        mascot_slug_source: 'classifier',
+        mascot_slug_updated_at: now(),
         archetypes: candidate.archetypes,
         phase: 'candidate',
         source: 'classifier',
@@ -364,6 +371,9 @@ export async function writeClassifierOutput(
 
   // ── Step 6: apply velocity_updates ───────────────────────────
   for (const vu of output.velocity_updates) {
+    console.log(
+      `[DIAG mascot] world=${vu.world_id} vu.new_mascot_slug=${JSON.stringify(vu.new_mascot_slug)} keys=${Object.keys(vu as object).join(',')}`,
+    );
     const patch: Record<string, unknown> = {
       signal_velocity: vu.signal_velocity,
       signal_velocity_delta: vu.signal_velocity_delta,
@@ -388,6 +398,11 @@ export async function writeClassifierOutput(
       patch.key_priorities = vu.new_key_priorities ?? [];
       patch.summary_source = 'classifier';
       patch.summary_updated_at = now();
+    }
+    if (vu.new_mascot_slug != null && worldProt?.mascot_slug_source !== 'user') {
+      patch.mascot_slug = vu.new_mascot_slug;
+      patch.mascot_slug_source = 'classifier';
+      patch.mascot_slug_updated_at = now();
     }
     const { error: vuError } = await db
       .from('worlds')

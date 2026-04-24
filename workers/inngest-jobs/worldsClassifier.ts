@@ -775,6 +775,7 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
             'drops_prior_4_weeks',
             'recommend_dormant',
             'rationale',
+            'new_mascot_slug',
           ],
           properties: {
             world_id: { type: 'string' },
@@ -793,7 +794,7 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
             new_key_priorities: {
               oneOf: [{ type: 'array', maxItems: 5, items: KEY_PRIORITY_SCHEMA }, { type: 'null' }],
             },
-            new_mascot_slug: { type: ['string', 'null'], enum: [...MASCOT_CATALOG_SLUGS, null] },
+            new_mascot_slug: { type: ['string', 'null'], enum: MASCOT_CATALOG_SLUGS },
           },
         },
       },
