@@ -5,6 +5,7 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 # These will be overwritten by secrets
+CORTEX_WORKER_URL = "https://gentle-thunder-5854.woolmerjames.workers.dev"
 
 # Add secrets via CLI:
 # npx wrangler secret put SUPABASE_URL

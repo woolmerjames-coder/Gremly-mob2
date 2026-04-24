@@ -29,6 +29,7 @@ import { createWorldsBootstrap } from './worldsBootstrap';
 import { createWorldsWeeklyRun } from './worldsWeeklyRun';
 import { createWorldsWeeklyScheduler } from './worldsWeeklyScheduler';
 import { createDropAssignmentBackfill } from './dropAssignmentBackfill';
+import { createBackfillPriorityKind } from './backfillPriorityKind';
 
 // Cloudflare Workers middleware to inject env bindings
 const bindings = new InngestMiddleware({
@@ -7935,6 +7936,7 @@ const inngestHandler = serve({
     createWorldsWeeklyRun(inngest),
     createWorldsWeeklyScheduler(inngest),
     createDropAssignmentBackfill(inngest),
+    createBackfillPriorityKind(inngest),
   ],
   servePath: '/',
 });

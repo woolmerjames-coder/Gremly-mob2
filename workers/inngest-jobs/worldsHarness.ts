@@ -259,6 +259,8 @@ export function worldBookToActiveWorlds(worldBook: HarnessWorldBookEntry[]): Act
       last_signal_at: w.last_signal_at,
       mascot_slug: null,
       mascot_slug_source: null,
+      world_type: null,
+      world_type_source: null,
     }));
 }
 
@@ -280,6 +282,8 @@ export function chapterBookToActiveChapters(
       primary_world_name: c.primary_world_name,
       description: c.description,
       target_description: c.target_description,
+      arc_shape: null,
+      arc_shape_source: null,
     }));
 }
 
