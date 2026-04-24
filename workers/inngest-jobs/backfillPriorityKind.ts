@@ -201,10 +201,18 @@ export function createBackfillPriorityKind(inngest: Inngest<{ id: 'gremly' }>) {
             }),
           );
 
-          return settled.map(
+          const results = settled.map(
             (r): BatchResult =>
               r.status === 'fulfilled' ? r.value : { todo_id: 'unknown', outcome: 'errored' },
           );
+
+          // Rate-limit sleep inside the step so it only runs once, not on every
+          // Inngest memoization replay (which would re-execute code outside step.run()).
+          if (batchIdx < batches.length - 1) {
+            await new Promise<void>((resolve) => setTimeout(resolve, INTER_BATCH_DELAY_MS));
+          }
+
+          return results;
         });
 
         // Accumulate counters
@@ -220,11 +228,6 @@ export function createBackfillPriorityKind(inngest: Inngest<{ id: 'gremly' }>) {
             `filled=${filled} skipped_nv=${skipped_no_value} ` +
             `skipped_iv=${skipped_invalid_value} errored=${errored}`,
         );
-
-        // Rate-limit sleep between batches (skip after last batch)
-        if (batchIdx < batches.length - 1) {
-          await new Promise<void>((resolve) => setTimeout(resolve, INTER_BATCH_DELAY_MS));
-        }
       }
 
       return {
