@@ -1,7 +1,8 @@
-import { Pressable, View, StyleSheet } from 'react-native';
+import { Pressable, View, StyleSheet, Image } from 'react-native';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
 import { useWorldPalette, useUpcomingDatesForWorld } from '../../lib/store/worldsSelectors';
+import { resolveMascotAsset } from '../../lib/store/mascotRegistry';
 import type { UpcomingDate } from '../../lib/worlds/upcomingDates';
 import type { World } from '../../lib/supabase/types';
 
@@ -23,16 +24,23 @@ export function WorldCard({ world, onPress }: WorldCardProps) {
       style={[styles.card, { backgroundColor: palette.tint }]}
       testID={`world-card-${world.id}`}
     >
-      <View>
+      <Image
+        source={resolveMascotAsset(world.mascot_slug)}
+        style={styles.mascot}
+        resizeMode="contain"
+        accessibilityIgnoresInvertColors
+        accessibilityLabel=""
+      />
+      <View style={styles.textBlock}>
         <Text style={styles.name} numberOfLines={2}>
           {name}
         </Text>
+        {subtitle ? (
+          <Text style={styles.sub} numberOfLines={3}>
+            {subtitle}
+          </Text>
+        ) : null}
       </View>
-      {subtitle ? (
-        <Text style={styles.sub} numberOfLines={3}>
-          {subtitle}
-        </Text>
-      ) : null}
     </Pressable>
   );
 }
@@ -68,6 +76,18 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
     height: 140,
     overflow: 'hidden',
+    position: 'relative',
+    justifyContent: 'flex-end',
+  },
+  mascot: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 52,
+    height: 52,
+  },
+  textBlock: {
+    // sits in the lower portion of the card; card uses justifyContent: flex-end
   },
   name: {
     fontFamily: 'PlusJakartaSans-Bold',

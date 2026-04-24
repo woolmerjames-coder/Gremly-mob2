@@ -809,6 +809,9 @@ export interface World {
   summary_updated_at: string | null;
   card_subtitle_source: SummarySource | null;
   card_subtitle_updated_at: string | null;
+  mascot_slug: string | null;
+  mascot_slug_source: SummarySource | null;
+  mascot_slug_updated_at: string | null;
 }
 
 export interface Chapter {
