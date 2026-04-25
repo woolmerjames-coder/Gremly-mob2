@@ -6,6 +6,7 @@
  * This batch covers: base state selectors and the four derived maps.
  */
 
+import { useMemo } from 'react';
 import { createSelector } from 'reselect';
 import { useShallow } from 'zustand/react/shallow';
 import { useGremlyStore } from './useGremlyStore';
@@ -1311,10 +1312,11 @@ export interface HabitWeekGrid {
   hitCount: number;
 }
 
-export function selectHabitWeekGrid(
-  state: GremlyState,
+// Pure compute function — takes plain arrays, not store state.
+function computeHabitWeekGrid(
+  habitProgress: GremlyState['habitProgress'],
   habitId: string,
-  weeksBack: number = 13,
+  weeksBack: number,
 ): HabitWeekGrid {
   const now = getDateService().now();
   const currentWeekStart = startOfIsoWeek(now);
@@ -1328,7 +1330,7 @@ export function selectHabitWeekGrid(
     const wStartStr = weekStart.toISOString().slice(0, 10);
     const wEndStr = weekEnd.toISOString().slice(0, 10);
 
-    return state.habitProgress.some(
+    return habitProgress.some(
       (p) => p.habit_id === habitId && p.occurred_day >= wStartStr && p.occurred_day < wEndStr,
     );
   });
@@ -1336,5 +1338,23 @@ export function selectHabitWeekGrid(
   return { weeks, hitCount: weeks.filter(Boolean).length };
 }
 
-export const useHabitWeekGrid = (habitId: string, weeksBack: number = 13) =>
-  useGremlyStore(useShallow((s) => selectHabitWeekGrid(s, habitId, weeksBack)));
+// Backwards-compat shim for any callers that pass a full state snapshot.
+export function selectHabitWeekGrid(
+  state: GremlyState,
+  habitId: string,
+  weeksBack: number = 13,
+): HabitWeekGrid {
+  return computeHabitWeekGrid(state.habitProgress, habitId, weeksBack);
+}
+
+export const useHabitWeekGrid = (habitId: string, weeksBack: number = 13): HabitWeekGrid => {
+  // Subscribe to reference-stable raw arrays — only change when the store
+  // actually mutates them, so Object.is equality never fires spuriously.
+  const habitProgress = useGremlyStore((s) => s.habitProgress);
+  // useMemo returns the same object reference until deps change,
+  // preventing the fresh-array infinite re-render loop.
+  return useMemo(
+    () => computeHabitWeekGrid(habitProgress, habitId, weeksBack),
+    [habitProgress, habitId, weeksBack],
+  );
+};
