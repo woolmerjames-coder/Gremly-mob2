@@ -2,8 +2,7 @@
 //
 // BUILDING · last 13 weeks — rendered on world pages for Practice and Domestic
 // archetypes. Each habit shows its name, "X of 13 weeks hit" count, and a row
-// of 13 square tiles (amber = hit, cream = miss, last tile darker to mark the
-// current week).
+// of 13 square tiles (sageGreen = hit, cream = miss, mossGreen = current week).
 
 import { View, StyleSheet } from 'react-native';
 import { lightTokens } from '../../../design/tokens';
@@ -124,17 +123,17 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   tileHit: {
-    backgroundColor: lightTokens.colors.ambergold,
+    backgroundColor: lightTokens.colors.sageGreen,
   },
   tileHitCurrent: {
-    // Current week: deeper amber
-    backgroundColor: '#BA7517',
+    // Current in-progress week — deeper green + outline
+    backgroundColor: lightTokens.colors.mossGreen,
     borderWidth: 1,
-    borderColor: '#412402',
+    borderColor: lightTokens.colors.mossGreen,
   },
   tileMiss: {
-    backgroundColor: '#F5F1E8',
-    borderWidth: 0.5,
-    borderColor: '#E5DFD2',
+    backgroundColor: lightTokens.colors.worldsCard,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: lightTokens.colors.worldsCardBorder,
   },
 });
