@@ -4,6 +4,7 @@ import type { World, Chapter } from '../../lib/supabase/types';
 import { ProjectWorldLayout } from './layouts/ProjectWorldLayout';
 import { PracticeWorldLayout } from './layouts/PracticeWorldLayout';
 import { DomesticWorldLayout } from './layouts/DomesticWorldLayout';
+import { RelationshipWorldLayout } from './layouts/RelationshipWorldLayout';
 import { DefaultWorldLayout } from './layouts/DefaultWorldLayout';
 
 interface ArchetypeLayoutDispatcherProps {
@@ -22,7 +23,8 @@ export function ArchetypeLayoutDispatcher({
       return <PracticeWorldLayout world={world} currentChapter={currentChapter} />;
     case 'domestic':
       return <DomesticWorldLayout world={world} currentChapter={currentChapter} />;
-    // case 'relationship': lands in B.3c
+    case 'relationship':
+      return <RelationshipWorldLayout world={world} currentChapter={currentChapter} />;
     default:
       return <DefaultWorldLayout world={world} currentChapter={currentChapter} />;
   }

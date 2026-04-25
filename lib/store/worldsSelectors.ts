@@ -1358,3 +1358,109 @@ export const useHabitWeekGrid = (habitId: string, weeksBack: number = 13): Habit
     [habitProgress, habitId, weeksBack],
   );
 };
+
+// ============================================================================
+// People per world (B.3c) — @mention extraction from world notes
+// ============================================================================
+
+function computePeopleForWorld(
+  notes: GremlyState['notes'],
+  dropWorldLinks: GremlyState['dropWorldLinks'],
+  worldId: string,
+): WorldPerson[] {
+  const noteIdsInWorld = new Set<string>();
+  for (const link of dropWorldLinks) {
+    if (link.world_id === worldId && link.drop_type === 'note') {
+      noteIdsInWorld.add(link.drop_id);
+    }
+  }
+  if (noteIdsInWorld.size === 0) return [];
+
+  const worldNotes = notes.filter((n) => noteIdsInWorld.has(n.id));
+  const counts = extractPeopleFromNotes(worldNotes);
+
+  return Array.from(counts.entries())
+    .sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1];
+      return a[0].localeCompare(b[0]);
+    })
+    .map(([name, dropCount]) => ({
+      id: name.toLowerCase(),
+      name,
+      initials: initialsOf(name),
+      dropCount,
+    }));
+}
+
+export function selectPeopleForWorld(state: GremlyState, worldId: string): WorldPerson[] {
+  return computePeopleForWorld(state.notes, state.dropWorldLinks, worldId);
+}
+
+export const usePeopleForWorld = (worldId: string): WorldPerson[] => {
+  const notes = useGremlyStore((s) => s.notes);
+  const dropWorldLinks = useGremlyStore((s) => s.dropWorldLinks);
+  return useMemo(
+    () => computePeopleForWorld(notes, dropWorldLinks, worldId),
+    [notes, dropWorldLinks, worldId],
+  );
+};
+
+// ============================================================================
+// Upcoming items for world (B.3c) — future-dated todos
+// ============================================================================
+
+export interface UpcomingItem {
+  id: string;
+  title: string;
+  scheduledIso: string;
+}
+
+function computeUpcomingForWorld(
+  todos: GremlyState['todos'],
+  dropWorldLinks: GremlyState['dropWorldLinks'],
+  worldId: string,
+  limit: number,
+): UpcomingItem[] {
+  const todoIdsInWorld = new Set<string>();
+  for (const link of dropWorldLinks) {
+    if (link.world_id === worldId && link.drop_type === 'todo') {
+      todoIdsInWorld.add(link.drop_id);
+    }
+  }
+  if (todoIdsInWorld.size === 0) return [];
+
+  const now = getDateService().now();
+  const upcoming: UpcomingItem[] = [];
+  for (const t of todos) {
+    if (t.completed_at) continue;
+    if (t.archived) continue;
+    if (!t.scheduled_start_iso) continue;
+    if (!todoIdsInWorld.has(t.id)) continue;
+    const scheduled = new Date(t.scheduled_start_iso);
+    if (scheduled <= now) continue;
+    upcoming.push({
+      id: t.id,
+      title: t.title || t.name || '(untitled)',
+      scheduledIso: t.scheduled_start_iso,
+    });
+  }
+  upcoming.sort((a, b) => new Date(a.scheduledIso).getTime() - new Date(b.scheduledIso).getTime());
+  return upcoming.slice(0, limit);
+}
+
+export function selectUpcomingForWorld(
+  state: GremlyState,
+  worldId: string,
+  limit: number = 3,
+): UpcomingItem[] {
+  return computeUpcomingForWorld(state.todos, state.dropWorldLinks, worldId, limit);
+}
+
+export const useUpcomingForWorld = (worldId: string, limit: number = 3): UpcomingItem[] => {
+  const todos = useGremlyStore((s) => s.todos);
+  const dropWorldLinks = useGremlyStore((s) => s.dropWorldLinks);
+  return useMemo(
+    () => computeUpcomingForWorld(todos, dropWorldLinks, worldId, limit),
+    [todos, dropWorldLinks, worldId, limit],
+  );
+};
