@@ -7,6 +7,7 @@
  */
 
 import { useMemo } from 'react';
+import { startOfISOWeek } from 'date-fns';
 import { createSelector } from 'reselect';
 import { useShallow } from 'zustand/react/shallow';
 import { useGremlyStore } from './useGremlyStore';
@@ -1589,5 +1590,143 @@ export const useAlsoTouchedForWorld = (worldId: string): AlsoTouchedWorld[] => {
   return useMemo(
     () => computeAlsoTouchedForWorld(worlds, dropWorldLinks, worldId),
     [worlds, dropWorldLinks, worldId],
+  );
+};
+
+// ============================================================================
+// Pulse — 18-week sparkline with chapter bands (B.3c-phase2a)
+// ============================================================================
+
+export interface PulseWeek {
+  weekStart: string; // YYYY-MM-DD (ISO Monday of the week)
+  dropCount: number;
+}
+
+export interface PulseChapterBand {
+  id: string; // chapter id
+  startWeekIndex: number; // 0..numWeeks-1, clamped to visible window
+  endWeekIndex: number; // 0..numWeeks-1, clamped
+  isClosed: boolean;
+}
+
+export interface WorldPulse {
+  weeks: PulseWeek[]; // length numWeeks; weeks[0] oldest, weeks[N-1] current
+  chapterBands: PulseChapterBand[];
+  totalDrops: number; // sum of weeks[*].dropCount; used for empty-state guard
+  numWeeks: number;
+}
+
+function computeWorldPulse(
+  todos: GremlyState['todos'],
+  habits: GremlyState['habits'],
+  notes: GremlyState['notes'],
+  dropWorldLinks: GremlyState['dropWorldLinks'],
+  chapters: GremlyState['chapters'],
+  chapterWorldLinks: GremlyState['chapterWorldLinks'],
+  worldId: string,
+  numWeeks: number,
+): WorldPulse {
+  // 1. drop ids in this world (regardless of type)
+  const dropIdsInWorld = new Set<string>();
+  for (const link of dropWorldLinks) {
+    if (link.world_id === worldId) dropIdsInWorld.add(link.drop_id);
+  }
+
+  // 2. build week buckets, oldest -> newest
+  const now = getDateService().now();
+  const currentWeekStart = startOfISOWeek(now);
+  const oldestWeekStart = new Date(currentWeekStart);
+  oldestWeekStart.setDate(oldestWeekStart.getDate() - (numWeeks - 1) * 7);
+
+  const weeks: PulseWeek[] = [];
+  for (let i = 0; i < numWeeks; i++) {
+    const ws = new Date(oldestWeekStart);
+    ws.setDate(ws.getDate() + i * 7);
+    weeks.push({
+      weekStart: ws.toISOString().slice(0, 10),
+      dropCount: 0,
+    });
+  }
+
+  // 3. helper: map a date to a week index in [0, numWeeks-1] or -1 if outside
+  const oldestMs = oldestWeekStart.getTime();
+  const weekMs = 7 * 24 * 60 * 60 * 1000;
+  function indexFor(date: Date): number {
+    const ws = startOfISOWeek(date);
+    const idx = Math.floor((ws.getTime() - oldestMs) / weekMs);
+    if (idx < 0 || idx >= numWeeks) return -1;
+    return idx;
+  }
+
+  // 4. count drops per week — todos, habits, notes union
+  let totalDrops = 0;
+  function countDrop(id: string, createdAt: string | null | undefined) {
+    if (!dropIdsInWorld.has(id)) return;
+    if (!createdAt) return;
+    const idx = indexFor(new Date(createdAt));
+    if (idx < 0) return;
+    weeks[idx].dropCount += 1;
+    totalDrops += 1;
+  }
+  for (const t of todos) countDrop(t.id, t.created_at);
+  for (const h of habits) countDrop(h.id, h.created_at);
+  for (const n of notes) countDrop(n.id, n.created_at);
+
+  // 5. chapter bands — chapters linked to this world via chapter_world_links
+  const chapterIdsInWorld = new Set<string>();
+  for (const link of chapterWorldLinks) {
+    if (link.world_id === worldId) chapterIdsInWorld.add(link.chapter_id);
+  }
+
+  const chapterBands: PulseChapterBand[] = [];
+  for (const c of chapters) {
+    if (!chapterIdsInWorld.has(c.id)) continue;
+    if (!c.start_date) continue;
+
+    const startDateObj = new Date(c.start_date);
+    // Skip chapters that start entirely in the future (beyond current week)
+    if (startDateObj.getTime() > now.getTime() + weekMs) continue;
+
+    const startIdxRaw = indexFor(startDateObj);
+    const endDateStr = c.end_date ?? c.closed_at?.slice(0, 10) ?? now.toISOString().slice(0, 10);
+    const endIdxRaw = indexFor(new Date(endDateStr));
+
+    const clampedStart = Math.max(0, Math.min(numWeeks - 1, startIdxRaw < 0 ? 0 : startIdxRaw));
+    const clampedEnd = Math.max(
+      0,
+      Math.min(numWeeks - 1, endIdxRaw < 0 ? numWeeks - 1 : endIdxRaw),
+    );
+
+    chapterBands.push({
+      id: c.id,
+      startWeekIndex: clampedStart,
+      endWeekIndex: clampedEnd,
+      isClosed: !!c.closed_at,
+    });
+  }
+
+  return { weeks, chapterBands, totalDrops, numWeeks };
+}
+
+export const useWorldPulse = (worldId: string, numWeeks: number = 18): WorldPulse => {
+  const todos = useGremlyStore((s) => s.todos);
+  const habits = useGremlyStore((s) => s.habits);
+  const notes = useGremlyStore((s) => s.notes);
+  const dropWorldLinks = useGremlyStore((s) => s.dropWorldLinks);
+  const chapters = useGremlyStore((s) => s.chapters);
+  const chapterWorldLinks = useGremlyStore((s) => s.chapterWorldLinks);
+  return useMemo(
+    () =>
+      computeWorldPulse(
+        todos,
+        habits,
+        notes,
+        dropWorldLinks,
+        chapters,
+        chapterWorldLinks,
+        worldId,
+        numWeeks,
+      ),
+    [todos, habits, notes, dropWorldLinks, chapters, chapterWorldLinks, worldId, numWeeks],
   );
 };

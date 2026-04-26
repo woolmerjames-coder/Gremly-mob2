@@ -1,14 +1,15 @@
 // components/worlds/layouts/RelationshipWorldLayout.tsx
 //
 // Archetype layout for Relationship worlds (people networks, family, community).
-// Memoir-forward design: epigraph hero + WithYou + Eras + AlsoTouched + Open + Recent.
+// Memoir-forward design: epigraph hero + Pulse + WithYou + Eras + AlsoTouched + Open + Recent.
 //
-// Section order: Hero(epigraphMode) → WITH YOU → ERAS → ALSO TOUCHED → OPEN → RECENT
+// Section order: Hero(epigraphMode) → PULSE → WITH YOU → ERAS → ALSO TOUCHED → OPEN → RECENT
 // Each section is data-driven and returns null silently when empty.
 
 import { View } from 'react-native';
 import { ArchetypeWorldHero } from '../ArchetypeWorldHero';
 import { WithYouSection } from '../sections/WithYouSection';
+import { PulseSection } from '../sections/PulseSection';
 import { ErasSection } from '../sections/ErasSection';
 import { AlsoTouchedSection } from '../sections/AlsoTouchedSection';
 import { AlsoOpenModule } from '../sections/AlsoOpenModule';
@@ -45,6 +46,7 @@ export function RelationshipWorldLayout({ world, currentChapter }: RelationshipW
         epigraphMode
       />
 
+      <PulseSection worldId={world.id} />
       <WithYouSection worldId={world.id} />
       <ErasSection worldId={world.id} />
       <AlsoTouchedSection worldId={world.id} />
