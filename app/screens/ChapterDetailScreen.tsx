@@ -14,6 +14,7 @@
 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ScrollView, StyleSheet, View, Pressable } from 'react-native';
+import { useState } from 'react';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -35,6 +36,9 @@ import { resolveChapterPhases } from '../../lib/worlds/chapterDisplay';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import type { Chapter } from '../../lib/supabase/types';
 import type { Habit } from '../../lib/types';
+import { EditableChapterBanner } from '../../components/chapters/EditableChapterBanner';
+import { ChapterDateEditSheet } from '../../components/chapters/ChapterDateEditSheet';
+import { useGremlyStore } from '../../lib/store/useGremlyStore';
 
 type RouteT = RouteProp<RootStackParamList, 'ChapterDetail'>;
 type NavT = NativeStackNavigationProp<RootStackParamList, 'ChapterDetail'>;
@@ -118,6 +122,8 @@ interface ChapterBodyProps {
 
 function ChapterBody({ chapter, worldId }: ChapterBodyProps) {
   const palette = useWorldPalette(worldId);
+  const [editSheetVisible, setEditSheetVisible] = useState(false);
+  const updateChapterDates = useGremlyStore((s) => s.updateChapterDates);
 
   return (
     <View style={bodyStyles.root}>
@@ -128,7 +134,15 @@ function ChapterBody({ chapter, worldId }: ChapterBodyProps) {
       </View>
 
       {/* 3. Date banner */}
-      <ChapterDateBanner chapter={chapter} palette={palette} />
+      <EditableChapterBanner chapter={chapter} onEdit={() => setEditSheetVisible(true)} />
+      <ChapterDateEditSheet
+        visible={editSheetVisible}
+        chapter={chapter}
+        onClose={() => setEditSheetVisible(false)}
+        onSave={async (input) => {
+          await updateChapterDates({ chapterId: chapter.id, ...input });
+        }}
+      />
 
       {/* 4. Epigraph */}
       {chapter.epigraph ? (

@@ -1033,6 +1033,12 @@ export interface GremlyState {
   // ═══════════════════════════════════════════════════════════════════
   refreshWorldsGraph: () => Promise<void>;
   dismissWorldObservation: (observationId: string) => Promise<void>;
+  updateChapterDates: (input: {
+    chapterId: string;
+    startDate: string;
+    endDate: string;
+    reason: string | null;
+  }) => Promise<void>;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -10076,6 +10082,100 @@ export const useGremlyStore = create<GremlyState>()(
             // Roll back on failure.
             console.warn('[GremlyStore] dismissWorldObservation failed:', err);
             set({ worldObservations: prev });
+          }
+        },
+
+        updateChapterDates: async (input: {
+          chapterId: string;
+          startDate: string;
+          endDate: string;
+          reason: string | null;
+        }) => {
+          const userId = get().userId;
+          if (!userId) throw new Error('Not authenticated');
+
+          const chapter = get().chapters.find((c) => c.id === input.chapterId);
+          if (!chapter) throw new Error('Chapter not found');
+
+          const oldStart = chapter.start_date;
+          const oldEnd = chapter.end_date;
+          const startChanged = input.startDate !== oldStart;
+          const endChanged = input.endDate !== oldEnd;
+
+          if (!startChanged && !endChanged) return;
+
+          const now = nowTimestamp();
+          const patch: Record<string, unknown> = { updated_at: now };
+          if (startChanged) {
+            patch.start_date = input.startDate;
+            patch.start_date_source = 'user';
+            patch.start_date_updated_at = now;
+          }
+          if (endChanged) {
+            patch.end_date = input.endDate;
+            patch.end_date_source = 'user';
+            patch.end_date_updated_at = now;
+          }
+
+          const { error } = await supabase
+            .from('chapters')
+            .update(patch)
+            .eq('id', input.chapterId)
+            .eq('owner_id', userId);
+          if (error) throw error;
+
+          set((state) => ({
+            chapters: state.chapters.map((c) =>
+              c.id === input.chapterId
+                ? {
+                    ...c,
+                    ...(startChanged
+                      ? {
+                          start_date: input.startDate,
+                          start_date_source: 'user' as const,
+                          start_date_updated_at: now,
+                        }
+                      : {}),
+                    ...(endChanged
+                      ? {
+                          end_date: input.endDate,
+                          end_date_source: 'user' as const,
+                          end_date_updated_at: now,
+                        }
+                      : {}),
+                    updated_at: now,
+                  }
+                : c,
+            ),
+          }));
+
+          // Best-effort edit log — silent warn on failure
+          const logRows: Array<Record<string, unknown>> = [];
+          if (startChanged) {
+            logRows.push({
+              chapter_id: input.chapterId,
+              owner_id: userId,
+              field_name: 'start_date',
+              old_value: oldStart !== null ? JSON.stringify(oldStart) : null,
+              new_value: JSON.stringify(input.startDate),
+              reason: input.reason ?? null,
+            });
+          }
+          if (endChanged) {
+            logRows.push({
+              chapter_id: input.chapterId,
+              owner_id: userId,
+              field_name: 'end_date',
+              old_value: oldEnd !== null ? JSON.stringify(oldEnd) : null,
+              new_value: JSON.stringify(input.endDate),
+              reason: input.reason ?? null,
+            });
+          }
+          if (logRows.length > 0) {
+            const { error: logError } = await supabase.from('chapter_edit_log').insert(logRows);
+            if (logError) {
+              console.warn('[GremlyStore] updateChapterDates — edit log insert failed:', logError);
+            }
           }
         },
       }),

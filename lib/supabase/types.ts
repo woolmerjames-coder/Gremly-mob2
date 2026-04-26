@@ -880,6 +880,19 @@ export interface Chapter {
   slip_events_updated_at: string | null;
   slip_tracking_enabled: boolean;
   has_blockers_count: number;
+  // C.1a — source tracking on remaining structural fields
+  start_date_source: string | null;
+  start_date_updated_at: string | null;
+  end_date_source: string | null;
+  end_date_updated_at: string | null;
+  current_phase_key_source: string | null;
+  current_phase_key_updated_at: string | null;
+  target_description_source: string | null;
+  target_description_updated_at: string | null;
+  phase_labels_source: string | null;
+  phase_labels_updated_at: string | null;
+  key_priorities_source: string | null;
+  key_priorities_updated_at: string | null;
 }
 
 export interface LifeContext {
