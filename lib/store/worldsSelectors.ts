@@ -1607,6 +1607,7 @@ export interface PulseChapterBand {
   startWeekIndex: number; // 0..numWeeks-1, clamped to visible window
   endWeekIndex: number; // 0..numWeeks-1, clamped
   isClosed: boolean;
+  label: string; // chapter.title
 }
 
 export interface WorldPulse {
@@ -1702,6 +1703,7 @@ function computeWorldPulse(
       startWeekIndex: clampedStart,
       endWeekIndex: clampedEnd,
       isClosed: !!c.closed_at,
+      label: c.title || '(untitled)',
     });
   }
 

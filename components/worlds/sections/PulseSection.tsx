@@ -7,7 +7,7 @@
 // Returns null silently when world has zero drops in the visible window.
 
 import { View, StyleSheet } from 'react-native';
-import Svg, { G, Rect } from 'react-native-svg';
+import Svg, { G, Rect, Text as SvgText } from 'react-native-svg';
 import { Text } from '../../../ui';
 import { lightTokens } from '../../../design/tokens';
 import { useWorldPulse } from '../../../lib/store/worldsSelectors';
@@ -19,12 +19,20 @@ interface PulseSectionProps {
 
 // SVG geometry constants
 const VIEWBOX_W = 320;
-const VIEWBOX_H = 56;
+const VIEWBOX_H = 68; // was 56 — adds 12 for label row
 const BAR_AREA_TOP = 4;
 const BAR_AREA_BOTTOM = 40; // baseline for bars
 const BAR_AREA_H = BAR_AREA_BOTTOM - BAR_AREA_TOP; // 36
 const BAND_TOP = 42;
 const BAND_H = 8;
+const LABEL_Y = 60; // baseline for labels (font size 9, sits below band)
+
+const MAX_LABEL_CHARS = 18;
+
+function truncateLabel(label: string): string {
+  if (label.length <= MAX_LABEL_CHARS) return label;
+  return label.slice(0, MAX_LABEL_CHARS - 1).trimEnd() + '…';
+}
 
 export function PulseSection({ worldId, numWeeks = 18 }: PulseSectionProps) {
   const pulse = useWorldPulse(worldId, numWeeks);
@@ -85,6 +93,26 @@ export function PulseSection({ worldId, numWeeks = 18 }: PulseSectionProps) {
             );
           })}
         </G>
+
+        {/* Chapter band labels under the bands */}
+        <G>
+          {pulse.chapterBands.map((band) => {
+            const x = band.startWeekIndex * slotWidth;
+            return (
+              <SvgText
+                key={`label-${band.id}`}
+                x={x}
+                y={LABEL_Y}
+                fontFamily="Inter-Regular"
+                fontSize="9"
+                fill={lightTokens.colors.warmGrey}
+                textAnchor="start"
+              >
+                {truncateLabel(band.label)}
+              </SvgText>
+            );
+          })}
+        </G>
       </Svg>
     </View>
   );
@@ -106,6 +134,6 @@ const styles = StyleSheet.create({
   },
   svg: {
     width: '100%',
-    height: 60,
+    height: 72, // was 60 — proportional to new viewBox
   },
 });
