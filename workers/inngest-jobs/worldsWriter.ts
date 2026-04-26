@@ -185,7 +185,7 @@ export async function writeClassifierOutput(
     db
       .from('chapters')
       .select(
-        'id, title, primary_world_id, closed_at, card_subtitle_source, summary_source, title_source, arc_shape_source, epigraph_source, slip_events_source, key_moments_source',
+        'id, title, primary_world_id, closed_at, card_subtitle_source, summary_source, title_source, arc_shape_source, epigraph_source, slip_events_source, key_moments_source, start_date_source, end_date_source, current_phase_key_source, target_description_source, phase_labels_source, key_priorities_source',
       )
       .eq('owner_id', ownerId),
     db.from('life_contexts').select('id, name, kind').eq('owner_id', ownerId),
@@ -244,6 +244,12 @@ export async function writeClassifierOutput(
       noEpigraph: boolean;
       noSlipEvents: boolean;
       noKeyMoments: boolean;
+      noStartDate: boolean;
+      noEndDate: boolean;
+      noCurrentPhaseKey: boolean;
+      noTargetDescription: boolean;
+      noPhaseLabels: boolean;
+      noKeyPriorities: boolean;
     }
   >();
   for (const c of chaptersRes.data ?? []) {
@@ -255,6 +261,12 @@ export async function writeClassifierOutput(
       noEpigraph: (c.epigraph_source as string | null) === 'user',
       noSlipEvents: (c.slip_events_source as string | null) === 'user',
       noKeyMoments: (c.key_moments_source as string | null) === 'user',
+      noStartDate: (c.start_date_source as string | null) === 'user',
+      noEndDate: (c.end_date_source as string | null) === 'user',
+      noCurrentPhaseKey: (c.current_phase_key_source as string | null) === 'user',
+      noTargetDescription: (c.target_description_source as string | null) === 'user',
+      noPhaseLabels: (c.phase_labels_source as string | null) === 'user',
+      noKeyPriorities: (c.key_priorities_source as string | null) === 'user',
     });
   }
 
@@ -465,25 +477,33 @@ export async function writeClassifierOutput(
         assertChapterWritable(chapter, 'description', runOptions);
         patch.description = update.new_description;
       }
-      if (update.new_end_date != null) {
+      if (update.new_end_date != null && chapterProt?.noEndDate !== true) {
         assertChapterWritable(chapter, 'end_date', runOptions);
         patch.end_date = update.new_end_date;
+        patch.end_date_source = 'classifier';
+        patch.end_date_updated_at = now();
       }
-      if (update.new_target_description != null) {
+      if (update.new_target_description != null && chapterProt?.noTargetDescription !== true) {
         assertChapterWritable(chapter, 'target_description', runOptions);
         patch.target_description = update.new_target_description;
+        patch.target_description_source = 'classifier';
+        patch.target_description_updated_at = now();
       }
       if (update.new_target_summary != null) {
         assertChapterWritable(chapter, 'target_summary', runOptions);
         patch.target_summary = sanitizeAuthored(update.new_target_summary, 240);
       }
-      if (update.new_phase_labels != null) {
+      if (update.new_phase_labels != null && chapterProt?.noPhaseLabels !== true) {
         assertChapterWritable(chapter, 'phase_labels', runOptions);
         patch.phase_labels = update.new_phase_labels;
+        patch.phase_labels_source = 'classifier';
+        patch.phase_labels_updated_at = now();
       }
-      if (update.new_current_phase_key != null) {
+      if (update.new_current_phase_key != null && chapterProt?.noCurrentPhaseKey !== true) {
         assertChapterWritable(chapter, 'current_phase_key', runOptions);
         patch.current_phase_key = update.new_current_phase_key;
+        patch.current_phase_key_source = 'classifier';
+        patch.current_phase_key_updated_at = now();
       }
 
       // New Phase A fields — guarded, source-protected, sanitized where text
@@ -525,9 +545,14 @@ export async function writeClassifierOutput(
       if (update.new_summary != null && !chapterProt?.noSummary) {
         assertChapterWritable(chapter, 'summary', runOptions);
         patch.summary = update.new_summary;
-        patch.key_priorities = update.new_key_priorities ?? [];
         patch.summary_source = 'classifier';
         patch.summary_updated_at = now();
+      }
+      if (update.new_key_priorities != null && chapterProt?.noKeyPriorities !== true) {
+        assertChapterWritable(chapter, 'key_priorities', runOptions);
+        patch.key_priorities = update.new_key_priorities;
+        patch.key_priorities_source = 'classifier';
+        patch.key_priorities_updated_at = now();
       }
 
       // Close MUST be last — flips closed_at for subsequent runs
