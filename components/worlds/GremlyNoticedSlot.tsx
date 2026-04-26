@@ -13,35 +13,27 @@ export function GremlyNoticedSlot({ worldId }: GremlyNoticedSlotProps) {
   const observation = useWorldObservationForWorld(worldId);
   const dismiss = useGremlyStore((s) => s.dismissWorldObservation);
 
+  if (!observation) return null;
+
   return (
     <View>
       <View style={styles.sec}>
         <Text style={styles.secLabel}>GREMLY NOTICED</Text>
       </View>
-      {observation ? (
-        <View style={styles.populated}>
-          <Pressable
-            onPress={() => dismiss(observation.id)}
-            style={styles.dismissBtn}
-            testID={`dismiss-observation-${observation.id}`}
-          >
-            <X size={14} color={lightTokens.colors.noticedBorder} />
-          </Pressable>
-          <Text style={styles.label}>{labelForKind(observation.kind)}</Text>
-          <Text style={styles.title}>{firstLine(observation.text)}</Text>
-          {restLines(observation.text) ? (
-            <Text style={styles.body}>{restLines(observation.text)}</Text>
-          ) : null}
-        </View>
-      ) : (
-        <View style={styles.empty}>
-          <Text style={styles.emptyLabel}>YOUR WEEK'S PATTERN DROPS MONDAY MORNING</Text>
-          <Text style={styles.emptyBody}>
-            Gremly needs a full week of signal before producing observations. Next one lands Sunday
-            evening.
-          </Text>
-        </View>
-      )}
+      <View style={styles.populated}>
+        <Pressable
+          onPress={() => dismiss(observation.id)}
+          style={styles.dismissBtn}
+          testID={`dismiss-observation-${observation.id}`}
+        >
+          <X size={14} color={lightTokens.colors.noticedBorder} />
+        </Pressable>
+        <Text style={styles.label}>{labelForKind(observation.kind)}</Text>
+        <Text style={styles.title}>{firstLine(observation.text)}</Text>
+        {restLines(observation.text) ? (
+          <Text style={styles.body}>{restLines(observation.text)}</Text>
+        ) : null}
+      </View>
     </View>
   );
 }
