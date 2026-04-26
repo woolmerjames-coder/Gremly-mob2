@@ -12,12 +12,14 @@ interface ArchetypeWorldHeroProps {
   world: World;
   statusLine: string;
   velocityDotColor: string;
+  epigraphMode?: boolean;
 }
 
 export function ArchetypeWorldHero({
   world,
   statusLine,
   velocityDotColor,
+  epigraphMode = false,
 }: ArchetypeWorldHeroProps) {
   const title = world.display_name || world.name;
   const summary = world.summary?.trim() || null;
@@ -43,7 +45,14 @@ export function ArchetypeWorldHero({
       </View>
 
       {/* World summary */}
-      {summary ? (
+      {epigraphMode ? (
+        summary ? (
+          <View style={styles.epigraphBlock}>
+            <Text style={styles.epigraphText}>{summary}</Text>
+            <Text style={styles.epigraphMeta}>epigraph · tap to rewrite</Text>
+          </View>
+        ) : null
+      ) : summary ? (
         <Text style={styles.summary}>{summary}</Text>
       ) : (
         <Text style={[styles.summary, styles.summaryPlaceholder]}>
@@ -51,9 +60,8 @@ export function ArchetypeWorldHero({
         </Text>
       )}
 
-      {/* End-of-hero divider — gives the page vertical structure
-          between the narrative hero and the sections below */}
-      <View style={styles.heroDivider} />
+      {/* End-of-hero divider — suppressed in epigraphMode */}
+      {!epigraphMode ? <View style={styles.heroDivider} /> : null}
     </View>
   );
 }
@@ -124,5 +132,26 @@ const styles = StyleSheet.create({
     height: 3,
     borderRadius: 2,
     backgroundColor: lightTokens.colors.ambergold,
+  },
+  epigraphBlock: {
+    marginTop: 18,
+    paddingLeft: 14,
+    borderLeftWidth: 2,
+    borderLeftColor: lightTokens.colors.epigraphBorder,
+  },
+  epigraphText: {
+    fontFamily: SERIF_FONT,
+    fontStyle: 'italic',
+    fontSize: 16,
+    lineHeight: 24,
+    color: lightTokens.colors.worldsInk,
+  },
+  epigraphMeta: {
+    marginTop: 8,
+    fontFamily: 'Inter-Regular',
+    fontStyle: 'italic',
+    fontSize: 10,
+    letterSpacing: 0.4,
+    color: lightTokens.colors.warmGrey,
   },
 });

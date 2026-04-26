@@ -140,6 +140,14 @@ export const lightTokens = {
 
     // Completion states (todos, strikethrough, dormant treatment)
     sageGreen: '#97AF8F', // mid-tone sage between sageMist and moss — checkbox fill
+
+    // Relationship archetype — memoir hero, WithYou, Eras, AlsoTouched (B.3c-phase1)
+    epigraphBorder: '#C19A4D',
+    closedTagBg: '#F2D5C5',
+    closedTagFg: '#993C1D',
+    mossLight: '#DDE4DC',
+    mossMid: '#C9D7C5',
+
     doneTextMuted: 'rgba(26,58,40,0.4)', // strikethrough + dormant world title (deepForest at 40%)
 
     // Dormant world card (warmGrey at alpha — same semantic as existing warmGrey token)
@@ -391,6 +399,14 @@ export const darkTokens = {
 
     // Completion
     sageGreen: '#97AF8F',
+
+    // Relationship archetype — memoir hero, WithYou, Eras, AlsoTouched (B.3c-phase1)
+    epigraphBorder: '#A88440',
+    closedTagBg: '#5A2B18',
+    closedTagFg: '#F0B89C',
+    mossLight: '#2A3A30',
+    mossMid: '#3A4F3F',
+
     doneTextMuted: 'rgba(248,250,249,0.4)',
 
     // Dormant

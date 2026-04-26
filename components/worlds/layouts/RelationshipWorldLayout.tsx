@@ -1,20 +1,20 @@
 // components/worlds/layouts/RelationshipWorldLayout.tsx
 //
 // Archetype layout for Relationship worlds (people networks, family, community).
-// People and upcoming items are the primary artifacts; chapters are optional.
+// Memoir-forward design: epigraph hero + WithYou + Eras + AlsoTouched + Open + Recent.
 //
-// Section order: Hero → UNFOLDING (if chapter) → WITH YOU → UPCOMING → OPEN → RECENT
+// Section order: Hero(epigraphMode) → WITH YOU → ERAS → ALSO TOUCHED → OPEN → RECENT
 // Each section is data-driven and returns null silently when empty.
 
 import { View } from 'react-native';
 import { ArchetypeWorldHero } from '../ArchetypeWorldHero';
-import { UnfoldingSection } from '../sections/UnfoldingSection';
 import { WithYouSection } from '../sections/WithYouSection';
-import { UpcomingSection } from '../sections/UpcomingSection';
+import { ErasSection } from '../sections/ErasSection';
+import { AlsoTouchedSection } from '../sections/AlsoTouchedSection';
 import { AlsoOpenModule } from '../sections/AlsoOpenModule';
 import { RecentSection } from '../sections/RecentSection';
 import { lightTokens } from '../../../design/tokens';
-import { useWorldDrops, useBlockerCountForChapter } from '../../../lib/store/worldsSelectors';
+import { useWorldDrops } from '../../../lib/store/worldsSelectors';
 import { capitalizeVelocity } from './archetypeHelpers';
 import type { World, Chapter } from '../../../lib/supabase/types';
 
@@ -30,13 +30,9 @@ export function RelationshipWorldLayout({ world, currentChapter }: RelationshipW
     drops.habits.filter((h) => !h.archived).length +
     drops.notes.filter((n) => !n.archived).length;
 
-  const blockerCount = useBlockerCountForChapter(currentChapter?.id ?? '');
-
-  const parts: string[] = [capitalizeVelocity(world.signal_velocity_delta), `${itemCount} items`];
-  if (currentChapter && blockerCount > 0) {
-    parts.push(`${blockerCount} ${blockerCount === 1 ? 'blocker' : 'blockers'}`);
-  }
-  const statusLine = parts.join(' \u00B7 ');
+  const statusLine = [capitalizeVelocity(world.signal_velocity_delta), `${itemCount} items`].join(
+    ' \u00B7 ',
+  );
 
   const velocityDotColor = resolveRelationshipVelocityDotColor(world.signal_velocity_delta);
 
@@ -46,15 +42,14 @@ export function RelationshipWorldLayout({ world, currentChapter }: RelationshipW
         world={world}
         statusLine={statusLine}
         velocityDotColor={velocityDotColor}
+        epigraphMode
       />
 
-      {currentChapter ? <UnfoldingSection chapter={currentChapter} worldId={world.id} /> : null}
-
       <WithYouSection worldId={world.id} />
-      <UpcomingSection worldId={world.id} />
+      <ErasSection worldId={world.id} />
+      <AlsoTouchedSection worldId={world.id} />
 
       <AlsoOpenModule worldId={world.id} label="OPEN" />
-
       <RecentSection worldId={world.id} />
     </View>
   );

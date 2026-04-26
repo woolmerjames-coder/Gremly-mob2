@@ -8,7 +8,7 @@ import { Text } from '../../../ui';
 import { lightTokens } from '../../../design/tokens';
 import { usePeopleForWorld } from '../../../lib/store/worldsSelectors';
 
-const AVATAR_SIZE = 28;
+const AVATAR_SIZE = 34;
 
 interface WithYouSectionProps {
   worldId: string;
@@ -36,12 +36,11 @@ export function WithYouSection({
       <Text style={styles.label}>
         WITH YOU {'\u00B7'} {people.length}
       </Text>
-      {visible.map((person, idx) => {
-        const isLast = idx === visible.length - 1 && !hasMore;
+      {visible.map((person) => {
         return (
           <Pressable
             key={person.id}
-            style={[styles.row, !isLast && styles.rowDivider]}
+            style={styles.row}
             onPress={() => onPressPerson?.(person.id)}
             testID={`with-you-person-${person.id}`}
           >
@@ -73,44 +72,37 @@ const styles = StyleSheet.create({
   },
   label: {
     fontFamily: 'Inter-Medium',
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.6,
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 1,
     color: lightTokens.colors.warmGrey,
     textTransform: 'uppercase',
-    paddingHorizontal: 2,
     marginBottom: 14,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 2,
+    paddingVertical: 6,
     gap: 12,
-  },
-  rowDivider: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: lightTokens.colors.worldsCardBorder,
   },
   avatar: {
     width: AVATAR_SIZE,
     height: AVATAR_SIZE,
     borderRadius: AVATAR_SIZE / 2,
-    backgroundColor: lightTokens.colors.sageGreen,
+    backgroundColor: lightTokens.colors.mossMid,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarLetter: {
     fontFamily: 'Inter-Medium',
     fontSize: 13,
-    fontWeight: '600',
-    color: '#FFFFFF',
+    fontWeight: '500',
+    color: lightTokens.colors.worldsInk,
   },
   name: {
     flex: 1,
     fontFamily: 'Inter-Regular',
-    fontSize: 14,
-    lineHeight: 19,
+    fontSize: 15,
     color: lightTokens.colors.worldsInk,
   },
   count: {
@@ -119,11 +111,11 @@ const styles = StyleSheet.create({
     color: lightTokens.colors.warmGrey,
   },
   seeAll: {
+    paddingTop: 14,
     paddingVertical: 10,
-    paddingHorizontal: 2,
   },
   seeAllText: {
-    fontFamily: 'Inter-Medium',
+    fontFamily: 'Inter-Regular',
     fontSize: 13,
     color: lightTokens.colors.mossGreen,
   },

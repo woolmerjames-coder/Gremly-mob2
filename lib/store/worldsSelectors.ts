@@ -1464,3 +1464,130 @@ export const useUpcomingForWorld = (worldId: string, limit: number = 3): Upcomin
     [todos, dropWorldLinks, worldId, limit],
   );
 };
+
+// ============================================================================
+// Eras for world (B.3c-phase1) — closed chapters linked to this world
+// ============================================================================
+
+export interface WorldEra {
+  id: string;
+  title: string;
+  startDate: string | null;
+  endDate: string | null;
+  durationDays: number | null;
+  momentCount: number;
+  epigraph: string | null;
+}
+
+function computeErasForWorld(
+  chapters: GremlyState['chapters'],
+  chapterWorldLinks: GremlyState['chapterWorldLinks'],
+  dropChapterLinks: GremlyState['dropChapterLinks'],
+  worldId: string,
+): WorldEra[] {
+  const linkedChapterIds = new Set<string>();
+  for (const link of chapterWorldLinks) {
+    if (link.world_id === worldId) {
+      linkedChapterIds.add(link.chapter_id);
+    }
+  }
+  if (linkedChapterIds.size === 0) return [];
+
+  const closedChapters = chapters.filter((c) => c.closed_at != null && linkedChapterIds.has(c.id));
+  if (closedChapters.length === 0) return [];
+
+  const dropCounts = new Map<string, number>();
+  for (const link of dropChapterLinks) {
+    if (linkedChapterIds.has(link.chapter_id)) {
+      dropCounts.set(link.chapter_id, (dropCounts.get(link.chapter_id) ?? 0) + 1);
+    }
+  }
+
+  return closedChapters
+    .map((c) => {
+      const start = c.start_date ? new Date(c.start_date) : null;
+      const end = c.end_date ? new Date(c.end_date) : null;
+      const durationDays =
+        start && end ? Math.round((end.getTime() - start.getTime()) / 86_400_000) : null;
+      return {
+        id: c.id,
+        title: c.title ?? '(untitled)',
+        startDate: c.start_date ?? null,
+        endDate: c.end_date ?? null,
+        durationDays,
+        momentCount: dropCounts.get(c.id) ?? 0,
+        epigraph: c.epigraph ?? null,
+      };
+    })
+    .sort((a, b) => {
+      if (b.endDate && a.endDate) return b.endDate.localeCompare(a.endDate);
+      if (b.endDate) return 1;
+      if (a.endDate) return -1;
+      return 0;
+    });
+}
+
+export const useErasForWorld = (worldId: string): WorldEra[] => {
+  const chapters = useGremlyStore((s) => s.chapters);
+  const chapterWorldLinks = useGremlyStore((s) => s.chapterWorldLinks);
+  const dropChapterLinks = useGremlyStore((s) => s.dropChapterLinks);
+  return useMemo(
+    () => computeErasForWorld(chapters, chapterWorldLinks, dropChapterLinks, worldId),
+    [chapters, chapterWorldLinks, dropChapterLinks, worldId],
+  );
+};
+
+// ============================================================================
+// Also Touched worlds for world (B.3c-phase1) — other worlds sharing drops
+// ============================================================================
+
+export interface AlsoTouchedWorld {
+  id: string;
+  name: string;
+  worldType: string | null;
+  count: number;
+}
+
+function computeAlsoTouchedForWorld(
+  worlds: GremlyState['worlds'],
+  dropWorldLinks: GremlyState['dropWorldLinks'],
+  worldId: string,
+): AlsoTouchedWorld[] {
+  const dropIdsInWorld = new Set<string>();
+  for (const link of dropWorldLinks) {
+    if (link.world_id === worldId) {
+      dropIdsInWorld.add(link.drop_id);
+    }
+  }
+  if (dropIdsInWorld.size === 0) return [];
+
+  const overlap = new Map<string, number>();
+  for (const link of dropWorldLinks) {
+    if (link.world_id === worldId) continue;
+    if (!dropIdsInWorld.has(link.drop_id)) continue;
+    overlap.set(link.world_id, (overlap.get(link.world_id) ?? 0) + 1);
+  }
+  if (overlap.size === 0) return [];
+
+  const worldIndex = new Map(worlds.map((w) => [w.id, w]));
+  return Array.from(overlap.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([wid, count]) => {
+      const w = worldIndex.get(wid);
+      return {
+        id: wid,
+        name: w?.display_name || w?.name || '(world)',
+        worldType: w?.world_type ?? null,
+        count,
+      };
+    });
+}
+
+export const useAlsoTouchedForWorld = (worldId: string): AlsoTouchedWorld[] => {
+  const worlds = useGremlyStore((s) => s.worlds);
+  const dropWorldLinks = useGremlyStore((s) => s.dropWorldLinks);
+  return useMemo(
+    () => computeAlsoTouchedForWorld(worlds, dropWorldLinks, worldId),
+    [worlds, dropWorldLinks, worldId],
+  );
+};
