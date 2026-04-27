@@ -10160,8 +10160,8 @@ export const useGremlyStore = create<GremlyState>()(
             logRows.push({
               chapter_id: input.chapterId,
               field: 'start_date',
-              old_value: oldStart !== null ? JSON.stringify(oldStart) : null,
-              new_value: JSON.stringify(input.startDate),
+              old_value: oldStart ?? null,
+              new_value: input.startDate,
               reason: input.reason ?? null,
             });
           }
@@ -10169,8 +10169,8 @@ export const useGremlyStore = create<GremlyState>()(
             logRows.push({
               chapter_id: input.chapterId,
               field: 'end_date',
-              old_value: oldEnd !== null ? JSON.stringify(oldEnd) : null,
-              new_value: JSON.stringify(input.endDate),
+              old_value: oldEnd ?? null,
+              new_value: input.endDate,
               reason: input.reason ?? null,
             });
           }
