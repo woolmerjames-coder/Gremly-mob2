@@ -6,6 +6,14 @@ import { lightTokens } from '../../design/tokens';
 import { getDateService } from '../../lib/date/DateService';
 import type { Chapter } from '../../lib/supabase/types';
 
+/** Parse a YYYY-MM-DD string as a local-timezone Date.
+ *  `new Date('2026-05-13')` is UTC midnight which renders as May 12 in
+ *  Western timezones. Forcing noon dodges all DST and timezone edge cases.
+ */
+function parseLocalYMD(ymd: string): Date {
+  return new Date(ymd + 'T12:00:00');
+}
+
 interface EditableChapterBannerProps {
   chapter: Chapter;
   onEdit: () => void;
@@ -15,8 +23,8 @@ export function EditableChapterBanner({ chapter, onEdit }: EditableChapterBanner
   const isClosed = !!chapter.closed_at;
   const isUserEditedEnd = chapter.end_date_source === 'user';
   const isUserEditedStart = chapter.start_date_source === 'user';
-  const startLabel = chapter.start_date ? format(new Date(chapter.start_date), 'MMM d') : null;
-  const endLabel = chapter.end_date ? format(new Date(chapter.end_date), 'MMM d') : null;
+  const startLabel = chapter.start_date ? format(parseLocalYMD(chapter.start_date), 'MMM d') : null;
+  const endLabel = chapter.end_date ? format(parseLocalYMD(chapter.end_date), 'MMM d') : null;
   const countdown = computeCountdown(chapter);
 
   return (
@@ -61,7 +69,7 @@ export function EditableChapterBanner({ chapter, onEdit }: EditableChapterBanner
 function computeCountdown(chapter: Chapter): { label: string; urgent: boolean } | null {
   if (chapter.closed_at) return null;
   if (!chapter.end_date) return null;
-  const days = differenceInDays(new Date(chapter.end_date), getDateService().now());
+  const days = differenceInDays(parseLocalYMD(chapter.end_date), getDateService().now());
   if (days < 0) return { label: `${Math.abs(days)} days overdue`, urgent: true };
   if (days === 0) return { label: 'today', urgent: true };
   if (days === 1) return { label: 'in 1 day', urgent: true };

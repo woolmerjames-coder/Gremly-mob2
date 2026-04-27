@@ -10,10 +10,19 @@ import {
 } from 'react-native';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { format } from 'date-fns';
+import { Calendar, X } from 'lucide-react-native';
 import { Text } from '../../ui';
 import { lightTokens, colors } from '../../design/tokens';
-import { today } from '../../lib/date/DateService';
+import { today, getDateService } from '../../lib/date/DateService';
 import type { Chapter } from '../../lib/supabase/types';
+
+/** Parse a YYYY-MM-DD string as a local-timezone Date.
+ *  `new Date('2026-05-13')` is UTC midnight which renders as May 12 in
+ *  Western timezones. Forcing noon dodges all DST and timezone edge cases.
+ */
+function parseLocalYMD(ymd: string): Date {
+  return new Date(ymd + 'T12:00:00');
+}
 
 interface ChapterDateEditSheetProps {
   visible: boolean;
@@ -34,6 +43,7 @@ export function ChapterDateEditSheet({
   const [endDate, setEndDate] = useState(initialEnd);
   const [reason, setReason] = useState('');
   const [pickerOpen, setPickerOpen] = useState<'start' | 'end' | null>(null);
+  const [pendingPickerValue, setPendingPickerValue] = useState<Date | null>(null);
   const [saving, setSaving] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
 
@@ -41,23 +51,43 @@ export function ChapterDateEditSheet({
   const endChanged = endDate !== chapter.end_date;
   const hasChanges = startChanged || endChanged;
 
+  function handleOpenPicker(which: 'start' | 'end') {
+    const initial = which === 'start' ? parseLocalYMD(startDate) : parseLocalYMD(endDate);
+    setPendingPickerValue(initial);
+    setPickerOpen(which);
+  }
+
   function handlePickerChange(event: DateTimePickerEvent, date: Date | undefined) {
-    // On Android the dialog dismisses itself; on iOS we need to close manually.
     if (Platform.OS === 'android') {
+      // Android uses a native dialog with its own OK/Cancel — handle inline
       setPickerOpen(null);
-    }
-    if (event.type !== 'set' || !date) {
-      if (Platform.OS === 'ios') setPickerOpen(null);
+      if (event.type !== 'set' || !date) return;
+      const iso = format(date, 'yyyy-MM-dd');
+      if (pickerOpen === 'start') setStartDate(iso);
+      if (pickerOpen === 'end') setEndDate(iso);
       return;
     }
-    const iso = format(date, 'yyyy-MM-dd');
-    if (pickerOpen === 'start') setStartDate(iso);
-    if (pickerOpen === 'end') setEndDate(iso);
-    if (Platform.OS === 'ios') setPickerOpen(null);
+    // iOS: stage the value, do not commit
+    if (date) setPendingPickerValue(date);
+  }
+
+  function handlePickerDone() {
+    if (pendingPickerValue) {
+      const iso = format(pendingPickerValue, 'yyyy-MM-dd');
+      if (pickerOpen === 'start') setStartDate(iso);
+      if (pickerOpen === 'end') setEndDate(iso);
+    }
+    setPendingPickerValue(null);
+    setPickerOpen(null);
+  }
+
+  function handlePickerCancel() {
+    setPendingPickerValue(null);
+    setPickerOpen(null);
   }
 
   async function handleSave() {
-    if (new Date(endDate) < new Date(startDate)) {
+    if (parseLocalYMD(endDate) < parseLocalYMD(startDate)) {
       setValidationError('End date must be on or after the start date.');
       return;
     }
@@ -72,11 +102,13 @@ export function ChapterDateEditSheet({
   }
 
   const startDisplayOld = chapter.start_date
-    ? format(new Date(chapter.start_date), 'MMM d, yyyy')
+    ? format(parseLocalYMD(chapter.start_date), 'MMM d, yyyy')
     : '—';
-  const startDisplayNew = format(new Date(startDate), 'MMM d, yyyy');
-  const endDisplayOld = chapter.end_date ? format(new Date(chapter.end_date), 'MMM d, yyyy') : '—';
-  const endDisplayNew = format(new Date(endDate), 'MMM d, yyyy');
+  const startDisplayNew = format(parseLocalYMD(startDate), 'MMM d, yyyy');
+  const endDisplayOld = chapter.end_date
+    ? format(parseLocalYMD(chapter.end_date), 'MMM d, yyyy')
+    : '—';
+  const endDisplayNew = format(parseLocalYMD(endDate), 'MMM d, yyyy');
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -90,8 +122,8 @@ export function ChapterDateEditSheet({
 
           <View style={styles.head}>
             <Text style={styles.title}>Edit Dates</Text>
-            <Pressable onPress={onClose}>
-              <Text style={styles.close}>×</Text>
+            <Pressable onPress={onClose} hitSlop={8} testID="edit-sheet-close">
+              <X size={20} color={lightTokens.colors.warmGrey} />
             </Pressable>
           </View>
 
@@ -100,7 +132,7 @@ export function ChapterDateEditSheet({
             <Text style={styles.fieldLabel}>START DATE</Text>
             <Pressable
               style={[styles.field, pickerOpen === 'start' && styles.fieldFocus]}
-              onPress={() => setPickerOpen(pickerOpen === 'start' ? null : 'start')}
+              onPress={() => handleOpenPicker('start')}
             >
               {startChanged ? (
                 <View style={styles.diffRow}>
@@ -111,7 +143,7 @@ export function ChapterDateEditSheet({
               ) : (
                 <Text style={styles.fieldValue}>{startDisplayNew}</Text>
               )}
-              <Text style={styles.fieldIcon}>📅</Text>
+              <Calendar size={16} color={lightTokens.colors.warmGrey} />
             </Pressable>
           </View>
 
@@ -120,7 +152,7 @@ export function ChapterDateEditSheet({
             <Text style={styles.fieldLabel}>ENDS</Text>
             <Pressable
               style={[styles.field, pickerOpen === 'end' && styles.fieldFocus]}
-              onPress={() => setPickerOpen(pickerOpen === 'end' ? null : 'end')}
+              onPress={() => handleOpenPicker('end')}
             >
               {endChanged ? (
                 <View style={styles.diffRow}>
@@ -131,16 +163,37 @@ export function ChapterDateEditSheet({
               ) : (
                 <Text style={styles.fieldValue}>{endDisplayNew}</Text>
               )}
-              <Text style={styles.fieldIcon}>📅</Text>
+              <Calendar size={16} color={lightTokens.colors.warmGrey} />
             </Pressable>
           </View>
 
-          {/* Date picker */}
-          {pickerOpen !== null && (
+          {/* iOS: render picker inline above the keyboard with Done/Cancel */}
+          {Platform.OS === 'ios' && pickerOpen !== null && (
+            <View style={styles.pickerWrap}>
+              <View style={styles.pickerHeader}>
+                <Pressable onPress={handlePickerCancel} hitSlop={8}>
+                  <Text style={styles.pickerCancel}>Cancel</Text>
+                </Pressable>
+                <Pressable onPress={handlePickerDone} hitSlop={8}>
+                  <Text style={styles.pickerDone}>Done</Text>
+                </Pressable>
+              </View>
+              <DateTimePicker
+                value={pendingPickerValue ?? getDateService().now()}
+                mode="date"
+                display="spinner"
+                onChange={handlePickerChange}
+                textColor={lightTokens.colors.worldsInk}
+              />
+            </View>
+          )}
+
+          {/* Android: native dialog, handled by handlePickerChange */}
+          {Platform.OS === 'android' && pickerOpen !== null && (
             <DateTimePicker
-              value={pickerOpen === 'start' ? new Date(startDate) : new Date(endDate)}
+              value={pendingPickerValue ?? getDateService().now()}
               mode="date"
-              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+              display="default"
               onChange={handlePickerChange}
             />
           )}
@@ -208,7 +261,7 @@ const styles = StyleSheet.create({
   },
   head: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   title: { fontFamily: 'PlusJakartaSans-Bold', fontSize: 18, color: lightTokens.colors.worldsInk },
-  close: { fontSize: 24, color: lightTokens.colors.warmGrey, paddingHorizontal: 4 },
+
   fieldLabel: {
     fontFamily: 'Inter-Medium',
     fontSize: 10,
@@ -236,7 +289,32 @@ const styles = StyleSheet.create({
   },
   fieldFocus: { borderColor: lightTokens.colors.epigraphBorder, borderWidth: 1 },
   fieldValue: { fontFamily: 'Inter-Regular', fontSize: 15, color: lightTokens.colors.worldsInk },
-  fieldIcon: { fontSize: 16 },
+  pickerWrap: {
+    marginTop: 8,
+    borderRadius: 12,
+    backgroundColor: colors.cream,
+    overflow: 'hidden',
+  },
+  pickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: lightTokens.colors.worldsCardBorder,
+  },
+  pickerCancel: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 14,
+    color: lightTokens.colors.warmGrey,
+  },
+  pickerDone: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 14,
+    fontWeight: '500',
+    color: lightTokens.colors.mossGreen,
+  },
   diffRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8, flex: 1 },
   oldValue: {
     fontFamily: 'Inter-Regular',
