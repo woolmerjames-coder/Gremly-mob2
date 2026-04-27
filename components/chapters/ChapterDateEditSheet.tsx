@@ -14,15 +14,8 @@ import { Calendar, X } from 'lucide-react-native';
 import { Text } from '../../ui';
 import { lightTokens, colors } from '../../design/tokens';
 import { today, getDateService } from '../../lib/date/DateService';
+import { parseLocalYMD } from '../../lib/utils/dates';
 import type { Chapter } from '../../lib/supabase/types';
-
-/** Parse a YYYY-MM-DD string as a local-timezone Date.
- *  `new Date('2026-05-13')` is UTC midnight which renders as May 12 in
- *  Western timezones. Forcing noon dodges all DST and timezone edge cases.
- */
-function parseLocalYMD(ymd: string): Date {
-  return new Date(ymd + 'T12:00:00');
-}
 
 interface ChapterDateEditSheetProps {
   visible: boolean;

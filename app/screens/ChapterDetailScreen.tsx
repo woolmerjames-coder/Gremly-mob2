@@ -39,6 +39,7 @@ import type { Habit } from '../../lib/types';
 import { EditableChapterBanner } from '../../components/chapters/EditableChapterBanner';
 import { ChapterDateEditSheet } from '../../components/chapters/ChapterDateEditSheet';
 import { ChapterTitleEditSheet } from '../../components/chapters/ChapterTitleEditSheet';
+import { ChapterDispatcher } from '../../components/chapters/layouts/ChapterDispatcher';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 
 type RouteT = RouteProp<RootStackParamList, 'ChapterDetail'>;
@@ -165,30 +166,7 @@ function ChapterBody({ chapter, worldId }: ChapterBodyProps) {
         }
       />
 
-      {/* 4. Epigraph */}
-      {chapter.epigraph ? (
-        <View style={bodyStyles.epigraphWrap}>
-          <Text style={bodyStyles.epigraph}>{chapter.epigraph}</Text>
-        </View>
-      ) : null}
-
-      {/* 5. WHERE YOU ARE */}
-      <WhereYouAreSection chapter={chapter} palette={palette} />
-
-      {/* 6. NEEDS YOU */}
-      <ChapterNeedsYouSection chapterId={chapter.id} palette={palette} />
-
-      {/* 7. THIS CHAPTER'S RHYTHM */}
-      <ChapterRhythmSection
-        worldId={worldId}
-        chapterStartDate={chapter.start_date}
-        palette={palette}
-      />
-
-      {/* 8. WHEN THIS CLOSES */}
-      {chapter.target_description || chapter.target_summary ? (
-        <ChapterClosureFooter text={chapter.target_description || chapter.target_summary || ''} />
-      ) : null}
+      <ChapterDispatcher chapter={chapter} />
     </View>
   );
 }
