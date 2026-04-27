@@ -1,6 +1,6 @@
 import { View, Pressable, StyleSheet } from 'react-native';
 import { format, differenceInDays } from 'date-fns';
-import { Edit3 } from 'lucide-react-native';
+import { Edit2 } from 'lucide-react-native';
 import { Text } from '../../ui';
 import { lightTokens } from '../../design/tokens';
 import { getDateService } from '../../lib/date/DateService';
@@ -10,53 +10,6 @@ import type { Chapter } from '../../lib/supabase/types';
 interface EditableChapterBannerProps {
   chapter: Chapter;
   onEdit: () => void;
-}
-
-export function EditableChapterBanner({ chapter, onEdit }: EditableChapterBannerProps) {
-  const isClosed = !!chapter.closed_at;
-  const isUserEditedEnd = chapter.end_date_source === 'user';
-  const isUserEditedStart = chapter.start_date_source === 'user';
-  const startLabel = chapter.start_date ? format(parseLocalYMD(chapter.start_date), 'MMM d') : null;
-  const endLabel = chapter.end_date ? format(parseLocalYMD(chapter.end_date), 'MMM d') : null;
-  const countdown = computeCountdown(chapter);
-
-  return (
-    <Pressable onPress={onEdit} style={styles.container} testID="chapter-banner-pressable">
-      <View style={styles.editIconWrap}>
-        <Edit3 size={14} color={lightTokens.colors.worldsInk} />
-      </View>
-
-      {startLabel ? (
-        <Text style={[styles.startline, isUserEditedStart && styles.userEdited]}>
-          Started {startLabel}
-        </Text>
-      ) : null}
-
-      <View style={styles.endBlock}>
-        <Text style={styles.endPrefix}>{isClosed ? 'Ended  ' : 'Ends  '}</Text>
-        {endLabel ? (
-          <Text style={[styles.endDate, isUserEditedEnd && styles.userEditedDate]}>{endLabel}</Text>
-        ) : (
-          <Text style={[styles.endDate, { opacity: 0.35 }]}>—</Text>
-        )}
-      </View>
-
-      <View style={styles.footer}>
-        {countdown && !isClosed ? (
-          <Text style={[styles.countdown, countdown.urgent && styles.countdownUrgent]}>
-            {countdown.label}
-          </Text>
-        ) : (
-          <View />
-        )}
-        <View style={[styles.tag, isClosed ? styles.tagClosed : styles.tagActive]}>
-          <Text style={[styles.tagText, isClosed ? styles.tagTextClosed : styles.tagTextActive]}>
-            {isClosed ? 'CLOSED' : 'ACTIVE'}
-          </Text>
-        </View>
-      </View>
-    </Pressable>
-  );
 }
 
 function computeCountdown(chapter: Chapter): { label: string; urgent: boolean } | null {
@@ -72,59 +25,84 @@ function computeCountdown(chapter: Chapter): { label: string; urgent: boolean } 
   return { label: `in ${Math.round(days / 30)} months`, urgent: false };
 }
 
+export function EditableChapterBanner({ chapter, onEdit }: EditableChapterBannerProps) {
+  const isClosed = !!chapter.closed_at;
+  const isUserEdited = chapter.end_date_source === 'user' || chapter.start_date_source === 'user';
+  const startLabel = chapter.start_date
+    ? format(parseLocalYMD(chapter.start_date), 'MMM d').toUpperCase()
+    : null;
+  const endLabel = chapter.end_date
+    ? format(parseLocalYMD(chapter.end_date), 'MMM d').toUpperCase()
+    : null;
+  const countdown = computeCountdown(chapter);
+
+  return (
+    <Pressable onPress={onEdit} style={styles.container} testID="chapter-banner-pressable">
+      <View style={styles.row}>
+        <Text style={[styles.dates, isUserEdited && styles.datesEdited]}>
+          {startLabel}
+          {startLabel && endLabel ? ' \u2192 ' : ''}
+          {endLabel || (isClosed ? 'CLOSED' : 'ONGOING')}
+        </Text>
+        <View style={styles.right}>
+          {countdown ? (
+            <Text style={[styles.countdown, countdown.urgent && styles.countdownUrgent]}>
+              {countdown.label}
+            </Text>
+          ) : null}
+          <View style={[styles.tag, isClosed ? styles.tagClosed : styles.tagActive]}>
+            <Text style={[styles.tagText, isClosed ? styles.tagTextClosed : styles.tagTextActive]}>
+              {isClosed ? 'CLOSED' : 'ACTIVE'}
+            </Text>
+          </View>
+        </View>
+      </View>
+      <View style={styles.editIconWrap} pointerEvents="none">
+        <Edit2 size={12} color={lightTokens.colors.warmGrey} />
+      </View>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
+    marginHorizontal: 16,
     marginTop: 4,
-    backgroundColor: lightTokens.colors.worldsCard,
-    borderWidth: 1,
+    marginBottom: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: 'transparent',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderColor: lightTokens.colors.worldsCardBorder,
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 20,
     position: 'relative',
   },
-  editIconWrap: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-    opacity: 0.5,
-  },
-  startline: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 11,
-    color: lightTokens.colors.warmGrey,
-    marginBottom: 2,
-  },
-  endBlock: {
+  row: {
     flexDirection: 'row',
-    alignItems: 'baseline',
-    marginBottom: 8,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
   },
-  endPrefix: {
-    fontFamily: 'Inter-Regular',
+  dates: {
+    fontFamily: 'Inter-Medium',
     fontSize: 12,
-    color: lightTokens.colors.warmGrey,
-  },
-  endDate: {
-    fontFamily: 'PlusJakartaSans-Bold',
-    fontSize: 26,
-    lineHeight: 30,
+    fontWeight: '500',
+    letterSpacing: 1.2,
     color: lightTokens.colors.worldsInk,
+    flexShrink: 1,
   },
-  userEditedDate: {
+  datesEdited: {
     color: lightTokens.colors.epigraphBorder,
   },
-  userEdited: {
-    color: lightTokens.colors.epigraphBorder,
-  },
-  footer: {
+  right: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 10,
+    flexShrink: 0,
   },
   countdown: {
     fontFamily: 'Inter-Regular',
-    fontSize: 12,
+    fontSize: 11,
     color: lightTokens.colors.warmGrey,
   },
   countdownUrgent: {
@@ -132,26 +110,24 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   tag: {
-    paddingHorizontal: 9,
+    paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 7,
+    borderRadius: 6,
   },
-  tagActive: {
-    backgroundColor: lightTokens.colors.mossLight,
-  },
-  tagClosed: {
-    backgroundColor: lightTokens.colors.closedTagBg,
-  },
+  tagActive: { backgroundColor: lightTokens.colors.mossLight },
+  tagClosed: { backgroundColor: lightTokens.colors.closedTagBg },
   tagText: {
     fontFamily: 'Inter-Medium',
-    fontSize: 10,
-    fontWeight: '600',
-    letterSpacing: 0.5,
+    fontSize: 9,
+    fontWeight: '500',
+    letterSpacing: 0.6,
   },
-  tagTextActive: {
-    color: lightTokens.colors.mossGreen,
-  },
-  tagTextClosed: {
-    color: lightTokens.colors.closedTagFg,
+  tagTextActive: { color: lightTokens.colors.mossGreen },
+  tagTextClosed: { color: lightTokens.colors.closedTagFg },
+  editIconWrap: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    opacity: 0.4,
   },
 });

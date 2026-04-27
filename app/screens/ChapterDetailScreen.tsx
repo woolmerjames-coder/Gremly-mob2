@@ -4,13 +4,9 @@
 //
 // Sections (in order):
 //   1. Nav bar: back ‹ · breadcrumb "in [World] ⊕" · ···
-//   2. Chapter title (22px, dashed serif underline)
-//   3. Date banner — dark card, date range + "day X of ~Y" + progress bar
-//   4. Epigraph — serif italic sentence
-//   5. WHERE YOU ARE — phase spine + classifier insight
-//   6. NEEDS YOU — chapter-scoped open todos
-//   7. THIS CHAPTER'S RHYTHM — 13-week habit grid since chapter start
-//   8. WHEN THIS CLOSES — dashed footer
+//   2. Chapter title (22px)
+//   3. Date banner — tight single-row: date range + countdown + ACTIVE/CLOSED tag
+//   4. ChapterDispatcher — section composition depends on arc shape
 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ScrollView, StyleSheet, View, Pressable } from 'react-native';
@@ -140,7 +136,6 @@ function ChapterBody({ chapter, worldId }: ChapterBodyProps) {
         >
           <Text style={bodyStyles.title}>{chapter.title}</Text>
         </Pressable>
-        <View style={[bodyStyles.titleUnderline, { borderColor: palette.dot }]} />
       </View>
 
       {/* 3. Date banner */}
@@ -187,11 +182,6 @@ const bodyStyles = StyleSheet.create({
     letterSpacing: -0.3,
     color: lightTokens.colors.worldsInk,
     marginBottom: 6,
-  },
-  titleUnderline: {
-    borderBottomWidth: 1,
-    borderStyle: 'dashed',
-    width: '100%',
   },
   epigraphWrap: {
     marginBottom: 26,

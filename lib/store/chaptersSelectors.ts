@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useGremlyStore } from './useGremlyStore';
+import { getDateService } from '../date/DateService';
 import type { Note } from '../types';
 import type { DropChapterLink, DropWorldLink, Chapter, World } from '../supabase/types';
 
@@ -113,5 +114,69 @@ export const useAlsoTouchedWorldsForChapter = (chapterId: string): ChapterAlsoTo
         chapterId,
       ),
     [worlds, chapters, dropChapterLinks, dropWorldLinks, chapterId],
+  );
+};
+
+// ─── useOpenTodosForChapter ───────────────────────────────────────────────────
+
+export interface ChapterOpenTodo {
+  id: string;
+  title: string;
+  due_date: string | null;
+  is_overdue: boolean;
+}
+
+function computeOpenTodosForChapter(
+  notes: Note[],
+  dropChapterLinks: DropChapterLink[],
+  chapterId: string,
+): ChapterOpenTodo[] {
+  const dropIdsInChapter = new Set<string>();
+  for (const link of dropChapterLinks) {
+    if (link.chapter_id === chapterId) dropIdsInChapter.add(link.drop_id);
+  }
+  if (dropIdsInChapter.size === 0) return [];
+
+  // Note type doesn't have completed_at (that's on the todos table).
+  // Todo-notes are done by archiving; the `n.archived` check below handles it.
+  const todayStr = getDateService().today(); // YYYY-MM-DD
+
+  const candidates: ChapterOpenTodo[] = [];
+  for (const n of notes) {
+    if (n.archived) continue;
+    // Match notes classified as todos via canonicalType (camelCase in type, may
+    // be snake_case after store sanitization — check both).
+    const ct = n.canonicalType ?? (n as any).canonical_type;
+    if (ct !== 'todo') continue;
+    if (!dropIdsInChapter.has(n.id)) continue;
+
+    const due = n.target_date ?? null;
+    candidates.push({
+      id: n.id,
+      title: n.title || n.body?.slice(0, 60) || '(untitled)',
+      due_date: due,
+      is_overdue: due ? due < todayStr : false,
+    });
+  }
+
+  // Sort: overdue first, then upcoming by date asc, then no-date last
+  candidates.sort((a, b) => {
+    if (a.is_overdue && !b.is_overdue) return -1;
+    if (!a.is_overdue && b.is_overdue) return 1;
+    if (a.due_date && !b.due_date) return -1;
+    if (!a.due_date && b.due_date) return 1;
+    if (a.due_date && b.due_date) return a.due_date.localeCompare(b.due_date);
+    return 0;
+  });
+
+  return candidates;
+}
+
+export const useOpenTodosForChapter = (chapterId: string): ChapterOpenTodo[] => {
+  const notes = useGremlyStore((s) => s.notes);
+  const dropChapterLinks = useGremlyStore((s) => s.dropChapterLinks);
+  return useMemo(
+    () => computeOpenTodosForChapter(notes, dropChapterLinks, chapterId),
+    [notes, dropChapterLinks, chapterId],
   );
 };
