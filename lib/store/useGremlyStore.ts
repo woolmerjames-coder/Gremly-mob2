@@ -1039,6 +1039,11 @@ export interface GremlyState {
     endDate: string;
     reason: string | null;
   }) => Promise<void>;
+  updateChapterTitle: (input: {
+    chapterId: string;
+    title: string;
+    reason: string | null;
+  }) => Promise<void>;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -10174,6 +10179,63 @@ export const useGremlyStore = create<GremlyState>()(
             if (logError) {
               console.warn('[GremlyStore] updateChapterDates — edit log insert failed:', logError);
             }
+          }
+        },
+
+        updateChapterTitle: async (input: {
+          chapterId: string;
+          title: string;
+          reason: string | null;
+        }) => {
+          const userId = get().userId;
+          if (!userId) throw new Error('Not authenticated');
+
+          const chapter = get().chapters.find((c) => c.id === input.chapterId);
+          if (!chapter) throw new Error('Chapter not found');
+
+          const oldTitle = chapter.title ?? '';
+          const newTitle = input.title.trim();
+          if (newTitle === oldTitle) return;
+          if (newTitle.length === 0) throw new Error('Title cannot be empty');
+
+          const now = nowTimestamp();
+
+          const { error: updateErr } = await supabase
+            .from('chapters')
+            .update({
+              title: newTitle,
+              title_source: 'user',
+              title_updated_at: now,
+            })
+            .eq('id', input.chapterId)
+            .eq('owner_id', userId);
+          if (updateErr) throw new Error(updateErr.message);
+
+          set((state) => ({
+            chapters: state.chapters.map((c) =>
+              c.id === input.chapterId
+                ? {
+                    ...c,
+                    title: newTitle,
+                    title_source: 'user' as const,
+                    title_updated_at: now,
+                  }
+                : c,
+            ),
+          }));
+
+          // Best-effort edit log — do not throw on failure.
+          // NOTE: column is `field`, not `field_name`. No `owner_id` on chapter_edit_log.
+          // NOTE: plain values only — supabase-js encodes jsonb; do NOT call JSON.stringify.
+          const { error: logErr } = await supabase.from('chapter_edit_log').insert({
+            chapter_id: input.chapterId,
+            field: 'title',
+            old_value: oldTitle.length > 0 ? oldTitle : null,
+            new_value: newTitle,
+            reason: input.reason,
+          });
+          if (logErr) {
+            console.warn('[GremlyStore] updateChapterTitle — edit log insert failed:', logErr);
           }
         },
       }),

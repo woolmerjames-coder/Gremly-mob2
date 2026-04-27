@@ -38,6 +38,7 @@ import type { Chapter } from '../../lib/supabase/types';
 import type { Habit } from '../../lib/types';
 import { EditableChapterBanner } from '../../components/chapters/EditableChapterBanner';
 import { ChapterDateEditSheet } from '../../components/chapters/ChapterDateEditSheet';
+import { ChapterTitleEditSheet } from '../../components/chapters/ChapterTitleEditSheet';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 
 type RouteT = RouteProp<RootStackParamList, 'ChapterDetail'>;
@@ -123,13 +124,21 @@ interface ChapterBodyProps {
 function ChapterBody({ chapter, worldId }: ChapterBodyProps) {
   const palette = useWorldPalette(worldId);
   const [editSheetVisible, setEditSheetVisible] = useState(false);
+  const [titleSheetOpen, setTitleSheetOpen] = useState(false);
   const updateChapterDates = useGremlyStore((s) => s.updateChapterDates);
+  const updateChapterTitle = useGremlyStore((s) => s.updateChapterTitle);
 
   return (
     <View style={bodyStyles.root}>
       {/* 2. Title */}
       <View style={bodyStyles.titleWrap}>
-        <Text style={bodyStyles.title}>{chapter.title}</Text>
+        <Pressable
+          onPress={() => setTitleSheetOpen(true)}
+          hitSlop={4}
+          testID="chapter-title-pressable"
+        >
+          <Text style={bodyStyles.title}>{chapter.title}</Text>
+        </Pressable>
         <View style={[bodyStyles.titleUnderline, { borderColor: palette.dot }]} />
       </View>
 
@@ -142,6 +151,18 @@ function ChapterBody({ chapter, worldId }: ChapterBodyProps) {
         onSave={async (input) => {
           await updateChapterDates({ chapterId: chapter.id, ...input });
         }}
+      />
+      <ChapterTitleEditSheet
+        visible={titleSheetOpen}
+        chapter={chapter}
+        onClose={() => setTitleSheetOpen(false)}
+        onSave={(input) =>
+          updateChapterTitle({
+            chapterId: chapter.id,
+            title: input.title,
+            reason: input.reason,
+          })
+        }
       />
 
       {/* 4. Epigraph */}
