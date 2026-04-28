@@ -47,7 +47,7 @@ export function ChapterNextSection({ chapter, onTodoToggle }: ChapterNextSection
           </Pressable>
         );
       })}
-      {total > 3 ? <Text style={styles.seeAll}>see all {total} \u2192</Text> : null}
+      {total > 3 ? <Text style={styles.seeAll}>see all {total} →</Text> : null}
     </View>
   );
 }

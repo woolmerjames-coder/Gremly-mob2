@@ -37,11 +37,11 @@ export function ChapterEpigraphSection({ chapter }: ChapterEpigraphSectionProps)
             <Text style={[styles.epigraph, isClosed && styles.epigraphClosed]}>
               {chapter.epigraph}
             </Text>
-            <Text style={styles.meta}>epigraph \u00b7 tap to rewrite</Text>
+            <Text style={styles.meta}>epigraph · tap to rewrite</Text>
           </>
         ) : (
           <Pressable onPress={() => {}} testID="chapter-epigraph-placeholder" hitSlop={8}>
-            <Text style={styles.placeholder}>epigraph \u00b7 tap to rewrite</Text>
+            <Text style={styles.placeholder}>epigraph · tap to rewrite</Text>
           </Pressable>
         )}
       </View>

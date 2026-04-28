@@ -181,7 +181,6 @@ const bodyStyles = StyleSheet.create({
     lineHeight: 28,
     letterSpacing: -0.3,
     color: lightTokens.colors.worldsInk,
-    marginBottom: 6,
   },
   epigraphWrap: {
     marginBottom: 26,
