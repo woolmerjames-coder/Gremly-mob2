@@ -172,7 +172,7 @@ const bodyStyles = StyleSheet.create({
     paddingTop: 20,
   },
   titleWrap: {
-    marginBottom: 20,
+    marginBottom: 12,
   },
   title: {
     fontFamily: 'Inter-SemiBold',

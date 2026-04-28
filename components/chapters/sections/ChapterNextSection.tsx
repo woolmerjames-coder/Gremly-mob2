@@ -12,15 +12,18 @@ interface ChapterNextSectionProps {
 }
 
 export function ChapterNextSection({ chapter, onTodoToggle }: ChapterNextSectionProps) {
-  const todos = useOpenTodosForChapter(chapter.id);
+  const allTodos = useOpenTodosForChapter(chapter.id);
   if (chapter.closed_at) return null;
-  if (todos.length === 0) return null;
+  if (allTodos.length === 0) return null;
+
+  const total = allTodos.length;
+  const visible = allTodos.slice(0, 3);
 
   return (
     <View style={styles.container}>
       <Text style={styles.label}>NEXT</Text>
-      {todos.map((t, idx) => {
-        const isLast = idx === todos.length - 1;
+      {visible.map((t, idx) => {
+        const isLast = idx === visible.length - 1;
         const dueLabel = t.due_date
           ? format(parseLocalYMD(t.due_date), 'MMM d').toUpperCase()
           : null;
@@ -44,6 +47,7 @@ export function ChapterNextSection({ chapter, onTodoToggle }: ChapterNextSection
           </Pressable>
         );
       })}
+      {total > 3 ? <Text style={styles.seeAll}>see all {total} \u2192</Text> : null}
     </View>
   );
 }
@@ -54,43 +58,49 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Medium',
     fontSize: 10,
     fontWeight: '600',
-    letterSpacing: 1,
+    letterSpacing: 0.5,
     color: lightTokens.colors.warmGrey,
     textTransform: 'uppercase',
-    marginBottom: 12,
+    marginBottom: 10,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
-    gap: 12,
+    paddingVertical: 7,
+    gap: 10,
   },
   rowDivider: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: lightTokens.colors.worldsCardBorder,
+    borderBottomWidth: 0.5,
+    borderBottomColor: 'rgba(0,0,0,0.06)',
   },
   checkbox: {
-    width: 16,
-    height: 16,
-    borderRadius: 4,
+    width: 14,
+    height: 14,
+    borderRadius: 3,
     borderWidth: 1.5,
-    borderColor: lightTokens.colors.worldsInk,
+    borderColor: lightTokens.colors.warmGrey,
     flexShrink: 0,
   },
   body: {
     flex: 1,
     fontFamily: 'Inter-Regular',
-    fontSize: 14,
-    lineHeight: 19,
+    fontSize: 11,
+    lineHeight: 15,
     color: lightTokens.colors.worldsInk,
   },
   due: {
     fontFamily: 'Inter-Medium',
-    fontSize: 11,
+    fontSize: 9,
     color: lightTokens.colors.warmGrey,
     flexShrink: 0,
   },
   dueOverdue: {
     color: lightTokens.colors.blockerRed,
+  },
+  seeAll: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 9,
+    color: lightTokens.colors.warmGrey,
+    marginTop: 6,
   },
 });

@@ -6,6 +6,7 @@ import { lightTokens } from '../../design/tokens';
 import { getDateService } from '../../lib/date/DateService';
 import { parseLocalYMD } from '../../lib/utils/dates';
 import type { Chapter } from '../../lib/supabase/types';
+// Note: banner bg is worldsInk (dark surface); all text colors are inverted
 
 interface EditableChapterBannerProps {
   chapter: Chapter;
@@ -58,7 +59,7 @@ export function EditableChapterBanner({ chapter, onEdit }: EditableChapterBanner
         </View>
       </View>
       <View style={styles.editIconWrap} pointerEvents="none">
-        <Edit2 size={12} color={lightTokens.colors.warmGrey} />
+        <Edit2 size={12} color={lightTokens.colors.linenCream} />
       </View>
     </Pressable>
   );
@@ -66,15 +67,13 @@ export function EditableChapterBanner({ chapter, onEdit }: EditableChapterBanner
 
 const styles = StyleSheet.create({
   container: {
-    marginHorizontal: 16,
-    marginTop: 4,
+    marginHorizontal: 0,
+    marginTop: 0,
     marginBottom: 18,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 10,
-    backgroundColor: 'transparent',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: lightTokens.colors.worldsCardBorder,
+    backgroundColor: lightTokens.colors.worldsInk,
+    borderRadius: 8,
     position: 'relative',
   },
   row: {
@@ -85,14 +84,15 @@ const styles = StyleSheet.create({
   },
   dates: {
     fontFamily: 'Inter-Medium',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '500',
     letterSpacing: 1.2,
-    color: lightTokens.colors.worldsInk,
+    color: lightTokens.colors.linenCream,
     flexShrink: 1,
   },
+  // User-edited cue: italic (no new token — date text stays linenCream on dark bg)
   datesEdited: {
-    color: lightTokens.colors.epigraphBorder,
+    fontStyle: 'italic',
   },
   right: {
     flexDirection: 'row',
@@ -102,17 +102,18 @@ const styles = StyleSheet.create({
   },
   countdown: {
     fontFamily: 'Inter-Regular',
-    fontSize: 11,
-    color: lightTokens.colors.warmGrey,
+    fontSize: 10,
+    color: lightTokens.colors.worldsInkSoft,
   },
+  // Urgent: fully-bright linenCream on dark surface signals time pressure
   countdownUrgent: {
-    color: lightTokens.colors.epigraphBorder,
+    color: lightTokens.colors.linenCream,
     fontWeight: '500',
   },
   tag: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
   tagActive: { backgroundColor: lightTokens.colors.mossLight },
   tagClosed: { backgroundColor: lightTokens.colors.closedTagBg },

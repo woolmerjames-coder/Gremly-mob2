@@ -1,14 +1,15 @@
-import { View, StyleSheet } from 'react-native';
+import { View, Pressable, StyleSheet } from 'react-native';
 import { Text } from '../../../ui';
 import { lightTokens } from '../../../design/tokens';
 import type { Chapter, ArcShape } from '../../../lib/supabase/types';
 
+// experienceAccent replaces legacy epigraphBorder — semantically correct arc color
 function arcShapeColor(arcShape: ArcShape | null): string {
   switch (arcShape) {
     case 'outcome':
       return lightTokens.colors.mossGreen;
     case 'experience':
-      return lightTokens.colors.epigraphBorder;
+      return lightTokens.colors.experienceAccent;
     case 'process':
       return lightTokens.colors.sageGreen;
     case 'commitment':
@@ -23,15 +24,27 @@ interface ChapterEpigraphSectionProps {
 }
 
 export function ChapterEpigraphSection({ chapter }: ChapterEpigraphSectionProps) {
-  if (!chapter.epigraph || chapter.epigraph.trim().length === 0) return null;
-
+  const hasEpigraph = !!chapter.epigraph?.trim();
   const isClosed = !!chapter.closed_at;
   const arcColor = arcShapeColor(chapter.arc_shape);
 
   return (
     <View style={styles.container}>
       <View style={[styles.borderLine, { backgroundColor: arcColor }]} />
-      <Text style={[styles.epigraph, isClosed && styles.epigraphClosed]}>{chapter.epigraph}</Text>
+      <View style={styles.content}>
+        {hasEpigraph ? (
+          <>
+            <Text style={[styles.epigraph, isClosed && styles.epigraphClosed]}>
+              {chapter.epigraph}
+            </Text>
+            <Text style={styles.meta}>epigraph \u00b7 tap to rewrite</Text>
+          </>
+        ) : (
+          <Pressable onPress={() => {}} testID="chapter-epigraph-placeholder" hitSlop={8}>
+            <Text style={styles.placeholder}>epigraph \u00b7 tap to rewrite</Text>
+          </Pressable>
+        )}
+      </View>
     </View>
   );
 }
@@ -42,23 +55,39 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: 26,
     paddingHorizontal: 16,
-    gap: 12,
+    gap: 10,
   },
   borderLine: {
-    width: 4,
+    width: 2,
     alignSelf: 'stretch',
     borderRadius: 2,
     flexShrink: 0,
+    minHeight: 20,
+  },
+  content: {
+    flex: 1,
   },
   epigraph: {
-    flex: 1,
     fontFamily: 'PlusJakartaSans-Regular',
-    fontSize: 15,
+    fontSize: 14,
     lineHeight: 22,
     fontStyle: 'italic',
     color: lightTokens.colors.worldsInk,
   },
   epigraphClosed: {
     color: lightTokens.colors.warmGrey,
+  },
+  meta: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 9,
+    color: lightTokens.colors.warmGrey,
+    fontStyle: 'italic',
+    marginTop: 6,
+  },
+  placeholder: {
+    fontFamily: 'PlusJakartaSans-Regular',
+    fontSize: 9,
+    color: lightTokens.colors.warmGrey,
+    fontStyle: 'italic',
   },
 });

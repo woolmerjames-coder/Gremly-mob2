@@ -1,31 +1,7 @@
 import { View, StyleSheet } from 'react-native';
 import { Text } from '../../../ui';
 import { lightTokens } from '../../../design/tokens';
-import type { Chapter, KeyPriority } from '../../../lib/supabase/types';
-
-function markerForKind(kind: KeyPriority['kind'] | undefined): string {
-  switch (kind) {
-    case 'action':
-      return '●';
-    case 'momentum':
-      return '↗';
-    case 'decision':
-      return '◆';
-    default:
-      return '·';
-  }
-}
-
-function markerColorForKind(kind: KeyPriority['kind'] | undefined): string {
-  switch (kind) {
-    case 'action':
-      return lightTokens.colors.mossGreen;
-    case 'momentum':
-      return lightTokens.colors.epigraphBorder;
-    default:
-      return lightTokens.colors.warmGrey;
-  }
-}
+import type { Chapter } from '../../../lib/supabase/types';
 
 interface ChapterPrioritiesSectionProps {
   chapter: Chapter;
@@ -34,21 +10,29 @@ interface ChapterPrioritiesSectionProps {
 export function ChapterPrioritiesSection({ chapter }: ChapterPrioritiesSectionProps) {
   if (chapter.closed_at) return null;
 
-  const priorities = chapter.key_priorities ?? [];
-  if (priorities.length === 0) return null;
+  const blockers = (chapter.key_priorities ?? [])
+    .filter((p) => p.kind === 'blocker')
+    .sort((a, b) => (a.rank ?? 99) - (b.rank ?? 99));
 
-  const sorted = [...priorities].sort((a, b) => (a.rank ?? 99) - (b.rank ?? 99));
+  if (blockers.length === 0) return null;
+
+  const pillLabel = blockers.length === 1 ? '1 BLOCKER' : `${blockers.length} BLOCKERS`;
 
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>PRIORITIES</Text>
-      {sorted.map((p, i) => {
-        const isLast = i === sorted.length - 1;
+      <View style={styles.labelRow}>
+        <Text style={styles.label}>STANDING IN THE WAY</Text>
+        <View style={styles.blockerPill}>
+          <Text style={styles.blockerPillText}>{pillLabel}</Text>
+        </View>
+      </View>
+      {blockers.map((p, i) => {
+        const isLast = i === blockers.length - 1;
         return (
           <View key={i} style={[styles.row, !isLast && styles.rowDivider]}>
-            <Text style={[styles.marker, { color: markerColorForKind(p.kind) }]}>
-              {markerForKind(p.kind)}
-            </Text>
+            <View style={styles.marker}>
+              <Text style={styles.markerText}>!</Text>
+            </View>
             <Text style={styles.body}>{p.text}</Text>
           </View>
         );
@@ -62,6 +46,11 @@ const styles = StyleSheet.create({
     marginBottom: 26,
     paddingHorizontal: 16,
   },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
   label: {
     fontFamily: 'Inter-Medium',
     fontSize: 10,
@@ -69,7 +58,19 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     textTransform: 'uppercase',
     color: lightTokens.colors.warmGrey,
-    marginBottom: 10,
+  },
+  blockerPill: {
+    backgroundColor: lightTokens.colors.blockerRedBg,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+    marginLeft: 6,
+  },
+  blockerPillText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 9,
+    fontWeight: '500',
+    color: lightTokens.colors.blockerRed,
   },
   row: {
     flexDirection: 'row',
@@ -78,21 +79,31 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   rowDivider: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: lightTokens.colors.worldsCardBorder,
+    borderBottomWidth: 0.5,
+    borderBottomColor: 'rgba(0,0,0,0.06)',
   },
   marker: {
-    width: 20,
-    fontFamily: 'Inter-Medium',
-    fontSize: 13,
+    width: 14,
+    height: 14,
+    backgroundColor: lightTokens.colors.blockerMarkerBg,
+    borderRadius: 3,
+    justifyContent: 'center',
+    alignItems: 'center',
     flexShrink: 0,
-    textAlign: 'center',
+    marginTop: 1,
+  },
+  markerText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 9,
+    fontWeight: '600',
+    color: lightTokens.colors.blockerMarkerFg,
+    lineHeight: 13,
   },
   body: {
     flex: 1,
     fontFamily: 'Inter-Regular',
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 11,
+    lineHeight: 15,
     color: lightTokens.colors.worldsInk,
   },
 });

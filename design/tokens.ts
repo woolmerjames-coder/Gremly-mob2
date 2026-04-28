@@ -219,6 +219,8 @@ export const lightTokens = {
     blockerRed: '#A32D2D', // blocker pill text
     blockerRedBg: '#FCEBEB', // blocker pill background
     blockerRedBorder: 'rgba(163,45,45,0.28)', // blocker left-border on todo rows
+    blockerMarkerBg: '#F2A793', // blocker row square marker fill (mockup 07 C.2a)
+    blockerMarkerFg: '#4F1402', // blocker row square marker "!" glyph (mockup 07 C.2a)
 
     // Phase B: ALSO TOUCHED chip palette (per world_type, mockup 06)
     chipProjectBorder: '#C0DD97',
@@ -467,6 +469,8 @@ export const darkTokens = {
     blockerRed: '#A32D2D',
     blockerRedBg: '#FCEBEB',
     blockerRedBorder: 'rgba(163,45,45,0.28)',
+    blockerMarkerBg: '#F2A793',
+    blockerMarkerFg: '#4F1402',
 
     // Phase B: ALSO TOUCHED chip palette (per world_type)
     chipProjectBorder: '#C0DD97',
