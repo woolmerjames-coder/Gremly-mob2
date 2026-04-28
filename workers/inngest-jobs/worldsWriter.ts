@@ -185,7 +185,7 @@ export async function writeClassifierOutput(
     db
       .from('chapters')
       .select(
-        'id, title, primary_world_id, closed_at, card_subtitle_source, summary_source, title_source, arc_shape_source, epigraph_source, slip_events_source, key_moments_source, start_date_source, end_date_source, current_phase_key_source, target_description_source, phase_labels_source, key_priorities_source',
+        'id, title, primary_world_id, closed_at, card_subtitle_source, summary_source, title_source, arc_shape_source, epigraph_source, slip_events_source, key_moments_source, with_you_source, start_date_source, end_date_source, current_phase_key_source, target_description_source, phase_labels_source, key_priorities_source',
       )
       .eq('owner_id', ownerId),
     db.from('life_contexts').select('id, name, kind').eq('owner_id', ownerId),
@@ -244,6 +244,7 @@ export async function writeClassifierOutput(
       noEpigraph: boolean;
       noSlipEvents: boolean;
       noKeyMoments: boolean;
+      noWithYou: boolean;
       noStartDate: boolean;
       noEndDate: boolean;
       noCurrentPhaseKey: boolean;
@@ -261,6 +262,7 @@ export async function writeClassifierOutput(
       noEpigraph: (c.epigraph_source as string | null) === 'user',
       noSlipEvents: (c.slip_events_source as string | null) === 'user',
       noKeyMoments: (c.key_moments_source as string | null) === 'user',
+      noWithYou: (c.with_you_source as string | null) === 'user',
       noStartDate: (c.start_date_source as string | null) === 'user',
       noEndDate: (c.end_date_source as string | null) === 'user',
       noCurrentPhaseKey: (c.current_phase_key_source as string | null) === 'user',
@@ -533,6 +535,38 @@ export async function writeClassifierOutput(
         patch.slip_events = update.new_slip_events;
         patch.slip_events_source = 'classifier';
         patch.slip_events_updated_at = now();
+      }
+      if (update.new_with_you != null && chapterProt?.noWithYou !== true) {
+        assertChapterWritable(chapter, 'with_you', runOptions);
+        // with_you is a structured JSONB array, not a free-form text field.
+        // No sanitizeAuthored. Defensive shape check filters malformed entries
+        // (missing name or confidence, or non-object items) and applies the
+        // 0.5 confidence floor and 10-entry cap matching the prompt rules.
+        const arr = Array.isArray(update.new_with_you) ? update.new_with_you : null;
+        if (arr != null) {
+          const cleaned = arr
+            .filter(
+              (
+                item,
+              ): item is {
+                name: string;
+                confidence: number;
+                role?: string | null;
+                span?: string | null;
+                evidence_drop_id?: string | null;
+              } =>
+                item != null &&
+                typeof item === 'object' &&
+                typeof item.name === 'string' &&
+                item.name.length > 0 &&
+                typeof item.confidence === 'number' &&
+                item.confidence >= 0.5,
+            )
+            .slice(0, 10);
+          patch.with_you = cleaned;
+          patch.with_you_source = 'classifier';
+          patch.with_you_updated_at = now();
+        }
       }
 
       // Source-protected fields

@@ -359,6 +359,20 @@ export interface NewChapterCandidate {
  * Used when an ongoing arc picks up additional evidence in the new window
  * but the chapter itself hasn't changed identity.
  */
+
+/**
+ * A named person materially involved with a chapter, written by the
+ * classifier alongside the chapter's epigraph. Read by useChapterPeople
+ * with fall-through to @-tag extraction when null/empty.
+ */
+export interface WithYouItem {
+  name: string;
+  role?: string | null;
+  span?: string | null;
+  evidence_drop_id?: string | null;
+  confidence: number;
+}
+
 export interface ChapterUpdate {
   chapter_id: string;
   new_end_date: string | null;
@@ -374,6 +388,7 @@ export interface ChapterUpdate {
   new_epigraph?: string | null;
   new_key_moments?: unknown[] | null;
   new_slip_events?: unknown[] | null;
+  new_with_you?: WithYouItem[] | null;
   close_chapter: boolean;
   reason: string;
   evidence: Evidence[];
@@ -600,9 +615,11 @@ World summary as epigraph. The summary field on a world is a single sentence, ma
 
 Chapter target_summary. One to two sentences, maximum two hundred forty characters. Gremly voice, observational, anchored to specific named entities present in the chapter's signal. For an outcome chapter, name the target and what stands in the way. For a process chapter, name what the user is moving through. For an experience chapter, name the bounded event and its primary anchors. For a commitment chapter, name the pledge and its current status. Refreshed on each weekly run while the chapter is active. Never written or overwritten for a chapter whose closed_at is set.
 
-Closed chapter immutability. For any chapter whose closed_at is set in the input state, you must not emit any chapter_update that modifies its title, arc_shape, epigraph, target_summary, summary, card_subtitle, key_priorities, or any other authored field. You may emit a chapter_update for a closed chapter only if the update contains no field writes and exists solely to record that the chapter was observed. In practice, this means closed chapters should simply be skipped. The one exception is when this run is invoked with an explicit user-rewrite context in the user prompt stating that the user requested rewriting a specific field; the user prompt will name that field, and only that field may be authored.
+Closed chapter immutability. For any chapter whose closed_at is set in the input state, you must not emit any chapter_update that modifies its title, arc_shape, epigraph, with_you, target_summary, summary, card_subtitle, key_priorities, or any other authored field. You may emit a chapter_update for a closed chapter only if the update contains no field writes and exists solely to record that the chapter was observed. In practice, this means closed chapters should simply be skipped. The one exception is when this run is invoked with an explicit user-rewrite context in the user prompt stating that the user requested rewriting a specific field; the user prompt will name that field, and only that field may be authored.
 
-Chapter epigraph. The epigraph is a single paragraph, two to four sentences, maximum four hundred characters, written only when a chapter is being closed in this run or when the run is an explicit user-triggered epigraph rewrite. Select the memoir register that matches the chapter's arc_shape. The epigraph is Gremly voice in memoir register: reflective, retrospective, present or simple past. Third-person observational about the user. For an experience chapter, name places, people, and the emotional shape of the trip. For a commitment chapter, name what was held, what slipped, what was learned. For an outcome chapter, name what shipped, what was close, where the user is heading next. For a process chapter, name what the user moved through and what the new normal is. Newsroom verbs, celebratory adjectives, therapy-voice, em dashes, en dashes, and double hyphens are forbidden. Emit the epigraph via the new_epigraph field on the matching chapter_update. Never emit an epigraph for a chapter not being closed in this run.
+Chapter epigraph. The epigraph is a single paragraph, two to four sentences, maximum four hundred characters. Write the epigraph for any active chapter the run has substrate to speak about, for any chapter being closed in this run, and for any chapter named in an explicit user-rewrite context. Select the register that matches the chapter's state. For an active chapter, the register is observational and present-tense: name what is pulling on the chapter right now, what specific events sit immediately ahead, and where the user stands relative to the chapter's target or rhythm. For a closed chapter, the register is memoir: reflective, retrospective, present or simple past, naming what happened and what changed. Apply the arc-shape register on top of the state register. For an experience chapter, name places, people, and the emotional shape of the chapter. For a commitment chapter, name what is being held or what was held, what has slipped or was let go, and what is being learned or was learned. For an outcome chapter, name what is shipping or has shipped, what is close, where the user is heading next. For a process chapter, name what the user is moving through or moved through, and what the new normal looks like. The voice is third-person observational about the user. Newsroom verbs such as emerge, unfold, continue, gain momentum, build, accelerate, intensify, navigate are forbidden. Celebratory adjectives, therapy-voice phrasings such as holding space or processing, em dashes, en dashes, and double hyphens are forbidden. If the substrate the input provides for a chapter does not support specific naming with concrete nouns and named events or people, omit the epigraph for that chapter rather than emit a generic version. Emit the epigraph via the new_epigraph field on the matching chapter_update.
+
+Chapter with_you. The with_you field is a structured array of named people materially involved with the chapter, written for active chapters and at chapter close. Each entry is an object with the keys name, role, span, evidence_drop_id, and confidence. Name is the person's titlecased display name and is required. Role is a short phrase, two to six words, describing how the person is or was involved with the chapter, and is optional. Span is the temporal scope of the person's involvement, written as a date, a date range, or a short qualitative phrase, and is optional. Evidence_drop_id is the drop_id of one drop in the input where this person is named, and is optional. Confidence is a number between zero and one indicating how strongly the input supports this person's involvement. Write only people whose involvement is materially named in the input drops. Do not write the chapter owner themselves. Do not invent people from speculation. Do not write people whose involvement is incidental rather than material. If the substrate names no people materially involved, emit an empty array rather than omitting the field. Order entries by frequency of mention, then by recency. Maximum ten entries per chapter. Em dashes, en dashes, and double hyphens are forbidden in any string field. Emit via the new_with_you field on the matching chapter_update.
 
 Chapter slip events. A slip event is emitted only when the chapter's arc_shape is commitment and the input state for that chapter shows slip_tracking_enabled is true. A slip event is an instance of the user deviating from the commitment's pledge, as evidenced by the content of a drop within the chapter's date range. Each slip carries a date matching the source drop, a short reason phrase naming the occasion or trigger, a drop_id if traceable, and a confidence score. Do not mark a drop as a slip when confidence is below zero point six. Never invent a slip the user did not mention; only extract slips from actual drop content. On a run that is closing the chapter, emit the final set of slips via new_slip_events. On a run that is not closing the chapter, do not emit slip_events. User review of slips happens in the UI, not in the classifier.
 
@@ -799,6 +816,21 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
             new_epigraph: { type: ['string', 'null'], maxLength: 400 },
             new_key_moments: { type: ['array', 'null'], items: { type: 'object' } },
             new_slip_events: { type: ['array', 'null'], items: { type: 'object' } },
+            new_with_you: {
+              type: ['array', 'null'],
+              maxItems: 10,
+              items: {
+                type: 'object',
+                required: ['name', 'confidence'],
+                properties: {
+                  name: { type: 'string', minLength: 1, maxLength: 80 },
+                  role: { type: ['string', 'null'], maxLength: 60 },
+                  span: { type: ['string', 'null'], maxLength: 40 },
+                  evidence_drop_id: { type: ['string', 'null'] },
+                  confidence: { type: 'number', minimum: 0, maximum: 1 },
+                },
+              },
+            },
             new_phase_labels: {
               oneOf: [
                 { type: 'array', minItems: 3, maxItems: 5, items: { type: 'string' } },
