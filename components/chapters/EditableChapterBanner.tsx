@@ -137,7 +137,7 @@ const styles = StyleSheet.create({
   countdown: {
     fontFamily: 'Inter-Regular',
     fontSize: 10,
-    color: lightTokens.colors.worldsInkSoft,
+    color: lightTokens.colors.onInkLabel,
   },
   // Urgent: fully-bright linenCream on dark surface signals time pressure
   countdownUrgent: {
