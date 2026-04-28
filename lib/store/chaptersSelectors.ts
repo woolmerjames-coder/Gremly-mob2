@@ -391,16 +391,18 @@ export const useChapterTimelineItems = (
       items.push({ id, dateIso, dateLabel, text, tense });
     };
 
-    if (chapter.start_date) {
+    const moments: KeyMoment[] = chapter.key_moments ?? [];
+    const hasKeyMoments = moments.length > 0;
+
+    if (!hasKeyMoments && chapter.start_date) {
       addItem(chapter.start_date, 'Start', undefined, `start-${chapter.start_date}`);
     }
 
-    const moments: KeyMoment[] = chapter.key_moments ?? [];
     for (const km of moments) {
       addItem(km.date, km.text, km.location, `km-${km.date}-${km.text.slice(0, 8)}`);
     }
 
-    if (chapter.end_date) {
+    if (!hasKeyMoments && chapter.end_date) {
       addItem(chapter.end_date, 'End', undefined, `end-${chapter.end_date}`);
     }
 
