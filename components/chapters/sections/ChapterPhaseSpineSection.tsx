@@ -4,18 +4,18 @@ import { lightTokens } from '../../../design/tokens';
 import { useChapterItemCount } from '../../../lib/store/chaptersSelectors';
 import type { Chapter } from '../../../lib/supabase/types';
 
-// Arc accent is intentionally hardcoded to mossGreen here.
-// Process / Experience / Commitment spines use different primitives (heatmap,
-// held-strip) so there is no shared abstraction to generalise to yet.
-const DONE_COLOR = lightTokens.colors.mossGreen;
+// Future segments and now-track use a fixed inactive color regardless of arc.
 const INACTIVE_COLOR = lightTokens.colors.oatDeeper;
 const NOW_FILL_PCT = '60%';
 
 interface ChapterPhaseSpineSectionProps {
   chapter: Chapter;
+  // accentColor: arc accent for done segments and the now-fill.
+  // OutcomeChapterLayout passes mossGreen; ProcessChapterLayout passes sageGreen.
+  accentColor: string;
 }
 
-export function ChapterPhaseSpineSection({ chapter }: ChapterPhaseSpineSectionProps) {
+export function ChapterPhaseSpineSection({ chapter, accentColor }: ChapterPhaseSpineSectionProps) {
   const { phase_labels, current_phase_key, id } = chapter;
   const itemCount = useChapterItemCount(id);
 
@@ -37,12 +37,11 @@ export function ChapterPhaseSpineSection({ chapter }: ChapterPhaseSpineSectionPr
         {phase_labels.map((phase, idx) => {
           const isDone = nowIndex >= 0 && idx < nowIndex;
           const isNow = idx === nowIndex;
-          // future: idx > nowIndex OR nowIndex === -1
 
           if (isNow) {
             return (
               <View key={idx} style={[styles.segment, { backgroundColor: INACTIVE_COLOR }]}>
-                <View style={styles.nowFill} />
+                <View style={[styles.nowFill, { backgroundColor: accentColor }]} />
               </View>
             );
           }
@@ -50,7 +49,7 @@ export function ChapterPhaseSpineSection({ chapter }: ChapterPhaseSpineSectionPr
           return (
             <View
               key={idx}
-              style={[styles.segment, { backgroundColor: isDone ? DONE_COLOR : INACTIVE_COLOR }]}
+              style={[styles.segment, { backgroundColor: isDone ? accentColor : INACTIVE_COLOR }]}
             />
           );
         })}
@@ -126,7 +125,6 @@ const styles = StyleSheet.create({
     left: 0,
     bottom: 0,
     width: NOW_FILL_PCT,
-    backgroundColor: DONE_COLOR,
     borderTopLeftRadius: 2,
     borderBottomLeftRadius: 2,
   },
@@ -140,7 +138,6 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     fontSize: 9,
     textAlign: 'center',
-    // default: future color
   },
   phaseLabelDone: {
     fontFamily: 'Inter-Regular',

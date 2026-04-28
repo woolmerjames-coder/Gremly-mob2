@@ -9,9 +9,10 @@ import type { Chapter } from '../../../lib/supabase/types';
 interface ChapterNextSectionProps {
   chapter: Chapter;
   onTodoToggle?: (todoId: string) => void;
+  label?: string;
 }
 
-export function ChapterNextSection({ chapter, onTodoToggle }: ChapterNextSectionProps) {
+export function ChapterNextSection({ chapter, onTodoToggle, label }: ChapterNextSectionProps) {
   const allTodos = useOpenTodosForChapter(chapter.id);
   if (chapter.closed_at) return null;
   if (allTodos.length === 0) return null;
@@ -21,7 +22,7 @@ export function ChapterNextSection({ chapter, onTodoToggle }: ChapterNextSection
 
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>NEXT</Text>
+      <Text style={styles.label}>{label ?? 'NEXT'}</Text>
       {visible.map((t, idx) => {
         const isLast = idx === visible.length - 1;
         const dueLabel = t.due_date

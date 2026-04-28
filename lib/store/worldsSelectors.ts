@@ -8,6 +8,7 @@
 
 import { useMemo } from 'react';
 import { startOfISOWeek } from 'date-fns';
+import { startOfIsoWeek } from '../date/isoWeek';
 import { createSelector } from 'reselect';
 import { useShallow } from 'zustand/react/shallow';
 import { useGremlyStore } from './useGremlyStore';
@@ -386,14 +387,7 @@ const selectAllPeopleMemo = createSelector(
 // Weekly summary card
 // ============================================================================
 
-function startOfIsoWeek(d: Date): Date {
-  const day = d.getDay() || 7; // Sun = 7
-  const offset = day - 1; // Mon = 0
-  const r = new Date(d);
-  r.setHours(0, 0, 0, 0);
-  r.setDate(r.getDate() - offset);
-  return r;
-}
+// startOfIsoWeek imported from lib/date/isoWeek.ts
 
 /**
  * Multi-clause cross-world summary that evolves with activity.

@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import { useGremlyStore } from './useGremlyStore';
 import { getDateService } from '../date/DateService';
-import type { Note, Todo } from '../types';
+import type { Note, Todo, Habit } from '../types';
+import { startOfIsoWeek, weekKey } from '../date/isoWeek';
 import type { DropChapterLink, DropWorldLink, Chapter, World } from '../supabase/types';
 
 // ─── useRecentDropsForChapter ─────────────────────────────────────────────────
@@ -178,6 +179,122 @@ export const useOpenTodosForChapter = (chapterId: string): ChapterOpenTodo[] => 
     () => computeOpenTodosForChapter(todos, dropChapterLinks, chapterId),
     [todos, dropChapterLinks, chapterId],
   );
+};
+
+// ─── useChapterCadenceWeeks / useChapterCadenceTotals ───────────────────────
+
+const MONTH_LABELS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+export interface CadenceWeek {
+  weekStart: string; // 'YYYY-MM-DD' Monday
+  activityCount: number;
+  intensityLevel: 0 | 1 | 2 | 3 | 4;
+  monthLabel: string;
+}
+
+export interface CadenceTotals {
+  totalSessionsInWindow: number;
+  weeksActiveInWindow: number;
+  averagePerActiveWeek: string; // '~{X}/wk' or '\u2014/wk'
+}
+
+function computeCadenceWeeks(
+  dropChapterLinks: DropChapterLink[],
+  notes: Note[],
+  todos: Todo[],
+  habits: Habit[],
+  chapterId: string,
+  weeksBack: number,
+): CadenceWeek[] {
+  // Build lookup maps so we can resolve a link's drop created_at
+  const noteMap = new Map<string, Note>(notes.map((n) => [n.id, n]));
+  const todoMap = new Map<string, Todo>(todos.map((t) => [t.id, t]));
+  const habitMap = new Map<string, Habit>(habits.map((h) => [h.id, h]));
+
+  const buckets = new Map<string, number>();
+  for (const link of dropChapterLinks) {
+    if (link.chapter_id !== chapterId) continue;
+    let createdAt: string | undefined;
+    if (link.drop_type === 'note') createdAt = noteMap.get(link.drop_id)?.created_at;
+    else if (link.drop_type === 'todo') createdAt = todoMap.get(link.drop_id)?.created_at;
+    else if (link.drop_type === 'habit') createdAt = habitMap.get(link.drop_id)?.created_at;
+    if (!createdAt) continue;
+    const key = weekKey(new Date(createdAt));
+    buckets.set(key, (buckets.get(key) ?? 0) + 1);
+  }
+
+  const today = getDateService().now();
+  const windowEnd = startOfIsoWeek(today);
+  const result: CadenceWeek[] = [];
+  for (let i = weeksBack - 1; i >= 0; i--) {
+    const weekDate = new Date(windowEnd);
+    weekDate.setDate(windowEnd.getDate() - i * 7);
+    const key = weekKey(weekDate);
+    const count = buckets.get(key) ?? 0;
+    const level: 0 | 1 | 2 | 3 | 4 =
+      count === 0 ? 0 : count === 1 ? 1 : count <= 3 ? 2 : count <= 6 ? 3 : 4;
+    const [, mo] = key.split('-');
+    result.push({
+      weekStart: key,
+      activityCount: count,
+      intensityLevel: level,
+      monthLabel: MONTH_LABELS[parseInt(mo, 10) - 1],
+    });
+  }
+  return result;
+}
+
+export const useChapterCadenceWeeks = (
+  chapterId: string | null | undefined,
+  weeksBack = 19,
+): CadenceWeek[] => {
+  const dropChapterLinks = useGremlyStore((s) => s.dropChapterLinks);
+  const notes = useGremlyStore((s) => s.notes);
+  const todos = useGremlyStore((s) => s.todos);
+  const habits = useGremlyStore((s) => s.habits);
+  return useMemo(() => {
+    if (!chapterId) return [];
+    return computeCadenceWeeks(dropChapterLinks, notes, todos, habits, chapterId, weeksBack);
+  }, [dropChapterLinks, notes, todos, habits, chapterId, weeksBack]);
+};
+
+export const useChapterCadenceTotals = (
+  chapterId: string | null | undefined,
+  weeksBack = 19,
+): CadenceTotals => {
+  const dropChapterLinks = useGremlyStore((s) => s.dropChapterLinks);
+  const notes = useGremlyStore((s) => s.notes);
+  const todos = useGremlyStore((s) => s.todos);
+  const habits = useGremlyStore((s) => s.habits);
+  return useMemo(() => {
+    if (!chapterId)
+      return {
+        totalSessionsInWindow: 0,
+        weeksActiveInWindow: 0,
+        averagePerActiveWeek: '\u2014/wk',
+      };
+    const weeks = computeCadenceWeeks(dropChapterLinks, notes, todos, habits, chapterId, weeksBack);
+    const totalSessionsInWindow = weeks.reduce((sum, w) => sum + w.activityCount, 0);
+    const weeksActiveInWindow = weeks.filter((w) => w.activityCount > 0).length;
+    const averagePerActiveWeek =
+      weeksActiveInWindow === 0
+        ? '\u2014/wk'
+        : `~${Math.round(totalSessionsInWindow / weeksActiveInWindow)}/wk`;
+    return { totalSessionsInWindow, weeksActiveInWindow, averagePerActiveWeek };
+  }, [dropChapterLinks, notes, todos, habits, chapterId, weeksBack]);
 };
 
 // ─── useChapterItemCount ──────────────────────────────────────────────────────
