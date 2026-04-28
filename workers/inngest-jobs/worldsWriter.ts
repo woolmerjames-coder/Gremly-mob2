@@ -517,7 +517,7 @@ export async function writeClassifierOutput(
       }
       if (update.new_epigraph != null && chapterProt?.noEpigraph !== true) {
         assertChapterWritable(chapter, 'epigraph', runOptions);
-        const clean = sanitizeAuthored(update.new_epigraph, 400);
+        const clean = sanitizeAuthored(update.new_epigraph, 250);
         if (clean) {
           patch.epigraph = clean;
           patch.epigraph_source = 'classifier';
