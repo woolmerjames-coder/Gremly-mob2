@@ -179,3 +179,13 @@ export const useOpenTodosForChapter = (chapterId: string): ChapterOpenTodo[] => 
     [todos, dropChapterLinks, chapterId],
   );
 };
+
+// ─── useChapterItemCount ──────────────────────────────────────────────────────
+
+export const useChapterItemCount = (chapterId: string | null | undefined): number => {
+  const dropChapterLinks = useGremlyStore((s) => s.dropChapterLinks);
+  return useMemo(() => {
+    if (!chapterId) return 0;
+    return dropChapterLinks.filter((l) => l.chapter_id === chapterId).length;
+  }, [dropChapterLinks, chapterId]);
+};
