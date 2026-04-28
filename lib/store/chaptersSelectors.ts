@@ -1,9 +1,11 @@
 import { useMemo } from 'react';
 import { useGremlyStore } from './useGremlyStore';
 import { getDateService } from '../date/DateService';
+import { parseLocalYMD } from '../utils/dates';
 import type { Note, Todo, Habit } from '../types';
 import { startOfIsoWeek, weekKey } from '../date/isoWeek';
-import type { DropChapterLink, DropWorldLink, Chapter, World } from '../supabase/types';
+import type { DropChapterLink, DropWorldLink, Chapter, World, KeyMoment } from '../supabase/types';
+import { extractPeopleFromNotes, initialsOf, titleCase } from './worldsSelectors';
 
 // ─── useRecentDropsForChapter ─────────────────────────────────────────────────
 
@@ -305,4 +307,149 @@ export const useChapterItemCount = (chapterId: string | null | undefined): numbe
     if (!chapterId) return 0;
     return dropChapterLinks.filter((l) => l.chapter_id === chapterId).length;
   }, [dropChapterLinks, chapterId]);
+};
+
+// ─── ChapterPerson ───────────────────────────────────────────────────────────
+
+export interface ChapterPerson {
+  id: string; // lowercased name (stable key today)
+  name: string; // titlecased
+  initials: string;
+  mentionCount: number;
+  role?: string; // Phase 2 (W.1)
+  span?: string; // Phase 2 (W.1)
+  evidenceDropId?: string; // Phase 2 (W.1)
+}
+
+export const useChapterPeople = (chapterId: string | null | undefined): ChapterPerson[] => {
+  const dropChapterLinks = useGremlyStore((s) => s.dropChapterLinks);
+  const notes = useGremlyStore((s) => s.notes);
+  return useMemo(() => {
+    if (!chapterId) return [];
+    const noteIds = new Set<string>();
+    for (const l of dropChapterLinks) {
+      if (l.chapter_id === chapterId && l.drop_type === 'note') noteIds.add(l.drop_id);
+    }
+    const chapterNotes = notes.filter((n) => noteIds.has(n.id));
+    const counts = extractPeopleFromNotes(chapterNotes);
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([name, mentionCount]) => ({
+        id: name.toLowerCase(),
+        name: titleCase(name),
+        initials: initialsOf(name),
+        mentionCount,
+      }));
+  }, [dropChapterLinks, notes, chapterId]);
+};
+
+// ─── ChapterTimelineItem ─────────────────────────────────────────────────────
+
+export interface ChapterTimelineItem {
+  id: string;
+  dateIso: string; // YYYY-MM-DD
+  dateLabel: string; // "MAY 1 · BERLIN" or "MAY 1"
+  text: string;
+  tense: 'past' | 'now' | 'future';
+  isMarker?: boolean; // synthetic "you are here" row
+}
+
+export const useChapterTimelineItems = (
+  chapter: Chapter | null | undefined,
+): ChapterTimelineItem[] => {
+  const todayKey = getDateService().today();
+  return useMemo(() => {
+    if (!chapter) return [];
+
+    const items: ChapterTimelineItem[] = [];
+
+    const addItem = (dateIso: string, text: string, location: string | undefined, id: string) => {
+      const label = dateIso.slice(5).replace('-', '/');
+      // Format as "MMM D" by parsing month+day
+      const [, mm, dd] = dateIso.split('-');
+      const monthNames = [
+        'JAN',
+        'FEB',
+        'MAR',
+        'APR',
+        'MAY',
+        'JUN',
+        'JUL',
+        'AUG',
+        'SEP',
+        'OCT',
+        'NOV',
+        'DEC',
+      ];
+      const monthLabel = monthNames[parseInt(mm, 10) - 1] ?? mm;
+      const dayLabel = parseInt(dd, 10).toString();
+      const dateLabel = location
+        ? `${monthLabel} ${dayLabel} · ${location.toUpperCase()}`
+        : `${monthLabel} ${dayLabel}`;
+      const tense: ChapterTimelineItem['tense'] =
+        dateIso < todayKey ? 'past' : dateIso > todayKey ? 'future' : 'now';
+      items.push({ id, dateIso, dateLabel, text, tense });
+    };
+
+    if (chapter.start_date) {
+      addItem(chapter.start_date, 'Start', undefined, `start-${chapter.start_date}`);
+    }
+
+    const moments: KeyMoment[] = chapter.key_moments ?? [];
+    for (const km of moments) {
+      addItem(km.date, km.text, km.location, `km-${km.date}-${km.text.slice(0, 8)}`);
+    }
+
+    if (chapter.end_date) {
+      addItem(chapter.end_date, 'End', undefined, `end-${chapter.end_date}`);
+    }
+
+    // Sort by date ascending
+    items.sort((a, b) => a.dateIso.localeCompare(b.dateIso));
+
+    // Inject synthetic "you are here" marker if today falls strictly between
+    // two existing items and doesn't already match any existing item's date.
+    const alreadyHasToday = items.some((i) => i.dateIso === todayKey);
+    if (!alreadyHasToday && items.length >= 2) {
+      const firstDate = items[0].dateIso;
+      const lastDate = items[items.length - 1].dateIso;
+      if (todayKey > firstDate && todayKey < lastDate) {
+        const endDate = chapter.end_date ?? lastDate;
+        const endMs = parseLocalYMD(endDate).getTime();
+        const todayMs = parseLocalYMD(todayKey).getTime();
+        const daysOut = Math.max(0, Math.round((endMs - todayMs) / 86_400_000));
+        const [, mm, dd] = todayKey.split('-');
+        const monthNames = [
+          'JAN',
+          'FEB',
+          'MAR',
+          'APR',
+          'MAY',
+          'JUN',
+          'JUL',
+          'AUG',
+          'SEP',
+          'OCT',
+          'NOV',
+          'DEC',
+        ];
+        const monthLabel = monthNames[parseInt(mm, 10) - 1] ?? mm;
+        const dayLabel = parseInt(dd, 10).toString();
+        const marker: ChapterTimelineItem = {
+          id: `marker-today`,
+          dateIso: todayKey,
+          dateLabel: `${monthLabel} ${dayLabel} · TODAY`,
+          text: `today · ${daysOut} days out`,
+          tense: 'now',
+          isMarker: true,
+        };
+        // Insert in sorted position
+        const insertIdx = items.findIndex((i) => i.dateIso > todayKey);
+        if (insertIdx === -1) items.push(marker);
+        else items.splice(insertIdx, 0, marker);
+      }
+    }
+
+    return items;
+  }, [chapter, todayKey]);
 };

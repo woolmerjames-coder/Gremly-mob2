@@ -306,7 +306,7 @@ export interface WorldPerson {
 // and ranks them. A future phase may backfill entity_people and swap the source.
 // ============================================================================
 
-function extractPeopleFromNotes(notes: Note[]): Map<string, number> {
+export function extractPeopleFromNotes(notes: Note[]): Map<string, number> {
   const counts = new Map<string, number>();
   for (const n of notes) {
     const tags = Array.isArray(n.tags) ? n.tags : [];
@@ -322,14 +322,14 @@ function extractPeopleFromNotes(notes: Note[]): Map<string, number> {
   return counts;
 }
 
-function titleCase(raw: string): string {
+export function titleCase(raw: string): string {
   return raw
     .split(/\s+/)
     .map((w) => (w.length > 0 ? w.charAt(0).toUpperCase() + w.slice(1) : w))
     .join(' ');
 }
 
-function initialsOf(name: string): string {
+export function initialsOf(name: string): string {
   const parts = name.split(/\s+/).filter(Boolean);
   if (parts.length === 0) return '?';
   if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
