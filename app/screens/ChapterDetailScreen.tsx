@@ -33,6 +33,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import type { Chapter } from '../../lib/supabase/types';
 import type { Habit } from '../../lib/types';
 import { EditableChapterBanner } from '../../components/chapters/EditableChapterBanner';
+import { ChapterHeldStripBanner } from '../../components/chapters/sections/ChapterHeldStripBanner';
 import { ChapterDateEditSheet } from '../../components/chapters/ChapterDateEditSheet';
 import { ChapterTitleEditSheet } from '../../components/chapters/ChapterTitleEditSheet';
 import { ChapterDispatcher } from '../../components/chapters/layouts/ChapterDispatcher';
@@ -139,7 +140,15 @@ function ChapterBody({ chapter, worldId }: ChapterBodyProps) {
       </View>
 
       {/* 3. Date banner */}
-      <EditableChapterBanner chapter={chapter} onEdit={() => setEditSheetVisible(true)} />
+      <EditableChapterBanner
+        chapter={chapter}
+        onEdit={() => setEditSheetVisible(true)}
+        extraRow={
+          chapter.arc_shape === 'commitment' && !chapter.closed_at ? (
+            <ChapterHeldStripBanner chapter={chapter} />
+          ) : undefined
+        }
+      />
       <ChapterDateEditSheet
         visible={editSheetVisible}
         chapter={chapter}

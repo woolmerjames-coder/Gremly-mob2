@@ -455,3 +455,163 @@ export const useChapterTimelineItems = (
     return items;
   }, [chapter, todayKey]);
 };
+
+// ─── HeldStripCell ───────────────────────────────────────────────────────────
+
+export interface HeldStripCell {
+  dateIso: string; // YYYY-MM-DD
+  tense: 'held' | 'slip' | 'today' | 'future';
+  /** Populated when tense is 'slip', or when tense is 'today' and today is
+   *  also in slip_events (today-as-slip edge case). */
+  slipReason?: string;
+}
+
+export const useChapterHeldStripCells = (chapter: Chapter | null | undefined): HeldStripCell[] => {
+  const todayKey = getDateService().today();
+  return useMemo(() => {
+    if (!chapter || !chapter.start_date || !chapter.end_date || !chapter.slip_tracking_enabled)
+      return [];
+
+    const slipMap = new Map<string, string | undefined>();
+    for (const s of chapter.slip_events ?? []) {
+      slipMap.set(s.date, s.note);
+    }
+
+    const cells: HeldStripCell[] = [];
+    let cursor = parseLocalYMD(chapter.start_date);
+    const end = parseLocalYMD(chapter.end_date);
+
+    while (cursor <= end) {
+      const [yr, mn, dy] = [
+        cursor.getFullYear(),
+        String(cursor.getMonth() + 1).padStart(2, '0'),
+        String(cursor.getDate()).padStart(2, '0'),
+      ];
+      const dateIso = `${yr}-${mn}-${dy}`;
+      const isSlip = slipMap.has(dateIso);
+      const slipReason = isSlip ? slipMap.get(dateIso) : undefined;
+
+      let tense: HeldStripCell['tense'];
+      if (dateIso === todayKey) {
+        tense = 'today';
+      } else if (isSlip) {
+        tense = 'slip';
+      } else if (dateIso < todayKey) {
+        tense = 'held';
+      } else {
+        tense = 'future';
+      }
+
+      cells.push({ dateIso, tense, slipReason });
+      cursor = new Date(cursor.getTime() + 86_400_000);
+    }
+
+    return cells;
+  }, [
+    chapter?.start_date,
+    chapter?.end_date,
+    chapter?.slip_events,
+    chapter?.slip_tracking_enabled,
+    todayKey,
+  ]);
+};
+
+// ─── HeldStripStats ──────────────────────────────────────────────────────────
+
+export interface HeldStripStats {
+  heldCount: number;
+  slipCount: number;
+  currentStreak: number;
+  totalDays: number;
+  dayOfTotal: number;
+}
+
+export const useChapterHeldStripStats = (
+  chapter: Chapter | null | undefined,
+): HeldStripStats | null => {
+  const cells = useChapterHeldStripCells(chapter);
+  const todayKey = getDateService().today();
+  return useMemo(() => {
+    if (!chapter?.start_date || !chapter?.end_date || !chapter?.slip_tracking_enabled) return null;
+    if (cells.length === 0) return null;
+
+    const heldCount = cells.filter(
+      (c) => c.tense === 'held' || (c.tense === 'today' && !c.slipReason),
+    ).length;
+    const slipCount = cells.filter(
+      (c) => c.tense === 'slip' || (c.tense === 'today' && !!c.slipReason),
+    ).length;
+    const totalDays = cells.length;
+    const todayIdx = cells.findIndex((c) => c.dateIso === todayKey);
+    const dayOfTotal = Math.min(todayIdx === -1 ? totalDays : todayIdx + 1, totalDays);
+
+    // currentStreak: days since last slip, up to and including today.
+    // 0 if today itself is a slip.
+    const todayCell = cells.find((c) => c.dateIso === todayKey);
+    let currentStreak: number;
+    if (todayCell?.tense === 'today' && todayCell.slipReason) {
+      currentStreak = 0;
+    } else {
+      const slipCells = cells
+        .filter((c) => c.tense === 'slip' && c.dateIso <= todayKey)
+        .map((c) => c.dateIso)
+        .sort();
+      const lastSlipDate = slipCells.length > 0 ? slipCells[slipCells.length - 1] : null;
+      if (lastSlipDate) {
+        const lastSlipMs = parseLocalYMD(lastSlipDate).getTime();
+        const todayMs = parseLocalYMD(todayKey).getTime();
+        currentStreak = Math.round((todayMs - lastSlipMs) / 86_400_000);
+      } else {
+        const startMs = parseLocalYMD(chapter.start_date).getTime();
+        const todayMs = parseLocalYMD(todayKey).getTime();
+        currentStreak = Math.round((todayMs - startMs) / 86_400_000) + 1;
+      }
+    }
+
+    return { heldCount, slipCount, currentStreak, totalDays, dayOfTotal };
+  }, [cells, chapter?.start_date, chapter?.end_date, chapter?.slip_tracking_enabled, todayKey]);
+};
+
+// ─── UpcomingRiskItem ────────────────────────────────────────────────────────
+
+export interface UpcomingRiskItem {
+  id: string;
+  text: string;
+  dateIso: string;
+  dateLabel: string; // "{Mon} {D}" e.g. "May 1"
+}
+
+export const useChapterUpcomingRisk = (chapter: Chapter | null | undefined): UpcomingRiskItem[] => {
+  const todayKey = getDateService().today();
+  return useMemo(() => {
+    if (!chapter) return [];
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return (chapter.key_priorities ?? [])
+      .filter((p) => p.kind === 'date' && p.due_date && p.due_date >= todayKey)
+      .sort((a, b) => (a.due_date ?? '').localeCompare(b.due_date ?? ''))
+      .map((p) => {
+        const [, mm, dd] = (p.due_date ?? '').split('-');
+        const month = months[parseInt(mm, 10) - 1] ?? mm;
+        const day = parseInt(dd, 10).toString();
+        return {
+          id: `risk-${p.rank}-${p.due_date ?? ''}`,
+          text: p.text,
+          dateIso: p.due_date ?? '',
+          dateLabel: `${month} ${day}`,
+        };
+      });
+  }, [chapter?.key_priorities, todayKey]);
+};

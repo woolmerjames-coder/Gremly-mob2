@@ -1,4 +1,5 @@
 import { View, Pressable, StyleSheet } from 'react-native';
+import type { ReactNode } from 'react';
 import { format, differenceInDays } from 'date-fns';
 import { Edit2 } from 'lucide-react-native';
 import { Text } from '../../ui';
@@ -11,11 +12,28 @@ import type { Chapter } from '../../lib/supabase/types';
 interface EditableChapterBannerProps {
   chapter: Chapter;
   onEdit: () => void;
+  /** Optional extra row rendered inside the dark slab below the dates row.
+   *  Used by the Commitment arc to inject the held/slip strip. */
+  extraRow?: ReactNode;
 }
 
 function computeCountdown(chapter: Chapter): { label: string; urgent: boolean } | null {
   if (chapter.closed_at) return null;
   if (!chapter.end_date) return null;
+
+  // Commitment arc: show "day X of Y" progress instead of countdown to end.
+  if (chapter.arc_shape === 'commitment' && chapter.start_date) {
+    const startMs = parseLocalYMD(chapter.start_date).getTime();
+    const endMs = parseLocalYMD(chapter.end_date).getTime();
+    const todayMs = parseLocalYMD(getDateService().today()).getTime();
+    const totalDays = Math.round((endMs - startMs) / 86_400_000) + 1;
+    const dayOfTotal = Math.min(
+      Math.max(1, Math.round((todayMs - startMs) / 86_400_000) + 1),
+      totalDays,
+    );
+    return { label: `day ${dayOfTotal} of ${totalDays}`, urgent: dayOfTotal >= totalDays - 3 };
+  }
+
   const days = differenceInDays(parseLocalYMD(chapter.end_date), getDateService().now());
   if (days < 0) return { label: `${Math.abs(days)} days overdue`, urgent: true };
   if (days === 0) return { label: 'today', urgent: true };
@@ -26,8 +44,9 @@ function computeCountdown(chapter: Chapter): { label: string; urgent: boolean } 
   return { label: `in ${Math.round(days / 30)} months`, urgent: false };
 }
 
-export function EditableChapterBanner({ chapter, onEdit }: EditableChapterBannerProps) {
+export function EditableChapterBanner({ chapter, onEdit, extraRow }: EditableChapterBannerProps) {
   const isClosed = !!chapter.closed_at;
+  const isCommitment = chapter.arc_shape === 'commitment' && !isClosed;
   const isUserEdited = chapter.end_date_source === 'user' || chapter.start_date_source === 'user';
   const startLabel = chapter.start_date
     ? format(parseLocalYMD(chapter.start_date), 'MMM d').toUpperCase()
@@ -51,13 +70,28 @@ export function EditableChapterBanner({ chapter, onEdit }: EditableChapterBanner
               {countdown.label}
             </Text>
           ) : null}
-          <View style={[styles.tag, isClosed ? styles.tagClosed : styles.tagActive]}>
-            <Text style={[styles.tagText, isClosed ? styles.tagTextClosed : styles.tagTextActive]}>
+          <View
+            style={[
+              styles.tag,
+              isClosed ? styles.tagClosed : isCommitment ? styles.tagCommitment : styles.tagActive,
+            ]}
+          >
+            <Text
+              style={[
+                styles.tagText,
+                isClosed
+                  ? styles.tagTextClosed
+                  : isCommitment
+                    ? styles.tagTextCommitment
+                    : styles.tagTextActive,
+              ]}
+            >
               {isClosed ? 'CLOSED' : 'ACTIVE'}
             </Text>
           </View>
         </View>
       </View>
+      {extraRow != null ? <View style={styles.extraRowWrap}>{extraRow}</View> : null}
       <View style={styles.editIconWrap} pointerEvents="none">
         <Edit2 size={12} color={lightTokens.colors.linenCream} />
       </View>
@@ -117,6 +151,8 @@ const styles = StyleSheet.create({
   },
   tagActive: { backgroundColor: lightTokens.colors.mossLight },
   tagClosed: { backgroundColor: lightTokens.colors.closedTagBg },
+  // Commitment arc: periwinkle-tinted tag — chipRelationshipBorder bg, chipRelationshipText fg
+  tagCommitment: { backgroundColor: lightTokens.colors.chipRelationshipBorder },
   tagText: {
     fontFamily: 'Inter-Medium',
     fontSize: 9,
@@ -125,6 +161,10 @@ const styles = StyleSheet.create({
   },
   tagTextActive: { color: lightTokens.colors.mossGreen },
   tagTextClosed: { color: lightTokens.colors.closedTagFg },
+  tagTextCommitment: { color: lightTokens.colors.chipRelationshipText },
+  extraRowWrap: {
+    marginTop: 8,
+  },
   editIconWrap: {
     position: 'absolute',
     top: 6,
