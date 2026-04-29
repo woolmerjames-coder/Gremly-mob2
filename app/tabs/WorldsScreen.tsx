@@ -76,7 +76,8 @@ export default function WorldsScreen() {
           onPressNew={handlePressWeeklySummary}
           onPressPastSummaries={handlePressPastSummaries}
         />
-        <View style={{ marginTop: 20 }}>
+        <View style={styles.hairline} />
+        <View style={{ marginTop: 8 }}>
           <WorldsGrid onPressWorld={handlePressWorld} onPressAdd={handlePressAdd} />
         </View>
         {/* TODO(4a.6): Contexts section hidden until we clarify its purpose to users. */}
@@ -93,4 +94,10 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: lightTokens.colors.worldsSurface },
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 100 },
+  hairline: {
+    height: StyleSheet.hairlineWidth,
+    marginHorizontal: 16,
+    marginTop: 16,
+    backgroundColor: lightTokens.colors.worldsInkOutline,
+  },
 });

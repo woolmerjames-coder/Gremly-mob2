@@ -24,7 +24,7 @@ export function OpenChaptersSection({ onPressChapter }: OpenChaptersSectionProps
   return (
     <View>
       <View style={styles.sec}>
-        <Text style={styles.label}>Priority Chapters</Text>
+        <Text style={styles.label}>STORY ARCS · {open.length} UNFOLDING</Text>
       </View>
       {open.map((c) => (
         <ChapterRowCompact key={c.id} chapter={c} onPress={onPressChapter} />
@@ -41,8 +41,10 @@ const styles = StyleSheet.create({
   },
   label: {
     fontFamily: 'Inter-Medium',
-    fontSize: 19,
+    fontSize: 10,
     fontWeight: '700',
-    color: lightTokens.colors.worldsInk,
+    letterSpacing: 1.2,
+    color: lightTokens.colors.warmGrey,
+    textTransform: 'uppercase',
   },
 });

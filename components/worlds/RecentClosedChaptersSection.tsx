@@ -20,7 +20,7 @@ export function RecentClosedChaptersSection({ onPressChapter }: RecentClosedChap
   return (
     <View>
       <View style={styles.sec}>
-        <Text style={styles.label}>RECENT CLOSED</Text>
+        <Text style={styles.label}>RECENTLY CLOSED · {closed.length}</Text>
       </View>
       <View style={styles.row}>
         {closed.map((c) => (

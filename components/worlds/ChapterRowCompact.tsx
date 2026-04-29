@@ -3,7 +3,38 @@ import { format } from 'date-fns';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
 import { useWorldPalette } from '../../lib/store/worldsSelectors';
+import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import type { Chapter } from '../../lib/supabase/types';
+
+function arcLabel(shape: string | null): string {
+  switch (shape) {
+    case 'experience':
+      return 'Experience';
+    case 'commitment':
+      return 'Commitment';
+    case 'outcome':
+      return 'Outcome';
+    case 'process':
+      return 'Process';
+    default:
+      return 'Chapter';
+  }
+}
+
+function arcColor(shape: string | null): string {
+  switch (shape) {
+    case 'experience':
+      return lightTokens.colors.experienceAccentDeep;
+    case 'commitment':
+      return lightTokens.colors.commitmentAccent;
+    case 'outcome':
+      return lightTokens.colors.outcomeAccent;
+    case 'process':
+      return lightTokens.colors.processAccent;
+    default:
+      return lightTokens.colors.warmGrey;
+  }
+}
 
 interface ChapterRowCompactProps {
   chapter: Chapter;
@@ -12,6 +43,8 @@ interface ChapterRowCompactProps {
 
 export function ChapterRowCompact({ chapter, onPress }: ChapterRowCompactProps) {
   const palette = useWorldPalette(chapter.primary_world_id ?? '');
+  const worldData = useGremlyStore((s) => s.worlds.find((w) => w.id === chapter.primary_world_id));
+  const worldName = worldData?.display_name || worldData?.name || '';
 
   return (
     <Pressable
@@ -19,15 +52,21 @@ export function ChapterRowCompact({ chapter, onPress }: ChapterRowCompactProps) 
       style={styles.card}
       testID={`chapter-row-${chapter.id}`}
     >
-      <Text style={[styles.phaseHero, { color: palette.base }]} numberOfLines={1}>
-        {chapter.current_phase_key?.toUpperCase() ?? ''}
+      <Text style={[styles.eyebrow, { color: arcColor(chapter.arc_shape) }]}>
+        {arcLabel(chapter.arc_shape)}
       </Text>
       <Text style={styles.chapterTitle} numberOfLines={2}>
         {chapter.title}
       </Text>
-      {chapter.start_date ? (
-        <Text style={styles.dateLine}>since {format(new Date(chapter.start_date), 'MMM d')}</Text>
-      ) : null}
+      <View style={styles.metaRow}>
+        <View style={[styles.worldDot, { backgroundColor: palette.dot }]} />
+        <Text style={styles.metaText} numberOfLines={1}>
+          {worldName}
+          {chapter.start_date
+            ? ` \u00b7 since ${format(new Date(chapter.start_date), 'MMM d')}`
+            : ''}
+        </Text>
+      </View>
     </Pressable>
   );
 }
@@ -38,16 +77,15 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     paddingVertical: 12,
     paddingHorizontal: 14,
-    backgroundColor: lightTokens.colors.oatCard,
-    borderWidth: 1,
-    borderColor: lightTokens.colors.oatCardBorder,
+    backgroundColor: lightTokens.colors.worldsCard,
     borderRadius: 13,
   },
-  phaseHero: {
+  eyebrow: {
     fontFamily: 'Inter-Medium',
-    fontSize: 17,
-    fontWeight: '700',
+    fontSize: 10,
+    fontWeight: '600',
     letterSpacing: 0.8,
+    textTransform: 'uppercase',
     marginBottom: 4,
   },
   chapterTitle: {
@@ -56,11 +94,23 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     lineHeight: 20,
     color: lightTokens.colors.worldsInk,
-    marginBottom: 2,
+    marginBottom: 6,
   },
-  dateLine: {
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  worldDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    flexShrink: 0,
+  },
+  metaText: {
     fontFamily: 'Inter-Regular',
-    fontSize: 12,
+    fontSize: 11,
     color: lightTokens.colors.warmGrey,
+    flex: 1,
   },
 });

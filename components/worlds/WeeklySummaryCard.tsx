@@ -1,4 +1,4 @@
-import { View, Pressable, StyleSheet } from 'react-native';
+import { View, Pressable, Platform, StyleSheet } from 'react-native';
 import { format } from 'date-fns';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
@@ -39,13 +39,11 @@ export function WeeklySummaryCard({ onPressNew, onPressPastSummaries }: WeeklySu
       <View style={styles.cardSoft}>
         <View style={styles.topRow}>
           <Text style={styles.lblSoft}>THIS WEEK{rangeText ? ` · ${rangeText}` : ''}</Text>
-          <Pressable onPress={onPressPastSummaries} hitSlop={8}>
+          <Pressable onPress={onPressPastSummaries} style={styles.pastPill} hitSlop={8}>
             <Text style={styles.pastLink}>see past summaries →</Text>
           </Pressable>
         </View>
-        <Text style={styles.headSoft} numberOfLines={3} ellipsizeMode="tail">
-          {state.summary.headline}
-        </Text>
+        <Text style={styles.headSoft}>{state.summary.headline}</Text>
       </View>
     );
   }
@@ -65,13 +63,11 @@ export function WeeklySummaryCard({ onPressNew, onPressPastSummaries }: WeeklySu
       <View style={styles.cardSoft}>
         <View style={styles.topRow}>
           <Text style={styles.lblSoft}>THIS WEEK{rangeText ? ` · ${rangeText}` : ''}</Text>
-          <Pressable onPress={onPressPastSummaries} hitSlop={8}>
+          <Pressable onPress={onPressPastSummaries} style={styles.pastPill} hitSlop={8}>
             <Text style={styles.pastLink}>see past summaries →</Text>
           </Pressable>
         </View>
-        <Text style={styles.headSoft} numberOfLines={3} ellipsizeMode="tail">
-          {clauses[0]}
-        </Text>
+        <Text style={styles.headSoft}>{clauses[0]}</Text>
       </View>
     );
   }
@@ -166,10 +162,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 17,
     paddingTop: 14,
     paddingBottom: 10,
-    borderRadius: 18,
-    backgroundColor: lightTokens.colors.oatCard,
-    borderWidth: 1,
-    borderColor: lightTokens.colors.oatCardBorder,
   },
   lblSoft: {
     fontFamily: 'Inter-Medium',
@@ -184,6 +176,12 @@ const styles = StyleSheet.create({
     alignItems: 'baseline',
     marginBottom: 10,
   },
+  pastPill: {
+    backgroundColor: lightTokens.colors.worldsInkOutline,
+    borderRadius: 10,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+  },
   pastLink: {
     fontFamily: 'Inter-Medium',
     fontSize: 10,
@@ -192,10 +190,10 @@ const styles = StyleSheet.create({
     color: lightTokens.colors.warmGrey,
   },
   headSoft: {
-    fontFamily: 'Inter-Medium',
+    fontFamily: Platform.select({ ios: 'NewYork', android: 'serif', default: 'Georgia' }),
     fontSize: 18,
     fontWeight: '700',
-    lineHeight: 24,
+    lineHeight: 26,
     color: lightTokens.colors.worldsInk,
   },
   bodySoft: {
