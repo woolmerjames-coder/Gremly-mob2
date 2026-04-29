@@ -1738,3 +1738,32 @@ export const useWorldPulse = (worldId: string, numWeeks: number = 18): WorldPuls
     [todos, habits, notes, dropWorldLinks, chapters, chapterWorldLinks, worldId, numWeeks],
   );
 };
+
+// ─── useWorldsForEntity ───────────────────────────────────────────────────────
+
+export interface WorldForEntity {
+  id: string;
+  name: string;
+  accentColor: string;
+}
+
+export const useWorldsForEntity = (entityId: string | null | undefined): WorldForEntity[] => {
+  const worlds = useGremlyStore((s) => s.worlds);
+  const dropWorldLinks = useGremlyStore((s) => s.dropWorldLinks);
+  return useMemo(() => {
+    if (!entityId) return [];
+    const worldIds = new Set<string>();
+    for (const link of dropWorldLinks) {
+      if (link.drop_id === entityId) worldIds.add(link.world_id);
+    }
+    if (worldIds.size === 0) return [];
+    const result: WorldForEntity[] = [];
+    for (const w of worlds) {
+      if (!worldIds.has(w.id)) continue;
+      const palette = selectWorldPalette({ worlds } as any, w.id);
+      result.push({ id: w.id, name: w.name, accentColor: palette.dot });
+    }
+    result.sort((a, b) => a.name.localeCompare(b.name));
+    return result;
+  }, [entityId, worlds, dropWorldLinks]);
+};

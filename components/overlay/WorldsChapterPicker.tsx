@@ -1,13 +1,15 @@
 /**
  * WorldsChapterPicker — multi-select bottom sheet for linking an entity
- * to chapters (grouped by world). Replaces the legacy SpaceSelectorBottomSheet
- * for the Worlds row in the unified overlay (F.4).
+ * to worlds AND chapters independently (F.4 fix).
  *
- * Commits on Save: inserts/deletes drop_chapter_links in Supabase, then
- * updates Zustand state immediately so chips re-render without a full reload.
- * Closed-chapter links are not in the picker list and are never touched.
+ * - World rows: checkbox + accent dot + name (ALL worlds shown, even with 0 active chapters)
+ * - Chapter rows: indented checkbox + title (active/open chapters only)
+ * - Worlds and chapters are toggled independently — checking a world does NOT
+ *   auto-toggle its chapters, and vice versa.
+ * - Save: diffs and persists drop_world_links + drop_chapter_links separately.
+ * - Closed-chapter links are preserved (invisible to picker).
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Modal,
   View,
@@ -20,7 +22,7 @@ import {
 import { X, Check } from 'lucide-react-native';
 import { Text } from '../../ui';
 import { lightTokens } from '../../design/tokens';
-import { useActiveChaptersGroupedByWorld } from '../../lib/store/chaptersSelectors';
+import { selectWorldPalette } from '../../lib/store/worldsSelectors';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useAuth } from '../../providers/AuthProvider';
 import type { DropType } from '../../lib/supabase/types';
@@ -39,46 +41,88 @@ export function WorldsChapterPicker({
   entityDropType,
   onClose,
 }: WorldsChapterPickerProps) {
-  const groups = useActiveChaptersGroupedByWorld();
+  const worlds = useGremlyStore((s) => s.worlds);
+  const chapters = useGremlyStore((s) => s.chapters);
+  const dropWorldLinks = useGremlyStore((s) => s.dropWorldLinks);
   const dropChapterLinks = useGremlyStore((s) => s.dropChapterLinks);
   const { userId } = useAuth();
 
-  // Set of chapter IDs selected in the picker
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  // Set of chapter IDs that were linked when the sheet opened (closed-chapter
-  // links excluded — those are invisible to the picker)
-  const [initialSelected, setInitialSelected] = useState<Set<string>>(new Set());
+  // All worlds sorted alphabetically, each with their active chapters
+  const groups = useMemo(() => {
+    const activeChapters = chapters.filter((c) => c.closed_at == null);
+    const byWorld = new Map<string, Array<{ id: string; title: string }>>();
+    for (const c of activeChapters) {
+      const wid = c.primary_world_id ?? '__none__';
+      if (!byWorld.has(wid)) byWorld.set(wid, []);
+      byWorld.get(wid)!.push({ id: c.id, title: c.title });
+    }
+    const sorted = [...worlds].sort((a, b) => a.name.localeCompare(b.name));
+    return sorted.map((w) => {
+      const palette = selectWorldPalette({ worlds } as any, w.id);
+      const wChapters = (byWorld.get(w.id) ?? []).sort((a, b) => a.title.localeCompare(b.title));
+      return {
+        worldId: w.id,
+        worldName: w.name,
+        worldAccentColor: palette.dot,
+        chapters: wChapters,
+      };
+    });
+  }, [worlds, chapters]);
+
+  // Two independent selection sets
+  const [selectedWorlds, setSelectedWorlds] = useState<Set<string>>(new Set());
+  const [selectedChapters, setSelectedChapters] = useState<Set<string>>(new Set());
+  const [initialWorlds, setInitialWorlds] = useState<Set<string>>(new Set());
+  const [initialChapters, setInitialChapters] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Populate selections from current dropChapterLinks whenever the sheet opens
+  // Populate both sets from Zustand when the sheet opens
   useEffect(() => {
     if (!visible) return;
     if (!entityId) {
-      setSelected(new Set());
-      setInitialSelected(new Set());
+      setSelectedWorlds(new Set());
+      setSelectedChapters(new Set());
+      setInitialWorlds(new Set());
+      setInitialChapters(new Set());
       return;
     }
-    // Collect all IDs the active-chapters list knows about (open chapters only)
+
+    const wLinked = new Set<string>();
+    for (const link of dropWorldLinks) {
+      if (link.drop_id === entityId) wLinked.add(link.world_id);
+    }
+    setSelectedWorlds(new Set(wLinked));
+    setInitialWorlds(new Set(wLinked));
+
+    // Only active (open) chapter links — closed-chapter links are preserved silently
     const activeChapterIds = new Set<string>();
     for (const g of groups) {
       for (const c of g.chapters) activeChapterIds.add(c.id);
     }
-    // Pre-select only active-chapter links (closed ones are invisible)
-    const linked = new Set<string>();
+    const cLinked = new Set<string>();
     for (const link of dropChapterLinks) {
       if (link.drop_id === entityId && activeChapterIds.has(link.chapter_id)) {
-        linked.add(link.chapter_id);
+        cLinked.add(link.chapter_id);
       }
     }
-    setSelected(new Set(linked));
-    setInitialSelected(new Set(linked));
+    setSelectedChapters(new Set(cLinked));
+    setInitialChapters(new Set(cLinked));
     setSaveError(null);
     setSaving(false);
   }, [visible, entityId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const toggle = useCallback((chapterId: string) => {
-    setSelected((prev) => {
+  const toggleWorld = useCallback((worldId: string) => {
+    setSelectedWorlds((prev) => {
+      const next = new Set(prev);
+      if (next.has(worldId)) next.delete(worldId);
+      else next.add(worldId);
+      return next;
+    });
+  }, []);
+
+  const toggleChapter = useCallback((chapterId: string) => {
+    setSelectedChapters((prev) => {
       const next = new Set(prev);
       if (next.has(chapterId)) next.delete(chapterId);
       else next.add(chapterId);
@@ -91,15 +135,43 @@ export function WorldsChapterPicker({
     setSaving(true);
     setSaveError(null);
 
-    const toAdd = [...selected].filter((id) => !initialSelected.has(id));
-    const toRemove = [...initialSelected].filter((id) => !selected.has(id));
+    const worldsToAdd = [...selectedWorlds].filter((id) => !initialWorlds.has(id));
+    const worldsToRemove = [...initialWorlds].filter((id) => !selectedWorlds.has(id));
+    const chaptersToAdd = [...selectedChapters].filter((id) => !initialChapters.has(id));
+    const chaptersToRemove = [...initialChapters].filter((id) => !selectedChapters.has(id));
 
     try {
       const { supabase } = await import('../../lib/supabase/client');
 
-      // Insert new links
-      if (toAdd.length > 0) {
-        const rows = toAdd.map((chapterId) => ({
+      // ── drop_world_links ──────────────────────────────────────────────────
+      if (worldsToAdd.length > 0) {
+        const rows = worldsToAdd.map((worldId) => ({
+          drop_id: entityId,
+          drop_type: entityDropType,
+          world_id: worldId,
+          owner_id: userId,
+          relevance_score: 1.0,
+          assigned_by: 'user' as const,
+          reason: null,
+        }));
+        const { error } = await supabase.from('drop_world_links').upsert(rows, {
+          onConflict: 'drop_id,world_id',
+          ignoreDuplicates: true,
+        });
+        if (error) throw error;
+      }
+      for (const worldId of worldsToRemove) {
+        const { error } = await supabase
+          .from('drop_world_links')
+          .delete()
+          .eq('drop_id', entityId)
+          .eq('world_id', worldId);
+        if (error) throw error;
+      }
+
+      // ── drop_chapter_links ────────────────────────────────────────────────
+      if (chaptersToAdd.length > 0) {
+        const rows = chaptersToAdd.map((chapterId) => ({
           drop_id: entityId,
           drop_type: entityDropType,
           chapter_id: chapterId,
@@ -114,9 +186,7 @@ export function WorldsChapterPicker({
         });
         if (error) throw error;
       }
-
-      // Delete removed links
-      for (const chapterId of toRemove) {
+      for (const chapterId of chaptersToRemove) {
         const { error } = await supabase
           .from('drop_chapter_links')
           .delete()
@@ -125,14 +195,34 @@ export function WorldsChapterPicker({
         if (error) throw error;
       }
 
-      // Update Zustand immediately so chips re-render
+      // Update Zustand immediately so chips re-render without a full store reload
       useGremlyStore.setState((state) => {
-        let links = state.dropChapterLinks.filter(
-          (l) => !(l.drop_id === entityId && toRemove.includes(l.chapter_id)),
+        let wLinks = state.dropWorldLinks.filter(
+          (l) => !(l.drop_id === entityId && worldsToRemove.includes(l.world_id)),
         );
-        for (const chapterId of toAdd) {
-          links = [
-            ...links,
+        for (const worldId of worldsToAdd) {
+          wLinks = [
+            ...wLinks,
+            {
+              drop_id: entityId,
+              drop_type: entityDropType,
+              world_id: worldId,
+              owner_id: userId,
+              relevance_score: 1.0,
+              assigned_by: 'user' as const,
+              reason: null,
+              created_at: nowTimestamp(),
+              last_confirmed_at: null,
+            },
+          ];
+        }
+
+        let cLinks = state.dropChapterLinks.filter(
+          (l) => !(l.drop_id === entityId && chaptersToRemove.includes(l.chapter_id)),
+        );
+        for (const chapterId of chaptersToAdd) {
+          cLinks = [
+            ...cLinks,
             {
               drop_id: entityId,
               drop_type: entityDropType,
@@ -146,7 +236,8 @@ export function WorldsChapterPicker({
             },
           ];
         }
-        return { dropChapterLinks: links };
+
+        return { dropWorldLinks: wLinks, dropChapterLinks: cLinks };
       });
 
       onClose();
@@ -154,9 +245,17 @@ export function WorldsChapterPicker({
       setSaveError(err instanceof Error ? err.message : 'Failed to save. Try again.');
       setSaving(false);
     }
-  }, [entityId, userId, entityDropType, selected, initialSelected, saving, onClose]);
-
-  const totalActive = groups.reduce((n, g) => n + g.chapters.length, 0);
+  }, [
+    entityId,
+    userId,
+    entityDropType,
+    selectedWorlds,
+    selectedChapters,
+    initialWorlds,
+    initialChapters,
+    saving,
+    onClose,
+  ]);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -175,9 +274,9 @@ export function WorldsChapterPicker({
           </View>
 
           {/* Body */}
-          {totalActive === 0 ? (
+          {groups.length === 0 ? (
             <View style={styles.emptyState}>
-              <Text style={styles.emptyText}>No active chapters yet.</Text>
+              <Text style={styles.emptyText}>No worlds yet.</Text>
             </View>
           ) : (
             <ScrollView
@@ -185,47 +284,70 @@ export function WorldsChapterPicker({
               contentContainerStyle={styles.scrollContent}
               showsVerticalScrollIndicator={false}
             >
-              {groups.map((group) => (
-                <View key={group.worldId}>
-                  {/* World section header */}
-                  <View style={styles.sectionHeader}>
-                    <View style={[styles.worldDot, { backgroundColor: group.worldAccentColor }]} />
-                    <Text style={styles.sectionLabel}>{group.worldName.toUpperCase()}</Text>
-                  </View>
-
-                  {/* Chapter rows */}
-                  {group.chapters.map((chapter) => {
-                    const isSelected = selected.has(chapter.id);
-                    return (
-                      <Pressable
-                        key={chapter.id}
-                        onPress={() => toggle(chapter.id)}
-                        style={({ pressed }) => [
-                          styles.chapterRow,
-                          pressed && styles.chapterRowPressed,
+              {groups.map((group) => {
+                const worldChecked = selectedWorlds.has(group.worldId);
+                return (
+                  <View key={group.worldId}>
+                    {/* World row — independently checkable */}
+                    <Pressable
+                      onPress={() => toggleWorld(group.worldId)}
+                      style={({ pressed }) => [styles.worldRow, pressed && styles.rowPressed]}
+                    >
+                      <View
+                        style={[
+                          styles.checkbox,
+                          worldChecked && {
+                            backgroundColor: group.worldAccentColor,
+                            borderColor: group.worldAccentColor,
+                          },
                         ]}
                       >
-                        <View
-                          style={[
-                            styles.checkbox,
-                            isSelected && {
-                              backgroundColor: group.worldAccentColor,
-                              borderColor: group.worldAccentColor,
-                            },
-                          ]}
+                        {worldChecked && <Check size={12} color="#FFFFFF" strokeWidth={2.5} />}
+                      </View>
+                      <View
+                        style={[styles.worldDot, { backgroundColor: group.worldAccentColor }]}
+                      />
+                      <Text style={[styles.worldName, worldChecked && styles.worldNameSelected]}>
+                        {group.worldName}
+                      </Text>
+                    </Pressable>
+
+                    {/* Chapter rows — indented, independently checkable */}
+                    {group.chapters.map((chapter) => {
+                      const chapterChecked = selectedChapters.has(chapter.id);
+                      return (
+                        <Pressable
+                          key={chapter.id}
+                          onPress={() => toggleChapter(chapter.id)}
+                          style={({ pressed }) => [styles.chapterRow, pressed && styles.rowPressed]}
                         >
-                          {isSelected && <Check size={12} color="#FFFFFF" strokeWidth={2.5} />}
-                        </View>
-                        <Text
-                          style={[styles.chapterTitle, isSelected && styles.chapterTitleSelected]}
-                        >
-                          {chapter.title}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              ))}
+                          <View
+                            style={[
+                              styles.checkbox,
+                              chapterChecked && {
+                                backgroundColor: group.worldAccentColor,
+                                borderColor: group.worldAccentColor,
+                              },
+                            ]}
+                          >
+                            {chapterChecked && (
+                              <Check size={12} color="#FFFFFF" strokeWidth={2.5} />
+                            )}
+                          </View>
+                          <Text
+                            style={[
+                              styles.chapterTitle,
+                              chapterChecked && styles.chapterTitleSelected,
+                            ]}
+                          >
+                            {chapter.title}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                );
+              })}
             </ScrollView>
           )}
 
@@ -306,34 +428,39 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: lightTokens.colors.warmGrey,
   },
-  sectionHeader: {
+  worldRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 10,
-    paddingTop: 16,
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    borderRadius: 8,
   },
   worldDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
   },
-  sectionLabel: {
-    fontFamily: 'Inter-Medium',
-    fontSize: 10,
+  worldName: {
+    flex: 1,
+    fontSize: 16,
     fontWeight: '600',
-    letterSpacing: 1,
-    color: lightTokens.colors.warmGrey,
+    color: lightTokens.colors.worldsInk,
+    fontFamily: 'Inter-SemiBold',
+  },
+  worldNameSelected: {
+    color: lightTokens.colors.worldsInk,
   },
   chapterRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 11,
-    paddingHorizontal: 4,
+    paddingVertical: 10,
+    paddingLeft: 32,
+    paddingRight: 4,
     borderRadius: 8,
   },
-  chapterRowPressed: {
+  rowPressed: {
     opacity: 0.6,
   },
   checkbox: {
@@ -348,13 +475,14 @@ const styles = StyleSheet.create({
   },
   chapterTitle: {
     flex: 1,
-    fontSize: 15,
-    color: lightTokens.colors.worldsInk,
+    fontSize: 14,
+    color: lightTokens.colors.worldsInkSoft,
     fontFamily: 'Inter-Regular',
   },
   chapterTitleSelected: {
     fontFamily: 'Inter-Medium',
     fontWeight: '500',
+    color: lightTokens.colors.worldsInk,
   },
   error: {
     fontSize: 13,

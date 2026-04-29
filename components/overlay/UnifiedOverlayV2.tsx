@@ -90,6 +90,7 @@ import { lightTokens, darkTokens, spacing as tokenSpacing } from '../../design/t
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { selectItemById, useActiveSpaces, useSpaceHasEvents } from '../../lib/store/selectors';
 import { useChaptersForEntity } from '../../lib/store/chaptersSelectors';
+import { useWorldsForEntity } from '../../lib/store/worldsSelectors';
 import { WorldsChapterPicker } from './WorldsChapterPicker';
 import { useAuth } from '../../providers/AuthProvider';
 import ScopeSelector from '../ScopeSelector';
@@ -880,8 +881,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // Track entity ID for dependency array
   const currentEntityId = (initialEntity as any)?.id ?? null;
-  // Chapter links for Worlds chip row in view mode
+  // World and chapter links for Worlds chip row
   const entityChapters = useChaptersForEntity(currentEntityId);
+  const entityWorlds = useWorldsForEntity(currentEntityId);
 
   // Initialize store when overlay opens
   useEffect(() => {
@@ -3203,7 +3205,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
         {/* Metadata summary card (todo/habit) */}
         {(baseType === 'todo' || baseType === 'habit') &&
-          (scheduleSummary || entitySpaceName || entityChapters.length > 0) && (
+          (scheduleSummary ||
+            entitySpaceName ||
+            entityChapters.length > 0 ||
+            entityWorlds.length > 0) && (
             <View
               style={{
                 padding: 10,
@@ -3215,7 +3220,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             >
               {scheduleSummary && (
                 <View
-                  style={{ flexDirection: 'row', marginBottom: entityChapters.length > 0 ? 4 : 0 }}
+                  style={{
+                    flexDirection: 'row',
+                    marginBottom: entityChapters.length > 0 || entityWorlds.length > 0 ? 4 : 0,
+                  }}
                 >
                   <Text
                     style={{
@@ -3230,7 +3238,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   <Text style={{ fontSize: 12, color: '#555', flex: 1 }}>{scheduleSummary}</Text>
                 </View>
               )}
-              {entityChapters.length > 0 && (
+              {(entityWorlds.length > 0 || entityChapters.length > 0) && (
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start' }}>
                   <Text
                     style={{
@@ -3244,6 +3252,33 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     Worlds
                   </Text>
                   <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    {entityWorlds.map((w) => (
+                      <Pressable
+                        key={w.id}
+                        onPress={() => overlayNavigation.navigate('WorldDetail', { worldId: w.id })}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 4,
+                          borderWidth: 1,
+                          borderColor: 'rgba(0,0,0,0.08)',
+                          borderRadius: 20,
+                          paddingHorizontal: 8,
+                          paddingVertical: 3,
+                          backgroundColor: 'rgba(0,0,0,0.03)',
+                        }}
+                      >
+                        <View
+                          style={{
+                            width: 7,
+                            height: 7,
+                            borderRadius: 4,
+                            backgroundColor: w.accentColor,
+                          }}
+                        />
+                        <Text style={{ fontSize: 10, color: tokens.colors.subtle }}>{w.name}</Text>
+                      </Pressable>
+                    ))}
                     {entityChapters.map((ch) => (
                       <Pressable
                         key={ch.id}
@@ -4133,7 +4168,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             }}
                           />
 
-                          {/* Worlds row — chapter chips (edit mode, todo) */}
+                          {/* Worlds row — world + chapter chips (edit mode, todo) */}
                           <View
                             style={{
                               flexDirection: 'row',
@@ -4167,6 +4202,37 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 marginLeft: 8,
                               }}
                             >
+                              {entityWorlds.map((w) => (
+                                <Pressable
+                                  key={w.id}
+                                  onPress={() =>
+                                    overlayNavigation.navigate('WorldDetail', { worldId: w.id })
+                                  }
+                                  style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    borderWidth: 1,
+                                    borderColor: 'rgba(0,0,0,0.08)',
+                                    borderRadius: 20,
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 3,
+                                    backgroundColor: 'rgba(0,0,0,0.03)',
+                                  }}
+                                >
+                                  <View
+                                    style={{
+                                      width: 7,
+                                      height: 7,
+                                      borderRadius: 4,
+                                      backgroundColor: w.accentColor,
+                                    }}
+                                  />
+                                  <Text style={{ fontSize: 10, color: tokens.colors.subtle }}>
+                                    {w.name}
+                                  </Text>
+                                </Pressable>
+                              ))}
                               {entityChapters.map((ch) => (
                                 <Pressable
                                   key={ch.id}
@@ -4906,7 +4972,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             }}
                           />
 
-                          {/* Worlds row — chapter chips (edit mode, habit) */}
+                          {/* Worlds row — world + chapter chips (edit mode, habit) */}
                           <View
                             style={{
                               flexDirection: 'row',
@@ -4940,6 +5006,37 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 marginLeft: 8,
                               }}
                             >
+                              {entityWorlds.map((w) => (
+                                <Pressable
+                                  key={w.id}
+                                  onPress={() =>
+                                    overlayNavigation.navigate('WorldDetail', { worldId: w.id })
+                                  }
+                                  style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    borderWidth: 1,
+                                    borderColor: 'rgba(0,0,0,0.08)',
+                                    borderRadius: 20,
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 3,
+                                    backgroundColor: 'rgba(0,0,0,0.03)',
+                                  }}
+                                >
+                                  <View
+                                    style={{
+                                      width: 7,
+                                      height: 7,
+                                      borderRadius: 4,
+                                      backgroundColor: w.accentColor,
+                                    }}
+                                  />
+                                  <Text style={{ fontSize: 10, color: tokens.colors.subtle }}>
+                                    {w.name}
+                                  </Text>
+                                </Pressable>
+                              ))}
                               {entityChapters.map((ch) => (
                                 <Pressable
                                   key={ch.id}
@@ -5350,7 +5447,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             }}
                           />
 
-                          {/* Worlds row — chapter chips (edit mode, log/journal) */}
+                          {/* Worlds row — world + chapter chips (edit mode, log/journal) */}
                           <View
                             style={{
                               flexDirection: 'row',
@@ -5384,6 +5481,37 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 marginLeft: 8,
                               }}
                             >
+                              {entityWorlds.map((w) => (
+                                <Pressable
+                                  key={w.id}
+                                  onPress={() =>
+                                    overlayNavigation.navigate('WorldDetail', { worldId: w.id })
+                                  }
+                                  style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    borderWidth: 1,
+                                    borderColor: 'rgba(0,0,0,0.08)',
+                                    borderRadius: 20,
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 3,
+                                    backgroundColor: 'rgba(0,0,0,0.03)',
+                                  }}
+                                >
+                                  <View
+                                    style={{
+                                      width: 7,
+                                      height: 7,
+                                      borderRadius: 4,
+                                      backgroundColor: w.accentColor,
+                                    }}
+                                  />
+                                  <Text style={{ fontSize: 10, color: tokens.colors.subtle }}>
+                                    {w.name}
+                                  </Text>
+                                </Pressable>
+                              ))}
                               {entityChapters.map((ch) => (
                                 <Pressable
                                   key={ch.id}
