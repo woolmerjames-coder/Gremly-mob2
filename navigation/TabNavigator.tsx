@@ -1,6 +1,5 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Image, StyleSheet } from 'react-native';
-import { Globe } from 'lucide-react-native';
 import TodayScreen from '../app/tabs/TodayScreen';
 import SpacesScreen from '../app/tabs/SpacesScreen';
 import WorldsScreen from '../app/tabs/WorldsScreen';
@@ -14,6 +13,7 @@ import TODAY_ICON from '../assets/todayicon1.22.png';
 import MINDDROP_ICON from '../assets/minddropicon1.20.png';
 import SPACES_ICON from '../assets/spacesicon1.20.png';
 import ASK_GREMLY_ICON from '../assets/askgremlyicon.png';
+import WORLDS_ICON from '../assets/worldicon4.28.png';
 
 /**
  * Tab navigator param list for type safety
@@ -113,7 +113,13 @@ export default function TabNavigator() {
           name="Worlds"
           component={WorldsScreen}
           options={{
-            tabBarIcon: ({ color, size }) => <Globe color={color} size={size} />,
+            tabBarIcon: ({ focused }) => (
+              <Image
+                source={WORLDS_ICON}
+                style={{ width: 32, height: 32, opacity: focused ? 1 : 0.4 }}
+                resizeMode="contain"
+              />
+            ),
             tabBarLabel: 'Worlds',
           }}
         />
