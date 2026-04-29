@@ -39,7 +39,11 @@ export function WeeklySummaryCard({ onPressNew, onPressPastSummaries }: WeeklySu
       <View style={styles.cardSoft}>
         <View style={styles.topRow}>
           <Text style={styles.lblSoft}>THIS WEEK{rangeText ? ` · ${rangeText}` : ''}</Text>
-          <Pressable onPress={onPressPastSummaries} style={styles.pastPill} hitSlop={8}>
+          <Pressable
+            onPress={onPressPastSummaries}
+            style={({ pressed }) => [styles.pastPill, pressed && { opacity: 0.7 }]}
+            hitSlop={8}
+          >
             <Text style={styles.pastLink}>see past summaries →</Text>
           </Pressable>
         </View>
@@ -63,7 +67,11 @@ export function WeeklySummaryCard({ onPressNew, onPressPastSummaries }: WeeklySu
       <View style={styles.cardSoft}>
         <View style={styles.topRow}>
           <Text style={styles.lblSoft}>THIS WEEK{rangeText ? ` · ${rangeText}` : ''}</Text>
-          <Pressable onPress={onPressPastSummaries} style={styles.pastPill} hitSlop={8}>
+          <Pressable
+            onPress={onPressPastSummaries}
+            style={({ pressed }) => [styles.pastPill, pressed && { opacity: 0.7 }]}
+            hitSlop={8}
+          >
             <Text style={styles.pastLink}>see past summaries →</Text>
           </Pressable>
         </View>
@@ -191,9 +199,10 @@ const styles = StyleSheet.create({
   },
   headSoft: {
     fontFamily: Platform.select({ ios: 'NewYork', android: 'serif', default: 'Georgia' }),
-    fontSize: 18,
-    fontWeight: '700',
-    lineHeight: 26,
+    fontSize: 17,
+    fontWeight: '400',
+    lineHeight: 23,
+    letterSpacing: -0.05,
     color: lightTokens.colors.worldsInk,
   },
   bodySoft: {

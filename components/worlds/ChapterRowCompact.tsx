@@ -75,8 +75,8 @@ const styles = StyleSheet.create({
   card: {
     marginHorizontal: 16,
     marginBottom: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     backgroundColor: lightTokens.colors.worldsCard,
     borderRadius: 13,
   },
@@ -86,7 +86,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 0.8,
     textTransform: 'uppercase',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   chapterTitle: {
     fontFamily: 'Inter-Medium',
@@ -94,7 +94,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     lineHeight: 20,
     color: lightTokens.colors.worldsInk,
-    marginBottom: 6,
+    marginBottom: 3,
   },
   metaRow: {
     flexDirection: 'row',
