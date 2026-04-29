@@ -4132,20 +4132,84 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             }}
                           />
 
-                          <StaticRow
-                            icon={FolderOpen}
-                            label="Space"
-                            right={
-                              <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
-                                {state.spaceId
-                                  ? (spaces.find((s) => s.id === state.spaceId)?.name ?? '+ Add')
-                                  : '+ Add'}
-                              </Text>
-                            }
-                            onPress={() => {
-                              if (!isViewMode) store.setUI({ showSpaceModal: true });
+                          {/* Worlds row — chapter chips (edit mode, todo) */}
+                          <View
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'flex-start',
+                              justifyContent: 'space-between',
+                              paddingVertical: 13,
+                              borderBottomWidth: 0.5,
+                              borderBottomColor: '#D5D0C8',
                             }}
-                          />
+                          >
+                            <View
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 10,
+                                marginTop: 2,
+                              }}
+                            >
+                              <FolderOpen size={17} color="#8B8579" strokeWidth={1.8} />
+                              <Text style={{ fontSize: 14, color: '#1a1a1a', fontWeight: '400' }}>
+                                Worlds
+                              </Text>
+                            </View>
+                            <View
+                              style={{
+                                flex: 1,
+                                flexDirection: 'row',
+                                flexWrap: 'wrap',
+                                gap: 6,
+                                justifyContent: 'flex-end',
+                                marginLeft: 8,
+                              }}
+                            >
+                              {entityChapters.map((ch) => (
+                                <Pressable
+                                  key={ch.id}
+                                  onPress={() =>
+                                    overlayNavigation.navigate('ChapterDetail', {
+                                      chapterId: ch.id,
+                                    })
+                                  }
+                                  style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    borderWidth: 1,
+                                    borderColor: 'rgba(0,0,0,0.1)',
+                                    borderRadius: 20,
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 3,
+                                  }}
+                                >
+                                  <View
+                                    style={{
+                                      width: 7,
+                                      height: 7,
+                                      borderRadius: 4,
+                                      backgroundColor: ch.worldAccentColor,
+                                    }}
+                                  />
+                                  <Text style={{ fontSize: 11, color: tokens.colors.text }}>
+                                    {ch.title}
+                                  </Text>
+                                </Pressable>
+                              ))}
+                              <Pressable
+                                onPress={() => {
+                                  if (!isViewMode) store.setUI({ showSpaceModal: true });
+                                }}
+                                style={{ paddingVertical: 3, paddingHorizontal: 2 }}
+                              >
+                                <Text style={{ fontSize: 11, color: tokens.colors.subtle }}>
+                                  + Add
+                                </Text>
+                              </Pressable>
+                            </View>
+                          </View>
 
                           {showLinkedEventPicker && effectiveSpaceId && (
                             <StaticRow
@@ -4841,20 +4905,84 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             }}
                           />
 
-                          <StaticRow
-                            icon={FolderOpen}
-                            label="Space"
-                            right={
-                              <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
-                                {state.spaceId
-                                  ? (spaces.find((s) => s.id === state.spaceId)?.name ?? '+ Add')
-                                  : '+ Add'}
-                              </Text>
-                            }
-                            onPress={() => {
-                              if (!isViewMode) store.setUI({ showSpaceModal: true });
+                          {/* Worlds row — chapter chips (edit mode, habit) */}
+                          <View
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'flex-start',
+                              justifyContent: 'space-between',
+                              paddingVertical: 13,
+                              borderBottomWidth: 0.5,
+                              borderBottomColor: '#D5D0C8',
                             }}
-                          />
+                          >
+                            <View
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 10,
+                                marginTop: 2,
+                              }}
+                            >
+                              <FolderOpen size={17} color="#8B8579" strokeWidth={1.8} />
+                              <Text style={{ fontSize: 14, color: '#1a1a1a', fontWeight: '400' }}>
+                                Worlds
+                              </Text>
+                            </View>
+                            <View
+                              style={{
+                                flex: 1,
+                                flexDirection: 'row',
+                                flexWrap: 'wrap',
+                                gap: 6,
+                                justifyContent: 'flex-end',
+                                marginLeft: 8,
+                              }}
+                            >
+                              {entityChapters.map((ch) => (
+                                <Pressable
+                                  key={ch.id}
+                                  onPress={() =>
+                                    overlayNavigation.navigate('ChapterDetail', {
+                                      chapterId: ch.id,
+                                    })
+                                  }
+                                  style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    borderWidth: 1,
+                                    borderColor: 'rgba(0,0,0,0.1)',
+                                    borderRadius: 20,
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 3,
+                                  }}
+                                >
+                                  <View
+                                    style={{
+                                      width: 7,
+                                      height: 7,
+                                      borderRadius: 4,
+                                      backgroundColor: ch.worldAccentColor,
+                                    }}
+                                  />
+                                  <Text style={{ fontSize: 11, color: tokens.colors.text }}>
+                                    {ch.title}
+                                  </Text>
+                                </Pressable>
+                              ))}
+                              <Pressable
+                                onPress={() => {
+                                  if (!isViewMode) store.setUI({ showSpaceModal: true });
+                                }}
+                                style={{ paddingVertical: 3, paddingHorizontal: 2 }}
+                              >
+                                <Text style={{ fontSize: 11, color: tokens.colors.subtle }}>
+                                  + Add
+                                </Text>
+                              </Pressable>
+                            </View>
+                          </View>
 
                           {showLinkedEventPicker && effectiveSpaceId && (
                             <StaticRow
@@ -5221,20 +5349,84 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             }}
                           />
 
-                          <StaticRow
-                            icon={FolderOpen}
-                            label="Space"
-                            right={
-                              <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
-                                {state.spaceId
-                                  ? (spaces.find((s) => s.id === state.spaceId)?.name ?? '+ Add')
-                                  : '+ Add'}
-                              </Text>
-                            }
-                            onPress={() => {
-                              if (!isViewMode) store.setUI({ showSpaceModal: true });
+                          {/* Worlds row — chapter chips (edit mode, log/journal) */}
+                          <View
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'flex-start',
+                              justifyContent: 'space-between',
+                              paddingVertical: 13,
+                              borderBottomWidth: 0.5,
+                              borderBottomColor: '#D5D0C8',
                             }}
-                          />
+                          >
+                            <View
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 10,
+                                marginTop: 2,
+                              }}
+                            >
+                              <FolderOpen size={17} color="#8B8579" strokeWidth={1.8} />
+                              <Text style={{ fontSize: 14, color: '#1a1a1a', fontWeight: '400' }}>
+                                Worlds
+                              </Text>
+                            </View>
+                            <View
+                              style={{
+                                flex: 1,
+                                flexDirection: 'row',
+                                flexWrap: 'wrap',
+                                gap: 6,
+                                justifyContent: 'flex-end',
+                                marginLeft: 8,
+                              }}
+                            >
+                              {entityChapters.map((ch) => (
+                                <Pressable
+                                  key={ch.id}
+                                  onPress={() =>
+                                    overlayNavigation.navigate('ChapterDetail', {
+                                      chapterId: ch.id,
+                                    })
+                                  }
+                                  style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    borderWidth: 1,
+                                    borderColor: 'rgba(0,0,0,0.1)',
+                                    borderRadius: 20,
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 3,
+                                  }}
+                                >
+                                  <View
+                                    style={{
+                                      width: 7,
+                                      height: 7,
+                                      borderRadius: 4,
+                                      backgroundColor: ch.worldAccentColor,
+                                    }}
+                                  />
+                                  <Text style={{ fontSize: 11, color: tokens.colors.text }}>
+                                    {ch.title}
+                                  </Text>
+                                </Pressable>
+                              ))}
+                              <Pressable
+                                onPress={() => {
+                                  if (!isViewMode) store.setUI({ showSpaceModal: true });
+                                }}
+                                style={{ paddingVertical: 3, paddingHorizontal: 2 }}
+                              >
+                                <Text style={{ fontSize: 11, color: tokens.colors.subtle }}>
+                                  + Add
+                                </Text>
+                              </Pressable>
+                            </View>
+                          </View>
 
                           {/* Idea conversion buttons */}
                           {effectiveLogSubtype === 'idea' && mode === 'edit' && (
