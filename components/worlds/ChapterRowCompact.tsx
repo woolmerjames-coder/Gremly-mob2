@@ -51,6 +51,11 @@ export function ChapterRowCompact({ chapter, onPress }: ChapterRowCompactProps) 
       onPress={() => onPress(chapter.id)}
       style={styles.card}
       testID={`chapter-row-${chapter.id}`}
+      onLayout={(e) => {
+        if (__DEV__) {
+          console.log('[ChapterRowCompact] rendered height:', e.nativeEvent.layout.height);
+        }
+      }}
     >
       <Text style={[styles.eyebrow, { color: arcColor(chapter.arc_shape) }]}>
         {arcLabel(chapter.arc_shape)}
@@ -74,7 +79,7 @@ export function ChapterRowCompact({ chapter, onPress }: ChapterRowCompactProps) 
 const styles = StyleSheet.create({
   card: {
     marginHorizontal: 16,
-    marginBottom: 8,
+    marginBottom: 6,
     paddingVertical: 10,
     paddingHorizontal: 14,
     backgroundColor: lightTokens.colors.worldsCard,
@@ -90,7 +95,7 @@ const styles = StyleSheet.create({
   chapterTitle: {
     fontFamily: 'Inter-Medium',
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '500',
     lineHeight: 20,
     letterSpacing: -0.16,
     color: lightTokens.colors.worldsInk,
