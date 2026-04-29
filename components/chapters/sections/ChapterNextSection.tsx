@@ -1,9 +1,12 @@
 import { View, Pressable, StyleSheet } from 'react-native';
+import { useRef, useCallback } from 'react';
 import { format } from 'date-fns';
 import { Text } from '../../../ui';
 import { lightTokens } from '../../../design/tokens';
 import { useOpenTodosForChapter } from '../../../lib/store/chaptersSelectors';
 import { parseLocalYMD } from '../../../lib/utils/dates';
+import { useRepo } from '../../../providers/RepoProvider';
+import { useUnifiedOverlayController } from '../../../hooks/useUnifiedOverlayController';
 import type { Chapter } from '../../../lib/supabase/types';
 
 interface ChapterNextSectionProps {
@@ -12,8 +15,25 @@ interface ChapterNextSectionProps {
   label?: string;
 }
 
-export function ChapterNextSection({ chapter, onTodoToggle, label }: ChapterNextSectionProps) {
+export function ChapterNextSection({ chapter, label }: ChapterNextSectionProps) {
   const allTodos = useOpenTodosForChapter(chapter.id);
+  const repo = useRepo();
+  const { openEdit } = useUnifiedOverlayController();
+  const openingRef = useRef(false);
+
+  const handlePressTodo = useCallback(
+    async (todoId: string) => {
+      if (openingRef.current) return;
+      openingRef.current = true;
+      try {
+        const record = await repo.getById(todoId);
+        if (record) openEdit({ record });
+      } finally {
+        openingRef.current = false;
+      }
+    },
+    [repo, openEdit],
+  );
   if (chapter.closed_at) return null;
   if (allTodos.length === 0) return null;
 
@@ -34,7 +54,7 @@ export function ChapterNextSection({ chapter, onTodoToggle, label }: ChapterNext
           <Pressable
             key={t.id}
             style={[styles.row, !isLast && styles.rowDivider]}
-            onPress={() => onTodoToggle?.(t.id)}
+            onPress={() => handlePressTodo(t.id)}
             hitSlop={4}
             testID={`chapter-next-${t.id}`}
           >

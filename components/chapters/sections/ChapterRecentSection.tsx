@@ -1,9 +1,12 @@
-import { View, StyleSheet } from 'react-native';
+import { View, Pressable, StyleSheet } from 'react-native';
+import { useRef, useCallback } from 'react';
 import { format } from 'date-fns';
 import { Text } from '../../../ui';
 import { lightTokens } from '../../../design/tokens';
 import { parseLocalYMD } from '../../../lib/utils/dates';
 import { useRecentDropsForChapter } from '../../../lib/store/chaptersSelectors';
+import { useRepo } from '../../../providers/RepoProvider';
+import { useUnifiedOverlayController } from '../../../hooks/useUnifiedOverlayController';
 
 interface ChapterRecentSectionProps {
   chapterId: string;
@@ -12,6 +15,24 @@ interface ChapterRecentSectionProps {
 
 export function ChapterRecentSection({ chapterId, limit = 4 }: ChapterRecentSectionProps) {
   const drops = useRecentDropsForChapter(chapterId, limit);
+  const repo = useRepo();
+  const { openEdit } = useUnifiedOverlayController();
+  const openingRef = useRef(false);
+
+  const handlePressDrop = useCallback(
+    async (dropId: string) => {
+      if (openingRef.current) return;
+      openingRef.current = true;
+      try {
+        const record = await repo.getById(dropId);
+        if (record) openEdit({ record });
+      } finally {
+        openingRef.current = false;
+      }
+    },
+    [repo, openEdit],
+  );
+
   if (drops.length === 0) return null;
 
   return (
@@ -21,12 +42,18 @@ export function ChapterRecentSection({ chapterId, limit = 4 }: ChapterRecentSect
         const isLast = i === drops.length - 1;
         const dateLabel = d.date ? format(parseLocalYMD(d.date), 'MMM d').toUpperCase() : '';
         return (
-          <View key={d.id} style={[styles.row, !isLast && styles.rowDivider]}>
+          <Pressable
+            key={d.id}
+            style={[styles.row, !isLast && styles.rowDivider]}
+            onPress={() => handlePressDrop(d.id)}
+            hitSlop={4}
+            testID={`chapter-recent-${d.id}`}
+          >
             <Text style={styles.date}>{dateLabel}</Text>
             <Text style={styles.body} numberOfLines={2}>
               {d.title || d.content_preview || '(note)'}
             </Text>
-          </View>
+          </Pressable>
         );
       })}
     </View>
