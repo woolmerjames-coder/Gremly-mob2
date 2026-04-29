@@ -724,6 +724,8 @@ export interface GremlyState {
   // SPACE CHAT MUTATIONS
   // ═══════════════════════════════════════════════════════════════════
   createSpaceChat: (spaceId: string, title: string) => Promise<SpaceChat | null>;
+  createWorldChat: (worldId: string, title: string) => Promise<SpaceChat | null>;
+  createChapterChat: (chapterId: string, title: string) => Promise<SpaceChat | null>;
   updateSpaceChat: (chatId: string, patch: Partial<SpaceChat>) => Promise<void>;
   syncSpaceChat: (chat: SpaceChat) => void; // Sync chat from external source (no Supabase write)
   archiveSpaceChat: (chatId: string) => Promise<void>;
@@ -4521,6 +4523,80 @@ export const useGremlyStore = create<GremlyState>()(
             .from('scope_chats')
             .update({ saved_extraction_ids: merged } as any)
             .eq('id', chatId);
+        },
+
+        createWorldChat: async (worldId: string, title: string) => {
+          const userId = get().userId;
+          if (!userId) return null;
+          const now = nowTimestamp();
+          const newChat: any = {
+            user_id: userId,
+            scope_id: worldId,
+            chat_type: 'world',
+            title,
+            pinned: false,
+            created_at: now,
+            updated_at: now,
+          };
+          const tempId = `temp-${getDateService().now().getTime()}`;
+          const optimistic = { ...newChat, id: tempId } as SpaceChat;
+          set((s) => ({ spaceChats: [optimistic, ...s.spaceChats] }));
+          try {
+            const { created_at: _ca, ...insertPayload } = newChat;
+            const { data, error } = await supabase
+              .from('scope_chats')
+              .insert(insertPayload)
+              .select()
+              .single();
+            if (error) throw error;
+            set((s) => ({
+              spaceChats: s.spaceChats.map((c) => (c.id === tempId ? data : c)),
+            }));
+            return data;
+          } catch (error) {
+            set((s) => ({
+              spaceChats: s.spaceChats.filter((c) => c.id !== tempId),
+            }));
+            console.error('[GremlyStore] createWorldChat failed:', error);
+            throw error;
+          }
+        },
+
+        createChapterChat: async (chapterId: string, title: string) => {
+          const userId = get().userId;
+          if (!userId) return null;
+          const now = nowTimestamp();
+          const newChat: any = {
+            user_id: userId,
+            scope_id: chapterId,
+            chat_type: 'chapter',
+            title,
+            pinned: false,
+            created_at: now,
+            updated_at: now,
+          };
+          const tempId = `temp-${getDateService().now().getTime()}`;
+          const optimistic = { ...newChat, id: tempId } as SpaceChat;
+          set((s) => ({ spaceChats: [optimistic, ...s.spaceChats] }));
+          try {
+            const { created_at: _ca, ...insertPayload } = newChat;
+            const { data, error } = await supabase
+              .from('scope_chats')
+              .insert(insertPayload)
+              .select()
+              .single();
+            if (error) throw error;
+            set((s) => ({
+              spaceChats: s.spaceChats.map((c) => (c.id === tempId ? data : c)),
+            }));
+            return data;
+          } catch (error) {
+            set((s) => ({
+              spaceChats: s.spaceChats.filter((c) => c.id !== tempId),
+            }));
+            console.error('[GremlyStore] createChapterChat failed:', error);
+            throw error;
+          }
         },
 
         createSpaceChat: async (spaceId: string, title: string) => {

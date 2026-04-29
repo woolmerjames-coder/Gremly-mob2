@@ -67,7 +67,7 @@ export default function WorldDetailScreen() {
       <WorldActionButtons
         worldName={worldName}
         onAddPress={() => console.log('[WorldDetail] add to world', world.id)}
-        onChatPress={() => console.log('[WorldDetail] chat with world', world.id)}
+        onChatPress={() => nav.navigate('ScopedChat', { scopeType: 'world', scopeId: world.id, scopeName: worldName })}
       />
     </SafeAreaView>
   );

@@ -40,6 +40,7 @@ import WeeklySummaryV2Screen from '../app/screens/WeeklySummaryV2Screen';
 import HubScreen from '../app/tabs/HubScreen';
 import WorldDetailScreen from '../app/screens/WorldDetailScreen';
 import ChapterDetailScreen from '../app/screens/ChapterDetailScreen';
+import ScopedChatScreen from '../app/screens/ScopedChatScreen';
 
 // Wrapper to bridge navigation params to MorningBriefSheet props
 function MorningBriefWrapper({ navigation, route }: any) {
@@ -106,6 +107,12 @@ export type RootStackParamList = {
   HubScreen: undefined;
   WorldDetail: { worldId: string };
   ChapterDetail: { chapterId: string };
+  ScopedChat: {
+    scopeType: 'world' | 'chapter';
+    scopeId: string;
+    scopeName: string;
+    chatId?: string;
+  };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -333,6 +340,12 @@ export default function RootNavigator() {
             component={ChapterDetailScreen}
             options={{ headerShown: false, animation: 'slide_from_right' }}
             getId={({ params }) => params?.chapterId}
+          />
+          <Stack.Screen
+            name="ScopedChat"
+            component={ScopedChatScreen}
+            options={{ headerShown: false, animation: 'slide_from_right' }}
+            getId={({ params }) => `${params?.scopeType}-${params?.scopeId}-${params?.chatId ?? 'new'}`}
           />
           {__DEV__ && (
             <Stack.Screen

@@ -38,6 +38,7 @@ import { ChapterDateEditSheet } from '../../components/chapters/ChapterDateEditS
 import { ChapterTitleEditSheet } from '../../components/chapters/ChapterTitleEditSheet';
 import { ChapterDispatcher } from '../../components/chapters/layouts/ChapterDispatcher';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { WorldActionButtons } from '../../components/worlds/WorldActionButtons';
 
 type RouteT = RouteProp<RootStackParamList, 'ChapterDetail'>;
 type NavT = NativeStackNavigationProp<RootStackParamList, 'ChapterDetail'>;
@@ -106,6 +107,17 @@ export default function ChapterDetailScreen() {
           }
         />
       </ScrollView>
+      <WorldActionButtons
+        worldName={chapter.title}
+        onAddPress={() => console.log('[ChapterDetail] add to chapter', chapter.id)}
+        onChatPress={() =>
+          nav.navigate('ScopedChat', {
+            scopeType: 'chapter',
+            scopeId: chapter.id,
+            scopeName: chapter.title,
+          })
+        }
+      />
     </SafeAreaView>
   );
 }

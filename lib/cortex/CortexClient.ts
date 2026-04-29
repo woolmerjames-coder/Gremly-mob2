@@ -596,6 +596,202 @@ export function callGeneralChatStreaming(
   return { close: () => es.close() };
 }
 
+/**
+ * Stream a world-scoped chat via Cortex (world_chat lane).
+ */
+export function callWorldChatStreaming(
+  messages: ChatMessage[],
+  opts: { scopeId: string; scopeName: string; chatId: string; userId?: string },
+  callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
+): { close: () => void } {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) {
+    callbacks.onError('Missing CORTEX_URL', '');
+    return { close: () => {} };
+  }
+  if (isAiDisabled()) {
+    callbacks.onError('AI disabled', '');
+    return { close: () => {} };
+  }
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const sessionToken = getSessionTokenSync();
+  if (sessionToken) {
+    headers.Authorization = `Bearer ${sessionToken}`;
+  }
+
+  let fullText = '';
+
+  const es = new EventSource(baseUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      type: 'chat',
+      messages,
+      lane: 'world_chat',
+      stream: true,
+      scopeId: opts.scopeId,
+      scopeName: opts.scopeName,
+      chatId: opts.chatId,
+      userId: opts.userId,
+      currentTime: nowTimestamp(),
+      timezone: getDateService().getTimezone(),
+    }),
+    lineEndingCharacter: '\n',
+  });
+
+  es.addEventListener('message', (event: any) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.error === 'read_only') {
+        eventBus.emit('cortex:read_only', {});
+        es.close();
+        return;
+      }
+      if (data.error) {
+        callbacks.onError(data.error, fullText);
+        es.close();
+        return;
+      }
+      if (data.searching && data.query) {
+        callbacks.onSearching?.(data.query, data.isLoadingHint || false);
+        return;
+      }
+      if (data.fetching !== undefined) {
+        callbacks.onFetching?.(data.fetching, data.fetchingUrl || null);
+        return;
+      }
+      if (data.delta) {
+        fullText += data.delta;
+        callbacks.onChunk(data.delta, fullText);
+      }
+      if (data.done) {
+        const finalContent = data.full_content || fullText;
+        const richResult: SpaceChatStreamingResult = {
+          content: finalContent,
+          save_suggestion: data.save_suggestion ?? null,
+          saveable: data.saveable ?? null,
+          promotion: data.promotion ?? null,
+          latency_ms: data.latency_ms,
+          sources: data.sources,
+          search_query: data.search_query,
+          fetchedUrl: data.fetchedUrl ?? null,
+        };
+        log('WORLD_CHAT_STREAM_DONE', { contentLength: finalContent.length });
+        (callbacks.onComplete as any)(finalContent, richResult);
+        es.close();
+      }
+    } catch {
+      /* Ignore parse errors */
+    }
+  });
+
+  es.addEventListener('error', (event: any) => {
+    callbacks.onError(event.message || 'Stream error', fullText);
+    es.close();
+  });
+
+  return { close: () => es.close() };
+}
+
+/**
+ * Stream a chapter-scoped chat via Cortex (chapter_chat lane).
+ */
+export function callChapterChatStreaming(
+  messages: ChatMessage[],
+  opts: { scopeId: string; scopeName: string; chatId: string; userId?: string },
+  callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
+): { close: () => void } {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) {
+    callbacks.onError('Missing CORTEX_URL', '');
+    return { close: () => {} };
+  }
+  if (isAiDisabled()) {
+    callbacks.onError('AI disabled', '');
+    return { close: () => {} };
+  }
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const sessionToken = getSessionTokenSync();
+  if (sessionToken) {
+    headers.Authorization = `Bearer ${sessionToken}`;
+  }
+
+  let fullText = '';
+
+  const es = new EventSource(baseUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      type: 'chat',
+      messages,
+      lane: 'chapter_chat',
+      stream: true,
+      scopeId: opts.scopeId,
+      scopeName: opts.scopeName,
+      chatId: opts.chatId,
+      userId: opts.userId,
+      currentTime: nowTimestamp(),
+      timezone: getDateService().getTimezone(),
+    }),
+    lineEndingCharacter: '\n',
+  });
+
+  es.addEventListener('message', (event: any) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.error === 'read_only') {
+        eventBus.emit('cortex:read_only', {});
+        es.close();
+        return;
+      }
+      if (data.error) {
+        callbacks.onError(data.error, fullText);
+        es.close();
+        return;
+      }
+      if (data.searching && data.query) {
+        callbacks.onSearching?.(data.query, data.isLoadingHint || false);
+        return;
+      }
+      if (data.fetching !== undefined) {
+        callbacks.onFetching?.(data.fetching, data.fetchingUrl || null);
+        return;
+      }
+      if (data.delta) {
+        fullText += data.delta;
+        callbacks.onChunk(data.delta, fullText);
+      }
+      if (data.done) {
+        const finalContent = data.full_content || fullText;
+        const richResult: SpaceChatStreamingResult = {
+          content: finalContent,
+          save_suggestion: data.save_suggestion ?? null,
+          saveable: data.saveable ?? null,
+          promotion: data.promotion ?? null,
+          latency_ms: data.latency_ms,
+          sources: data.sources,
+          search_query: data.search_query,
+          fetchedUrl: data.fetchedUrl ?? null,
+        };
+        log('CHAPTER_CHAT_STREAM_DONE', { contentLength: finalContent.length });
+        (callbacks.onComplete as any)(finalContent, richResult);
+        es.close();
+      }
+    } catch {
+      /* Ignore parse errors */
+    }
+  });
+
+  es.addEventListener('error', (event: any) => {
+    callbacks.onError(event.message || 'Stream error', fullText);
+    es.close();
+  });
+
+  return { close: () => es.close() };
+}
+
 export async function callComplete(
   prompt: string,
   opts?: { model?: string; temperature?: number; maxTokens?: number },
@@ -1930,6 +2126,8 @@ export const CortexClient = {
   callSpaceChat,
   callSpaceChatStreaming,
   callGeneralChatStreaming,
+  callWorldChatStreaming,
+  callChapterChatStreaming,
   callGeneralGreeting,
   callSpaceChatSave,
   callEnrichPhase2,
