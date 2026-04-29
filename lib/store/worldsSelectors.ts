@@ -1211,8 +1211,20 @@ export function selectHeldDaysForChapter(state: GremlyState, chapterId: string):
   return { heldDays, slipDays, totalDays };
 }
 
-export const useHeldDaysForChapter = (chapterId: string) =>
-  useGremlyStore((s) => selectHeldDaysForChapter(s, chapterId));
+export const useHeldDaysForChapter = (chapterId: string): HeldDaysSummary => {
+  const chapter = useGremlyStore((s) => s.chapters.find((c) => c.id === chapterId));
+  return useMemo(() => {
+    if (!chapter?.start_date || !chapter?.end_date) {
+      return { heldDays: 0, slipDays: 0, totalDays: 0 };
+    }
+    const startMs = new Date(chapter.start_date).getTime();
+    const endMs = new Date(chapter.end_date).getTime();
+    const totalDays = Math.max(0, Math.round((endMs - startMs) / (1000 * 60 * 60 * 24)));
+    const slipDays = chapter.slip_events?.length ?? 0;
+    const heldDays = Math.max(0, totalDays - slipDays);
+    return { heldDays, slipDays, totalDays };
+  }, [chapter?.start_date, chapter?.end_date, chapter?.slip_events, chapterId]);
+};
 
 /**
  * Returns worlds (other than the chapter's primary_world_id) that have at
