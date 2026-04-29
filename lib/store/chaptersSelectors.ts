@@ -4,7 +4,14 @@ import { getDateService } from '../date/DateService';
 import { parseLocalYMD } from '../utils/dates';
 import type { Note, Todo, Habit } from '../types';
 import { startOfIsoWeek, weekKey } from '../date/isoWeek';
-import type { DropChapterLink, DropWorldLink, Chapter, World, KeyMoment } from '../supabase/types';
+import type {
+  DropChapterLink,
+  DropWorldLink,
+  Chapter,
+  World,
+  KeyMoment,
+  WithYouItem,
+} from '../supabase/types';
 import { extractPeopleFromNotes, initialsOf, titleCase } from './worldsSelectors';
 
 // ─── useRecentDropsForChapter ─────────────────────────────────────────────────
@@ -315,20 +322,33 @@ export interface ChapterPerson {
   id: string; // lowercased name (stable key today)
   name: string; // titlecased
   initials: string;
-  mentionCount: number;
+  mentionCount?: number; // undefined for classifier-authored people
   role?: string; // Phase 2 (W.1)
   span?: string; // Phase 2 (W.1)
   evidenceDropId?: string; // Phase 2 (W.1)
 }
 
-export const useChapterPeople = (chapterId: string | null | undefined): ChapterPerson[] => {
+export const useChapterPeople = (chapter: Chapter | null | undefined): ChapterPerson[] => {
   const dropChapterLinks = useGremlyStore((s) => s.dropChapterLinks);
   const notes = useGremlyStore((s) => s.notes);
   return useMemo(() => {
-    if (!chapterId) return [];
+    if (!chapter) return [];
+    // with_you path: classifier or user-authored structured array
+    if (chapter.with_you !== null && chapter.with_you !== undefined) {
+      return chapter.with_you.map((item: WithYouItem) => ({
+        id: `withyou:${item.name.toLowerCase().replace(/\s+/g, '-')}`,
+        name: item.name,
+        initials: initialsOf(item.name),
+        // mentionCount omitted — classifier does not emit a count
+        role: item.role ?? undefined,
+        span: item.span ?? undefined,
+        evidenceDropId: item.evidence_drop_id ?? undefined,
+      }));
+    }
+    // @-tag fallback: extract from linked notes
     const noteIds = new Set<string>();
     for (const l of dropChapterLinks) {
-      if (l.chapter_id === chapterId && l.drop_type === 'note') noteIds.add(l.drop_id);
+      if (l.chapter_id === chapter.id && l.drop_type === 'note') noteIds.add(l.drop_id);
     }
     const chapterNotes = notes.filter((n) => noteIds.has(n.id));
     const counts = extractPeopleFromNotes(chapterNotes);
@@ -340,7 +360,7 @@ export const useChapterPeople = (chapterId: string | null | undefined): ChapterP
         initials: initialsOf(name),
         mentionCount,
       }));
-  }, [dropChapterLinks, notes, chapterId]);
+  }, [chapter?.id, chapter?.with_you, dropChapterLinks, notes]);
 };
 
 // ─── ChapterTimelineItem ─────────────────────────────────────────────────────

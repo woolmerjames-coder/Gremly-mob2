@@ -770,6 +770,14 @@ export interface KeyPriority {
   confidence?: number;
 }
 
+export interface WithYouItem {
+  name: string;
+  role?: string | null;
+  span?: string | null;
+  evidence_drop_id?: string | null;
+  confidence: number;
+}
+
 export type WorldArchetype =
   | 'creative'
   | 'professional'
@@ -893,6 +901,10 @@ export interface Chapter {
   phase_labels_updated_at: string | null;
   key_priorities_source: string | null;
   key_priorities_updated_at: string | null;
+  // W.1.a — classifier-authored people
+  with_you: WithYouItem[] | null;
+  with_you_source: string | null;
+  with_you_updated_at: string | null;
 }
 
 export interface LifeContext {

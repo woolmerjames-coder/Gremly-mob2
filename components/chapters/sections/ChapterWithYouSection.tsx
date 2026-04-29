@@ -9,35 +9,32 @@ interface ChapterWithYouSectionProps {
 }
 
 export function ChapterWithYouSection({ chapter }: ChapterWithYouSectionProps) {
-  const people = useChapterPeople(chapter.id);
+  const people = useChapterPeople(chapter);
 
-  const { experienceAccent, experienceAccentSoft, experienceAccentDeep, warmGrey, worldsInk } =
-    lightTokens.colors;
+  const { experienceAccentSoft, experienceAccentDeep, warmGrey, worldsInk } = lightTokens.colors;
+
+  if (people.length === 0) return null;
 
   return (
     <View style={styles.container}>
       <Text style={[styles.label, { color: experienceAccentDeep }]}>WITH YOU</Text>
-      {people.length === 0 ? (
-        <Text style={[styles.emptyState, { color: warmGrey }]} testID="chapter-with-you-empty">
-          no one tagged yet — try typing @Name in a drop
-        </Text>
-      ) : (
-        people.map((person) => (
-          <View key={person.id} style={styles.row}>
-            <View style={[styles.avatar, { backgroundColor: experienceAccentSoft }]}>
-              <Text style={[styles.initials, { color: experienceAccentDeep }]}>
-                {person.initials}
-              </Text>
-            </View>
-            <View style={styles.personInfo}>
-              <Text style={[styles.name, { color: worldsInk }]}>{person.name}</Text>
+      {people.map((person) => (
+        <View key={person.id} style={styles.row}>
+          <View style={[styles.avatar, { backgroundColor: experienceAccentSoft }]}>
+            <Text style={[styles.initials, { color: experienceAccentDeep }]}>
+              {person.initials}
+            </Text>
+          </View>
+          <View style={styles.personInfo}>
+            <Text style={[styles.name, { color: worldsInk }]}>{person.name}</Text>
+            {person.mentionCount !== undefined && (
               <Text style={[styles.meta, { color: warmGrey }]}>
                 {person.mentionCount === 1 ? '1 mention' : `${person.mentionCount} mentions`}
               </Text>
-            </View>
+            )}
           </View>
-        ))
-      )}
+        </View>
+      ))}
     </View>
   );
 }
@@ -54,12 +51,6 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     textTransform: 'uppercase',
     marginBottom: 10,
-  },
-  emptyState: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 13,
-    lineHeight: 18,
-    fontStyle: 'italic',
   },
   row: {
     flexDirection: 'row',
