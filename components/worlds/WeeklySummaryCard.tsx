@@ -185,7 +185,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   pastPill: {
-    backgroundColor: lightTokens.colors.worldsInkOutline,
+    backgroundColor: lightTokens.colors.sageMist,
     borderRadius: 10,
     paddingHorizontal: 9,
     paddingVertical: 3,
@@ -195,7 +195,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
     letterSpacing: 1.2,
-    color: lightTokens.colors.warmGrey,
+    color: lightTokens.colors.worldsInk,
   },
   headSoft: {
     fontFamily: Platform.select({ ios: 'NewYork', android: 'serif', default: 'Georgia' }),

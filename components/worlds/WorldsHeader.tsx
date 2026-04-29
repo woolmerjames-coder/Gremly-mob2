@@ -25,7 +25,7 @@ const styles = StyleSheet.create({
     fontFamily: 'PlusJakartaSans-Bold',
     fontSize: 44,
     fontWeight: '700',
-    color: lightTokens.colors.worldsInk,
+    color: lightTokens.colors.sageGreen,
     letterSpacing: -0.8,
     lineHeight: 48,
     flex: 1,
