@@ -90,6 +90,7 @@ import { lightTokens, darkTokens, spacing as tokenSpacing } from '../../design/t
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { selectItemById, useActiveSpaces, useSpaceHasEvents } from '../../lib/store/selectors';
 import { useChaptersForEntity } from '../../lib/store/chaptersSelectors';
+import { WorldsChapterPicker } from './WorldsChapterPicker';
 import { useAuth } from '../../providers/AuthProvider';
 import ScopeSelector from '../ScopeSelector';
 import { usePhase8LinksState } from './hooks/usePhase8LinksState';
@@ -4200,7 +4201,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               ))}
                               <Pressable
                                 onPress={() => {
-                                  if (!isViewMode) store.setUI({ showSpaceModal: true });
+                                  if (!isViewMode) store.setUI({ showWorldsModal: true });
                                 }}
                                 style={{ paddingVertical: 3, paddingHorizontal: 2 }}
                               >
@@ -4973,7 +4974,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               ))}
                               <Pressable
                                 onPress={() => {
-                                  if (!isViewMode) store.setUI({ showSpaceModal: true });
+                                  if (!isViewMode) store.setUI({ showWorldsModal: true });
                                 }}
                                 style={{ paddingVertical: 3, paddingHorizontal: 2 }}
                               >
@@ -5417,7 +5418,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               ))}
                               <Pressable
                                 onPress={() => {
-                                  if (!isViewMode) store.setUI({ showSpaceModal: true });
+                                  if (!isViewMode) store.setUI({ showWorldsModal: true });
                                 }}
                                 style={{ paddingVertical: 3, paddingHorizontal: 2 }}
                               >
@@ -6551,6 +6552,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 </Pressable>
               </Pressable>
             </Modal>
+
+            {/* Worlds & Chapter Picker – F.4 */}
+            <WorldsChapterPicker
+              visible={storeUI.showWorldsModal}
+              entityId={currentEntityId}
+              entityDropType={
+                (baseType === 'log'
+                  ? 'note'
+                  : baseType) as import('../../lib/supabase/types').DropType
+              }
+              onClose={() => store.setUI({ showWorldsModal: false })}
+            />
 
             {/* Reminders Management Modal – powered by SetRemindersModal */}
             <SetRemindersModal
