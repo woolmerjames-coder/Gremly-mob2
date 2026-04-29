@@ -17,7 +17,7 @@ describe('Spaces v2 Accessibility', () => {
       const mockChat: SpaceChat = {
         id: 'chat-1',
         user_id: 'user-1',
-        space_id: 'space-1',
+        scope_id: 'space-1',
         title: 'Important Discussion',
         pinned: false,
         archived_at: null,
@@ -74,7 +74,7 @@ describe('Spaces v2 Accessibility', () => {
       const mockChat: SpaceChat = {
         id: 'chat-1',
         user_id: 'user-1',
-        space_id: 'space-1',
+        scope_id: 'space-1',
         title: 'Test Chat',
         pinned: false,
         archived_at: null,
@@ -142,7 +142,7 @@ describe('Spaces v2 Accessibility', () => {
       const mockChat: SpaceChat = {
         id: 'chat-1',
         user_id: 'user-1',
-        space_id: 'space-1',
+        scope_id: 'space-1',
         title: 'Test',
         pinned: false,
         archived_at: null,

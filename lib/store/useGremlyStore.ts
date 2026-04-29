@@ -1348,7 +1348,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase.from('spaces').select('*').eq('owner_id', userId),
               supabase.from('tags').select('*').eq('owner_id', userId),
               supabase.from('habit_progress').select('*').eq('owner_id', userId),
-              supabase.from('space_chats').select('*').eq('user_id', userId),
+              supabase.from('scope_chats').select('*').eq('user_id', userId),
               supabase.from('space_milestones').select('*').eq('owner_id', userId),
               supabase
                 .from('daily_briefs')
@@ -4413,7 +4413,7 @@ export const useGremlyStore = create<GremlyState>()(
           const now = nowTimestamp();
           const newChat: any = {
             user_id: userId,
-            space_id: null,
+            scope_id: null,
             chat_type: 'general',
             title: title || 'New conversation',
             pinned: false,
@@ -4429,7 +4429,7 @@ export const useGremlyStore = create<GremlyState>()(
           try {
             const { created_at: _ca, ...insertPayload } = newChat;
             const { data, error } = await supabase
-              .from('space_chats')
+              .from('scope_chats')
               .insert(insertPayload)
               .select()
               .single();
@@ -4463,7 +4463,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) return;
           const { data, error } = await supabase
-            .from('space_chats')
+            .from('scope_chats')
             .select('*')
             .eq('user_id', userId)
             .eq('chat_type', 'general')
@@ -4475,7 +4475,7 @@ export const useGremlyStore = create<GremlyState>()(
 
         updateGeneralChatExtractions: async (chatId: string) => {
           const { data } = await supabase
-            .from('space_chats')
+            .from('scope_chats')
             .select(
               'extracted_items, dismissed_extractions, saved_extraction_ids, auto_title, running_summary',
             )
@@ -4504,7 +4504,7 @@ export const useGremlyStore = create<GremlyState>()(
             generalChatDismissals: [...s.generalChatDismissals, extractionId],
           }));
           await supabase
-            .from('space_chats')
+            .from('scope_chats')
             .update({ dismissed_extractions: get().generalChatDismissals } as any)
             .eq('id', chatId);
         },
@@ -4518,7 +4518,7 @@ export const useGremlyStore = create<GremlyState>()(
           const chat = get().generalChats.find((c) => c.id === chatId) as any;
           const merged = [...new Set([...(chat?.saved_extraction_ids || []), ...extractionIds])];
           await supabase
-            .from('space_chats')
+            .from('scope_chats')
             .update({ saved_extraction_ids: merged } as any)
             .eq('id', chatId);
         },
@@ -4529,7 +4529,7 @@ export const useGremlyStore = create<GremlyState>()(
 
           const now = nowTimestamp();
           const newChat: Partial<SpaceChat> = {
-            space_id: spaceId,
+            scope_id: spaceId,
             user_id: userId,
             title,
             pinned: false,
@@ -4545,7 +4545,7 @@ export const useGremlyStore = create<GremlyState>()(
           try {
             const { created_at: _ca, ...insertPayload } = newChat;
             const { data, error } = await supabase
-              .from('space_chats')
+              .from('scope_chats')
               .insert(insertPayload)
               .select()
               .single();
@@ -4601,7 +4601,7 @@ export const useGremlyStore = create<GremlyState>()(
 
           try {
             const { error } = await supabase
-              .from('space_chats')
+              .from('scope_chats')
               .update({ ...patch, updated_at: now })
               .eq('id', chatId);
 
@@ -4638,7 +4638,7 @@ export const useGremlyStore = create<GremlyState>()(
           }));
 
           try {
-            const { error } = await supabase.from('space_chats').delete().eq('id', chatId);
+            const { error } = await supabase.from('scope_chats').delete().eq('id', chatId);
             if (error) throw error;
             eventBus.emit('entity:deleted', {
               type: 'space_chat',
@@ -4674,7 +4674,7 @@ export const useGremlyStore = create<GremlyState>()(
 
           try {
             const { data, error } = await supabase
-              .from('space_chat_messages')
+              .from('scope_chat_messages')
               .insert({ ...message, user_id: userId })
               .select()
               .single();
@@ -4704,7 +4704,7 @@ export const useGremlyStore = create<GremlyState>()(
         loadChatMessages: async (chatId: string) => {
           try {
             const { data, error } = await supabase
-              .from('space_chat_messages')
+              .from('scope_chat_messages')
               .select('*')
               .eq('chat_id', chatId)
               .order('created_at', { ascending: true });
@@ -5537,7 +5537,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase.from('spaces').select('*').eq('owner_id', userId),
               supabase.from('tags').select('*').eq('owner_id', userId),
               supabase.from('habit_progress').select('*').eq('owner_id', userId),
-              supabase.from('space_chats').select('*').eq('user_id', userId),
+              supabase.from('scope_chats').select('*').eq('user_id', userId),
               supabase.from('space_milestones').select('*').eq('owner_id', userId),
               supabase
                 .from('weekly_summaries')

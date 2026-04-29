@@ -1620,7 +1620,7 @@ export const selectChatsForSpace = createSelector(
   [selectSpaceChats, (_state: GremlyState, spaceId: string) => spaceId],
   (chats, spaceId) =>
     chats
-      .filter((c) => c.space_id === spaceId && !c.archived_at)
+      .filter((c) => c.scope_id === spaceId && !c.archived_at)
       .sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || '')),
 );
 

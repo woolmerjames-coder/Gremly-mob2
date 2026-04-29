@@ -236,7 +236,7 @@ export function useChatMessages(
           const syncSpaceChat = useGremlyStore.getState().syncSpaceChat;
           syncSpaceChat({
             ...newChat,
-            space_id: spaceId,
+            scope_id: spaceId,
             user_id: user.id,
             title: generatedTitle,
             last_message_snippet: text.trim().slice(0, 100),
@@ -249,7 +249,7 @@ export function useChatMessages(
 
         const input: SpaceChatMessageInsert = {
           chat_id: activeChatId,
-          space_id: spaceId,
+          scope_id: spaceId,
           role: 'user',
           content: text.trim(),
         };
@@ -342,7 +342,7 @@ export function useChatMessages(
 
         const input: SpaceChatMessageInsert = {
           chat_id: targetChatId,
-          space_id: spaceId,
+          scope_id: spaceId,
           role: 'assistant',
           content: text.trim() || `[${(metadata as any)?.type || 'system'}]`,
           metadata_json: metadata || null,
@@ -410,7 +410,7 @@ export function useChatMessages(
         // The metadata.type stores the actual message type
         const input: SpaceChatMessageInsert = {
           chat_id: currentChatId,
-          space_id: spaceId,
+          scope_id: spaceId,
           role: 'system', // Valid database role
           content: content.trim(),
           metadata_json: {
@@ -449,7 +449,7 @@ export function useChatMessages(
         // CRITICAL FIX: Use 'system' role instead of 'entry-card'
         const input: SpaceChatMessageInsert = {
           chat_id: currentChatId,
-          space_id: spaceId,
+          scope_id: spaceId,
           role: 'system', // Valid database role
           content: `${entryType}: ${entryName}`,
           metadata_json: {
@@ -568,7 +568,7 @@ export function useChatMessages(
 
         const input: SpaceChatMessageInsert = {
           chat_id: currentChatId,
-          space_id: spaceId,
+          scope_id: spaceId,
           role: 'system', // Valid database role
           content: `Saved ${entityType}: ${title}`,
           metadata_json: {
@@ -613,7 +613,7 @@ export function useChatMessages(
     try {
       const input: SpaceChatMessageInsert = {
         chat_id: targetChatId,
-        space_id: spaceId,
+        scope_id: spaceId,
         role: 'assistant',
         content: '',
         metadata_json: { streaming: true },

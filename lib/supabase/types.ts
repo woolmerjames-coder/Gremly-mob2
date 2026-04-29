@@ -381,7 +381,7 @@ export type Database = {
         };
         Relationships: [];
       };
-      space_chats: {
+      scope_chats: {
         Row: {
           archived_at: string | null;
           created_at: string | null;
@@ -389,7 +389,7 @@ export type Database = {
           last_message_snippet: string | null;
           metadata_json: Json | null;
           pinned: boolean | null;
-          space_id: string | null;
+          scope_id: string | null;
           title: string;
           updated_at: string | null;
           user_id: string;
@@ -401,7 +401,7 @@ export type Database = {
           last_message_snippet?: string | null;
           metadata_json?: Json | null;
           pinned?: boolean | null;
-          space_id?: string | null;
+          scope_id?: string | null;
           title: string;
           updated_at?: string | null;
           user_id: string;
@@ -413,7 +413,7 @@ export type Database = {
           last_message_snippet?: string | null;
           metadata_json?: Json | null;
           pinned?: boolean | null;
-          space_id?: string | null;
+          scope_id?: string | null;
           title?: string;
           updated_at?: string | null;
           user_id?: string;
@@ -421,7 +421,7 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: 'space_chats_space_id_fkey';
-            columns: ['space_id'];
+            columns: ['scope_id'];
             isOneToOne: false;
             referencedRelation: 'spaces';
             referencedColumns: ['id'];

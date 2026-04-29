@@ -1062,7 +1062,7 @@ export function EntityChatScreen({
       } = {
         id: item.id,
         chat_id: `entity-chat-${entityId}`, // Virtual chat ID for entity chats
-        space_id: entity?.space_id ?? '',
+        scope_id: entity?.space_id ?? '',
         user_id: '', // Not needed for display
         role: item.role,
         content: item.content,

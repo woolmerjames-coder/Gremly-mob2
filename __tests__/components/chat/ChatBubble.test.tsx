@@ -14,7 +14,7 @@ const mockUserMessage: SpaceChatMessage = {
   role: 'user',
   content: 'Hello, this is a user message!',
   created_at: '2023-01-01T00:00:00Z',
-  space_id: 'space-1',
+  scope_id: 'space-1',
 };
 
 const mockAssistantMessage: SpaceChatMessage = {
@@ -26,7 +26,7 @@ const mockAssistantMessage: SpaceChatMessage = {
     'Hi there! This is an assistant response with some longer text to test the bubble styling.',
   metadata_json: { confidence: 0.95 },
   created_at: '2023-01-01T00:01:00Z',
-  space_id: 'space-1',
+  scope_id: 'space-1',
 };
 
 const mockSystemMessage: SpaceChatMessage = {
@@ -36,7 +36,7 @@ const mockSystemMessage: SpaceChatMessage = {
   role: 'system',
   content: 'System notification message',
   created_at: '2023-01-01T00:02:00Z',
-  space_id: 'space-1',
+  scope_id: 'space-1',
 };
 
 describe('ChatBubble', () => {

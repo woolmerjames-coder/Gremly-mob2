@@ -620,7 +620,7 @@ export interface SpaceWithContext extends Space {
 export interface SpaceChat {
   id: ID;
   user_id: ID;
-  space_id: ID;
+  scope_id: ID | null;
   title: string;
   pinned: boolean;
   archived_at?: string | null; // ISO 8601 timestamp when chat was archived (null = active)
@@ -667,7 +667,7 @@ export type MessageRole =
 export interface SpaceChatMessage {
   id: ID;
   chat_id: ID;
-  space_id: ID;
+  scope_id: ID | null;
   user_id: ID;
   role: MessageRole;
   content: string;
@@ -731,7 +731,7 @@ export interface SpaceChatMessage {
  */
 export interface SpaceChatMessageInsert {
   chat_id: ID;
-  space_id: ID | null;
+  scope_id: ID | null;
   role: MessageRole;
   content: string;
   metadata_json?: {
