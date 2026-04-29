@@ -284,10 +284,10 @@ export function WorldsChapterPicker({
               contentContainerStyle={styles.scrollContent}
               showsVerticalScrollIndicator={false}
             >
-              {groups.map((group) => {
+              {groups.map((group, idx) => {
                 const worldChecked = selectedWorlds.has(group.worldId);
                 return (
-                  <View key={group.worldId}>
+                  <View key={group.worldId} style={idx > 0 ? styles.clusterGap : undefined}>
                     {/* World row — independently checkable */}
                     <Pressable
                       onPress={() => toggleWorld(group.worldId)}
@@ -418,6 +418,7 @@ const styles = StyleSheet.create({
     flexGrow: 0,
   },
   scrollContent: {
+    paddingTop: 4,
     paddingBottom: 8,
   },
   emptyState: {
@@ -432,14 +433,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    paddingVertical: 12,
+    paddingVertical: 8,
     paddingHorizontal: 4,
     borderRadius: 8,
   },
+  clusterGap: {
+    marginTop: 12,
+  },
   worldDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
   },
   worldName: {
     flex: 1,
@@ -455,8 +459,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 10,
-    paddingLeft: 32,
+    paddingVertical: 6,
+    paddingLeft: 34,
     paddingRight: 4,
     borderRadius: 8,
   },
@@ -476,7 +480,7 @@ const styles = StyleSheet.create({
   chapterTitle: {
     flex: 1,
     fontSize: 14,
-    color: lightTokens.colors.worldsInkSoft,
+    color: lightTokens.colors.warmGrey,
     fontFamily: 'Inter-Regular',
   },
   chapterTitleSelected: {
