@@ -750,7 +750,7 @@ export async function fetchRecentChatSummaries(userId, currentChatId, env) {
     };
 
     let url =
-      `${env.SUPABASE_URL}/rest/v1/space_chats` +
+      `${env.SUPABASE_URL}/rest/v1/scope_chats` +
       `?user_id=eq.${userId}` +
       `&running_summary=not.is.null` +
       `&select=id,running_summary,auto_title,updated_at` +

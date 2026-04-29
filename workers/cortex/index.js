@@ -2380,7 +2380,7 @@ SUMMARY:`;
     // eslint-disable-next-line no-control-regex
     summary = truncateAtSentence(summary.replace(/[\0-\x1f\x7f]/g, ' ').trim(), 800);
 
-    const patchRes = await fetch(`${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${chatId}`, {
+    const patchRes = await fetch(`${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${chatId}`, {
       method: 'PATCH',
       headers: {
         apikey: env.SUPABASE_SERVICE_KEY,
@@ -7831,7 +7831,7 @@ ${assistantMessage.substring(0, 2000)}
 
         try {
           const msgRes = await fetch(
-            `${env.SUPABASE_URL}/rest/v1/space_chat_messages?chat_id=eq.${encodeURIComponent(chatId)}&select=role,content&order=created_at.asc`,
+            `${env.SUPABASE_URL}/rest/v1/scope_chat_messages?chat_id=eq.${encodeURIComponent(chatId)}&select=role,content&order=created_at.asc`,
             {
               headers: {
                 apikey: env.SUPABASE_SERVICE_KEY,
@@ -12175,7 +12175,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 const summaryPromise = (async () => {
                   try {
                     const prevSummaryRes = await fetch(
-                      `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=running_summary`,
+                      `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=running_summary`,
                       {
                         headers: {
                           apikey: env.SUPABASE_SERVICE_KEY,
@@ -12702,7 +12702,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 const summaryPromise = (async () => {
                   try {
                     const prevSummaryRes = await fetch(
-                      `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=running_summary`,
+                      `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=running_summary`,
                       {
                         headers: {
                           apikey: env.SUPABASE_SERVICE_KEY,
@@ -12733,7 +12733,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 const extractionPromise = (async () => {
                   try {
                     const chatRes = await fetch(
-                      `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=saved_extraction_ids,dismissed_extractions`,
+                      `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=saved_extraction_ids,dismissed_extractions`,
                       {
                         headers: {
                           apikey: env.SUPABASE_SERVICE_KEY,
@@ -12755,7 +12755,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     };
                     const [summaryRes, todosRes, habitsRes] = await Promise.all([
                       fetch(
-                        `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=running_summary`,
+                        `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=running_summary`,
                         { headers: supaHeaders },
                       ),
                       fetch(
@@ -12861,7 +12861,7 @@ Return ONLY valid JSON:
                       console.warn('[GeneralChat] Extraction parse error:', parseErr.message);
                     }
                     if (extractResult) {
-                      await fetch(`${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}`, {
+                      await fetch(`${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}`, {
                         method: 'PATCH',
                         headers: {
                           apikey: env.SUPABASE_SERVICE_KEY,
@@ -13236,7 +13236,7 @@ Return ONLY valid JSON:
           const summaryPromise = (async () => {
             try {
               const prevSummaryRes = await fetch(
-                `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=running_summary`,
+                `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=running_summary`,
                 {
                   headers: {
                     apikey: env.SUPABASE_SERVICE_KEY,
