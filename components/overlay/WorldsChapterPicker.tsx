@@ -2,12 +2,10 @@
  * WorldsChapterPicker — multi-select bottom sheet for linking an entity
  * to worlds AND chapters independently (F.4 fix).
  *
- * - World rows: checkbox + accent dot + name (ALL worlds shown, even with 0 active chapters)
- * - Chapter rows: indented checkbox + title (active/open chapters only)
- * - Worlds and chapters are toggled independently — checking a world does NOT
- *   auto-toggle its chapters, and vice versa.
- * - Save: diffs and persists drop_world_links + drop_chapter_links separately.
- * - Closed-chapter links are preserved (invisible to picker).
+ * Layout: world pill chips (top) + flat active-chapter list with world meta (below).
+ * Worlds and chapters are toggled independently.
+ * Save diffs and persists drop_world_links + drop_chapter_links separately.
+ * Closed-chapter links are preserved (invisible to picker).
  */
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
@@ -47,27 +45,45 @@ export function WorldsChapterPicker({
   const dropChapterLinks = useGremlyStore((s) => s.dropChapterLinks);
   const { userId } = useAuth();
 
-  // All worlds sorted alphabetically, each with their active chapters
-  const groups = useMemo(() => {
-    const activeChapters = chapters.filter((c) => c.closed_at == null);
-    const byWorld = new Map<string, Array<{ id: string; title: string }>>();
-    for (const c of activeChapters) {
-      const wid = c.primary_world_id ?? '__none__';
-      if (!byWorld.has(wid)) byWorld.set(wid, []);
-      byWorld.get(wid)!.push({ id: c.id, title: c.title });
-    }
+  // All worlds sorted alphabetically with palette colours
+  const sortedWorlds = useMemo(() => {
     const sorted = [...worlds].sort((a, b) => a.name.localeCompare(b.name));
     return sorted.map((w) => {
       const palette = selectWorldPalette({ worlds } as any, w.id);
-      const wChapters = (byWorld.get(w.id) ?? []).sort((a, b) => a.title.localeCompare(b.title));
+      return { worldId: w.id, worldName: w.name, worldAccentColor: palette.dot };
+    });
+  }, [worlds]);
+
+  // Fast lookup: worldId → { name, accentColor }
+  const worldPaletteMap = useMemo(() => {
+    const map = new Map<string, { name: string; accentColor: string }>();
+    for (const w of sortedWorlds)
+      map.set(w.worldId, { name: w.worldName, accentColor: w.worldAccentColor });
+    return map;
+  }, [sortedWorlds]);
+
+  // Flat list of active chapters sorted by start_date DESC
+  const flatChapters = useMemo(() => {
+    const active = chapters.filter((c) => c.closed_at == null);
+    const result = active.map((c) => {
+      const world = worldPaletteMap.get(c.primary_world_id ?? '');
       return {
-        worldId: w.id,
-        worldName: w.name,
-        worldAccentColor: palette.dot,
-        chapters: wChapters,
+        id: c.id,
+        title: c.title,
+        startDate: c.start_date ?? null,
+        worldId: c.primary_world_id ?? null,
+        worldName: world?.name ?? null,
+        worldAccentColor: world?.accentColor ?? null,
       };
     });
-  }, [worlds, chapters]);
+    result.sort((a, b) => {
+      if (!a.startDate && !b.startDate) return 0;
+      if (!a.startDate) return 1;
+      if (!b.startDate) return -1;
+      return b.startDate.localeCompare(a.startDate);
+    });
+    return result;
+  }, [chapters, worldPaletteMap]);
 
   // Two independent selection sets
   const [selectedWorlds, setSelectedWorlds] = useState<Set<string>>(new Set());
@@ -97,9 +113,7 @@ export function WorldsChapterPicker({
 
     // Only active (open) chapter links — closed-chapter links are preserved silently
     const activeChapterIds = new Set<string>();
-    for (const g of groups) {
-      for (const c of g.chapters) activeChapterIds.add(c.id);
-    }
+    for (const c of flatChapters) activeChapterIds.add(c.id);
     const cLinked = new Set<string>();
     for (const link of dropChapterLinks) {
       if (link.drop_id === entityId && activeChapterIds.has(link.chapter_id)) {
@@ -274,7 +288,7 @@ export function WorldsChapterPicker({
           </View>
 
           {/* Body */}
-          {groups.length === 0 ? (
+          {sortedWorlds.length === 0 ? (
             <View style={styles.emptyState}>
               <Text style={styles.emptyText}>No worlds yet.</Text>
             </View>
@@ -284,68 +298,72 @@ export function WorldsChapterPicker({
               contentContainerStyle={styles.scrollContent}
               showsVerticalScrollIndicator={false}
             >
-              {groups.map((group, idx) => {
-                const worldChecked = selectedWorlds.has(group.worldId);
-                return (
-                  <View key={group.worldId} style={idx > 0 ? styles.clusterGap : undefined}>
-                    {/* World row — independently checkable */}
+              {/* Region 1 — World pills */}
+              <View style={styles.pillRow}>
+                {sortedWorlds.map((w) => {
+                  const checked = selectedWorlds.has(w.worldId);
+                  return (
                     <Pressable
-                      onPress={() => toggleWorld(group.worldId)}
-                      style={({ pressed }) => [styles.worldRow, pressed && styles.rowPressed]}
+                      key={w.worldId}
+                      onPress={() => toggleWorld(w.worldId)}
+                      style={({ pressed }) => [
+                        styles.pill,
+                        checked
+                          ? {
+                              backgroundColor: w.worldAccentColor + '33',
+                              borderColor: w.worldAccentColor,
+                            }
+                          : styles.pillUnselected,
+                        pressed && styles.rowPressed,
+                      ]}
                     >
-                      <View
-                        style={[
-                          styles.checkbox,
-                          worldChecked && {
-                            backgroundColor: group.worldAccentColor,
-                            borderColor: group.worldAccentColor,
-                          },
-                        ]}
-                      >
-                        {worldChecked && <Check size={12} color="#FFFFFF" strokeWidth={2.5} />}
-                      </View>
-                      <View
-                        style={[styles.worldDot, { backgroundColor: group.worldAccentColor }]}
-                      />
-                      <Text style={[styles.worldName, worldChecked && styles.worldNameSelected]}>
-                        {group.worldName}
+                      <View style={[styles.pillDot, { backgroundColor: w.worldAccentColor }]} />
+                      <Text style={[styles.pillText, checked && styles.pillTextSelected]}>
+                        {w.worldName}
                       </Text>
                     </Pressable>
+                  );
+                })}
+              </View>
 
-                    {/* Chapter rows — indented, independently checkable */}
-                    {group.chapters.map((chapter) => {
-                      const chapterChecked = selectedChapters.has(chapter.id);
-                      return (
-                        <Pressable
-                          key={chapter.id}
-                          onPress={() => toggleChapter(chapter.id)}
-                          style={({ pressed }) => [styles.chapterRow, pressed && styles.rowPressed]}
-                        >
-                          <View
-                            style={[
-                              styles.checkbox,
-                              chapterChecked && {
-                                backgroundColor: group.worldAccentColor,
-                                borderColor: group.worldAccentColor,
-                              },
-                            ]}
-                          >
-                            {chapterChecked && (
-                              <Check size={12} color="#FFFFFF" strokeWidth={2.5} />
-                            )}
-                          </View>
-                          <Text
-                            style={[
-                              styles.chapterTitle,
-                              chapterChecked && styles.chapterTitleSelected,
-                            ]}
-                          >
-                            {chapter.title}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
+              {/* Section break */}
+              {flatChapters.length > 0 && (
+                <>
+                  <View style={styles.divider} />
+                  <Text style={styles.sectionLabel}>ACTIVE CHAPTERS</Text>
+                </>
+              )}
+
+              {/* Region 2 — Flat chapter list */}
+              {flatChapters.map((chapter) => {
+                const checked = selectedChapters.has(chapter.id);
+                const checkColor = chapter.worldAccentColor ?? lightTokens.colors.worldsInk;
+                return (
+                  <Pressable
+                    key={chapter.id}
+                    onPress={() => toggleChapter(chapter.id)}
+                    style={({ pressed }) => [styles.chapterRow, pressed && styles.rowPressed]}
+                  >
+                    <View
+                      style={[
+                        styles.checkbox,
+                        checked && { backgroundColor: checkColor, borderColor: checkColor },
+                      ]}
+                    >
+                      {checked && <Check size={12} color="#FFFFFF" strokeWidth={2.5} />}
+                    </View>
+                    <View style={styles.chapterMeta}>
+                      <Text style={[styles.chapterTitle, checked && styles.chapterTitleSelected]}>
+                        {chapter.title}
+                      </Text>
+                      {chapter.worldName ? (
+                        <View style={styles.chapterWorldRow}>
+                          <View style={[styles.chapterWorldDot, { backgroundColor: checkColor }]} />
+                          <Text style={styles.chapterWorldName}>{chapter.worldName}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  </Pressable>
                 );
               })}
             </ScrollView>
@@ -457,12 +475,89 @@ const styles = StyleSheet.create({
   },
   chapterRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 12,
-    paddingVertical: 6,
-    paddingLeft: 34,
-    paddingRight: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
     borderRadius: 8,
+  },
+  chapterMeta: {
+    flex: 1,
+  },
+  chapterTitle: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: lightTokens.colors.worldsInk,
+    fontFamily: 'Inter-Medium',
+  },
+  chapterTitleSelected: {
+    fontFamily: 'Inter-Medium',
+    fontWeight: '500',
+    color: lightTokens.colors.worldsInk,
+  },
+  chapterWorldRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+  chapterWorldDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+  },
+  chapterWorldName: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: lightTokens.colors.warmGrey,
+    fontFamily: 'Inter-Medium',
+  },
+  pillRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  pill: {
+    borderRadius: 999,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+  },
+  pillUnselected: {
+    borderColor: lightTokens.colors.worldsCardBorder,
+  },
+  pillDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  pillText: {
+    fontSize: 14,
+    color: lightTokens.colors.worldsInk,
+    fontFamily: 'Inter-Regular',
+  },
+  pillTextSelected: {
+    color: lightTokens.colors.worldsInk,
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: lightTokens.colors.worldsInk + '2E',
+    marginHorizontal: 16,
+    marginTop: 4,
+  },
+  sectionLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 1,
+    color: lightTokens.colors.warmGrey,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
   },
   rowPressed: {
     opacity: 0.6,
@@ -476,17 +571,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  chapterTitle: {
-    flex: 1,
-    fontSize: 14,
-    color: lightTokens.colors.warmGrey,
-    fontFamily: 'Inter-Regular',
-  },
-  chapterTitleSelected: {
-    fontFamily: 'Inter-Medium',
-    fontWeight: '500',
-    color: lightTokens.colors.worldsInk,
   },
   error: {
     fontSize: 13,
