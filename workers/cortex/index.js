@@ -157,6 +157,10 @@ import {
   buildChatContext,
   fetchSpaceEntities,
   formatSpaceEntities,
+  fetchWorldEntities,
+  formatWorldEntities,
+  fetchChapterEntities,
+  formatChapterEntities,
   getLifeMapForChat,
 } from './context/chatProjection.js';
 import { getUserProfile } from './context/userProfile.js';
@@ -173,6 +177,8 @@ import {
 import {
   assembleGenerationConfig,
   buildSpaceChatSystemPrompt,
+  buildWorldChatSystemPrompt,
+  buildChapterChatSystemPrompt,
   buildEntityChatConfig,
   buildGeneralChatConfig,
   buildEntityContextBlock,
@@ -3393,6 +3399,8 @@ export default {
       // Check if client requests streaming
       const wantsStreaming = body.stream === true;
       const isSpaceChatStreaming = wantsStreaming && lane === 'space_chat';
+      const isWorldChatStreaming = wantsStreaming && lane === 'world_chat';
+      const isChapterChatStreaming = wantsStreaming && lane === 'chapter_chat';
       const isPhase2Streaming = wantsStreaming && type === 'enrich-phase2';
       const isEntityChatStreaming = wantsStreaming && type === 'entity-chat';
       const isHabitBuilderStreaming = wantsStreaming && type === 'habit-builder';
@@ -3409,7 +3417,7 @@ export default {
         'organize-day',
         'weekly-summary',
       ]);
-      const AUTH_REQUIRED_LANES = new Set(['space_chat', 'general_chat']);
+      const AUTH_REQUIRED_LANES = new Set(['space_chat', 'general_chat', 'world_chat', 'chapter_chat']);
 
       const needsAuth = AUTH_REQUIRED_TYPES.has(type) || (lane && AUTH_REQUIRED_LANES.has(lane));
 
@@ -11470,14 +11478,18 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
 
       const isSpaceChatLane = lane === 'space_chat' && type !== 'classify';
       const isGeneralChatLane = lane === 'general_chat' && type !== 'classify';
+      const isWorldChatLane = lane === 'world_chat' && type !== 'classify';
+      const isChapterChatLane = lane === 'chapter_chat' && type !== 'classify';
       const isGeneralChatStreaming = isGeneralChatLane && wantsStreaming;
-      const actualModel = isSpaceChatLane ? 'gpt-4.1' : baseModel;
+      const actualModel =
+        isSpaceChatLane || isWorldChatLane || isChapterChatLane ? 'gpt-4.1' : baseModel;
 
       const temperature =
         actualModel === 'gpt-4.1' && !Number.isFinite(body.temperature) ? 0.7 : baseTemperature;
 
       // FIX 3: Increased token limit for Space Chat (was 400, now 800)
-      const maxTokensValue = isSpaceChatLane ? 800 : baseMaxTokens;
+      const maxTokensValue =
+        isSpaceChatLane || isWorldChatLane || isChapterChatLane ? 800 : baseMaxTokens;
 
       console.log('[MODEL]', {
         lane,
@@ -12243,6 +12255,136 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
       }
       // ============================================================================
       // END SPACE CHAT STREAMING
+      // ============================================================================
+
+      // ============================================================================
+      // WORLD CHAT STREAMING (F.5.b.2)
+      // ============================================================================
+      if (isWorldChatStreaming && isWorldChatLane) {
+        const access = await checkUserAccess(authenticatedUserId, env);
+        if (!access.hasAccess) {
+          return denyAccessSSEResponse(access.reason);
+        }
+
+        console.log('[WorldChat:Streaming] Starting SSE stream');
+
+        const lastUserMsgWorld = messages.filter((m) => m.role === 'user').pop()?.content || '';
+
+        const { readable, writable } = new TransformStream();
+        const writer = writable.getWriter();
+        const encoder = new TextEncoder();
+        const decoder = new TextDecoder();
+
+        // Loading message — fire-and-forget before main work
+        (async () => {
+          try {
+            const loadingMsg = await generateLoadingMessage(
+              lastUserMsgWorld,
+              body.scopeName || null,
+              env.OPENAI_API_KEY,
+            );
+            if (loadingMsg) {
+              await writer.write(
+                encoder.encode(
+                  `data: ${JSON.stringify({ searching: true, query: loadingMsg, isLoadingHint: true })}\n\n`,
+                ),
+              );
+            }
+          } catch {
+            /* fire-and-forget */
+          }
+        })();
+
+        runScopedChatStream(
+          'world',
+          body,
+          messages,
+          lastUserMsgWorld,
+          authenticatedUserId,
+          userTimezone,
+          env,
+          ctx,
+          writer,
+          encoder,
+          decoder,
+        );
+
+        return new Response(readable, {
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-cache, no-transform',
+            Connection: 'keep-alive',
+          },
+        });
+      }
+      // ============================================================================
+      // END WORLD CHAT STREAMING
+      // ============================================================================
+
+      // ============================================================================
+      // CHAPTER CHAT STREAMING (F.5.b.2)
+      // ============================================================================
+      if (isChapterChatStreaming && isChapterChatLane) {
+        const access = await checkUserAccess(authenticatedUserId, env);
+        if (!access.hasAccess) {
+          return denyAccessSSEResponse(access.reason);
+        }
+
+        console.log('[ChapterChat:Streaming] Starting SSE stream');
+
+        const lastUserMsgChapter = messages.filter((m) => m.role === 'user').pop()?.content || '';
+
+        const { readable, writable } = new TransformStream();
+        const writer = writable.getWriter();
+        const encoder = new TextEncoder();
+        const decoder = new TextDecoder();
+
+        // Loading message — fire-and-forget before main work
+        (async () => {
+          try {
+            const loadingMsg = await generateLoadingMessage(
+              lastUserMsgChapter,
+              body.scopeName || null,
+              env.OPENAI_API_KEY,
+            );
+            if (loadingMsg) {
+              await writer.write(
+                encoder.encode(
+                  `data: ${JSON.stringify({ searching: true, query: loadingMsg, isLoadingHint: true })}\n\n`,
+                ),
+              );
+            }
+          } catch {
+            /* fire-and-forget */
+          }
+        })();
+
+        runScopedChatStream(
+          'chapter',
+          body,
+          messages,
+          lastUserMsgChapter,
+          authenticatedUserId,
+          userTimezone,
+          env,
+          ctx,
+          writer,
+          encoder,
+          decoder,
+        );
+
+        return new Response(readable, {
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-cache, no-transform',
+            Connection: 'keep-alive',
+          },
+        });
+      }
+      // ============================================================================
+      // END CHAPTER CHAT STREAMING
       // ============================================================================
 
       // ============================================================================
@@ -13276,6 +13418,360 @@ Return ONLY valid JSON:
       }
 
       // ===================================================================
+      // WORLD CHAT NON-STREAMING (F.5.b.2)
+      // ===================================================================
+      if (isWorldChatLane) {
+        const access = await checkUserAccess(authenticatedUserId, env);
+        if (!access.hasAccess) {
+          return denyAccessResponse(access.reason);
+        }
+
+        let worldSessionContextStr = '';
+        let worldUserProfile = null;
+        let worldCachedDomains = [];
+        let worldEntities = null;
+        let worldTodayActivity = null;
+        if (authenticatedUserId) {
+          try {
+            const [chatContext, profile, domains, entities, todayAct] = await Promise.all([
+              buildChatContext(
+                authenticatedUserId,
+                'world',
+                { timezone: userTimezone, currentChatId: body.chatId || null },
+                env,
+              ),
+              getUserProfile(authenticatedUserId, env),
+              getCachedDomainNames(authenticatedUserId, env),
+              fetchWorldEntities(authenticatedUserId, body.scopeId, env),
+              buildTodayActivity(authenticatedUserId, userTimezone, env),
+            ]);
+            worldSessionContextStr = chatContext;
+            worldUserProfile = profile;
+            worldCachedDomains = domains;
+            worldEntities = entities;
+            worldTodayActivity = todayAct;
+          } catch (err) {
+            console.error('[WorldChat:NonStreaming] Context error', err);
+          }
+        }
+
+        const worldContext = { runningSummary: body.runningSummary || '' };
+        const worldScopeContextStr = worldEntities ? formatWorldEntities(worldEntities) : null;
+        const lastUserMsgWorld = messages.filter((m) => m.role === 'user').pop()?.content || '';
+        const previousExchangeWorld = extractPreviousExchange(messages);
+
+        const triageWorld = await triageMessage({
+          userMessage: lastUserMsgWorld,
+          previousExchange: previousExchangeWorld,
+          spaceName: body.scopeName || undefined,
+          runningSummary: body.runningSummary || '',
+          chatType: 'world',
+          env,
+          domainNames: worldCachedDomains,
+          profileSnippet: worldUserProfile?.profileText?.slice(0, 150) || '',
+          messageCount: messages.length,
+        });
+
+        console.log('[WorldChat:NonStreaming:Triage]', {
+          mode: triageWorld.mode,
+          depth: triageWorld.depth,
+          messagePreview: lastUserMsgWorld.slice(0, 80),
+        });
+
+        const worldGenConfig = buildWorldChatSystemPrompt(
+          triageWorld,
+          worldContext,
+          body.scopeName,
+          worldScopeContextStr,
+          body.accountCreatedAt,
+          worldSessionContextStr,
+          worldUserProfile?.profileText,
+          userTimezone,
+          worldTodayActivity,
+        );
+
+        const worldTriageMessages = [
+          { role: 'system', content: worldGenConfig.systemPrompt },
+          ...messages.filter((m) => m.role !== 'system'),
+        ];
+
+        const worldSearchPolicy = getSearchPolicy(triageWorld.search);
+        const worldNonStreamConfig = {
+          temperature: worldGenConfig.temperature,
+          maxOutputTokens: worldGenConfig.maxTokens,
+          thinkingLevel: worldGenConfig.thinkingLevel,
+        };
+        if (worldSearchPolicy.attachTool) {
+          worldNonStreamConfig.tools = [makeWebSearchTool(userTimezone)];
+        }
+
+        const worldGeminiResult = await geminiGenerate(
+          worldGenConfig.systemPrompt,
+          worldTriageMessages,
+          worldNonStreamConfig,
+          env.GOOGLE_API_KEY,
+        );
+
+        if (!worldGeminiResult.ok) {
+          return j({ error: worldGeminiResult.error || 'gemini_error', code: worldGeminiResult.status }, 200);
+        }
+
+        let worldContent = worldGeminiResult.content;
+        let worldSources = undefined;
+        let worldSearchQuery = undefined;
+
+        const worldToolCall = worldGeminiResult.functionCalls?.[0] || null;
+        if (worldToolCall?.name === 'web_search') {
+          try {
+            worldSearchQuery = worldToolCall.args?.query;
+            const worldSearchResults = await executeTavilySearch(worldSearchQuery, env.TAVILY_API_KEY);
+            if (worldSearchResults?.results?.length > 0) {
+              const worldFollowUp = buildFollowUpContents(
+                convertMessages(worldTriageMessages),
+                worldGeminiResult.parts || [],
+                [{ name: 'web_search', id: worldToolCall.id, response: { results: formatSearchBrief(worldSearchResults) } }],
+              );
+              const worldFollowUpResult = await geminiGenerate(
+                worldGenConfig.systemPrompt,
+                [],
+                {
+                  temperature: worldGenConfig.temperature,
+                  maxOutputTokens: Math.max(worldGenConfig.maxTokens, 1200),
+                  thinkingLevel: worldGenConfig.thinkingLevel,
+                  nativeContents: worldFollowUp,
+                },
+                env.GOOGLE_API_KEY,
+              );
+              worldContent = worldFollowUpResult.ok ? worldFollowUpResult.content : worldContent;
+              worldSources = worldSearchResults.results.map((r) => ({ title: r.title, url: r.url }));
+            }
+          } catch (worldSearchErr) {
+            console.log('[WorldChat:NonStreaming] Search error:', worldSearchErr);
+          }
+        }
+
+        worldContent = stripFillerOpening(worldContent);
+        const { suggestion: worldSaveSuggestion, cleanContent: worldClean } = extractSaveSuggestion(worldContent);
+        worldContent = worldClean.replace(/<!--SAVE:.*?-->/gs, '').replace(/<!--SAVE:.*$/s, '').trim();
+
+        console.log('[WorldChat:NonStreaming] Complete', {
+          latency_ms: Date.now() - t0NonStream,
+          content_length: worldContent.length,
+        });
+
+        if (body.chatId && authenticatedUserId && worldContent) {
+          ctx.waitUntil(
+            (async () => {
+              try {
+                const prevRes = await fetch(
+                  `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=running_summary`,
+                  { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } },
+                );
+                const prevData = prevRes?.ok ? await prevRes.json().catch(() => []) : [];
+                await generateRunningSummary(
+                  messages.filter((m) => m.role !== 'system'),
+                  worldContent,
+                  body.chatId,
+                  body.scopeName || null,
+                  prevData?.[0]?.running_summary || null,
+                  env,
+                  userTimezone,
+                );
+              } catch (err) {
+                console.warn('[WorldChat:NonStreaming] Running summary failed:', err.message);
+              }
+            })(),
+          );
+        }
+
+        return j({
+          content: worldContent,
+          model: 'gemini-3-flash-preview',
+          usage: worldGeminiResult.usage || null,
+          save_suggestion: worldSaveSuggestion || null,
+          sources: worldSources,
+          search_query: worldSearchQuery,
+        });
+      }
+
+      // ===================================================================
+      // CHAPTER CHAT NON-STREAMING (F.5.b.2)
+      // ===================================================================
+      if (isChapterChatLane) {
+        const access = await checkUserAccess(authenticatedUserId, env);
+        if (!access.hasAccess) {
+          return denyAccessResponse(access.reason);
+        }
+
+        let chapterSessionContextStr = '';
+        let chapterUserProfile = null;
+        let chapterCachedDomains = [];
+        let chapterEntities = null;
+        let chapterTodayActivity = null;
+        if (authenticatedUserId) {
+          try {
+            const [chatContext, profile, domains, entities, todayAct] = await Promise.all([
+              buildChatContext(
+                authenticatedUserId,
+                'chapter',
+                { timezone: userTimezone, currentChatId: body.chatId || null },
+                env,
+              ),
+              getUserProfile(authenticatedUserId, env),
+              getCachedDomainNames(authenticatedUserId, env),
+              fetchChapterEntities(authenticatedUserId, body.scopeId, env),
+              buildTodayActivity(authenticatedUserId, userTimezone, env),
+            ]);
+            chapterSessionContextStr = chatContext;
+            chapterUserProfile = profile;
+            chapterCachedDomains = domains;
+            chapterEntities = entities;
+            chapterTodayActivity = todayAct;
+          } catch (err) {
+            console.error('[ChapterChat:NonStreaming] Context error', err);
+          }
+        }
+
+        const chapterContext = { runningSummary: body.runningSummary || '' };
+        const chapterScopeContextStr = chapterEntities ? formatChapterEntities(chapterEntities) : null;
+        const lastUserMsgChapter = messages.filter((m) => m.role === 'user').pop()?.content || '';
+        const previousExchangeChapter = extractPreviousExchange(messages);
+
+        const triageChapter = await triageMessage({
+          userMessage: lastUserMsgChapter,
+          previousExchange: previousExchangeChapter,
+          spaceName: body.scopeName || undefined,
+          runningSummary: body.runningSummary || '',
+          chatType: 'chapter',
+          env,
+          domainNames: chapterCachedDomains,
+          profileSnippet: chapterUserProfile?.profileText?.slice(0, 150) || '',
+          messageCount: messages.length,
+        });
+
+        console.log('[ChapterChat:NonStreaming:Triage]', {
+          mode: triageChapter.mode,
+          depth: triageChapter.depth,
+          messagePreview: lastUserMsgChapter.slice(0, 80),
+        });
+
+        const chapterGenConfig = buildChapterChatSystemPrompt(
+          triageChapter,
+          chapterContext,
+          body.scopeName,
+          chapterScopeContextStr,
+          body.accountCreatedAt,
+          chapterSessionContextStr,
+          chapterUserProfile?.profileText,
+          userTimezone,
+          chapterTodayActivity,
+        );
+
+        const chapterTriageMessages = [
+          { role: 'system', content: chapterGenConfig.systemPrompt },
+          ...messages.filter((m) => m.role !== 'system'),
+        ];
+
+        const chapterSearchPolicy = getSearchPolicy(triageChapter.search);
+        const chapterNonStreamConfig = {
+          temperature: chapterGenConfig.temperature,
+          maxOutputTokens: chapterGenConfig.maxTokens,
+          thinkingLevel: chapterGenConfig.thinkingLevel,
+        };
+        if (chapterSearchPolicy.attachTool) {
+          chapterNonStreamConfig.tools = [makeWebSearchTool(userTimezone)];
+        }
+
+        const chapterGeminiResult = await geminiGenerate(
+          chapterGenConfig.systemPrompt,
+          chapterTriageMessages,
+          chapterNonStreamConfig,
+          env.GOOGLE_API_KEY,
+        );
+
+        if (!chapterGeminiResult.ok) {
+          return j({ error: chapterGeminiResult.error || 'gemini_error', code: chapterGeminiResult.status }, 200);
+        }
+
+        let chapterContent = chapterGeminiResult.content;
+        let chapterSources = undefined;
+        let chapterSearchQuery = undefined;
+
+        const chapterToolCall = chapterGeminiResult.functionCalls?.[0] || null;
+        if (chapterToolCall?.name === 'web_search') {
+          try {
+            chapterSearchQuery = chapterToolCall.args?.query;
+            const chapterSearchResults = await executeTavilySearch(chapterSearchQuery, env.TAVILY_API_KEY);
+            if (chapterSearchResults?.results?.length > 0) {
+              const chapterFollowUp = buildFollowUpContents(
+                convertMessages(chapterTriageMessages),
+                chapterGeminiResult.parts || [],
+                [{ name: 'web_search', id: chapterToolCall.id, response: { results: formatSearchBrief(chapterSearchResults) } }],
+              );
+              const chapterFollowUpResult = await geminiGenerate(
+                chapterGenConfig.systemPrompt,
+                [],
+                {
+                  temperature: chapterGenConfig.temperature,
+                  maxOutputTokens: Math.max(chapterGenConfig.maxTokens, 1200),
+                  thinkingLevel: chapterGenConfig.thinkingLevel,
+                  nativeContents: chapterFollowUp,
+                },
+                env.GOOGLE_API_KEY,
+              );
+              chapterContent = chapterFollowUpResult.ok ? chapterFollowUpResult.content : chapterContent;
+              chapterSources = chapterSearchResults.results.map((r) => ({ title: r.title, url: r.url }));
+            }
+          } catch (chapterSearchErr) {
+            console.log('[ChapterChat:NonStreaming] Search error:', chapterSearchErr);
+          }
+        }
+
+        chapterContent = stripFillerOpening(chapterContent);
+        const { suggestion: chapterSaveSuggestion, cleanContent: chapterClean } = extractSaveSuggestion(chapterContent);
+        chapterContent = chapterClean.replace(/<!--SAVE:.*?-->/gs, '').replace(/<!--SAVE:.*$/s, '').trim();
+
+        console.log('[ChapterChat:NonStreaming] Complete', {
+          latency_ms: Date.now() - t0NonStream,
+          content_length: chapterContent.length,
+        });
+
+        if (body.chatId && authenticatedUserId && chapterContent) {
+          ctx.waitUntil(
+            (async () => {
+              try {
+                const prevRes = await fetch(
+                  `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=running_summary`,
+                  { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } },
+                );
+                const prevData = prevRes?.ok ? await prevRes.json().catch(() => []) : [];
+                await generateRunningSummary(
+                  messages.filter((m) => m.role !== 'system'),
+                  chapterContent,
+                  body.chatId,
+                  body.scopeName || null,
+                  prevData?.[0]?.running_summary || null,
+                  env,
+                  userTimezone,
+                );
+              } catch (err) {
+                console.warn('[ChapterChat:NonStreaming] Running summary failed:', err.message);
+              }
+            })(),
+          );
+        }
+
+        return j({
+          content: chapterContent,
+          model: 'gemini-3-flash-preview',
+          usage: chapterGeminiResult.usage || null,
+          save_suggestion: chapterSaveSuggestion || null,
+          sources: chapterSources,
+          search_query: chapterSearchQuery,
+        });
+      }
+
+      // ===================================================================
       // NON-SPACE-CHAT PATH (classify, entity-chat fallback, etc.)
       // ===================================================================
       const rlFallback = await checkIpRateLimit(request, env, 'misc', 30);
@@ -13397,6 +13893,561 @@ Return ONLY valid JSON:
     }
   },
 };
+
+// ============================================================================
+// SHARED SCOPED-CHAT STREAMING CORE (F.5.b.2)
+// Used by world_chat and chapter_chat lanes. Spawns an async IIFE that
+// streams via Gemini, handles web search follow-up, save suggestion extraction,
+// running summary update. writer.close() always fires in the finally block.
+// ============================================================================
+
+// Module-level copy of extractSaveSuggestion for runScopedChatStream.
+// The inner function defined inside the fetch handler shadows this for all
+// existing handler paths — existing behavior is unchanged.
+function extractSaveSuggestionModuleLevel(content) {
+  if (!content) return { suggestion: null, cleanContent: content };
+  const savePattern = /<!--\s*SAVE\s*:\s*(\{[\s\S]*?\})\s*-->/i;
+  const match = content.match(savePattern);
+  if (!match) return { suggestion: null, cleanContent: content };
+  try {
+    const jsonStr = match[1].replace(/[\n\r]/g, ' ').replace(/\s+/g, ' ').trim();
+    const suggestion = JSON.parse(jsonStr);
+    if (!suggestion.type || !suggestion.title) return { suggestion: null, cleanContent: content };
+    if (!['todo', 'habit', 'note'].includes(suggestion.type)) return { suggestion: null, cleanContent: content };
+    if (suggestion.steps) {
+      if (!Array.isArray(suggestion.steps)) {
+        delete suggestion.steps;
+      } else {
+        suggestion.steps = suggestion.steps.slice(0, 12).map((s) => String(s).trim()).filter((s) => s.length > 0 && s.length < 200);
+        if (suggestion.steps.length === 0) delete suggestion.steps;
+      }
+    }
+    return { suggestion, cleanContent: content.replace(savePattern, '').trim() };
+  } catch {
+    return { suggestion: null, cleanContent: content };
+  }
+}
+
+function runScopedChatStream(
+  scopeType, // 'world' | 'chapter'
+  body,
+  messages,
+  lastUserMsg,
+  authenticatedUserId,
+  userTimezone,
+  env,
+  ctx,
+  writer,
+  encoder,
+  decoder,
+) {
+  const tag = scopeType === 'world' ? 'WorldChat' : 'ChapterChat';
+
+  (async () => {
+    let fullContent = '';
+    try {
+      await writer.write(encoder.encode(': ping\n\n'));
+
+      // URL detection
+      const detectedUrls = extractUrlsFromText(lastUserMsg);
+      let urlContext = '';
+      let fetchedUrl = null;
+
+      if (detectedUrls.length > 0) {
+        const urlToFetch = detectedUrls[0];
+        await writer.write(
+          encoder.encode(
+            `data: ${JSON.stringify({ fetching: true, fetchingUrl: urlToFetch, done: false })}\n\n`,
+          ),
+        );
+        const extracted = await executeTavilyExtract(urlToFetch, env.TAVILY_API_KEY);
+        if (extracted?.success) {
+          fetchedUrl = { url: extracted.url, title: extracted.title };
+          urlContext = `\n\n=== EXTRACTED CONTENT FROM URL ===\nURL: ${extracted.url}\nTitle: ${extracted.title}\n\n${extracted.content}\n\n=== END EXTRACTED CONTENT ===\n\nThe user has shared this link. Summarize the key points and answer any questions they have about it. If they just shared the link without a specific question, provide a helpful summary of what the content covers.`;
+        } else {
+          urlContext = `\n\n[Note: The user shared a link (${urlToFetch}) but I couldn't access its content. It may be paywalled, require login, or be temporarily unavailable.]`;
+        }
+        await writer.write(
+          encoder.encode(`data: ${JSON.stringify({ fetching: false, done: false })}\n\n`),
+        );
+      }
+
+      // Context loading
+      let scopeSessionContextStr = '';
+      let scopeUserProfile = null;
+      let cachedDomains = [];
+      let scopeEntities = null;
+      let scopeTodayActivity = null;
+
+      if (authenticatedUserId) {
+        try {
+          const fetchEntities =
+            scopeType === 'world'
+              ? fetchWorldEntities(authenticatedUserId, body.scopeId, env)
+              : fetchChapterEntities(authenticatedUserId, body.scopeId, env);
+
+          const [chatContext, profile, domains, entities, todayAct] = await Promise.all([
+            buildChatContext(
+              authenticatedUserId,
+              scopeType,
+              { timezone: userTimezone, currentChatId: body.chatId || null },
+              env,
+            ),
+            getUserProfile(authenticatedUserId, env),
+            getCachedDomainNames(authenticatedUserId, env),
+            fetchEntities,
+            buildTodayActivity(authenticatedUserId, userTimezone, env),
+          ]);
+          scopeSessionContextStr = chatContext;
+          scopeUserProfile = profile;
+          cachedDomains = domains;
+          scopeEntities = entities;
+          scopeTodayActivity = todayAct;
+          console.log(`[${tag}] Context loaded`, {
+            userId: authenticatedUserId.slice(0, 8),
+            contextLength: scopeSessionContextStr?.length || 0,
+            hasProfile: !!scopeUserProfile,
+            hasScopeEntities: !!scopeEntities,
+          });
+        } catch (err) {
+          console.error(`[${tag}] Context error`, err);
+        }
+      }
+
+      // Triage
+      const previousExchange = extractPreviousExchange(messages);
+      const triage = await triageMessage({
+        userMessage: lastUserMsg,
+        previousExchange,
+        spaceName: body.scopeName || undefined,
+        runningSummary: body.runningSummary || '',
+        chatType: scopeType,
+        env,
+        domainNames: cachedDomains,
+        profileSnippet: scopeUserProfile?.profileText?.slice(0, 150) || '',
+        messageCount: messages.length,
+      });
+
+      console.log(`[${tag}:Triage]`, {
+        mode: triage.mode,
+        search: triage.search,
+        personal: triage.personal,
+        depth: triage.depth,
+        source: triage.source,
+        messagePreview: lastUserMsg.slice(0, 80),
+      });
+
+      const streamContext = { runningSummary: body.runningSummary || '' };
+      const scopeContextStr =
+        scopeType === 'world'
+          ? scopeEntities
+            ? formatWorldEntities(scopeEntities)
+            : null
+          : scopeEntities
+            ? formatChapterEntities(scopeEntities)
+            : null;
+
+      const genConfig =
+        scopeType === 'world'
+          ? buildWorldChatSystemPrompt(
+              triage,
+              streamContext,
+              body.scopeName,
+              scopeContextStr,
+              body.accountCreatedAt,
+              scopeSessionContextStr,
+              scopeUserProfile?.profileText,
+              userTimezone,
+              scopeTodayActivity,
+            )
+          : buildChapterChatSystemPrompt(
+              triage,
+              streamContext,
+              body.scopeName,
+              scopeContextStr,
+              body.accountCreatedAt,
+              scopeSessionContextStr,
+              scopeUserProfile?.profileText,
+              userTimezone,
+              scopeTodayActivity,
+            );
+
+      // Build messages
+      const processedMessages = messages.map((msg, idx, arr) => {
+        if (urlContext && idx === arr.length - 1 && msg.role === 'user') {
+          return { ...msg, content: msg.content + urlContext };
+        }
+        return msg;
+      });
+
+      const chatMessages = [
+        { role: 'system', content: genConfig.systemPrompt },
+        ...processedMessages.filter((m) => m.role !== 'system'),
+      ];
+
+      // Search policy
+      const searchPolicy = getSearchPolicy(triage.search);
+      const streamConfig = {
+        temperature: genConfig.temperature,
+        maxOutputTokens: genConfig.maxTokens,
+        thinkingLevel: genConfig.thinkingLevel,
+      };
+      if (searchPolicy.attachTool) {
+        streamConfig.tools = [makeWebSearchTool(userTimezone)];
+      }
+
+      console.log(`[${tag}:Payload]`, {
+        temperature: streamConfig.temperature,
+        maxOutputTokens: streamConfig.maxOutputTokens,
+        hasTools: !!streamConfig.tools,
+        messageCount: chatMessages.length,
+      });
+
+      const t0 = Date.now();
+      const geminiRes = await geminiStream(
+        genConfig.systemPrompt,
+        chatMessages,
+        streamConfig,
+        env.GOOGLE_API_KEY,
+      );
+
+      if (!geminiRes.ok || !geminiRes.body) {
+        const errText = geminiRes.error || 'unknown error';
+        console.log(`[${tag}:Streaming] Gemini error`, { error: errText });
+        await writer.write(
+          encoder.encode(`data: ${JSON.stringify({ error: errText, done: true })}\n\n`),
+        );
+        return;
+      }
+
+      const reader = geminiRes.body.getReader();
+      let buffer = '';
+      let toolCalls = [];
+      let modelResponseParts = [];
+      let fillerBuffer = '';
+      let fillerFlushed = false;
+
+      try {
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split(/\r?\n/);
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed === 'data: [DONE]') continue;
+            if (!trimmed.startsWith('data: ')) continue;
+            try {
+              const chunk = parseGeminiChunk(trimmed.slice(6));
+              const delta = chunk.text;
+              if (delta) {
+                fullContent += delta;
+                if (!fullContent.includes('<!--SAVE:')) {
+                  if (!fillerFlushed) {
+                    fillerBuffer += delta;
+                    if (/[.?!]\s/.test(fillerBuffer) || fillerBuffer.length > 150) {
+                      const cleaned = stripFillerOpening(fillerBuffer);
+                      if (cleaned) {
+                        await writer.write(
+                          encoder.encode(
+                            `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                          ),
+                        );
+                      }
+                      fillerFlushed = true;
+                    }
+                  } else {
+                    await writer.write(
+                      encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
+                    );
+                  }
+                }
+              }
+              if (chunk.functionCalls) {
+                for (const fc of chunk.functionCalls) {
+                  toolCalls.push({ id: fc.id, name: fc.name, arguments: JSON.stringify(fc.args) });
+                  modelResponseParts.push({
+                    functionCall: { name: fc.name, args: fc.args, id: fc.id },
+                    thoughtSignature: fc.thoughtSignature,
+                  });
+                }
+              }
+            } catch {
+              /* skip malformed chunk */
+            }
+          }
+        }
+
+        // Flush remaining filler
+        if (!fillerFlushed && fillerBuffer) {
+          const cleaned = stripFillerOpening(fillerBuffer);
+          if (cleaned) {
+            await writer.write(
+              encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`),
+            );
+          }
+        }
+        fullContent = stripFillerOpening(fullContent);
+
+        // Web search follow-up
+        let sources = undefined;
+        let searchQueries = [];
+        const webSearchCalls = toolCalls.filter(
+          (tc) => tc.name === 'web_search' && tc.arguments,
+        );
+
+        if (webSearchCalls.length > 0) {
+          let firstQuery = '';
+          try {
+            firstQuery = JSON.parse(webSearchCalls[0].arguments).query || '';
+          } catch {
+            const m = webSearchCalls[0].arguments.match(/"query"\s*:\s*"([^"]+)"/);
+            firstQuery = m ? m[1] : '';
+          }
+          const searchNotice =
+            webSearchCalls.length > 1
+              ? `${firstQuery} (+${webSearchCalls.length - 1} more)`
+              : firstQuery;
+          await writer.write(
+            encoder.encode(
+              `data: ${JSON.stringify({ searching: true, query: searchNotice })}\n\n`,
+            ),
+          );
+
+          const searchResults = await Promise.all(
+            webSearchCalls.map(async (tc) => {
+              try {
+                let query;
+                try {
+                  query = JSON.parse(tc.arguments).query;
+                } catch {
+                  const m = tc.arguments.match(/"query"\s*:\s*"([^"]+)"/);
+                  query = m ? m[1] : null;
+                }
+                if (!query) return { toolCallId: tc.id, query: null, results: null };
+                searchQueries.push(query);
+                const results = await executeTavilySearch(query, env.TAVILY_API_KEY);
+                return { toolCallId: tc.id, query, results };
+              } catch {
+                return { toolCallId: tc.id, query: null, results: null };
+              }
+            }),
+          );
+
+          const successfulSearches = searchResults.filter(
+            (sr) => sr.results?.results?.length > 0,
+          );
+
+          if (successfulSearches.length > 0) {
+            const originalContents = convertMessages(chatMessages);
+            if (fullContent) modelResponseParts.unshift({ text: fullContent });
+            const functionResults = successfulSearches.map((sr) => ({
+              name: 'web_search',
+              id: sr.toolCallId,
+              response: { results: formatSearchBrief(sr.results) },
+            }));
+            const followUpContents = buildFollowUpContents(
+              originalContents,
+              modelResponseParts,
+              functionResults,
+            );
+
+            const followUpRes = await geminiStream(
+              genConfig.systemPrompt,
+              [],
+              {
+                temperature: genConfig.temperature,
+                maxOutputTokens: Math.max(genConfig.maxTokens, 1200),
+                thinkingLevel: genConfig.thinkingLevel,
+                nativeContents: followUpContents,
+              },
+              env.GOOGLE_API_KEY,
+            );
+
+            const followUpReader = followUpRes.body.getReader();
+            let fuBuffer = '';
+            let fuFillerBuffer = '';
+            let fuFillerFlushed = false;
+            let fuDone = false;
+
+            while (!fuDone) {
+              const result = await followUpReader.read();
+              fuDone = result.done;
+              if (fuDone) break;
+              fuBuffer += decoder.decode(result.value, { stream: true });
+              const fuLines = fuBuffer.split('\n');
+              fuBuffer = fuLines.pop() || '';
+              for (const fl of fuLines) {
+                const ft = fl.trim();
+                if (!ft.startsWith('data:')) continue;
+                const fj = ft.replace(/^data:\s*/, '').trim();
+                if (fj === '[DONE]') continue;
+                try {
+                  const fc = parseGeminiChunk(fj);
+                  const fd = fc.text;
+                  if (fd) {
+                    fullContent += fd;
+                    if (!fuFillerFlushed) {
+                      fuFillerBuffer += fd;
+                      if (/[.?!]\s/.test(fuFillerBuffer) || fuFillerBuffer.length > 150) {
+                        const cleaned = stripFillerOpening(fuFillerBuffer);
+                        if (cleaned) {
+                          await writer.write(
+                            encoder.encode(
+                              `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                            ),
+                          );
+                        }
+                        fuFillerFlushed = true;
+                      }
+                    } else {
+                      await writer.write(
+                        encoder.encode(`data: ${JSON.stringify({ delta: fd, done: false })}\n\n`),
+                      );
+                    }
+                  }
+                } catch {
+                  /* skip */
+                }
+              }
+            }
+
+            if (!fuFillerFlushed && fuFillerBuffer) {
+              const cleaned = stripFillerOpening(fuFillerBuffer);
+              if (cleaned) {
+                await writer.write(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                  ),
+                );
+              }
+            }
+            fullContent = stripFillerOpening(fullContent);
+            sources = successfulSearches.flatMap((sr) =>
+              sr.results.results.map((r) => ({ title: r.title, url: r.url })),
+            );
+          }
+        }
+
+        // Search fallback
+        if (webSearchCalls.length > 0 && !fullContent) {
+          const fallbackResult = await geminiGenerate(
+            genConfig.systemPrompt +
+              '\n\nAnswer based on the scope context and your existing knowledge. Do not mention search availability.',
+            chatMessages,
+            {
+              temperature: genConfig.temperature,
+              maxOutputTokens: genConfig.maxTokens,
+              thinkingLevel: genConfig.thinkingLevel,
+            },
+            env.GOOGLE_API_KEY,
+          );
+          fullContent = fallbackResult.ok
+            ? fallbackResult.content
+            : 'I had trouble searching for that information. Could you try rephrasing your question?';
+          fullContent = stripFillerOpening(fullContent);
+          const words = fullContent.split(' ');
+          for (let i = 0; i < words.length; i += 3) {
+            await writer.write(
+              encoder.encode(
+                `data: ${JSON.stringify({ delta: words.slice(i, i + 3).join(' ') + ' ', done: false })}\n\n`,
+              ),
+            );
+            await new Promise((resolve) => setTimeout(resolve, 15));
+          }
+        }
+
+        const searchQuery = searchQueries.length > 0 ? searchQueries.join(' | ') : undefined;
+        const { suggestion: smartSuggestion, cleanContent } = extractSaveSuggestionModuleLevel(fullContent);
+        fullContent = cleanContent
+          .replace(/<!--SAVE:.*?-->/gs, '')
+          .replace(/<!--SAVE:.*$/s, '')
+          .trim();
+        const save_suggestion = smartSuggestion || null;
+
+        const latency = Date.now() - t0;
+        await writer.write(
+          encoder.encode(
+            `data: ${JSON.stringify({
+              done: true,
+              full_content: fullContent,
+              save_suggestion,
+              sources,
+              search_query: searchQuery,
+              latency_ms: latency,
+              fetchedUrl,
+            })}\n\n`,
+          ),
+        );
+
+        console.log(`[${tag}:Streaming] Complete`, {
+          latency_ms: latency,
+          content_length: fullContent.length,
+          used_search: !!searchQuery,
+        });
+
+        // Running summary (non-blocking)
+        if (body.chatId && authenticatedUserId && fullContent) {
+          ctx.waitUntil(
+            (async () => {
+              try {
+                const prevSummaryRes = await fetch(
+                  `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=running_summary`,
+                  {
+                    headers: {
+                      apikey: env.SUPABASE_SERVICE_KEY,
+                      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                    },
+                  },
+                );
+                const prevData = prevSummaryRes?.ok
+                  ? await prevSummaryRes.json().catch(() => [])
+                  : [];
+                const previousSummary = prevData?.[0]?.running_summary || null;
+                await generateRunningSummary(
+                  messages.filter((m) => m.role !== 'system'),
+                  fullContent,
+                  body.chatId,
+                  body.scopeName || null,
+                  previousSummary,
+                  env,
+                  userTimezone,
+                );
+              } catch (err) {
+                console.warn(`[${tag}] Running summary failed:`, err.message);
+              }
+            })(),
+          );
+        }
+      } catch (streamErr) {
+        console.log(`[${tag}:Streaming] Stream error`, { error: String(streamErr) });
+        await writer.write(
+          encoder.encode(
+            `data: ${JSON.stringify({ error: String(streamErr), done: true, full_content: fullContent })}\n\n`,
+          ),
+        );
+      }
+    } catch (outerErr) {
+      console.error(`[${tag}:Streaming] Outer error`, { error: String(outerErr) });
+      try {
+        await writer.write(
+          encoder.encode(`data: ${JSON.stringify({ error: String(outerErr), done: true })}\n\n`),
+        );
+      } catch {
+        /* stream may be closed */
+      }
+    } finally {
+      try {
+        await writer.close();
+      } catch {
+        /* already closed */
+      }
+    }
+  })();
+}
 
 function j(obj, status = 200) {
   return Response.json
