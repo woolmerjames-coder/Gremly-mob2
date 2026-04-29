@@ -1,40 +1,11 @@
 import { View, Pressable, StyleSheet } from 'react-native';
 import { format } from 'date-fns';
+import { ChevronRight } from 'lucide-react-native';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
 import { useWorldPalette } from '../../lib/store/worldsSelectors';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import type { Chapter } from '../../lib/supabase/types';
-
-function arcLabel(shape: string | null): string {
-  switch (shape) {
-    case 'experience':
-      return 'Experience';
-    case 'commitment':
-      return 'Commitment';
-    case 'outcome':
-      return 'Outcome';
-    case 'process':
-      return 'Process';
-    default:
-      return 'Chapter';
-  }
-}
-
-function arcColor(shape: string | null): string {
-  switch (shape) {
-    case 'experience':
-      return lightTokens.colors.experienceAccentDeep;
-    case 'commitment':
-      return lightTokens.colors.commitmentAccent;
-    case 'outcome':
-      return lightTokens.colors.outcomeAccent;
-    case 'process':
-      return lightTokens.colors.processAccent;
-    default:
-      return lightTokens.colors.warmGrey;
-  }
-}
 
 interface ChapterRowCompactProps {
   chapter: Chapter;
@@ -52,20 +23,22 @@ export function ChapterRowCompact({ chapter, onPress }: ChapterRowCompactProps) 
       style={styles.card}
       testID={`chapter-row-${chapter.id}`}
     >
-      <Text style={[styles.eyebrow, { color: arcColor(chapter.arc_shape) }]}>
-        {arcLabel(chapter.arc_shape)}
-      </Text>
-      <Text style={styles.chapterTitle} numberOfLines={2}>
-        {chapter.title}
-      </Text>
-      <View style={styles.metaRow}>
-        <View style={[styles.worldDot, { backgroundColor: palette.dot }]} />
-        <Text style={styles.metaText} numberOfLines={1}>
-          {worldName}
-          {chapter.start_date
-            ? ` \u00b7 since ${format(new Date(chapter.start_date), 'MMM d')}`
-            : ''}
-        </Text>
+      <View style={styles.cardInner}>
+        <View style={styles.cardContent}>
+          <Text style={styles.chapterTitle} numberOfLines={2}>
+            {chapter.title}
+          </Text>
+          <View style={styles.metaRow}>
+            <View style={[styles.worldDot, { backgroundColor: palette.dot }]} />
+            <Text style={styles.metaText} numberOfLines={1}>
+              {worldName}
+              {chapter.start_date
+                ? ` \u00b7 since ${format(new Date(chapter.start_date), 'MMM d')}`
+                : ''}
+            </Text>
+          </View>
+        </View>
+        <ChevronRight size={16} color={lightTokens.colors.warmGrey} />
       </View>
     </Pressable>
   );
@@ -75,18 +48,17 @@ const styles = StyleSheet.create({
   card: {
     marginHorizontal: 16,
     marginBottom: 6,
-    paddingVertical: 6,
+    paddingVertical: 10,
     paddingHorizontal: 14,
     backgroundColor: lightTokens.colors.worldsCard,
     borderRadius: 13,
   },
-  eyebrow: {
-    fontFamily: 'Inter-Medium',
-    fontSize: 10,
-    fontWeight: '700',
-    lineHeight: 12,
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
+  cardInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  cardContent: {
+    flex: 1,
   },
   chapterTitle: {
     fontFamily: 'Inter-Medium',

@@ -24,7 +24,7 @@ export function OpenChaptersSection({ onPressChapter }: OpenChaptersSectionProps
   return (
     <View>
       <View style={styles.sec}>
-        <Text style={styles.label}>STORY ARCS · {open.length} UNFOLDING</Text>
+        <Text style={styles.label}>{open.length} THINGS UNFOLDING</Text>
       </View>
       {open.map((c) => (
         <ChapterRowCompact key={c.id} chapter={c} onPress={onPressChapter} />
