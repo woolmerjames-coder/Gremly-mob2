@@ -12,7 +12,12 @@ import type {
   KeyMoment,
   WithYouItem,
 } from '../supabase/types';
-import { extractPeopleFromNotes, initialsOf, titleCase } from './worldsSelectors';
+import {
+  extractPeopleFromNotes,
+  initialsOf,
+  titleCase,
+  selectWorldPalette,
+} from './worldsSelectors';
 
 // ─── useRecentDropsForChapter ─────────────────────────────────────────────────
 
@@ -634,4 +639,40 @@ export const useChapterUpcomingRisk = (chapter: Chapter | null | undefined): Upc
         };
       });
   }, [chapter?.key_priorities, todayKey]);
+};
+
+// ─── useChaptersForEntity ────────────────────────────────────────────────────
+
+export interface ChapterForEntity {
+  id: string;
+  title: string;
+  primary_world_id: string | null;
+  worldAccentColor: string;
+}
+
+export const useChaptersForEntity = (entityId: string | null | undefined): ChapterForEntity[] => {
+  const chapters = useGremlyStore((s) => s.chapters);
+  const dropChapterLinks = useGremlyStore((s) => s.dropChapterLinks);
+  const worlds = useGremlyStore((s) => s.worlds);
+  return useMemo(() => {
+    if (!entityId) return [];
+    const chapterIds = new Set<string>();
+    for (const link of dropChapterLinks) {
+      if (link.drop_id === entityId) chapterIds.add(link.chapter_id);
+    }
+    if (chapterIds.size === 0) return [];
+    const result: ChapterForEntity[] = [];
+    for (const c of chapters) {
+      if (!chapterIds.has(c.id)) continue;
+      const palette = selectWorldPalette({ worlds } as any, c.primary_world_id ?? '');
+      result.push({
+        id: c.id,
+        title: c.title,
+        primary_world_id: c.primary_world_id ?? null,
+        worldAccentColor: palette.dot,
+      });
+    }
+    result.sort((a, b) => a.title.localeCompare(b.title));
+    return result;
+  }, [entityId, chapters, dropChapterLinks, worlds]);
 };

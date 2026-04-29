@@ -89,6 +89,7 @@ import { getDateService, getTodayDayString } from '../../lib/date';
 import { lightTokens, darkTokens, spacing as tokenSpacing } from '../../design/tokens';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { selectItemById, useActiveSpaces, useSpaceHasEvents } from '../../lib/store/selectors';
+import { useChaptersForEntity } from '../../lib/store/chaptersSelectors';
 import { useAuth } from '../../providers/AuthProvider';
 import ScopeSelector from '../ScopeSelector';
 import { usePhase8LinksState } from './hooks/usePhase8LinksState';
@@ -878,6 +879,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // Track entity ID for dependency array
   const currentEntityId = (initialEntity as any)?.id ?? null;
+  // Chapter links for Worlds chip row in view mode
+  const entityChapters = useChaptersForEntity(currentEntityId);
 
   // Initialize store when overlay opens
   useEffect(() => {
@@ -3198,65 +3201,98 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         )}
 
         {/* Metadata summary card (todo/habit) */}
-        {(baseType === 'todo' || baseType === 'habit') && (scheduleSummary || entitySpaceName) && (
-          <View
-            style={{
-              padding: 10,
-              paddingHorizontal: 14,
-              backgroundColor: '#EDEAE3',
-              borderRadius: 10,
-              marginBottom: 14,
-            }}
-          >
-            {scheduleSummary && (
-              <View style={{ flexDirection: 'row', marginBottom: entitySpaceName ? 4 : 0 }}>
-                <Text
-                  style={{
-                    fontSize: 12,
-                    color: tokens.colors.subtle,
-                    fontWeight: '500',
-                    width: 68,
-                  }}
+        {(baseType === 'todo' || baseType === 'habit') &&
+          (scheduleSummary || entitySpaceName || entityChapters.length > 0) && (
+            <View
+              style={{
+                padding: 10,
+                paddingHorizontal: 14,
+                backgroundColor: '#EDEAE3',
+                borderRadius: 10,
+                marginBottom: 14,
+              }}
+            >
+              {scheduleSummary && (
+                <View
+                  style={{ flexDirection: 'row', marginBottom: entityChapters.length > 0 ? 4 : 0 }}
                 >
-                  Schedule
-                </Text>
-                <Text style={{ fontSize: 12, color: '#555', flex: 1 }}>{scheduleSummary}</Text>
-              </View>
-            )}
-            {entitySpaceName && (
-              <View style={{ flexDirection: 'row' }}>
-                <Text
-                  style={{
-                    fontSize: 12,
-                    color: tokens.colors.subtle,
-                    fontWeight: '500',
-                    width: 68,
-                  }}
-                >
-                  Space
-                </Text>
-                <Text style={{ fontSize: 12, color: '#555', flex: 1 }}>{entitySpaceName}</Text>
-              </View>
-            )}
-            {itemReminders.length > 0 && (
-              <View style={{ flexDirection: 'row', marginTop: 4 }}>
-                <Text
-                  style={{
-                    fontSize: 12,
-                    color: tokens.colors.subtle,
-                    fontWeight: '500',
-                    width: 68,
-                  }}
-                >
-                  Reminders
-                </Text>
-                <Text style={{ fontSize: 12, color: '#555', flex: 1 }}>
-                  {formatItemReminderSummary(itemReminders)}
-                </Text>
-              </View>
-            )}
-          </View>
-        )}
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: tokens.colors.subtle,
+                      fontWeight: '500',
+                      width: 68,
+                    }}
+                  >
+                    Schedule
+                  </Text>
+                  <Text style={{ fontSize: 12, color: '#555', flex: 1 }}>{scheduleSummary}</Text>
+                </View>
+              )}
+              {entityChapters.length > 0 && (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: tokens.colors.subtle,
+                      fontWeight: '500',
+                      width: 68,
+                      marginTop: 3,
+                    }}
+                  >
+                    Worlds
+                  </Text>
+                  <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    {entityChapters.map((ch) => (
+                      <Pressable
+                        key={ch.id}
+                        onPress={() =>
+                          overlayNavigation.navigate('ChapterDetail', { chapterId: ch.id })
+                        }
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 4,
+                          borderWidth: 1,
+                          borderColor: 'rgba(0,0,0,0.1)',
+                          borderRadius: 20,
+                          paddingHorizontal: 8,
+                          paddingVertical: 3,
+                        }}
+                      >
+                        <View
+                          style={{
+                            width: 7,
+                            height: 7,
+                            borderRadius: 4,
+                            backgroundColor: ch.worldAccentColor,
+                          }}
+                        />
+                        <Text style={{ fontSize: 11, color: tokens.colors.text }}>{ch.title}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              )}
+              {itemReminders.length > 0 && (
+                <View style={{ flexDirection: 'row', marginTop: 4 }}>
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: tokens.colors.subtle,
+                      fontWeight: '500',
+                      width: 68,
+                    }}
+                  >
+                    Reminders
+                  </Text>
+                  <Text style={{ fontSize: 12, color: '#555', flex: 1 }}>
+                    {formatItemReminderSummary(itemReminders)}
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
 
         {/* Mood display (journal) */}
         {isJournal && moods.length > 0 && (
