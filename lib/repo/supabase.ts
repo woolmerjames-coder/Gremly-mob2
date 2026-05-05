@@ -1843,10 +1843,10 @@ export class SupabaseRepo implements IRepo {
 
     // Search chats (title or last_message_snippet)
     const chatsQ = supabase
-      .from('space_chats')
+      .from('scope_chats')
       .select('*')
       .eq('user_id', userId)
-      .eq('space_id', spaceId)
+      .eq('scope_id', spaceId)
       .or(`title.ilike.${q},last_message_snippet.ilike.${q}`)
       .order('pinned', { ascending: false })
       .order('updated_at', { ascending: false });
@@ -3516,9 +3516,9 @@ export class SupabaseRepo implements IRepo {
 
       // Fetch messages in descending order (newest first), then reverse for chronological
       const { data, error } = await supabase
-        .from('space_chat_messages')
-        .select('id, chat_id, space_id, role, content, created_at')
-        .eq('space_id', spaceId)
+        .from('scope_chat_messages')
+        .select('id, chat_id, scope_id, role, content, created_at')
+        .eq('scope_id', spaceId)
         .order('created_at', { ascending: false })
         .limit(limit);
 
@@ -4661,7 +4661,7 @@ export class SupabaseSpaceChatRepo {
     const userId = this.ensureUserId();
 
     const { data, error } = await supabase
-      .from('space_chats')
+      .from('scope_chats')
       .select('*')
       .eq('id', chatId)
       .eq('user_id', userId)
@@ -4682,9 +4682,9 @@ export class SupabaseSpaceChatRepo {
     const userId = this.ensureUserId();
 
     const { data, error } = await supabase
-      .from('space_chats')
+      .from('scope_chats')
       .select('*')
-      .eq('space_id', spaceId)
+      .eq('scope_id', spaceId)
       .eq('user_id', userId)
       .order('updated_at', { ascending: false });
 
@@ -4699,10 +4699,10 @@ export class SupabaseSpaceChatRepo {
     const userId = this.ensureUserId();
 
     let query = supabase
-      .from('space_chats')
+      .from('scope_chats')
       .select('*')
       .eq('user_id', userId)
-      .eq('space_id', spaceId);
+      .eq('scope_id', spaceId);
 
     if (!opts?.includeArchived) {
       query = query.is('archived_at', null);
@@ -4724,10 +4724,10 @@ export class SupabaseSpaceChatRepo {
     const userId = this.ensureUserId();
 
     const { data, error } = await supabase
-      .from('space_chats')
+      .from('scope_chats')
       .insert({
         user_id: userId,
-        space_id: spaceId,
+        scope_id: spaceId,
         title: input.title,
         pinned: false,
       })
@@ -4757,7 +4757,7 @@ export class SupabaseSpaceChatRepo {
     if ('metadata_json' in patch) updatePayload.metadata_json = patch.metadata_json ?? null;
 
     const { data, error } = await supabase
-      .from('space_chats')
+      .from('scope_chats')
       .update(updatePayload)
       .eq('id', chatId)
       .eq('user_id', userId)
@@ -4776,7 +4776,7 @@ export class SupabaseSpaceChatRepo {
   async archive(chatId: string): Promise<void> {
     const userId = this.ensureUserId();
     const { error } = await supabase
-      .from('space_chats')
+      .from('scope_chats')
       .update({ archived_at: nowTimestamp() })
       .eq('id', chatId)
       .eq('user_id', userId);
@@ -4790,7 +4790,7 @@ export class SupabaseSpaceChatRepo {
     const userId = this.ensureUserId();
     // Best-effort: delete messages first (safe even if FK cascade exists)
     const msgDel = await supabase
-      .from('space_chat_messages')
+      .from('scope_chat_messages')
       .delete()
       .eq('chat_id', chatId)
       .eq('user_id', userId);
@@ -4800,7 +4800,7 @@ export class SupabaseSpaceChatRepo {
     }
 
     const chatDel = await supabase
-      .from('space_chats')
+      .from('scope_chats')
       .delete()
       .eq('id', chatId)
       .eq('user_id', userId);
@@ -4822,7 +4822,7 @@ export class SupabaseSpaceChatMessageRepo {
   async list(chatId: string): Promise<import('../types').SpaceChatMessage[]> {
     const userId = this.ensureUserId();
 
-    let query = supabase.from('space_chat_messages').select('*').eq('chat_id', chatId);
+    let query = supabase.from('scope_chat_messages').select('*').eq('chat_id', chatId);
     // Jest Supabase mock may not support multiple chained filters; apply user filter outside tests
     if (process.env.JEST_WORKAROUND !== '1') {
       query = query.eq('user_id', userId);
@@ -4840,10 +4840,10 @@ export class SupabaseSpaceChatMessageRepo {
     const userId = this.ensureUserId();
 
     const { data, error } = await supabase
-      .from('space_chat_messages')
+      .from('scope_chat_messages')
       .insert({
         chat_id: input.chat_id,
-        space_id: input.space_id,
+        scope_id: input.scope_id,
         user_id: userId,
         role: input.role,
         content: input.content,
@@ -4875,7 +4875,7 @@ export class SupabaseSpaceChatMessageRepo {
     const userId = this.ensureUserId();
 
     const { data, error } = await supabase
-      .from('space_chat_messages')
+      .from('scope_chat_messages')
       .update({
         ...(updates.content !== undefined && { content: updates.content }),
         ...(updates.metadata_json !== undefined && { metadata_json: updates.metadata_json }),

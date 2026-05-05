@@ -27,6 +27,7 @@ export interface Phase2MetadataResult {
   people: string[];
   mood: string[] | null;
   energy_type: 'deep_focus' | 'administrative' | 'physical' | 'social' | 'quick' | null;
+  priority_kind: 'action' | 'blocker' | 'waiting' | 'decision' | 'momentum' | null;
   target_date: string | null;
   scheduled_date: string | null;
   event_time: string | null;
@@ -117,6 +118,9 @@ export async function syncDropToSupabase(
         time_estimate_minutes: enrichment?.time_estimate_minutes || null,
         time_window: enrichment?.time_window || null,
         energy_type: enrichment?.energy_type || 'administrative',
+        priority_kind: enrichment?.priority_kind ?? null,
+        priority_kind_source: enrichment?.priority_kind ? 'classifier' : null,
+        priority_kind_updated_at: enrichment?.priority_kind ? nowTimestamp() : null,
         prep_buffer_minutes: buffers.prep_buffer_minutes,
         cooldown_buffer_minutes: buffers.cooldown_buffer_minutes,
         due_day: dueDay,

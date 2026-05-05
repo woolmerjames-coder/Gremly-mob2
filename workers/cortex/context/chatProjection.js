@@ -323,8 +323,8 @@ function formatLifeMapForChat(lifeMap, lane, opts = {}) {
           }
         }
       }
-    } else if (lane === 'general') {
-      // General chat: all domains at summary level, high-importance threads get more detail
+    } else if (lane === 'general' || lane === 'world' || lane === 'chapter') {
+      // General/world/chapter chat: all domains at summary level, high-importance threads get more detail
       const activeThreads = (domain.threads || []).filter(
         (t) => t.lifecycle === 'active' || t.lifecycle === 'dormant',
       );
@@ -473,7 +473,10 @@ export async function buildChatContext(userId, lane, opts, env) {
     const result = parts.join('\n\n');
 
     // Token safety — generous limits since Life Map summaries are dense and valuable
-    const MAX_CONTEXT_CHARS = lane === 'general' ? 12000 : lane === 'space' ? 10000 : 6000;
+    const MAX_CONTEXT_CHARS =
+      lane === 'general' ? 12000
+      : lane === 'space' || lane === 'world' || lane === 'chapter' ? 10000
+      : 6000;
     if (result.length > MAX_CONTEXT_CHARS) {
       console.warn(
         `[ChatProjection] Context truncated for ${userId.slice(0, 8)}: ${result.length} → ${MAX_CONTEXT_CHARS} chars`,
@@ -750,7 +753,7 @@ export async function fetchRecentChatSummaries(userId, currentChatId, env) {
     };
 
     let url =
-      `${env.SUPABASE_URL}/rest/v1/space_chats` +
+      `${env.SUPABASE_URL}/rest/v1/scope_chats` +
       `?user_id=eq.${userId}` +
       `&running_summary=not.is.null` +
       `&select=id,running_summary,auto_title,updated_at` +
@@ -803,4 +806,284 @@ export function formatRecentChatSummaries(summaries) {
   }
 
   return lines.join('\n');
+}
+
+// ============================================================================
+// WORLD ENTITY CONTEXT (F.5.b.2)
+// ============================================================================
+
+/**
+ * Fetch world-scoped entities (todos, habits, notes) via drop_world_links.
+ * KV cached 5 minutes.
+ */
+export async function fetchWorldEntities(userId, worldId, env) {
+  if (!userId || !worldId) return null;
+
+  try {
+    const cacheKey = `world-entities:${userId}:${worldId}`;
+    if (env.CONTEXT_CACHE) {
+      const cached = await env.CONTEXT_CACHE.get(cacheKey);
+      if (cached) {
+        console.log(`[ChatProjection] World entities cache hit for ${userId.slice(0, 8)}:${worldId.slice(0, 8)}`);
+        return JSON.parse(cached);
+      }
+    }
+
+    const headers = {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+    };
+
+    // Fetch world metadata and its drop links in parallel
+    const [worldRes, linksRes] = await Promise.all([
+      fetch(
+        `${env.SUPABASE_URL}/rest/v1/worlds?id=eq.${worldId}&owner_id=eq.${userId}&select=id,name,archetypes&limit=1`,
+        { headers },
+      ).then((r) => r.json()).catch(() => []),
+      fetch(
+        `${env.SUPABASE_URL}/rest/v1/drop_world_links?world_id=eq.${worldId}&owner_id=eq.${userId}&select=drop_id,drop_type&limit=100`,
+        { headers },
+      ).then((r) => r.json()).catch(() => []),
+    ]);
+
+    const world = Array.isArray(worldRes) && worldRes.length > 0 ? worldRes[0] : null;
+    if (!world) return null;
+
+    const links = Array.isArray(linksRes) ? linksRes : [];
+    const todoIds = links.filter((l) => l.drop_type === 'todo').map((l) => l.drop_id);
+    const habitIds = links.filter((l) => l.drop_type === 'habit').map((l) => l.drop_id);
+    const noteIds = links.filter((l) => l.drop_type === 'note').map((l) => l.drop_id);
+
+    const [todos, habits, notes] = await Promise.all([
+      todoIds.length > 0
+        ? fetch(
+            `${env.SUPABASE_URL}/rest/v1/todos?id=in.(${todoIds.join(',')})&is_complete=eq.false&select=title,target_date&limit=15`,
+            { headers },
+          ).then((r) => r.json()).catch(() => [])
+        : Promise.resolve([]),
+      habitIds.length > 0
+        ? fetch(
+            `${env.SUPABASE_URL}/rest/v1/habits?id=in.(${habitIds.join(',')})&archived=eq.false&select=title,frequency&limit=10`,
+            { headers },
+          ).then((r) => r.json()).catch(() => [])
+        : Promise.resolve([]),
+      noteIds.length > 0
+        ? fetch(
+            `${env.SUPABASE_URL}/rest/v1/notes?id=in.(${noteIds.join(',')})&archived=eq.false&select=title,subtype,target_date&limit=10`,
+            { headers },
+          ).then((r) => r.json()).catch(() => [])
+        : Promise.resolve([]),
+    ]);
+
+    const entities = {
+      world,
+      todos: Array.isArray(todos) ? todos : [],
+      habits: Array.isArray(habits) ? habits : [],
+      notes: Array.isArray(notes) ? notes : [],
+    };
+
+    if (env.CONTEXT_CACHE) {
+      await env.CONTEXT_CACHE.put(cacheKey, JSON.stringify(entities), { expirationTtl: 300 });
+    }
+
+    console.log(
+      `[ChatProjection] World entities loaded for ${userId.slice(0, 8)}:${worldId.slice(0, 8)}: ${entities.todos.length} todos, ${entities.habits.length} habits, ${entities.notes.length} notes`,
+    );
+    return entities;
+  } catch (error) {
+    console.error('[ChatProjection] World entities error:', error);
+    return null;
+  }
+}
+
+/**
+ * Format world entities into a plain-text context string.
+ */
+export function formatWorldEntities(worldData) {
+  if (!worldData?.world) return '';
+  const { world, todos = [], habits = [], notes = [] } = worldData;
+
+  const parts = [`=== WORLD: "${world.name}" ===`];
+  if (world.archetypes?.length > 0) {
+    parts.push(`Archetypes: ${world.archetypes.join(', ')}`);
+  }
+
+  const events = notes.filter((n) => n.subtype === 'event');
+  const otherNotes = notes.filter((n) => n.subtype !== 'event');
+
+  if (events.length > 0) {
+    parts.push('Key dates:');
+    for (const e of events) {
+      parts.push(`  \u2022 ${e.title}${e.target_date ? ` \u2014 ${e.target_date}` : ''}`);
+    }
+  }
+
+  const datedTodos = todos.filter((t) => t.target_date);
+  const undatedTodos = todos.filter((t) => !t.target_date);
+
+  if (datedTodos.length > 0) {
+    parts.push('Upcoming tasks:');
+    for (const t of datedTodos) {
+      parts.push(`  \u2022 ${t.title} \u2014 due ${t.target_date}`);
+    }
+  }
+  if (undatedTodos.length > 0) {
+    parts.push(`Other tasks: ${undatedTodos.map((t) => t.title).join(', ')}`);
+  }
+
+  if (habits.length > 0) {
+    parts.push('Habits:');
+    for (const h of habits) {
+      parts.push(`  \u2022 ${h.title}${h.frequency ? ` (${h.frequency})` : ''}`);
+    }
+  }
+
+  if (otherNotes.length > 0) {
+    parts.push(`Notes: ${otherNotes.map((n) => n.title).join(', ')}`);
+  }
+
+  return parts.join('\n');
+}
+
+// ============================================================================
+// CHAPTER ENTITY CONTEXT (F.5.b.2)
+// ============================================================================
+
+/**
+ * Fetch chapter-scoped entities (todos, habits, notes) via drop_chapter_links.
+ * Also fetches the chapter itself to verify ownership and get metadata.
+ * KV cached 5 minutes.
+ */
+export async function fetchChapterEntities(userId, chapterId, env) {
+  if (!userId || !chapterId) return null;
+
+  try {
+    const cacheKey = `chapter-entities:${userId}:${chapterId}`;
+    if (env.CONTEXT_CACHE) {
+      const cached = await env.CONTEXT_CACHE.get(cacheKey);
+      if (cached) {
+        console.log(`[ChatProjection] Chapter entities cache hit for ${userId.slice(0, 8)}:${chapterId.slice(0, 8)}`);
+        return JSON.parse(cached);
+      }
+    }
+
+    const headers = {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+    };
+
+    // Fetch chapter metadata (owner check) and drop links in parallel
+    const [chapterRes, linksRes] = await Promise.all([
+      fetch(
+        `${env.SUPABASE_URL}/rest/v1/chapters?id=eq.${chapterId}&owner_id=eq.${userId}&select=id,title,summary,target_description,phase,start_date,end_date&limit=1`,
+        { headers },
+      ).then((r) => r.json()).catch(() => []),
+      fetch(
+        `${env.SUPABASE_URL}/rest/v1/drop_chapter_links?chapter_id=eq.${chapterId}&select=drop_id,drop_type&limit=100`,
+        { headers },
+      ).then((r) => r.json()).catch(() => []),
+    ]);
+
+    const chapter = Array.isArray(chapterRes) && chapterRes.length > 0 ? chapterRes[0] : null;
+    if (!chapter) return null;
+
+    const links = Array.isArray(linksRes) ? linksRes : [];
+    const todoIds = links.filter((l) => l.drop_type === 'todo').map((l) => l.drop_id);
+    const habitIds = links.filter((l) => l.drop_type === 'habit').map((l) => l.drop_id);
+    const noteIds = links.filter((l) => l.drop_type === 'note').map((l) => l.drop_id);
+
+    const [todos, habits, notes] = await Promise.all([
+      todoIds.length > 0
+        ? fetch(
+            `${env.SUPABASE_URL}/rest/v1/todos?id=in.(${todoIds.join(',')})&is_complete=eq.false&select=title,target_date&limit=15`,
+            { headers },
+          ).then((r) => r.json()).catch(() => [])
+        : Promise.resolve([]),
+      habitIds.length > 0
+        ? fetch(
+            `${env.SUPABASE_URL}/rest/v1/habits?id=in.(${habitIds.join(',')})&archived=eq.false&select=title,frequency&limit=10`,
+            { headers },
+          ).then((r) => r.json()).catch(() => [])
+        : Promise.resolve([]),
+      noteIds.length > 0
+        ? fetch(
+            `${env.SUPABASE_URL}/rest/v1/notes?id=in.(${noteIds.join(',')})&archived=eq.false&select=title,subtype,target_date&limit=10`,
+            { headers },
+          ).then((r) => r.json()).catch(() => [])
+        : Promise.resolve([]),
+    ]);
+
+    const entities = {
+      chapter,
+      todos: Array.isArray(todos) ? todos : [],
+      habits: Array.isArray(habits) ? habits : [],
+      notes: Array.isArray(notes) ? notes : [],
+    };
+
+    if (env.CONTEXT_CACHE) {
+      await env.CONTEXT_CACHE.put(cacheKey, JSON.stringify(entities), { expirationTtl: 300 });
+    }
+
+    console.log(
+      `[ChatProjection] Chapter entities loaded for ${userId.slice(0, 8)}:${chapterId.slice(0, 8)}: ${entities.todos.length} todos, ${entities.habits.length} habits, ${entities.notes.length} notes`,
+    );
+    return entities;
+  } catch (error) {
+    console.error('[ChatProjection] Chapter entities error:', error);
+    return null;
+  }
+}
+
+/**
+ * Format chapter entities into a plain-text context string.
+ */
+export function formatChapterEntities(chapterData) {
+  if (!chapterData?.chapter) return '';
+  const { chapter, todos = [], habits = [], notes = [] } = chapterData;
+
+  const parts = [`=== CHAPTER: "${chapter.title}" ===`];
+  if (chapter.summary) parts.push(chapter.summary);
+  if (chapter.target_description) parts.push(`Goal: ${chapter.target_description}`);
+  if (chapter.phase) parts.push(`Phase: ${chapter.phase}`);
+
+  const dateRange = [chapter.start_date, chapter.end_date].filter(Boolean);
+  if (dateRange.length > 0) {
+    parts.push(`Timeline: ${dateRange.join(' \u2192 ')}`);
+  }
+
+  const events = notes.filter((n) => n.subtype === 'event');
+  const otherNotes = notes.filter((n) => n.subtype !== 'event');
+
+  if (events.length > 0) {
+    parts.push('Key dates:');
+    for (const e of events) {
+      parts.push(`  \u2022 ${e.title}${e.target_date ? ` \u2014 ${e.target_date}` : ''}`);
+    }
+  }
+
+  const datedTodos = todos.filter((t) => t.target_date);
+  const undatedTodos = todos.filter((t) => !t.target_date);
+
+  if (datedTodos.length > 0) {
+    parts.push('Upcoming tasks:');
+    for (const t of datedTodos) {
+      parts.push(`  \u2022 ${t.title} \u2014 due ${t.target_date}`);
+    }
+  }
+  if (undatedTodos.length > 0) {
+    parts.push(`Other tasks: ${undatedTodos.map((t) => t.title).join(', ')}`);
+  }
+
+  if (habits.length > 0) {
+    parts.push('Habits:');
+    for (const h of habits) {
+      parts.push(`  \u2022 ${h.title}${h.frequency ? ` (${h.frequency})` : ''}`);
+    }
+  }
+
+  if (otherNotes.length > 0) {
+    parts.push(`Notes: ${otherNotes.map((n) => n.title).join(', ')}`);
+  }
+
+  return parts.join('\n');
 }

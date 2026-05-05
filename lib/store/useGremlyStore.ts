@@ -50,6 +50,16 @@ import {
   GAUGE_WEIGHTS,
 } from '../constants/soulDocument';
 import type { Milestone } from '../schemas';
+import type {
+  World,
+  Chapter,
+  LifeContext,
+  ChapterWorldLink,
+  DropWorldLink,
+  DropChapterLink,
+  DropContextLink,
+  WorldObservation,
+} from '../supabase/types';
 import type { QueuedDrop } from '../minddrop/dropQueue';
 import { eventBus } from '../events';
 import { parseHabitFrequency } from '../sweep/habitHelpers';
@@ -400,7 +410,7 @@ export type PendingDrop = Record<string, any>;
 // STORE INTERFACE
 // ═══════════════════════════════════════════════════════════════════════════════
 
-interface GremlyState {
+export interface GremlyState {
   // ═══════════════════════════════════════════════════════════════════
   // RAW DATA (populated on app start)
   // ═══════════════════════════════════════════════════════════════════
@@ -420,6 +430,18 @@ interface GremlyState {
   generalChatRunningSummary: string | null;
   milestones: Milestone[];
   queueItems: QueuedDrop[];
+
+  // ═══════════════════════════════════════════════════════════════════
+  // WORLDS & CHAPTERS GRAPH (Phase 4)
+  // ═══════════════════════════════════════════════════════════════════
+  worlds: World[];
+  chapters: Chapter[];
+  lifeContexts: LifeContext[];
+  chapterWorldLinks: ChapterWorldLink[];
+  dropWorldLinks: DropWorldLink[];
+  dropChapterLinks: DropChapterLink[];
+  dropContextLinks: DropContextLink[];
+  worldObservations: WorldObservation[];
 
   // ═══════════════════════════════════════════════════════════════════
   // SPACE SUGGESTIONS STATE
@@ -702,6 +724,8 @@ interface GremlyState {
   // SPACE CHAT MUTATIONS
   // ═══════════════════════════════════════════════════════════════════
   createSpaceChat: (spaceId: string, title: string) => Promise<SpaceChat | null>;
+  createWorldChat: (worldId: string, title: string) => Promise<SpaceChat | null>;
+  createChapterChat: (chapterId: string, title: string) => Promise<SpaceChat | null>;
   updateSpaceChat: (chatId: string, patch: Partial<SpaceChat>) => Promise<void>;
   syncSpaceChat: (chat: SpaceChat) => void; // Sync chat from external source (no Supabase write)
   archiveSpaceChat: (chatId: string) => Promise<void>;
@@ -1005,6 +1029,23 @@ interface GremlyState {
   // Gap slotting actions
   slotTaskIntoGap: (id: string, entityType: 'todo' | 'habit', startIso: string) => void;
   unslotTask: (id: string, entityType: 'todo' | 'habit') => void;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // WORLDS & CHAPTERS ACTIONS
+  // ═══════════════════════════════════════════════════════════════════
+  refreshWorldsGraph: () => Promise<void>;
+  dismissWorldObservation: (observationId: string) => Promise<void>;
+  updateChapterDates: (input: {
+    chapterId: string;
+    startDate: string;
+    endDate: string;
+    reason: string | null;
+  }) => Promise<void>;
+  updateChapterTitle: (input: {
+    chapterId: string;
+    title: string;
+    reason: string | null;
+  }) => Promise<void>;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1027,6 +1068,15 @@ const initialState = {
   generalChatAutoTitle: null as string | null,
   generalChatRunningSummary: null as string | null,
   milestones: [] as Milestone[],
+  // Worlds & Chapters graph
+  worlds: [] as World[],
+  chapters: [] as Chapter[],
+  lifeContexts: [] as LifeContext[],
+  chapterWorldLinks: [] as ChapterWorldLink[],
+  dropWorldLinks: [] as DropWorldLink[],
+  dropChapterLinks: [] as DropChapterLink[],
+  dropContextLinks: [] as DropContextLink[],
+  worldObservations: [] as WorldObservation[],
   // Space suggestions
   spaceSuggestions: [] as SpaceSuggestion[],
   spaceSuggestionsLoaded: false,
@@ -1247,6 +1297,14 @@ export const useGremlyStore = create<GremlyState>()(
               sweepEventsCountRes,
               notificationPrefsRes,
               weeklySummariesRes,
+              worldsRes,
+              chaptersRes,
+              lifeContextsRes,
+              chapterWorldLinksRes,
+              dropWorldLinksRes,
+              dropChapterLinksRes,
+              dropContextLinksRes,
+              worldObservationsRes,
             ] = await Promise.all([
               fetchAllPaginated<Todo>(() =>
                 supabase
@@ -1292,7 +1350,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase.from('spaces').select('*').eq('owner_id', userId),
               supabase.from('tags').select('*').eq('owner_id', userId),
               supabase.from('habit_progress').select('*').eq('owner_id', userId),
-              supabase.from('space_chats').select('*').eq('user_id', userId),
+              supabase.from('scope_chats').select('*').eq('user_id', userId),
               supabase.from('space_milestones').select('*').eq('owner_id', userId),
               supabase
                 .from('daily_briefs')
@@ -1326,6 +1384,18 @@ export const useGremlyStore = create<GremlyState>()(
                 .eq('user_id', userId)
                 .order('week_start_date', { ascending: false })
                 .limit(12),
+              supabase.from('worlds').select('*').eq('owner_id', userId),
+              supabase.from('chapters').select('*').eq('owner_id', userId),
+              supabase.from('life_contexts').select('*').eq('owner_id', userId),
+              supabase.from('chapter_world_links').select('*').eq('owner_id', userId),
+              supabase.from('drop_world_links').select('*').eq('owner_id', userId),
+              supabase.from('drop_chapter_links').select('*').eq('owner_id', userId),
+              supabase.from('drop_context_links').select('*').eq('owner_id', userId),
+              supabase
+                .from('world_observations')
+                .select('*')
+                .eq('owner_id', userId)
+                .is('dismissed_at', null),
             ]);
 
             // Check for errors (chats/milestones are optional - don't fail if tables don't exist)
@@ -1368,6 +1438,35 @@ export const useGremlyStore = create<GremlyState>()(
               console.warn('[GremlyStore] sweep events count error:', sweepEventsCountRes.error);
             if (weeklySummariesRes.error)
               console.warn('[GremlyStore] weekly_summaries fetch error:', weeklySummariesRes.error);
+
+            // Worlds & Chapters primary entities: throw on error
+            if (worldsRes.error) throw worldsRes.error;
+            if (chaptersRes.error) throw chaptersRes.error;
+            if (lifeContextsRes.error) throw lifeContextsRes.error;
+
+            // Worlds & Chapters link tables + observations: warn and degrade gracefully
+            if (chapterWorldLinksRes.error)
+              console.warn(
+                '[GremlyStore] chapter_world_links fetch error:',
+                chapterWorldLinksRes.error,
+              );
+            if (dropWorldLinksRes.error)
+              console.warn('[GremlyStore] drop_world_links fetch error:', dropWorldLinksRes.error);
+            if (dropChapterLinksRes.error)
+              console.warn(
+                '[GremlyStore] drop_chapter_links fetch error:',
+                dropChapterLinksRes.error,
+              );
+            if (dropContextLinksRes.error)
+              console.warn(
+                '[GremlyStore] drop_context_links fetch error:',
+                dropContextLinksRes.error,
+              );
+            if (worldObservationsRes.error)
+              console.warn(
+                '[GremlyStore] world_observations fetch error:',
+                worldObservationsRes.error,
+              );
 
             // Fetch identity from user_profiles
             const { data: userProfile, error: userProfileError } = await supabase
@@ -1477,6 +1576,14 @@ export const useGremlyStore = create<GremlyState>()(
               habitProgress: progressRes.data ?? [],
               spaceChats: chatsRes.data ?? [],
               milestones: milestonesRes.data ?? [],
+              worlds: (worldsRes.data ?? []) as World[],
+              chapters: (chaptersRes.data ?? []) as Chapter[],
+              lifeContexts: (lifeContextsRes.data ?? []) as LifeContext[],
+              chapterWorldLinks: (chapterWorldLinksRes.data ?? []) as ChapterWorldLink[],
+              dropWorldLinks: (dropWorldLinksRes.data ?? []) as DropWorldLink[],
+              dropChapterLinks: (dropChapterLinksRes.data ?? []) as DropChapterLink[],
+              dropContextLinks: (dropContextLinksRes.data ?? []) as DropContextLink[],
+              worldObservations: (worldObservationsRes.data ?? []) as WorldObservation[],
               dailyBrief: dailyBriefRes.data ?? null,
               weeklySummaries: (weeklySummariesRes.data ?? []) as WeeklySummary[],
               spaceChatMessages: [], // Messages are loaded on-demand per chat
@@ -4308,7 +4415,7 @@ export const useGremlyStore = create<GremlyState>()(
           const now = nowTimestamp();
           const newChat: any = {
             user_id: userId,
-            space_id: null,
+            scope_id: null,
             chat_type: 'general',
             title: title || 'New conversation',
             pinned: false,
@@ -4324,7 +4431,7 @@ export const useGremlyStore = create<GremlyState>()(
           try {
             const { created_at: _ca, ...insertPayload } = newChat;
             const { data, error } = await supabase
-              .from('space_chats')
+              .from('scope_chats')
               .insert(insertPayload)
               .select()
               .single();
@@ -4358,7 +4465,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) return;
           const { data, error } = await supabase
-            .from('space_chats')
+            .from('scope_chats')
             .select('*')
             .eq('user_id', userId)
             .eq('chat_type', 'general')
@@ -4370,7 +4477,7 @@ export const useGremlyStore = create<GremlyState>()(
 
         updateGeneralChatExtractions: async (chatId: string) => {
           const { data } = await supabase
-            .from('space_chats')
+            .from('scope_chats')
             .select(
               'extracted_items, dismissed_extractions, saved_extraction_ids, auto_title, running_summary',
             )
@@ -4399,7 +4506,7 @@ export const useGremlyStore = create<GremlyState>()(
             generalChatDismissals: [...s.generalChatDismissals, extractionId],
           }));
           await supabase
-            .from('space_chats')
+            .from('scope_chats')
             .update({ dismissed_extractions: get().generalChatDismissals } as any)
             .eq('id', chatId);
         },
@@ -4413,9 +4520,83 @@ export const useGremlyStore = create<GremlyState>()(
           const chat = get().generalChats.find((c) => c.id === chatId) as any;
           const merged = [...new Set([...(chat?.saved_extraction_ids || []), ...extractionIds])];
           await supabase
-            .from('space_chats')
+            .from('scope_chats')
             .update({ saved_extraction_ids: merged } as any)
             .eq('id', chatId);
+        },
+
+        createWorldChat: async (worldId: string, title: string) => {
+          const userId = get().userId;
+          if (!userId) return null;
+          const now = nowTimestamp();
+          const newChat: any = {
+            user_id: userId,
+            scope_id: worldId,
+            chat_type: 'world',
+            title,
+            pinned: false,
+            created_at: now,
+            updated_at: now,
+          };
+          const tempId = `temp-${getDateService().now().getTime()}`;
+          const optimistic = { ...newChat, id: tempId } as SpaceChat;
+          set((s) => ({ spaceChats: [optimistic, ...s.spaceChats] }));
+          try {
+            const { created_at: _ca, ...insertPayload } = newChat;
+            const { data, error } = await supabase
+              .from('scope_chats')
+              .insert(insertPayload)
+              .select()
+              .single();
+            if (error) throw error;
+            set((s) => ({
+              spaceChats: s.spaceChats.map((c) => (c.id === tempId ? data : c)),
+            }));
+            return data;
+          } catch (error) {
+            set((s) => ({
+              spaceChats: s.spaceChats.filter((c) => c.id !== tempId),
+            }));
+            console.error('[GremlyStore] createWorldChat failed:', error);
+            throw error;
+          }
+        },
+
+        createChapterChat: async (chapterId: string, title: string) => {
+          const userId = get().userId;
+          if (!userId) return null;
+          const now = nowTimestamp();
+          const newChat: any = {
+            user_id: userId,
+            scope_id: chapterId,
+            chat_type: 'chapter',
+            title,
+            pinned: false,
+            created_at: now,
+            updated_at: now,
+          };
+          const tempId = `temp-${getDateService().now().getTime()}`;
+          const optimistic = { ...newChat, id: tempId } as SpaceChat;
+          set((s) => ({ spaceChats: [optimistic, ...s.spaceChats] }));
+          try {
+            const { created_at: _ca, ...insertPayload } = newChat;
+            const { data, error } = await supabase
+              .from('scope_chats')
+              .insert(insertPayload)
+              .select()
+              .single();
+            if (error) throw error;
+            set((s) => ({
+              spaceChats: s.spaceChats.map((c) => (c.id === tempId ? data : c)),
+            }));
+            return data;
+          } catch (error) {
+            set((s) => ({
+              spaceChats: s.spaceChats.filter((c) => c.id !== tempId),
+            }));
+            console.error('[GremlyStore] createChapterChat failed:', error);
+            throw error;
+          }
         },
 
         createSpaceChat: async (spaceId: string, title: string) => {
@@ -4424,7 +4605,7 @@ export const useGremlyStore = create<GremlyState>()(
 
           const now = nowTimestamp();
           const newChat: Partial<SpaceChat> = {
-            space_id: spaceId,
+            scope_id: spaceId,
             user_id: userId,
             title,
             pinned: false,
@@ -4440,7 +4621,7 @@ export const useGremlyStore = create<GremlyState>()(
           try {
             const { created_at: _ca, ...insertPayload } = newChat;
             const { data, error } = await supabase
-              .from('space_chats')
+              .from('scope_chats')
               .insert(insertPayload)
               .select()
               .single();
@@ -4496,7 +4677,7 @@ export const useGremlyStore = create<GremlyState>()(
 
           try {
             const { error } = await supabase
-              .from('space_chats')
+              .from('scope_chats')
               .update({ ...patch, updated_at: now })
               .eq('id', chatId);
 
@@ -4533,7 +4714,7 @@ export const useGremlyStore = create<GremlyState>()(
           }));
 
           try {
-            const { error } = await supabase.from('space_chats').delete().eq('id', chatId);
+            const { error } = await supabase.from('scope_chats').delete().eq('id', chatId);
             if (error) throw error;
             eventBus.emit('entity:deleted', {
               type: 'space_chat',
@@ -4569,7 +4750,7 @@ export const useGremlyStore = create<GremlyState>()(
 
           try {
             const { data, error } = await supabase
-              .from('space_chat_messages')
+              .from('scope_chat_messages')
               .insert({ ...message, user_id: userId })
               .select()
               .single();
@@ -4599,7 +4780,7 @@ export const useGremlyStore = create<GremlyState>()(
         loadChatMessages: async (chatId: string) => {
           try {
             const { data, error } = await supabase
-              .from('space_chat_messages')
+              .from('scope_chat_messages')
               .select('*')
               .eq('chat_id', chatId)
               .order('created_at', { ascending: true });
@@ -5361,6 +5542,16 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) return;
 
+          // Kick off Worlds graph refresh in parallel with the main sync.
+          // Isolated failure — main sync path is unaffected if the Worlds fetch fails.
+          // This covers both initialize fast-paths which delegate to refreshFromServer
+          // for returning users with persisted data (Worlds arrays are not in partialize).
+          const worldsGraphPromise = get()
+            .refreshWorldsGraph()
+            .catch((err) => {
+              console.warn('[GremlyStore] refreshFromServer — refreshWorldsGraph failed:', err);
+            });
+
           // Background sync — never set isLoading since user already has cached data.
           // Loading indicators should only show during cold init (no cached data).
 
@@ -5422,7 +5613,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase.from('spaces').select('*').eq('owner_id', userId),
               supabase.from('tags').select('*').eq('owner_id', userId),
               supabase.from('habit_progress').select('*').eq('owner_id', userId),
-              supabase.from('space_chats').select('*').eq('user_id', userId),
+              supabase.from('scope_chats').select('*').eq('user_id', userId),
               supabase.from('space_milestones').select('*').eq('owner_id', userId),
               supabase
                 .from('weekly_summaries')
@@ -5611,6 +5802,10 @@ export const useGremlyStore = create<GremlyState>()(
 
             // Refresh ritual progress including gauge state (Soul Document v8)
             get().refreshRitualProgress();
+
+            // Ensure Worlds graph refresh has settled before returning.
+            // Failures are already swallowed by the .catch() above, so this is safe to await.
+            await worldsGraphPromise;
           } catch (error) {
             console.error('[GremlyStore] refreshFromServer failed:', error);
             // No isLoading to reset — background sync never sets it
@@ -9909,6 +10104,214 @@ export const useGremlyStore = create<GremlyState>()(
             if (error) {
               console.error(`[GremlyStore] clearEntityChat failed:`, error);
             }
+          }
+        },
+
+        refreshWorldsGraph: async () => {
+          const userId = get().userId;
+          if (!userId) return;
+          try {
+            const [
+              worldsRes,
+              chaptersRes,
+              lifeContextsRes,
+              chapterWorldLinksRes,
+              dropWorldLinksRes,
+              dropChapterLinksRes,
+              dropContextLinksRes,
+              worldObservationsRes,
+            ] = await Promise.all([
+              supabase.from('worlds').select('*').eq('owner_id', userId),
+              supabase.from('chapters').select('*').eq('owner_id', userId),
+              supabase.from('life_contexts').select('*').eq('owner_id', userId),
+              supabase.from('chapter_world_links').select('*').eq('owner_id', userId),
+              supabase.from('drop_world_links').select('*').eq('owner_id', userId),
+              supabase.from('drop_chapter_links').select('*').eq('owner_id', userId),
+              supabase.from('drop_context_links').select('*').eq('owner_id', userId),
+              supabase
+                .from('world_observations')
+                .select('*')
+                .eq('owner_id', userId)
+                .is('dismissed_at', null),
+            ]);
+            set({
+              worlds: (worldsRes.data ?? []) as World[],
+              chapters: (chaptersRes.data ?? []) as Chapter[],
+              lifeContexts: (lifeContextsRes.data ?? []) as LifeContext[],
+              chapterWorldLinks: (chapterWorldLinksRes.data ?? []) as ChapterWorldLink[],
+              dropWorldLinks: (dropWorldLinksRes.data ?? []) as DropWorldLink[],
+              dropChapterLinks: (dropChapterLinksRes.data ?? []) as DropChapterLink[],
+              dropContextLinks: (dropContextLinksRes.data ?? []) as DropContextLink[],
+              worldObservations: (worldObservationsRes.data ?? []) as WorldObservation[],
+            });
+          } catch (err) {
+            console.warn('[GremlyStore] refreshWorldsGraph failed:', err);
+          }
+        },
+
+        dismissWorldObservation: async (observationId: string) => {
+          // Optimistic remove.
+          const prev = get().worldObservations;
+          set({ worldObservations: prev.filter((o) => o.id !== observationId) });
+          try {
+            const { error } = await supabase
+              .from('world_observations')
+              .update({ dismissed_at: getDateService().now().toISOString() })
+              .eq('id', observationId);
+            if (error) throw error;
+          } catch (err) {
+            // Roll back on failure.
+            console.warn('[GremlyStore] dismissWorldObservation failed:', err);
+            set({ worldObservations: prev });
+          }
+        },
+
+        updateChapterDates: async (input: {
+          chapterId: string;
+          startDate: string;
+          endDate: string;
+          reason: string | null;
+        }) => {
+          const userId = get().userId;
+          if (!userId) throw new Error('Not authenticated');
+
+          const chapter = get().chapters.find((c) => c.id === input.chapterId);
+          if (!chapter) throw new Error('Chapter not found');
+
+          const oldStart = chapter.start_date;
+          const oldEnd = chapter.end_date;
+          const startChanged = input.startDate !== oldStart;
+          const endChanged = input.endDate !== oldEnd;
+
+          if (!startChanged && !endChanged) return;
+
+          const now = nowTimestamp();
+          const patch: Record<string, unknown> = { updated_at: now };
+          if (startChanged) {
+            patch.start_date = input.startDate;
+            patch.start_date_source = 'user';
+            patch.start_date_updated_at = now;
+          }
+          if (endChanged) {
+            patch.end_date = input.endDate;
+            patch.end_date_source = 'user';
+            patch.end_date_updated_at = now;
+          }
+
+          const { error } = await supabase
+            .from('chapters')
+            .update(patch)
+            .eq('id', input.chapterId)
+            .eq('owner_id', userId);
+          if (error) throw error;
+
+          set((state) => ({
+            chapters: state.chapters.map((c) =>
+              c.id === input.chapterId
+                ? {
+                    ...c,
+                    ...(startChanged
+                      ? {
+                          start_date: input.startDate,
+                          start_date_source: 'user' as const,
+                          start_date_updated_at: now,
+                        }
+                      : {}),
+                    ...(endChanged
+                      ? {
+                          end_date: input.endDate,
+                          end_date_source: 'user' as const,
+                          end_date_updated_at: now,
+                        }
+                      : {}),
+                    updated_at: now,
+                  }
+                : c,
+            ),
+          }));
+
+          // Best-effort edit log — silent warn on failure
+          const logRows: Array<Record<string, unknown>> = [];
+          if (startChanged) {
+            logRows.push({
+              chapter_id: input.chapterId,
+              field: 'start_date',
+              old_value: oldStart ?? null,
+              new_value: input.startDate,
+              reason: input.reason ?? null,
+            });
+          }
+          if (endChanged) {
+            logRows.push({
+              chapter_id: input.chapterId,
+              field: 'end_date',
+              old_value: oldEnd ?? null,
+              new_value: input.endDate,
+              reason: input.reason ?? null,
+            });
+          }
+          if (logRows.length > 0) {
+            const { error: logError } = await supabase.from('chapter_edit_log').insert(logRows);
+            if (logError) {
+              console.warn('[GremlyStore] updateChapterDates — edit log insert failed:', logError);
+            }
+          }
+        },
+
+        updateChapterTitle: async (input: {
+          chapterId: string;
+          title: string;
+          reason: string | null;
+        }) => {
+          const userId = get().userId;
+          if (!userId) throw new Error('Not authenticated');
+
+          const chapter = get().chapters.find((c) => c.id === input.chapterId);
+          if (!chapter) throw new Error('Chapter not found');
+
+          const oldTitle = chapter.title ?? '';
+          const newTitle = input.title.trim();
+          if (newTitle === oldTitle) return;
+          if (newTitle.length === 0) throw new Error('Title cannot be empty');
+
+          const now = nowTimestamp();
+
+          const { error: updateErr } = await supabase
+            .from('chapters')
+            .update({
+              title: newTitle,
+              title_source: 'user',
+              title_updated_at: now,
+            })
+            .eq('id', input.chapterId)
+            .eq('owner_id', userId);
+          if (updateErr) throw new Error(updateErr.message);
+
+          set((state) => ({
+            chapters: state.chapters.map((c) =>
+              c.id === input.chapterId
+                ? {
+                    ...c,
+                    title: newTitle,
+                    title_source: 'user' as const,
+                    title_updated_at: now,
+                  }
+                : c,
+            ),
+          }));
+
+          // Best-effort edit log — do not throw on failure.
+          // NOTE: column is `field`, not `field_name`. No `owner_id` on chapter_edit_log.
+          // NOTE: plain values only — supabase-js encodes jsonb; do NOT call JSON.stringify.
+          const { error: logErr } = await supabase.from('chapter_edit_log').insert({
+            chapter_id: input.chapterId,
+            field: 'title',
+            old_value: oldTitle.length > 0 ? oldTitle : null,
+            new_value: newTitle,
+            reason: input.reason,
+          });
+          if (logErr) {
+            console.warn('[GremlyStore] updateChapterTitle — edit log insert failed:', logErr);
           }
         },
       }),

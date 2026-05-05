@@ -388,6 +388,9 @@ export interface QueuedDrop {
   /** Energy type from Phase 2 enrichment */
   energyType?: 'deep_focus' | 'administrative' | 'physical' | 'social' | 'quick' | null;
 
+  /** Priority kind from Phase 2 enrichment (todos only) */
+  priorityKind?: 'action' | 'blocker' | 'waiting' | 'decision' | 'momentum' | null;
+
   /** End date for events */
   endDate?: string | null;
 

@@ -20,7 +20,7 @@ describe('Spaces v2 - SpaceChat Repository', () => {
 
       expect(chat.id).toBeDefined();
       expect(chat.user_id).toBe(userId);
-      expect(chat.space_id).toBe(spaceId);
+      expect(chat.scope_id).toBe(spaceId);
       expect(chat.title).toBe('Project Discussion');
       expect(chat.pinned).toBe(false);
       expect(chat.archived_at).toBeNull();
@@ -91,7 +91,7 @@ describe('Spaces v2 - SpaceChat Repository', () => {
       expect(chats[2].id).toBe(chat2.id);
     });
 
-    it('should filter by space_id', async () => {
+    it('should filter by scope_id', async () => {
       const space1 = 'space-1';
       const space2 = 'space-2';
 

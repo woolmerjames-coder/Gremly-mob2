@@ -106,6 +106,7 @@ export interface OverlayUI {
   showHabitStartDatePicker: boolean;
   showHabitEndDatePicker: boolean;
   showSpaceModal: boolean;
+  showWorldsModal: boolean;
   showRemindersModal: boolean;
   showScheduleModal: boolean;
   showEntityChat: boolean;
@@ -179,6 +180,7 @@ const INITIAL_UI: OverlayUI = {
   showHabitStartDatePicker: false,
   showHabitEndDatePicker: false,
   showSpaceModal: false,
+  showWorldsModal: false,
   showRemindersModal: false,
   showScheduleModal: false,
   showEntityChat: false,

@@ -381,7 +381,7 @@ export type Database = {
         };
         Relationships: [];
       };
-      space_chats: {
+      scope_chats: {
         Row: {
           archived_at: string | null;
           created_at: string | null;
@@ -389,7 +389,7 @@ export type Database = {
           last_message_snippet: string | null;
           metadata_json: Json | null;
           pinned: boolean | null;
-          space_id: string | null;
+          scope_id: string | null;
           title: string;
           updated_at: string | null;
           user_id: string;
@@ -401,7 +401,7 @@ export type Database = {
           last_message_snippet?: string | null;
           metadata_json?: Json | null;
           pinned?: boolean | null;
-          space_id?: string | null;
+          scope_id?: string | null;
           title: string;
           updated_at?: string | null;
           user_id: string;
@@ -413,7 +413,7 @@ export type Database = {
           last_message_snippet?: string | null;
           metadata_json?: Json | null;
           pinned?: boolean | null;
-          space_id?: string | null;
+          scope_id?: string | null;
           title?: string;
           updated_at?: string | null;
           user_id?: string;
@@ -421,7 +421,7 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: 'space_chats_space_id_fkey';
-            columns: ['space_id'];
+            columns: ['scope_id'];
             isOneToOne: false;
             referencedRelation: 'spaces';
             referencedColumns: ['id'];
@@ -731,3 +731,258 @@ export const Constants = {
     Enums: {},
   },
 } as const;
+
+// ============================================================================
+// Worlds & Chapters graph (Phase 4)
+// ============================================================================
+
+export type WorldPhase = 'candidate' | 'active' | 'evolving' | 'dormant' | 'archived';
+export type ChapterPhase = 'suggested' | 'upcoming' | 'active' | 'closed';
+export type ChapterType = 'bounded' | 'season' | 'milestone';
+export type WorldType = 'project' | 'practice' | 'relationship' | 'domestic';
+export type ArcShape = 'outcome' | 'experience' | 'process' | 'commitment';
+export type LifeContextKind = 'employer' | 'role' | 'obligation' | 'calendar_source' | 'custom';
+export type SignalVelocityDelta = 'growing' | 'stable' | 'declining';
+export type AssignedBy = 'classifier' | 'user' | 'migration';
+export type DropType = 'note' | 'todo' | 'habit';
+export type EntitySource = 'classifier' | 'user' | 'migration';
+export type SummarySource = 'classifier' | 'dco' | 'user';
+
+export interface KeyMoment {
+  date: string; // ISO date YYYY-MM-DD
+  location?: string; // optional label, e.g. 'TOKYO', 'BORA BORA'
+  text: string; // e.g. 'Arrived in Tokyo'
+  drop_id?: string; // optional back-reference to a drop
+}
+
+export interface SlipEvent {
+  date: string; // ISO date YYYY-MM-DD
+  note?: string; // e.g. "Valentine's — known exception"
+  label?: 'exception' | 'lapse' | 'recovery';
+}
+
+export interface KeyPriority {
+  rank: number;
+  text: string;
+  kind: 'action' | 'date' | 'blocker' | 'momentum' | 'decision';
+  entity_ref?: { id: string; type: 'todo' | 'note' | 'habit' | 'chapter' };
+  due_date?: string;
+  confidence?: number;
+}
+
+export interface WithYouItem {
+  name: string;
+  role?: string | null;
+  span?: string | null;
+  evidence_drop_id?: string | null;
+  confidence: number;
+}
+
+export type WorldArchetype =
+  | 'creative'
+  | 'professional'
+  | 'wellness_body'
+  | 'wellness_mind'
+  | 'relational'
+  | 'domestic'
+  | 'learning'
+  | 'generic';
+
+export interface ArchetypeWeight {
+  type: WorldArchetype;
+  weight: number;
+}
+
+export interface WorldModuleLayoutEntry {
+  module: string;
+  weight: number;
+  config?: unknown;
+}
+
+export interface WorldVisualStyle {
+  color?: string | null;
+}
+
+export interface World {
+  id: string;
+  owner_id: string;
+  name: string;
+  display_name: string | null;
+  description: string | null;
+  archetypes: ArchetypeWeight[];
+  phase: WorldPhase;
+  source: EntitySource;
+  confidence: number | null;
+  signal_velocity: string | number | null;
+  signal_velocity_delta: SignalVelocityDelta | null;
+  first_signal_at: string | null;
+  last_signal_at: string | null;
+  module_layout: WorldModuleLayoutEntry[] | null;
+  visual_style: WorldVisualStyle | null;
+  life_map_cluster_id: string | null;
+  proposed_at: string | null;
+  confirmed_at: string | null;
+  last_run_id: string | null;
+  created_at: string;
+  updated_at: string;
+  card_subtitle: string | null;
+  summary: string | null;
+  key_priorities: KeyPriority[];
+  summary_source: SummarySource | null;
+  summary_updated_at: string | null;
+  card_subtitle_source: SummarySource | null;
+  card_subtitle_updated_at: string | null;
+  mascot_slug: string | null;
+  mascot_slug_source: SummarySource | null;
+  mascot_slug_updated_at: string | null;
+  // Phase A additions
+  world_type: WorldType | null;
+  world_type_source: SummarySource | null;
+  world_type_updated_at: string | null;
+}
+
+export interface Chapter {
+  id: string;
+  owner_id: string;
+  title: string;
+  description: string | null;
+  chapter_type: ChapterType;
+  phase: ChapterPhase;
+  primary_world_id: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  target_description: string | null;
+  target_summary: string | null;
+  phase_labels: string[] | null;
+  current_phase_key: string | null;
+  source: EntitySource;
+  confidence: number | null;
+  proposed_at: string | null;
+  confirmed_at: string | null;
+  closed_at: string | null;
+  last_run_id: string | null;
+  created_at: string;
+  updated_at: string;
+  card_subtitle: string | null;
+  summary: string | null;
+  key_priorities: KeyPriority[];
+  summary_source: SummarySource | null;
+  summary_updated_at: string | null;
+  card_subtitle_source: SummarySource | null;
+  card_subtitle_updated_at: string | null;
+  // Phase A additions
+  title_source: SummarySource | null;
+  title_updated_at: string | null;
+  arc_shape: ArcShape | null;
+  arc_shape_source: SummarySource | null;
+  arc_shape_updated_at: string | null;
+  epigraph: string | null;
+  epigraph_source: SummarySource | null;
+  epigraph_updated_at: string | null;
+  epigraph_accepted_at: string | null;
+  key_moments: KeyMoment[] | null;
+  key_moments_source: SummarySource | null;
+  key_moments_updated_at: string | null;
+  slip_events: SlipEvent[] | null;
+  slip_events_source: SummarySource | null;
+  slip_events_updated_at: string | null;
+  slip_tracking_enabled: boolean;
+  has_blockers_count: number;
+  // C.1a — source tracking on remaining structural fields
+  start_date_source: string | null;
+  start_date_updated_at: string | null;
+  end_date_source: string | null;
+  end_date_updated_at: string | null;
+  current_phase_key_source: string | null;
+  current_phase_key_updated_at: string | null;
+  target_description_source: string | null;
+  target_description_updated_at: string | null;
+  phase_labels_source: string | null;
+  phase_labels_updated_at: string | null;
+  key_priorities_source: string | null;
+  key_priorities_updated_at: string | null;
+  // W.1.a — classifier-authored people
+  with_you: WithYouItem[] | null;
+  with_you_source: string | null;
+  with_you_updated_at: string | null;
+}
+
+export interface LifeContext {
+  id: string;
+  owner_id: string;
+  name: string;
+  description: string | null;
+  kind: LifeContextKind;
+  start_date: string | null;
+  end_date: string | null;
+  active: boolean;
+  source: EntitySource;
+  calendar_source: string | null;
+  proposed_at: string | null;
+  confirmed_at: string | null;
+  last_run_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChapterWorldLink {
+  chapter_id: string;
+  world_id: string;
+  owner_id: string;
+  relevance_score: number;
+}
+
+export interface DropWorldLink {
+  drop_id: string;
+  drop_type: DropType;
+  world_id: string;
+  owner_id: string;
+  relevance_score: number;
+  assigned_by: AssignedBy;
+  reason: string | null;
+  created_at: string;
+  last_confirmed_at: string | null;
+}
+
+export interface DropChapterLink {
+  drop_id: string;
+  drop_type: DropType;
+  chapter_id: string;
+  owner_id: string;
+  relevance_score: number;
+  assigned_by: AssignedBy;
+  reason: string | null;
+  created_at: string;
+  last_confirmed_at: string | null;
+}
+
+export interface DropContextLink {
+  drop_id: string;
+  drop_type: DropType;
+  context_id: string;
+  owner_id: string;
+  relevance_score: number;
+  assigned_by: AssignedBy;
+  reason: string | null;
+  created_at: string;
+  last_confirmed_at: string | null;
+}
+
+export type WorldObservationKind = 'pattern' | 'cross_reference' | 'trajectory' | 'risk';
+export type WorldObservationGeneratedBy = 'observation_generator' | 'user_request' | 'classifier';
+
+export interface WorldObservation {
+  id: string;
+  owner_id: string;
+  world_id: string;
+  text: string;
+  kind: WorldObservationKind;
+  source_drop_ids: string[];
+  source_chapter_ids: string[];
+  confidence: number | null;
+  generated_at: string;
+  dismissed_at: string | null;
+  shown_count: number;
+  generated_by: WorldObservationGeneratedBy;
+  run_id: string | null;
+}

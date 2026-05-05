@@ -57,6 +57,9 @@ jest.mock('../phase1', () => ({
 }));
 jest.mock('../../supabase/client', () => ({
   supabase: {
+    auth: {
+      onAuthStateChange: jest.fn(() => ({ data: { subscription: { unsubscribe: jest.fn() } } })),
+    },
     from: () => ({
       update: () => ({
         eq: () => ({

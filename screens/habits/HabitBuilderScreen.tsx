@@ -299,7 +299,7 @@ export function HabitBuilderScreen({
         const offlineMsg: SpaceChatMessage = {
           id: nextId(),
           chat_id: '',
-          space_id: '',
+          scope_id: '',
           user_id: '',
           role: 'assistant',
           content:
@@ -320,7 +320,7 @@ export function HabitBuilderScreen({
       const userMsg: SpaceChatMessage = {
         id: nextId(),
         chat_id: '',
-        space_id: '',
+        scope_id: '',
         user_id: '',
         role: 'user',
         content: text,
@@ -375,7 +375,7 @@ export function HabitBuilderScreen({
             const finalMsg: SpaceChatMessage = {
               id: nextId(),
               chat_id: '',
-              space_id: '',
+              scope_id: '',
               user_id: '',
               role: 'assistant',
               content: response.content,
@@ -475,7 +475,7 @@ export function HabitBuilderScreen({
             const errorMsg: SpaceChatMessage = {
               id: nextId(),
               chat_id: '',
-              space_id: '',
+              scope_id: '',
               user_id: '',
               role: 'assistant',
               content: 'Having trouble right now — try again in a sec.',
@@ -665,7 +665,7 @@ export function HabitBuilderScreen({
           content: 'Something went wrong creating the habit. Try again?',
           created_at: nowTimestamp(),
           chat_id: '',
-          space_id: '',
+          scope_id: '',
           user_id: '',
         },
       ]);

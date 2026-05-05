@@ -2,14 +2,18 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Image, StyleSheet } from 'react-native';
 import TodayScreen from '../app/tabs/TodayScreen';
 import SpacesScreen from '../app/tabs/SpacesScreen';
+import WorldsScreen from '../app/tabs/WorldsScreen';
 import CatchAllNotepad from '../app/screens/CatchAllNotepad';
 import AskGremlyScreen from '../app/tabs/AskGremlyScreen';
+import { useGremlyStore } from '../lib/store/useGremlyStore';
+import { lightTokens } from '../design/tokens';
 
 // Tab bar icon images (v1.20 brand refresh)
 import TODAY_ICON from '../assets/todayicon1.22.png';
 import MINDDROP_ICON from '../assets/minddropicon1.20.png';
 import SPACES_ICON from '../assets/spacesicon1.20.png';
 import ASK_GREMLY_ICON from '../assets/askgremlyicon.png';
+import WORLDS_ICON from '../assets/worldicon4.28.png';
 
 /**
  * Tab navigator param list for type safety
@@ -19,14 +23,10 @@ export type TabParamList = {
   MindDrop: undefined;
   AskGremly: { prefillPrompt?: string } | undefined;
   Spaces: undefined;
+  Worlds: undefined;
 };
 
 const Tab = createBottomTabNavigator<TabParamList>();
-
-// Brand colors
-const MOSS_GREEN = '#2E5540';
-const LINEN_CREAM = '#F9F6F1';
-const LINEN_GRAY = '#E3E0D9';
 
 /**
  * TabNavigator - Main bottom tab navigation
@@ -35,17 +35,20 @@ const LINEN_GRAY = '#E3E0D9';
  * - Today: Daily view with todos, habits, and schedule
  * - MindDrop: Quick capture notepad
  * - AskGremly: Chat with Gremly
- * - Spaces: Browse and manage Spaces
+ * - Spaces: Browse and manage Spaces (non-testers)
+ * - Worlds: Worlds & Chapters index (testers only)
  */
 
 export default function TabNavigator() {
+  const isTester = useGremlyStore((s) => s.isTester);
+
   return (
     <Tab.Navigator
       initialRouteName="MindDrop"
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: MOSS_GREEN,
-        tabBarInactiveTintColor: MOSS_GREEN,
+        tabBarActiveTintColor: lightTokens.colors.moss,
+        tabBarInactiveTintColor: lightTokens.colors.moss,
         tabBarStyle: {
           height: 72,
           paddingTop: 6,
@@ -55,8 +58,8 @@ export default function TabNavigator() {
           right: 0,
           bottom: 0,
           borderTopWidth: StyleSheet.hairlineWidth,
-          borderTopColor: LINEN_GRAY,
-          backgroundColor: LINEN_CREAM,
+          borderTopColor: lightTokens.colors.border,
+          backgroundColor: lightTokens.colors.linenCream,
         },
         tabBarLabelStyle: {
           fontSize: 11,
@@ -105,19 +108,36 @@ export default function TabNavigator() {
           ),
         }}
       />
-      <Tab.Screen
-        name="Spaces"
-        component={SpacesScreen}
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <Image
-              source={SPACES_ICON}
-              style={{ width: 32, height: 32, opacity: focused ? 1 : 0.4 }}
-              resizeMode="contain"
-            />
-          ),
-        }}
-      />
+      {isTester ? (
+        <Tab.Screen
+          name="Worlds"
+          component={WorldsScreen}
+          options={{
+            tabBarIcon: ({ focused }) => (
+              <Image
+                source={WORLDS_ICON}
+                style={{ width: 32, height: 32, opacity: focused ? 1 : 0.4 }}
+                resizeMode="contain"
+              />
+            ),
+            tabBarLabel: 'Worlds',
+          }}
+        />
+      ) : (
+        <Tab.Screen
+          name="Spaces"
+          component={SpacesScreen}
+          options={{
+            tabBarIcon: ({ focused }) => (
+              <Image
+                source={SPACES_ICON}
+                style={{ width: 32, height: 32, opacity: focused ? 1 : 0.4 }}
+                resizeMode="contain"
+              />
+            ),
+          }}
+        />
+      )}
     </Tab.Navigator>
   );
 }

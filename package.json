@@ -23,6 +23,7 @@
     "eval:tags": "tsx artifacts/tags-eval/runEval.ts",
     "ci": "npm run lint && npm run typecheck && npm run test:ci && npm run check:repo && npm run check:schema",
     "ci:preflight": "bash scripts/ci-preflight.sh",
+    "check:boundary": "node scripts/check-worlds-boundary.mjs",
     "check:repo": "node scripts/check-direct-supabase.js",
     "check:schema": "node scripts/check-schema.mjs",
     "db:types": "bash scripts/gen_db_types.sh",

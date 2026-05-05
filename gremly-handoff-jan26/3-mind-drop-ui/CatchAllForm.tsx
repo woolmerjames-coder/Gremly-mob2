@@ -38,6 +38,13 @@ export function CatchAllForm({ onSubmit, mode = 'create', initialValues }: Catch
     setIsSubmitting(true);
 
     try {
+      console.log(
+        '[CatchAllForm] Submitting with mode:',
+        mode,
+        'text:',
+        inputText.substring(0, 50),
+      );
+
       // Validate with schema
       const data = CatchAllSchema.parse({ entry: inputText });
 

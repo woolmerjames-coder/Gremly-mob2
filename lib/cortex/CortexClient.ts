@@ -84,6 +84,7 @@ export interface Phase2EnrichmentResult {
   extracted_days?: number[] | null; // Array of day numbers (0=Sunday, 1=Monday, ... 6=Saturday) for specific days like "Tuesdays and Thursdays"
   people?: string[];
   mood?: string[] | null; // AI-extracted moods for journal entries
+  priority_kind?: 'action' | 'blocker' | 'waiting' | 'decision' | 'momentum' | null;
   latency_ms?: number;
   // Date intelligence fields
   target_date?: string | null; // Deadline date in YYYY-MM-DD format
@@ -579,6 +580,202 @@ export function callGeneralChatStreaming(
           fetchedUrl: data.fetchedUrl ?? null,
         };
         log('GENERAL_CHAT_STREAM_DONE', { contentLength: finalContent.length });
+        (callbacks.onComplete as any)(finalContent, richResult);
+        es.close();
+      }
+    } catch {
+      /* Ignore parse errors */
+    }
+  });
+
+  es.addEventListener('error', (event: any) => {
+    callbacks.onError(event.message || 'Stream error', fullText);
+    es.close();
+  });
+
+  return { close: () => es.close() };
+}
+
+/**
+ * Stream a world-scoped chat via Cortex (world_chat lane).
+ */
+export function callWorldChatStreaming(
+  messages: ChatMessage[],
+  opts: { scopeId: string; scopeName: string; chatId: string; userId?: string },
+  callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
+): { close: () => void } {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) {
+    callbacks.onError('Missing CORTEX_URL', '');
+    return { close: () => {} };
+  }
+  if (isAiDisabled()) {
+    callbacks.onError('AI disabled', '');
+    return { close: () => {} };
+  }
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const sessionToken = getSessionTokenSync();
+  if (sessionToken) {
+    headers.Authorization = `Bearer ${sessionToken}`;
+  }
+
+  let fullText = '';
+
+  const es = new EventSource(baseUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      type: 'chat',
+      messages,
+      lane: 'world_chat',
+      stream: true,
+      scopeId: opts.scopeId,
+      scopeName: opts.scopeName,
+      chatId: opts.chatId,
+      userId: opts.userId,
+      currentTime: nowTimestamp(),
+      timezone: getDateService().getTimezone(),
+    }),
+    lineEndingCharacter: '\n',
+  });
+
+  es.addEventListener('message', (event: any) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.error === 'read_only') {
+        eventBus.emit('cortex:read_only', {});
+        es.close();
+        return;
+      }
+      if (data.error) {
+        callbacks.onError(data.error, fullText);
+        es.close();
+        return;
+      }
+      if (data.searching && data.query) {
+        callbacks.onSearching?.(data.query, data.isLoadingHint || false);
+        return;
+      }
+      if (data.fetching !== undefined) {
+        callbacks.onFetching?.(data.fetching, data.fetchingUrl || null);
+        return;
+      }
+      if (data.delta) {
+        fullText += data.delta;
+        callbacks.onChunk(data.delta, fullText);
+      }
+      if (data.done) {
+        const finalContent = data.full_content || fullText;
+        const richResult: SpaceChatStreamingResult = {
+          content: finalContent,
+          save_suggestion: data.save_suggestion ?? null,
+          saveable: data.saveable ?? null,
+          promotion: data.promotion ?? null,
+          latency_ms: data.latency_ms,
+          sources: data.sources,
+          search_query: data.search_query,
+          fetchedUrl: data.fetchedUrl ?? null,
+        };
+        log('WORLD_CHAT_STREAM_DONE', { contentLength: finalContent.length });
+        (callbacks.onComplete as any)(finalContent, richResult);
+        es.close();
+      }
+    } catch {
+      /* Ignore parse errors */
+    }
+  });
+
+  es.addEventListener('error', (event: any) => {
+    callbacks.onError(event.message || 'Stream error', fullText);
+    es.close();
+  });
+
+  return { close: () => es.close() };
+}
+
+/**
+ * Stream a chapter-scoped chat via Cortex (chapter_chat lane).
+ */
+export function callChapterChatStreaming(
+  messages: ChatMessage[],
+  opts: { scopeId: string; scopeName: string; chatId: string; userId?: string },
+  callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
+): { close: () => void } {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) {
+    callbacks.onError('Missing CORTEX_URL', '');
+    return { close: () => {} };
+  }
+  if (isAiDisabled()) {
+    callbacks.onError('AI disabled', '');
+    return { close: () => {} };
+  }
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const sessionToken = getSessionTokenSync();
+  if (sessionToken) {
+    headers.Authorization = `Bearer ${sessionToken}`;
+  }
+
+  let fullText = '';
+
+  const es = new EventSource(baseUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      type: 'chat',
+      messages,
+      lane: 'chapter_chat',
+      stream: true,
+      scopeId: opts.scopeId,
+      scopeName: opts.scopeName,
+      chatId: opts.chatId,
+      userId: opts.userId,
+      currentTime: nowTimestamp(),
+      timezone: getDateService().getTimezone(),
+    }),
+    lineEndingCharacter: '\n',
+  });
+
+  es.addEventListener('message', (event: any) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.error === 'read_only') {
+        eventBus.emit('cortex:read_only', {});
+        es.close();
+        return;
+      }
+      if (data.error) {
+        callbacks.onError(data.error, fullText);
+        es.close();
+        return;
+      }
+      if (data.searching && data.query) {
+        callbacks.onSearching?.(data.query, data.isLoadingHint || false);
+        return;
+      }
+      if (data.fetching !== undefined) {
+        callbacks.onFetching?.(data.fetching, data.fetchingUrl || null);
+        return;
+      }
+      if (data.delta) {
+        fullText += data.delta;
+        callbacks.onChunk(data.delta, fullText);
+      }
+      if (data.done) {
+        const finalContent = data.full_content || fullText;
+        const richResult: SpaceChatStreamingResult = {
+          content: finalContent,
+          save_suggestion: data.save_suggestion ?? null,
+          saveable: data.saveable ?? null,
+          promotion: data.promotion ?? null,
+          latency_ms: data.latency_ms,
+          sources: data.sources,
+          search_query: data.search_query,
+          fetchedUrl: data.fetchedUrl ?? null,
+        };
+        log('CHAPTER_CHAT_STREAM_DONE', { contentLength: finalContent.length });
         (callbacks.onComplete as any)(finalContent, richResult);
         es.close();
       }
@@ -1158,6 +1355,7 @@ export function callEnrichPhase2Streaming(
           extracted_start_date: data.extracted_start_date || finalResult.extracted_start_date,
           extracted_frequency: data.extracted_frequency || finalResult.extracted_frequency,
           extracted_days: data.extracted_days || finalResult.extracted_days,
+          priority_kind: data.priority_kind ?? finalResult.priority_kind,
           people: data.people || finalResult.people,
           // Event-specific fields
           target_date: data.target_date || finalResult.target_date,
@@ -1928,6 +2126,8 @@ export const CortexClient = {
   callSpaceChat,
   callSpaceChatStreaming,
   callGeneralChatStreaming,
+  callWorldChatStreaming,
+  callChapterChatStreaming,
   callGeneralGreeting,
   callSpaceChatSave,
   callEnrichPhase2,

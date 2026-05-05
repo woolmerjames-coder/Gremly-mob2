@@ -9,6 +9,12 @@
 import { Inngest, InngestMiddleware } from 'inngest';
 import { serve } from 'inngest/cloudflare';
 import { jsonrepair } from 'jsonrepair';
+import { createWorldsWriterTest } from './worldsWriterTest';
+import { createWorldsBootstrap } from './worldsBootstrap';
+import { createWorldsWeeklyRun } from './worldsWeeklyRun';
+import { createWorldsWeeklyScheduler } from './worldsWeeklyScheduler';
+import { createDropAssignmentBackfill } from './dropAssignmentBackfill';
+import { createBackfillPriorityKind } from './backfillPriorityKind';
 
 // Cloudflare Workers middleware to inject env bindings
 const bindings = new InngestMiddleware({
@@ -312,9 +318,19 @@ const generateSingleUserDco = inngest.createFunction(
         return buildWorldPicture(snapshot);
       });
 
+      // Step 2b: Fetch active worlds and open chapters for DCO override evaluation
+      const worldsAndChapters = await step.run('fetch-worlds-and-chapters', async () => {
+        return fetchActiveWorldsAndChapters(userId, env);
+      });
+
       // Step 3: Flash reads the world picture, updates threads, picks daily focus
       const flashResult = await step.run('flash-daily-update', async () => {
-        return updateLifeMapAndFocus(worldPicture.lifeMap, worldPicture.text, env);
+        return updateLifeMapAndFocus(
+          worldPicture.lifeMap,
+          worldPicture.text,
+          env,
+          worldsAndChapters,
+        );
       });
 
       // Step 4: Merge Flash's thread updates back into the Life Map
@@ -330,6 +346,26 @@ const generateSingleUserDco = inngest.createFunction(
 
       // Step 6: Assemble backward-compatible DCO
       const dco = assembleDcoFromFocus(flashResult.daily_focus, headline, snapshot, flashResult);
+
+      // Step 6b: Apply per-world DCO overrides (before final upsert)
+      await step.run('apply-world-overrides', async () => {
+        return applyWorldOverrides(
+          flashResult.world_overrides,
+          worldsAndChapters.activeWorlds,
+          userId,
+          env,
+        );
+      });
+
+      // Step 6c: Apply per-chapter DCO overrides (before final upsert)
+      await step.run('apply-chapter-overrides', async () => {
+        return applyChapterOverrides(
+          flashResult.chapter_overrides,
+          worldsAndChapters.activeChapters,
+          userId,
+          env,
+        );
+      });
 
       // Step 7: Store updated Life Map + DCO to Supabase
       await step.run('store-results', async () => {
@@ -6646,6 +6682,17 @@ function buildWorldPicture(snapshot) {
     parts.push('  Write something with a completely different structure and angle.');
   }
 
+  // ── Section 11b: Previous classifier worlds_summary ──
+  if (prevDco?.worlds_summary) {
+    const ws = prevDco.worlds_summary;
+    parts.push('\n=== CLASSIFIER WORLDS SUMMARY (seeded this week) ===');
+    parts.push(`  headline: "${ws.headline}"`);
+    if (ws.body) parts.push(`  body: "${ws.body}"`);
+    parts.push(
+      '  Refresh if activity today has materially shifted the picture, otherwise keep close in spirit.',
+    );
+  }
+
   // ── Section 12: User profile ──
   if (raw.userProfile?.profile_text) {
     parts.push('\n=== USER PROFILE ===');
@@ -6707,8 +6754,55 @@ function buildWorldPicture(snapshot) {
   return { text, lifeMap };
 }
 
-async function updateLifeMapAndFocus(lifeMap, worldPictureText, env) {
+async function updateLifeMapAndFocus(lifeMap, worldPictureText, env, context = {}) {
+  const { activeWorlds = [], activeChapters = [] } = context;
   const t0 = Date.now();
+
+  const formatPriorities = (kp) => {
+    if (!Array.isArray(kp) || kp.length === 0) return '(none)';
+    return kp
+      .slice(0, 5)
+      .map((p) => {
+        const date = p.due_date ? ` due ${p.due_date}` : '';
+        const ref = p.entity_ref ? ` ref:${p.entity_ref}` : '';
+        return `#${p.rank ?? '?'} [${p.kind ?? '?'}] ${p.text ?? ''}${date}${ref}`;
+      })
+      .join(' ; ');
+  };
+
+  let worldsSection = '';
+  if (activeWorlds.length > 0) {
+    worldsSection +=
+      '\n\n=== ACTIVE WORLDS (with authored context from the weekly classifier) ===\n';
+    for (const w of activeWorlds) {
+      const summaryExcerpt = (w.summary || '').slice(0, 180);
+      const velocity = w.signal_velocity_delta || 'stable';
+      worldsSection += `\n  id: ${w.id} | name: ${w.display_name || w.name} | phase: ${w.phase} | trend: ${velocity}\n`;
+      worldsSection += `    current card_subtitle: ${w.card_subtitle || '(none)'}\n`;
+      if (summaryExcerpt)
+        worldsSection += `    summary (classifier-authored): ${summaryExcerpt}${w.summary && w.summary.length > 180 ? '...' : ''}\n`;
+      worldsSection += `    current key_priorities: ${formatPriorities(w.key_priorities)}\n`;
+    }
+  }
+  let chaptersSection = '';
+  if (activeChapters.length > 0) {
+    chaptersSection +=
+      '\n=== ACTIVE CHAPTERS (with authored context from the weekly classifier) ===\n';
+    for (const c of activeChapters) {
+      const summaryExcerpt = (c.summary || '').slice(0, 180);
+      const phaseLadder =
+        Array.isArray(c.phase_labels) && c.phase_labels.length > 0
+          ? c.phase_labels.join(' → ')
+          : '(none)';
+      chaptersSection += `\n  id: ${c.id} | title: ${c.title} | phase: ${c.phase}\n`;
+      chaptersSection += `    current card_subtitle: ${c.card_subtitle || '(none)'}\n`;
+      if (c.target_summary) chaptersSection += `    target: ${c.target_summary}\n`;
+      chaptersSection += `    phase ladder: ${phaseLadder}${c.current_phase_key ? ` (currently: ${c.current_phase_key})` : ''}\n`;
+      if (summaryExcerpt)
+        chaptersSection += `    summary (classifier-authored): ${summaryExcerpt}${c.summary && c.summary.length > 180 ? '...' : ''}\n`;
+      chaptersSection += `    current key_priorities: ${formatPriorities(c.key_priorities)}\n`;
+    }
+  }
 
   const systemPrompt = `You are producing a Daily Context Object (DCO) — a snapshot of what is true about this person's life TODAY.
 
@@ -6772,6 +6866,61 @@ Pick the MOST MEANINGFUL entries, not an exhaustive list. Cap at 8-10 entries fo
 
 Also produce a week_mood_arc: a single sentence describing how the user's emotional state shifted across the week, based on journal moods, chat emotional signals, and any other sentiment data. If insufficient emotional data exists, return null.
 
+JOB 4 - WORLDS SUMMARY
+Produce a worlds_summary block with two fields: headline and featured.
+
+headline is a single line, maximum 120 characters, written in Gremly's voice. Gremly is a sharp, warm companion who observes the user's life matter-of-factly without performing emotion. The headline is Gremly noticing the dominant force in play across the user's worlds today, not announcing a theme, not summarizing categories. Third-person observational stance. Never use "you", "your", "we", or "our".
+
+The headline must name concrete anchors: specific worlds, people, events, or dated milestones from today's data or the life map. Abstract category nouns (plans, things, themes, activity, patterns, efforts, progress) are forbidden unless directly modified by a specific named entity.
+
+Forbidden verbs: emerge, unfold, continue, gain momentum, build, accelerate, intensify, evolve, ramp, navigate, shift as a transitive verb.
+
+Forbidden connectors: however, furthermore, additionally, moreover, particularly.
+
+Forbidden tone: exclamatory punctuation, celebratory adjectives, dramatic adjectives, therapy-voice phrasings. Dry observational humor is allowed when the signal supports it.
+
+Structure preference: one main clause naming the dominant force today, optionally followed by a short second clause naming what's meeting it. Avoid chaining three or more ideas with "and" or "as" or "while".
+
+featured is 2 to 3 worlds to spotlight with a one-clause reason each, maximum 60 characters per reason, following the same voice rules. Use world ids from the ACTIVE WORLDS list where available; otherwise use the Life Map domain name. If the world picture contains a classifier worlds_summary seeded this week, you may refresh the headline but keep its spirit and its named anchors intact unless today's data has materially shifted the picture.
+Style rules for worlds_summary text. Maximum 120 characters for headline. Never use em dashes, en dashes, or double hyphens. Never use ampersands except inside literal proper nouns.
+
+JOB 5 - PER-WORLD AND CHAPTER OVERRIDES
+
+This job uses the ACTIVE WORLDS and ACTIVE CHAPTERS lists. If those lists are empty, emit empty arrays and skip this job.
+
+DEFAULT BEHAVIOR IS TO NOT OVERRIDE. For each world and chapter, the current card_subtitle and key_priorities were authored by the weekly classifier based on the full 4-week window and are assumed correct. You override only when today's or this week's data adds information the classifier could not have known.
+The weekly classifier ran recently and already knew about every ongoing arc, every stable theme, and every ongoing sprint. An override is only warranted when a specific new fact has landed that the classifier did not have: a date that has moved closer, a completion that has shifted the priority order, a chapter that transitioned phase, a calendar event that is now imminent. If today's data only reflects the same ongoing arc the classifier already captured, do not override. Reiterating an existing theme in different words is drift.
+
+A card_subtitle override requires ONE of these grounded triggers, which you must be able to point to in the data:
+1. A calendar event or dated item within the next 3 days for this world or chapter that is not reflected in the current subtitle.
+2. A todo completed today that materially changes the state described in the current subtitle.
+3. A chapter within this world transitioned phase, started, or closed today.
+4. A journal entry from today that introduces a new concrete development (not a mood shift, not a rephrasing).
+
+If none of these triggers is concretely present in today's data, return null for card_subtitle. Do not override simply because you can phrase it with today-inflected language. Do not override to make the sentence feel fresher. Cosmetic rewrites are not overrides.
+
+When deciding to override, consult the authored context shown for each world and chapter. The classifier's summary, target, and phase ladder are ground truth from the weekly analysis. If the existing card_subtitle references a date or deadline that is still supported by the target or phase ladder, the anchor is still valid — either preserve it or replace it with an equally specific anchor (a closer milestone, a more proximate event). Never strip a valid anchor without a replacement. If today's data contradicts a prior anchor (a deadline moved, an event passed, a chapter transitioned phase), update the subtitle to reflect the new reality.
+
+A key_priorities override requires that today's activity changed the correct ranking order of existing priorities, or a new priority became genuinely more important than an existing one. Only rerank; do not invent new priorities. If the existing ranking still reflects reality, return null.
+
+Emit a world_overrides array with entries containing world_id (from ACTIVE WORLDS), card_subtitle (new subtitle string or null), and key_priorities (reranked array or null). Omit entries where both fields are null.
+
+For each chapter in ACTIVE CHAPTERS, apply the same strict evaluation. Emit a chapter_overrides array with entries containing chapter_id, card_subtitle (nullable), and key_priorities (nullable). Omit entries where both fields are null.
+
+key_priorities items each have rank (integer 1-5), text (up to 100 characters), kind (one of: action, date, blocker, momentum, decision), optional entity_ref string, optional due_date ISO date string, and confidence (0-1 number).
+
+Style rules for overridden card_subtitle strings.
+
+Maximum 60 characters. Never use em dashes, en dashes, or double hyphens. Never use ampersands except inside literal proper nouns.
+
+Match the classifier's voice: a declarative phrase in present tense or present continuous. Do not use first-person or second-person pronouns. Do not write full sentences that address the reader directly.
+
+Every override subtitle must contain at least one concrete anchor. An anchor is a specific named entity, a specific time reference, or a specific quantified state change. Abstract language describing progress, momentum, pace, or general state without naming something specific does not qualify as an anchor.
+
+If the classifier's current card_subtitle contains a temporal anchor, the override must either preserve that anchor or replace it with one that is more specific or more proximate. Removing a temporal anchor without replacement is not permitted.
+
+If you cannot produce an override that meets every rule above and is materially more informative than the classifier's current subtitle, return null.
+
 CRITICAL:
 - lead_story and secondary MUST use exact domain and thread names from the Life Map.
 - "detail" adds COLOR to the headline — a short, specific note (max 1 sentence, max 80 chars) that gives context the headline can't. Written in second person — "you" not "the user". Must NOT repeat the same information as lead_story. Instead, surface what makes today different: a feeling, a tension, a countdown, a contrast. If the headline says "island transition today", the detail should NOT say "travel day with a flight" — it should say something the headline missed.
@@ -6822,10 +6971,28 @@ OUTPUT — return ONLY this JSON:
       "event": "short factual statement of what happened"
     }
   ],
-  "week_mood_arc": "single sentence about emotional trajectory this week, or null"
+  "week_mood_arc": "single sentence about emotional trajectory this week, or null",
+  "worlds_summary": {
+    "headline": "single sentence up to 120 characters",
+    "featured": [{"world_id": "world id from ACTIVE WORLDS or Life Map domain name", "reason": "one-clause reason"}]
+  },
+  "world_overrides": [
+    {
+      "world_id": "id from ACTIVE WORLDS",
+      "card_subtitle": "new subtitle or null",
+      "key_priorities": null
+    }
+  ],
+  "chapter_overrides": [
+    {
+      "chapter_id": "id from ACTIVE CHAPTERS",
+      "card_subtitle": "new subtitle or null",
+      "key_priorities": null
+    }
+  ]
 }`;
 
-  const userMessage = worldPictureText;
+  const userMessage = worldPictureText + worldsSection + chaptersSection;
 
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${env.GEMINI_API_KEY}`;
 
@@ -6949,6 +7116,144 @@ function mergeLifeMapUpdates(lifeMap, threadUpdates) {
   return lifeMap;
 }
 
+// ── DCO helper: fetch active worlds and open chapters for a user ───────────────────
+async function fetchActiveWorldsAndChapters(userId, env) {
+  const supaHeaders = {
+    apikey: env.SUPABASE_SERVICE_KEY,
+    Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+  };
+  const [worldsRes, chaptersRes] = await Promise.all([
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/worlds?owner_id=eq.${userId}&phase=in.(active,evolving,candidate)&select=id,name,display_name,phase,card_subtitle,card_subtitle_source,summary,key_priorities,summary_source,signal_velocity_delta`,
+      { headers: supaHeaders },
+    ),
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/chapters?owner_id=eq.${userId}&phase=in.(suggested,upcoming,active)&select=id,title,phase,primary_world_id,card_subtitle,card_subtitle_source,summary,target_summary,phase_labels,current_phase_key,key_priorities,summary_source`,
+      { headers: supaHeaders },
+    ),
+  ]);
+  const activeWorlds = worldsRes.ok ? await worldsRes.json() : [];
+  const activeChapters = chaptersRes.ok ? await chaptersRes.json() : [];
+  console.log(
+    `[DCO] fetchActiveWorldsAndChapters: ${activeWorlds.length} worlds, ${activeChapters.length} chapters for ${userId.slice(0, 8)}`,
+  );
+  return { activeWorlds, activeChapters };
+}
+
+// ── DCO helper: apply per-world card_subtitle / key_priorities overrides ──────────
+async function applyWorldOverrides(overrides, activeWorlds, userId, env) {
+  if (!Array.isArray(overrides) || overrides.length === 0) {
+    return { updated: 0, skipped: 0, errors: [] };
+  }
+  const supaHeaders = {
+    apikey: env.SUPABASE_SERVICE_KEY,
+    Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+    'Content-Type': 'application/json',
+  };
+  const now = new Date().toISOString();
+  let updated = 0;
+  let skipped = 0;
+  const errors = [];
+  for (const override of overrides) {
+    const world = activeWorlds.find((w) => w.id === override.world_id);
+    if (!world) {
+      skipped++;
+      continue;
+    }
+    const patch = {};
+    if (override.card_subtitle != null && world.card_subtitle_source !== 'user') {
+      patch.card_subtitle = override.card_subtitle;
+      patch.card_subtitle_source = 'dco';
+      patch.card_subtitle_updated_at = now;
+    }
+    if (override.key_priorities != null && world.summary_source !== 'user') {
+      patch.key_priorities = override.key_priorities;
+      patch.summary_source = 'dco';
+      patch.summary_updated_at = now;
+    }
+    if (Object.keys(patch).length === 0) {
+      skipped++;
+      continue;
+    }
+    patch.updated_at = now;
+    const res = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/worlds?id=eq.${override.world_id}&owner_id=eq.${userId}`,
+      {
+        method: 'PATCH',
+        headers: { ...supaHeaders, Prefer: 'return=minimal' },
+        body: JSON.stringify(patch),
+      },
+    );
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      errors.push(`world ${override.world_id}: ${res.status} ${errText.slice(0, 100)}`);
+    } else {
+      updated++;
+    }
+  }
+  console.log(
+    `[DCO] applyWorldOverrides: ${updated} updated, ${skipped} skipped, ${errors.length} errors`,
+  );
+  return { updated, skipped, errors };
+}
+
+// ── DCO helper: apply per-chapter card_subtitle / key_priorities overrides ───────
+async function applyChapterOverrides(overrides, activeChapters, userId, env) {
+  if (!Array.isArray(overrides) || overrides.length === 0) {
+    return { updated: 0, skipped: 0, errors: [] };
+  }
+  const supaHeaders = {
+    apikey: env.SUPABASE_SERVICE_KEY,
+    Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+    'Content-Type': 'application/json',
+  };
+  const now = new Date().toISOString();
+  let updated = 0;
+  let skipped = 0;
+  const errors = [];
+  for (const override of overrides) {
+    const chapter = activeChapters.find((c) => c.id === override.chapter_id);
+    if (!chapter) {
+      skipped++;
+      continue;
+    }
+    const patch = {};
+    if (override.card_subtitle != null && chapter.card_subtitle_source !== 'user') {
+      patch.card_subtitle = override.card_subtitle;
+      patch.card_subtitle_source = 'dco';
+      patch.card_subtitle_updated_at = now;
+    }
+    if (override.key_priorities != null && chapter.summary_source !== 'user') {
+      patch.key_priorities = override.key_priorities;
+      patch.summary_source = 'dco';
+      patch.summary_updated_at = now;
+    }
+    if (Object.keys(patch).length === 0) {
+      skipped++;
+      continue;
+    }
+    patch.updated_at = now;
+    const res = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/chapters?id=eq.${override.chapter_id}&owner_id=eq.${userId}`,
+      {
+        method: 'PATCH',
+        headers: { ...supaHeaders, Prefer: 'return=minimal' },
+        body: JSON.stringify(patch),
+      },
+    );
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      errors.push(`chapter ${override.chapter_id}: ${res.status} ${errText.slice(0, 100)}`);
+    } else {
+      updated++;
+    }
+  }
+  console.log(
+    `[DCO] applyChapterOverrides: ${updated} updated, ${skipped} skipped, ${errors.length} errors`,
+  );
+  return { updated, skipped, errors };
+}
+
 // ============================================================================
 // Phase 2: Backward-compatible DCO assembly + simplified headline
 // ============================================================================
@@ -7029,6 +7334,11 @@ function assembleDcoFromFocus(dailyFocus, headline, snapshot, flashResult) {
     // Week recap (from JOB 3)
     week_recap: flashResult?.week_recap || [],
     week_mood_arc: flashResult?.week_mood_arc || null,
+
+    // Worlds summary (from JOB 4)
+    worlds_summary: flashResult?.worlds_summary
+      ? { ...flashResult.worlds_summary, updated_at: new Date().toISOString(), source: 'dco' }
+      : null,
 
     // Metadata
     user_id: snapshot.userId,
@@ -7224,10 +7534,6 @@ const archiveStaleEvents = inngest.createFunction(
   },
 );
 
-// ============================================================================
-// Worker entry point
-// ============================================================================
-
 // Inngest serve handler
 const inngestHandler = serve({
   client: inngest,
@@ -7245,6 +7551,12 @@ const inngestHandler = serve({
     weeklySummaryV2Worker,
     backfillIdentity,
     archiveStaleEvents,
+    createWorldsWriterTest(inngest),
+    createWorldsBootstrap(inngest),
+    createWorldsWeeklyRun(inngest),
+    createWorldsWeeklyScheduler(inngest),
+    createDropAssignmentBackfill(inngest),
+    createBackfillPriorityKind(inngest),
   ],
   servePath: '/',
 });
@@ -7335,10 +7647,12 @@ export default {
             }
 
             const worldPicture = buildWorldPicture(snapshot);
+            const worldsAndChapters = await fetchActiveWorldsAndChapters(u.user_id, env);
             const flashResult = await updateLifeMapAndFocus(
               worldPicture.lifeMap,
               worldPicture.text,
               env,
+              worldsAndChapters,
             );
             const mapCopy = JSON.parse(JSON.stringify(worldPicture.lifeMap));
             const updatedMap = mergeLifeMapUpdates(mapCopy, flashResult.thread_updates);
@@ -7352,6 +7666,19 @@ export default {
               headline,
               snapshot,
               flashResult,
+            );
+
+            await applyWorldOverrides(
+              flashResult.world_overrides,
+              worldsAndChapters.activeWorlds,
+              u.user_id,
+              env,
+            );
+            await applyChapterOverrides(
+              flashResult.chapter_overrides,
+              worldsAndChapters.activeChapters,
+              u.user_id,
+              env,
             );
 
             const now = new Date();
@@ -8016,6 +8343,44 @@ export default {
           JSON.stringify({ error: String(err), stack: err.stack?.slice(0, 500) }),
           { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
         );
+      }
+    }
+
+    // ── GET /api/ping-cortex ─────────────────────────────────────────────────
+    // Diagnostic: makes a live enrich-phase2 call to env.CORTEX (service binding)
+    // or env.CORTEX_WORKER_URL (fallback) from inside this Worker. Returns status + body.
+    if (url.pathname === '/api/ping-cortex' && request.method === 'GET') {
+      const cortexUrl = env.CORTEX_WORKER_URL;
+      const usingBinding = !!env.CORTEX;
+      try {
+        const body = JSON.stringify({
+          type: 'enrich-phase2',
+          text: 'Buy groceries',
+          bucket: 'todo',
+          subtype: null,
+          currentDate: new Date().toISOString().slice(0, 10),
+          timezone: 'UTC',
+          dayOfWeek: new Intl.DateTimeFormat('en-US', { weekday: 'long' }).format(new Date()),
+        });
+        const req = new Request(usingBinding ? 'https://cortex-internal/' : cortexUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+        });
+        const res = usingBinding ? await env.CORTEX.fetch(req) : await fetch(req);
+        const text = await res.text().catch(() => '');
+        return corsResponse(
+          {
+            routing: usingBinding ? 'service_binding' : 'http',
+            cortexUrl: usingBinding ? '(binding: gentle-thunder-5854)' : cortexUrl,
+            status: res.status,
+            ok: res.ok,
+            body: text.slice(0, 500),
+          },
+          res.ok ? 200 : 502,
+        );
+      } catch (err) {
+        return corsResponse({ error: String(err) }, 502);
       }
     }
 

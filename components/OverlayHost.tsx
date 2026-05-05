@@ -17,6 +17,8 @@ import type { AppRecord, NoteSubtype, Space, Note, Habit, Todo } from '../lib/ty
 import { ActivityLog, type ActivityEvent } from '../lib/activityLog';
 import { emitOverlaySaved, type OverlaySavedPayload } from '../lib/events/overlaySaved';
 import SpaceAssignmentActionSheet from './spaces/SpaceAssignmentActionSheet';
+import WorldMenuSheet from './worlds/sheets/WorldMenuSheet';
+import ChapterMenuSheet from './worlds/sheets/ChapterMenuSheet';
 
 registerSheet('demo-sheet', ({ sheetId }) => {
   return (
@@ -36,6 +38,12 @@ registerSheet('demo-sheet', ({ sheetId }) => {
 
 // Space assignment bottom sheet - shown when entering a Space with pending suggestions
 registerSheet('space-assignment', SpaceAssignmentActionSheet);
+
+// World-level actions sheet
+registerSheet('world-menu', WorldMenuSheet);
+
+// Chapter-level actions sheet
+registerSheet('chapter-menu', ChapterMenuSheet);
 
 type DestinationPickerPayload = {
   itemId: string;

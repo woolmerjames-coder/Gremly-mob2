@@ -326,6 +326,11 @@ export interface Todo {
 
   /** Link to an event note (for items related to a key date) */
   linked_event_id?: ID | null;
+
+  // Phase A additions
+  priority_kind?: 'action' | 'blocker' | 'waiting' | 'decision' | 'momentum' | null;
+  priority_kind_source?: 'classifier' | 'dco' | 'user' | null;
+  priority_kind_updated_at?: string | null;
 }
 
 /**
@@ -615,9 +620,10 @@ export interface SpaceWithContext extends Space {
 export interface SpaceChat {
   id: ID;
   user_id: ID;
-  space_id: ID;
+  scope_id: ID | null;
   title: string;
   pinned: boolean;
+  chat_type?: string | null;
   archived_at?: string | null; // ISO 8601 timestamp when chat was archived (null = active)
   last_message_snippet?: string | null; // Preview of last message
   running_summary?: string | null; // Rolling context summary
@@ -662,7 +668,7 @@ export type MessageRole =
 export interface SpaceChatMessage {
   id: ID;
   chat_id: ID;
-  space_id: ID;
+  scope_id: ID | null;
   user_id: ID;
   role: MessageRole;
   content: string;
@@ -726,7 +732,7 @@ export interface SpaceChatMessage {
  */
 export interface SpaceChatMessageInsert {
   chat_id: ID;
-  space_id: ID | null;
+  scope_id: ID | null;
   role: MessageRole;
   content: string;
   metadata_json?: {
@@ -1611,6 +1617,14 @@ export interface DcoDeltas {
 
 export type DcoTone = 'relaxed' | 'focused' | 'stretched' | 'recovering' | 'celebratory';
 
+export interface DcoWorldsSummary {
+  headline: string;
+  body: string;
+  featured?: Array<{ world_id: string; reason: string }>;
+  updated_at: string;
+  source: 'classifier' | 'dco';
+}
+
 export interface DailyContextObject {
   user_id: string;
   date: string;
@@ -1627,4 +1641,5 @@ export interface DailyContextObject {
   weekly_digest: string | null;
   input_sources: string[];
   model_used: string;
+  worlds_summary?: DcoWorldsSummary;
 }

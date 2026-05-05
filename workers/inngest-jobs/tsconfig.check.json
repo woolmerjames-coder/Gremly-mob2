@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "worldsWriter.ts",
+    "worldsWriterTest.ts",
+    "worldsClassifier.ts",
+    "worldsHarness.ts",
+    "signalCollector.ts",
+    "worldsActiveState.ts",
+    "worldsBootstrap.ts"
+  ]
+}

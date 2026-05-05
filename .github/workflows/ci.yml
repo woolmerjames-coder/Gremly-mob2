@@ -37,6 +37,9 @@ jobs:
       - name: Install
         run: npm ci
       
+      - name: Worlds boundary check
+        run: npm run check:boundary
+
       - name: Lint
         run: npm run lint
       

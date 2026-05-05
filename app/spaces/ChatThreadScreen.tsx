@@ -594,7 +594,7 @@ export default function ChatThreadScreen({ route }: Props) {
       setChat({
         id: effectiveChatId || 'pending',
         user_id: userId || 'anonymous',
-        space_id: spaceId,
+        scope_id: spaceId,
         title: effectiveChatId ? 'Chat' : 'New Chat',
         pinned: false,
         archived_at: null,
@@ -695,7 +695,7 @@ export default function ChatThreadScreen({ route }: Props) {
         // Phase 10.6: Emit user message sent event
         emitChatEvent({
           type: 'user_message_sent',
-          payload: { text: trimmedText, spaceId: chat.space_id || undefined },
+          payload: { text: trimmedText, spaceId: chat.scope_id || undefined },
         });
 
         // Check for quick response (instant reply without API call)
@@ -809,7 +809,7 @@ export default function ChatThreadScreen({ route }: Props) {
           streamingControllerRef.current = callSpaceChatStreaming(
             conversationHistory,
             {
-              spaceId: chat.space_id || spaceId,
+              spaceId: chat.scope_id || spaceId,
               chatId: activeChatId || chat.id,
               userId: userId ?? undefined,
             },
@@ -962,7 +962,7 @@ export default function ChatThreadScreen({ route }: Props) {
           console.error('[ChatThread] Cortex decision failed:', {
             error: cortexError,
             userId: currentUserId,
-            spaceId: chat.space_id,
+            spaceId: chat.scope_id,
             text: trimmedText.substring(0, 100) + (trimmedText.length > 100 ? '...' : ''),
           });
 

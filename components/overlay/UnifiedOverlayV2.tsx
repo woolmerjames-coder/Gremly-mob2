@@ -89,6 +89,9 @@ import { getDateService, getTodayDayString } from '../../lib/date';
 import { lightTokens, darkTokens, spacing as tokenSpacing } from '../../design/tokens';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { selectItemById, useActiveSpaces, useSpaceHasEvents } from '../../lib/store/selectors';
+import { useChaptersForEntity } from '../../lib/store/chaptersSelectors';
+import { useWorldsForEntity } from '../../lib/store/worldsSelectors';
+import { WorldsChapterPicker } from './WorldsChapterPicker';
 import { useAuth } from '../../providers/AuthProvider';
 import ScopeSelector from '../ScopeSelector';
 import { usePhase8LinksState } from './hooks/usePhase8LinksState';
@@ -878,6 +881,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // Track entity ID for dependency array
   const currentEntityId = (initialEntity as any)?.id ?? null;
+  // World and chapter links for Worlds chip row
+  const entityChapters = useChaptersForEntity(currentEntityId);
+  const entityWorlds = useWorldsForEntity(currentEntityId);
 
   // Initialize store when overlay opens
   useEffect(() => {
@@ -3198,65 +3204,131 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         )}
 
         {/* Metadata summary card (todo/habit) */}
-        {(baseType === 'todo' || baseType === 'habit') && (scheduleSummary || entitySpaceName) && (
-          <View
-            style={{
-              padding: 10,
-              paddingHorizontal: 14,
-              backgroundColor: '#EDEAE3',
-              borderRadius: 10,
-              marginBottom: 14,
-            }}
-          >
-            {scheduleSummary && (
-              <View style={{ flexDirection: 'row', marginBottom: entitySpaceName ? 4 : 0 }}>
-                <Text
+        {(baseType === 'todo' || baseType === 'habit') &&
+          (scheduleSummary ||
+            entitySpaceName ||
+            entityChapters.length > 0 ||
+            entityWorlds.length > 0) && (
+            <View
+              style={{
+                padding: 10,
+                paddingHorizontal: 14,
+                backgroundColor: '#EDEAE3',
+                borderRadius: 10,
+                marginBottom: 14,
+              }}
+            >
+              {scheduleSummary && (
+                <View
                   style={{
-                    fontSize: 12,
-                    color: tokens.colors.subtle,
-                    fontWeight: '500',
-                    width: 68,
+                    flexDirection: 'row',
+                    marginBottom: entityChapters.length > 0 || entityWorlds.length > 0 ? 4 : 0,
                   }}
                 >
-                  Schedule
-                </Text>
-                <Text style={{ fontSize: 12, color: '#555', flex: 1 }}>{scheduleSummary}</Text>
-              </View>
-            )}
-            {entitySpaceName && (
-              <View style={{ flexDirection: 'row' }}>
-                <Text
-                  style={{
-                    fontSize: 12,
-                    color: tokens.colors.subtle,
-                    fontWeight: '500',
-                    width: 68,
-                  }}
-                >
-                  Space
-                </Text>
-                <Text style={{ fontSize: 12, color: '#555', flex: 1 }}>{entitySpaceName}</Text>
-              </View>
-            )}
-            {itemReminders.length > 0 && (
-              <View style={{ flexDirection: 'row', marginTop: 4 }}>
-                <Text
-                  style={{
-                    fontSize: 12,
-                    color: tokens.colors.subtle,
-                    fontWeight: '500',
-                    width: 68,
-                  }}
-                >
-                  Reminders
-                </Text>
-                <Text style={{ fontSize: 12, color: '#555', flex: 1 }}>
-                  {formatItemReminderSummary(itemReminders)}
-                </Text>
-              </View>
-            )}
-          </View>
-        )}
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: tokens.colors.subtle,
+                      fontWeight: '500',
+                      width: 68,
+                    }}
+                  >
+                    Schedule
+                  </Text>
+                  <Text style={{ fontSize: 12, color: '#555', flex: 1 }}>{scheduleSummary}</Text>
+                </View>
+              )}
+              {(entityWorlds.length > 0 || entityChapters.length > 0) && (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: tokens.colors.subtle,
+                      fontWeight: '500',
+                      width: 68,
+                      marginTop: 3,
+                    }}
+                  >
+                    Worlds
+                  </Text>
+                  <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    {entityWorlds.map((w) => (
+                      <Pressable
+                        key={w.id}
+                        onPress={() => overlayNavigation.navigate('WorldDetail', { worldId: w.id })}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 4,
+                          borderWidth: 1,
+                          borderColor: 'rgba(0,0,0,0.08)',
+                          borderRadius: 20,
+                          paddingHorizontal: 8,
+                          paddingVertical: 3,
+                          backgroundColor: 'rgba(0,0,0,0.03)',
+                        }}
+                      >
+                        <View
+                          style={{
+                            width: 7,
+                            height: 7,
+                            borderRadius: 4,
+                            backgroundColor: w.accentColor,
+                          }}
+                        />
+                        <Text style={{ fontSize: 10, color: tokens.colors.subtle }}>{w.name}</Text>
+                      </Pressable>
+                    ))}
+                    {entityChapters.map((ch) => (
+                      <Pressable
+                        key={ch.id}
+                        onPress={() =>
+                          overlayNavigation.navigate('ChapterDetail', { chapterId: ch.id })
+                        }
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 4,
+                          borderWidth: 1,
+                          borderColor: 'rgba(0,0,0,0.1)',
+                          borderRadius: 20,
+                          paddingHorizontal: 8,
+                          paddingVertical: 3,
+                        }}
+                      >
+                        <View
+                          style={{
+                            width: 7,
+                            height: 7,
+                            borderRadius: 4,
+                            backgroundColor: ch.worldAccentColor,
+                          }}
+                        />
+                        <Text style={{ fontSize: 11, color: tokens.colors.text }}>{ch.title}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              )}
+              {itemReminders.length > 0 && (
+                <View style={{ flexDirection: 'row', marginTop: 4 }}>
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: tokens.colors.subtle,
+                      fontWeight: '500',
+                      width: 68,
+                    }}
+                  >
+                    Reminders
+                  </Text>
+                  <Text style={{ fontSize: 12, color: '#555', flex: 1 }}>
+                    {formatItemReminderSummary(itemReminders)}
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
 
         {/* Mood display (journal) */}
         {isJournal && moods.length > 0 && (
@@ -4096,20 +4168,115 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             }}
                           />
 
-                          <StaticRow
-                            icon={FolderOpen}
-                            label="Space"
-                            right={
-                              <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
-                                {state.spaceId
-                                  ? (spaces.find((s) => s.id === state.spaceId)?.name ?? '+ Add')
-                                  : '+ Add'}
-                              </Text>
-                            }
-                            onPress={() => {
-                              if (!isViewMode) store.setUI({ showSpaceModal: true });
+                          {/* Worlds row — world + chapter chips (edit mode, todo) */}
+                          <View
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'flex-start',
+                              justifyContent: 'space-between',
+                              paddingVertical: 13,
+                              borderBottomWidth: 0.5,
+                              borderBottomColor: '#D5D0C8',
                             }}
-                          />
+                          >
+                            <View
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 10,
+                                marginTop: 2,
+                              }}
+                            >
+                              <FolderOpen size={17} color="#8B8579" strokeWidth={1.8} />
+                              <Text style={{ fontSize: 14, color: '#1a1a1a', fontWeight: '400' }}>
+                                Worlds
+                              </Text>
+                            </View>
+                            <View
+                              style={{
+                                flex: 1,
+                                flexDirection: 'row',
+                                flexWrap: 'wrap',
+                                gap: 6,
+                                justifyContent: 'flex-end',
+                                marginLeft: 8,
+                              }}
+                            >
+                              {entityWorlds.map((w) => (
+                                <Pressable
+                                  key={w.id}
+                                  onPress={() =>
+                                    overlayNavigation.navigate('WorldDetail', { worldId: w.id })
+                                  }
+                                  style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    borderWidth: 1,
+                                    borderColor: 'rgba(0,0,0,0.08)',
+                                    borderRadius: 20,
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 3,
+                                    backgroundColor: 'rgba(0,0,0,0.03)',
+                                  }}
+                                >
+                                  <View
+                                    style={{
+                                      width: 7,
+                                      height: 7,
+                                      borderRadius: 4,
+                                      backgroundColor: w.accentColor,
+                                    }}
+                                  />
+                                  <Text style={{ fontSize: 10, color: tokens.colors.subtle }}>
+                                    {w.name}
+                                  </Text>
+                                </Pressable>
+                              ))}
+                              {entityChapters.map((ch) => (
+                                <Pressable
+                                  key={ch.id}
+                                  onPress={() =>
+                                    overlayNavigation.navigate('ChapterDetail', {
+                                      chapterId: ch.id,
+                                    })
+                                  }
+                                  style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    borderWidth: 1,
+                                    borderColor: 'rgba(0,0,0,0.1)',
+                                    borderRadius: 20,
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 3,
+                                  }}
+                                >
+                                  <View
+                                    style={{
+                                      width: 7,
+                                      height: 7,
+                                      borderRadius: 4,
+                                      backgroundColor: ch.worldAccentColor,
+                                    }}
+                                  />
+                                  <Text style={{ fontSize: 11, color: tokens.colors.text }}>
+                                    {ch.title}
+                                  </Text>
+                                </Pressable>
+                              ))}
+                              <Pressable
+                                onPress={() => {
+                                  if (!isViewMode) store.setUI({ showWorldsModal: true });
+                                }}
+                                style={{ paddingVertical: 3, paddingHorizontal: 2 }}
+                              >
+                                <Text style={{ fontSize: 11, color: tokens.colors.subtle }}>
+                                  + Add
+                                </Text>
+                              </Pressable>
+                            </View>
+                          </View>
 
                           {showLinkedEventPicker && effectiveSpaceId && (
                             <StaticRow
@@ -4805,20 +4972,115 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             }}
                           />
 
-                          <StaticRow
-                            icon={FolderOpen}
-                            label="Space"
-                            right={
-                              <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
-                                {state.spaceId
-                                  ? (spaces.find((s) => s.id === state.spaceId)?.name ?? '+ Add')
-                                  : '+ Add'}
-                              </Text>
-                            }
-                            onPress={() => {
-                              if (!isViewMode) store.setUI({ showSpaceModal: true });
+                          {/* Worlds row — world + chapter chips (edit mode, habit) */}
+                          <View
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'flex-start',
+                              justifyContent: 'space-between',
+                              paddingVertical: 13,
+                              borderBottomWidth: 0.5,
+                              borderBottomColor: '#D5D0C8',
                             }}
-                          />
+                          >
+                            <View
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 10,
+                                marginTop: 2,
+                              }}
+                            >
+                              <FolderOpen size={17} color="#8B8579" strokeWidth={1.8} />
+                              <Text style={{ fontSize: 14, color: '#1a1a1a', fontWeight: '400' }}>
+                                Worlds
+                              </Text>
+                            </View>
+                            <View
+                              style={{
+                                flex: 1,
+                                flexDirection: 'row',
+                                flexWrap: 'wrap',
+                                gap: 6,
+                                justifyContent: 'flex-end',
+                                marginLeft: 8,
+                              }}
+                            >
+                              {entityWorlds.map((w) => (
+                                <Pressable
+                                  key={w.id}
+                                  onPress={() =>
+                                    overlayNavigation.navigate('WorldDetail', { worldId: w.id })
+                                  }
+                                  style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    borderWidth: 1,
+                                    borderColor: 'rgba(0,0,0,0.08)',
+                                    borderRadius: 20,
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 3,
+                                    backgroundColor: 'rgba(0,0,0,0.03)',
+                                  }}
+                                >
+                                  <View
+                                    style={{
+                                      width: 7,
+                                      height: 7,
+                                      borderRadius: 4,
+                                      backgroundColor: w.accentColor,
+                                    }}
+                                  />
+                                  <Text style={{ fontSize: 10, color: tokens.colors.subtle }}>
+                                    {w.name}
+                                  </Text>
+                                </Pressable>
+                              ))}
+                              {entityChapters.map((ch) => (
+                                <Pressable
+                                  key={ch.id}
+                                  onPress={() =>
+                                    overlayNavigation.navigate('ChapterDetail', {
+                                      chapterId: ch.id,
+                                    })
+                                  }
+                                  style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    borderWidth: 1,
+                                    borderColor: 'rgba(0,0,0,0.1)',
+                                    borderRadius: 20,
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 3,
+                                  }}
+                                >
+                                  <View
+                                    style={{
+                                      width: 7,
+                                      height: 7,
+                                      borderRadius: 4,
+                                      backgroundColor: ch.worldAccentColor,
+                                    }}
+                                  />
+                                  <Text style={{ fontSize: 11, color: tokens.colors.text }}>
+                                    {ch.title}
+                                  </Text>
+                                </Pressable>
+                              ))}
+                              <Pressable
+                                onPress={() => {
+                                  if (!isViewMode) store.setUI({ showWorldsModal: true });
+                                }}
+                                style={{ paddingVertical: 3, paddingHorizontal: 2 }}
+                              >
+                                <Text style={{ fontSize: 11, color: tokens.colors.subtle }}>
+                                  + Add
+                                </Text>
+                              </Pressable>
+                            </View>
+                          </View>
 
                           {showLinkedEventPicker && effectiveSpaceId && (
                             <StaticRow
@@ -5185,20 +5447,115 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             }}
                           />
 
-                          <StaticRow
-                            icon={FolderOpen}
-                            label="Space"
-                            right={
-                              <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
-                                {state.spaceId
-                                  ? (spaces.find((s) => s.id === state.spaceId)?.name ?? '+ Add')
-                                  : '+ Add'}
-                              </Text>
-                            }
-                            onPress={() => {
-                              if (!isViewMode) store.setUI({ showSpaceModal: true });
+                          {/* Worlds row — world + chapter chips (edit mode, log/journal) */}
+                          <View
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'flex-start',
+                              justifyContent: 'space-between',
+                              paddingVertical: 13,
+                              borderBottomWidth: 0.5,
+                              borderBottomColor: '#D5D0C8',
                             }}
-                          />
+                          >
+                            <View
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 10,
+                                marginTop: 2,
+                              }}
+                            >
+                              <FolderOpen size={17} color="#8B8579" strokeWidth={1.8} />
+                              <Text style={{ fontSize: 14, color: '#1a1a1a', fontWeight: '400' }}>
+                                Worlds
+                              </Text>
+                            </View>
+                            <View
+                              style={{
+                                flex: 1,
+                                flexDirection: 'row',
+                                flexWrap: 'wrap',
+                                gap: 6,
+                                justifyContent: 'flex-end',
+                                marginLeft: 8,
+                              }}
+                            >
+                              {entityWorlds.map((w) => (
+                                <Pressable
+                                  key={w.id}
+                                  onPress={() =>
+                                    overlayNavigation.navigate('WorldDetail', { worldId: w.id })
+                                  }
+                                  style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    borderWidth: 1,
+                                    borderColor: 'rgba(0,0,0,0.08)',
+                                    borderRadius: 20,
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 3,
+                                    backgroundColor: 'rgba(0,0,0,0.03)',
+                                  }}
+                                >
+                                  <View
+                                    style={{
+                                      width: 7,
+                                      height: 7,
+                                      borderRadius: 4,
+                                      backgroundColor: w.accentColor,
+                                    }}
+                                  />
+                                  <Text style={{ fontSize: 10, color: tokens.colors.subtle }}>
+                                    {w.name}
+                                  </Text>
+                                </Pressable>
+                              ))}
+                              {entityChapters.map((ch) => (
+                                <Pressable
+                                  key={ch.id}
+                                  onPress={() =>
+                                    overlayNavigation.navigate('ChapterDetail', {
+                                      chapterId: ch.id,
+                                    })
+                                  }
+                                  style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    borderWidth: 1,
+                                    borderColor: 'rgba(0,0,0,0.1)',
+                                    borderRadius: 20,
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 3,
+                                  }}
+                                >
+                                  <View
+                                    style={{
+                                      width: 7,
+                                      height: 7,
+                                      borderRadius: 4,
+                                      backgroundColor: ch.worldAccentColor,
+                                    }}
+                                  />
+                                  <Text style={{ fontSize: 11, color: tokens.colors.text }}>
+                                    {ch.title}
+                                  </Text>
+                                </Pressable>
+                              ))}
+                              <Pressable
+                                onPress={() => {
+                                  if (!isViewMode) store.setUI({ showWorldsModal: true });
+                                }}
+                                style={{ paddingVertical: 3, paddingHorizontal: 2 }}
+                              >
+                                <Text style={{ fontSize: 11, color: tokens.colors.subtle }}>
+                                  + Add
+                                </Text>
+                              </Pressable>
+                            </View>
+                          </View>
 
                           {/* Idea conversion buttons */}
                           {effectiveLogSubtype === 'idea' && mode === 'edit' && (
@@ -6323,6 +6680,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 </Pressable>
               </Pressable>
             </Modal>
+
+            {/* Worlds & Chapter Picker – F.4 */}
+            <WorldsChapterPicker
+              visible={storeUI.showWorldsModal}
+              entityId={currentEntityId}
+              entityDropType={
+                (baseType === 'log'
+                  ? 'note'
+                  : baseType) as import('../../lib/supabase/types').DropType
+              }
+              onClose={() => store.setUI({ showWorldsModal: false })}
+            />
 
             {/* Reminders Management Modal – powered by SetRemindersModal */}
             <SetRemindersModal

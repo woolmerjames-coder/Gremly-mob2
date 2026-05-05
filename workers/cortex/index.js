@@ -157,6 +157,10 @@ import {
   buildChatContext,
   fetchSpaceEntities,
   formatSpaceEntities,
+  fetchWorldEntities,
+  formatWorldEntities,
+  fetchChapterEntities,
+  formatChapterEntities,
   getLifeMapForChat,
 } from './context/chatProjection.js';
 import { getUserProfile } from './context/userProfile.js';
@@ -173,6 +177,8 @@ import {
 import {
   assembleGenerationConfig,
   buildSpaceChatSystemPrompt,
+  buildWorldChatSystemPrompt,
+  buildChapterChatSystemPrompt,
   buildEntityChatConfig,
   buildGeneralChatConfig,
   buildEntityContextBlock,
@@ -2380,7 +2386,7 @@ SUMMARY:`;
     // eslint-disable-next-line no-control-regex
     summary = truncateAtSentence(summary.replace(/[\0-\x1f\x7f]/g, ' ').trim(), 800);
 
-    const patchRes = await fetch(`${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${chatId}`, {
+    const patchRes = await fetch(`${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${chatId}`, {
       method: 'PATCH',
       headers: {
         apikey: env.SUPABASE_SERVICE_KEY,
@@ -3393,6 +3399,8 @@ export default {
       // Check if client requests streaming
       const wantsStreaming = body.stream === true;
       const isSpaceChatStreaming = wantsStreaming && lane === 'space_chat';
+      const isWorldChatStreaming = wantsStreaming && lane === 'world_chat';
+      const isChapterChatStreaming = wantsStreaming && lane === 'chapter_chat';
       const isPhase2Streaming = wantsStreaming && type === 'enrich-phase2';
       const isEntityChatStreaming = wantsStreaming && type === 'entity-chat';
       const isHabitBuilderStreaming = wantsStreaming && type === 'habit-builder';
@@ -3409,7 +3417,7 @@ export default {
         'organize-day',
         'weekly-summary',
       ]);
-      const AUTH_REQUIRED_LANES = new Set(['space_chat', 'general_chat']);
+      const AUTH_REQUIRED_LANES = new Set(['space_chat', 'general_chat', 'world_chat', 'chapter_chat']);
 
       const needsAuth = AUTH_REQUIRED_TYPES.has(type) || (lane && AUTH_REQUIRED_LANES.has(lane));
 
@@ -7831,7 +7839,7 @@ ${assistantMessage.substring(0, 2000)}
 
         try {
           const msgRes = await fetch(
-            `${env.SUPABASE_URL}/rest/v1/space_chat_messages?chat_id=eq.${encodeURIComponent(chatId)}&select=role,content&order=created_at.asc`,
+            `${env.SUPABASE_URL}/rest/v1/scope_chat_messages?chat_id=eq.${encodeURIComponent(chatId)}&select=role,content&order=created_at.asc`,
             {
               headers: {
                 apikey: env.SUPABASE_SERVICE_KEY,
@@ -10294,6 +10302,20 @@ Choose ONE (strict enum):
 
 Default to "administrative" if unclear.
 
+4. priority_kind (TODOS ONLY)
+Classify the todo's state as ONE of:
+- action: a concrete undone task where the user is the blocker; they could do it now if they chose to.
+- blocker: the task cannot proceed because of an external dependency such as waiting on a specific person to respond, an approval to land, an external system to deliver, or a delivery to arrive. There is typically "waiting on" language.
+- waiting: a milder form of blocker where the user is passively awaiting something but could still work around it; distinct from blocker which implies a hard stop.
+- decision: a choice the user has to make that has not yet been made.
+- momentum: a todo that represents ongoing forward motion rather than a single discrete task.
+
+CRITICAL RULES:
+- Emotional language in the text such as stuck, frustrated, overwhelmed, or scattered does NOT qualify a todo as blocker. Those are emotional signals attached to the drop, not task-state flags.
+- When uncertain between action and blocker, choose action.
+- When uncertain between action and momentum, choose action.
+- Only return blocker when there is explicit evidence of an external dependency.
+
 --------------------------------
 DATE INTELLIGENCE (TODOS ONLY):
 --------------------------------
@@ -10501,6 +10523,7 @@ For TODOS:
   "time_estimate_minutes": number | null,
   "time_window": "morning" | "day" | "evening" | null,
   "energy_type": "deep_focus" | "administrative" | "physical" | "social" | "quick",
+  "priority_kind": "action" | "blocker" | "waiting" | "decision" | "momentum",
   "target_date": "YYYY-MM-DD" | null,
   "scheduled_date": "YYYY-MM-DD" | null,
   "date_type_ambiguous": boolean,
@@ -10639,6 +10662,17 @@ For LOGS (event):
           }
         }
 
+        // Validate priority_kind (todos only)
+        let priorityKind = null;
+        if (bucket === 'todo') {
+          const validKinds = ['action', 'blocker', 'waiting', 'decision', 'momentum'];
+          if (validKinds.includes(parsed.priority_kind)) {
+            priorityKind = parsed.priority_kind;
+          } else {
+            priorityKind = 'action'; // safe default
+          }
+        }
+
         // Validate date intelligence fields (todos only)
         let targetDate = null;
         let scheduledDate = null;
@@ -10743,6 +10777,7 @@ For LOGS (event):
           has_time_estimate: timeEstimate !== null,
           has_window: timeWindow !== null,
           has_energy: energyType !== null,
+          has_priority_kind: priorityKind !== null,
           has_target_date: targetDate !== null || noteTargetDate !== null,
           has_scheduled_date: scheduledDate !== null,
           date_ambiguous: dateTypeAmbiguous,
@@ -10762,6 +10797,7 @@ For LOGS (event):
           time_estimate_minutes: timeEstimate,
           time_window: timeWindow,
           energy_type: energyType,
+          priority_kind: priorityKind,
           // New date intelligence fields for todos
           target_date: bucket === 'todo' ? targetDate : noteTargetDate,
           scheduled_date: scheduledDate,
@@ -10922,6 +10958,380 @@ Return ONLY valid JSON, no explanation:
       }
 
       // ═══════════════════════════════════════════════════════════════════════════
+      // ASSIGN WORLDS (Phase 3.2) - Link a drop to Worlds, Chapters, Life Contexts
+      // ═══════════════════════════════════════════════════════════════════════════
+      //
+      // Structured-output path: json_object mode (responseFormat: 'json').
+      // aiClassify does not support json_schema / OpenAI structured outputs.
+      // Output shape is described in the system prompt via prose only.
+      //
+      // Trigger: POST / with { type: 'assign-worlds', entity_id, entity_type, text, ... }
+      // Auth: JWT required (authenticatedUserId from Bearer token)
+      // Rate limit: 60/min under tag 'assign-worlds'
+      // ═══════════════════════════════════════════════════════════════════════════
+
+      if (type === 'assign-worlds') {
+        const rl = await checkIpRateLimit(request, env, 'assign-worlds', 60);
+        if (!rl.allowed) return rateLimitResponse('assign-worlds', rl.count, rl.limit);
+
+        const authenticatedUserId = await extractAuthenticatedUserId(request, env);
+        if (!authenticatedUserId) return unauthorizedResponse();
+
+        // Validate required fields
+        const entityId = body.entity_id;
+        const entityType = body.entity_type;
+        const rawText = body.text;
+
+        if (!entityId || typeof entityId !== 'string' || !/^[0-9a-f-]{36}$/i.test(entityId)) {
+          return new Response(JSON.stringify({ error: 'invalid_entity_id' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        if (!entityType || !['todo', 'habit', 'note'].includes(entityType)) {
+          return new Response(JSON.stringify({ error: 'invalid_entity_type' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        if (!rawText || typeof rawText !== 'string' || rawText.trim().length === 0) {
+          return new Response(JSON.stringify({ error: 'missing_text' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        const text = rawText.substring(0, 4000);
+        const uid = authenticatedUserId;
+
+        const supabaseHeaders = {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+        };
+
+        // Load active graph in parallel
+        let worlds = [];
+        let chapters = [];
+        let lifeContexts = [];
+
+        try {
+          const [worldsRes, chaptersRes, ctxRes] = await Promise.all([
+            fetch(
+              `${env.SUPABASE_URL}/rest/v1/worlds?owner_id=eq.${uid}&phase=in.(candidate,active,evolving)&select=id,name,description`,
+              { headers: supabaseHeaders },
+            ),
+            fetch(
+              `${env.SUPABASE_URL}/rest/v1/chapters?owner_id=eq.${uid}&phase=in.(suggested,upcoming,active,closed)&select=id,title,description,primary_world_id,phase,start_date,end_date`,
+              { headers: supabaseHeaders },
+            ),
+            fetch(
+              `${env.SUPABASE_URL}/rest/v1/life_contexts?owner_id=eq.${uid}&active=is.true&select=id,name,kind,description`,
+              { headers: supabaseHeaders },
+            ),
+          ]);
+
+          if (!worldsRes.ok || !chaptersRes.ok || !ctxRes.ok) {
+            throw new Error('graph_load_failed');
+          }
+
+          [worlds, chapters, lifeContexts] = await Promise.all([
+            worldsRes.json(),
+            chaptersRes.json(),
+            ctxRes.json(),
+          ]);
+        } catch (err) {
+          console.log('[AssignWorlds] Graph load failed', {
+            error: err.message,
+            uid: uid.slice(0, 8),
+          });
+          return j({
+            world_links: 0,
+            chapter_links: 0,
+            context_links: 0,
+            reason: null,
+            skipped: true,
+            skipped_reason: 'graph_load_failed',
+          });
+        }
+
+        // Short-circuit if graph is empty
+        if (worlds.length === 0 && chapters.length === 0 && lifeContexts.length === 0) {
+          return j({
+            world_links: 0,
+            chapter_links: 0,
+            context_links: 0,
+            reason: null,
+            skipped: true,
+            skipped_reason: 'empty_graph',
+          });
+        }
+
+        // Build prompts
+        const assignWorldsSystemPrompt = `You assign a single Gremly drop to the user's existing graph of Worlds, Chapters, and Life Contexts.
+
+A World is a long-lived identity area in the user's life, a domain where the user reflects, plans, builds habits, or engages over time.
+
+A Chapter is a bounded arc within one or more Worlds, with a defined start and sometimes an end.
+
+A Life Context is a structural part of the user's life that constrains or shapes how they spend time, but is not itself a growth area.
+
+Your only job is to decide which of the user's existing Worlds, Chapters, and Life Contexts this drop belongs to, and with what confidence. You never propose new entities. You assign only to entities present in the provided lists.
+
+A drop may belong to zero, one, or many Worlds. The same applies to Chapters and Life Contexts. Multi-label is normal and expected.
+
+A drop belongs to a World when its content is semantically a signal about that World's identity area.
+
+A drop belongs to a Chapter when its content is semantically about the chapter's subject matter. If the chapter has a start_date and end_date, weigh whether the drop's effective date sits within or near that window. Closed chapters may still receive drops when the drop is retroactively about the chapter's arc.
+
+A drop belongs to a Life Context when its content is a signal that occurred within that constraint, rather than being an expression of growth inside it.
+
+Relevance score is a continuous value between 0 and 1 representing your confidence that the drop is genuinely about that entity. Use higher scores for clear, primary relevance and lower scores for tangential relevance. Do not emit a link at all when your confidence is below 0.3.
+
+Empty arrays are valid output. When the drop does not fit any existing entity, produce an output with all link arrays empty. Do not force a drop into the nearest available entity.
+
+You never propose new Worlds, Chapters, or Life Contexts. You assign only to entities that appear in the provided lists.
+
+Provide one short sentence describing your overall judgement for this drop.
+
+Never propose structural changes (rename, merge, split, emerge, absorb, close) to any World, Chapter, or Life Context where the source field equals user. You may still assign drops to them.
+
+Respond with a single JSON object containing exactly these four fields. world_links is an array of objects, each with a world_id string and a relevance_score number between 0 and 1. chapter_links is an array of objects, each with a chapter_id string and a relevance_score number between 0 and 1. context_links is an array of objects, each with a context_id string and a relevance_score number between 0 and 1. reason is a string containing your one-sentence judgement. Return only the JSON object with no surrounding text or markdown fences.`;
+
+        // Build the drop payload from only the fields that were provided
+        const dropPayload = { text, entity_type: entityType };
+        if (body.bucket) dropPayload.bucket = body.bucket;
+        if (body.subtype) dropPayload.subtype = body.subtype;
+        if (body.smart_title) dropPayload.smart_title = body.smart_title;
+        if (Array.isArray(body.tags) && body.tags.length > 0) dropPayload.tags = body.tags;
+        if (Array.isArray(body.people) && body.people.length > 0) dropPayload.people = body.people;
+        if (body.extracted_date) dropPayload.extracted_date = body.extracted_date;
+
+        const userPrompt = [
+          'drop:',
+          JSON.stringify(dropPayload),
+          '',
+          'active_worlds:',
+          JSON.stringify(
+            worlds.map((w) => ({ id: w.id, name: w.name, description: w.description })),
+          ),
+          '',
+          'active_chapters:',
+          JSON.stringify(
+            chapters.map((c) => ({
+              id: c.id,
+              title: c.title,
+              description: c.description,
+              primary_world_id: c.primary_world_id,
+              phase: c.phase,
+              start_date: c.start_date,
+              end_date: c.end_date,
+            })),
+          ),
+          '',
+          'active_life_contexts:',
+          JSON.stringify(
+            lifeContexts.map((lc) => ({
+              id: lc.id,
+              name: lc.name,
+              kind: lc.kind,
+              description: lc.description,
+            })),
+          ),
+        ].join('\n');
+
+        const t0 = Date.now();
+
+        const result = await aiClassify({
+          mode: 'realtime',
+          ...getProviders('mini', env),
+          env,
+          systemPrompt: assignWorldsSystemPrompt,
+          messages: [{ role: 'user', content: userPrompt }],
+          temperature: 0.1,
+          maxOutputTokens: 500,
+          responseFormat: 'json',
+          endpoint: 'assign-worlds',
+        });
+
+        const latency = Date.now() - t0;
+
+        if (!result.parsed) {
+          console.log('[AssignWorlds] Parse failure', {
+            latency_ms: latency,
+            uid: uid.slice(0, 8),
+          });
+          return j({
+            world_links: 0,
+            chapter_links: 0,
+            context_links: 0,
+            reason: null,
+            skipped: true,
+            skipped_reason: 'parse_failure',
+          });
+        }
+
+        const parsed = result.parsed;
+
+        // Validate and filter output
+        const validWorldIds = new Set(worlds.map((w) => w.id));
+        const validChapterIds = new Set(chapters.map((c) => c.id));
+        const validContextIds = new Set(lifeContexts.map((lc) => lc.id));
+
+        const rawWorldLinks = Array.isArray(parsed.world_links) ? parsed.world_links : [];
+        const rawChapterLinks = Array.isArray(parsed.chapter_links) ? parsed.chapter_links : [];
+        const rawContextLinks = Array.isArray(parsed.context_links) ? parsed.context_links : [];
+
+        function isValidScore(s) {
+          return typeof s === 'number' && isFinite(s) && s >= 0 && s <= 1;
+        }
+
+        const validWorldLinks = rawWorldLinks.filter(
+          (l) => validWorldIds.has(l.world_id) && isValidScore(l.relevance_score),
+        );
+        const validChapterLinks = rawChapterLinks.filter(
+          (l) => validChapterIds.has(l.chapter_id) && isValidScore(l.relevance_score),
+        );
+        const validContextLinks = rawContextLinks.filter(
+          (l) => validContextIds.has(l.context_id) && isValidScore(l.relevance_score),
+        );
+
+        const discarded =
+          rawWorldLinks.length -
+          validWorldLinks.length +
+          (rawChapterLinks.length - validChapterLinks.length) +
+          (rawContextLinks.length - validContextLinks.length);
+        if (discarded > 0) {
+          console.log('[AssignWorlds] Discarded invalid links', {
+            discarded,
+            uid: uid.slice(0, 8),
+          });
+        }
+
+        const reasonRaw = typeof parsed.reason === 'string' ? parsed.reason : null;
+        const reason = reasonRaw ? reasonRaw.substring(0, 500) : null;
+
+        // Upsert to each link table independently
+        const upsertHeaders = {
+          ...supabaseHeaders,
+          Prefer: 'resolution=merge-duplicates,return=minimal',
+        };
+
+        let upsertedWorlds = 0;
+        let upsertedChapters = 0;
+        let upsertedContexts = 0;
+
+        if (validWorldLinks.length > 0) {
+          try {
+            const rows = validWorldLinks.map((l) => ({
+              drop_id: entityId,
+              drop_type: entityType,
+              world_id: l.world_id,
+              owner_id: uid,
+              relevance_score: l.relevance_score,
+              assigned_by: 'classifier',
+              reason,
+            }));
+            const res = await fetch(`${env.SUPABASE_URL}/rest/v1/drop_world_links`, {
+              method: 'POST',
+              headers: upsertHeaders,
+              body: JSON.stringify(rows),
+            });
+            if (res.ok) {
+              upsertedWorlds = rows.length;
+            } else {
+              const errText = await res.text().catch(() => '');
+              console.log('[AssignWorlds] drop_world_links upsert failed', {
+                status: res.status,
+                error: errText.substring(0, 200),
+              });
+            }
+          } catch (err) {
+            console.log('[AssignWorlds] drop_world_links upsert error', { error: err.message });
+          }
+        }
+
+        if (validChapterLinks.length > 0) {
+          try {
+            const rows = validChapterLinks.map((l) => ({
+              drop_id: entityId,
+              drop_type: entityType,
+              chapter_id: l.chapter_id,
+              owner_id: uid,
+              relevance_score: l.relevance_score,
+              assigned_by: 'classifier',
+              reason,
+            }));
+            const res = await fetch(`${env.SUPABASE_URL}/rest/v1/drop_chapter_links`, {
+              method: 'POST',
+              headers: upsertHeaders,
+              body: JSON.stringify(rows),
+            });
+            if (res.ok) {
+              upsertedChapters = rows.length;
+            } else {
+              const errText = await res.text().catch(() => '');
+              console.log('[AssignWorlds] drop_chapter_links upsert failed', {
+                status: res.status,
+                error: errText.substring(0, 200),
+              });
+            }
+          } catch (err) {
+            console.log('[AssignWorlds] drop_chapter_links upsert error', { error: err.message });
+          }
+        }
+
+        if (validContextLinks.length > 0) {
+          try {
+            const rows = validContextLinks.map((l) => ({
+              drop_id: entityId,
+              drop_type: entityType,
+              context_id: l.context_id,
+              owner_id: uid,
+              relevance_score: l.relevance_score,
+              assigned_by: 'classifier',
+              reason,
+            }));
+            const res = await fetch(`${env.SUPABASE_URL}/rest/v1/drop_context_links`, {
+              method: 'POST',
+              headers: upsertHeaders,
+              body: JSON.stringify(rows),
+            });
+            if (res.ok) {
+              upsertedContexts = rows.length;
+            } else {
+              const errText = await res.text().catch(() => '');
+              console.log('[AssignWorlds] drop_context_links upsert failed', {
+                status: res.status,
+                error: errText.substring(0, 200),
+              });
+            }
+          } catch (err) {
+            console.log('[AssignWorlds] drop_context_links upsert error', { error: err.message });
+          }
+        }
+
+        console.log('[AssignWorlds]', {
+          entity_id: entityId.slice(0, 8),
+          entity_type: entityType,
+          world_links: upsertedWorlds,
+          chapter_links: upsertedChapters,
+          context_links: upsertedContexts,
+          wasFallback: result.wasFallback,
+          latency_ms: latency,
+          uid: uid.slice(0, 8),
+        });
+
+        return j({
+          world_links: upsertedWorlds,
+          chapter_links: upsertedChapters,
+          context_links: upsertedContexts,
+          reason,
+          skipped: false,
+        });
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════════
       // JOURNAL ANALYZE (v4.2) - Analyze journal entries for themes & patterns
       // ═══════════════════════════════════════════════════════════════════════════
       //
@@ -11068,14 +11478,18 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
 
       const isSpaceChatLane = lane === 'space_chat' && type !== 'classify';
       const isGeneralChatLane = lane === 'general_chat' && type !== 'classify';
+      const isWorldChatLane = lane === 'world_chat' && type !== 'classify';
+      const isChapterChatLane = lane === 'chapter_chat' && type !== 'classify';
       const isGeneralChatStreaming = isGeneralChatLane && wantsStreaming;
-      const actualModel = isSpaceChatLane ? 'gpt-4.1' : baseModel;
+      const actualModel =
+        isSpaceChatLane || isWorldChatLane || isChapterChatLane ? 'gpt-4.1' : baseModel;
 
       const temperature =
         actualModel === 'gpt-4.1' && !Number.isFinite(body.temperature) ? 0.7 : baseTemperature;
 
       // FIX 3: Increased token limit for Space Chat (was 400, now 800)
-      const maxTokensValue = isSpaceChatLane ? 800 : baseMaxTokens;
+      const maxTokensValue =
+        isSpaceChatLane || isWorldChatLane || isChapterChatLane ? 800 : baseMaxTokens;
 
       console.log('[MODEL]', {
         lane,
@@ -11773,7 +12187,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 const summaryPromise = (async () => {
                   try {
                     const prevSummaryRes = await fetch(
-                      `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=running_summary`,
+                      `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=running_summary`,
                       {
                         headers: {
                           apikey: env.SUPABASE_SERVICE_KEY,
@@ -11841,6 +12255,136 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
       }
       // ============================================================================
       // END SPACE CHAT STREAMING
+      // ============================================================================
+
+      // ============================================================================
+      // WORLD CHAT STREAMING (F.5.b.2)
+      // ============================================================================
+      if (isWorldChatStreaming && isWorldChatLane) {
+        const access = await checkUserAccess(authenticatedUserId, env);
+        if (!access.hasAccess) {
+          return denyAccessSSEResponse(access.reason);
+        }
+
+        console.log('[WorldChat:Streaming] Starting SSE stream');
+
+        const lastUserMsgWorld = messages.filter((m) => m.role === 'user').pop()?.content || '';
+
+        const { readable, writable } = new TransformStream();
+        const writer = writable.getWriter();
+        const encoder = new TextEncoder();
+        const decoder = new TextDecoder();
+
+        // Loading message — fire-and-forget before main work
+        (async () => {
+          try {
+            const loadingMsg = await generateLoadingMessage(
+              lastUserMsgWorld,
+              body.scopeName || null,
+              env.OPENAI_API_KEY,
+            );
+            if (loadingMsg) {
+              await writer.write(
+                encoder.encode(
+                  `data: ${JSON.stringify({ searching: true, query: loadingMsg, isLoadingHint: true })}\n\n`,
+                ),
+              );
+            }
+          } catch {
+            /* fire-and-forget */
+          }
+        })();
+
+        runScopedChatStream(
+          'world',
+          body,
+          messages,
+          lastUserMsgWorld,
+          authenticatedUserId,
+          userTimezone,
+          env,
+          ctx,
+          writer,
+          encoder,
+          decoder,
+        );
+
+        return new Response(readable, {
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-cache, no-transform',
+            Connection: 'keep-alive',
+          },
+        });
+      }
+      // ============================================================================
+      // END WORLD CHAT STREAMING
+      // ============================================================================
+
+      // ============================================================================
+      // CHAPTER CHAT STREAMING (F.5.b.2)
+      // ============================================================================
+      if (isChapterChatStreaming && isChapterChatLane) {
+        const access = await checkUserAccess(authenticatedUserId, env);
+        if (!access.hasAccess) {
+          return denyAccessSSEResponse(access.reason);
+        }
+
+        console.log('[ChapterChat:Streaming] Starting SSE stream');
+
+        const lastUserMsgChapter = messages.filter((m) => m.role === 'user').pop()?.content || '';
+
+        const { readable, writable } = new TransformStream();
+        const writer = writable.getWriter();
+        const encoder = new TextEncoder();
+        const decoder = new TextDecoder();
+
+        // Loading message — fire-and-forget before main work
+        (async () => {
+          try {
+            const loadingMsg = await generateLoadingMessage(
+              lastUserMsgChapter,
+              body.scopeName || null,
+              env.OPENAI_API_KEY,
+            );
+            if (loadingMsg) {
+              await writer.write(
+                encoder.encode(
+                  `data: ${JSON.stringify({ searching: true, query: loadingMsg, isLoadingHint: true })}\n\n`,
+                ),
+              );
+            }
+          } catch {
+            /* fire-and-forget */
+          }
+        })();
+
+        runScopedChatStream(
+          'chapter',
+          body,
+          messages,
+          lastUserMsgChapter,
+          authenticatedUserId,
+          userTimezone,
+          env,
+          ctx,
+          writer,
+          encoder,
+          decoder,
+        );
+
+        return new Response(readable, {
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-cache, no-transform',
+            Connection: 'keep-alive',
+          },
+        });
+      }
+      // ============================================================================
+      // END CHAPTER CHAT STREAMING
       // ============================================================================
 
       // ============================================================================
@@ -12300,7 +12844,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 const summaryPromise = (async () => {
                   try {
                     const prevSummaryRes = await fetch(
-                      `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=running_summary`,
+                      `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=running_summary`,
                       {
                         headers: {
                           apikey: env.SUPABASE_SERVICE_KEY,
@@ -12331,7 +12875,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 const extractionPromise = (async () => {
                   try {
                     const chatRes = await fetch(
-                      `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=saved_extraction_ids,dismissed_extractions`,
+                      `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=saved_extraction_ids,dismissed_extractions`,
                       {
                         headers: {
                           apikey: env.SUPABASE_SERVICE_KEY,
@@ -12353,7 +12897,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     };
                     const [summaryRes, todosRes, habitsRes] = await Promise.all([
                       fetch(
-                        `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=running_summary`,
+                        `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=running_summary`,
                         { headers: supaHeaders },
                       ),
                       fetch(
@@ -12459,7 +13003,7 @@ Return ONLY valid JSON:
                       console.warn('[GeneralChat] Extraction parse error:', parseErr.message);
                     }
                     if (extractResult) {
-                      await fetch(`${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}`, {
+                      await fetch(`${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}`, {
                         method: 'PATCH',
                         headers: {
                           apikey: env.SUPABASE_SERVICE_KEY,
@@ -12834,7 +13378,7 @@ Return ONLY valid JSON:
           const summaryPromise = (async () => {
             try {
               const prevSummaryRes = await fetch(
-                `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=running_summary`,
+                `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=running_summary`,
                 {
                   headers: {
                     apikey: env.SUPABASE_SERVICE_KEY,
@@ -12870,6 +13414,360 @@ Return ONLY valid JSON:
           save_suggestion: save_suggestion || null,
           sources,
           search_query: searchQuery,
+        });
+      }
+
+      // ===================================================================
+      // WORLD CHAT NON-STREAMING (F.5.b.2)
+      // ===================================================================
+      if (isWorldChatLane) {
+        const access = await checkUserAccess(authenticatedUserId, env);
+        if (!access.hasAccess) {
+          return denyAccessResponse(access.reason);
+        }
+
+        let worldSessionContextStr = '';
+        let worldUserProfile = null;
+        let worldCachedDomains = [];
+        let worldEntities = null;
+        let worldTodayActivity = null;
+        if (authenticatedUserId) {
+          try {
+            const [chatContext, profile, domains, entities, todayAct] = await Promise.all([
+              buildChatContext(
+                authenticatedUserId,
+                'world',
+                { timezone: userTimezone, currentChatId: body.chatId || null },
+                env,
+              ),
+              getUserProfile(authenticatedUserId, env),
+              getCachedDomainNames(authenticatedUserId, env),
+              fetchWorldEntities(authenticatedUserId, body.scopeId, env),
+              buildTodayActivity(authenticatedUserId, userTimezone, env),
+            ]);
+            worldSessionContextStr = chatContext;
+            worldUserProfile = profile;
+            worldCachedDomains = domains;
+            worldEntities = entities;
+            worldTodayActivity = todayAct;
+          } catch (err) {
+            console.error('[WorldChat:NonStreaming] Context error', err);
+          }
+        }
+
+        const worldContext = { runningSummary: body.runningSummary || '' };
+        const worldScopeContextStr = worldEntities ? formatWorldEntities(worldEntities) : null;
+        const lastUserMsgWorld = messages.filter((m) => m.role === 'user').pop()?.content || '';
+        const previousExchangeWorld = extractPreviousExchange(messages);
+
+        const triageWorld = await triageMessage({
+          userMessage: lastUserMsgWorld,
+          previousExchange: previousExchangeWorld,
+          spaceName: body.scopeName || undefined,
+          runningSummary: body.runningSummary || '',
+          chatType: 'world',
+          env,
+          domainNames: worldCachedDomains,
+          profileSnippet: worldUserProfile?.profileText?.slice(0, 150) || '',
+          messageCount: messages.length,
+        });
+
+        console.log('[WorldChat:NonStreaming:Triage]', {
+          mode: triageWorld.mode,
+          depth: triageWorld.depth,
+          messagePreview: lastUserMsgWorld.slice(0, 80),
+        });
+
+        const worldGenConfig = buildWorldChatSystemPrompt(
+          triageWorld,
+          worldContext,
+          body.scopeName,
+          worldScopeContextStr,
+          body.accountCreatedAt,
+          worldSessionContextStr,
+          worldUserProfile?.profileText,
+          userTimezone,
+          worldTodayActivity,
+        );
+
+        const worldTriageMessages = [
+          { role: 'system', content: worldGenConfig.systemPrompt },
+          ...messages.filter((m) => m.role !== 'system'),
+        ];
+
+        const worldSearchPolicy = getSearchPolicy(triageWorld.search);
+        const worldNonStreamConfig = {
+          temperature: worldGenConfig.temperature,
+          maxOutputTokens: worldGenConfig.maxTokens,
+          thinkingLevel: worldGenConfig.thinkingLevel,
+        };
+        if (worldSearchPolicy.attachTool) {
+          worldNonStreamConfig.tools = [makeWebSearchTool(userTimezone)];
+        }
+
+        const worldGeminiResult = await geminiGenerate(
+          worldGenConfig.systemPrompt,
+          worldTriageMessages,
+          worldNonStreamConfig,
+          env.GOOGLE_API_KEY,
+        );
+
+        if (!worldGeminiResult.ok) {
+          return j({ error: worldGeminiResult.error || 'gemini_error', code: worldGeminiResult.status }, 200);
+        }
+
+        let worldContent = worldGeminiResult.content;
+        let worldSources = undefined;
+        let worldSearchQuery = undefined;
+
+        const worldToolCall = worldGeminiResult.functionCalls?.[0] || null;
+        if (worldToolCall?.name === 'web_search') {
+          try {
+            worldSearchQuery = worldToolCall.args?.query;
+            const worldSearchResults = await executeTavilySearch(worldSearchQuery, env.TAVILY_API_KEY);
+            if (worldSearchResults?.results?.length > 0) {
+              const worldFollowUp = buildFollowUpContents(
+                convertMessages(worldTriageMessages),
+                worldGeminiResult.parts || [],
+                [{ name: 'web_search', id: worldToolCall.id, response: { results: formatSearchBrief(worldSearchResults) } }],
+              );
+              const worldFollowUpResult = await geminiGenerate(
+                worldGenConfig.systemPrompt,
+                [],
+                {
+                  temperature: worldGenConfig.temperature,
+                  maxOutputTokens: Math.max(worldGenConfig.maxTokens, 1200),
+                  thinkingLevel: worldGenConfig.thinkingLevel,
+                  nativeContents: worldFollowUp,
+                },
+                env.GOOGLE_API_KEY,
+              );
+              worldContent = worldFollowUpResult.ok ? worldFollowUpResult.content : worldContent;
+              worldSources = worldSearchResults.results.map((r) => ({ title: r.title, url: r.url }));
+            }
+          } catch (worldSearchErr) {
+            console.log('[WorldChat:NonStreaming] Search error:', worldSearchErr);
+          }
+        }
+
+        worldContent = stripFillerOpening(worldContent);
+        const { suggestion: worldSaveSuggestion, cleanContent: worldClean } = extractSaveSuggestion(worldContent);
+        worldContent = worldClean.replace(/<!--SAVE:.*?-->/gs, '').replace(/<!--SAVE:.*$/s, '').trim();
+
+        console.log('[WorldChat:NonStreaming] Complete', {
+          latency_ms: Date.now() - t0NonStream,
+          content_length: worldContent.length,
+        });
+
+        if (body.chatId && authenticatedUserId && worldContent) {
+          ctx.waitUntil(
+            (async () => {
+              try {
+                const prevRes = await fetch(
+                  `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=running_summary`,
+                  { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } },
+                );
+                const prevData = prevRes?.ok ? await prevRes.json().catch(() => []) : [];
+                await generateRunningSummary(
+                  messages.filter((m) => m.role !== 'system'),
+                  worldContent,
+                  body.chatId,
+                  body.scopeName || null,
+                  prevData?.[0]?.running_summary || null,
+                  env,
+                  userTimezone,
+                );
+              } catch (err) {
+                console.warn('[WorldChat:NonStreaming] Running summary failed:', err.message);
+              }
+            })(),
+          );
+        }
+
+        return j({
+          content: worldContent,
+          model: 'gemini-3-flash-preview',
+          usage: worldGeminiResult.usage || null,
+          save_suggestion: worldSaveSuggestion || null,
+          sources: worldSources,
+          search_query: worldSearchQuery,
+        });
+      }
+
+      // ===================================================================
+      // CHAPTER CHAT NON-STREAMING (F.5.b.2)
+      // ===================================================================
+      if (isChapterChatLane) {
+        const access = await checkUserAccess(authenticatedUserId, env);
+        if (!access.hasAccess) {
+          return denyAccessResponse(access.reason);
+        }
+
+        let chapterSessionContextStr = '';
+        let chapterUserProfile = null;
+        let chapterCachedDomains = [];
+        let chapterEntities = null;
+        let chapterTodayActivity = null;
+        if (authenticatedUserId) {
+          try {
+            const [chatContext, profile, domains, entities, todayAct] = await Promise.all([
+              buildChatContext(
+                authenticatedUserId,
+                'chapter',
+                { timezone: userTimezone, currentChatId: body.chatId || null },
+                env,
+              ),
+              getUserProfile(authenticatedUserId, env),
+              getCachedDomainNames(authenticatedUserId, env),
+              fetchChapterEntities(authenticatedUserId, body.scopeId, env),
+              buildTodayActivity(authenticatedUserId, userTimezone, env),
+            ]);
+            chapterSessionContextStr = chatContext;
+            chapterUserProfile = profile;
+            chapterCachedDomains = domains;
+            chapterEntities = entities;
+            chapterTodayActivity = todayAct;
+          } catch (err) {
+            console.error('[ChapterChat:NonStreaming] Context error', err);
+          }
+        }
+
+        const chapterContext = { runningSummary: body.runningSummary || '' };
+        const chapterScopeContextStr = chapterEntities ? formatChapterEntities(chapterEntities) : null;
+        const lastUserMsgChapter = messages.filter((m) => m.role === 'user').pop()?.content || '';
+        const previousExchangeChapter = extractPreviousExchange(messages);
+
+        const triageChapter = await triageMessage({
+          userMessage: lastUserMsgChapter,
+          previousExchange: previousExchangeChapter,
+          spaceName: body.scopeName || undefined,
+          runningSummary: body.runningSummary || '',
+          chatType: 'chapter',
+          env,
+          domainNames: chapterCachedDomains,
+          profileSnippet: chapterUserProfile?.profileText?.slice(0, 150) || '',
+          messageCount: messages.length,
+        });
+
+        console.log('[ChapterChat:NonStreaming:Triage]', {
+          mode: triageChapter.mode,
+          depth: triageChapter.depth,
+          messagePreview: lastUserMsgChapter.slice(0, 80),
+        });
+
+        const chapterGenConfig = buildChapterChatSystemPrompt(
+          triageChapter,
+          chapterContext,
+          body.scopeName,
+          chapterScopeContextStr,
+          body.accountCreatedAt,
+          chapterSessionContextStr,
+          chapterUserProfile?.profileText,
+          userTimezone,
+          chapterTodayActivity,
+        );
+
+        const chapterTriageMessages = [
+          { role: 'system', content: chapterGenConfig.systemPrompt },
+          ...messages.filter((m) => m.role !== 'system'),
+        ];
+
+        const chapterSearchPolicy = getSearchPolicy(triageChapter.search);
+        const chapterNonStreamConfig = {
+          temperature: chapterGenConfig.temperature,
+          maxOutputTokens: chapterGenConfig.maxTokens,
+          thinkingLevel: chapterGenConfig.thinkingLevel,
+        };
+        if (chapterSearchPolicy.attachTool) {
+          chapterNonStreamConfig.tools = [makeWebSearchTool(userTimezone)];
+        }
+
+        const chapterGeminiResult = await geminiGenerate(
+          chapterGenConfig.systemPrompt,
+          chapterTriageMessages,
+          chapterNonStreamConfig,
+          env.GOOGLE_API_KEY,
+        );
+
+        if (!chapterGeminiResult.ok) {
+          return j({ error: chapterGeminiResult.error || 'gemini_error', code: chapterGeminiResult.status }, 200);
+        }
+
+        let chapterContent = chapterGeminiResult.content;
+        let chapterSources = undefined;
+        let chapterSearchQuery = undefined;
+
+        const chapterToolCall = chapterGeminiResult.functionCalls?.[0] || null;
+        if (chapterToolCall?.name === 'web_search') {
+          try {
+            chapterSearchQuery = chapterToolCall.args?.query;
+            const chapterSearchResults = await executeTavilySearch(chapterSearchQuery, env.TAVILY_API_KEY);
+            if (chapterSearchResults?.results?.length > 0) {
+              const chapterFollowUp = buildFollowUpContents(
+                convertMessages(chapterTriageMessages),
+                chapterGeminiResult.parts || [],
+                [{ name: 'web_search', id: chapterToolCall.id, response: { results: formatSearchBrief(chapterSearchResults) } }],
+              );
+              const chapterFollowUpResult = await geminiGenerate(
+                chapterGenConfig.systemPrompt,
+                [],
+                {
+                  temperature: chapterGenConfig.temperature,
+                  maxOutputTokens: Math.max(chapterGenConfig.maxTokens, 1200),
+                  thinkingLevel: chapterGenConfig.thinkingLevel,
+                  nativeContents: chapterFollowUp,
+                },
+                env.GOOGLE_API_KEY,
+              );
+              chapterContent = chapterFollowUpResult.ok ? chapterFollowUpResult.content : chapterContent;
+              chapterSources = chapterSearchResults.results.map((r) => ({ title: r.title, url: r.url }));
+            }
+          } catch (chapterSearchErr) {
+            console.log('[ChapterChat:NonStreaming] Search error:', chapterSearchErr);
+          }
+        }
+
+        chapterContent = stripFillerOpening(chapterContent);
+        const { suggestion: chapterSaveSuggestion, cleanContent: chapterClean } = extractSaveSuggestion(chapterContent);
+        chapterContent = chapterClean.replace(/<!--SAVE:.*?-->/gs, '').replace(/<!--SAVE:.*$/s, '').trim();
+
+        console.log('[ChapterChat:NonStreaming] Complete', {
+          latency_ms: Date.now() - t0NonStream,
+          content_length: chapterContent.length,
+        });
+
+        if (body.chatId && authenticatedUserId && chapterContent) {
+          ctx.waitUntil(
+            (async () => {
+              try {
+                const prevRes = await fetch(
+                  `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=running_summary`,
+                  { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } },
+                );
+                const prevData = prevRes?.ok ? await prevRes.json().catch(() => []) : [];
+                await generateRunningSummary(
+                  messages.filter((m) => m.role !== 'system'),
+                  chapterContent,
+                  body.chatId,
+                  body.scopeName || null,
+                  prevData?.[0]?.running_summary || null,
+                  env,
+                  userTimezone,
+                );
+              } catch (err) {
+                console.warn('[ChapterChat:NonStreaming] Running summary failed:', err.message);
+              }
+            })(),
+          );
+        }
+
+        return j({
+          content: chapterContent,
+          model: 'gemini-3-flash-preview',
+          usage: chapterGeminiResult.usage || null,
+          save_suggestion: chapterSaveSuggestion || null,
+          sources: chapterSources,
+          search_query: chapterSearchQuery,
         });
       }
 
@@ -12995,6 +13893,561 @@ Return ONLY valid JSON:
     }
   },
 };
+
+// ============================================================================
+// SHARED SCOPED-CHAT STREAMING CORE (F.5.b.2)
+// Used by world_chat and chapter_chat lanes. Spawns an async IIFE that
+// streams via Gemini, handles web search follow-up, save suggestion extraction,
+// running summary update. writer.close() always fires in the finally block.
+// ============================================================================
+
+// Module-level copy of extractSaveSuggestion for runScopedChatStream.
+// The inner function defined inside the fetch handler shadows this for all
+// existing handler paths — existing behavior is unchanged.
+function extractSaveSuggestionModuleLevel(content) {
+  if (!content) return { suggestion: null, cleanContent: content };
+  const savePattern = /<!--\s*SAVE\s*:\s*(\{[\s\S]*?\})\s*-->/i;
+  const match = content.match(savePattern);
+  if (!match) return { suggestion: null, cleanContent: content };
+  try {
+    const jsonStr = match[1].replace(/[\n\r]/g, ' ').replace(/\s+/g, ' ').trim();
+    const suggestion = JSON.parse(jsonStr);
+    if (!suggestion.type || !suggestion.title) return { suggestion: null, cleanContent: content };
+    if (!['todo', 'habit', 'note'].includes(suggestion.type)) return { suggestion: null, cleanContent: content };
+    if (suggestion.steps) {
+      if (!Array.isArray(suggestion.steps)) {
+        delete suggestion.steps;
+      } else {
+        suggestion.steps = suggestion.steps.slice(0, 12).map((s) => String(s).trim()).filter((s) => s.length > 0 && s.length < 200);
+        if (suggestion.steps.length === 0) delete suggestion.steps;
+      }
+    }
+    return { suggestion, cleanContent: content.replace(savePattern, '').trim() };
+  } catch {
+    return { suggestion: null, cleanContent: content };
+  }
+}
+
+function runScopedChatStream(
+  scopeType, // 'world' | 'chapter'
+  body,
+  messages,
+  lastUserMsg,
+  authenticatedUserId,
+  userTimezone,
+  env,
+  ctx,
+  writer,
+  encoder,
+  decoder,
+) {
+  const tag = scopeType === 'world' ? 'WorldChat' : 'ChapterChat';
+
+  (async () => {
+    let fullContent = '';
+    try {
+      await writer.write(encoder.encode(': ping\n\n'));
+
+      // URL detection
+      const detectedUrls = extractUrlsFromText(lastUserMsg);
+      let urlContext = '';
+      let fetchedUrl = null;
+
+      if (detectedUrls.length > 0) {
+        const urlToFetch = detectedUrls[0];
+        await writer.write(
+          encoder.encode(
+            `data: ${JSON.stringify({ fetching: true, fetchingUrl: urlToFetch, done: false })}\n\n`,
+          ),
+        );
+        const extracted = await executeTavilyExtract(urlToFetch, env.TAVILY_API_KEY);
+        if (extracted?.success) {
+          fetchedUrl = { url: extracted.url, title: extracted.title };
+          urlContext = `\n\n=== EXTRACTED CONTENT FROM URL ===\nURL: ${extracted.url}\nTitle: ${extracted.title}\n\n${extracted.content}\n\n=== END EXTRACTED CONTENT ===\n\nThe user has shared this link. Summarize the key points and answer any questions they have about it. If they just shared the link without a specific question, provide a helpful summary of what the content covers.`;
+        } else {
+          urlContext = `\n\n[Note: The user shared a link (${urlToFetch}) but I couldn't access its content. It may be paywalled, require login, or be temporarily unavailable.]`;
+        }
+        await writer.write(
+          encoder.encode(`data: ${JSON.stringify({ fetching: false, done: false })}\n\n`),
+        );
+      }
+
+      // Context loading
+      let scopeSessionContextStr = '';
+      let scopeUserProfile = null;
+      let cachedDomains = [];
+      let scopeEntities = null;
+      let scopeTodayActivity = null;
+
+      if (authenticatedUserId) {
+        try {
+          const fetchEntities =
+            scopeType === 'world'
+              ? fetchWorldEntities(authenticatedUserId, body.scopeId, env)
+              : fetchChapterEntities(authenticatedUserId, body.scopeId, env);
+
+          const [chatContext, profile, domains, entities, todayAct] = await Promise.all([
+            buildChatContext(
+              authenticatedUserId,
+              scopeType,
+              { timezone: userTimezone, currentChatId: body.chatId || null },
+              env,
+            ),
+            getUserProfile(authenticatedUserId, env),
+            getCachedDomainNames(authenticatedUserId, env),
+            fetchEntities,
+            buildTodayActivity(authenticatedUserId, userTimezone, env),
+          ]);
+          scopeSessionContextStr = chatContext;
+          scopeUserProfile = profile;
+          cachedDomains = domains;
+          scopeEntities = entities;
+          scopeTodayActivity = todayAct;
+          console.log(`[${tag}] Context loaded`, {
+            userId: authenticatedUserId.slice(0, 8),
+            contextLength: scopeSessionContextStr?.length || 0,
+            hasProfile: !!scopeUserProfile,
+            hasScopeEntities: !!scopeEntities,
+          });
+        } catch (err) {
+          console.error(`[${tag}] Context error`, err);
+        }
+      }
+
+      // Triage
+      const previousExchange = extractPreviousExchange(messages);
+      const triage = await triageMessage({
+        userMessage: lastUserMsg,
+        previousExchange,
+        spaceName: body.scopeName || undefined,
+        runningSummary: body.runningSummary || '',
+        chatType: scopeType,
+        env,
+        domainNames: cachedDomains,
+        profileSnippet: scopeUserProfile?.profileText?.slice(0, 150) || '',
+        messageCount: messages.length,
+      });
+
+      console.log(`[${tag}:Triage]`, {
+        mode: triage.mode,
+        search: triage.search,
+        personal: triage.personal,
+        depth: triage.depth,
+        source: triage.source,
+        messagePreview: lastUserMsg.slice(0, 80),
+      });
+
+      const streamContext = { runningSummary: body.runningSummary || '' };
+      const scopeContextStr =
+        scopeType === 'world'
+          ? scopeEntities
+            ? formatWorldEntities(scopeEntities)
+            : null
+          : scopeEntities
+            ? formatChapterEntities(scopeEntities)
+            : null;
+
+      const genConfig =
+        scopeType === 'world'
+          ? buildWorldChatSystemPrompt(
+              triage,
+              streamContext,
+              body.scopeName,
+              scopeContextStr,
+              body.accountCreatedAt,
+              scopeSessionContextStr,
+              scopeUserProfile?.profileText,
+              userTimezone,
+              scopeTodayActivity,
+            )
+          : buildChapterChatSystemPrompt(
+              triage,
+              streamContext,
+              body.scopeName,
+              scopeContextStr,
+              body.accountCreatedAt,
+              scopeSessionContextStr,
+              scopeUserProfile?.profileText,
+              userTimezone,
+              scopeTodayActivity,
+            );
+
+      // Build messages
+      const processedMessages = messages.map((msg, idx, arr) => {
+        if (urlContext && idx === arr.length - 1 && msg.role === 'user') {
+          return { ...msg, content: msg.content + urlContext };
+        }
+        return msg;
+      });
+
+      const chatMessages = [
+        { role: 'system', content: genConfig.systemPrompt },
+        ...processedMessages.filter((m) => m.role !== 'system'),
+      ];
+
+      // Search policy
+      const searchPolicy = getSearchPolicy(triage.search);
+      const streamConfig = {
+        temperature: genConfig.temperature,
+        maxOutputTokens: genConfig.maxTokens,
+        thinkingLevel: genConfig.thinkingLevel,
+      };
+      if (searchPolicy.attachTool) {
+        streamConfig.tools = [makeWebSearchTool(userTimezone)];
+      }
+
+      console.log(`[${tag}:Payload]`, {
+        temperature: streamConfig.temperature,
+        maxOutputTokens: streamConfig.maxOutputTokens,
+        hasTools: !!streamConfig.tools,
+        messageCount: chatMessages.length,
+      });
+
+      const t0 = Date.now();
+      const geminiRes = await geminiStream(
+        genConfig.systemPrompt,
+        chatMessages,
+        streamConfig,
+        env.GOOGLE_API_KEY,
+      );
+
+      if (!geminiRes.ok || !geminiRes.body) {
+        const errText = geminiRes.error || 'unknown error';
+        console.log(`[${tag}:Streaming] Gemini error`, { error: errText });
+        await writer.write(
+          encoder.encode(`data: ${JSON.stringify({ error: errText, done: true })}\n\n`),
+        );
+        return;
+      }
+
+      const reader = geminiRes.body.getReader();
+      let buffer = '';
+      let toolCalls = [];
+      let modelResponseParts = [];
+      let fillerBuffer = '';
+      let fillerFlushed = false;
+
+      try {
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split(/\r?\n/);
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed === 'data: [DONE]') continue;
+            if (!trimmed.startsWith('data: ')) continue;
+            try {
+              const chunk = parseGeminiChunk(trimmed.slice(6));
+              const delta = chunk.text;
+              if (delta) {
+                fullContent += delta;
+                if (!fullContent.includes('<!--SAVE:')) {
+                  if (!fillerFlushed) {
+                    fillerBuffer += delta;
+                    if (/[.?!]\s/.test(fillerBuffer) || fillerBuffer.length > 150) {
+                      const cleaned = stripFillerOpening(fillerBuffer);
+                      if (cleaned) {
+                        await writer.write(
+                          encoder.encode(
+                            `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                          ),
+                        );
+                      }
+                      fillerFlushed = true;
+                    }
+                  } else {
+                    await writer.write(
+                      encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
+                    );
+                  }
+                }
+              }
+              if (chunk.functionCalls) {
+                for (const fc of chunk.functionCalls) {
+                  toolCalls.push({ id: fc.id, name: fc.name, arguments: JSON.stringify(fc.args) });
+                  modelResponseParts.push({
+                    functionCall: { name: fc.name, args: fc.args, id: fc.id },
+                    thoughtSignature: fc.thoughtSignature,
+                  });
+                }
+              }
+            } catch {
+              /* skip malformed chunk */
+            }
+          }
+        }
+
+        // Flush remaining filler
+        if (!fillerFlushed && fillerBuffer) {
+          const cleaned = stripFillerOpening(fillerBuffer);
+          if (cleaned) {
+            await writer.write(
+              encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`),
+            );
+          }
+        }
+        fullContent = stripFillerOpening(fullContent);
+
+        // Web search follow-up
+        let sources = undefined;
+        let searchQueries = [];
+        const webSearchCalls = toolCalls.filter(
+          (tc) => tc.name === 'web_search' && tc.arguments,
+        );
+
+        if (webSearchCalls.length > 0) {
+          let firstQuery = '';
+          try {
+            firstQuery = JSON.parse(webSearchCalls[0].arguments).query || '';
+          } catch {
+            const m = webSearchCalls[0].arguments.match(/"query"\s*:\s*"([^"]+)"/);
+            firstQuery = m ? m[1] : '';
+          }
+          const searchNotice =
+            webSearchCalls.length > 1
+              ? `${firstQuery} (+${webSearchCalls.length - 1} more)`
+              : firstQuery;
+          await writer.write(
+            encoder.encode(
+              `data: ${JSON.stringify({ searching: true, query: searchNotice })}\n\n`,
+            ),
+          );
+
+          const searchResults = await Promise.all(
+            webSearchCalls.map(async (tc) => {
+              try {
+                let query;
+                try {
+                  query = JSON.parse(tc.arguments).query;
+                } catch {
+                  const m = tc.arguments.match(/"query"\s*:\s*"([^"]+)"/);
+                  query = m ? m[1] : null;
+                }
+                if (!query) return { toolCallId: tc.id, query: null, results: null };
+                searchQueries.push(query);
+                const results = await executeTavilySearch(query, env.TAVILY_API_KEY);
+                return { toolCallId: tc.id, query, results };
+              } catch {
+                return { toolCallId: tc.id, query: null, results: null };
+              }
+            }),
+          );
+
+          const successfulSearches = searchResults.filter(
+            (sr) => sr.results?.results?.length > 0,
+          );
+
+          if (successfulSearches.length > 0) {
+            const originalContents = convertMessages(chatMessages);
+            if (fullContent) modelResponseParts.unshift({ text: fullContent });
+            const functionResults = successfulSearches.map((sr) => ({
+              name: 'web_search',
+              id: sr.toolCallId,
+              response: { results: formatSearchBrief(sr.results) },
+            }));
+            const followUpContents = buildFollowUpContents(
+              originalContents,
+              modelResponseParts,
+              functionResults,
+            );
+
+            const followUpRes = await geminiStream(
+              genConfig.systemPrompt,
+              [],
+              {
+                temperature: genConfig.temperature,
+                maxOutputTokens: Math.max(genConfig.maxTokens, 1200),
+                thinkingLevel: genConfig.thinkingLevel,
+                nativeContents: followUpContents,
+              },
+              env.GOOGLE_API_KEY,
+            );
+
+            const followUpReader = followUpRes.body.getReader();
+            let fuBuffer = '';
+            let fuFillerBuffer = '';
+            let fuFillerFlushed = false;
+            let fuDone = false;
+
+            while (!fuDone) {
+              const result = await followUpReader.read();
+              fuDone = result.done;
+              if (fuDone) break;
+              fuBuffer += decoder.decode(result.value, { stream: true });
+              const fuLines = fuBuffer.split('\n');
+              fuBuffer = fuLines.pop() || '';
+              for (const fl of fuLines) {
+                const ft = fl.trim();
+                if (!ft.startsWith('data:')) continue;
+                const fj = ft.replace(/^data:\s*/, '').trim();
+                if (fj === '[DONE]') continue;
+                try {
+                  const fc = parseGeminiChunk(fj);
+                  const fd = fc.text;
+                  if (fd) {
+                    fullContent += fd;
+                    if (!fuFillerFlushed) {
+                      fuFillerBuffer += fd;
+                      if (/[.?!]\s/.test(fuFillerBuffer) || fuFillerBuffer.length > 150) {
+                        const cleaned = stripFillerOpening(fuFillerBuffer);
+                        if (cleaned) {
+                          await writer.write(
+                            encoder.encode(
+                              `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                            ),
+                          );
+                        }
+                        fuFillerFlushed = true;
+                      }
+                    } else {
+                      await writer.write(
+                        encoder.encode(`data: ${JSON.stringify({ delta: fd, done: false })}\n\n`),
+                      );
+                    }
+                  }
+                } catch {
+                  /* skip */
+                }
+              }
+            }
+
+            if (!fuFillerFlushed && fuFillerBuffer) {
+              const cleaned = stripFillerOpening(fuFillerBuffer);
+              if (cleaned) {
+                await writer.write(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                  ),
+                );
+              }
+            }
+            fullContent = stripFillerOpening(fullContent);
+            sources = successfulSearches.flatMap((sr) =>
+              sr.results.results.map((r) => ({ title: r.title, url: r.url })),
+            );
+          }
+        }
+
+        // Search fallback
+        if (webSearchCalls.length > 0 && !fullContent) {
+          const fallbackResult = await geminiGenerate(
+            genConfig.systemPrompt +
+              '\n\nAnswer based on the scope context and your existing knowledge. Do not mention search availability.',
+            chatMessages,
+            {
+              temperature: genConfig.temperature,
+              maxOutputTokens: genConfig.maxTokens,
+              thinkingLevel: genConfig.thinkingLevel,
+            },
+            env.GOOGLE_API_KEY,
+          );
+          fullContent = fallbackResult.ok
+            ? fallbackResult.content
+            : 'I had trouble searching for that information. Could you try rephrasing your question?';
+          fullContent = stripFillerOpening(fullContent);
+          const words = fullContent.split(' ');
+          for (let i = 0; i < words.length; i += 3) {
+            await writer.write(
+              encoder.encode(
+                `data: ${JSON.stringify({ delta: words.slice(i, i + 3).join(' ') + ' ', done: false })}\n\n`,
+              ),
+            );
+            await new Promise((resolve) => setTimeout(resolve, 15));
+          }
+        }
+
+        const searchQuery = searchQueries.length > 0 ? searchQueries.join(' | ') : undefined;
+        const { suggestion: smartSuggestion, cleanContent } = extractSaveSuggestionModuleLevel(fullContent);
+        fullContent = cleanContent
+          .replace(/<!--SAVE:.*?-->/gs, '')
+          .replace(/<!--SAVE:.*$/s, '')
+          .trim();
+        const save_suggestion = smartSuggestion || null;
+
+        const latency = Date.now() - t0;
+        await writer.write(
+          encoder.encode(
+            `data: ${JSON.stringify({
+              done: true,
+              full_content: fullContent,
+              save_suggestion,
+              sources,
+              search_query: searchQuery,
+              latency_ms: latency,
+              fetchedUrl,
+            })}\n\n`,
+          ),
+        );
+
+        console.log(`[${tag}:Streaming] Complete`, {
+          latency_ms: latency,
+          content_length: fullContent.length,
+          used_search: !!searchQuery,
+        });
+
+        // Running summary (non-blocking)
+        if (body.chatId && authenticatedUserId && fullContent) {
+          ctx.waitUntil(
+            (async () => {
+              try {
+                const prevSummaryRes = await fetch(
+                  `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=running_summary`,
+                  {
+                    headers: {
+                      apikey: env.SUPABASE_SERVICE_KEY,
+                      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                    },
+                  },
+                );
+                const prevData = prevSummaryRes?.ok
+                  ? await prevSummaryRes.json().catch(() => [])
+                  : [];
+                const previousSummary = prevData?.[0]?.running_summary || null;
+                await generateRunningSummary(
+                  messages.filter((m) => m.role !== 'system'),
+                  fullContent,
+                  body.chatId,
+                  body.scopeName || null,
+                  previousSummary,
+                  env,
+                  userTimezone,
+                );
+              } catch (err) {
+                console.warn(`[${tag}] Running summary failed:`, err.message);
+              }
+            })(),
+          );
+        }
+      } catch (streamErr) {
+        console.log(`[${tag}:Streaming] Stream error`, { error: String(streamErr) });
+        await writer.write(
+          encoder.encode(
+            `data: ${JSON.stringify({ error: String(streamErr), done: true, full_content: fullContent })}\n\n`,
+          ),
+        );
+      }
+    } catch (outerErr) {
+      console.error(`[${tag}:Streaming] Outer error`, { error: String(outerErr) });
+      try {
+        await writer.write(
+          encoder.encode(`data: ${JSON.stringify({ error: String(outerErr), done: true })}\n\n`),
+        );
+      } catch {
+        /* stream may be closed */
+      }
+    } finally {
+      try {
+        await writer.close();
+      } catch {
+        /* already closed */
+      }
+    }
+  })();
+}
 
 function j(obj, status = 200) {
   return Response.json

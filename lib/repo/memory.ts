@@ -2052,7 +2052,7 @@ export class MemorySpaceChatRepo {
     opts?: { includeArchived?: boolean },
   ): Promise<import('../types').SpaceChat[]> {
     let filtered = this.chats.filter(
-      (c) => c.user_id === this.currentUserId && c.space_id === spaceId,
+      (c) => c.user_id === this.currentUserId && c.scope_id === spaceId,
     );
 
     if (!opts?.includeArchived) {
@@ -2074,7 +2074,7 @@ export class MemorySpaceChatRepo {
     const chat: import('../types').SpaceChat = {
       id: genId('chat'),
       user_id: this.currentUserId,
-      space_id: spaceId,
+      scope_id: spaceId,
       title: input.title,
       pinned: false,
       archived_at: null,

@@ -5,6 +5,7 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 # These will be overwritten by secrets
+CORTEX_WORKER_URL = "https://gentle-thunder-5854.woolmerjames.workers.dev"
 
 # Add secrets via CLI:
 # npx wrangler secret put SUPABASE_URL
@@ -12,6 +13,12 @@ compatibility_flags = ["nodejs_compat"]
 # npx wrangler secret put OPENAI_API_KEY
 # npx wrangler secret put INNGEST_SIGNING_KEY
 # npx wrangler secret put INNGEST_EVENT_KEY
+
+# Service binding to Cortex worker — avoids Worker-to-Worker 404 (CF error 1042)
+# when calling another workers.dev Worker on the same account via HTTP.
+[[services]]
+binding = "CORTEX"
+service = "gentle-thunder-5854"
 
 [observability]
 enabled = true

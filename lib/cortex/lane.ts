@@ -1,5 +1,5 @@
 // lib/cortex/lane.ts
-export type Lane = 'catchall' | 'space_chat' | 'system';
+export type Lane = 'catchall' | 'space_chat' | 'world_chat' | 'chapter_chat' | 'system';
 
 export interface CortexContextBase {
   lane?: Lane; // Optional with default 'system' for backward compatibility

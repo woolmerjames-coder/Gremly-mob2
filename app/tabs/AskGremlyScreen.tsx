@@ -242,7 +242,7 @@ export default function AskGremlyScreen() {
             }, 5000);
 
             supabase
-              .from('space_chats')
+              .from('scope_chats')
               .update({ updated_at: nowTimestamp() })
               .eq('id', chat.id)
               .then(() => {});
