@@ -68,7 +68,7 @@ describe('SupabaseSpaceChatMessageRepo', () => {
 
       const messages = await repo.list('chat-1');
 
-      expect(mockFrom).toHaveBeenCalledWith('space_chat_messages');
+      expect(mockFrom).toHaveBeenCalledWith('scope_chat_messages');
       expect(messages).toHaveLength(2);
       expect(messages[0]).toMatchObject({
         id: '1',
@@ -119,7 +119,7 @@ describe('SupabaseSpaceChatMessageRepo', () => {
 
       const result = await repo.append(input);
 
-      expect(mockFrom).toHaveBeenCalledWith('space_chat_messages');
+      expect(mockFrom).toHaveBeenCalledWith('scope_chat_messages');
       expect(result).toMatchObject({
         id: '3',
         chat_id: 'chat-1',

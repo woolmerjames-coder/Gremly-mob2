@@ -37,6 +37,10 @@ jest.mock('../../lib/store/useGremlyStore', () => {
     notes: [],
     todos: [],
     habits: [],
+    worlds: [],
+    chapters: [],
+    dropChapterLinks: [],
+    dropWorldLinks: [],
   };
 
   const useGremlyStore = (selector: (state: any) => any) => selector(mockStoreState);
