@@ -484,9 +484,67 @@ export const INTENT_RULES: IntentRule[] = [
   },
 
   // ═══════════════════════════════════════════════════════════════
+  // PRIORITY 35-39: SOCIAL/COMPLIMENT PATTERNS
+  // Compliments, gratitude, social interactions - not actions
+  // ═══════════════════════════════════════════════════════════════
+  {
+    priority: 35,
+    name: 'social_compliment',
+    test: (text) => {
+      const patterns = [
+        /\byou'?re (amazing|awesome|great|wonderful|the best|incredible|fantastic|brilliant|lovely|kind)\b/i,
+        /\b(thank you|thanks|appreciate|grateful to you|love you|love this|love it)\b/i,
+        /\byou (rock|rule|kill it|nailed it)\b/i,
+        /\bthat'?s (amazing|awesome|great|wonderful|perfect|brilliant)\b/i,
+      ];
+      return patterns.some((pattern) => pattern.test(text));
+    },
+    classification: {
+      kind: 'social',
+      confidence: 0.95,
+      flags: {
+        isMetaComment: true,
+        requiresAction: false,
+      },
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════
   // PRIORITY 40-49: HABIT PATTERNS
   // Strong indicators of recurring behavior
   // ═══════════════════════════════════════════════════════════════
+  {
+    priority: 40,
+    name: 'habit_want_to',
+    test: (text) => {
+      const normalized = text.toLowerCase().trim();
+
+      // Patterns like "I want to run", "I'd like to exercise", "I wanna meditate"
+      const wantToPatterns = [
+        /\b(i want to|i'd like to|i wanna|let's|i'm going to|i'll)\s+(\w+)/i,
+        /\bstart (running|walking|exercising|working out|meditating|reading|writing|jogging|yoga|stretching)/i,
+        /\b(run|walk|exercise|workout|meditate|read|write|jog|stretch)\s+(daily|every|regularly|more|often)/i,
+      ];
+
+      // Also catch simple activity statements with frequency hints
+      const simpleActivity =
+        /^(run|running|exercise|exercising|meditate|meditation|walk|walking)$/i;
+      const hasFrequency = /\b(daily|every|regularly|\d+\s*times)/i.test(normalized);
+
+      return (
+        wantToPatterns.some((p) => p.test(normalized)) ||
+        (simpleActivity.test(normalized) && hasFrequency)
+      );
+    },
+    classification: {
+      kind: 'habit',
+      confidence: 0.85,
+      flags: {
+        requiresAction: true,
+      },
+    },
+  },
+
   {
     priority: 40,
     name: 'habit_frequency',
