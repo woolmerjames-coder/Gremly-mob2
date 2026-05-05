@@ -623,6 +623,7 @@ export interface SpaceChat {
   scope_id: ID | null;
   title: string;
   pinned: boolean;
+  chat_type?: string | null;
   archived_at?: string | null; // ISO 8601 timestamp when chat was archived (null = active)
   last_message_snippet?: string | null; // Preview of last message
   running_summary?: string | null; // Rolling context summary

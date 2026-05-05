@@ -163,11 +163,11 @@ describe('createWorldChat', () => {
     // Swap the supabase mock to hold the insert until we inspect optimistic state
     jest
       .spyOn(require('../lib/supabase/client').supabase, 'from')
-      .mockImplementationOnce((table: string) => ({
+      .mockImplementationOnce((table: unknown) => ({
         insert: (payload: any) => ({
           select: () => ({
             single: () => {
-              capturedInsert = { table, payload };
+              capturedInsert = { table: table as string, payload };
               return insertPromise;
             },
           }),
@@ -207,7 +207,7 @@ describe('createWorldChat', () => {
     // We need single() to actually throw — override the chain for this test
     jest
       .spyOn(require('../lib/supabase/client').supabase, 'from')
-      .mockImplementationOnce((_table: string) => ({
+      .mockImplementationOnce((_table: unknown) => ({
         insert: (_payload: any) => ({
           select: () => ({
             single: () => Promise.resolve({ data: null, error: dbError }),
@@ -279,11 +279,11 @@ describe('createChapterChat', () => {
 
     jest
       .spyOn(require('../lib/supabase/client').supabase, 'from')
-      .mockImplementationOnce((table: string) => ({
+      .mockImplementationOnce((table: unknown) => ({
         insert: (payload: any) => ({
           select: () => ({
             single: () => {
-              capturedInsert = { table, payload };
+              capturedInsert = { table: table as string, payload };
               return insertPromise;
             },
           }),
