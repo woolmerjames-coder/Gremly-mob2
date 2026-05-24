@@ -1,8 +1,11 @@
 /**
  * Tests for checkChallengeCompletionOnFedFlip store action.
  *
- * Covers: no-op when missing userId/challengeStartedAt/already completed,
- * count < 7 = no completion, count >= 7 triggers completion + persistence.
+ * Covers: no-op when missing userId/trialStartedAt/already completed/
+ * already pendingGraduation, count < 7 = no-op, count >= 7 queues graduation.
+ *
+ * NOTE: this action sets pendingGraduation:true when the threshold is met.
+ * It does NOT write challengeCompletedAt — that is finalizeGraduation's job.
  */
 
 let mockCountResult: { count: number | null; error: unknown } = { count: 0, error: null };
@@ -102,49 +105,66 @@ describe('checkChallengeCompletionOnFedFlip', () => {
     mockUpdateResult = { error: null };
     useGremlyStore.setState({
       userId: 'user-123',
-      challengeStartedAt: '2026-04-08T12:00:00Z',
+      trialStartedAt: '2026-04-08T12:00:00Z',
       challengeCompletedAt: null,
+      pendingGraduation: false,
     });
   });
 
   it('no-ops when userId is missing', async () => {
     useGremlyStore.setState({ userId: null });
     await useGremlyStore.getState().checkChallengeCompletionOnFedFlip();
-    // No crash, no state change
+    expect(useGremlyStore.getState().pendingGraduation).toBe(false);
     expect(useGremlyStore.getState().challengeCompletedAt).toBeNull();
   });
 
-  it('no-ops when challengeStartedAt is null', async () => {
-    useGremlyStore.setState({ challengeStartedAt: null });
+  it('no-ops when trialStartedAt is null', async () => {
+    useGremlyStore.setState({ trialStartedAt: null });
     await useGremlyStore.getState().checkChallengeCompletionOnFedFlip();
+    expect(useGremlyStore.getState().pendingGraduation).toBe(false);
     expect(useGremlyStore.getState().challengeCompletedAt).toBeNull();
   });
 
   it('no-ops when already completed', async () => {
     useGremlyStore.setState({ challengeCompletedAt: '2026-04-12T00:00:00Z' });
     await useGremlyStore.getState().checkChallengeCompletionOnFedFlip();
-    // Should remain at original timestamp
+    // Should remain at original timestamp and not re-queue graduation
     expect(useGremlyStore.getState().challengeCompletedAt).toBe('2026-04-12T00:00:00Z');
+    expect(useGremlyStore.getState().pendingGraduation).toBe(false);
   });
 
-  it('does not complete when fed day count < 7', async () => {
-    mockCountResult = { count: 5, error: null };
-
+  it('no-ops when graduation already pending', async () => {
+    mockCountResult = { count: 7, error: null };
+    useGremlyStore.setState({ pendingGraduation: true });
     await useGremlyStore.getState().checkChallengeCompletionOnFedFlip();
+    // pendingGraduation should remain true (idempotent) but not re-trigger
+    expect(useGremlyStore.getState().pendingGraduation).toBe(true);
     expect(useGremlyStore.getState().challengeCompletedAt).toBeNull();
   });
 
-  it('completes challenge when fed day count >= 7', async () => {
+  it('does not queue graduation when fed day count < 7', async () => {
+    mockCountResult = { count: 5, error: null };
+
+    await useGremlyStore.getState().checkChallengeCompletionOnFedFlip();
+    expect(useGremlyStore.getState().pendingGraduation).toBe(false);
+    expect(useGremlyStore.getState().challengeCompletedAt).toBeNull();
+  });
+
+  it('queues graduation (pendingGraduation:true) when fed day count >= 7', async () => {
     mockCountResult = { count: 7, error: null };
 
     await useGremlyStore.getState().checkChallengeCompletionOnFedFlip();
-    expect(useGremlyStore.getState().challengeCompletedAt).not.toBeNull();
+    // checkChallengeCompletionOnFedFlip sets pendingGraduation; challengeCompletedAt
+    // is written later by finalizeGraduation when the user completes GraduationFlow.
+    expect(useGremlyStore.getState().pendingGraduation).toBe(true);
+    expect(useGremlyStore.getState().challengeCompletedAt).toBeNull();
   });
 
   it('handles supabase count query error gracefully', async () => {
     mockCountResult = { count: null, error: { message: 'DB error' } };
 
     await useGremlyStore.getState().checkChallengeCompletionOnFedFlip();
+    expect(useGremlyStore.getState().pendingGraduation).toBe(false);
     expect(useGremlyStore.getState().challengeCompletedAt).toBeNull();
   });
 });
