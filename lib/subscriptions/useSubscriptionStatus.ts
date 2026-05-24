@@ -8,11 +8,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useGremlyStore } from '../store/useGremlyStore';
-import {
-  useTrialStartedAt,
-  useChallengeCompletedAt,
-  useIsTester,
-} from '../store/lifecycleSelectors';
+import { useTrialStartedAt, useIsTester } from '../store/lifecycleSelectors';
 import { getActiveEntitlement } from './purchases';
 import { getDateService } from '../date/DateService';
 
@@ -37,7 +33,6 @@ interface SubscriptionStatus {
 
 export function useSubscriptionStatus(): SubscriptionStatus {
   const trialStartedAt = useTrialStartedAt();
-  const challengeCompletedAt = useChallengeCompletedAt();
   const isTester = useIsTester();
   const isSubscribed = useGremlyStore((s) => s.isSubscribed);
   const setIsSubscribed = useGremlyStore((s) => s.setIsSubscribed);
@@ -66,10 +61,9 @@ export function useSubscriptionStatus(): SubscriptionStatus {
     return Math.max(0, Math.ceil(remaining / (24 * 60 * 60 * 1000)));
   })();
 
-  // Trial is active if: no challenge complete AND within 14 days
+  // Trial is active if: within 14 days of trial start (purely time-based)
   const isTrialActive = (() => {
-    if (!trialStartedAt) return true; // new user, not yet started — treat as in-trial
-    if (challengeCompletedAt) return false; // challenge done — trial period is over
+    if (!trialStartedAt) return true;
     return daysUntilTrialCeiling > 0;
   })();
 
