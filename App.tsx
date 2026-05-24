@@ -3,7 +3,8 @@ import 'react-native-url-polyfill/auto'; // URL polyfill for React Native
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { useColorScheme, Linking, View, Keyboard, AppState } from 'react-native';
+import { useColorScheme, Linking, View, Keyboard, AppState, Platform } from 'react-native';
+import Constants from 'expo-constants';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SheetProvider } from 'react-native-actions-sheet';
@@ -74,6 +75,17 @@ Sentry.init({
 
   // uncomment the line below to enable Spotlight (https://spotlightjs.com)
   // spotlight: __DEV__,
+
+  release: Constants.expoConfig?.version,
+  dist:
+    Platform.OS === 'ios'
+      ? Constants.expoConfig?.ios?.buildNumber
+      : String(Constants.expoConfig?.android?.versionCode ?? ''),
+  environment: __DEV__ ? 'development' : 'production',
+  beforeSend(event) {
+    // PII-stripping hook; pass through for now.
+    return event;
+  },
 });
 
 // Prevent the splash screen from auto-hiding before app is ready
