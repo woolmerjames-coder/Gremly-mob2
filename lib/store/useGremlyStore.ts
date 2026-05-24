@@ -3018,38 +3018,16 @@ export const useGremlyStore = create<GremlyState>()(
           if (challengeCompletedAt) return; // Already finalised, no-op
           if (pendingGraduation) return; // Flow already queued, no-op
 
-          // Count cumulative fed days since trial started
-          const { count, error } = await supabase
-            .from('daily_ritual_progress')
-            .select('*', { count: 'exact', head: true })
-            .eq('owner_id', userId)
-            .eq('is_fed', true)
-            .gte('ritual_day', trialStartedAt.split('T')[0]);
+          // Compute how many days into the trial we are (1-indexed)
+          const startMs = new Date(trialStartedAt).getTime();
+          const trialDay =
+            Math.floor((getDateService().now().getTime() - startMs) / 86_400_000) + 1;
 
-          if (error) {
-            console.error(
-              '[GremlyStore] Failed to check fed day count for challenge completion:',
-              error,
-            );
-            try {
-              // eslint-disable-next-line @typescript-eslint/no-var-requires
-              const Sentry = require('@sentry/react-native');
-              Sentry.captureException(new Error('checkChallengeCompletionOnFedFlip count failed'), {
-                extra: { error: JSON.stringify(error) },
-              });
-            } catch {
-              /* Sentry not available */
-            }
-            return;
-          }
-
-          const fedDays = count ?? 0;
-
-          // Refresh readiness score and trigger on sufficient data
+          // Refresh readiness score
           const readiness = await get().refreshTrainingReadiness();
 
-          // Trigger when 7 fed days accumulated OR readiness meets the graduation bar
-          if (fedDays < 7 && readiness < GRADUATION_THRESHOLD) return;
+          // Require BOTH sufficient time elapsed AND enough activity data
+          if (trialDay < 6 || readiness < GRADUATION_THRESHOLD) return;
 
           // Fire summary pipeline via the Cloudflare Worker
           const now = nowTimestamp();
