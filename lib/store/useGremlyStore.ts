@@ -3045,13 +3045,11 @@ export const useGremlyStore = create<GremlyState>()(
 
           const fedDays = count ?? 0;
 
-          // Compute which trial day we are on (1-indexed)
-          const startMs = new Date(trialStartedAt).getTime();
-          const trialDay =
-            Math.floor((getDateService().now().getTime() - startMs) / 86_400_000) + 1;
+          // Refresh readiness score and trigger on sufficient data
+          const readiness = await get().refreshTrainingReadiness();
 
-          // Trigger when 7 fed days accumulated OR day 7 of the trial reached
-          if (fedDays < 7 && trialDay < 7) return;
+          // Trigger when 7 fed days accumulated OR readiness meets the graduation bar
+          if (fedDays < 7 && readiness < GRADUATION_THRESHOLD) return;
 
           // Fire summary pipeline via the Cloudflare Worker
           const now = nowTimestamp();
