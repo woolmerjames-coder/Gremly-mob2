@@ -2789,10 +2789,11 @@ export const useGremlyStore = create<GremlyState>()(
 
             set({ trainingReadiness: score });
 
-            // Check for graduation
-            if (score >= GRADUATION_THRESHOLD && !get().pendingGraduation) {
-              set({ pendingGraduation: true });
-            }
+            // DISABLED (Phase 1): legacy activity-based graduation trigger.
+            // Being replaced by the 7-day challenge model. Do not re-enable.
+            // if (score >= GRADUATION_THRESHOLD && !get().pendingGraduation) {
+            //   set({ pendingGraduation: true });
+            // }
 
             if (__DEV__) {
               console.log('[GremlyStore] Training readiness refreshed:', { score, trainingData });

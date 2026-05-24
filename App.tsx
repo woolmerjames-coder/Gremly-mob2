@@ -803,6 +803,28 @@ function App() {
                                   setPermissionPrompt({ visible: false, context: 'reminder' });
                                 }}
                               />
+                              {/* Age-up celebration modal - always mounted, visibility controlled by prop */}
+                              <AgeUpCelebrationModal
+                                visible={ageUpState.visible}
+                                newAge={ageUpState.age}
+                                tierName={ageUpState.tierName}
+                                isTierTransition={ageUpState.isTierTransition}
+                                previousTierName={ageUpState.previousTierName}
+                                onDismiss={handleAgeUpDismiss}
+                              />
+
+                              {/* Graduation ceremony overlay */}
+                              <GraduationFlow
+                                visible={pendingGraduation}
+                                onComplete={finalizeGraduation}
+                              />
+
+                              {/* One-time read-only intro sheet */}
+                              <ReadOnlyIntroSheet
+                                visible={showReadonlyIntro}
+                                onDismiss={handleReadonlyIntroDismiss}
+                                onSubscribe={handleReadonlyIntroSubscribe}
+                              />
                             </MascotModeProvider>
                           </OverlayProvider>
                         </CelebrationProvider>
@@ -814,26 +836,6 @@ function App() {
             </DsToggleProvider>
           </SafeAreaProvider>
         </GestureHandlerRootView>
-
-        {/* Age-up celebration modal - always mounted, visibility controlled by prop */}
-        <AgeUpCelebrationModal
-          visible={ageUpState.visible}
-          newAge={ageUpState.age}
-          tierName={ageUpState.tierName}
-          isTierTransition={ageUpState.isTierTransition}
-          previousTierName={ageUpState.previousTierName}
-          onDismiss={handleAgeUpDismiss}
-        />
-
-        {/* Graduation ceremony overlay */}
-        <GraduationFlow visible={pendingGraduation} onComplete={finalizeGraduation} />
-
-        {/* One-time read-only intro sheet */}
-        <ReadOnlyIntroSheet
-          visible={showReadonlyIntro}
-          onDismiss={handleReadonlyIntroDismiss}
-          onSubscribe={handleReadonlyIntroSubscribe}
-        />
       </View>
     </ErrorBoundary>
   );
