@@ -2955,13 +2955,13 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         finalizeGraduation: async () => {
-          const { userId, sockCount, graduatedAt } = get();
+          const { userId, sockCount, challengeCompletedAt } = get();
 
-          // Idempotency: don't re-run if already graduated
-          if (graduatedAt) {
+          // Idempotency: don't re-run if challenge already resolved
+          if (challengeCompletedAt) {
             if (__DEV__)
               console.log(
-                '[GremlyStore] finalizeGraduation called but already graduated, skipping',
+                '[GremlyStore] finalizeGraduation called but challenge already resolved, skipping',
               );
             return;
           }
@@ -2970,8 +2970,8 @@ export const useGremlyStore = create<GremlyState>()(
           const newSockCount = sockCount + 1;
 
           set({
-            graduatedAt: now,
-            challengeStartedAt: now,
+            challengeCompletedAt: now,
+            graduatedAt: now, // legacy reads
             pendingGraduation: false,
             postGraduationMessageShown: false,
             sockCount: newSockCount,
@@ -2981,8 +2981,8 @@ export const useGremlyStore = create<GremlyState>()(
             supabase
               .from('cortex_preferences')
               .update({
+                challenge_completed_at: now,
                 graduated_at: now,
-                challenge_started_at: now,
                 pending_graduation: false,
                 sock_count: newSockCount,
               })
@@ -2998,15 +2998,15 @@ export const useGremlyStore = create<GremlyState>()(
             lifecycleCache: state.lifecycleCache
               ? {
                   ...state.lifecycleCache,
+                  challengeCompletedAt: now,
                   graduatedAt: now,
-                  challengeStartedAt: now,
                   cachedAt: nowTimestamp(),
                 }
               : null,
           }));
 
           if (__DEV__) {
-            console.log('[GremlyStore] Graduation finalized, sock_count:', newSockCount);
+            console.log('[GremlyStore] Challenge finalized, sock_count:', newSockCount);
           }
         },
 
