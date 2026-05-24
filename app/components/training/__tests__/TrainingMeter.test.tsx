@@ -118,19 +118,19 @@ describe('TrainingMeter', () => {
     expect(getByText(/Day \d+ of 7-day challenge/)).toBeTruthy();
   });
 
-  it('renders header text for tutorial variant', () => {
+  it('renders header text for challenge variant', () => {
     const { getByText } = render(
       <TrainingMeter visible={true} onDismiss={onDismiss} onNavigate={onNavigate} />,
     );
-    // With daysRemaining=2 and tutorial variant, header should be "Almost trained"
-    expect(getByText('Almost trained')).toBeTruthy();
+    // isInChallengeVariant is always true; with daysRemaining=2 header is "Almost there"
+    expect(getByText('Almost there')).toBeTruthy();
   });
 
-  it('renders "What to do next" section for tutorial variant', () => {
+  it('renders "How to keep going" section for challenge variant', () => {
     const { getByText } = render(
       <TrainingMeter visible={true} onDismiss={onDismiss} onNavigate={onNavigate} />,
     );
-    expect(getByText('What to do next')).toBeTruthy();
+    expect(getByText('How to keep going')).toBeTruthy();
   });
 
   it('does not render content when not visible', () => {
