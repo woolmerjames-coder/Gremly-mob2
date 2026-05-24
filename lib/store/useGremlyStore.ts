@@ -40,7 +40,7 @@ import type {
 } from '../types';
 import type { FeedingContribution, AIMode } from '../types/soulDocument';
 import type { UserTrainingData } from '../training/trainingReadiness';
-import { calculateTrainingReadiness, GRADUATION_THRESHOLD } from '../training/trainingReadiness';
+import { calculateTrainingReadiness } from '../training/trainingReadiness';
 import {
   getTierForAge,
   getDropValue,
@@ -3018,16 +3018,34 @@ export const useGremlyStore = create<GremlyState>()(
           if (challengeCompletedAt) return; // Already finalised, no-op
           if (pendingGraduation) return; // Flow already queued, no-op
 
-          // Compute how many days into the trial we are (1-indexed)
-          const startMs = new Date(trialStartedAt).getTime();
-          const trialDay =
-            Math.floor((getDateService().now().getTime() - startMs) / 86_400_000) + 1;
+          // Count cumulative fed days since trial started
+          const { count, error } = await supabase
+            .from('daily_ritual_progress')
+            .select('*', { count: 'exact', head: true })
+            .eq('owner_id', userId)
+            .eq('is_fed', true)
+            .gte('ritual_day', trialStartedAt.split('T')[0]);
 
-          // Refresh readiness score
-          const readiness = await get().refreshTrainingReadiness();
+          if (error) {
+            console.error(
+              '[GremlyStore] Failed to check fed day count for challenge completion:',
+              error,
+            );
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-var-requires
+              const Sentry = require('@sentry/react-native');
+              Sentry.captureException(new Error('checkChallengeCompletionOnFedFlip count failed'), {
+                extra: { error: JSON.stringify(error) },
+              });
+            } catch {
+              /* Sentry not available */
+            }
+            return;
+          }
 
-          // Require BOTH sufficient time elapsed AND enough activity data
-          if (trialDay < 6 || readiness < GRADUATION_THRESHOLD) return;
+          const fedDays = count ?? 0;
+
+          if (fedDays < 7) return;
 
           // Fire summary pipeline via the Cloudflare Worker
           const now = nowTimestamp();
