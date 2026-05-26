@@ -3266,7 +3266,7 @@ async function rebuildLifeMap(
     .map((s) => `"${s.name}" (id: ${s.id})`)
     .join(', ');
 
-  const selfMap = opts.selfMap === true;
+  const selfMap = opts.selfMap !== false;
 
   const analystFraming = selfMap
     ? `An analyst AI has already organized this week's raw data into observed clusters. These clusters are labeled descriptively and are NOT pre-assigned to your threads; you decide which existing thread each one corresponds to.`
@@ -5908,7 +5908,7 @@ async function runUnifiedAnalyst(weeklySnapshot, lifeMap, weekStart, weekEnd, en
     ? Object.entries(weeklySnapshot.habitProgressByWeek)
     : [];
 
-  const outputAgnostic = opts.outputAgnostic === true;
+  const outputAgnostic = opts.outputAgnostic !== false;
   const systemPrompt = outputAgnostic
     ? buildOutputAgnosticAnalystPrompt(weekStart, weekEnd)
     : `You are a meticulous analyst for a personal productivity app called Gremly. You receive 21 days of raw user data plus a reference to their existing Life Map (a structured understanding of their life domains and threads).
