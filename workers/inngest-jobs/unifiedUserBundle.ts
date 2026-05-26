@@ -345,10 +345,59 @@ export interface UnifiedUserBundle {
     userProfile: UserProfileRef | null;
   };
 
-  // TODO (prompt 2): port from worker. Left out so the consumer wiring + equivalence
-  // diff audits the raw/reference shape first.
-  //   computed: { todoStats, habitHealth, dropVelocity, moodSignal, spaceActivity, spaceMap }
-  //   calendar: { todaysEvents, upcomingEvents, spaceKeyDates }
+  computed: {
+    todoStats: { overdue: number; active: number; completedRecently: number };
+    habitHealth: Array<{
+      id: string;
+      name: string | null;
+      frequency: string | null;
+      space_id: string | null;
+      completions: number;
+      expected: number;
+      score_pct: number;
+    }>;
+    dropVelocity: {
+      velocity: 'increasing' | 'decreasing' | 'steady';
+      dropsLast3: number;
+      dropsPrev3: number;
+    };
+    moodSignal: {
+      topMoods: Array<{ mood: string; count: number; pct: number }>;
+      allTags: Record<string, number>;
+      totalTags: number;
+      journalCount: number;
+    };
+    spaceActivity: Record<
+      string,
+      { name: string; recentDrops: number; recentTodos: number; totalRecent: number }
+    >;
+    spaceMap: Record<string, string>;
+  };
+
+  calendar: {
+    todaysEvents: Array<{
+      title: string | null;
+      time: string | null;
+      location: string | null;
+      is_all_day: boolean | null;
+      space: string | null;
+      space_id: string | null;
+      is_synced: boolean;
+    }>;
+    upcomingEvents: Array<{
+      title: string | null;
+      date: string | null;
+      space: string | null;
+      space_id: string | null;
+      is_synced: boolean;
+    }>;
+    spaceKeyDates: Array<{
+      date: string | null;
+      title: string | null;
+      space: string | null;
+      space_id: string | null;
+    }>;
+  };
 }
 
 // ─── Per-section fetchers ─────────────────────────────────────────────────────
@@ -666,6 +715,237 @@ async function fetchUserProfile(userId: string, env: Env): Promise<UserProfileRe
   return rows[0] ?? null;
 }
 
+// ─── Snapshot compute helpers (ported verbatim from inngest-index.js) ──────────
+
+function getExpectedCompletionsForDays(frequency: string | null, days: number): number {
+  switch (frequency) {
+    case 'daily':
+      return days;
+    case 'weekly':
+      return Math.ceil(days / 7);
+    case '2x/week':
+      return Math.ceil((days / 7) * 2);
+    case '3x/week':
+      return Math.ceil((days / 7) * 3);
+    case '4x/week':
+      return Math.ceil((days / 7) * 4);
+    case '5x/week':
+      return Math.ceil((days / 7) * 5);
+    case '6x/week':
+      return Math.ceil((days / 7) * 6);
+    case '5x/month':
+      return Math.ceil((days / 30) * 5);
+    case 'monthly':
+      return days >= 30 ? 1 : 0;
+    default:
+      return days;
+  }
+}
+
+function snapshotDeduplicateEvents(events: CalendarEventRaw[]): CalendarEventRaw[] {
+  const seenExternalIds = new Map<string, CalendarEventRaw>();
+  const seenKeyDates = new Set<string>();
+  const deduped: CalendarEventRaw[] = [];
+
+  for (const evt of events) {
+    // Skip cancelled
+    if (
+      evt.title &&
+      (evt.title.toLowerCase().startsWith('canceled:') ||
+        evt.title.toLowerCase().startsWith('cancelled:'))
+    )
+      continue;
+
+    const ext = evt.external_source as { externalId?: string } | null | undefined;
+    if (ext && ext.externalId) {
+      const extId = ext.externalId;
+      if (!seenExternalIds.has(extId)) {
+        seenExternalIds.set(extId, evt);
+        deduped.push(evt);
+      }
+    } else {
+      const key = `${(evt.title || '').trim().toLowerCase()}|${evt.target_date}|${evt.space_id || ''}`;
+      if (!seenKeyDates.has(key)) {
+        seenKeyDates.add(key);
+        deduped.push(evt);
+      }
+    }
+  }
+
+  return deduped;
+}
+
+function snapshotComputeTodoStats(
+  todos: TodoEntry[],
+  targetDate: string,
+): { overdue: number; active: number; completedRecently: number } {
+  const overdue = todos.filter(
+    (t) => t.target_date && t.target_date < targetDate && t.status !== 'completed' && !t.archived,
+  ).length;
+  const active = todos.filter((t) => t.status === 'active' && !t.archived).length;
+  const completedRecently = todos.filter((t) => t.completed_at).length;
+  return { overdue, active, completedRecently };
+}
+
+function snapshotComputeHabitHealth(
+  habits: HabitEntry[],
+  habitProgress: HabitProgressEntry[],
+  windowDays: number,
+): Array<{
+  id: string;
+  name: string | null;
+  frequency: string | null;
+  space_id: string | null;
+  completions: number;
+  expected: number;
+  score_pct: number;
+}> {
+  const completionMap: Record<string, number> = {};
+  for (const hp of habitProgress) {
+    completionMap[hp.habit_id] = (completionMap[hp.habit_id] || 0) + 1;
+  }
+  return habits.map((h) => {
+    const done = completionMap[h.id] || 0;
+    const expected = getExpectedCompletionsForDays(h.frequency, windowDays);
+    const score = expected > 0 ? Math.round((done / expected) * 100) : 0;
+    return {
+      id: h.id,
+      name: h.name,
+      frequency: h.frequency,
+      space_id: h.space_id || null,
+      completions: done,
+      expected,
+      score_pct: score,
+    };
+  });
+}
+
+function snapshotComputeDropVelocity(
+  drops: Array<{ created_at: string }>,
+  targetDate: string,
+): { velocity: 'increasing' | 'decreasing' | 'steady'; dropsLast3: number; dropsPrev3: number } {
+  const target = new Date(targetDate + 'T00:00:00Z');
+
+  const threeBefore = new Date(target);
+  threeBefore.setUTCDate(threeBefore.getUTCDate() - 3);
+  const threeBeforeStr = formatDateOnly(threeBefore);
+
+  const sixBefore = new Date(target);
+  sixBefore.setUTCDate(sixBefore.getUTCDate() - 6);
+  const sixBeforeStr = formatDateOnly(sixBefore);
+
+  const dropsLast3 = drops.filter((n) => {
+    const d = n.created_at ? n.created_at.split('T')[0] : null;
+    return d && d >= threeBeforeStr && d <= targetDate;
+  }).length;
+
+  const dropsPrev3 = drops.filter((n) => {
+    const d = n.created_at ? n.created_at.split('T')[0] : null;
+    return d && d >= sixBeforeStr && d < threeBeforeStr;
+  }).length;
+
+  let velocity: 'increasing' | 'decreasing' | 'steady' = 'steady';
+  if (dropsLast3 > dropsPrev3 * 1.5) velocity = 'increasing';
+  else if (dropsLast3 < dropsPrev3 * 0.5) velocity = 'decreasing';
+
+  return { velocity, dropsLast3, dropsPrev3 };
+}
+
+function snapshotComputeMoodSignal(journals: JournalEntry[]): {
+  topMoods: Array<{ mood: string; count: number; pct: number }>;
+  allTags: Record<string, number>;
+  totalTags: number;
+  journalCount: number;
+} {
+  const moodCounts: Record<string, number> = {};
+  let totalMoodTags = 0;
+
+  for (const j of journals) {
+    if (j.mood && Array.isArray(j.mood)) {
+      for (const m of j.mood) {
+        moodCounts[m] = (moodCounts[m] || 0) + 1;
+        totalMoodTags++;
+      }
+    }
+  }
+
+  const topMoods =
+    totalMoodTags > 0
+      ? Object.entries(moodCounts)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 3)
+          .map(([mood, count]) => ({ mood, count, pct: Math.round((count / totalMoodTags) * 100) }))
+      : [];
+
+  return {
+    topMoods,
+    allTags: moodCounts,
+    totalTags: totalMoodTags,
+    journalCount: journals.length,
+  };
+}
+
+function snapshotComputeSpaceActivity(
+  drops: Array<{ space_id?: string | null }>,
+  todos: Array<{ space_id?: string | null; archived: boolean }>,
+  spaceMap: Record<string, string>,
+): Record<string, { name: string; recentDrops: number; recentTodos: number; totalRecent: number }> {
+  const activity: Record<
+    string,
+    { name: string; recentDrops: number; recentTodos: number; totalRecent: number }
+  > = {};
+
+  for (const spaceId of Object.keys(spaceMap)) {
+    const dropCount = drops.filter((n) => n.space_id === spaceId).length;
+    const todoCount = todos.filter((t) => t.space_id === spaceId && !t.archived).length;
+    activity[spaceId] = {
+      name: spaceMap[spaceId],
+      recentDrops: dropCount,
+      recentTodos: todoCount,
+      totalRecent: dropCount + todoCount,
+    };
+  }
+
+  return activity;
+}
+
+/** Derive windowDays + targetDate from the BundleWindow (mirrors fetchUserSnapshot's date math). */
+function deriveWindowParams(
+  window: BundleWindow,
+  rw: ResolvedWindow,
+  journals: JournalEntry[],
+  notes: NoteEntry[],
+  todos: TodoEntry[],
+): { windowDays: number; targetDate: string } {
+  if (window.mode === 'trailing') {
+    return { windowDays: window.windowDays, targetDate: rw.asOf };
+  }
+  if (window.mode === 'range') {
+    const days = Math.max(
+      1,
+      Math.round(
+        (new Date(window.windowEnd).getTime() - new Date(window.windowStart).getTime()) / 86400000,
+      ),
+    );
+    return { windowDays: days, targetDate: window.windowEnd };
+  }
+  // all — compute span from actual data
+  const allDates: string[] = [
+    ...journals.map((j) => j.created_at.slice(0, 10)),
+    ...notes.map((n) => n.created_at.slice(0, 10)),
+    ...todos.map((t) => t.created_at.slice(0, 10)),
+  ].filter(Boolean);
+  if (allDates.length < 2) return { windowDays: 30, targetDate: rw.asOf };
+  const sorted = [...allDates].sort();
+  const days = Math.max(
+    1,
+    Math.round(
+      (new Date(sorted[sorted.length - 1]).getTime() - new Date(sorted[0]).getTime()) / 86400000,
+    ),
+  );
+  return { windowDays: days, targetDate: rw.asOf };
+}
+
 // ─── Entrypoint ───────────────────────────────────────────────────────────────
 
 export async function buildUnifiedUserBundle(
@@ -719,6 +999,84 @@ export async function buildUnifiedUserBundle(
     fetchUserProfile(userId, env),
   ]);
 
+  // --- Derive windowDays / targetDate (mirrors fetchUserSnapshot date math) ---
+  const { windowDays, targetDate } = deriveWindowParams(window, rw, journals, notes, todos);
+
+  // --- Build space lookup ---
+  const spaceMap: Record<string, string> = {};
+  for (const s of spaces) {
+    if (s.id && s.name) spaceMap[s.id] = s.name;
+  }
+
+  // drops = journals + non-journal notes (mirrors legacy fetchUserSnapshot variable)
+  const drops = [...journals, ...notes];
+
+  // --- Computed metrics ---
+  const calendarEvents = snapshotDeduplicateEvents(calendarEventsRaw);
+  const todoStats = snapshotComputeTodoStats(todos, targetDate);
+  const habitHealth = snapshotComputeHabitHealth(habits, habitProgress, windowDays);
+  const dropVelocity = snapshotComputeDropVelocity(drops, targetDate);
+  const moodSignal = snapshotComputeMoodSignal(journals);
+  const spaceActivity = snapshotComputeSpaceActivity(drops, todos, spaceMap);
+
+  // --- Calendar projections ---
+  function eventActiveOnDate(evt: CalendarEventRaw, date: string): boolean {
+    const start = evt.target_date ?? '';
+    const end = evt.end_date ?? start;
+    return start <= date && end >= date;
+  }
+
+  const todaysEvents = calendarEvents
+    .filter((e) => eventActiveOnDate(e, targetDate))
+    .map((e) => ({
+      title: e.title,
+      time: e.event_time ?? null,
+      location: e.location ?? null,
+      is_all_day: e.is_all_day ?? null,
+      space: spaceMap[e.space_id ?? ''] ?? null,
+      space_id: e.space_id ?? null,
+      is_synced: e.external_source != null,
+    }));
+
+  const target = new Date(targetDate + 'T00:00:00Z');
+  const sevenAfter = new Date(target);
+  sevenAfter.setUTCDate(sevenAfter.getUTCDate() + 7);
+  const sevenAfterStr = formatDateOnly(sevenAfter);
+
+  const upcomingEvents = calendarEvents
+    .filter((e) => {
+      const start = e.target_date ?? '';
+      const end = e.end_date ?? start;
+      return (
+        (start > targetDate && start <= sevenAfterStr) ||
+        (start <= targetDate && end > targetDate && end <= sevenAfterStr)
+      );
+    })
+    .slice(0, 15)
+    .map((e) => ({
+      title: e.title,
+      date: e.target_date ?? null,
+      space: spaceMap[e.space_id ?? ''] ?? null,
+      space_id: e.space_id ?? null,
+      is_synced: e.external_source != null,
+    }));
+
+  const fiveBeforeStr = formatDateOnly(new Date(target.getTime() - 5 * 86400000));
+  const fiveAfterStr = formatDateOnly(new Date(target.getTime() + 5 * 86400000));
+
+  const spaceKeyDates = calendarEvents
+    .filter((e) => {
+      if (e.external_source != null || !e.space_id) return false;
+      const end = e.end_date ?? e.target_date ?? '';
+      return (e.target_date ?? '') <= fiveAfterStr && end >= fiveBeforeStr;
+    })
+    .map((e) => ({
+      date: e.target_date ?? null,
+      title: e.title,
+      space: spaceMap[e.space_id ?? ''] ?? null,
+      space_id: e.space_id ?? null,
+    }));
+
   return {
     userId,
     collectedAt,
@@ -741,5 +1099,7 @@ export async function buildUnifiedUserBundle(
       milestones,
     },
     referenceState: { currentLifeMap, dcoHistory, weeklySummaries, userProfile },
+    computed: { todoStats, habitHealth, dropVelocity, moodSignal, spaceActivity, spaceMap },
+    calendar: { todaysEvents, upcomingEvents, spaceKeyDates },
   };
 }

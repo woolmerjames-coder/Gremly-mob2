@@ -19,6 +19,7 @@
     "signalCollector.ts",
     "worldsActiveState.ts",
     "worldsBootstrap.ts",
-    "unifiedUserBundle.ts"
+    "unifiedUserBundle.ts",
+    "moodValence.ts"
   ]
 }
