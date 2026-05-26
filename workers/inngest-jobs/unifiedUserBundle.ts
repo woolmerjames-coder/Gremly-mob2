@@ -201,7 +201,7 @@ export interface HabitProgressEntry {
 
 export interface ChatSummaryEntry {
   id: string;
-  space_id: string | null; // UNION (+ fetchUserSnapshot)
+  scope_id: string | null; // UNION (+ fetchUserSnapshot)
   title: string | null;
   auto_title: string | null;
   running_summary: string;
@@ -491,10 +491,9 @@ async function fetchChatSummaries(
   ws: string | null,
   we: string | null,
 ): Promise<ChatSummaryEntry[]> {
-  // space_chats uses user_id. +space_id,+updated_at,+archived_at filter (union w/ fetchUserSnapshot).
-  const columns = 'id,space_id,title,auto_title,running_summary,context_json,updated_at,created_at';
+  const columns = 'id,scope_id,title,auto_title,running_summary,context_json,updated_at,created_at';
   const q =
-    `space_chats?user_id=eq.${userId}&archived_at=is.null&running_summary=not.is.null&select=${columns}` +
+    `scope_chats?user_id=eq.${userId}&running_summary=not.is.null&select=${columns}` +
     windowClause('updated_at', ws, we) +
     `&order=created_at.asc&limit=500`;
   return supabaseGet<ChatSummaryEntry>(env, q);
