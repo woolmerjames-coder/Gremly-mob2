@@ -3023,7 +3023,18 @@ RULES:
   return lifeMap;
 }
 
-async function rebuildLifeMap(currentLifeMap, analystOutput, userProfile, spaces, journals, env) {
+/**
+ * @param {{ selfMap?: boolean }} [opts]
+ */
+async function rebuildLifeMap(
+  currentLifeMap,
+  analystOutput,
+  userProfile,
+  spaces,
+  journals,
+  env,
+  opts = {},
+) {
   const t0 = Date.now();
 
   // Format current Life Map as compact reference (summaries + metadata, skip evidence arrays)
@@ -3077,7 +3088,28 @@ async function rebuildLifeMap(currentLifeMap, analystOutput, userProfile, spaces
     .map((s) => `"${s.name}" (id: ${s.id})`)
     .join(', ');
 
-  const systemPrompt = `You are updating a Life Map — a structured model of what matters in a person's life. An analyst AI has already organized this week's raw data by thread. Your job: decide what changed and output ONLY THE CHANGES.
+  const selfMap = opts.selfMap === true;
+
+  const analystFraming = selfMap
+    ? `An analyst AI has already organized this week's raw data into observed clusters. These clusters are labeled descriptively and are NOT pre-assigned to your threads; you decide which existing thread each one corresponds to.`
+    : `An analyst AI has already organized this week's raw data by thread.`;
+
+  const matchingBlock = selfMap
+    ? `MATCHING CLUSTERS TO THREADS:
+- The analyst's themes are observed clusters with descriptive labels. They are not assigned to your threads, and they do not name your threads or domains.
+- For each cluster, decide which existing thread in the CURRENT LIFE MAP it corresponds to by comparing the cluster's label, evidence, and content against the thread names and summaries you were given.
+- When a cluster matches an existing thread, emit a thread_update keyed on that exact thread_name and domain_name.
+- When a cluster matches no existing thread, do not force it. Treat it as a candidate for new_threads per the NEW THREADS rules.
+- A single cluster may inform more than one thread, and more than one cluster may inform a single thread. Judge from the content.
+
+`
+    : ``;
+
+  const threadUpdatesFirstBullet = selfMap
+    ? `- Include an update for EVERY existing thread you matched a cluster to that had activity this week.`
+    : `- Include an update for EVERY thread the analyst flagged with activity this week.`;
+
+  const systemPrompt = `You are updating a Life Map — a structured model of what matters in a person's life. ${analystFraming} Your job: decide what changed and output ONLY THE CHANGES.
 
 KEY PRINCIPLE: Output deltas, not the full Life Map. Unchanged threads should NOT appear in your output. Code will merge your changes into the existing Life Map.
 
@@ -3145,8 +3177,8 @@ OUTPUT FORMAT — respond with ONLY valid JSON, no markdown:
 
 RULES:
 
-THREAD UPDATES:
-- Include an update for EVERY thread the analyst flagged with activity this week.
+${matchingBlock}THREAD UPDATES:
+${threadUpdatesFirstBullet}
 - Also include threads where the analyst flagged lifecycle changes (approaching_dormant, concluded) even if activity was zero — these need status/lifecycle/attention updates.
 - Do NOT include threads with zero activity and no lifecycle change — they stay as-is.
 - SUMMARY must be the FULL replacement text. Read the existing summary and weave in this week. It should read as accumulated understanding over weeks, not just this week's snapshot. Cross-check raw journals for emotional texture the analyst may have condensed.
