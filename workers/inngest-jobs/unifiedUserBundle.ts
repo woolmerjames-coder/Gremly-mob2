@@ -424,20 +424,19 @@ async function fetchNonJournalNotes(
   ws: string | null,
   we: string | null,
 ): Promise<NoteEntry[]> {
-  // Ported from signalCollector: the two in-memory exclusions are the single most
-  // important filter in the collector — drop origin='space_chat' (already in
-  // chatSummaries) and synced calendar junk (subtype='event' AND external_source).
-  const columns = NOTE_COLUMNS + ',external_source';
+  // Exclude synced calendar events (subtype='event' AND external_source IS NOT NULL) at the
+  // DB so the limit only ever counts real notes. James has ~4081 synced events vs ~232 real
+  // notes; without this the 2000-row limit fills with events before the in-memory strip runs.
+  // The PostgREST OR filter is equivalent to the previous in-memory strip.
+  // origin='space_chat' rows (≤77) are still stripped in JS — they don't threaten the budget.
   const q =
-    `notes?owner_id=eq.${userId}&subtype=in.(catchall,idea,event,general)&select=${columns}` +
+    `notes?owner_id=eq.${userId}&subtype=in.(catchall,idea,event,general)` +
+    `&or=(subtype.neq.event,external_source.is.null)` +
+    `&select=${NOTE_COLUMNS}` +
     windowClause('created_at', ws, we) +
     `&order=created_at.asc&limit=2000`;
-  type WithExt = NoteEntry & { external_source: unknown };
-  const raw = await supabaseGet<WithExt>(env, q);
-  return raw
-    .filter((r) => r.origin !== 'space_chat')
-    .filter((r) => !(r.subtype === 'event' && r.external_source != null))
-    .map(({ external_source: _omit, ...rest }) => rest);
+  const raw = await supabaseGet<NoteEntry>(env, q);
+  return raw.filter((r) => r.origin !== 'space_chat');
 }
 
 async function fetchTodos(
