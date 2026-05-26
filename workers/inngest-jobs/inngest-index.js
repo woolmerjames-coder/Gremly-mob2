@@ -833,128 +833,172 @@ const testWeeklySummaryV2 = inngest.createFunction(
 const testAnalystDualRun = inngest.createFunction(
   {
     id: 'test-analyst-dual-run',
-    name: 'Test Analyst Dual-Run',
+    name: 'Test Analyst Dual Run (Phase 2a validation)',
     concurrency: { limit: 1 },
   },
   { event: 'app/test.analyst-dual-run' },
   async ({ event, step, env }) => {
-    const {
-      userId,
-      weekStart: weekStartRaw,
-      weekEnd: weekEndRaw,
-      runMode: runModeRaw,
-    } = event.data || {};
-    if (!userId) throw new Error('userId is required');
+    const userId = event.data.user_id;
+    if (!userId) throw new Error('user_id is required');
+    const timezone = event.data.timezone || 'UTC';
 
-    const today = new Date();
-    const todayStr = today.toISOString().slice(0, 10);
-    const weekEndStr = weekEndRaw || todayStr;
-    const weekStartDate = weekStartRaw
-      ? new Date(weekStartRaw)
-      : (() => {
-          const d = new Date(weekEndStr);
-          d.setDate(d.getDate() - 21);
-          return d;
-        })();
-    const weekStart = weekStartRaw || weekStartDate.toISOString().slice(0, 10);
-    const weekEnd = weekEndStr;
-    const runMode = runModeRaw === 'bootstrap' ? 'bootstrap' : 'incremental';
-
-    // ---- Draw 1: legacy A ---------------------------------------------------
-    const legacyAResult = await step.run('legacy-draw-a', async () => {
-      return runUnifiedAnalyst(userId, weekStart, weekEnd, env);
+    // 1. Weekly snapshot (21-day window, same as the live weekly pipeline).
+    const snapshot = await step.run('fetch-snapshot', async () => {
+      return fetchUserSnapshot(userId, timezone, 21, env);
     });
 
-    // ---- Draw 2: legacy B (noise floor) -------------------------------------
-    const legacyBResult = await step.run('legacy-draw-b', async () => {
-      return runUnifiedAnalyst(userId, weekStart, weekEnd, env);
+    // 2. Week boundaries (identical math to the weekly run).
+    const weekDates = await step.run('compute-week', async () => {
+      const target = new Date(snapshot.targetDate + 'T00:00:00Z');
+      const dayOfWeek = target.getUTCDay();
+      const weekEndDate = new Date(target);
+      weekEndDate.setUTCDate(target.getUTCDate() - (dayOfWeek === 0 ? 0 : dayOfWeek));
+      const weekStartDate = new Date(weekEndDate);
+      weekStartDate.setUTCDate(weekEndDate.getUTCDate() - 6);
+      return { weekStart: formatDateOnly(weekStartDate), weekEnd: formatDateOnly(weekEndDate) };
     });
 
-    // ---- Draw 3: output-agnostic new ----------------------------------------
-    const newResult = await step.run('new-draw', async () => {
-      return runUnifiedAnalyst(userId, weekStart, weekEnd, env, { outputAgnostic: true });
+    // 3. Resolve the current Life Map. A live map runs incremental against it
+    //    (read only, never written). No live map is the cold-start case: wide
+    //    historical fetch (exercises the wide-fetch path) plus a build-only
+    //    bootstrap into a SHADOW map that is never written to user_life_map.
+    const mapCtx = await step.run('resolve-current-map', async () => {
+      const liveMap = snapshot.raw?.currentLifeMap?.life_map || null;
+      if (liveMap) {
+        return { mode: 'incremental', currentMap: liveMap };
+      }
+      const full = await fetchFullHistoricalSnapshot(userId, env);
+      const seeded = await bootstrapLifeMap(full, env);
+      return { mode: 'bootstrap', currentMap: seeded };
+    });
+    const lm = mapCtx.currentMap;
+
+    // Shared rebuild inputs, cloned from the live weekly worker.
+    const rebuildInputs = () => ({
+      userProfile: snapshot.raw?.userProfile?.profile_text || null,
+      spaces: snapshot.raw?.spaces || [],
+      journals: (snapshot.raw?.journals || []).map((j) => ({
+        title: j.title,
+        body: j.body,
+        mood: j.mood,
+        date: j.created_at ? j.created_at.split('T')[0] : null,
+      })),
     });
 
-    // ---- Rebuild deltas -----------------------------------------------------
-    const legacyDeltaA = await step.run('rebuild-legacy-a', async () => {
-      if (!legacyAResult?.analysis) return null;
-      return rebuildLifeMap(userId, weekStart, weekEnd, legacyAResult.analysis, env);
+    // 4-6. Analyst: two legacy draws (the noise floor) plus one output-agnostic
+    //      draw, all over the SAME weekly snapshot and current map.
+    const analysisLegacyA = await step.run('analyst-legacy-a', async () => {
+      const ws = buildWeeklySnapshot(snapshot);
+      const r = await runUnifiedAnalyst(ws, lm, weekDates.weekStart, weekDates.weekEnd, env);
+      return r.analysis;
+    });
+    const analysisLegacyB = await step.run('analyst-legacy-b', async () => {
+      const ws = buildWeeklySnapshot(snapshot);
+      const r = await runUnifiedAnalyst(ws, lm, weekDates.weekStart, weekDates.weekEnd, env);
+      return r.analysis;
+    });
+    const analysisNew = await step.run('analyst-new', async () => {
+      const ws = buildWeeklySnapshot(snapshot);
+      const r = await runUnifiedAnalyst(ws, lm, weekDates.weekStart, weekDates.weekEnd, env, {
+        outputAgnostic: true,
+      });
+      return r.analysis;
     });
 
-    const legacyDeltaB = await step.run('rebuild-legacy-b', async () => {
-      if (!legacyBResult?.analysis) return null;
-      return rebuildLifeMap(userId, weekStart, weekEnd, legacyBResult.analysis, env);
+    // 7-9. Rebuilder against the SAME current map. Legacy draws trust the
+    //      mapping; the new draw self-maps. Take the delta only. Never merge or
+    //      write it anywhere.
+    const deltaLegacyA = await step.run('rebuild-legacy-a', async () => {
+      const { userProfile, spaces, journals } = rebuildInputs();
+      const r = await rebuildLifeMap(lm, analysisLegacyA, userProfile, spaces, journals, env);
+      return r.delta;
+    });
+    const deltaLegacyB = await step.run('rebuild-legacy-b', async () => {
+      const { userProfile, spaces, journals } = rebuildInputs();
+      const r = await rebuildLifeMap(lm, analysisLegacyB, userProfile, spaces, journals, env);
+      return r.delta;
+    });
+    const deltaNew = await step.run('rebuild-new', async () => {
+      const { userProfile, spaces, journals } = rebuildInputs();
+      const r = await rebuildLifeMap(lm, analysisNew, userProfile, spaces, journals, env, {
+        selfMap: true,
+      });
+      return r.delta;
     });
 
-    const newDelta = await step.run('rebuild-new', async () => {
-      if (!newResult?.analysis) return null;
-      return rebuildLifeMap(userId, weekStart, weekEnd, newResult.analysis, env, { selfMap: true });
+    // 10. Build observation rows (NOT inserted), assemble the report, and write
+    //     everything to shadow_runs. observations and user_life_map are untouched.
+    const result = await step.run('build-and-write', async () => {
+      const obsRows = buildAnalystObservations(analysisNew, userId, weekDates.weekStart);
+      const observationKinds = {};
+      for (const row of obsRows) {
+        observationKinds[row.kind] = (observationKinds[row.kind] || 0) + 1;
+      }
+
+      const seededMapDomains =
+        mapCtx.mode === 'bootstrap'
+          ? (lm.domains || []).map((d) => ({
+              name: d.name,
+              thread_count: (d.threads || []).length,
+            }))
+          : null;
+
+      const report = buildDualRunReport({
+        userId,
+        weekStart: weekDates.weekStart,
+        weekEnd: weekDates.weekEnd,
+        runMode: mapCtx.mode,
+        legacyAnalyst: analysisLegacyA,
+        newAnalyst: analysisNew,
+        legacyDeltaA: deltaLegacyA,
+        legacyDeltaB: deltaLegacyB,
+        newDelta: deltaNew,
+        observationRowCount: obsRows.length,
+        observationKinds,
+        seededMapDomains,
+      });
+
+      const payload = {
+        report,
+        new_analyst_output: analysisNew,
+        built_observation_rows: obsRows,
+        seeded_map: mapCtx.mode === 'bootstrap' ? lm : null,
+      };
+
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/shadow_runs`, {
+        method: 'POST',
+        headers: {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          run_kind: 'analyst_dual_run',
+          run_mode: mapCtx.mode,
+          payload,
+          window_start: weekDates.weekStart,
+          window_end: weekDates.weekEnd,
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(`shadow_runs write failed: ${res.status} ${errText.slice(0, 200)}`);
+      }
+
+      return {
+        user_id: userId,
+        run_mode: mapCtx.mode,
+        verdict: report.verdict,
+        boundary_clean: report.boundary_clean,
+        signal_divergence: report.signal_divergence,
+        noise_divergence: report.noise_divergence,
+        observation_rows: obsRows.length,
+      };
     });
 
-    // ---- Build observation rows (not inserted) -------------------------------
-    const observationRows = newResult?.analysis
-      ? buildAnalystObservations(newResult.analysis, userId, weekStart)
-      : [];
-    const observationKinds = observationRows.reduce((acc, r) => {
-      acc[r.kind] = (acc[r.kind] || 0) + 1;
-      return acc;
-    }, /** @type {Record<string, number>} */ ({}));
-
-    // ---- Assemble report ---------------------------------------------------
-    const report = buildDualRunReport({
-      userId,
-      weekStart,
-      weekEnd,
-      runMode,
-      legacyAnalyst: legacyAResult?.analysis || null,
-      newAnalyst: newResult?.analysis || null,
-      legacyDeltaA: legacyDeltaA || null,
-      legacyDeltaB: legacyDeltaB || null,
-      newDelta: newDelta || null,
-      observationRowCount: observationRows.length,
-      observationKinds,
-      notes: [],
-    });
-
-    // ---- Persist to shadow_runs --------------------------------------------
-    await step.run('persist-shadow-run', async () => {
-      const { error } = (await env.SUPABASE_CLIENT)
-        ? (() => {
-            throw new Error('use fetch');
-          })()
-        : await (async () => {
-            const resp = await fetch(`${env.SUPABASE_URL}/rest/v1/shadow_runs`, {
-              method: 'POST',
-              headers: {
-                apikey: env.SUPABASE_SERVICE_KEY,
-                Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-                'Content-Type': 'application/json',
-                Prefer: 'return=minimal',
-              },
-              body: JSON.stringify({
-                user_id: userId,
-                week_start: weekStart,
-                week_end: weekEnd,
-                run_mode: runMode,
-                report,
-                verdict: report.verdict,
-                boundary_clean: report.boundary_clean,
-              }),
-            });
-            return { error: resp.ok ? null : await resp.text() };
-          })();
-      if (error) console.error('[testAnalystDualRun] shadow_runs insert error:', error);
-      return { inserted: !error };
-    });
-
-    return {
-      success: true,
-      verdict: report.verdict,
-      boundary_clean: report.boundary_clean,
-      signal_divergence: report.signal_divergence,
-      noise_divergence: report.noise_divergence,
-      observation_row_count: report.legacy_analyst.section_counts ? observationRows.length : 0,
-    };
+    return result;
   },
 );
 
