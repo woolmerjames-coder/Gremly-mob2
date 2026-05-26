@@ -8628,3 +8628,6 @@ export default {
     return inngestHandler(request, env, ctx);
   },
 };
+
+// ─── Named exports (for off-worker consumers, e.g. equivalence-check scripts) ─
+export { fetchUserSnapshot };
