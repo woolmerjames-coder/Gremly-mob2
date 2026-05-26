@@ -9,6 +9,7 @@
 import { Inngest, InngestMiddleware } from 'inngest';
 import { serve } from 'inngest/cloudflare';
 import { jsonrepair } from 'jsonrepair';
+import { buildOutputAgnosticAnalystPrompt } from './analystPrompt';
 import { createWorldsWriterTest } from './worldsWriterTest';
 import { createWorldsBootstrap } from './worldsBootstrap';
 import { createWorldsWeeklyRun } from './worldsWeeklyRun';
@@ -5675,7 +5676,10 @@ function formatLifeMapForAnalyst(lifeMap) {
   return lines.join('\n');
 }
 
-async function runUnifiedAnalyst(weeklySnapshot, lifeMap, weekStart, weekEnd, env) {
+/**
+ * @param {{ outputAgnostic?: boolean }} [opts]
+ */
+async function runUnifiedAnalyst(weeklySnapshot, lifeMap, weekStart, weekEnd, env, opts = {}) {
   const t0 = Date.now();
 
   const lifeMapRef = formatLifeMapForAnalyst(lifeMap);
@@ -5694,7 +5698,10 @@ async function runUnifiedAnalyst(weeklySnapshot, lifeMap, weekStart, weekEnd, en
     ? Object.entries(weeklySnapshot.habitProgressByWeek)
     : [];
 
-  const systemPrompt = `You are a meticulous analyst for a personal productivity app called Gremly. You receive 21 days of raw user data plus a reference to their existing Life Map (a structured understanding of their life domains and threads).
+  const outputAgnostic = opts.outputAgnostic === true;
+  const systemPrompt = outputAgnostic
+    ? buildOutputAgnosticAnalystPrompt(weekStart, weekEnd)
+    : `You are a meticulous analyst for a personal productivity app called Gremly. You receive 21 days of raw user data plus a reference to their existing Life Map (a structured understanding of their life domains and threads).
 
 Your job: Deeply analyze the week of ${weekStart} to ${weekEnd}. Organize EVERYTHING into a structured extraction that serves two downstream consumers — a Life Map rebuild AI and a weekly summary storyteller AI. Both need maximum detail organized clearly.
 
@@ -6342,10 +6349,12 @@ Prior weekly summaries are provided under "PRIOR WEEKLY SUMMARIES." Use them to:
     engagement_metrics: extractSection(cleanedText, 'engagement_metrics'),
     new_theme_candidates: extractSection(cleanedText, 'new_theme_candidates'),
     week_shape: extractSection(cleanedText, 'week_shape'),
+    world_signal_candidates: extractSection(cleanedText, 'world_signal_candidates'),
+    temporal_observations: extractSection(cleanedText, 'temporal_observations'),
   };
 
   const parsedSections = Object.entries(sections).filter(([k, v]) => v !== null).length;
-  console.log(`[UnifiedAnalyst] Parsed ${parsedSections}/10 sections`);
+  console.log(`[UnifiedAnalyst] Parsed ${parsedSections}/${Object.keys(sections).length} sections`);
 
   // If NO sections parsed at all, try legacy full-JSON parse as fallback
   let parsed;
