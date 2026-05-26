@@ -1008,15 +1008,23 @@ export async function buildUnifiedUserBundle(
     if (s.id && s.name) spaceMap[s.id] = s.name;
   }
 
-  // drops = journals + non-journal notes (mirrors legacy fetchUserSnapshot variable)
-  const drops = [...journals, ...notes];
+  // drops = non-archived journals + non-archived notes
+  // Legacy fetchUserSnapshot queried notes with archived=eq.false at DB level; replicate
+  // that filter here so dropVelocity and spaceActivity receive an equivalent input.
+  const drops = [...journals, ...notes].filter((n) => !n.archived);
 
   // --- Computed metrics ---
   const calendarEvents = snapshotDeduplicateEvents(calendarEventsRaw);
   const todoStats = snapshotComputeTodoStats(todos, targetDate);
-  const habitHealth = snapshotComputeHabitHealth(habits, habitProgress, windowDays);
+  // Legacy queried habits with archived=eq.false; replicate at call site (raw keeps full set).
+  const habitHealth = snapshotComputeHabitHealth(
+    habits.filter((h) => !h.archived),
+    habitProgress,
+    windowDays,
+  );
   const dropVelocity = snapshotComputeDropVelocity(drops, targetDate);
-  const moodSignal = snapshotComputeMoodSignal(journals);
+  // Legacy derived journals from archived=eq.false drops; replicate at call site.
+  const moodSignal = snapshotComputeMoodSignal(journals.filter((j) => !j.archived));
   const spaceActivity = snapshotComputeSpaceActivity(drops, todos, spaceMap);
 
   // --- Calendar projections ---
