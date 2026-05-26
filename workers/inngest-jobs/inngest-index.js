@@ -4956,10 +4956,10 @@ async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
     );
   }
 
-  // 11: Space chat running summaries (active chats with summaries, updated in window)
+  // 11: Scope chat running summaries (renamed from space_chats in Spaces→Scopes migration)
   queries.push(
     fetch(
-      `${env.SUPABASE_URL}/rest/v1/space_chats?user_id=eq.${userId}&archived_at=is.null&running_summary=neq.&running_summary=not.is.null&updated_at=gte.${windowStartStr}&select=id,space_id,title,running_summary,updated_at&order=updated_at.desc&limit=10`,
+      `${env.SUPABASE_URL}/rest/v1/scope_chats?user_id=eq.${userId}&running_summary=neq.&running_summary=not.is.null&updated_at=gte.${windowStartStr}&select=id,scope_id,title,running_summary,updated_at&order=updated_at.desc&limit=10`,
       { headers },
     )
       .then((r) => r.json())
