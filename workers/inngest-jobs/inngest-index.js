@@ -7866,6 +7866,11 @@ export default {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
 
+    // CVE-2026-42047: reject methods serve() doesn't use
+    if (!['GET', 'POST', 'PUT'].includes(request.method)) {
+      return new Response('Method Not Allowed', { status: 405, headers: CORS_HEADERS });
+    }
+
     // Custom API endpoint: manually trigger space suggestions for a user
     if (url.pathname === '/api/generate-space-suggestions' && request.method === 'POST') {
       return corsResponse(
