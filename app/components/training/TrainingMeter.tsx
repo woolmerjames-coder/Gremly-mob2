@@ -61,8 +61,9 @@ export default function TrainingMeter({ visible, onDismiss, onNavigate }: Traini
   const trainingReadiness = useGremlyStore((s) => s.trainingReadiness);
   const trialStartedAt = useTrialStartedAt();
   const isTrainingMode = useNeedsMindDropTutorial();
-  const graduatedAt = useGremlyStore((s) => s.graduatedAt);
-  const isInChallengeVariant = graduatedAt !== null;
+  // Sheet only renders while in the challenge window (useNeedsMindDropTutorial
+  // gates it), so always use the feeding-challenge framing.
+  const isInChallengeVariant = true;
   const refreshTrainingReadiness = useGremlyStore((s) => s.refreshTrainingReadiness);
   const feedingHistory = useGremlyStore((s) => s.feedingHistory);
   const fetchFeedingHistory = useGremlyStore((s) => s.fetchFeedingHistory);

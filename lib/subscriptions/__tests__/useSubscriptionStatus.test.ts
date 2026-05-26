@@ -87,8 +87,8 @@ describe('useSubscriptionStatus', () => {
     expect(result.current.daysUntilTrialCeiling).toBe(0);
   });
 
-  it('challenge completion short-circuits trial', async () => {
-    // Still within 14 days, but challenge completed
+  it('challenge completion does not short-circuit trial — access continues until ceiling', async () => {
+    // Still within 14 days AND challenge completed: trial stays active (time-based only)
     useGremlyStore.setState({
       trialStartedAt: '2026-04-10T12:00:00Z',
       challengeStartedAt: '2026-04-10T12:00:00Z',
@@ -98,9 +98,9 @@ describe('useSubscriptionStatus', () => {
     const { result } = renderHook(() => useSubscriptionStatus());
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    expect(result.current.isTrialActive).toBe(false);
-    expect(result.current.hasAccess).toBe(false);
-    expect(result.current.isReadOnly).toBe(true);
+    expect(result.current.isTrialActive).toBe(true);
+    expect(result.current.hasAccess).toBe(true);
+    expect(result.current.isReadOnly).toBe(false);
   });
 
   it('isTester overrides all gates', async () => {

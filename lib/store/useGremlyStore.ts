@@ -40,7 +40,7 @@ import type {
 } from '../types';
 import type { FeedingContribution, AIMode } from '../types/soulDocument';
 import type { UserTrainingData } from '../training/trainingReadiness';
-import { calculateTrainingReadiness, GRADUATION_THRESHOLD } from '../training/trainingReadiness';
+import { calculateTrainingReadiness } from '../training/trainingReadiness';
 import {
   getTierForAge,
   getDropValue,
@@ -1667,6 +1667,16 @@ export const useGremlyStore = create<GremlyState>()(
                 });
             }
 
+            // Check if challenge should resolve (day-7 or 7 fed-days trigger)
+            get()
+              .checkChallengeCompletionOnFedFlip()
+              .catch((err) => {
+                console.warn(
+                  '[GremlyStore] checkChallengeCompletionOnFedFlip on init failed:',
+                  err,
+                );
+              });
+
             // Sync timezone to database if device timezone differs (handles travel)
             const dbTimezone = notificationPrefsRes.data?.timezone as string | null;
             if (dbTimezone && dbTimezone !== detectedTimezone) {
@@ -2054,6 +2064,14 @@ export const useGremlyStore = create<GremlyState>()(
                 console.warn('[GremlyStore] refreshTrainingReadiness after drop failed:', err);
               });
           }
+          get()
+            .checkChallengeCompletionOnFedFlip()
+            .catch((err) => {
+              console.warn(
+                '[GremlyStore] checkChallengeCompletionOnFedFlip after drop failed:',
+                err,
+              );
+            });
           return { dropsCount: newDropsCount, didAgeUp: false, newAge: get().gremlyAge };
         },
 
@@ -2090,6 +2108,14 @@ export const useGremlyStore = create<GremlyState>()(
                 console.warn('[GremlyStore] refreshTrainingReadiness after sweep failed:', err);
               });
           }
+          get()
+            .checkChallengeCompletionOnFedFlip()
+            .catch((err) => {
+              console.warn(
+                '[GremlyStore] checkChallengeCompletionOnFedFlip after sweep failed:',
+                err,
+              );
+            });
           return { sweepsCount: newSweepsCount, didAgeUp: false, newAge: get().gremlyAge };
         },
 
@@ -2789,10 +2815,11 @@ export const useGremlyStore = create<GremlyState>()(
 
             set({ trainingReadiness: score });
 
-            // Check for graduation
-            if (score >= GRADUATION_THRESHOLD && !get().pendingGraduation) {
-              set({ pendingGraduation: true });
-            }
+            // DISABLED (Phase 1): legacy activity-based graduation trigger.
+            // Being replaced by the 7-day challenge model. Do not re-enable.
+            // if (score >= GRADUATION_THRESHOLD && !get().pendingGraduation) {
+            //   set({ pendingGraduation: true });
+            // }
 
             if (__DEV__) {
               console.log('[GremlyStore] Training readiness refreshed:', { score, trainingData });
@@ -2928,13 +2955,13 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         finalizeGraduation: async () => {
-          const { userId, sockCount, graduatedAt } = get();
+          const { userId, sockCount, challengeCompletedAt } = get();
 
-          // Idempotency: don't re-run if already graduated
-          if (graduatedAt) {
+          // Idempotency: don't re-run if challenge already resolved
+          if (challengeCompletedAt) {
             if (__DEV__)
               console.log(
-                '[GremlyStore] finalizeGraduation called but already graduated, skipping',
+                '[GremlyStore] finalizeGraduation called but challenge already resolved, skipping',
               );
             return;
           }
@@ -2943,8 +2970,8 @@ export const useGremlyStore = create<GremlyState>()(
           const newSockCount = sockCount + 1;
 
           set({
-            graduatedAt: now,
-            challengeStartedAt: now,
+            challengeCompletedAt: now,
+            graduatedAt: now, // legacy reads
             pendingGraduation: false,
             postGraduationMessageShown: false,
             sockCount: newSockCount,
@@ -2954,8 +2981,8 @@ export const useGremlyStore = create<GremlyState>()(
             supabase
               .from('cortex_preferences')
               .update({
+                challenge_completed_at: now,
                 graduated_at: now,
-                challenge_started_at: now,
                 pending_graduation: false,
                 sock_count: newSockCount,
               })
@@ -2971,32 +2998,33 @@ export const useGremlyStore = create<GremlyState>()(
             lifecycleCache: state.lifecycleCache
               ? {
                   ...state.lifecycleCache,
+                  challengeCompletedAt: now,
                   graduatedAt: now,
-                  challengeStartedAt: now,
                   cachedAt: nowTimestamp(),
                 }
               : null,
           }));
 
           if (__DEV__) {
-            console.log('[GremlyStore] Graduation finalized, sock_count:', newSockCount);
+            console.log('[GremlyStore] Challenge finalized, sock_count:', newSockCount);
           }
         },
 
         checkChallengeCompletionOnFedFlip: async () => {
-          const { userId, challengeStartedAt, challengeCompletedAt } = get();
+          const { userId, trialStartedAt, challengeCompletedAt, pendingGraduation } = get();
 
           if (!userId) return;
-          if (!challengeStartedAt) return; // User hasn't graduated tutorial
-          if (challengeCompletedAt) return; // Already complete, no-op
+          if (!trialStartedAt) return;
+          if (challengeCompletedAt) return; // Already finalised, no-op
+          if (pendingGraduation) return; // Flow already queued, no-op
 
-          // Count cumulative fed days since challenge started
+          // Count cumulative fed days since trial started
           const { count, error } = await supabase
             .from('daily_ritual_progress')
             .select('*', { count: 'exact', head: true })
             .eq('owner_id', userId)
             .eq('is_fed', true)
-            .gte('ritual_day', challengeStartedAt.split('T')[0]);
+            .gte('ritual_day', trialStartedAt.split('T')[0]);
 
           if (error) {
             console.error(
@@ -3015,73 +3043,36 @@ export const useGremlyStore = create<GremlyState>()(
             return;
           }
 
-          if ((count ?? 0) < 7) return; // Not yet at 7 fed days
+          const fedDays = count ?? 0;
 
-          // User just hit their 7th fed day. Complete the challenge.
+          if (fedDays < 7) return;
+
+          // Fire summary pipeline via the Cloudflare Worker
           const now = nowTimestamp();
-
-          // Optimistic local update
-          set({ challengeCompletedAt: now });
-
-          // Update lifecycleCache
-          set((state) => ({
-            lifecycleCache: state.lifecycleCache
-              ? {
-                  ...state.lifecycleCache,
-                  challengeCompletedAt: now,
-                  cachedAt: nowTimestamp(),
-                }
-              : null,
-          }));
-
-          // Persist to Supabase
-          const { error: updateError } = await supabase
-            .from('cortex_preferences')
-            .update({ challenge_completed_at: now })
-            .eq('owner_id', userId);
-
-          if (updateError) {
-            console.error('[GremlyStore] Failed to persist challenge_completed_at:', updateError);
-            try {
-              // eslint-disable-next-line @typescript-eslint/no-var-requires
-              const Sentry = require('@sentry/react-native');
-              Sentry.captureException(new Error('Failed to persist challenge_completed_at'), {
-                extra: { error: JSON.stringify(updateError) },
-              });
-            } catch {
-              /* Sentry not available */
-            }
-            // Local state already updated — server will eventually sync via initialize
-            // Do not emit event if server persist failed
-            return;
-          }
-
-          // Fire challenge-completed event via the Cloudflare Worker
           try {
             const workerUrl = env.cortexUrl;
             if (!workerUrl) {
               console.warn(
                 '[GremlyStore] No cortexUrl configured, skipping challenge.completed event',
               );
-              return;
+            } else {
+              const response = await fetch(`${workerUrl}/api/challenge-completed`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  user_id: userId,
+                  completed_at: now,
+                  timezone:
+                    get().userTimezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC',
+                }),
+              });
+
+              if (!response.ok) {
+                throw new Error(`challenge-completed POST failed: ${response.status}`);
+              }
+
+              if (__DEV__) console.log('[GremlyStore] ✅ challenge.completed event emitted');
             }
-
-            const response = await fetch(`${workerUrl}/api/challenge-completed`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                user_id: userId,
-                completed_at: now,
-                timezone:
-                  get().userTimezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC',
-              }),
-            });
-
-            if (!response.ok) {
-              throw new Error(`challenge-completed POST failed: ${response.status}`);
-            }
-
-            if (__DEV__) console.log('[GremlyStore] \u2705 challenge.completed event emitted');
           } catch (err) {
             console.error('[GremlyStore] Failed to emit challenge.completed event:', err);
             try {
@@ -3091,8 +3082,11 @@ export const useGremlyStore = create<GremlyState>()(
             } catch {
               /* Sentry not available */
             }
-            // Local + server state are consistent — just the orchestration didn't fire.
+            // Fall through — still show the graduation flow even if the worker call failed.
           }
+
+          // Queue the graduation flow. finalizeGraduation will write challenge_completed_at.
+          set({ pendingGraduation: true });
         },
 
         // ═══════════════════════════════════════════════════════════════════
