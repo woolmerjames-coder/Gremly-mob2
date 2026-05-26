@@ -10,6 +10,8 @@ import { Inngest, InngestMiddleware } from 'inngest';
 import { serve } from 'inngest/cloudflare';
 import { jsonrepair } from 'jsonrepair';
 import { buildOutputAgnosticAnalystPrompt } from './analystPrompt';
+import { buildAnalystObservations } from './analystObservations';
+import { buildDualRunReport } from './analystDualRunReport';
 import { createWorldsWriterTest } from './worldsWriterTest';
 import { createWorldsBootstrap } from './worldsBootstrap';
 import { createWorldsWeeklyRun } from './worldsWeeklyRun';
@@ -820,6 +822,138 @@ const testWeeklySummaryV2 = inngest.createFunction(
       success: true,
       card_count: summaryResult.summary?.cards?.length || 0,
       card_types: summaryResult.summary?.cards?.map((c) => c.type) || [],
+    };
+  },
+);
+
+// ============================================================================
+// Analyst Dual-Run Shadow Test
+// ============================================================================
+
+const testAnalystDualRun = inngest.createFunction(
+  {
+    id: 'test-analyst-dual-run',
+    name: 'Test Analyst Dual-Run',
+    concurrency: { limit: 1 },
+  },
+  { event: 'app/test.analyst-dual-run' },
+  async ({ event, step, env }) => {
+    const {
+      userId,
+      weekStart: weekStartRaw,
+      weekEnd: weekEndRaw,
+      runMode: runModeRaw,
+    } = event.data || {};
+    if (!userId) throw new Error('userId is required');
+
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10);
+    const weekEndStr = weekEndRaw || todayStr;
+    const weekStartDate = weekStartRaw
+      ? new Date(weekStartRaw)
+      : (() => {
+          const d = new Date(weekEndStr);
+          d.setDate(d.getDate() - 21);
+          return d;
+        })();
+    const weekStart = weekStartRaw || weekStartDate.toISOString().slice(0, 10);
+    const weekEnd = weekEndStr;
+    const runMode = runModeRaw === 'bootstrap' ? 'bootstrap' : 'incremental';
+
+    // ---- Draw 1: legacy A ---------------------------------------------------
+    const legacyAResult = await step.run('legacy-draw-a', async () => {
+      return runUnifiedAnalyst(userId, weekStart, weekEnd, env);
+    });
+
+    // ---- Draw 2: legacy B (noise floor) -------------------------------------
+    const legacyBResult = await step.run('legacy-draw-b', async () => {
+      return runUnifiedAnalyst(userId, weekStart, weekEnd, env);
+    });
+
+    // ---- Draw 3: output-agnostic new ----------------------------------------
+    const newResult = await step.run('new-draw', async () => {
+      return runUnifiedAnalyst(userId, weekStart, weekEnd, env, { outputAgnostic: true });
+    });
+
+    // ---- Rebuild deltas -----------------------------------------------------
+    const legacyDeltaA = await step.run('rebuild-legacy-a', async () => {
+      if (!legacyAResult?.analysis) return null;
+      return rebuildLifeMap(userId, weekStart, weekEnd, legacyAResult.analysis, env);
+    });
+
+    const legacyDeltaB = await step.run('rebuild-legacy-b', async () => {
+      if (!legacyBResult?.analysis) return null;
+      return rebuildLifeMap(userId, weekStart, weekEnd, legacyBResult.analysis, env);
+    });
+
+    const newDelta = await step.run('rebuild-new', async () => {
+      if (!newResult?.analysis) return null;
+      return rebuildLifeMap(userId, weekStart, weekEnd, newResult.analysis, env, { selfMap: true });
+    });
+
+    // ---- Build observation rows (not inserted) -------------------------------
+    const observationRows = newResult?.analysis
+      ? buildAnalystObservations(newResult.analysis, userId, weekStart)
+      : [];
+    const observationKinds = observationRows.reduce((acc, r) => {
+      acc[r.kind] = (acc[r.kind] || 0) + 1;
+      return acc;
+    }, /** @type {Record<string, number>} */ ({}));
+
+    // ---- Assemble report ---------------------------------------------------
+    const report = buildDualRunReport({
+      userId,
+      weekStart,
+      weekEnd,
+      runMode,
+      legacyAnalyst: legacyAResult?.analysis || null,
+      newAnalyst: newResult?.analysis || null,
+      legacyDeltaA: legacyDeltaA || null,
+      legacyDeltaB: legacyDeltaB || null,
+      newDelta: newDelta || null,
+      observationRowCount: observationRows.length,
+      observationKinds,
+      notes: [],
+    });
+
+    // ---- Persist to shadow_runs --------------------------------------------
+    await step.run('persist-shadow-run', async () => {
+      const { error } = (await env.SUPABASE_CLIENT)
+        ? (() => {
+            throw new Error('use fetch');
+          })()
+        : await (async () => {
+            const resp = await fetch(`${env.SUPABASE_URL}/rest/v1/shadow_runs`, {
+              method: 'POST',
+              headers: {
+                apikey: env.SUPABASE_SERVICE_KEY,
+                Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                'Content-Type': 'application/json',
+                Prefer: 'return=minimal',
+              },
+              body: JSON.stringify({
+                user_id: userId,
+                week_start: weekStart,
+                week_end: weekEnd,
+                run_mode: runMode,
+                report,
+                verdict: report.verdict,
+                boundary_clean: report.boundary_clean,
+              }),
+            });
+            return { error: resp.ok ? null : await resp.text() };
+          })();
+      if (error) console.error('[testAnalystDualRun] shadow_runs insert error:', error);
+      return { inserted: !error };
+    });
+
+    return {
+      success: true,
+      verdict: report.verdict,
+      boundary_clean: report.boundary_clean,
+      signal_divergence: report.signal_divergence,
+      noise_divergence: report.noise_divergence,
+      observation_row_count: report.legacy_analyst.section_counts ? observationRows.length : 0,
     };
   },
 );
@@ -7708,6 +7842,7 @@ const inngestHandler = serve({
     testUnifiedAnalyst,
     testLifeMapRebuild,
     testWeeklySummaryV2,
+    testAnalystDualRun,
     weeklySummaryV2Dispatcher,
     weeklySummaryV2Worker,
     backfillIdentity,
