@@ -342,12 +342,12 @@ async function fetchChatSummaries(
   windowStart: string | null,
   windowEnd: string | null,
 ): Promise<ChatSummaryEntry[]> {
-  // space_chats uses user_id (see existing fetcher at index.js:4926).
+  // scope_chats uses user_id (renamed from space_chats in the Spaces→Scopes migration).
   // Only rows with a non-null running_summary count as signal (spec §7).
-  // No space_id is selected: the classifier never sees which space (if any)
+  // No scope_id is selected: the classifier never sees which scope (if any)
   // a chat belonged to.
   const q =
-    `space_chats?user_id=eq.${userId}` +
+    `scope_chats?user_id=eq.${userId}` +
     `&running_summary=not.is.null` +
     `&select=id,title,auto_title,running_summary,context_json,created_at` +
     windowClause('updated_at', windowStart, windowEnd) +
@@ -488,8 +488,7 @@ async function fetchCalendarSummary(
     spanDays = Math.max(1, Math.round(ms / (24 * 60 * 60 * 1000)));
   } else {
     const dates = raw.map((r) => r.target_date ?? r.created_at).sort();
-    const ms =
-      new Date(dates[dates.length - 1]).getTime() - new Date(dates[0]).getTime();
+    const ms = new Date(dates[dates.length - 1]).getTime() - new Date(dates[0]).getTime();
     spanDays = Math.max(1, Math.round(ms / (24 * 60 * 60 * 1000)));
   }
   const meetingsPerWeek = (total / spanDays) * 7;
