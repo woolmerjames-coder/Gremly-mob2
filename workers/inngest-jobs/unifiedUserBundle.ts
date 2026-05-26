@@ -77,7 +77,7 @@ function resolveWindow(window: BundleWindow): ResolvedWindow {
   fw.setUTCDate(fw.getUTCDate() + 14);
   return {
     windowStart: formatDateOnly(start),
-    windowEnd: asOf,
+    windowEnd: null, // keep asOf for calendar forward window only; row window is lower-bound only (matches legacy)
     forwardWindow: formatDateOnly(fw),
     asOf,
   };
@@ -465,10 +465,8 @@ async function fetchHabits(
   const columns =
     'id,name,title,notes,why_string,tags,frequency,cadence,target_per_period,' +
     'subtype,archived,commitment,space_id,created_at'; // +space_id (union)
-  const q =
-    `habits?owner_id=eq.${userId}&select=${columns}` +
-    windowClause('created_at', ws, we) +
-    `&order=created_at.asc&limit=500`;
+  // Habits are persistent — fetch all regardless of creation date (matches legacy).
+  const q = `habits?owner_id=eq.${userId}&select=${columns}&order=created_at.asc&limit=500`;
   return supabaseGet<HabitEntry>(env, q);
 }
 
@@ -1007,10 +1005,14 @@ export async function buildUnifiedUserBundle(
     if (s.id && s.name) spaceMap[s.id] = s.name;
   }
 
-  // drops = non-archived journals + non-archived notes
-  // Legacy fetchUserSnapshot queried notes with archived=eq.false at DB level; replicate
-  // that filter here so dropVelocity and spaceActivity receive an equivalent input.
-  const drops = [...journals, ...notes].filter((n) => !n.archived);
+  // drops = non-archived journals + non-archived non-event notes
+  // Legacy fetchUserSnapshot excluded subtype='event' notes from drops (events are counted
+  // separately via calendarEventsRaw); replicate here so dropVelocity and spaceActivity match.
+  // JournalEntry has no subtype field; journals are always subtype='journal', so the event
+  // exclusion is applied to notes only before the union.
+  const drops = [...journals, ...notes.filter((n) => n.subtype !== 'event')].filter(
+    (n) => !n.archived,
+  );
 
   // --- Computed metrics ---
   const calendarEvents = snapshotDeduplicateEvents(calendarEventsRaw);
