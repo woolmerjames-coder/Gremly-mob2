@@ -1,0 +1,104 @@
+[
+  {
+    "kind": "temporal_observation",
+    "detector_id": null,
+    "claim_summary": "Capacity triage remains an acute pressure across the whole week",
+    "observed_for_week": "2026-05-18",
+    "evidence_snapshot": {
+      "claim": "acute crisis response on capacity and triage",
+      "subject": "Capacity management and triage priorities",
+      "strength": "high",
+      "pattern_type": "ambient_meta_theme",
+      "date_span": ["2026-05-18", "2026-05-23"],
+      "evidence_refs": ["e1", "e2", "e3"],
+      "valence_trend": "acute crisis-driven exhaustion"
+    }
+  },
+  {
+    "kind": "temporal_observation",
+    "detector_id": null,
+    "claim_summary": "James has been less present this week; the warmth is quieter",
+    "observed_for_week": "2026-05-18",
+    "evidence_snapshot": {
+      "claim": "relational warmth with James is fading into distance",
+      "subject": "James and relational presence",
+      "strength": "medium",
+      "pattern_type": "named_person_arc",
+      "date_span": ["2026-05-18", "2026-05-23"],
+      "evidence_refs": ["e4", "e5"],
+      "valence_trend": "warmth → absence"
+    }
+  },
+  {
+    "kind": "temporal_observation",
+    "detector_id": null,
+    "claim_summary": "Dave named the deployment bottleneck and it unblocked the team",
+    "observed_for_week": "2026-05-18",
+    "evidence_snapshot": {
+      "claim": "naming the problem created space to resolve it",
+      "subject": "Naming the deployment bottleneck",
+      "strength": "medium",
+      "pattern_type": "hinge_moment",
+      "date_span": ["2026-05-19", "2026-05-22"],
+      "evidence_refs": ["e6", "e7"],
+      "valence_trend": null
+    }
+  },
+  {
+    "kind": "temporal_observation",
+    "detector_id": null,
+    "claim_summary": "Deployment anxiety spiked Mon-Thu then resolved after the hotfix",
+    "observed_for_week": "2026-05-18",
+    "evidence_snapshot": {
+      "claim": "concentrated anxiety around deployment then it passed",
+      "subject": "Deployment anxiety spike",
+      "strength": "medium",
+      "pattern_type": "state_cluster_burst",
+      "date_span": ["2026-05-19", "2026-05-22"],
+      "evidence_refs": ["e8"],
+      "valence_trend": null
+    }
+  },
+  {
+    "kind": "temporal_observation",
+    "detector_id": null,
+    "claim_summary": "Dave keeps returning to the same question about pace and limits",
+    "observed_for_week": "2026-05-18",
+    "evidence_snapshot": {
+      "claim": "recurring question about sustainable pace",
+      "subject": "When is enough enough",
+      "strength": "medium",
+      "pattern_type": "recurring_question",
+      "date_span": ["2026-05-18", "2026-05-25"],
+      "evidence_refs": ["e9", "e10", "e11"],
+      "valence_trend": null
+    }
+  },
+  {
+    "kind": "magic_moment",
+    "detector_id": null,
+    "claim_summary": "Dave had a moment of genuine ease on Friday afternoon",
+    "observed_for_week": "2026-05-18",
+    "evidence_snapshot": {
+      "title": "Friday afternoon quiet",
+      "date": "2026-05-23",
+      "why": "For an hour nothing needed doing and Dave let it be that",
+      "journal_quote": "It just felt quiet. Like the machine stopped for a minute.",
+      "connected_items": ["deployment resolved", "team call went well"]
+    }
+  },
+  {
+    "kind": "behavioral_fingerprint",
+    "detector_id": null,
+    "claim_summary": "Dave consistently narrates calm while signalling strain",
+    "observed_for_week": "2026-05-18",
+    "evidence_snapshot": {
+      "pattern": "Calm narration over felt strain",
+      "evidence": "Dave frames stressful events as routine across 4 entries this week. Linguistic markers of minimisation (fine, manageable, not a big deal) appear alongside content indicating high load.",
+      "is_novel": false,
+      "themes_involved": ["self-presentation", "workload", "emotional processing"],
+      "narrative_interest": 7,
+      "is_discovery_candidate": true
+    }
+  }
+]

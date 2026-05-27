@@ -24,17 +24,25 @@ export interface FilterOutcome {
 const MS_PER_WEEK = 7 * 24 * 60 * 60 * 1000;
 const norm = (s?: string) => (s ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
 
+// Word-boundary match prevents short keywords (e.g. 'win') from matching inside longer words.
+const wordMatch = (text: string, words: string[]): boolean =>
+  words.some((w) => new RegExp(`\\b${w}\\b`).test(text));
+
 function valenceDir(ev: Record<string, unknown>): 'up' | 'down' | 'neutral' {
   const trend = norm(ev['valence_trend'] as string);
   const tail = trend.includes('→') ? trend.split('→').pop()!.trim() : trend;
-  if (
-    ['relief', 'integration', 'presence', 'warmth', 'recovery', 'win'].some((w) => tail.includes(w))
-  )
+  if (wordMatch(tail, ['relief', 'integration', 'presence', 'warmth', 'recovery', 'win']))
     return 'up';
   if (
-    ['exhaustion', 'blocked', 'normalized', 'unresolved', 'collapse', 'absence', 'sacrifice'].some(
-      (w) => tail.includes(w),
-    )
+    wordMatch(tail, [
+      'exhaustion',
+      'blocked',
+      'normalized',
+      'unresolved',
+      'collapse',
+      'absence',
+      'sacrifice',
+    ])
   )
     return 'down';
   return 'neutral';
