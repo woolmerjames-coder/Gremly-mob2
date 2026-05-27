@@ -7,7 +7,7 @@
  * detector's preferred_templates), and urgency sort. Emits a ComposeLogEntry for every candidate.
  */
 
-import type { Candidate, ComposeLogEntry, TemplateId } from './summaryTypes';
+import type { Candidate, ComposeLogEntry, TemplateId, DetectorId } from './summaryTypes';
 import { templateFamily } from './summaryTemplates';
 
 const MAX_DECK = 7; // hero + <=5 middle + letter
@@ -129,4 +129,196 @@ function orderByFamily(cards: Candidate[]): Candidate[] {
     lastFamily = templateFamily(c.template_id);
   }
   return result;
+}
+
+// ── Clustering (within-week same-story dedup) ─────────────────────────────────
+
+export interface ClusterLogEntry {
+  representative: DetectorId;
+  absorbed: { detector_id: DetectorId; subject: string }[];
+}
+export interface ClusterResult {
+  representatives: Candidate[];
+  log: ClusterLogEntry[];
+}
+
+// v1 kinship guard: categorically standalone story types (change 2). Tunable.
+const STANDALONE: ReadonlySet<string> = new Set(['named_person_arc', 'sustained_chat_action_gap']);
+// Higher = headlines (change 1: interpretation over moment).
+const INTERP: Record<string, number> = {
+  ambient_meta_theme: 6,
+  naming_then_acting: 6,
+  named_person_arc: 5,
+  the_question: 5,
+  return_longing: 4,
+  state_cluster_burst: 4,
+  sustained_chat_action_gap: 4,
+  behavioral_discovery: 3,
+  magic_moment: 2,
+};
+const STOP = new Set(
+  'this that with from your dave james week days prior across capacity triage simultaneity'.split(
+    ' ',
+  ),
+);
+
+function datesIn(s: string): string[] {
+  const out: string[] = [];
+  for (const m of s.matchAll(/(\d{4})-(\d{2})-(\d{2})/g)) out.push(`${m[1]}-${m[2]}-${m[3]}`);
+  const MI: Record<string, string> = {
+    jan: '01',
+    feb: '02',
+    mar: '03',
+    apr: '04',
+    may: '05',
+    jun: '06',
+    jul: '07',
+    aug: '08',
+    sep: '09',
+    oct: '10',
+    nov: '11',
+    dec: '12',
+  };
+  for (const m of s.matchAll(
+    /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{1,2})\b/gi,
+  ))
+    out.push(`2026-${MI[m[1].slice(0, 3).toLowerCase()]}-${String(+m[2]).padStart(2, '0')}`);
+  return out;
+}
+// Focal day = the day the observation is centrally ABOUT (culmination), not its supporting context.
+function focalDay(c: Candidate): string | null {
+  const ev = c.evidence_snapshot ?? {};
+  if (typeof ev['date'] === 'string') return ev['date'] as string; // moment
+  const span = ev['date_span'] as string[] | undefined;
+  if (span?.length === 2) return span[1]; // temporal: end of span
+  const d = datesIn(String(ev['evidence'] ?? ev['pattern'] ?? '')).sort(); // fingerprint prose
+  return d.length ? d[d.length - 1] : null;
+}
+function themeTokens(c: Candidate): Set<string> {
+  const ev = c.evidence_snapshot ?? {};
+  const text = [
+    ev['subject'],
+    ev['pattern'],
+    ev['title'],
+    ev['why'],
+    ...((ev['themes_involved'] as string[]) ?? []),
+  ]
+    .join(' ')
+    .toLowerCase();
+  return new Set((text.match(/[a-z]{4,}/g) ?? []).filter((w) => !STOP.has(w)));
+}
+function clusterValenceDir(c: Candidate): 'up' | 'down' | 'neutral' {
+  const ev = c.evidence_snapshot ?? {};
+  const trend = String(ev['valence_trend'] ?? '').toLowerCase();
+  if (trend) {
+    const tail = trend.includes('\u2192') ? trend.split('\u2192').pop()!.trim() : trend;
+    if (
+      ['relief', 'integration', 'presence', 'warmth', 'recovery', 'win'].some((w) =>
+        tail.includes(w),
+      )
+    )
+      return 'up';
+    if (
+      [
+        'exhaustion',
+        'blocked',
+        'normalized',
+        'unresolved',
+        'collapse',
+        'absence',
+        'sacrifice',
+      ].some((w) => tail.includes(w))
+    )
+      return 'down';
+  }
+  const t = `${ev['pattern'] ?? ''} ${ev['evidence'] ?? ''}`.toLowerCase(); // fingerprint derivation
+  if (/integration|relief|recovery|return|presence|warmth|reintegrat|win/.test(t)) return 'up';
+  if (
+    /gap|collapse|dormancy|exceeds|backlog|stale|fragile|deficit|absence|sacrifice|unresolved|protection under/.test(
+      t,
+    )
+  )
+    return 'down';
+  return 'neutral';
+}
+const compat = (a: string, b: string) => a === 'neutral' || b === 'neutral' || a === b;
+function confidence(c: Candidate): number {
+  const sc = c.score_components ?? {};
+  if (sc['kind'] === 'magic_moment') return 3;
+  const s = sc['strength'] as string;
+  if (s) return s === 'high' ? 3 : s === 'medium' ? 2 : 1;
+  const ni = sc['narrative_interest'] as number;
+  return ni != null ? ni / 3 : 1;
+}
+function within1Day(a: string | null, b: string | null): boolean {
+  if (!a || !b) return false;
+  return Math.abs(+new Date(a) - +new Date(b)) <= 86400000;
+}
+
+export function clusterCandidates(candidates: Candidate[]): ClusterResult {
+  // Same-story edge: not a standalone type, valence-compatible, and share a focal day OR a theme token.
+  const edge = (a: Candidate, b: Candidate): boolean => {
+    if (STANDALONE.has(a.detector_id) || STANDALONE.has(b.detector_id)) return false;
+    if (!compat(clusterValenceDir(a), clusterValenceDir(b))) return false;
+    if (within1Day(focalDay(a), focalDay(b))) return true;
+    const ta = themeTokens(a),
+      tb = themeTokens(b);
+    for (const t of ta) if (tb.has(t)) return true;
+    return false;
+  };
+
+  // Connected components.
+  const parent = candidates.map((_, i) => i);
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  for (let i = 0; i < candidates.length; i++)
+    for (let j = i + 1; j < candidates.length; j++)
+      if (edge(candidates[i], candidates[j])) parent[find(i)] = find(j);
+
+  const groups = new Map<number, Candidate[]>();
+  candidates.forEach((c, i) => {
+    const r = find(i);
+    (groups.get(r) ?? groups.set(r, []).get(r)!).push(c);
+  });
+
+  const representatives: Candidate[] = [];
+  const log: ClusterLogEntry[] = [];
+  for (const members of groups.values()) {
+    // Representative = most interpretive, then most confident (change 1).
+    const ranked = [...members].sort((a, b) => {
+      const d = (INTERP[b.detector_id] ?? 0) - (INTERP[a.detector_id] ?? 0);
+      return d !== 0 ? d : confidence(b) - confidence(a);
+    });
+    const rep = ranked[0];
+    if (members.length === 1) {
+      representatives.push(rep);
+      log.push({ representative: rep.detector_id, absorbed: [] });
+      continue;
+    }
+
+    const refs = new Set<string>();
+    let groundingQuote: string | undefined;
+    for (const m of members) {
+      const ev = m.evidence_snapshot ?? {};
+      for (const r of (ev['evidence_refs'] as string[]) ?? []) refs.add(r);
+      for (const r of (ev['connected_items'] as string[]) ?? []) refs.add(r);
+      if (!groundingQuote && typeof ev['journal_quote'] === 'string')
+        groundingQuote = ev['journal_quote'] as string; // moment quote rides along
+    }
+    const absorbed = ranked.slice(1).map((o) => ({
+      detector_id: o.detector_id,
+      subject: o.dedup_key ?? String(o.fill_input['subject'] ?? o.fill_input['title'] ?? ''),
+    }));
+    representatives.push({
+      ...rep,
+      fill_input: {
+        ...rep.fill_input,
+        cluster_evidence_refs: [...refs],
+        grounding_quote: groundingQuote,
+        absorbed_angles: absorbed.map((a) => a.subject),
+      },
+      data_lineage: `${rep.data_lineage} \u00b7 synthesizes ${members.length} related observations`,
+    });
+    log.push({ representative: rep.detector_id, absorbed });
+  }
+  return { representatives, log };
 }
