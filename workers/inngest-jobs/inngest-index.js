@@ -1544,6 +1544,22 @@ const weeklySummaryV2Worker = inngest.createFunction(
       );
     });
 
+    await step.run('persist-analyst-observations', async () => {
+      const obsRows = buildAnalystObservations(analystResult.analysis, userId, weekDates.weekStart);
+      await clearAnalystObservationsForWeek(userId, weekDates.weekStart, env);
+      const p = await persistAnalystObservations(obsRows, env);
+      if (!p.ok) {
+        console.warn(
+          `[Weekly V2] Analyst observations persist failed for ${userId} week ${weekDates.weekStart}: ${p.status} ${p.error || ''}`,
+        );
+      } else {
+        console.log(
+          `[Weekly V2] Persisted ${p.inserted} analyst observations for ${userId} week ${weekDates.weekStart}`,
+        );
+      }
+      return { inserted: p.ok ? p.inserted : 0, ok: p.ok };
+    });
+
     const rebuildResult = await step.run('rebuild-life-map', async () => {
       const currentLifeMap = snapshot.raw.currentLifeMap?.life_map || null;
       if (!currentLifeMap) throw new Error('No existing Life Map found');
