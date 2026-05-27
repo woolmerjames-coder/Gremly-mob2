@@ -39,7 +39,6 @@ export type SectionName =
 // Sections that must be byte-for-byte identical (same fetcher, same window).
 export const IDENTICAL_SECTIONS: SectionName[] = [
   'journals',
-  'notes',
   'todos',
   'habitProgress',
   'chatSummaries',
@@ -48,9 +47,22 @@ export const IDENTICAL_SECTIONS: SectionName[] = [
   'photoNotes',
 ];
 
-// Sections that are intentional Phase 1 supersets (unwindowed in the unified
-// bundle): legacy must be a subset of unified, extras are expected.
-export const SUPERSET_SECTIONS: SectionName[] = ['habits', 'temporalAnchors'];
+// Sections that are intentional supersets: legacy must be a subset of unified
+// (every legacy item present), extras expected.
+//   - habits, temporalAnchors: unwindowed in the unified bundle (Phase 1 D-3),
+//     so a bounded window returns the all-time set as a superset.
+//   - notes: legacy `fetchNonJournalNotes` selects subtype in
+//     (catchall,idea,event,general) with limit=2000 THEN strips synced events
+//     in memory. For users with high synced-event volume in a window, the 2000
+//     budget fills with synced events before the strip, so legacy silently
+//     drops real notes past the budget. The unified bundle excludes synced
+//     events at the DB, so its budget holds real notes. Verified on James
+//     window 8 (2026-04-08..2026-05-06): 2919 synced events vs 31 real notes,
+//     legacy returned 15, unified returned all 31. The filters are otherwise
+//     logically identical (proven by SQL: same window, same set). So unified is
+//     a strict superset of legacy notes (recovers truncated rows), never a
+//     subset. This is a correctness improvement, not a divergence.
+export const SUPERSET_SECTIONS: SectionName[] = ['habits', 'temporalAnchors', 'notes'];
 
 // Fields Worlds actually consumes per section, taken from the signalCollector
 // entry types. The unified bundle is a column-superset (it selects extra fields
