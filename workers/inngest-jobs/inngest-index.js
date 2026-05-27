@@ -10,7 +10,11 @@ import { Inngest, InngestMiddleware } from 'inngest';
 import { serve } from 'inngest/cloudflare';
 import { jsonrepair } from 'jsonrepair';
 import { buildOutputAgnosticAnalystPrompt } from './analystPrompt';
-import { buildAnalystObservations } from './analystObservations';
+import {
+  buildAnalystObservations,
+  persistAnalystObservations,
+  clearAnalystObservationsForWeek,
+} from './analystObservations';
 import { buildDualRunReport } from './analystDualRunReport';
 import { collectSignalForBackfillClassifier } from './signalCollector';
 import { buildUnifiedUserBundle } from './unifiedUserBundle';
@@ -1149,6 +1153,145 @@ const testWorldsBundleEquivalence = inngest.createFunction(
         total_superset_extras: report.total_superset_extras,
         windows_checked: windowReports.length,
       };
+    });
+
+    return result;
+  },
+);
+
+const testAnalystObservationsWrite = inngest.createFunction(
+  {
+    id: 'test-analyst-observations-write',
+    name: 'Test Analyst Observations Write (Phase 2b Step B1)',
+    concurrency: { limit: 1 },
+  },
+  { event: 'app/test.analyst-observations-write' },
+  async ({ event, step, env }) => {
+    const userId = event.data.user_id;
+    if (!userId) throw new Error('user_id is required');
+    const timezone = event.data.timezone || 'UTC';
+
+    // 1. Snapshot + week boundaries (same math as the live weekly).
+    const snapshot = await step.run('fetch-snapshot', async () => {
+      return fetchUserSnapshot(userId, timezone, 21, env);
+    });
+    const weekDates = await step.run('compute-week', async () => {
+      const target = new Date(snapshot.targetDate + 'T00:00:00Z');
+      const dayOfWeek = target.getUTCDay();
+      const weekEndDate = new Date(target);
+      weekEndDate.setUTCDate(target.getUTCDate() - (dayOfWeek === 0 ? 0 : dayOfWeek));
+      const weekStartDate = new Date(weekEndDate);
+      weekStartDate.setUTCDate(weekEndDate.getUTCDate() - 6);
+      return { weekStart: formatDateOnly(weekStartDate), weekEnd: formatDateOnly(weekEndDate) };
+    });
+
+    // 2. Output-agnostic analyst (same call the dual-run uses).
+    const analysisNew = await step.run('run-analyst', async () => {
+      const ws = buildWeeklySnapshot(snapshot);
+      const lifeMap = snapshot.raw?.currentLifeMap?.life_map || null;
+      const r = await runUnifiedAnalyst(ws, lifeMap, weekDates.weekStart, weekDates.weekEnd, env, {
+        outputAgnostic: true,
+      });
+      return r.analysis;
+    });
+
+    // Helper: read back the live analyst rows for this user-week.
+    const readBack = async () => {
+      const res = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/observations` +
+          `?user_id=eq.${userId}&stage=eq.analyst&observed_for_week=eq.${weekDates.weekStart}` +
+          `&select=id,kind`,
+        {
+          headers: {
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          },
+        },
+      );
+      if (!res.ok)
+        throw new Error(`readBack failed: ${res.status} ${await res.text().catch(() => '')}`);
+      const rows = await res.json();
+      const byKind = {};
+      const ids = [];
+      for (const r of rows) {
+        byKind[r.kind] = (byKind[r.kind] || 0) + 1;
+        ids.push(r.id);
+      }
+      return { count: rows.length, byKind, ids: ids.sort() };
+    };
+
+    // 3. The idempotency gate: clear+persist TWICE, reading the table back after
+    //    each, and compare. clear-then-persist is one step.run so a crash between
+    //    them self-heals on retry (clear is idempotent, persist re-inserts).
+    const rows = buildAnalystObservations(analysisNew, userId, weekDates.weekStart);
+
+    const expected_by_kind = {};
+    for (const row of rows) expected_by_kind[row.kind] = (expected_by_kind[row.kind] || 0) + 1;
+
+    const firstWrite = await step.run('clear-and-persist-1', async () => {
+      await clearAnalystObservationsForWeek(userId, weekDates.weekStart, env);
+      const p = await persistAnalystObservations(rows, env);
+      if (!p.ok) throw new Error(`persist 1 failed: ${p.status} ${p.error || ''}`);
+      return p;
+    });
+    const afterFirst = await step.run('read-back-1', async () => readBack());
+
+    const secondWrite = await step.run('clear-and-persist-2', async () => {
+      await clearAnalystObservationsForWeek(userId, weekDates.weekStart, env);
+      const p = await persistAnalystObservations(rows, env);
+      if (!p.ok) throw new Error(`persist 2 failed: ${p.status} ${p.error || ''}`);
+      return p;
+    });
+    const afterSecond = await step.run('read-back-2', async () => readBack());
+
+    // 4. Assemble the proof and write a record to shadow_runs. The real analyst
+    //    rows remain in observations (that is the graduation: live, correct rows).
+    const result = await step.run('assess-and-record', async () => {
+      const countsStable = afterFirst.count === afterSecond.count;
+      const expectedCount = rows.length;
+      const matchesExpected =
+        afterFirst.count === expectedCount &&
+        JSON.stringify(afterFirst.byKind) === JSON.stringify(expected_by_kind);
+
+      const report = {
+        user_id: userId,
+        week_start: weekDates.weekStart,
+        expected_count: expectedCount,
+        expected_by_kind,
+        inserted_first: afterFirst.count,
+        inserted_second: afterSecond.count,
+        by_kind_first: afterFirst.byKind,
+        by_kind_second: afterSecond.byKind,
+        counts_stable: countsStable,
+        clear_worked: countsStable && afterSecond.count === expectedCount,
+        matches_expected: matchesExpected,
+        verdict:
+          countsStable && matchesExpected && afterSecond.count === expectedCount ? 'pass' : 'fail',
+      };
+
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/shadow_runs`, {
+        method: 'POST',
+        headers: {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          run_kind: 'analyst_observations_write_test',
+          run_mode: 'incremental',
+          payload: { report },
+          window_start: weekDates.weekStart,
+          window_end: weekDates.weekEnd,
+        }),
+      });
+      if (!res.ok)
+        throw new Error(
+          `shadow_runs write failed: ${res.status} ${await res.text().catch(() => '')}`,
+        );
+
+      return report;
     });
 
     return result;
@@ -8041,6 +8184,7 @@ const inngestHandler = serve({
     testWeeklySummaryV2,
     testAnalystDualRun,
     testWorldsBundleEquivalence,
+    testAnalystObservationsWrite,
     weeklySummaryV2Dispatcher,
     weeklySummaryV2Worker,
     backfillIdentity,

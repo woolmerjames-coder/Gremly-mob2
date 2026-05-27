@@ -239,7 +239,14 @@ export async function clearAnalystObservationsForWeek(
 
   const url =
     `${env.SUPABASE_URL}/rest/v1/observations` +
-    `?user_id=eq.${userId}&stage=eq.analyst&observed_for_week=eq.${observedForWeek}`;
+    `?user_id=eq.${userId}&stage=eq.analyst&observed_for_week=eq.${observedForWeek}` +
+    // Never clear an observation that a shipped summary already references. This
+    // is a no-op today (no summary stage sets surfaced_in_summary_id yet, so the
+    // filter matches every analyst row and behavior is identical to an
+    // unguarded whole-week clear). It is built in now so that the moment
+    // summaries ship (Phase 3/4) and start marking observations surfaced, a
+    // re-run's clear cannot silently delete a row a shipped summary points at.
+    `&surfaced_in_summary_id=is.null`;
 
   const res = await fetch(url, { method: 'DELETE', headers });
   if (!res.ok) {
