@@ -1309,6 +1309,54 @@ const testAnalystObservationsWrite = inngest.createFunction(
   },
 );
 
+const backfillAnalystForWeek = inngest.createFunction(
+  {
+    id: 'backfill-analyst-for-week',
+    name: 'Backfill analyst observations for a specific historical week',
+  },
+  { event: 'app/backfill.analyst-for-week' },
+  async ({ event, step, env }) => {
+    const { user_id: userId, week_start, timezone = 'UTC' } = event.data;
+    if (!userId) throw new Error('user_id is required');
+    if (!week_start) throw new Error('week_start is required (yyyy-mm-dd, must be a Monday)');
+
+    const start = new Date(week_start + 'T00:00:00Z');
+    if (start.getUTCDay() !== 1) {
+      throw new Error(`week_start ${week_start} is not a Monday (UTC day ${start.getUTCDay()})`);
+    }
+    const week_end = formatDateOnly(new Date(+start + 6 * 86400000));
+
+    // Step 1: fetch historical snapshot anchored to the target week's Sunday.
+    // opts.targetDate overrides "today" in fetchUserSnapshot's date math, so the
+    // 21-day window looks back from week_end rather than from the current date.
+    const snapshot = await step.run('fetch-snapshot', async () => {
+      return fetchUserSnapshot(userId, timezone, 21, env, { targetDate: week_end });
+    });
+
+    // Step 2: run the output-agnostic analyst against the historical snapshot.
+    const analysis = await step.run('run-analyst', async () => {
+      const ws = buildWeeklySnapshot(snapshot);
+      const lifeMap = snapshot.raw?.currentLifeMap?.life_map || null;
+      const r = await runUnifiedAnalyst(ws, lifeMap, week_start, week_end, env, {
+        outputAgnostic: true,
+      });
+      return r.analysis;
+    });
+
+    // Step 3: build rows, clear-before-persist (idempotent), write.
+    const rows = buildAnalystObservations(analysis, userId, week_start);
+
+    const written = await step.run('clear-and-persist', async () => {
+      await clearAnalystObservationsForWeek(userId, week_start, env);
+      const p = await persistAnalystObservations(rows, env);
+      if (!p.ok) throw new Error(`persist failed: ${p.status} ${p.error || ''}`);
+      return rows.length;
+    });
+
+    return { user_id: userId, week_start, week_end, observations_written: written };
+  },
+);
+
 const testWorldsOutputDualRun = inngest.createFunction(
   {
     id: 'test-worlds-output-dual-run',
@@ -8499,6 +8547,7 @@ const inngestHandler = serve({
     testAnalystDualRun,
     testWorldsBundleEquivalence,
     testAnalystObservationsWrite,
+    backfillAnalystForWeek,
     testWorldsOutputDualRun,
     testSummaryV05,
     weeklySummaryV2Dispatcher,
