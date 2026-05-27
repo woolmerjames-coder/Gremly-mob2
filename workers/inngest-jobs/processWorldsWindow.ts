@@ -16,6 +16,8 @@ import { collectSignalForBackfillClassifier } from './signalCollector';
 import { loadActiveState } from './worldsActiveState';
 import { classifyWorldsWeekly } from './worldsClassifier';
 import { writeClassifierOutput, WriteResult } from './worldsWriter';
+import { buildUnifiedUserBundle } from './unifiedUserBundle';
+import type { AnalystObservationsInput } from './worldsClassifier';
 
 // ─── Env type ─────────────────────────────────────────────────────────────────
 
@@ -52,19 +54,89 @@ export async function processWorldsWindow(params: {
   windowStart: string;
   windowEnd: string;
   env: ProcessWindowEnv;
+  opts?: {
+    useUnifiedBundle?: boolean;
+    useAnalystLedger?: boolean;
+  };
 }): Promise<ProcessWindowResult> {
   const { ownerId, windowStart, windowEnd, env } = params;
+  const useUnifiedBundle = params.opts?.useUnifiedBundle === true;
+  const useAnalystLedger = params.opts?.useAnalystLedger === true;
 
-  // Step 1: collect backfill signal bundle for this window range
-  const bundle = await collectSignalForBackfillClassifier(
-    ownerId,
-    env,
-    windowStart,
-    windowEnd,
-  );
+  // Step 1: collect signal. Default = legacy backfill collector (byte-identical
+  // to production). Flag = unified bundle (range mode), reconstructed into the
+  // BackfillSignalBundle shape the classifier expects (11 sections + the
+  // backfill discriminator fields). Step A proved the unified bundle a strict
+  // superset-or-equal of these sections for Worlds.
+  let bundle;
+  if (useUnifiedBundle) {
+    const u = await buildUnifiedUserBundle(ownerId, env, {
+      mode: 'range',
+      windowStart,
+      windowEnd,
+    });
+    bundle = {
+      mode: 'backfill' as const,
+      userId: ownerId,
+      collectedAt: u.collectedAt,
+      windowStart,
+      windowEnd,
+      journals: u.raw.journals,
+      notes: u.raw.notes,
+      todos: u.raw.todos,
+      habits: u.raw.habits,
+      habitProgress: u.raw.habitProgress,
+      chatSummaries: u.raw.chatSummaries,
+      temporalAnchors: u.raw.temporalAnchors,
+      profileOverrides: u.raw.profileOverrides,
+      ritualProgress: u.raw.ritualProgress,
+      photoNotes: u.raw.photoNotes,
+      calendarSummary: u.raw.calendarSummary,
+    };
+  } else {
+    bundle = await collectSignalForBackfillClassifier(ownerId, env, windowStart, windowEnd);
+  }
 
   // Step 2: load active state fresh so this window sees prior writes
   const { activeWorlds, activeChapters, activeLifeContexts } = await loadActiveState(ownerId, env);
+
+  // Read the latest analyst observations (world_signal_candidates +
+  // temporal_observations) from the shared ledger. C-D2: latest observed_for_week
+  // only (current signal; evolution comes from active-state delta, not history).
+  let analystObservations: AnalystObservationsInput | undefined;
+  if (useAnalystLedger) {
+    const headers = {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+    };
+    // Find the user's most recent analyst observed_for_week.
+    const latestRes = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/observations` +
+        `?user_id=eq.${ownerId}&stage=eq.analyst` +
+        `&select=observed_for_week&order=observed_for_week.desc&limit=1`,
+      { headers },
+    );
+    const latestRows = latestRes.ok ? await latestRes.json() : [];
+    const latestWeek = Array.isArray(latestRows) && latestRows[0]?.observed_for_week;
+
+    if (latestWeek) {
+      const obsRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/observations` +
+          `?user_id=eq.${ownerId}&stage=eq.analyst&observed_for_week=eq.${latestWeek}` +
+          `&kind=in.(world_signal_candidate,temporal_observation)` +
+          `&select=kind,evidence_snapshot`,
+        { headers },
+      );
+      const obsRows = obsRes.ok ? await obsRes.json() : [];
+      const world_signal_candidates = [];
+      const temporal_observations = [];
+      for (const r of obsRows) {
+        if (r.kind === 'world_signal_candidate') world_signal_candidates.push(r.evidence_snapshot);
+        else if (r.kind === 'temporal_observation') temporal_observations.push(r.evidence_snapshot);
+      }
+      analystObservations = { world_signal_candidates, temporal_observations };
+    }
+  }
 
   // Step 3: classify
   const classifierOutput = await classifyWorldsWeekly(
@@ -73,6 +145,7 @@ export async function processWorldsWindow(params: {
     activeChapters,
     activeLifeContexts,
     { ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY },
+    analystObservations,
   );
 
   // Step 4: write to Supabase
