@@ -44,7 +44,8 @@ export interface ClassifierCounts {
 
 export interface ProcessWindowResult {
   classifierCounts: ClassifierCounts;
-  writeResult: WriteResult;
+  writeResult: WriteResult | null;
+  classifierOutput?: unknown;
 }
 
 // ─── Main export ──────────────────────────────────────────────────────────────
@@ -57,11 +58,13 @@ export async function processWorldsWindow(params: {
   opts?: {
     useUnifiedBundle?: boolean;
     useAnalystLedger?: boolean;
+    dryRun?: boolean;
   };
 }): Promise<ProcessWindowResult> {
   const { ownerId, windowStart, windowEnd, env } = params;
   const useUnifiedBundle = params.opts?.useUnifiedBundle === true;
   const useAnalystLedger = params.opts?.useAnalystLedger === true;
+  const dryRun = params.opts?.dryRun === true;
 
   // Step 1: collect signal. Default = legacy backfill collector (byte-identical
   // to production). Flag = unified bundle (range mode), reconstructed into the
@@ -147,6 +150,28 @@ export async function processWorldsWindow(params: {
     { ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY },
     analystObservations,
   );
+
+  // Dry run: skip the DB write entirely and return the classifier output for
+  // diffing. Used by the Step C output dual-run harness so it can run the
+  // pipeline under multiple flag combinations without mutating worlds/chapters.
+  if (dryRun) {
+    return {
+      classifierCounts: {
+        new_worlds: classifierOutput.new_world_candidates.length,
+        new_chapters: classifierOutput.new_chapter_candidates.length,
+        new_life_contexts: classifierOutput.new_life_context_candidates.length,
+        chapter_updates: classifierOutput.chapter_updates.length,
+        velocity_updates: classifierOutput.velocity_updates.length,
+        reclassifications: classifierOutput.reclassification_proposals.length,
+        evolutions: classifierOutput.evolution_proposals.length,
+        reactivations: classifierOutput.reactivation_proposals.length,
+        input_tokens: classifierOutput.run_metadata.input_tokens,
+        output_tokens: classifierOutput.run_metadata.output_tokens,
+      },
+      writeResult: null,
+      classifierOutput,
+    };
+  }
 
   // Step 4: write to Supabase
   const writeResult = await writeClassifierOutput(classifierOutput, ownerId, {
