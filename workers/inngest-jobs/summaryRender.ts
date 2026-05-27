@@ -165,6 +165,40 @@ function renderLetter(b: LetterBody, card: SummaryCard): string {
     <div style="display:flex;align-items:center;gap:8px;padding-top:12px;border-top:1px solid #C8D8C8;"><div style="width:28px;height:28px;background:var(--sage-mist);border-radius:50%;"></div><span style="font-size:10px;color:var(--grey-soft);"><strong style="color:var(--moss);">${esc(b.signature.name)}</strong> · Level ${esc(b.signature.level)} · ${esc(b.signature.state)}</span></div>`;
 }
 
+function renderSingleSentence(body: Record<string, unknown>, card: SummaryCard): string {
+  const quote = body['grounding_quote'] as string | null;
+  const quoteHtml = quote
+    ? `<blockquote style="border-left:3px solid var(--periwinkle);margin:10px 0;padding:8px 12px;font-size:12px;color:#3A3D5A;font-style:italic;background:#F4F3FA;border-radius:0 6px 6px 0;">${esc(quote)}</blockquote>`
+    : '';
+  return `${eyebrow(card)}${heroLine(card)}${quoteHtml}${insightBlock(card)}${foot(card)}`;
+}
+
+function renderEvidenceChain(body: Record<string, unknown>, card: SummaryCard): string {
+  const points = (body['evidence_points'] as string[] | undefined) ?? [];
+  const quote = body['grounding_quote'] as string | null;
+  const quoteHtml = quote
+    ? `<blockquote style="border-left:3px solid var(--periwinkle);margin:10px 0;padding:8px 12px;font-size:12px;color:#3A3D5A;font-style:italic;background:#F4F3FA;border-radius:0 6px 6px 0;">${esc(quote)}</blockquote>`
+    : '';
+  const chainHtml = points.length
+    ? `<div style="margin-bottom:12px;">${points
+        .map(
+          (pt, i) =>
+            `<div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid #F0ECE2;"><span style="font-size:10px;color:var(--grey-faint);width:16px;flex-shrink:0;">${i + 1}</span><span style="font-size:12px;color:var(--ink);">${esc(pt)}</span></div>`,
+        )
+        .join('')}</div>`
+    : '';
+  return `${eyebrow(card)}${heroLine(card)}${chainHtml}${quoteHtml}${insightBlock(card)}${recBlock(card)}${foot(card)}`;
+}
+
+function renderPhotoLead(body: Record<string, unknown>, card: SummaryCard): string {
+  const quote = body['quote'] as string | null;
+  const caption = body['caption'] as string | null;
+  const quoteHtml = quote
+    ? `<blockquote style="border-left:3px solid var(--golden-deep);margin:10px 0;padding:10px 14px;font-size:13px;color:var(--ink-soft);font-style:italic;background:var(--amber-bg);border-radius:0 8px 8px 0;">${esc(quote)}${caption ? `<div style="font-size:9px;color:var(--grey-faint);margin-top:6px;font-style:normal;">${esc(caption)}</div>` : ''}</blockquote>`
+    : '';
+  return `${eyebrow(card)}${heroLine(card)}${quoteHtml}${insightBlock(card)}${recBlock(card)}${foot(card)}`;
+}
+
 function renderCardInner(card: SummaryCard): string {
   switch (card.type) {
     case 'hero_spine_v1':
@@ -179,6 +213,12 @@ function renderCardInner(card: SummaryCard): string {
       return renderBigNumber(card.body as BigNumberBody, card);
     case 'letter_v1':
       return renderLetter(card.body as LetterBody, card);
+    case 'single_sentence_v1':
+      return renderSingleSentence(card.body as unknown as Record<string, unknown>, card);
+    case 'evidence_chain_v1':
+      return renderEvidenceChain(card.body as unknown as Record<string, unknown>, card);
+    case 'photo_lead_v1':
+      return renderPhotoLead(card.body as unknown as Record<string, unknown>, card);
     default:
       return `<div style="color:#b00;">Unknown template: ${esc((card as SummaryCard).type)}</div>`;
   }

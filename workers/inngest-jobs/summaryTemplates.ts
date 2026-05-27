@@ -389,42 +389,221 @@ export const TEMPLATE_REGISTRY: Record<TemplateId, TemplateDef> = {
     },
   },
 
-  // ── single_sentence_v1 ── (stub; full schema ships with FILL/RENDER wiring Unit 4) ──
+  // ── single_sentence_v1 ───────────────────────────────────────────────────────
   single_sentence_v1: {
     id: 'single_sentence_v1',
     family: 'statement',
-    fill_fields: [...COMMON_FILL_FIELDS],
+    fill_fields: [
+      {
+        key: 'eyebrow_icon',
+        max_words: 3,
+        required: true,
+        semantic: 'A single Lucide icon name fitting the finding.',
+      },
+      {
+        key: 'eyebrow_text',
+        max_words: 6,
+        required: true,
+        semantic: 'A short kicker naming what the card is about.',
+      },
+      {
+        key: 'hero_sentence',
+        max_words: 22,
+        required: true,
+        semantic:
+          'The single interpretation stated as one declarative sentence the user could not have written about themselves. Lead with the insight, not the event.',
+      },
+      {
+        key: 'grounding',
+        max_words: 28,
+        required: false,
+        semantic: 'One concrete observed detail that the claim rests on.',
+      },
+      {
+        key: 'data_lineage_footer',
+        max_words: 14,
+        required: true,
+        semantic: 'The evidence basis, plainly.',
+      },
+    ],
     assemble(prose, candidate) {
-      return { ...commonAssemble(prose, candidate), body: {} as never };
+      const groundingQuote = candidate.fill_input['grounding_quote'] as string | undefined;
+      return {
+        type: 'single_sentence_v1',
+        source_detector: candidate.detector_id,
+        valence: candidate.valence,
+        eyebrow_icon: String(prose['eyebrow_icon'] ?? ''),
+        eyebrow_text: String(prose['eyebrow_text'] ?? ''),
+        hero_sentence: String(prose['hero_sentence'] ?? ''),
+        insight: String(prose['grounding'] ?? ''),
+        concept_ref: null,
+        data_lineage_footer: candidate.data_lineage,
+        body: { grounding_quote: groundingQuote ?? null } as never,
+      };
     },
     validate(card) {
-      return { ok: commonValidate(card).length === 0, errors: commonValidate(card) };
+      const e: string[] = [];
+      if (!card.eyebrow_icon) e.push('missing eyebrow_icon');
+      if (!card.hero_sentence) e.push('missing hero_sentence');
+      if (countWords(card.hero_sentence) > 22) e.push('hero_sentence > 22 words');
+      if (card.insight && countWords(card.insight) > 28) e.push('grounding > 28 words');
+      if (!card.data_lineage_footer) e.push('missing data_lineage_footer');
+      if (countWords(card.data_lineage_footer) > 14) e.push('data_lineage_footer > 14 words');
+      return { ok: e.length === 0, errors: e };
     },
   },
 
-  // ── evidence_chain_v1 ── (stub; full schema ships with FILL/RENDER wiring Unit 4) ──
+  // ── evidence_chain_v1 ───────────────────────────────────────────────────────
   evidence_chain_v1: {
     id: 'evidence_chain_v1',
     family: 'chain',
-    fill_fields: [...COMMON_FILL_FIELDS],
+    fill_fields: [
+      {
+        key: 'eyebrow_icon',
+        max_words: 3,
+        required: true,
+        semantic: 'A single Lucide icon name fitting the finding.',
+      },
+      {
+        key: 'eyebrow_text',
+        max_words: 6,
+        required: true,
+        semantic: 'A short kicker naming what the card is about.',
+      },
+      {
+        key: 'hero_sentence',
+        max_words: 20,
+        required: true,
+        semantic: 'The interpretation as headline.',
+      },
+      {
+        key: 'insight',
+        max_words: 45,
+        required: true,
+        semantic: "What this reveals that the user can't see from inside it.",
+      },
+      {
+        key: 'evidence_points',
+        max_words: 0,
+        required: true,
+        semantic:
+          'The chain of concrete observations, drawn from cluster_evidence_refs, that builds to the insight. Return as an array of 3-4 strings, each at most 12 words.',
+      },
+      {
+        key: 'data_lineage_footer',
+        max_words: 14,
+        required: true,
+        semantic: 'The evidence basis, plainly.',
+      },
+    ],
     assemble(prose, candidate) {
-      return { ...commonAssemble(prose, candidate), body: {} as never };
+      const rawPoints = Array.isArray(prose['evidence_points'])
+        ? (prose['evidence_points'] as unknown[]).map(String)
+        : [];
+      const groundingQuote = candidate.fill_input['grounding_quote'] as string | undefined;
+      return {
+        type: 'evidence_chain_v1',
+        source_detector: candidate.detector_id,
+        valence: candidate.valence,
+        eyebrow_icon: String(prose['eyebrow_icon'] ?? ''),
+        eyebrow_text: String(prose['eyebrow_text'] ?? ''),
+        hero_sentence: String(prose['hero_sentence'] ?? ''),
+        insight: String(prose['insight'] ?? ''),
+        concept_ref: null,
+        data_lineage_footer: candidate.data_lineage,
+        body: { evidence_points: rawPoints, grounding_quote: groundingQuote ?? null } as never,
+      };
     },
     validate(card) {
-      return { ok: commonValidate(card).length === 0, errors: commonValidate(card) };
+      const e: string[] = [];
+      if (!card.eyebrow_icon) e.push('missing eyebrow_icon');
+      if (!card.hero_sentence) e.push('missing hero_sentence');
+      if (countWords(card.hero_sentence) > 20) e.push('hero_sentence > 20 words');
+      if (!card.insight) e.push('missing insight');
+      if (countWords(card.insight) > 45) e.push('insight > 45 words');
+      const b = card.body as { evidence_points?: string[] };
+      if (!b?.evidence_points || b.evidence_points.length < 3 || b.evidence_points.length > 4)
+        e.push('evidence_chain needs 3-4 evidence_points');
+      for (const pt of b?.evidence_points ?? [])
+        if (countWords(pt) > 12) e.push(`evidence_point > 12 words: "${pt.slice(0, 20)}"`);
+      if (!card.data_lineage_footer) e.push('missing data_lineage_footer');
+      if (countWords(card.data_lineage_footer) > 14) e.push('data_lineage_footer > 14 words');
+      return { ok: e.length === 0, errors: e };
     },
   },
 
-  // ── photo_lead_v1 ── (stub; full schema ships with FILL/RENDER wiring Unit 4) ──
+  // ── photo_lead_v1 ────────────────────────────────────────────────────────────
   photo_lead_v1: {
     id: 'photo_lead_v1',
-    family: 'photo',
-    fill_fields: [...COMMON_FILL_FIELDS],
+    family: 'media',
+    fill_fields: [
+      {
+        key: 'eyebrow_icon',
+        max_words: 3,
+        required: true,
+        semantic: 'A single Lucide icon name fitting the finding.',
+      },
+      {
+        key: 'eyebrow_text',
+        max_words: 6,
+        required: true,
+        semantic: 'A short kicker naming what the card is about.',
+      },
+      {
+        key: 'hero_sentence',
+        max_words: 18,
+        required: true,
+        semantic: "What the moment MEANT — the interpretation, not 'you did X'.",
+      },
+      {
+        key: 'insight',
+        max_words: 40,
+        required: true,
+        semantic: 'The pattern the moment is evidence for.',
+      },
+      {
+        key: 'caption',
+        max_words: 10,
+        required: false,
+        semantic: 'A short caption for the moment.',
+      },
+      {
+        key: 'data_lineage_footer',
+        max_words: 14,
+        required: true,
+        semantic: 'The evidence basis, plainly.',
+      },
+    ],
     assemble(prose, candidate) {
-      return { ...commonAssemble(prose, candidate), body: {} as never };
+      const quote =
+        (candidate.fill_input['journal_quote'] as string | undefined) ??
+        (candidate.fill_input['grounding_quote'] as string | undefined) ??
+        null;
+      return {
+        type: 'photo_lead_v1',
+        source_detector: candidate.detector_id,
+        valence: candidate.valence,
+        eyebrow_icon: String(prose['eyebrow_icon'] ?? ''),
+        eyebrow_text: String(prose['eyebrow_text'] ?? ''),
+        hero_sentence: String(prose['hero_sentence'] ?? ''),
+        insight: String(prose['insight'] ?? ''),
+        concept_ref: null,
+        data_lineage_footer: candidate.data_lineage,
+        body: { quote, caption: prose['caption'] ? String(prose['caption']) : null } as never,
+      };
     },
     validate(card) {
-      return { ok: commonValidate(card).length === 0, errors: commonValidate(card) };
+      const e: string[] = [];
+      if (!card.eyebrow_icon) e.push('missing eyebrow_icon');
+      if (!card.hero_sentence) e.push('missing hero_sentence');
+      if (countWords(card.hero_sentence) > 18) e.push('hero_sentence > 18 words');
+      if (!card.insight) e.push('missing insight');
+      if (countWords(card.insight) > 40) e.push('insight > 40 words');
+      const b = card.body as { caption?: string };
+      if (b?.caption && countWords(b.caption) > 10) e.push('caption > 10 words');
+      if (!card.data_lineage_footer) e.push('missing data_lineage_footer');
+      if (countWords(card.data_lineage_footer) > 14) e.push('data_lineage_footer > 14 words');
+      return { ok: e.length === 0, errors: e };
     },
   },
 };
