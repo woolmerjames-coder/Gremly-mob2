@@ -52,6 +52,102 @@ export const IDENTICAL_SECTIONS: SectionName[] = [
 // bundle): legacy must be a subset of unified, extras are expected.
 export const SUPERSET_SECTIONS: SectionName[] = ['habits', 'temporalAnchors'];
 
+// Fields Worlds actually consumes per section, taken from the signalCollector
+// entry types. The unified bundle is a column-superset (it selects extra fields
+// like space_id, due_day, scope_id, updated_at for its other consumers such as
+// Life Map and DCO). Worlds never reads those. Equivalence for Worlds therefore
+// means: identical on THESE fields, per row. We project each row down to this
+// allowlist before value-comparison so extra union columns do not register as
+// differences. A null/undefined entry means "compare the whole row" (used for
+// sections whose every field Worlds consumes).
+const CONSUMED_FIELDS: Record<SectionName, string[]> = {
+  journals: [
+    'id',
+    'title',
+    'body',
+    'mood',
+    'tags',
+    'origin',
+    'created_at',
+    'target_date',
+    'date',
+    'is_goal',
+    'archived',
+  ],
+  notes: [
+    'id',
+    'title',
+    'body',
+    'subtype',
+    'mood',
+    'tags',
+    'origin',
+    'created_at',
+    'target_date',
+    'date',
+    'is_goal',
+    'archived',
+  ],
+  todos: [
+    'id',
+    'title',
+    'name',
+    'body',
+    'notes',
+    'subtype',
+    'tags',
+    'status',
+    'completed_at',
+    'archived',
+    'due_date',
+    'target_date',
+    'scheduled_date',
+    'created_at',
+  ],
+  habits: [
+    'id',
+    'name',
+    'title',
+    'notes',
+    'why_string',
+    'tags',
+    'frequency',
+    'cadence',
+    'target_per_period',
+    'subtype',
+    'archived',
+    'commitment',
+    'created_at',
+  ],
+  habitProgress: ['habit_id', 'occurred_day', 'occurred_at'],
+  chatSummaries: ['id', 'title', 'auto_title', 'running_summary', 'context_json', 'created_at'],
+  temporalAnchors: [
+    'id',
+    'title',
+    'description',
+    'category',
+    'date_text',
+    'resolved_date',
+    'date_confidence',
+    'date_range_start',
+    'date_range_end',
+    'status',
+    'created_at',
+  ],
+  profileOverrides: ['action', 'fact_text', 'created_at'],
+  ritualProgress: ['ritual_day', 'drops_count', 'sweeps_count', 'feeding_gauge_value', 'is_fed'],
+  photoNotes: ['note_id', 'created_at', 'parent_note_body'],
+};
+
+// Project a row to only the fields Worlds consumes for its section, so extra
+// union columns the unified bundle carries are ignored in value-comparison.
+function projectRow(section: SectionName, row: Record<string, unknown>): Record<string, unknown> {
+  const fields = CONSUMED_FIELDS[section];
+  const out: Record<string, unknown> = {};
+  for (const f of fields) out[f] = row[f];
+  return out;
+}
+
 // Identity-key extractor per section.
 function identityKey(section: SectionName, row: Record<string, unknown>): string {
   switch (section) {
@@ -136,7 +232,9 @@ export function diffSection(
     const urow = unifiedIdx.get(k);
     if (!urow) {
       missing_from_unified.push(k);
-    } else if (stable(lrow) !== stable(urow)) {
+    } else if (stable(projectRow(section, lrow)) !== stable(projectRow(section, urow))) {
+      // Compare only the fields Worlds consumes; extra union columns on the
+      // unified row (space_id, due_day, scope_id, updated_at, ...) are ignored.
       value_changed.push(k);
     }
   }
