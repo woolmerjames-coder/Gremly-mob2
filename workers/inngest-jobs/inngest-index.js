@@ -1249,9 +1249,17 @@ const testAnalystObservationsWrite = inngest.createFunction(
     const result = await step.run('assess-and-record', async () => {
       const countsStable = afterFirst.count === afterSecond.count;
       const expectedCount = rows.length;
+      const sameKindMap = (a, b) => {
+        const ak = Object.keys(a).sort();
+        const bk = Object.keys(b).sort();
+        if (ak.length !== bk.length) return false;
+        for (const k of ak) {
+          if (a[k] !== b[k]) return false;
+        }
+        return true;
+      };
       const matchesExpected =
-        afterFirst.count === expectedCount &&
-        JSON.stringify(afterFirst.byKind) === JSON.stringify(expected_by_kind);
+        afterFirst.count === expectedCount && sameKindMap(afterFirst.byKind, expected_by_kind);
 
       const report = {
         user_id: userId,
