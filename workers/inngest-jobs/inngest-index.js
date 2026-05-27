@@ -12,6 +12,10 @@ import { jsonrepair } from 'jsonrepair';
 import { buildOutputAgnosticAnalystPrompt } from './analystPrompt';
 import { buildAnalystObservations } from './analystObservations';
 import { buildDualRunReport } from './analystDualRunReport';
+import { collectSignalForBackfillClassifier } from './signalCollector';
+import { buildUnifiedUserBundle } from './unifiedUserBundle';
+import { findEarliestDropDate, computeWindows } from './worldsHarness';
+import { buildWindowReport, buildUserReport } from './worldsBundleEquivalenceReport';
 import { createWorldsWriterTest } from './worldsWriterTest';
 import { createWorldsBootstrap } from './worldsBootstrap';
 import { createWorldsWeeklyRun } from './worldsWeeklyRun';
@@ -995,6 +999,150 @@ const testAnalystDualRun = inngest.createFunction(
         signal_divergence: report.signal_divergence,
         noise_divergence: report.noise_divergence,
         observation_rows: obsRows.length,
+      };
+    });
+
+    return result;
+  },
+);
+
+const testWorldsBundleEquivalence = inngest.createFunction(
+  {
+    id: 'test-worlds-bundle-equivalence',
+    name: 'Test Worlds Bundle Equivalence (Phase 2b Step A)',
+    concurrency: { limit: 1 },
+  },
+  { event: 'app/test.worlds-bundle-equivalence' },
+  async ({ event, step, env }) => {
+    const userId = event.data.user_id;
+    if (!userId) throw new Error('user_id is required');
+
+    // Project a bundle (legacy backfill OR unified-range) down to the 11
+    // Worlds-consumed sections. Legacy bundle has the sections at top level;
+    // the unified bundle has them under `raw`.
+    const projectLegacy = (b) => ({
+      journals: b.journals,
+      notes: b.notes,
+      todos: b.todos,
+      habits: b.habits,
+      habitProgress: b.habitProgress,
+      chatSummaries: b.chatSummaries,
+      temporalAnchors: b.temporalAnchors,
+      profileOverrides: b.profileOverrides,
+      ritualProgress: b.ritualProgress,
+      photoNotes: b.photoNotes,
+      calendarSummary: b.calendarSummary,
+    });
+    const projectUnified = (b) => ({
+      journals: b.raw.journals,
+      notes: b.raw.notes,
+      todos: b.raw.todos,
+      habits: b.raw.habits,
+      habitProgress: b.raw.habitProgress,
+      chatSummaries: b.raw.chatSummaries,
+      temporalAnchors: b.raw.temporalAnchors,
+      profileOverrides: b.raw.profileOverrides,
+      ritualProgress: b.raw.ritualProgress,
+      photoNotes: b.raw.photoNotes,
+      calendarSummary: b.raw.calendarSummary,
+    });
+
+    // 1. Resolve the window set: the live 28-day weekly window, plus the
+    //    bootstrap windows (28d window / 14d stride from earliest signal),
+    //    capped at recent-4-plus-earliest per the agreed plan (A-D1).
+    const windowPlan = await step.run('resolve-windows', async () => {
+      const nowMs = Date.now();
+      const weekly = {
+        index: 'weekly',
+        start: new Date(nowMs - 28 * 24 * 60 * 60 * 1000).toISOString(),
+        end: new Date(nowMs).toISOString(),
+      };
+
+      const earliest = await findEarliestDropDate(userId, env);
+      const all = computeWindows(earliest, new Date(nowMs).toISOString(), 28, 14);
+
+      // recent-4-plus-earliest: dedupe by index in case of overlap
+      const chosen = [];
+      const seen = new Set();
+      const pushWin = (w) => {
+        if (!seen.has(w.index)) {
+          seen.add(w.index);
+          chosen.push(w);
+        }
+      };
+      if (all.length > 0) pushWin(all[0]); // earliest (true cold-start boundary)
+      for (const w of all.slice(-4)) pushWin(w); // most recent 4
+
+      return { weekly, bootstrap: chosen, total_bootstrap_windows: all.length };
+    });
+
+    // 2. For each window, dual-collect and diff. One step per window keeps the
+    //    function resumable and visible in the Inngest UI.
+    const windowReports = [];
+
+    const runWindow = async (idx, ws, we) => {
+      const [legacyBundle, unifiedBundle] = await Promise.all([
+        collectSignalForBackfillClassifier(userId, env, ws, we),
+        buildUnifiedUserBundle(userId, env, { mode: 'range', windowStart: ws, windowEnd: we }),
+      ]);
+      return buildWindowReport(
+        idx,
+        ws,
+        we,
+        projectLegacy(legacyBundle),
+        projectUnified(unifiedBundle),
+      );
+    };
+
+    const weeklyReport = await step.run('window-weekly', async () =>
+      runWindow(windowPlan.weekly.index, windowPlan.weekly.start, windowPlan.weekly.end),
+    );
+    windowReports.push(weeklyReport);
+
+    for (const w of windowPlan.bootstrap) {
+      const r = await step.run(`window-bootstrap-${w.index}`, async () =>
+        runWindow(w.index, w.start, w.end),
+      );
+      windowReports.push(r);
+    }
+
+    // 3. Assemble the per-user report and write it to shadow_runs. Nothing is
+    //    classified; nothing is written to worlds/chapters/life_contexts.
+    const result = await step.run('build-and-write', async () => {
+      const notes = [
+        `bootstrap windows total: ${windowPlan.total_bootstrap_windows}, sampled: ${windowPlan.bootstrap.length} (recent-4-plus-earliest)`,
+      ];
+      const report = buildUserReport(userId, windowReports, notes);
+
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/shadow_runs`, {
+        method: 'POST',
+        headers: {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          run_kind: 'worlds_bundle_equivalence',
+          run_mode: 'range',
+          payload: { report },
+          window_start: windowPlan.weekly.start.slice(0, 10),
+          window_end: windowPlan.weekly.end.slice(0, 10),
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(`shadow_runs write failed: ${res.status} ${errText.slice(0, 200)}`);
+      }
+
+      return {
+        user_id: userId,
+        verdict: report.verdict,
+        any_regression: report.any_regression,
+        any_identical_failure: report.any_identical_failure,
+        total_superset_extras: report.total_superset_extras,
+        windows_checked: windowReports.length,
       };
     });
 
@@ -7887,6 +8035,7 @@ const inngestHandler = serve({
     testLifeMapRebuild,
     testWeeklySummaryV2,
     testAnalystDualRun,
+    testWorldsBundleEquivalence,
     weeklySummaryV2Dispatcher,
     weeklySummaryV2Worker,
     backfillIdentity,
