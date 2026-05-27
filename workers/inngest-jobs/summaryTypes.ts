@@ -21,13 +21,21 @@ export type DetectorId =
   // always-fires
   | 'hero_spine'
   | 'letter'
-  // v0.5 deterministic (SQL)
+  // deterministic (SQL) — surface metrics, demoted to riding alongside the ledger selectors
   | 'reschedule_as_soft_no'
   | 'cadence_calibration_mismatch'
   | 'cross_domain_alignment'
-  | 'decisive_closure';
-// Phase 4 will extend this union with the analyst-fed detectors
-// (sustained_chat_action_gap, state_cluster_burst, named_person_arc, ...).
+  | 'decisive_closure'
+  // analyst-ledger (the depth: cross-week interpretive findings the user cannot see themselves)
+  | 'sustained_chat_action_gap'
+  | 'named_person_arc'
+  | 'state_cluster_burst'
+  | 'ambient_meta_theme'
+  | 'return_longing'
+  | 'naming_then_acting'
+  | 'the_question'
+  | 'magic_moment'
+  | 'behavioral_discovery';
 
 export type TemplateId =
   | 'hero_spine_v1'
@@ -35,9 +43,11 @@ export type TemplateId =
   | 'rank_list_v1'
   | 'constellation_v1'
   | 'big_number_v1'
-  | 'letter_v1';
-// Phase 4 templates (single_sentence_v1, photo_lead_v1, negative_space_v1,
-// evidence_chain_v1, ...) extend this union as their detectors land.
+  | 'letter_v1'
+  // referenced by ledger detectors; renderers/schemas added with the FILL/RENDER wiring (Unit follow-on)
+  | 'single_sentence_v1'
+  | 'evidence_chain_v1'
+  | 'photo_lead_v1';
 
 export type Valence = 'positive' | 'negative' | 'mixed' | 'neutral';
 export type Urgency = 'low' | 'medium' | 'high';
@@ -83,11 +93,12 @@ export interface DetectContext {
   priorObservations?: SurfacedObservation[];
 }
 
-/** Minimal shape of an analyst-ledger row (observations.stage='analyst'). Phase 4 consumer. */
+/** Shape of an analyst-ledger row (observations.stage='analyst'). Read by ledger-selector DETECT. */
 export interface AnalystObservation {
-  detector_id: string;
+  kind: string; // 'temporal_observation' | 'magic_moment' | 'behavioral_fingerprint' | ...
+  detector_id: string | null; // null on analyst-emitted rows; the kind/pattern_type is the discriminator
   claim_summary: string;
-  evidence_snapshot: Record<string, unknown>;
+  evidence_snapshot: Record<string, unknown>; // shape varies by kind (see summaryLedgerDetectors)
   observed_for_week: string;
 }
 
@@ -150,6 +161,8 @@ export interface Candidate {
   /** Deterministic footer string (already resolved; FILL does not touch it). */
   data_lineage: string;
   concept_compatible: boolean;
+  /** Subject key for cross-week dedup (analyst `subject` / moment title / fingerprint pattern). Used by FILTER. */
+  dedup_key?: string;
 
   /** For Phase 4 recency/evolution comparison. Populated now, unused by v0.5 FILTER. */
   evidence_snapshot: Record<string, unknown>;

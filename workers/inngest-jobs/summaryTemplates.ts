@@ -388,6 +388,45 @@ export const TEMPLATE_REGISTRY: Record<TemplateId, TemplateDef> = {
       return { ok: e.length === 0, errors: e };
     },
   },
+
+  // ── single_sentence_v1 ── (stub; full schema ships with FILL/RENDER wiring Unit 4) ──
+  single_sentence_v1: {
+    id: 'single_sentence_v1',
+    family: 'statement',
+    fill_fields: [...COMMON_FILL_FIELDS],
+    assemble(prose, candidate) {
+      return { ...commonAssemble(prose, candidate), body: {} as never };
+    },
+    validate(card) {
+      return { ok: commonValidate(card).length === 0, errors: commonValidate(card) };
+    },
+  },
+
+  // ── evidence_chain_v1 ── (stub; full schema ships with FILL/RENDER wiring Unit 4) ──
+  evidence_chain_v1: {
+    id: 'evidence_chain_v1',
+    family: 'chain',
+    fill_fields: [...COMMON_FILL_FIELDS],
+    assemble(prose, candidate) {
+      return { ...commonAssemble(prose, candidate), body: {} as never };
+    },
+    validate(card) {
+      return { ok: commonValidate(card).length === 0, errors: commonValidate(card) };
+    },
+  },
+
+  // ── photo_lead_v1 ── (stub; full schema ships with FILL/RENDER wiring Unit 4) ──
+  photo_lead_v1: {
+    id: 'photo_lead_v1',
+    family: 'photo',
+    fill_fields: [...COMMON_FILL_FIELDS],
+    assemble(prose, candidate) {
+      return { ...commonAssemble(prose, candidate), body: {} as never };
+    },
+    validate(card) {
+      return { ok: commonValidate(card).length === 0, errors: commonValidate(card) };
+    },
+  },
 };
 
 /** Convenience: the family for a template (VARIETY rule). */
