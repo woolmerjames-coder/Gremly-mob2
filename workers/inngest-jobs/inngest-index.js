@@ -20,6 +20,8 @@ import { collectSignalForBackfillClassifier } from './signalCollector';
 import { buildUnifiedUserBundle } from './unifiedUserBundle';
 import { findEarliestDropDate, computeWindows } from './worldsHarness';
 import { buildWindowReport, buildUserReport } from './worldsBundleEquivalenceReport';
+import { processWorldsWindow } from './processWorldsWindow';
+import { buildOutputDualRunReport } from './worldsOutputDiffReport';
 import { createWorldsWriterTest } from './worldsWriterTest';
 import { createWorldsBootstrap } from './worldsBootstrap';
 import { createWorldsWeeklyRun } from './worldsWeeklyRun';
@@ -1300,6 +1302,134 @@ const testAnalystObservationsWrite = inngest.createFunction(
         );
 
       return report;
+    });
+
+    return result;
+  },
+);
+
+const testWorldsOutputDualRun = inngest.createFunction(
+  {
+    id: 'test-worlds-output-dual-run',
+    name: 'Test Worlds Output Dual Run (Phase 2b Step C)',
+    concurrency: { limit: 1 },
+  },
+  { event: 'app/test.worlds-output-dual-run' },
+  async ({ event, step, env }) => {
+    const userId = event.data.user_id;
+    if (!userId) throw new Error('user_id is required');
+
+    // Fixed recent 28-day window, matching the live weekly worlds run.
+    const windowEnd = new Date().toISOString().slice(0, 10);
+    const windowStart = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    const penv = {
+      ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
+      SUPABASE_URL: env.SUPABASE_URL,
+      SUPABASE_SERVICE_KEY: env.SUPABASE_SERVICE_KEY,
+    };
+    const runCombo = (useUnifiedBundle, useAnalystLedger) =>
+      processWorldsWindow({
+        ownerId: userId,
+        windowStart,
+        windowEnd,
+        env: penv,
+        opts: { useUnifiedBundle, useAnalystLedger, dryRun: true },
+      });
+
+    // Five dry-run draws. Each its own step for resumability and UI visibility.
+    const base = await step.run(
+      'draw-base',
+      async () => (await runCombo(false, false)).classifierOutput,
+    );
+    const base2 = await step.run(
+      'draw-base2-noise',
+      async () => (await runCombo(false, false)).classifierOutput,
+    );
+    const c1 = await step.run(
+      'draw-c1-bundle',
+      async () => (await runCombo(true, false)).classifierOutput,
+    );
+    const c2 = await step.run(
+      'draw-c2-ledger',
+      async () => (await runCombo(false, true)).classifierOutput,
+    );
+    const target = await step.run(
+      'draw-target',
+      async () => (await runCombo(true, true)).classifierOutput,
+    );
+
+    // Pull the analyst world_signal_candidate labels actually available for this
+    // user (latest week), to feed the anti-poisoning check. These are the labels
+    // the c2/target runs would have been hinted with.
+    const analystCandidateLabels = await step.run('fetch-candidate-labels', async () => {
+      const headers = {
+        apikey: env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      };
+      const latestRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/observations` +
+          `?user_id=eq.${userId}&stage=eq.analyst&select=observed_for_week&order=observed_for_week.desc&limit=1`,
+        { headers },
+      );
+      const latestRows = latestRes.ok ? await latestRes.json() : [];
+      const latestWeek = Array.isArray(latestRows) && latestRows[0]?.observed_for_week;
+      if (!latestWeek) return [];
+      const res = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/observations` +
+          `?user_id=eq.${userId}&stage=eq.analyst&observed_for_week=eq.${latestWeek}` +
+          `&kind=eq.world_signal_candidate&select=evidence_snapshot`,
+        { headers },
+      );
+      const rows = res.ok ? await res.json() : [];
+      return rows.map((r) => r.evidence_snapshot?.label).filter(Boolean);
+    });
+
+    const result = await step.run('build-and-write', async () => {
+      const report = buildOutputDualRunReport({
+        userId,
+        windowStart,
+        windowEnd,
+        base,
+        base2,
+        c1,
+        c2,
+        target,
+        analystCandidateLabels,
+      });
+
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/shadow_runs`, {
+        method: 'POST',
+        headers: {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          run_kind: 'worlds_output_dual_run',
+          run_mode: 'range',
+          payload: { report },
+          window_start: windowStart,
+          window_end: windowEnd,
+        }),
+      });
+      if (!res.ok)
+        throw new Error(
+          `shadow_runs write failed: ${res.status} ${await res.text().catch(() => '')}`,
+        );
+
+      return {
+        user_id: userId,
+        noise_divergence: report.noise_divergence,
+        c1_divergence: report.c1_divergence,
+        c2_divergence: report.c2_divergence,
+        target_divergence: report.target_divergence,
+        target_exceeds_noise: report.target_exceeds_noise,
+        attribution: report.attribution,
+        suspected_echo: report.anti_poisoning.suspected_echo,
+      };
     });
 
     return result;
@@ -8249,6 +8379,7 @@ const inngestHandler = serve({
     testAnalystDualRun,
     testWorldsBundleEquivalence,
     testAnalystObservationsWrite,
+    testWorldsOutputDualRun,
     weeklySummaryV2Dispatcher,
     weeklySummaryV2Worker,
     backfillIdentity,
