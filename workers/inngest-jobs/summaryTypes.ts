@@ -35,7 +35,10 @@ export type DetectorId =
   | 'naming_then_acting'
   | 'the_question'
   | 'magic_moment'
-  | 'behavioral_discovery';
+  | 'behavioral_discovery'
+  // synthesis / framing
+  | 'cross_reference'
+  | 'week_shape';
 
 export type TemplateId =
   | 'hero_spine_v1'
@@ -168,6 +171,8 @@ export interface Candidate {
   evidence_snapshot: Record<string, unknown>;
   /** Logged verbatim to detector_fires.score_components. */
   score_components: Record<string, unknown>;
+  /** When true, COMPOSE pins this candidate to the front of the middle deck (before variety ordering). */
+  lead?: boolean;
 }
 
 // ───────────────────────────────────────────────────────────────────────────

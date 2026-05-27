@@ -33,8 +33,12 @@ export function compose(fired: Candidate[]): ComposeResult {
   const reject = (c: Candidate, reason: string) =>
     log.push({ detector_id: c.detector_id, template_id: c.template_id, accepted: false, reason });
 
-  // 1. Stable sort by urgency (high -> low). Insertion order breaks ties (registry order).
-  const sorted = [...fired].sort(
+  // Separate leads (week_shape frame) from the rest; they are pinned to the front unconditionally.
+  const leadCandidates = fired.filter((c) => c.lead);
+  const nonLeads = fired.filter((c) => !c.lead);
+
+  // 1. Stable sort non-leads by urgency (high -> low). Insertion order breaks ties (registry order).
+  const sorted = [...nonLeads].sort(
     (a, b) => (URGENCY_RANK[a.urgency] ?? 2) - (URGENCY_RANK[b.urgency] ?? 2),
   );
 
@@ -97,6 +101,15 @@ export function compose(fired: Candidate[]): ComposeResult {
 
   const ordered = orderByFamily(variety);
 
+  // Log leads first, then the variety-ordered non-leads.
+  for (const c of leadCandidates) {
+    log.push({
+      detector_id: c.detector_id,
+      template_id: c.template_id,
+      accepted: true,
+      reason: 'lead_pinned',
+    });
+  }
   for (const c of ordered) {
     log.push({
       detector_id: c.detector_id,
@@ -106,7 +119,8 @@ export function compose(fired: Candidate[]): ComposeResult {
     });
   }
 
-  return { middle: ordered, log };
+  // Leads are pinned before the variety-ordered middle; heroes/letter slotted by the orchestrator.
+  return { middle: [...leadCandidates, ...ordered], log };
 }
 
 /** Alternate templates a candidate can fall back to (its preferred list minus the primary). */
@@ -144,6 +158,7 @@ function orderByFamily(cards: Candidate[]): Candidate[] {
 const STANDALONE: ReadonlySet<string> = new Set(['named_person_arc', 'sustained_chat_action_gap']);
 // Higher = headlines (change 1: interpretation over moment).
 const INTERP: Record<string, number> = {
+  cross_reference: 7,
   ambient_meta_theme: 6,
   naming_then_acting: 6,
   named_person_arc: 5,
@@ -200,6 +215,7 @@ function themeTokens(c: Candidate): Set<string> {
     ev['title'],
     ev['why'],
     ...((ev['themes_involved'] as string[]) ?? []),
+    ...((ev['themes'] as string[]) ?? []),
   ]
     .join(' ')
     .toLowerCase();
@@ -254,6 +270,10 @@ function within1Day(a: string | null, b: string | null): boolean {
 }
 
 export function clusterCandidates(candidates: Candidate[]): ClusterResult {
+  // lead candidates (week_shape) are pinned to the front by compose(); exclude from clustering.
+  const leads = candidates.filter((c) => c.lead);
+  const clusterables = candidates.filter((c) => !c.lead);
+
   // Same-story edge: not a standalone type, valence-compatible, and share a focal day OR a theme token.
   const edge = (a: Candidate, b: Candidate): boolean => {
     if (STANDALONE.has(a.detector_id) || STANDALONE.has(b.detector_id)) return false;
@@ -266,20 +286,23 @@ export function clusterCandidates(candidates: Candidate[]): ClusterResult {
   };
 
   // Connected components.
-  const parent = candidates.map((_, i) => i);
+  const parent = clusterables.map((_, i) => i);
   const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
-  for (let i = 0; i < candidates.length; i++)
-    for (let j = i + 1; j < candidates.length; j++)
-      if (edge(candidates[i], candidates[j])) parent[find(i)] = find(j);
+  for (let i = 0; i < clusterables.length; i++)
+    for (let j = i + 1; j < clusterables.length; j++)
+      if (edge(clusterables[i], clusterables[j])) parent[find(i)] = find(j);
 
   const groups = new Map<number, Candidate[]>();
-  candidates.forEach((c, i) => {
+  clusterables.forEach((c, i) => {
     const r = find(i);
     (groups.get(r) ?? groups.set(r, []).get(r)!).push(c);
   });
 
-  const representatives: Candidate[] = [];
-  const log: ClusterLogEntry[] = [];
+  const representatives: Candidate[] = [...leads]; // leads come first, never absorbed
+  const log: ClusterLogEntry[] = leads.map((c) => ({
+    representative: c.detector_id,
+    absorbed: [],
+  }));
   for (const members of groups.values()) {
     // Representative = most interpretive, then most confident (change 1).
     const ranked = [...members].sort((a, b) => {

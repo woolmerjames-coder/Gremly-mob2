@@ -65,13 +65,28 @@ interface FingerprintEvidence {
   narrative_interest?: number;
   is_discovery_candidate?: boolean;
 }
+interface CrossReferenceEvidence {
+  connection: string;
+  items: string[];
+  significance: string;
+  themes: string[];
+  narrative_interest?: number;
+}
+interface WeekShapeEvidence {
+  classification: string;
+  dominant_theme: string;
+  mood_arc: string;
+  highlight: string;
+}
 
 // ── Selector config: one entry per analyst-fed detector ──────────────────────
 
 type LedgerSource =
   | { kind: 'temporal_observation'; pattern_type: string }
   | { kind: 'magic_moment' }
-  | { kind: 'behavioral_fingerprint' };
+  | { kind: 'behavioral_fingerprint' }
+  | { kind: 'cross_reference' }
+  | { kind: 'week_shape' };
 
 interface LedgerDetectorConfig {
   id: DetectorId;
@@ -215,6 +230,41 @@ const LEDGER_DETECTOR_CONFIGS: LedgerDetectorConfig[] = [
     lineage_label: 'recurring question',
   },
   {
+    // cross_reference: the analyst's synthesis of a connection between two or more threads —
+    // the highest-interpretive card family. constellation_v1 renders it as a node graph.
+    id: 'cross_reference',
+    reads: { kind: 'cross_reference' },
+    valence: 'neutral',
+    urgency: 'medium',
+    recency_window_weeks: 6,
+    evolution_similarity_threshold: 0.6,
+    preferred_templates: ['constellation_v1', 'evidence_chain_v1'],
+    reframe_template:
+      'These threads are not separate stories. Name the connection the user cannot see from inside any one of them, and say what it means that they are moving together.',
+    recommendation_kind: null,
+    gates: ['user_initiated_only'],
+    concept_compatible: false,
+    min_narrative_interest: 7,
+    lineage_label: 'cross-thread connection',
+  },
+  {
+    // week_shape: the analyst's single classification of the week's overall arc.
+    // Always fires when present; pinned to the front of the middle deck as the framing card.
+    id: 'week_shape',
+    reads: { kind: 'week_shape' },
+    valence: 'neutral',
+    urgency: 'low',
+    recency_window_weeks: 1,
+    evolution_similarity_threshold: 0.3,
+    preferred_templates: ['single_sentence_v1'],
+    reframe_template:
+      'Name the shape of the week in a single sentence that the user would recognise as true. Do not evaluate it; hold the arc.',
+    recommendation_kind: null,
+    gates: ['user_initiated_only'],
+    concept_compatible: false,
+    lineage_label: 'week shape',
+  },
+  {
     // magic_moment_candidates feed the positive "moment" surface (0c line 28)
     id: 'magic_moment',
     reads: { kind: 'magic_moment' },
@@ -266,8 +316,11 @@ function passesFloor(obs: AnalystObservation, cfg: LedgerDetectorConfig): boolea
     const ev = obs.evidence_snapshot as Partial<TemporalEvidence>;
     return (STRENGTH_RANK[ev.strength ?? 'low'] ?? 0) >= STRENGTH_RANK[cfg.min_strength];
   }
-  if (cfg.reads.kind === 'behavioral_fingerprint' && cfg.min_narrative_interest != null) {
-    const ev = obs.evidence_snapshot as Partial<FingerprintEvidence>;
+  if (
+    (cfg.reads.kind === 'behavioral_fingerprint' || cfg.reads.kind === 'cross_reference') &&
+    cfg.min_narrative_interest != null
+  ) {
+    const ev = obs.evidence_snapshot as Partial<FingerprintEvidence & CrossReferenceEvidence>;
     return (ev.narrative_interest ?? 0) >= cfg.min_narrative_interest;
   }
   return true;
@@ -310,6 +363,33 @@ function toCandidate(obs: AnalystObservation, cfg: LedgerDetectorConfig): Candid
       date: ev.date ?? null,
     };
     score_components = { source: 'analyst_ledger', kind: 'magic_moment' };
+  } else if (cfg.reads.kind === 'cross_reference') {
+    const ev = obs.evidence_snapshot as unknown as CrossReferenceEvidence;
+    dedup_key = ev.connection;
+    data_lineage = `${cfg.lineage_label} · ${ev.items.length} connected threads`;
+    fill_input = {
+      headline: ev.connection,
+      evidence_points: ev.items,
+      insight: ev.significance,
+      themes: ev.themes,
+    };
+    score_components = {
+      source: 'analyst_ledger',
+      kind: 'cross_reference',
+      themes: ev.themes,
+      narrative_interest: ev.narrative_interest,
+    };
+  } else if (cfg.reads.kind === 'week_shape') {
+    const ev = obs.evidence_snapshot as unknown as WeekShapeEvidence;
+    dedup_key = ev.classification;
+    data_lineage = `${cfg.lineage_label} · ${ev.dominant_theme}`;
+    fill_input = {
+      headline: ev.classification,
+      framing: ev.dominant_theme,
+      mood_arc: ev.mood_arc,
+      highlight: ev.highlight,
+    };
+    score_components = { source: 'analyst_ledger', kind: 'week_shape' };
   } else {
     const ev = obs.evidence_snapshot as unknown as FingerprintEvidence;
     dedup_key = ev.pattern;
@@ -342,6 +422,7 @@ function toCandidate(obs: AnalystObservation, cfg: LedgerDetectorConfig): Candid
     dedup_key,
     evidence_snapshot: obs.evidence_snapshot, // carried for FILTER's similarity check (Unit 2)
     score_components,
+    ...(cfg.id === 'week_shape' ? { lead: true } : {}),
   };
 }
 
