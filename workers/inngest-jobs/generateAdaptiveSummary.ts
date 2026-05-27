@@ -19,7 +19,15 @@ import type {
   TemplateId,
 } from './summaryTypes';
 import { DETERMINISTIC_DETECTORS, buildHeroCandidate, LETTER_META } from './summaryDetectors';
-import { compose } from './summaryCompose';
+import { compose, clusterCandidates } from './summaryCompose';
+import { LEDGER_DETECTORS } from './summaryLedgerDetectors';
+import {
+  filterByRecency,
+  type PriorSurfaced,
+  type DetectorRecency,
+  type FilterOutcome,
+} from './summaryFilter';
+import type { AnalystObservation } from './summaryTypes';
 import { fillCard } from './summaryFill';
 import { renderInspectionDeck } from './summaryRender';
 
@@ -45,10 +53,32 @@ export interface DetectorFireRow {
   rejection_reason: string | null;
 }
 
+export interface SurfacedObservationRow {
+  user_id: string;
+  stage: 'summary';
+  kind: string | null;
+  detector_id: DetectorId;
+  observed_for_week: string;
+  surfaced_at: string;
+  surfaced_in_summary_id: string | null;
+  claim_summary: string;
+  evidence_snapshot: Record<string, unknown>;
+  card_treatment_used: TemplateId;
+  card_payload: Record<string, unknown>;
+  status: 'surfaced';
+  client_ref: string;
+}
+export interface EvolvedUpdate {
+  prior_id: string;
+  superseded_by_ref: string;
+}
+
 export interface GenerateResult {
   content: AdaptiveSummaryContent;
   html: string;
   detector_fires: DetectorFireRow[];
+  surfaced_observations: SurfacedObservationRow[];
+  evolved_updates: EvolvedUpdate[];
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -61,13 +91,13 @@ function weekRange(ws: string, we: string): string {
   return `${fmt(ws)} - ${fmt(we)}`;
 }
 
-/** FILTER stage (Phase 3 = pass-through; recency/evolution wired in Phase 4). */
-function filterCandidates(candidates: Candidate[]): Candidate[] {
-  return candidates;
-}
-
 export async function generateAdaptiveSummary(params: GenerateParams): Promise<GenerateResult> {
   const { userId, weekStart, weekEnd, label, env, runRpc, fetchRows } = params;
+
+  const analystObservations = (await fetchRows(
+    `observations?user_id=eq.${userId}&stage=eq.analyst&observed_for_week=eq.${weekStart}` +
+      `&select=kind,detector_id,claim_summary,evidence_snapshot,observed_for_week`,
+  )) as AnalystObservation[];
 
   const ctx: DetectContext = {
     userId,
@@ -76,22 +106,52 @@ export async function generateAdaptiveSummary(params: GenerateParams): Promise<G
     env,
     runDetectorSql: runRpc,
     fetchRows,
-    // analystObservations intentionally undefined in v0.5 -> ledger detectors are skipped.
+    analystObservations,
   };
 
   // ── DETECT ────────────────────────────────────────────────────────────────
   const fired: Candidate[] = [];
-  for (const det of DETERMINISTIC_DETECTORS) {
-    if (det.source === 'analyst_ledger' && !ctx.analystObservations) continue; // Phase 4 seam
+  for (const det of [...DETERMINISTIC_DETECTORS, ...LEDGER_DETECTORS]) {
     const out = await det.detect(ctx);
     fired.push(...out);
   }
 
-  // ── FILTER (stub) ───────────────────────────────────────────────────────────
-  const filtered = filterCandidates(fired);
+  // ── CLUSTER (within-week deduplication, runs before cross-week filter) ──────
+  const { representatives, log: clusterLog } = clusterCandidates(fired);
+
+  // ── FILTER (cross-week recency/evolution memory) ─────────────────────────────
+  const priorRows = (await fetchRows(
+    `observations?user_id=eq.${userId}&stage=eq.summary&status=eq.surfaced` +
+      `&select=id,detector_id,evidence_snapshot,surfaced_at,observed_for_week`,
+  )) as Array<{
+    id: string;
+    detector_id: string;
+    evidence_snapshot: Record<string, unknown>;
+    surfaced_at: string;
+    observed_for_week: string;
+  }>;
+  const prior: PriorSurfaced[] = priorRows.map((r) => ({
+    id: r.id,
+    detector_id: r.detector_id,
+    subject: String(r.evidence_snapshot?.['subject'] ?? ''),
+    evidence_snapshot: r.evidence_snapshot ?? {},
+    surfaced_at: r.surfaced_at,
+    observed_for_week: r.observed_for_week,
+  }));
+
+  const recencyByDetector: Record<string, DetectorRecency> = {};
+  for (const d of [...DETERMINISTIC_DETECTORS, ...LEDGER_DETECTORS]) {
+    recencyByDetector[d.id] = {
+      recency_window_weeks: (d as { recency_window_weeks?: number }).recency_window_weeks ?? 4,
+      evolution_similarity_threshold:
+        (d as { evolution_similarity_threshold?: number }).evolution_similarity_threshold ?? 0.5,
+    };
+  }
+  const outcomes = filterByRecency(representatives, prior, recencyByDetector, new Date());
+  const survivors = outcomes.filter((o) => o.decision !== 'suppress').map((o) => o.candidate);
 
   // ── COMPOSE (middle only; hero/letter slotted below) ────────────────────────
-  const { middle, log } = compose(filtered);
+  const { middle, log } = compose(survivors);
 
   // ── Hero + signature context ────────────────────────────────────────────────
   const cpRows = (await fetchRows(
@@ -135,6 +195,41 @@ export async function generateAdaptiveSummary(params: GenerateParams): Promise<G
     }
   }
 
+  // ── Surfacing rows (orchestrator emits; harness inserts) ────────────────────
+  const outcomeByKey = new Map<string, FilterOutcome>();
+  for (const o of outcomes)
+    outcomeByKey.set(`${o.candidate.detector_id}|${o.candidate.dedup_key ?? ''}`, o);
+
+  const surfacedAt = new Date().toISOString();
+  const surfaced_observations: SurfacedObservationRow[] = [];
+  const evolved_updates: EvolvedUpdate[] = [];
+  acceptedMiddle.forEach((c, i) => {
+    const card = middleCards[i];
+    const ref = `surf_${i}`;
+    surfaced_observations.push({
+      user_id: userId,
+      stage: 'summary',
+      kind: (c.score_components?.['kind'] as string) ?? null,
+      detector_id: c.detector_id,
+      observed_for_week: weekStart,
+      surfaced_at: surfacedAt,
+      surfaced_in_summary_id: null,
+      claim_summary: c.dedup_key ?? card?.hero_sentence ?? '',
+      evidence_snapshot: {
+        subject: c.dedup_key,
+        valence_trend: c.evidence_snapshot?.['valence_trend'],
+        cluster_evidence_refs: (c.fill_input?.['cluster_evidence_refs'] as string[]) ?? [],
+      },
+      card_treatment_used: c.template_id,
+      card_payload: card as unknown as Record<string, unknown>,
+      status: 'surfaced',
+      client_ref: ref,
+    });
+    const o = outcomeByKey.get(`${c.detector_id}|${c.dedup_key ?? ''}`);
+    if (o?.decision === 'evolve' && o.prior_id)
+      evolved_updates.push({ prior_id: o.prior_id, superseded_by_ref: ref });
+  });
+
   // ── Letter (built last; references the accepted cards) ──────────────────────
   const letterCandidate: Candidate = {
     detector_id: LETTER_META.detector_id,
@@ -175,6 +270,7 @@ export async function generateAdaptiveSummary(params: GenerateParams): Promise<G
       card_types: cards.map((c) => c.type as TemplateId),
       fired_detectors: firedDetectors,
       compose_log: composeLog,
+      cluster_log: clusterLog,
       fill_model: env.SUMMARY_FILL_MODEL || 'claude-sonnet-4-6',
       run_mode: 'shadow',
     },
@@ -207,5 +303,5 @@ export async function generateAdaptiveSummary(params: GenerateParams): Promise<G
   // ── RENDER (inspection surface) ─────────────────────────────────────────────
   const html = renderInspectionDeck(label, content);
 
-  return { content, html, detector_fires };
+  return { content, html, detector_fires, surfaced_observations, evolved_updates };
 }

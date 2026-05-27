@@ -256,6 +256,7 @@ export interface AdaptiveSummaryContent {
     card_types: TemplateId[];
     fired_detectors: DetectorId[];
     compose_log: ComposeLogEntry[];
+    cluster_log?: ClusterLogEntry[];
     fill_model: string;
     run_mode: 'shadow';
   };
@@ -266,6 +267,15 @@ export interface ComposeLogEntry {
   template_id: TemplateId | null;
   accepted: boolean;
   reason: string;
+}
+
+export interface ClusterLogEntry {
+  representative: DetectorId;
+  absorbed: { detector_id: DetectorId; subject: string }[];
+}
+export interface ClusterResult {
+  representatives: Candidate[];
+  log: ClusterLogEntry[];
 }
 
 // ───────────────────────────────────────────────────────────────────────────

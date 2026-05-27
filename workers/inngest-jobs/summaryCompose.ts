@@ -7,7 +7,14 @@
  * detector's preferred_templates), and urgency sort. Emits a ComposeLogEntry for every candidate.
  */
 
-import type { Candidate, ComposeLogEntry, TemplateId, DetectorId } from './summaryTypes';
+import type {
+  Candidate,
+  ComposeLogEntry,
+  ClusterLogEntry,
+  ClusterResult,
+  TemplateId,
+  DetectorId,
+} from './summaryTypes';
 import { templateFamily } from './summaryTemplates';
 
 const MAX_DECK = 7; // hero + <=5 middle + letter
@@ -132,15 +139,6 @@ function orderByFamily(cards: Candidate[]): Candidate[] {
 }
 
 // ── Clustering (within-week same-story dedup) ─────────────────────────────────
-
-export interface ClusterLogEntry {
-  representative: DetectorId;
-  absorbed: { detector_id: DetectorId; subject: string }[];
-}
-export interface ClusterResult {
-  representatives: Candidate[];
-  log: ClusterLogEntry[];
-}
 
 // v1 kinship guard: categorically standalone story types (change 2). Tunable.
 const STANDALONE: ReadonlySet<string> = new Set(['named_person_arc', 'sustained_chat_action_gap']);
