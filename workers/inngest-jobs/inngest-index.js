@@ -1546,18 +1546,58 @@ const weeklySummaryV2Worker = inngest.createFunction(
 
     await step.run('persist-analyst-observations', async () => {
       const obsRows = buildAnalystObservations(analystResult.analysis, userId, weekDates.weekStart);
+      // Replace-the-user-week: clear this user-week's prior analyst rows, then
+      // insert the fresh set, so a weekly re-run does not accumulate duplicates.
+      // The clear preserves any observation a shipped summary already references
+      // (surfaced_in_summary_id IS NULL guard lives in clearAnalystObservationsForWeek).
       await clearAnalystObservationsForWeek(userId, weekDates.weekStart, env);
       const p = await persistAnalystObservations(obsRows, env);
-      if (!p.ok) {
-        console.warn(
-          `[Weekly V2] Analyst observations persist failed for ${userId} week ${weekDates.weekStart}: ${p.status} ${p.error || ''}`,
-        );
-      } else {
+
+      if (p.ok) {
         console.log(
           `[Weekly V2] Persisted ${p.inserted} analyst observations for ${userId} week ${weekDates.weekStart}`,
         );
+        return { inserted: p.inserted, ok: true };
       }
-      return { inserted: p.ok ? p.inserted : 0, ok: p.ok };
+
+      // Non-fatal: a failed observations write must never abort the weekly
+      // summary or Life Map rebuild (the user-visible deliverables). The rows
+      // are unread until Step C and the write self-heals next weekly. BUT a
+      // PERSISTENT failure (schema drift, permissions) would otherwise fail
+      // silently for weeks. So: log with a distinctive ALERT prefix (greppable
+      // for log-based alerting) AND record a queryable failure row in `events`
+      // so a pattern is visible by SQL without log archaeology. One transient
+      // failure is one row; a systemic failure is a visible pile.
+      console.error(
+        `[ALERT][Weekly V2] analyst observations persist FAILED for ${userId} week ${weekDates.weekStart}: ${p.status} ${p.error || ''}`,
+      );
+      try {
+        await fetch(`${env.SUPABASE_URL}/rest/v1/events`, {
+          method: 'POST',
+          headers: {
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+            'Content-Type': 'application/json',
+            Prefer: 'return=minimal',
+          },
+          body: JSON.stringify({
+            owner_id: userId,
+            kind: 'analyst_observations_persist_failed',
+            payload_json: {
+              week_start: weekDates.weekStart,
+              status: p.status ?? null,
+              error: (p.error || '').slice(0, 500),
+            },
+          }),
+        });
+      } catch (e) {
+        // If even the failure-record write fails, the ALERT log line is the
+        // last resort. Do not throw; the deliverables must still ship.
+        console.error(
+          `[ALERT][Weekly V2] could not record persist-failure event for ${userId}: ${String(e).slice(0, 200)}`,
+        );
+      }
+      return { inserted: 0, ok: false };
     });
 
     const rebuildResult = await step.run('rebuild-life-map', async () => {
