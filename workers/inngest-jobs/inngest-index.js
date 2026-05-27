@@ -1437,6 +1437,125 @@ const testWorldsOutputDualRun = inngest.createFunction(
   },
 );
 
+// ── Phase 3 v0.5: Adaptive Weekly Summary shadow harness ─────────────────────
+// Runs the net-new five-stage pipeline over the shadow users; writes decks to
+// shadow_runs and fires to detector_fires. Never touches weekly_summaries/observations.
+const SUMMARY_V05_SHADOW_USERS = [
+  { label: 'James', uid: '05a3c53d-b242-4b5f-a0db-83004c8e3892' },
+  { label: 'Dave', uid: 'c7674834-114b-4f6d-ac57-4d18aec8393b' },
+  { label: 'Tina', uid: 'c64ec85f-735c-4d5c-859a-1ac6630aebb3' },
+];
+
+const testSummaryV05 = inngest.createFunction(
+  {
+    id: 'test-summary-v05',
+    name: 'Test Adaptive Weekly Summary v0.5 (Phase 3 proving ground)',
+    concurrency: { limit: 1 },
+  },
+  { event: 'app/test.summary-v05' },
+  async ({ event, step, env }) => {
+    const users = event.data?.users?.length ? event.data.users : SUMMARY_V05_SHADOW_USERS;
+
+    // Default to the most recent completed Mon-Sun week (UTC); override via week_start/week_end.
+    const week = await step.run('compute-week', async () => {
+      if (event.data?.week_start && event.data?.week_end) {
+        return { weekStart: event.data.week_start, weekEnd: event.data.week_end };
+      }
+      const today = new Date();
+      const dow = today.getUTCDay(); // 0 = Sunday
+      const back = dow === 0 ? 7 : dow;
+      const weekEnd = new Date(today);
+      weekEnd.setUTCDate(today.getUTCDate() - back);
+      const weekStart = new Date(weekEnd);
+      weekStart.setUTCDate(weekEnd.getUTCDate() - 6);
+      return { weekStart: formatDateOnly(weekStart), weekEnd: formatDateOnly(weekEnd) };
+    });
+
+    const authHeaders = {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+    };
+    const runRpc = async (fnName, params) => {
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/${fnName}`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify(params),
+      });
+      if (!res.ok)
+        throw new Error(
+          `rpc ${fnName} failed: ${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`,
+        );
+      return res.json();
+    };
+    const fetchRows = async (path) => {
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/${path}`, {
+        method: 'GET',
+        headers: authHeaders,
+      });
+      if (!res.ok)
+        throw new Error(
+          `fetch ${path} failed: ${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`,
+        );
+      return res.json();
+    };
+
+    const results = [];
+    for (const u of users) {
+      const r = await step.run(`summary-${u.label}`, async () => {
+        const out = await generateAdaptiveSummary({
+          userId: u.uid,
+          weekStart: week.weekStart,
+          weekEnd: week.weekEnd,
+          label: u.label,
+          env,
+          runRpc,
+          fetchRows,
+        });
+
+        if (out.detector_fires.length > 0) {
+          const fres = await fetch(`${env.SUPABASE_URL}/rest/v1/detector_fires`, {
+            method: 'POST',
+            headers: { ...authHeaders, Prefer: 'return=minimal' },
+            body: JSON.stringify(out.detector_fires),
+          });
+          if (!fres.ok)
+            throw new Error(
+              `detector_fires write failed: ${fres.status} ${(await fres.text().catch(() => '')).slice(0, 200)}`,
+            );
+        }
+
+        const sres = await fetch(`${env.SUPABASE_URL}/rest/v1/shadow_runs`, {
+          method: 'POST',
+          headers: { ...authHeaders, Prefer: 'return=minimal' },
+          body: JSON.stringify({
+            user_id: u.uid,
+            run_kind: 'summary_v05',
+            run_mode: 'shadow',
+            payload: { content: out.content, inspection_html: out.html },
+            window_start: week.weekStart,
+            window_end: week.weekEnd,
+          }),
+        });
+        if (!sres.ok)
+          throw new Error(
+            `shadow_runs write failed: ${sres.status} ${(await sres.text().catch(() => '')).slice(0, 200)}`,
+          );
+
+        return {
+          label: u.label,
+          deck_size: out.content.cards.length,
+          card_types: out.content.metadata.card_types,
+          fired_detectors: out.content.metadata.fired_detectors,
+          fires_logged: out.detector_fires.length,
+        };
+      });
+      results.push(r);
+    }
+    return { week, users: results };
+  },
+);
+
 // ============================================================================
 // Weekly Summary V2: Dispatcher (cron + manual trigger)
 // ============================================================================
@@ -8381,6 +8500,7 @@ const inngestHandler = serve({
     testWorldsBundleEquivalence,
     testAnalystObservationsWrite,
     testWorldsOutputDualRun,
+    testSummaryV05,
     weeklySummaryV2Dispatcher,
     weeklySummaryV2Worker,
     backfillIdentity,
