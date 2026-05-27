@@ -62,8 +62,14 @@ export async function processWorldsWindow(params: {
   };
 }): Promise<ProcessWindowResult> {
   const { ownerId, windowStart, windowEnd, env } = params;
-  const useUnifiedBundle = params.opts?.useUnifiedBundle === true;
-  const useAnalystLedger = params.opts?.useAnalystLedger === true;
+  // Phase 2b Step C cutover: unified bundle + analyst ledger are the production
+  // path by default. Callers may still pass false explicitly (the dual-run
+  // harness does, to draw its baseline); production passes nothing and gets the
+  // new path. The legacy collectSignalForBackfillClassifier branch in Step 1
+  // stays for that harness baseline and retires later with the harness (see
+  // master spec section 4, Phase 2b note).
+  const useUnifiedBundle = params.opts?.useUnifiedBundle !== false;
+  const useAnalystLedger = params.opts?.useAnalystLedger !== false;
   const dryRun = params.opts?.dryRun === true;
 
   // Step 1: collect signal. Default = legacy backfill collector (byte-identical
