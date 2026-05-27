@@ -1052,14 +1052,19 @@ const testWorldsBundleEquivalence = inngest.createFunction(
     //    capped at recent-4-plus-earliest per the agreed plan (A-D1).
     const windowPlan = await step.run('resolve-windows', async () => {
       const nowMs = Date.now();
+      const dateOnly = (ms) => new Date(ms).toISOString().slice(0, 10);
       const weekly = {
         index: 'weekly',
-        start: new Date(nowMs - 28 * 24 * 60 * 60 * 1000).toISOString(),
-        end: new Date(nowMs).toISOString(),
+        start: dateOnly(nowMs - 28 * 24 * 60 * 60 * 1000),
+        end: dateOnly(nowMs),
       };
 
       const earliest = await findEarliestDropDate(userId, env);
-      const all = computeWindows(earliest, new Date(nowMs).toISOString(), 28, 14);
+      const all = computeWindows(earliest, new Date(nowMs).toISOString(), 28, 14).map((w) => ({
+        index: w.index,
+        start: w.start.slice(0, 10),
+        end: w.end.slice(0, 10),
+      }));
 
       // recent-4-plus-earliest: dedupe by index in case of overlap
       const chosen = [];
