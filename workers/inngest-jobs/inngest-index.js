@@ -21,6 +21,7 @@ import { buildUnifiedUserBundle } from './unifiedUserBundle';
 import { findEarliestDropDate, computeWindows } from './worldsHarness';
 import { buildWindowReport, buildUserReport } from './worldsBundleEquivalenceReport';
 import { processWorldsWindow } from './processWorldsWindow';
+import { generateAdaptiveSummary } from './generateAdaptiveSummary';
 import { buildOutputDualRunReport } from './worldsOutputDiffReport';
 import { createWorldsWriterTest } from './worldsWriterTest';
 import { createWorldsBootstrap } from './worldsBootstrap';
