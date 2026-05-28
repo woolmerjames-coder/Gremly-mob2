@@ -1,0 +1,169 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gremly · Adaptive Weekly Summary v0.7 · Shadow Inspection</title>
+<style>
+  :root{
+    --moss:#2E5540; --moss-deep:#1F3A2D; --sage-mist:#BFD8C0; --sage-deep:#7BA589;
+    --periwinkle:#9CA6E0; --periwinkle-bg:#F4F3FA;
+    --golden-pear:#E0C47A; --golden-deep:#C68B40;
+    --linen:#F9F6F1; --cream:#FBF8F2;
+    --ink:#1F3A2D; --ink-soft:#3A4A3D;
+    --grey-soft:#6B7C6E; --grey-faint:#8A9B8D;
+    --amber-bg:#FAEEDA; --amber-ink:#5A3A0F;
+    --serif:Georgia,'Times New Roman',serif;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:#E8E4DC;font-family:var(--sans);color:var(--ink);padding:0 0 60px;}
+  .inspect{max-width:760px;margin:0 auto;padding:28px 20px;}
+  .inspect h2{font-family:var(--serif);font-weight:500;color:var(--moss);}
+  .meta{font-family:'SF Mono',monospace;font-size:11px;color:var(--grey-soft);margin-bottom:4px;}
+  .deck-rail{display:flex;flex-direction:column;gap:32px;align-items:center;margin-top:24px;}
+  .gph{width:100%;max-width:380px;background:#fff;border-radius:18px;box-shadow:0 4px 16px rgba(0,0,0,0.06);overflow:hidden;}
+  .gnv{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--linen);font-size:10px;color:var(--grey-soft);font-family:'SF Mono',monospace;border-bottom:1px solid #EFEAE0;}
+  .gc{padding:24px 22px;background:#fff;}
+  .eyebrow{font-family:'SF Mono',monospace;font-size:10px;color:var(--grey-soft);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:14px;}
+  .card-headline{font-family:var(--serif);font-size:19px;line-height:1.3;color:var(--ink);font-weight:500;margin:0 0 14px 0;}
+  .hero-classification{display:inline-block;font-family:'SF Mono',monospace;font-size:10px;color:var(--moss);background:var(--sage-mist);padding:4px 10px;border-radius:11px;letter-spacing:0.5px;margin-bottom:14px;}
+  .hero-headline{font-family:var(--serif);font-size:24px;line-height:1.25;color:var(--moss);font-weight:500;margin:0 0 10px 0;}
+  .hero-subtitle{font-size:13px;line-height:1.5;color:var(--grey-soft);margin:0 0 18px 0;}
+  .hero-panel{background:var(--linen);border-radius:14px;padding:14px;}
+  .stat-strip{display:flex;justify-content:space-around;padding-bottom:12px;border-bottom:1px solid #EFEAE0;margin-bottom:12px;}
+  .stat{text-align:center;flex:1;}
+  .stat-bordered{border-left:1px solid #EFEAE0;}
+  .stat-value{font-size:16px;font-weight:500;color:var(--ink);}
+  .stat-label{font-size:9px;color:var(--grey-faint);font-family:'SF Mono',monospace;text-transform:uppercase;letter-spacing:0.4px;margin-top:2px;}
+  .mood-arc{display:grid;gap:4px;margin-bottom:5px;}
+  .mood-cell{height:32px;border-radius:3px;}
+  .mood-labels{display:grid;gap:4px;font-size:9px;color:var(--grey-faint);text-align:center;font-family:'SF Mono',monospace;}
+  .moment-quote{font-family:var(--serif);font-size:22px;line-height:1.35;color:var(--moss);font-style:italic;margin:8px 0 14px 0;border-left:3px solid var(--periwinkle);padding:6px 0 6px 16px;}
+  .moment-attr{font-family:'SF Mono',monospace;font-size:10px;color:var(--grey-soft);text-transform:uppercase;letter-spacing:0.5px;}
+  .people-chips{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 16px 0;}
+  .people-chip{display:inline-block;font-size:12px;color:var(--moss);background:var(--linen);padding:6px 14px;border-radius:14px;font-weight:500;}
+  .people-chip-emphasized{background:var(--sage-mist);color:var(--moss-deep);font-weight:600;}
+  .people-beats{list-style:none;padding:0;margin:14px 0 0 0;}
+  .people-beats li{display:flex;align-items:baseline;gap:10px;padding:6px 0;border-bottom:1px solid #F0ECE2;}
+  .people-beats li:last-child{border-bottom:none;}
+  .beat-date{font-family:'SF Mono',monospace;font-size:10px;color:var(--grey-faint);min-width:60px;line-height:1.2;}
+  .beat-label{font-size:12px;color:var(--ink);}
+  .pattern-list{list-style:none;padding:0;margin:10px 0 14px 0;}
+  .pattern-list li{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:8px 0;border-bottom:1px solid #F0ECE2;}
+  .pattern-list li:last-child{border-bottom:none;}
+  .pattern-label{font-size:13px;color:var(--ink);}
+  .pattern-meta{font-family:'SF Mono',monospace;font-size:10px;color:var(--grey-faint);white-space:nowrap;}
+  .pattern-footer{font-size:11px;color:var(--grey-soft);font-style:italic;margin:8px 0 0 0;line-height:1.5;}
+  .question-headline{font-family:var(--serif);font-size:22px;line-height:1.3;color:var(--moss);font-weight:500;margin:14px 0 18px 0;}
+  .question-grounding{font-size:13px;line-height:1.55;color:var(--ink-soft);margin:0;}
+  .stat-block{text-align:center;padding:22px 0 12px 0;}
+  .stat-big-number{font-family:var(--serif);font-size:72px;line-height:1;color:var(--moss);font-weight:500;}
+  .stat-big-unit{font-family:'SF Mono',monospace;font-size:11px;color:var(--grey-soft);text-transform:uppercase;letter-spacing:0.6px;margin-top:8px;}
+  .stat-context{font-size:12px;color:var(--ink-soft);margin:14px 0 0 0;line-height:1.5;text-align:center;max-width:280px;margin-left:auto;margin-right:auto;}
+  .timeline{list-style:none;padding:0;margin:14px 0 14px 0;}
+  .timeline li{display:flex;align-items:baseline;gap:12px;padding:10px 0;border-bottom:1px solid #F0ECE2;position:relative;padding-left:18px;}
+  .timeline li:before{content:'●';position:absolute;left:0;top:11px;font-size:9px;color:var(--sage-deep);}
+  .timeline li:last-child{border-bottom:none;}
+  .tl-date{font-family:'SF Mono',monospace;font-size:10px;color:var(--grey-faint);min-width:76px;line-height:1.2;}
+  .tl-label{font-size:13px;color:var(--ink);line-height:1.45;}
+  .tl-footer{font-size:11px;color:var(--grey-soft);font-style:italic;margin:8px 0 0 18px;line-height:1.5;}
+  .letter-eyebrow{display:flex;align-items:center;gap:8px;margin-bottom:16px;font-family:'SF Mono',monospace;font-size:10px;color:var(--moss);text-transform:uppercase;letter-spacing:0.6px;}
+  .letter-para{font-size:13px;line-height:1.65;color:var(--ink);margin:0 0 12px 0;}
+  .letter-sig{display:flex;align-items:center;gap:10px;padding-top:14px;border-top:1px solid #C8D8C8;font-size:10px;color:var(--grey-soft);}
+  .letter-sig-avatar{width:28px;height:28px;background:var(--sage-mist);border-radius:50%;}
+  .letter-sig strong{color:var(--moss);}
+</style>
+</head><body>
+<div class="inspect">
+  <h2>James · 6 cards <span style="font-weight:400;color:var(--grey-soft);">(2026-05-18, claude-sonnet-4-6 + claude-haiku-4-5-20251001, 2 attempt(s))</span></h2>
+  <div class="meta">classification: Collision and Displacement Week</div>
+  <div class="meta">through_line: The worth question underneath the stall</div>
+  <div class="meta">card_shapes: hero → moment → timeline → pattern → question → letter</div>
+  <div class="meta">tenure: 39d · first_weekly: false · fed in window: 0/7</div>
+  <div class="meta" style="color:#b00;">errors: quality(card[4]): Question card exceeds length and complexity threshold. The question runs 24 words and contains two clauses separated by a comma, making it two questions in sequence rather than one sharp sentence. The grounding paragraph that follows is prose explanation, which should be minimal or absent on a question card. | quality(card[5]): Letter tone reads as editorial reflection about the user rather than a direct note to the user. The second paragraph begins 'Your body kept its promises this week' and then shifts into 'The worth question is now in the middle of...' and 'Your Gremly is watching it settle there.' This last sentence performs observation and commentary rather than speaking as a companion. The closing line 'Your Gremly is watching it settle there' is a statement about the user's situation, not a note from the Gremly to the user. | quality(card[5]): Letter does not weave the specific names from the brief's entities (Mum, Dave, Ellie, Steve, Sage) or the specific dates and moments that anchor the narrative. The brief identifies 'other_people' and specific dated moments, but the letter names only 'your parents' generically and does not reference the people or details that make the story concrete. | [a1] fact: card[3] weekday/date mismatch: prose says &quot;Sunday&quot; but 2026-05-23 is a Saturday | [a1] quality(card[4]): Question card body is two sentences before the question. The grounding paragraph ('Three consecutive weeks...') is editorial explanation that should not precede the question. The question itself is sharp, but the shape requires the question to be the sole visual anchor with prose support after, not before. | [a1] quality(card[5]): Letter closing line reads as a coaching nudge disguised as observation. 'That question deserves a direct answer, not a todo' is instruction phrased as insight. It directs the reader toward a specific action (answering the question directly rather than creating a todo), which violates the tone requirement that the letter not end with instruction or rhetorical prompts toward next steps.</div>
+  <div class="deck-rail"><div class="gph">
+    <div class="gnv"><span>&nbsp;</span><span>1 of 6 · hero</span><span>✕</span></div>
+    <div class="gc">
+    <div class="hero-classification">Collision and Displacement Week</div>
+    <h1 class="hero-headline">You built the experience, then waited for someone to notice.</h1>
+    <p class="hero-subtitle">A carefully orchestrated family visit collided with the reality of parental indifference, and the collision reframed a three-week development stall from a time problem into a worth problem.</p>
+    <div class="hero-panel">
+      <div class="stat-strip"><div class="stat"><div class="stat-value">0</div><div class="stat-label">todos completed this week</div></div><div class="stat stat-bordered"><div class="stat-value">6</div><div class="stat-label">journals in the window</div></div><div class="stat stat-bordered"><div class="stat-value">23</div><div class="stat-label">days since last feed</div></div><div class="stat stat-bordered"><div class="stat-value">39</div><div class="stat-label">days with your Gremly</div></div></div>
+      <div class="mood-arc" style="grid-template-columns:repeat(7,1fr);"><div class="mood-cell" style="background:#EFEAE0;" title="Monday"></div><div class="mood-cell" style="background:#D89B6A;" title="Tuesday"></div><div class="mood-cell" style="background:#EFEAE0;" title="Wednesday"></div><div class="mood-cell" style="background:#EFEAE0;" title="Thursday"></div><div class="mood-cell" style="background:#EFEAE0;" title="Friday"></div><div class="mood-cell" style="background:#EFEAE0;" title="Saturday"></div><div class="mood-cell" style="background:#EFEAE0;" title="Sunday"></div></div>
+      <div class="mood-labels" style="grid-template-columns:repeat(7,1fr);"><div>M 18</div><div>Tu 19</div><div>W 20</div><div>Th 21</div><div>F 22</div><div>Sa 23</div><div>Su 24</div></div>
+    </div></div>
+  </div>
+<div class="gph">
+    <div class="gnv"><span>‹</span><span>2 of 6 · moment</span><span>✕</span></div>
+    <div class="gc">
+    <div class="eyebrow">Tuesday, May 19  -  The Invisible Moment</div>
+    <blockquote class="moment-quote">Upset with my parents for showing very little interest in Gremly or work. They seem to never ask questions</blockquote>
+    <div class="moment-attr">Journal, Tuesday May 19  -  two days after Bay to Breakers, four weeks after writing 'Want to maximize parents when they are here next month'</div></div>
+  </div>
+<div class="gph">
+    <div class="gnv"><span>‹</span><span>3 of 6 · timeline</span><span>✕</span></div>
+    <div class="gc">
+    <div class="eyebrow">The arc of the visit</div>
+    <h2 class="card-headline">Hope, execution, collision, and displacement across ten days.</h2>
+    <ol class="timeline">
+      <li>
+        <span class="tl-date">2026-05-14<br><span style="font-size:8px;color:var(--grey-faint);">Thursday</span></span>
+        <span class="tl-label">Parents arrive in San Francisco</span>
+      </li>
+      <li>
+        <span class="tl-date">2026-05-17<br><span style="font-size:8px;color:var(--grey-faint);">Sunday</span></span>
+        <span class="tl-label">Bay to Breakers with Mum and Dave  -  the relational peak</span>
+      </li>
+      <li>
+        <span class="tl-date">2026-05-19<br><span style="font-size:8px;color:var(--grey-faint);">Tuesday</span></span>
+        <span class="tl-label">Journal names the void: parental indifference surfaces</span>
+      </li>
+      <li>
+        <span class="tl-date">2026-05-20<br><span style="font-size:8px;color:var(--grey-faint);">Wednesday</span></span>
+        <span class="tl-label">Todo created: Have Conversation with Parents About Feeling Invisible  -  unstarted</span>
+      </li>
+      <li>
+        <span class="tl-date">2026-05-23<br><span style="font-size:8px;color:var(--grey-faint);">Saturday</span></span>
+        <span class="tl-label">Energy displaces into family tech support: app blip and email setup for Mum</span>
+      </li></ol>
+    <p class="tl-footer">You moved from orchestrating the experience to servicing the relationship, without ever having the conversation in between.</p></div>
+  </div>
+<div class="gph">
+    <div class="gnv"><span>‹</span><span>4 of 6 · pattern</span><span>✕</span></div>
+    <div class="gc">
+    <div class="eyebrow">Three voids, one axis</div>
+    <h2 class="card-headline">The stall is not about time. Three separate signals are pointing at the same question.</h2>
+    <ul class="pattern-list">
+      <li>
+        <span class="pattern-label">Product doubt: anxiety about whether Gremly will actually work</span>
+        <span class="pattern-meta">Named in journal, May 10</span>
+      </li>
+      <li>
+        <span class="pattern-label">Parental indifference: the people closest to you show no curiosity about the work</span>
+        <span class="pattern-meta">Named in journal, May 19</span>
+      </li>
+      <li>
+        <span class="pattern-label">Work unsustainability: delivering at Sage while believing it cannot continue</span>
+        <span class="pattern-meta">Named in journal, April 29 and May 10</span>
+      </li>
+      <li>
+        <span class="pattern-label">Zero operational todos created to address any of the three</span>
+        <span class="pattern-meta">Full week, May 18 to May 24</span>
+      </li></ul>
+    <p class="pattern-footer">Each void asks the same thing: does anyone, including you, believe this matters?</p></div>
+  </div>
+<div class="gph">
+    <div class="gnv"><span>‹</span><span>5 of 6 · question</span><span>✕</span></div>
+    <div class="gc">
+    <div class="eyebrow">The question underneath</div>
+    <h2 class="question-headline">If your parents don't ask, and the market hasn't answered yet, what is the internal source that keeps you building?</h2>
+    <p class="question-grounding">Three consecutive weeks of zero Gremly completions, and the one Gremly-adjacent todo created this week was a naming change, not core development. The processing is rich and real, in journals and in chat, but none of it has moved into action.</p></div>
+  </div>
+<div class="gph">
+    <div class="gnv"><span>‹</span><span>6 of 6 · letter</span><span>✕</span></div>
+    <div class="gc" style="background:#EAF1E8;">
+    <div class="letter-eyebrow"><span>✉</span><span>A note from your Gremly</span></div>
+    <p class="letter-para">You ran Bay to Breakers on Sunday May 17, you planned the activities, you showed up. Then on Tuesday May 19 you wrote that your parents never ask questions. The gap between those two moments is where this week lived: you gave the experience, and the attention you were hoping for did not come back.</p><p class="letter-para">Your body kept its promises this week, 3 sessions of strength, 3 of core work, 2 on the bike. Everything else is sitting still. The worth question is now in the middle of the Gremly work, in the middle of the family dynamic, and in the middle of the career tension all at once. Your Gremly is watching it settle there.</p>
+    <div class="letter-sig">
+      <div class="letter-sig-avatar"></div>
+      <span><strong>Your Gremly</strong> · L56 · Guide</span>
+    </div></div>
+  </div></div>
+</div></body></html>

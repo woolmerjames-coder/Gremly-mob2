@@ -94,7 +94,9 @@ import type {
   WSV2RecommendationCard,
   WeeklySummaryV2Content,
   ItemReminder,
+  V07Deck as V07DeckType,
 } from '../../lib/types';
+import { V07DeckRenderer } from './weeklySummary/v07/V07DeckRenderer';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -1712,6 +1714,7 @@ export default function WeeklySummaryV2Screen() {
   );
   const summary = paramSummary ?? currentWeekSummary;
   const content = summary?.content as WeeklySummaryV2Content | undefined;
+  const isV07 = ((content as unknown as V07DeckType)?.content_version ?? 0) >= 4;
   const cards: WSV2Card[] = content?.cards ?? [];
 
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
@@ -1846,27 +1849,39 @@ export default function WeeklySummaryV2Screen() {
       </View>
 
       {/* Card Flow */}
-      <FlatList
-        ref={flatListRef}
-        data={cards}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        decelerationRate={0.95}
-        onMomentumScrollEnd={handleScrollEnd}
-        keyExtractor={(_, i) => String(i)}
-        renderItem={({ item }) => (
-          <View style={{ width: SCREEN_WIDTH }}>
-            <ScrollView
-              style={styles.cardScroll}
-              contentContainerStyle={styles.cardScrollContent}
-              showsVerticalScrollIndicator={false}
-            >
-              {renderCard(item)}
-            </ScrollView>
-          </View>
-        )}
-      />
+      {isV07 ? (
+        <V07DeckRenderer
+          deck={content as unknown as V07DeckType}
+          currentCardIndex={currentCardIndex}
+          onScrollEnd={handleScrollEnd}
+          flatListRef={flatListRef}
+          screenWidth={SCREEN_WIDTH}
+          cardScrollStyle={styles.cardScroll}
+          cardScrollContentStyle={styles.cardScrollContent}
+        />
+      ) : (
+        <FlatList
+          ref={flatListRef}
+          data={cards}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          decelerationRate={0.95}
+          onMomentumScrollEnd={handleScrollEnd}
+          keyExtractor={(_, i) => String(i)}
+          renderItem={({ item }) => (
+            <View style={{ width: SCREEN_WIDTH }}>
+              <ScrollView
+                style={styles.cardScroll}
+                contentContainerStyle={styles.cardScrollContent}
+                showsVerticalScrollIndicator={false}
+              >
+                {renderCard(item)}
+              </ScrollView>
+            </View>
+          )}
+        />
+      )}
 
       {/* Footer */}
       <View style={[styles.footer, { paddingBottom: insets.bottom + 8 }]}>

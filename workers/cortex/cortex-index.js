@@ -2219,7 +2219,15 @@ async function fetchPlannerProjection(userId, timezone, env) {
       if (dco.day_type) parts.push(`Day type: ${dco.day_type}`);
       if (dco.tone) parts.push(`Today's tone: ${dco.tone}`);
       if (dco.life_moment) parts.push(`Life moment: ${dco.life_moment}`);
-      if (dco.lead_story) parts.push(`Lead story: ${dco.lead_story}`);
+      // fix: lead_story was rendering as [object Object] — it is {domain, thread, detail, why_today}, not a string
+      if (dco.lead_story) {
+        const ls = dco.lead_story;
+        const leadText =
+          typeof ls === 'string'
+            ? ls
+            : ls.detail || ls.why_today || [ls.domain, ls.thread].filter(Boolean).join(' › ');
+        if (leadText) parts.push(`Lead story: ${leadText}`);
+      }
     }
 
     // Thread priorities — what to protect and prioritize
@@ -3417,7 +3425,12 @@ export default {
         'organize-day',
         'weekly-summary',
       ]);
-      const AUTH_REQUIRED_LANES = new Set(['space_chat', 'general_chat', 'world_chat', 'chapter_chat']);
+      const AUTH_REQUIRED_LANES = new Set([
+        'space_chat',
+        'general_chat',
+        'world_chat',
+        'chapter_chat',
+      ]);
 
       const needsAuth = AUTH_REQUIRED_TYPES.has(type) || (lane && AUTH_REQUIRED_LANES.has(lane));
 
@@ -13513,7 +13526,10 @@ Return ONLY valid JSON:
         );
 
         if (!worldGeminiResult.ok) {
-          return j({ error: worldGeminiResult.error || 'gemini_error', code: worldGeminiResult.status }, 200);
+          return j(
+            { error: worldGeminiResult.error || 'gemini_error', code: worldGeminiResult.status },
+            200,
+          );
         }
 
         let worldContent = worldGeminiResult.content;
@@ -13524,12 +13540,21 @@ Return ONLY valid JSON:
         if (worldToolCall?.name === 'web_search') {
           try {
             worldSearchQuery = worldToolCall.args?.query;
-            const worldSearchResults = await executeTavilySearch(worldSearchQuery, env.TAVILY_API_KEY);
+            const worldSearchResults = await executeTavilySearch(
+              worldSearchQuery,
+              env.TAVILY_API_KEY,
+            );
             if (worldSearchResults?.results?.length > 0) {
               const worldFollowUp = buildFollowUpContents(
                 convertMessages(worldTriageMessages),
                 worldGeminiResult.parts || [],
-                [{ name: 'web_search', id: worldToolCall.id, response: { results: formatSearchBrief(worldSearchResults) } }],
+                [
+                  {
+                    name: 'web_search',
+                    id: worldToolCall.id,
+                    response: { results: formatSearchBrief(worldSearchResults) },
+                  },
+                ],
               );
               const worldFollowUpResult = await geminiGenerate(
                 worldGenConfig.systemPrompt,
@@ -13543,7 +13568,10 @@ Return ONLY valid JSON:
                 env.GOOGLE_API_KEY,
               );
               worldContent = worldFollowUpResult.ok ? worldFollowUpResult.content : worldContent;
-              worldSources = worldSearchResults.results.map((r) => ({ title: r.title, url: r.url }));
+              worldSources = worldSearchResults.results.map((r) => ({
+                title: r.title,
+                url: r.url,
+              }));
             }
           } catch (worldSearchErr) {
             console.log('[WorldChat:NonStreaming] Search error:', worldSearchErr);
@@ -13551,8 +13579,12 @@ Return ONLY valid JSON:
         }
 
         worldContent = stripFillerOpening(worldContent);
-        const { suggestion: worldSaveSuggestion, cleanContent: worldClean } = extractSaveSuggestion(worldContent);
-        worldContent = worldClean.replace(/<!--SAVE:.*?-->/gs, '').replace(/<!--SAVE:.*$/s, '').trim();
+        const { suggestion: worldSaveSuggestion, cleanContent: worldClean } =
+          extractSaveSuggestion(worldContent);
+        worldContent = worldClean
+          .replace(/<!--SAVE:.*?-->/gs, '')
+          .replace(/<!--SAVE:.*$/s, '')
+          .trim();
 
         console.log('[WorldChat:NonStreaming] Complete', {
           latency_ms: Date.now() - t0NonStream,
@@ -13565,7 +13597,12 @@ Return ONLY valid JSON:
               try {
                 const prevRes = await fetch(
                   `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=running_summary`,
-                  { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } },
+                  {
+                    headers: {
+                      apikey: env.SUPABASE_SERVICE_KEY,
+                      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                    },
+                  },
                 );
                 const prevData = prevRes?.ok ? await prevRes.json().catch(() => []) : [];
                 await generateRunningSummary(
@@ -13633,7 +13670,9 @@ Return ONLY valid JSON:
         }
 
         const chapterContext = { runningSummary: body.runningSummary || '' };
-        const chapterScopeContextStr = chapterEntities ? formatChapterEntities(chapterEntities) : null;
+        const chapterScopeContextStr = chapterEntities
+          ? formatChapterEntities(chapterEntities)
+          : null;
         const lastUserMsgChapter = messages.filter((m) => m.role === 'user').pop()?.content || '';
         const previousExchangeChapter = extractPreviousExchange(messages);
 
@@ -13690,7 +13729,13 @@ Return ONLY valid JSON:
         );
 
         if (!chapterGeminiResult.ok) {
-          return j({ error: chapterGeminiResult.error || 'gemini_error', code: chapterGeminiResult.status }, 200);
+          return j(
+            {
+              error: chapterGeminiResult.error || 'gemini_error',
+              code: chapterGeminiResult.status,
+            },
+            200,
+          );
         }
 
         let chapterContent = chapterGeminiResult.content;
@@ -13701,12 +13746,21 @@ Return ONLY valid JSON:
         if (chapterToolCall?.name === 'web_search') {
           try {
             chapterSearchQuery = chapterToolCall.args?.query;
-            const chapterSearchResults = await executeTavilySearch(chapterSearchQuery, env.TAVILY_API_KEY);
+            const chapterSearchResults = await executeTavilySearch(
+              chapterSearchQuery,
+              env.TAVILY_API_KEY,
+            );
             if (chapterSearchResults?.results?.length > 0) {
               const chapterFollowUp = buildFollowUpContents(
                 convertMessages(chapterTriageMessages),
                 chapterGeminiResult.parts || [],
-                [{ name: 'web_search', id: chapterToolCall.id, response: { results: formatSearchBrief(chapterSearchResults) } }],
+                [
+                  {
+                    name: 'web_search',
+                    id: chapterToolCall.id,
+                    response: { results: formatSearchBrief(chapterSearchResults) },
+                  },
+                ],
               );
               const chapterFollowUpResult = await geminiGenerate(
                 chapterGenConfig.systemPrompt,
@@ -13719,8 +13773,13 @@ Return ONLY valid JSON:
                 },
                 env.GOOGLE_API_KEY,
               );
-              chapterContent = chapterFollowUpResult.ok ? chapterFollowUpResult.content : chapterContent;
-              chapterSources = chapterSearchResults.results.map((r) => ({ title: r.title, url: r.url }));
+              chapterContent = chapterFollowUpResult.ok
+                ? chapterFollowUpResult.content
+                : chapterContent;
+              chapterSources = chapterSearchResults.results.map((r) => ({
+                title: r.title,
+                url: r.url,
+              }));
             }
           } catch (chapterSearchErr) {
             console.log('[ChapterChat:NonStreaming] Search error:', chapterSearchErr);
@@ -13728,8 +13787,12 @@ Return ONLY valid JSON:
         }
 
         chapterContent = stripFillerOpening(chapterContent);
-        const { suggestion: chapterSaveSuggestion, cleanContent: chapterClean } = extractSaveSuggestion(chapterContent);
-        chapterContent = chapterClean.replace(/<!--SAVE:.*?-->/gs, '').replace(/<!--SAVE:.*$/s, '').trim();
+        const { suggestion: chapterSaveSuggestion, cleanContent: chapterClean } =
+          extractSaveSuggestion(chapterContent);
+        chapterContent = chapterClean
+          .replace(/<!--SAVE:.*?-->/gs, '')
+          .replace(/<!--SAVE:.*$/s, '')
+          .trim();
 
         console.log('[ChapterChat:NonStreaming] Complete', {
           latency_ms: Date.now() - t0NonStream,
@@ -13742,7 +13805,12 @@ Return ONLY valid JSON:
               try {
                 const prevRes = await fetch(
                   `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=running_summary`,
-                  { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } },
+                  {
+                    headers: {
+                      apikey: env.SUPABASE_SERVICE_KEY,
+                      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                    },
+                  },
                 );
                 const prevData = prevRes?.ok ? await prevRes.json().catch(() => []) : [];
                 await generateRunningSummary(
@@ -13910,15 +13978,22 @@ function extractSaveSuggestionModuleLevel(content) {
   const match = content.match(savePattern);
   if (!match) return { suggestion: null, cleanContent: content };
   try {
-    const jsonStr = match[1].replace(/[\n\r]/g, ' ').replace(/\s+/g, ' ').trim();
+    const jsonStr = match[1]
+      .replace(/[\n\r]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
     const suggestion = JSON.parse(jsonStr);
     if (!suggestion.type || !suggestion.title) return { suggestion: null, cleanContent: content };
-    if (!['todo', 'habit', 'note'].includes(suggestion.type)) return { suggestion: null, cleanContent: content };
+    if (!['todo', 'habit', 'note'].includes(suggestion.type))
+      return { suggestion: null, cleanContent: content };
     if (suggestion.steps) {
       if (!Array.isArray(suggestion.steps)) {
         delete suggestion.steps;
       } else {
-        suggestion.steps = suggestion.steps.slice(0, 12).map((s) => String(s).trim()).filter((s) => s.length > 0 && s.length < 200);
+        suggestion.steps = suggestion.steps
+          .slice(0, 12)
+          .map((s) => String(s).trim())
+          .filter((s) => s.length > 0 && s.length < 200);
         if (suggestion.steps.length === 0) delete suggestion.steps;
       }
     }
@@ -14195,9 +14270,7 @@ function runScopedChatStream(
         // Web search follow-up
         let sources = undefined;
         let searchQueries = [];
-        const webSearchCalls = toolCalls.filter(
-          (tc) => tc.name === 'web_search' && tc.arguments,
-        );
+        const webSearchCalls = toolCalls.filter((tc) => tc.name === 'web_search' && tc.arguments);
 
         if (webSearchCalls.length > 0) {
           let firstQuery = '';
@@ -14212,9 +14285,7 @@ function runScopedChatStream(
               ? `${firstQuery} (+${webSearchCalls.length - 1} more)`
               : firstQuery;
           await writer.write(
-            encoder.encode(
-              `data: ${JSON.stringify({ searching: true, query: searchNotice })}\n\n`,
-            ),
+            encoder.encode(`data: ${JSON.stringify({ searching: true, query: searchNotice })}\n\n`),
           );
 
           const searchResults = await Promise.all(
@@ -14237,9 +14308,7 @@ function runScopedChatStream(
             }),
           );
 
-          const successfulSearches = searchResults.filter(
-            (sr) => sr.results?.results?.length > 0,
-          );
+          const successfulSearches = searchResults.filter((sr) => sr.results?.results?.length > 0);
 
           if (successfulSearches.length > 0) {
             const originalContents = convertMessages(chatMessages);
@@ -14319,9 +14388,7 @@ function runScopedChatStream(
               const cleaned = stripFillerOpening(fuFillerBuffer);
               if (cleaned) {
                 await writer.write(
-                  encoder.encode(
-                    `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
-                  ),
+                  encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`),
                 );
               }
             }
@@ -14361,7 +14428,8 @@ function runScopedChatStream(
         }
 
         const searchQuery = searchQueries.length > 0 ? searchQueries.join(' | ') : undefined;
-        const { suggestion: smartSuggestion, cleanContent } = extractSaveSuggestionModuleLevel(fullContent);
+        const { suggestion: smartSuggestion, cleanContent } =
+          extractSaveSuggestionModuleLevel(fullContent);
         fullContent = cleanContent
           .replace(/<!--SAVE:.*?-->/gs, '')
           .replace(/<!--SAVE:.*$/s, '')

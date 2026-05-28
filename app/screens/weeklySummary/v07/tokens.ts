@@ -1,0 +1,40 @@
+export const v07 = {
+  color: {
+    moss: '#2E5540',
+    mossDeep: '#1A3328',
+    sageMist: '#BFD8C0',
+    sageSoft: '#DCEADD',
+    periwinkle: '#9CA6E0',
+    periwinkleSoft: '#E2E5F5',
+    golden: '#E0C47A',
+    goldenDeep: '#C2A24A',
+    linen: '#F9F6F1',
+    linenDeep: '#F0EBE2',
+    ink: '#1A2C22',
+    textSoft: '#5E6E63',
+    textFaint: '#8B988E',
+    hair: 'rgba(26,44,34,0.10)',
+    hairSoft: 'rgba(26,44,34,0.06)',
+  },
+  font: {
+    // Registered in app/theme/fonts.ts as 'Fraunces' (400Regular), 'Fraunces-Italic',
+    // 'Fraunces-Medium', 'Fraunces-SemiBold'.
+    display: 'Fraunces',
+    displayItalic: 'Fraunces-Italic',
+    displayMedium: 'Fraunces-Medium',
+    displaySemiBold: 'Fraunces-SemiBold',
+    // Registered as 'PlusJakartaSans-Regular', 'PlusJakartaSans-Medium',
+    // 'PlusJakartaSans-SemiBold', 'PlusJakartaSans-Bold'.
+    ui: 'PlusJakartaSans-Regular',
+    uiMedium: 'PlusJakartaSans-Medium',
+    uiSemiBold: 'PlusJakartaSans-SemiBold',
+    uiBold: 'PlusJakartaSans-Bold',
+  },
+  card: {
+    radius: 30,
+    padTop: 30,
+    padX: 26,
+    padBottom: 28,
+    minHeight: 540,
+  },
+};

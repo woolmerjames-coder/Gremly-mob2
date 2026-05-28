@@ -1643,3 +1643,110 @@ export interface DailyContextObject {
   model_used: string;
   worlds_summary?: DcoWorldsSummary;
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// WEEKLY SUMMARY V07 (content_version: 4)
+// ═══════════════════════════════════════════════════════════════════
+
+export type V07Shape =
+  | 'hero'
+  | 'moment'
+  | 'people'
+  | 'pattern'
+  | 'question'
+  | 'stat'
+  | 'timeline'
+  | 'letter';
+
+export interface V07SourceRef {
+  type: 'observation' | 'journal_quote' | 'hard_fact' | 'date';
+  id?: string;
+  date?: string;
+  path?: string;
+  value?: string;
+}
+
+export interface V07MoodCell {
+  day_label: string;
+  day_of_week: string;
+  valence: 'positive' | 'negative' | 'neutral' | null;
+}
+
+export interface V07HeroBody {
+  subtitle: string;
+  classification_chip: string;
+  mood_arc: V07MoodCell[];
+  stat_strip: { value: string; label: string; source: V07SourceRef }[];
+  sources: V07SourceRef[];
+  image_hint?: string;
+  image_url?: string;
+}
+
+export interface V07MomentBody {
+  quote: string;
+  attribution: string;
+  source_journal_quote_id: string;
+  source_observation_id?: string;
+  image_hint?: string;
+  image_url?: string;
+}
+
+export interface V07PeopleBody {
+  headline: string;
+  people: { name: string; relationship?: string; emphasized?: boolean }[];
+  beats?: { label: string; date: string; day_of_week: string; source: V07SourceRef }[];
+  sources: V07SourceRef[];
+}
+
+export interface V07PatternBody {
+  headline: string;
+  items: { label: string; meta?: string; source: V07SourceRef }[];
+  footer?: string;
+}
+
+export interface V07QuestionBody {
+  question: string;
+  grounding: string;
+  sources: V07SourceRef[];
+}
+
+export interface V07StatBody {
+  number: string;
+  unit: string;
+  context: string;
+  source: V07SourceRef;
+}
+
+export interface V07TimelineBody {
+  headline: string;
+  events: { date: string; day_of_week: string; label: string; source: V07SourceRef }[];
+  footer?: string;
+}
+
+export interface V07LetterBody {
+  paragraphs: { text: string; sources: V07SourceRef[] }[];
+  signature: { name: string; level: number; state: string };
+}
+
+export interface V07Card {
+  shape: V07Shape;
+  eyebrow?: string;
+  headline?: string;
+  anchor?: { subject: string; observation_id: string | null };
+  body:
+    | V07HeroBody
+    | V07MomentBody
+    | V07PeopleBody
+    | V07PatternBody
+    | V07QuestionBody
+    | V07StatBody
+    | V07TimelineBody
+    | V07LetterBody;
+}
+
+export interface V07Deck {
+  content_version: number;
+  classification: string;
+  through_line: string;
+  cards: V07Card[];
+}

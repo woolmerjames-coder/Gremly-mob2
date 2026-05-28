@@ -1,0 +1,106 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gremly · Adaptive Weekly Summary v0.6 · Shadow Inspection</title>
+<style>
+  :root{
+    --moss:#2E5540; --moss-deep:#1F3A2D; --sage-mist:#BFD8C0; --sage-deep:#7BA589;
+    --periwinkle:#9CA6E0; --periwinkle-bg:#F4F3FA;
+    --golden-pear:#E0C47A; --golden-deep:#C68B40;
+    --linen:#F9F6F1; --cream:#FBF8F2;
+    --ink:#1F3A2D; --ink-soft:#3A4A3D;
+    --grey-soft:#6B7C6E; --grey-faint:#8A9B8D;
+    --amber-bg:#FAEEDA; --amber-ink:#5A3A0F;
+    --serif:Georgia,'Times New Roman',serif;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:#E8E4DC;font-family:var(--sans);color:var(--ink);padding:0 0 60px;}
+  .inspect{max-width:760px;margin:0 auto;padding:28px 20px;}
+  .inspect h2{font-family:var(--serif);font-weight:500;color:var(--moss);}
+  .meta{font-family:'SF Mono',monospace;font-size:11px;color:var(--grey-soft);margin-bottom:4px;}
+  .deck-rail{display:flex;flex-direction:column;gap:32px;align-items:center;margin-top:24px;}
+
+  /* Card frame */
+  .gph{width:100%;max-width:380px;background:#fff;border-radius:18px;box-shadow:0 4px 16px rgba(0,0,0,0.06);overflow:hidden;}
+  .gnv{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--linen);font-size:10px;color:var(--grey-soft);font-family:'SF Mono',monospace;border-bottom:1px solid #EFEAE0;}
+  .gc{padding:24px 22px;background:#fff;}
+
+  /* Eyebrow (small all-caps label at top of cards) */
+  .eyebrow{font-family:'SF Mono',monospace;font-size:10px;color:var(--grey-soft);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:14px;}
+
+  /* Generic card headline */
+  .card-headline{font-family:var(--serif);font-size:19px;line-height:1.3;color:var(--ink);font-weight:500;margin:0 0 14px 0;}
+
+  /* ── HERO ── */
+  .hero-classification{display:inline-block;font-family:'SF Mono',monospace;font-size:10px;color:var(--moss);background:var(--sage-mist);padding:4px 10px;border-radius:11px;letter-spacing:0.5px;margin-bottom:14px;}
+  .hero-headline{font-family:var(--serif);font-size:24px;line-height:1.25;color:var(--moss);font-weight:500;margin:0 0 10px 0;}
+  .hero-subtitle{font-size:13px;line-height:1.5;color:var(--grey-soft);margin:0 0 18px 0;}
+  .hero-panel{background:var(--linen);border-radius:14px;padding:14px;}
+  .stat-strip{display:flex;justify-content:space-around;padding-bottom:12px;border-bottom:1px solid #EFEAE0;margin-bottom:12px;}
+  .stat{text-align:center;flex:1;}
+  .stat-bordered{border-left:1px solid #EFEAE0;}
+  .stat-value{font-size:16px;font-weight:500;color:var(--ink);}
+  .stat-label{font-size:9px;color:var(--grey-faint);font-family:'SF Mono',monospace;text-transform:uppercase;letter-spacing:0.4px;margin-top:2px;}
+  .mood-arc{display:grid;gap:4px;margin-bottom:5px;}
+  .mood-cell{height:32px;border-radius:3px;}
+  .mood-labels{display:grid;gap:4px;font-size:9px;color:var(--grey-faint);text-align:center;font-family:'SF Mono',monospace;}
+
+  /* ── MOMENT ── */
+  .moment-quote{font-family:var(--serif);font-size:21px;line-height:1.35;color:var(--moss);font-style:italic;margin:8px 0 14px 0;border-left:3px solid var(--periwinkle);padding:6px 0 6px 16px;background:transparent;}
+  .moment-attr{font-family:'SF Mono',monospace;font-size:10px;color:var(--grey-soft);text-transform:uppercase;letter-spacing:0.5px;}
+  .moment-context{font-size:12px;color:var(--grey-soft);margin:10px 0 0 0;line-height:1.5;}
+
+  /* ── PEOPLE ── */
+  .people-chips{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 16px 0;}
+  .people-chip{display:inline-block;font-size:12px;color:var(--moss);background:var(--linen);padding:6px 14px;border-radius:14px;font-weight:500;}
+  .people-chip-emphasized{background:var(--sage-mist);color:var(--moss-deep);font-weight:600;}
+  .people-beats{list-style:none;padding:0;margin:14px 0 0 0;}
+  .people-beats li{display:flex;align-items:baseline;gap:10px;padding:6px 0;border-bottom:1px solid #F0ECE2;}
+  .people-beats li:last-child{border-bottom:none;}
+  .beat-date{font-family:'SF Mono',monospace;font-size:10px;color:var(--grey-faint);min-width:48px;}
+  .beat-label{font-size:12px;color:var(--ink);}
+
+  /* ── PATTERN ── */
+  .pattern-list{list-style:none;padding:0;margin:10px 0 14px 0;}
+  .pattern-list li{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:8px 0;border-bottom:1px solid #F0ECE2;}
+  .pattern-list li:last-child{border-bottom:none;}
+  .pattern-label{font-size:13px;color:var(--ink);}
+  .pattern-meta{font-family:'SF Mono',monospace;font-size:10px;color:var(--grey-faint);white-space:nowrap;}
+  .pattern-footer{font-size:11px;color:var(--grey-soft);font-style:italic;margin:8px 0 0 0;line-height:1.5;}
+
+  /* ── QUESTION ── */
+  .question-headline{font-family:var(--serif);font-size:22px;line-height:1.3;color:var(--moss);font-weight:500;margin:14px 0 18px 0;}
+  .question-grounding{font-size:13px;line-height:1.55;color:var(--ink-soft);margin:0;}
+
+  /* ── STAT ── */
+  .stat-block{text-align:center;padding:22px 0 12px 0;}
+  .stat-big-number{font-family:var(--serif);font-size:72px;line-height:1;color:var(--moss);font-weight:500;}
+  .stat-big-unit{font-family:'SF Mono',monospace;font-size:11px;color:var(--grey-soft);text-transform:uppercase;letter-spacing:0.6px;margin-top:8px;}
+  .stat-context{font-size:12px;color:var(--ink-soft);margin:14px 0 0 0;line-height:1.5;text-align:center;max-width:280px;margin-left:auto;margin-right:auto;}
+
+  /* ── TIMELINE ── */
+  .timeline{list-style:none;padding:0;margin:14px 0 14px 0;counter-reset:none;}
+  .timeline li{display:flex;align-items:baseline;gap:12px;padding:10px 0;border-bottom:1px solid #F0ECE2;position:relative;padding-left:18px;}
+  .timeline li:before{content:'●';position:absolute;left:0;top:11px;font-size:9px;color:var(--sage-deep);}
+  .timeline li:last-child{border-bottom:none;}
+  .tl-date{font-family:'SF Mono',monospace;font-size:10px;color:var(--grey-faint);min-width:64px;}
+  .tl-label{font-size:13px;color:var(--ink);line-height:1.45;}
+  .tl-footer{font-size:11px;color:var(--grey-soft);font-style:italic;margin:8px 0 0 18px;line-height:1.5;}
+
+  /* ── LETTER ── */
+  .letter-eyebrow{display:flex;align-items:center;gap:8px;margin-bottom:16px;font-family:'SF Mono',monospace;font-size:10px;color:var(--moss);text-transform:uppercase;letter-spacing:0.6px;}
+  .letter-eyebrow span:first-child{color:var(--moss);}
+  .letter-para{font-size:13px;line-height:1.65;color:var(--ink);margin:0 0 12px 0;}
+  .letter-sig{display:flex;align-items:center;gap:10px;padding-top:14px;border-top:1px solid #C8D8C8;font-size:10px;color:var(--grey-soft);}
+  .letter-sig-avatar{width:28px;height:28px;background:var(--sage-mist);border-radius:50%;}
+  .letter-sig strong{color:var(--moss);}
+</style>
+</head><body>
+<div class="inspect">
+  <h2>Tina · 0 cards <span style="font-weight:400;color:var(--grey-soft);">(2026-05-18, claude-sonnet-4-6 + claude-haiku-4-5-20251001, 2 attempt(s))</span></h2>
+  <div class="meta">classification: Travel + Reflection + Reset</div>
+  <div class="meta">through_line: (write failed)</div>
+  <div class="meta">card_shapes: </div>
+  <div class="meta">tenure: 5d · first_weekly: true · fed in window: 3/7</div>
+  <div class="meta" style="color:#b00;">errors: fact: card[1] weekday/date mismatch: prose says &quot;Saturday&quot; but 2026-05-22 is a Friday | fact: card[2] weekday/date mismatch: prose says &quot;Saturday&quot; but 2026-05-22 is a Friday | quality(card[4]): Question card headline violates sharpness criterion. The headline 'How do you close the gap between doing and recording?' is repeated verbatim in the grounding section as 'The question:' field, creating redundancy. More critically, the grounding paragraph that follows is two full sentences of context-setting before the question is restated, which defeats the visual-first form of a question card. The question should stand alone as the headline anchor; supporting context belongs in grounding, not embedded in prose that precedes the question. | quality(card[5]): Letter closing contains a coaching nudge disguised as an experiment suggestion. The final sentence ('That is worth one small experiment this week: the next time you walk, or stretch, or call James, just mark it.') directs the user toward a specific action and frames it as a prescription for the coming week. This violates the criterion that the letter should close without instruction. The letter reads as editorial guidance rather than a companion's note of what was noticed. | quality(card[5]): Letter tone shifts toward essay-about-you rather than note-to-you in the second paragraph. The sentence 'The place and the people have become genuinely important to you' is interpretive commentary on the user's emotional state rather than a direct observation of a named moment or quote. It reads as the writer reflecting on the user's feelings rather than the user hearing what was noticed. Compare to the first paragraph, which names the specific action (guilt → todo → presence in 24 hours) and lets the user draw the conclusion.</div>
+  <div class="deck-rail"></div>
+</div></body></html>
