@@ -1489,7 +1489,8 @@ const weeklySummaryV07Worker = inngest.createFunction(
     name: 'Weekly Summary V07 Worker',
     concurrency: { limit: 3 },
     retries: 2,
-    idempotency: 'event.data.user_id + "-" + event.data.week_start',
+    idempotency:
+      'event.data.idempotency_key ? event.data.idempotency_key : (event.data.user_id + "-" + event.data.week_start)',
   },
   { event: 'app/weekly-summary-v07.run' },
   async ({ event, step, env }) => {
