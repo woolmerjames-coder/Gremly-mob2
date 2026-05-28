@@ -141,8 +141,9 @@ shape: 'moment'  When ONE dated journal quote carries the focal moment. The quot
 
 shape: 'people'  When one or more named people drove the week's emotional shape.
   eyebrow: short label.
-  headline: a single sentence naming the arc.
+  (no card-level headline; the headline lives inside body)
   body: {
+    headline: a single sentence naming the arc,
     people: array of { name, relationship?, emphasized? }; names from facts.entities.other_people only,
     beats: optional array of { label, date, day_of_week, source } where source cites the observation that grounds the beat,
     sources: SourceRef array for the card overall
@@ -150,8 +151,9 @@ shape: 'people'  When one or more named people drove the week's emotional shape.
 
 shape: 'pattern'  When a short list IS the story. Minimal annotation.
   eyebrow: short label.
-  headline: single sentence framing the list.
+  (no card-level headline; the headline lives inside body)
   body: {
+    headline: single sentence framing the list,
     items: 3 to 6 entries of { label, meta?, source } where source cites the fact or observation behind the item,
     footer: optional one-line interpretive comment (no source required; interpretation stays free)
   }
@@ -177,8 +179,9 @@ shape: 'stat'  When ONE big number carries a story.
 
 shape: 'timeline'  When a short arc IS the story.
   eyebrow: short label.
-  headline: single sentence framing the arc.
+  (no card-level headline; the headline lives inside body)
   body: {
+    headline: single sentence framing the arc,
     events: 2 to 5 entries of { date, day_of_week, label, source } where day_of_week and source are required,
     footer: optional interpretive comment
   }
@@ -580,12 +583,19 @@ function walkStrings(value: unknown, path: string, cb: (path: string, str: strin
 }
 
 /**
- * The only fields where a weekday word is allowed: structured day_of_week fields echoed from
- * the supplied inputs (mood_arc cells, timeline events, people beats). Anywhere else, a
- * weekday word is prose hallucination territory and is rejected.
+ * The only fields where a weekday word is allowed:
+ *   - Structured day_of_week fields echoed from the supplied inputs (mood_arc cells,
+ *     timeline events, people beats). These are validated against date_lookup elsewhere.
+ *   - The verbatim journal quote on a moment card (body.quote). This is user input copied
+ *     verbatim from the original journal entry and may legitimately contain a weekday word
+ *     because the user wrote one. Verbatim is verbatim.
+ *
+ * Everywhere else, a weekday word is prose hallucination territory and is rejected.
  */
 function isStructuredWeekdayField(path: string): boolean {
-  return path.endsWith('.day_of_week');
+  if (path.endsWith('.day_of_week')) return true;
+  if (path === 'body.quote') return true;
+  return false;
 }
 
 function validateNoWeekdayInProse(deck: unknown, errors: string[]): void {
@@ -633,6 +643,10 @@ function validateSourceRefs(
     'user.current_tier',
     'user.tenure_days',
     'evidence.aligned_worlds_count',
+    // Aliases (Sonnet often uses these short forms because they appear as section headings
+    // in the user prompt; treat them as equivalent to the canonical paths above).
+    'aligned_worlds_count',
+    'day_by_day_activity',
   ]);
   // Also allow indexed paths into evidence arrays and worlds
   const isValidHardFactPath = (path: string): boolean => {
@@ -646,6 +660,7 @@ function validateSourceRefs(
     if (/^worlds\[\d+\]\.\w+$/.test(path)) return true;
     if (/^mood_arc\[\d+\]\.\w+$/.test(path)) return true;
     if (/^day_by_day\[\d+\]\.\w+$/.test(path)) return true;
+    if (/^day_by_day_activity\[\d+\]\.\w+$/.test(path)) return true;
     return false;
   };
   const dateLookup = facts.week.date_lookup;
@@ -927,7 +942,7 @@ function validateWeekdayDateAgreement(deck: unknown, facts: HardFacts, errors: s
     }
     for (const wk of wkHits) {
       let nearest: Hit | null = null;
-      let dist = 81;
+      let dist = 46;
       for (const dt of dateHits) {
         const d = Math.abs(dt.pos - wk.pos);
         if (d < dist) {
@@ -935,7 +950,7 @@ function validateWeekdayDateAgreement(deck: unknown, facts: HardFacts, errors: s
           nearest = dt;
         }
       }
-      if (!nearest || dist > 80) continue;
+      if (!nearest || dist > 45) continue;
       const expected = facts.week.date_lookup[nearest.iso];
       if (expected && expected !== wk.word) {
         errors.push(
@@ -979,17 +994,24 @@ function factCheckDeterministic(
       return;
     }
     if (typeof c.eyebrow !== 'string') errors.push(`card[${i}] missing eyebrow`);
-    // headline is required for hero, people, pattern, timeline; ABSENT for moment, question, stat, letter
-    const headlineRequired = ['hero', 'people', 'pattern', 'timeline'].includes(shape);
-    if (headlineRequired && typeof c.headline !== 'string')
-      errors.push(`card[${i}/${shape}] missing headline`);
+    // Only the hero requires a CARD-LEVEL headline. People, pattern, and timeline cards
+    // carry their headline inside body.headline (checked by validateBodyStructure). The
+    // remaining shapes (moment, question, stat, letter) have no headline at all because
+    // their visual anchor IS the lead.
+    const cardLevelHeadlineRequired = shape === 'hero';
+    const cardLevelHeadlineForbidden = ['moment', 'question', 'stat', 'letter'].includes(shape);
+    if (cardLevelHeadlineRequired && typeof c.headline !== 'string') {
+      errors.push(`card[${i}/${shape}] missing card-level headline`);
+    }
     if (
-      !headlineRequired &&
+      cardLevelHeadlineForbidden &&
       c.headline &&
       typeof c.headline === 'string' &&
       c.headline.length > 0
     ) {
-      errors.push(`card[${i}/${shape}] should not have a headline; the visual anchor is the lead`);
+      errors.push(
+        `card[${i}/${shape}] has a card-level headline but the visual anchor is the lead for this shape`,
+      );
     }
     const body = c.body as Record<string, unknown> | undefined;
     if (!body || typeof body !== 'object') {
@@ -1001,8 +1023,26 @@ function factCheckDeterministic(
 
   validateSourceRefs(deck, brief, facts, errors);
   validateAtoms(deck, brief, facts, errors);
+  validateHeroMoodArcLength(deck, facts, errors);
 
   return { ok: errors.length === 0, errors };
+}
+
+/**
+ * The hero's mood_arc cells are echoed from facts.mood_arc. Their count must match exactly.
+ * Sonnet sometimes pads with extra cells or trims; catch either way.
+ */
+function validateHeroMoodArcLength(deck: unknown, facts: HardFacts, errors: string[]): void {
+  const cards = (deck as { cards?: Array<Record<string, unknown>> }).cards ?? [];
+  const hero = cards[0];
+  if (!hero || hero.shape !== 'hero') return;
+  const body = hero.body as { mood_arc?: unknown } | undefined;
+  if (!Array.isArray(body?.mood_arc)) return;
+  const got = body.mood_arc.length;
+  const want = facts.mood_arc.length;
+  if (got !== want) {
+    errors.push(`card[0/hero].mood_arc length ${got} != facts length ${want}`);
+  }
 }
 
 function validateBodyStructure(
