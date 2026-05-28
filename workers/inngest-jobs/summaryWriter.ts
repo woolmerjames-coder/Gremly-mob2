@@ -793,8 +793,15 @@ function validateAtoms(
   }
 
   // Numbers
+  // Before scanning, strip patterns that contain numbers as structural components rather
+  // than as content: ISO dates (2026-05-13 — the "13" is a day-of-month, not a fabrication)
+  // and mood_arc day labels (W 13 — same). Without this, every date in the deck would
+  // produce a spurious "fabricated number" hit.
+  const flatForNumScan = flat
+    .replace(/\b20\d{2}-\d{2}-\d{2}\b/g, '')
+    .replace(/\b[MTWFSU]\s\d{1,2}\b/g, '');
   const allowedNumbers = inputAllowedNumbers(brief, facts);
-  for (const m of flat.matchAll(/\b(\d{2,5})\b/g)) {
+  for (const m of flatForNumScan.matchAll(/\b(\d{2,5})\b/g)) {
     const n = m[1];
     if (parseInt(n, 10) < 10) continue;
     if (/^20\d{2}$/.test(n)) continue;
@@ -1235,7 +1242,12 @@ Return only the JSON. No commentary outside the JSON.`;
       attempt1QualityIssues = [...qc.issues];
     }
 
-    if (fc.ok && qc.ok) {
+    // The retry-once logic applies to FACT errors only. Facts are non-negotiable. Quality
+    // issues are the job of the polish pass downstream; the writer's role is to produce a
+    // factually-clean deck. When fact_check passes, ship the deck even if quality_check
+    // flagged issues. The orchestrator inspects quality_issues to decide whether polish
+    // runs.
+    if (fc.ok) {
       const deck: Deck = {
         classification: String(raw['classification'] ?? brief.week_shape?.classification ?? ''),
         through_line: String(raw['through_line'] ?? ''),
@@ -1246,7 +1258,7 @@ Return only the JSON. No commentary outside the JSON.`;
         deck,
         attempts: attempt,
         fact_errors: [],
-        quality_issues: [],
+        quality_issues: qc.issues,
         attempt_1_fact_errors: attempt1FactErrors,
         attempt_1_quality_issues: attempt1QualityIssues,
         writer_model: writerModel,
@@ -1256,6 +1268,8 @@ Return only the JSON. No commentary outside the JSON.`;
     }
   }
 
+  // Two attempts and fact_check still failing. Hard-fail with the writer's last attempt
+  // raw output preserved in last_attempted_raw for telemetry.
   return {
     deck: null,
     attempts: 2,
