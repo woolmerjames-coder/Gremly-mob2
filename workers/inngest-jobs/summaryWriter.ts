@@ -62,6 +62,13 @@ The deck is ONE coherent narrative: a hero card naming the week's character, 2 t
 
 The analyst has already done the editorial curation. The week_shape brief is the editorial direction. The classification names the week's character. The highlight names the focal moment. The concern names what is structurally underneath.
 
+SHAPE SELECTION:
+The eight shapes exist so the deck can take the form the week actually had. A deck that reaches for the same shapes every week is not adaptive, even when the prose differs. Before settling on a shape for each middle card, let the strongest single element of the anchor choose the shape rather than defaulting to a headline-led list:
+- When named people from facts.entities.other_people are central to the week, who showed up, who was absent, a relationship dynamic that carried the emotional arc, a people card makes the relationships the anchor. Prefer it over naming those people inside a pattern or timeline.
+- When a single number carries the week on its own, a count, a percentage, or a duration that is the story rather than one figure among several, a stat card makes that number the anchor. Do not leave a story-carrying number buried in the hero stat_strip or as one item in a pattern list.
+- When one dated journal quote is the focal point, a moment card holds it. Do not bury that quote inside a timeline or pattern.
+A deck that genuinely fits the week will often use people or stat when the week's center is a person or a number. Reaching only for moment, pattern, timeline, and question every week means the shape is not following the data.
+
 WHAT STAYS YOUR JUDGMENT (no source needed):
 - Which through-line to anchor the deck on
 - Which observations to surface and which to skip
@@ -88,6 +95,7 @@ Hard rules:
 - No weekday words in any prose field. The seven weekday names ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday") appear ONLY in structured day_of_week fields where they are echoed from the input data (mood_arc cells, timeline events, people beats). In any prose (headlines, subtitles, footers, attributions, grounding paragraphs, letter paragraphs, card eyebrows, item labels), write dates as month and day or as yyyy-mm-dd, without the weekday name. The user interface renders the weekday from the date.
 - Second person. Direct. Warm.
 - Visual-first: each card has ONE visual anchor: a quote, a number, a list, a timeline, a set of people, a stat strip. Prose supports the visual; it does not lead.
+- image_hint, where present, uses broad scenic, location, or textural keywords only, matched to the emotional tone of the card. It never names a person, a specific activity, or a specific object, because stock photo libraries do not index those. image_hint is metadata for photo search, not user-facing prose.
 
 Output JSON only, matching the schema below. No markdown fences. No prose outside the JSON.`;
 
@@ -126,7 +134,8 @@ shape: 'hero'  ALWAYS card 1.
     classification_chip: the classification echoed as a small chip,
     mood_arc: echo the mood_arc cells provided in facts (same day_label, day_of_week, valence per cell),
     stat_strip: 3 to 4 stats; each entry { value, label, source } where source cites the hard_fact path,
-    sources: array of SourceRef listing observations or hard facts the hero draws from
+    sources: array of SourceRef listing observations or hard facts the hero draws from,
+    image_hint: broad scenic, location, or textural keywords for a stock photo banner, matched to the week's emotional tone
   }
 
 shape: 'moment'  When ONE dated journal quote carries the focal moment. The quote IS the card.
@@ -136,7 +145,8 @@ shape: 'moment'  When ONE dated journal quote carries the focal moment. The quot
     quote: VERBATIM journal text from facts.journal_quotes (substring match required),
     attribution: small text under the quote: the date (as month and day, or yyyy-mm-dd) and a brief context fragment if useful. Do NOT include the weekday name; the UI renders that from the date,
     source_journal_quote_id: the id of the facts.journal_quotes entry the quote came from,
-    source_observation_id: optional; the analyst observation that surfaced this quote
+    source_observation_id: optional; the analyst observation that surfaced this quote,
+    image_hint: broad scenic or textural keywords for an immersive stock photo backdrop, matched to the quote's emotional tone
   }
 
 shape: 'people'  When one or more named people drove the week's emotional shape.
@@ -595,6 +605,7 @@ function walkStrings(value: unknown, path: string, cb: (path: string, str: strin
 function isStructuredWeekdayField(path: string): boolean {
   if (path.endsWith('.day_of_week')) return true;
   if (path === 'body.quote') return true;
+  if (path === 'body.image_hint') return true;
   return false;
 }
 
@@ -795,7 +806,9 @@ function validateAtoms(
   facts: HardFacts,
   errors: string[],
 ): void {
-  const flat = JSON.stringify(deck);
+  // image_hint is photo-search metadata, not a factual atom. Strip image_hint values from
+  // the scanned text so a scenic keyword cannot trip the date or number scanners.
+  const flat = JSON.stringify(deck).replace(/"image_hint"\s*:\s*"[^"]*"/g, '"image_hint":""');
 
   // Dates
   const allowedDates = new Set<string>();

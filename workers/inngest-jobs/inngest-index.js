@@ -1426,6 +1426,13 @@ const runShadowSummaryForWeek = inngest.createFunction(
           ? 'soft_pass'
           : 'hard_fail';
 
+    // Step 1b: resolve image hints so shadow_runs contains resolved image_urls.
+    const resolvedShadowContent = await step.run('resolve-image-hints', async () => {
+      if (!out.content?.cards) return out.content;
+      await resolveV07ImageHints(out.content.cards, env);
+      return out.content;
+    });
+
     // Step 2: persist to shadow_runs.
     await step.run('persist-shadow-run', async () => {
       const res = await fetch(`${env.SUPABASE_URL}/rest/v1/shadow_runs`, {
@@ -1438,7 +1445,7 @@ const runShadowSummaryForWeek = inngest.createFunction(
           window_start: week_start,
           window_end: week_end,
           payload: {
-            content: out.content,
+            content: resolvedShadowContent,
             inspection_html: out.html,
             fact_errors: out.fact_errors,
             quality_issues: out.quality_issues,
@@ -1470,6 +1477,174 @@ const runShadowSummaryForWeek = inngest.createFunction(
       outcome,
       fact_errors_count: out.fact_errors.length,
       quality_issues_count: out.quality_issues.length,
+      polish_outcome: out.polish_outcome,
+      attempts: out.attempts,
+    };
+  },
+);
+
+const weeklySummaryV07Worker = inngest.createFunction(
+  {
+    id: 'weekly-summary-v07-worker',
+    name: 'Weekly Summary V07 Worker',
+    concurrency: { limit: 3 },
+    retries: 2,
+    idempotency: 'event.data.user_id + "-" + event.data.week_start',
+  },
+  { event: 'app/weekly-summary-v07.run' },
+  async ({ event, step, env }) => {
+    const { user_id, week_start, timezone = 'UTC' } = event.data;
+    if (!user_id) throw new Error('user_id is required');
+    if (!week_start) throw new Error('week_start is required (yyyy-mm-dd, must be a Monday)');
+
+    const start = new Date(week_start + 'T00:00:00Z');
+    if (start.getUTCDay() !== 1) {
+      throw new Error(`week_start ${week_start} is not a Monday (UTC day ${start.getUTCDay()})`);
+    }
+    const week_end = formatDateOnly(new Date(+start + 6 * 86400000));
+
+    const authHeaders = {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+    };
+    const runRpc = async (fnName, params) => {
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/${fnName}`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify(params),
+      });
+      if (!res.ok)
+        throw new Error(
+          `rpc ${fnName} failed: ${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`,
+        );
+      return res.json();
+    };
+    const fetchRows = async (path) => {
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/${path}`, {
+        method: 'GET',
+        headers: authHeaders,
+      });
+      if (!res.ok)
+        throw new Error(
+          `fetch ${path} failed: ${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`,
+        );
+      return res.json();
+    };
+
+    // Step 0: idempotency — skip if a summary already exists for this week.
+    const alreadyExists = await step.run('check-existing-summary', async () => {
+      const res = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/weekly_summaries?user_id=eq.${user_id}&week_start_date=eq.${week_start}&select=id&limit=1`,
+        { headers: authHeaders },
+      );
+      if (!res.ok) return false;
+      const rows = await res.json();
+      return Array.isArray(rows) && rows.length > 0;
+    });
+    if (alreadyExists) {
+      return { success: true, skipped: true, reason: 'summary_already_exists' };
+    }
+
+    // Step 1: run v0.7 generation pipeline.
+    const out = await step.run('generate-summary', async () =>
+      generateAdaptiveSummary({
+        userId: user_id,
+        weekStart: week_start,
+        weekEnd: week_end,
+        label: `${user_id.slice(0, 8)} · ${week_start}`,
+        env,
+        runRpc,
+        fetchRows,
+      }),
+    );
+
+    // Hard-fail guard: never write a fact-invalid deck to weekly_summaries.
+    if (!out.content || out.fact_errors.length > 0) {
+      console.error(
+        `[V07Worker] Hard-fail for ${user_id} ${week_start}: ${out.fact_errors.join('; ')}`,
+      );
+      return {
+        success: false,
+        user_id,
+        week_start,
+        week_end,
+        outcome: 'hard_fail',
+        fact_errors: out.fact_errors,
+      };
+    }
+
+    // Step 2: resolve image hints on hero and moment cards.
+    const resolvedContent = await step.run('resolve-image-hints', async () => {
+      await resolveV07ImageHints(out.content.cards, env);
+      return out.content;
+    });
+
+    // Step 3: claim notification slot, delete any existing row, insert new summary.
+    await step.run('save-weekly-summary', async () => {
+      const headers = authHeaders;
+
+      // Claim the notification slot — only done when we have a shippable deck.
+      await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/claim_notification_slot`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          p_user_id: user_id,
+          p_type: 'weekly',
+          p_date_key: week_start,
+        }),
+      });
+
+      // Delete any existing summary for this week before insert.
+      await fetch(
+        `${env.SUPABASE_URL}/rest/v1/weekly_summaries?user_id=eq.${user_id}&week_start_date=eq.${week_start}`,
+        { method: 'DELETE', headers },
+      );
+
+      const cards = resolvedContent.cards ?? [];
+
+      // Extract moment dates from source_journal_quote_id ('q_yyyy-mm-dd_n' format).
+      const momentDates = cards
+        .filter((c) => c.shape === 'moment')
+        .map((c) => {
+          const m = c.body?.source_journal_quote_id?.match(/^q_(\d{4}-\d{2}-\d{2})_/);
+          return m ? m[1] : null;
+        })
+        .filter(Boolean);
+
+      const insertRes = await fetch(`${env.SUPABASE_URL}/rest/v1/weekly_summaries`, {
+        method: 'POST',
+        headers: { ...headers, Prefer: 'return=minimal' },
+        body: JSON.stringify({
+          user_id,
+          week_start_date: week_start,
+          week_end_date: week_end,
+          content: resolvedContent,
+          moment_dates: momentDates,
+          stats_snapshot: {
+            card_count: cards.length,
+            card_shapes: cards.map((c) => c.shape),
+          },
+          key_themes: [],
+          viewed: false,
+          banner_dismissed: false,
+          generated_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }),
+      });
+      if (!insertRes.ok) {
+        const errText = await insertRes.text();
+        throw new Error(`Failed to save weekly summary: ${errText}`);
+      }
+    });
+
+    return {
+      success: true,
+      user_id,
+      week_start,
+      week_end,
+      outcome: out.quality_issues.length === 0 ? 'hard_pass' : 'soft_pass',
+      card_shapes: (resolvedContent.cards ?? []).map((c) => c.shape),
       polish_outcome: out.polish_outcome,
       attempts: out.attempts,
     };
@@ -4619,6 +4794,21 @@ async function resolveImageUrl(imageHint, env) {
     console.warn('[WeeklySummaryV2] Unsplash failed:', imageHint, e.message);
     return null;
   }
+}
+
+// ── Resolve image hints on v0.7 hero and moment cards ───────────────────────
+// Mutates cards in-place; returns the content object (for step.run return values).
+async function resolveV07ImageHints(cards, env) {
+  if (!Array.isArray(cards) || !env.UNSPLASH_ACCESS_KEY) return;
+  await Promise.all(
+    cards
+      .filter((c) => (c.shape === 'hero' || c.shape === 'moment') && c.body?.image_hint)
+      .map((c) =>
+        resolveImageUrl(c.body.image_hint, env).then((url) => {
+          if (url) c.body.image_url = url;
+        }),
+      ),
+  );
 }
 
 // ── Safe JSON parse with jsonrepair ─────────────────────────────────────────
@@ -8668,6 +8858,7 @@ const inngestHandler = serve({
     testAnalystObservationsWrite,
     backfillAnalystForWeek,
     runShadowSummaryForWeek,
+    weeklySummaryV07Worker,
     testWorldsOutputDualRun,
     testSummaryV05,
     weeklySummaryV2Dispatcher,

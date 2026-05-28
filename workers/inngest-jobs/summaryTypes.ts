@@ -218,6 +218,7 @@ export interface HeroBody {
   mood_arc: { day_label: string; day_of_week: string; valence: Valence | null }[];
   stat_strip: { value: string; label: string; source: SourceRef }[];
   sources: SourceRef[];
+  image_hint?: string; // tone-matched scenic/textural keywords for Unsplash banner; resolved to image_url by the worker
 }
 
 /**
@@ -229,6 +230,7 @@ export interface MomentBody {
   attribution: string; // small text under quote
   source_journal_quote_id: string; // points to a facts.journal_quotes entry
   source_observation_id?: string; // analyst observation that surfaced this
+  image_hint?: string; // tone-matched scenic/textural keywords for immersive Unsplash backdrop; resolved by the worker
 }
 
 export interface PeopleBody {
