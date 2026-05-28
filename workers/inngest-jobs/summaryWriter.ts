@@ -319,7 +319,7 @@ fed:
 - target: ${facts.fed.target}
 - graduated_this_window: ${facts.fed.graduated_this_window}
 
-totals:
+totals (cite as hard_fact with path e.g. "totals.todos_completed", "totals.drops", "totals.journals"):
 - drops: ${facts.totals.drops}
 - journals: ${facts.totals.journals}
 - todos_completed: ${facts.totals.todos_completed}
@@ -644,14 +644,22 @@ function validateSourceRefs(
   // maintaining an alias for every section heading Sonnet might reach for (mood_arc,
   // worlds, rescheduled_todos[i], themes, etc). With dynamic resolution, any well-formed
   // path that points at real data is valid; invented paths still fail.
+  // Common Sonnet path mistakes: map alias -> canonical so they resolve rather than fail.
+  const PATH_ALIASES: Record<string, string> = {
+    'totals.completed': 'totals.todos_completed',
+    'totals.todos': 'totals.todos_completed',
+    'fed.fed_days': 'fed.days_in_window',
+    'fed.fed_days_in_window': 'fed.days_in_window',
+  };
   const isValidHardFactPath = (path: string): boolean => {
     if (!path || typeof path !== 'string') return false;
+    const resolved = PATH_ALIASES[path] ?? path;
     // Split on dots and array indices: "evidence.rescheduled_todos[0].title" ->
     // ['evidence', 'rescheduled_todos', '0', 'title']
     const parts: string[] = [];
     let buf = '';
-    for (let i = 0; i < path.length; i++) {
-      const ch = path[i];
+    for (let i = 0; i < resolved.length; i++) {
+      const ch = resolved[i];
       if (ch === '.') {
         if (buf) {
           parts.push(buf);
@@ -883,7 +891,6 @@ function validateAtoms(
   }
 
   // Tone hard rules
-  if (/[\u2014\u2013]/.test(flat)) errors.push('output contains em or en dash');
   if (/\bshould\b/i.test(flat.replace(/"shape"\s*:\s*"\w+"/g, ''))) {
     errors.push('output contains the word "should"');
   }
@@ -994,6 +1001,34 @@ function validateWeekdayDateAgreement(deck: unknown, facts: HardFacts, errors: s
       }
     }
   });
+}
+
+/**
+ * Mutates the raw deck in place, silently replacing em dashes (\u2014) and en dashes
+ * (\u2013) with ", " in all string values. A stray dash from the writer is corrected
+ * rather than hard-failing the deck. Only touches string values; structured fields
+ * (numbers, booleans, arrays) are untouched.
+ */
+function sanitizeDeckProse(deck: unknown): void {
+  if (!deck || typeof deck !== 'object') return;
+  if (Array.isArray(deck)) {
+    for (let i = 0; i < deck.length; i++) {
+      if (typeof deck[i] === 'string') {
+        (deck as string[])[i] = (deck[i] as string).replace(/[\u2014\u2013]/g, ', ');
+      } else {
+        sanitizeDeckProse(deck[i]);
+      }
+    }
+    return;
+  }
+  const obj = deck as Record<string, unknown>;
+  for (const key of Object.keys(obj)) {
+    if (typeof obj[key] === 'string') {
+      obj[key] = (obj[key] as string).replace(/[\u2014\u2013]/g, ', ');
+    } else {
+      sanitizeDeckProse(obj[key]);
+    }
+  }
 }
 
 function factCheckDeterministic(
@@ -1245,6 +1280,7 @@ Return only the JSON. No commentary outside the JSON.`;
     }
     lastAttemptedRaw = raw;
 
+    sanitizeDeckProse(raw);
     const fc = factCheckDeterministic(raw, brief, facts);
     lastFactErrors = fc.errors;
 
