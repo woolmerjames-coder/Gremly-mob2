@@ -1357,6 +1357,123 @@ const backfillAnalystForWeek = inngest.createFunction(
   },
 );
 
+const runShadowSummaryForWeek = inngest.createFunction(
+  {
+    id: 'run-shadow-summary-for-week',
+    name: 'Run v0.7 adaptive weekly summary in shadow mode and persist to shadow_runs',
+  },
+  { event: 'app/shadow.summary-for-week' },
+  async ({ event, step, env }) => {
+    const { user_id, week_start, timezone = 'UTC' } = event.data;
+    if (!user_id) throw new Error('user_id is required');
+    if (!week_start) throw new Error('week_start is required (yyyy-mm-dd, must be a Monday)');
+
+    const start = new Date(week_start + 'T00:00:00Z');
+    if (start.getUTCDay() !== 1) {
+      throw new Error(`week_start ${week_start} is not a Monday (UTC day ${start.getUTCDay()})`);
+    }
+    const week_end = formatDateOnly(new Date(+start + 6 * 86400000));
+
+    const authHeaders = {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+    };
+    const runRpc = async (fnName, params) => {
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/${fnName}`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify(params),
+      });
+      if (!res.ok)
+        throw new Error(
+          `rpc ${fnName} failed: ${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`,
+        );
+      return res.json();
+    };
+    const fetchRows = async (path) => {
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/${path}`, {
+        method: 'GET',
+        headers: authHeaders,
+      });
+      if (!res.ok)
+        throw new Error(
+          `fetch ${path} failed: ${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`,
+        );
+      return res.json();
+    };
+
+    // Step 1: run the full v0.7 generation pipeline.
+    // generateAdaptiveSummary returns { content, html, surfaced_observations, errors }
+    // where errors[] is prefixed: 'fact: ...' for fact failures, 'quality(...): ...' for quality.
+    const out = await step.run('generate-summary', async () => {
+      return generateAdaptiveSummary({
+        userId: user_id,
+        weekStart: week_start,
+        weekEnd: week_end,
+        label: `${user_id.slice(0, 8)} · ${week_start}`,
+        env,
+        runRpc,
+        fetchRows,
+      });
+    });
+
+    // Derive separate arrays from the combined errors list.
+    const fact_errors = out.errors.filter((e) => e.startsWith('fact: '));
+    const quality_issues = out.errors.filter((e) => e.startsWith('quality'));
+    // Attempt-1 errors are recorded in content.metadata.fill_errors with an '[a1]' prefix.
+    const attempt_1_errors = (out.content?.metadata?.fill_errors ?? []).filter((e) =>
+      e.startsWith('[a1]'),
+    );
+
+    const outcome =
+      fact_errors.length === 0 && quality_issues.length === 0
+        ? 'hard_pass'
+        : fact_errors.length === 0
+          ? 'soft_pass'
+          : 'hard_fail';
+
+    // Step 2: persist to shadow_runs.
+    await step.run('persist-shadow-run', async () => {
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/shadow_runs`, {
+        method: 'POST',
+        headers: { ...authHeaders, Prefer: 'return=minimal' },
+        body: JSON.stringify({
+          user_id,
+          run_kind: 'summary_v07',
+          run_mode: 'shadow',
+          window_start: week_start,
+          window_end: week_end,
+          payload: {
+            content: out.content,
+            inspection_html: out.html,
+            fact_errors,
+            quality_issues,
+            attempt_1_errors,
+            attempts: out.content?.metadata?.fill_attempts ?? null,
+            fill_model: out.content?.metadata?.fill_model ?? null,
+            outcome,
+          },
+        }),
+      });
+      if (!res.ok)
+        throw new Error(
+          `shadow_runs write failed: ${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`,
+        );
+    });
+
+    return {
+      user_id,
+      week_start,
+      week_end,
+      outcome,
+      fact_errors_count: fact_errors.length,
+      quality_issues_count: quality_issues.length,
+      attempts: out.content?.metadata?.fill_attempts ?? null,
+    };
+  },
+);
+
 const testWorldsOutputDualRun = inngest.createFunction(
   {
     id: 'test-worlds-output-dual-run',
@@ -8548,6 +8665,7 @@ const inngestHandler = serve({
     testWorldsBundleEquivalence,
     testAnalystObservationsWrite,
     backfillAnalystForWeek,
+    runShadowSummaryForWeek,
     testWorldsOutputDualRun,
     testSummaryV05,
     weeklySummaryV2Dispatcher,
