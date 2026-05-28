@@ -628,40 +628,55 @@ function validateSourceRefs(
   const obsIds = new Set(brief.observations.map((o) => o.id));
   const quoteDates = new Set(facts.journal_quotes.map((q) => q.date));
   const quoteIds = new Set(facts.journal_quotes.map((q) => q.id));
-  const validHardFactPaths = new Set([
-    'fed.days_in_window',
-    'fed.target',
-    'fed.graduated_this_window',
-    'totals.drops',
-    'totals.journals',
-    'totals.todos_created',
-    'totals.todos_completed',
-    'durations.days_since_onboarding',
-    'durations.days_since_last_fed',
-    'durations.consecutive_zero_fed_weeks',
-    'user.gremly_level',
-    'user.current_tier',
-    'user.tenure_days',
-    'evidence.aligned_worlds_count',
-    // Aliases (Sonnet often uses these short forms because they appear as section headings
-    // in the user prompt; treat them as equivalent to the canonical paths above).
-    'aligned_worlds_count',
-    'day_by_day_activity',
-  ]);
-  // Also allow indexed paths into evidence arrays and worlds
+  // Dynamic hard_fact path resolution. We accept any path that resolves to a non-null
+  // value in the facts object. This replaces the previous static allowlist which required
+  // maintaining an alias for every section heading Sonnet might reach for (mood_arc,
+  // worlds, rescheduled_todos[i], themes, etc). With dynamic resolution, any well-formed
+  // path that points at real data is valid; invented paths still fail.
   const isValidHardFactPath = (path: string): boolean => {
-    if (validHardFactPaths.has(path)) return true;
-    if (
-      /^evidence\.(rescheduled_todos|habit_cadence_mismatches|chapter_closures)\[\d+\]\.\w+$/.test(
-        path,
-      )
-    )
-      return true;
-    if (/^worlds\[\d+\]\.\w+$/.test(path)) return true;
-    if (/^mood_arc\[\d+\]\.\w+$/.test(path)) return true;
-    if (/^day_by_day\[\d+\]\.\w+$/.test(path)) return true;
-    if (/^day_by_day_activity\[\d+\]\.\w+$/.test(path)) return true;
-    return false;
+    if (!path || typeof path !== 'string') return false;
+    // Split on dots and array indices: "evidence.rescheduled_todos[0].title" ->
+    // ['evidence', 'rescheduled_todos', '0', 'title']
+    const parts: string[] = [];
+    let buf = '';
+    for (let i = 0; i < path.length; i++) {
+      const ch = path[i];
+      if (ch === '.') {
+        if (buf) {
+          parts.push(buf);
+          buf = '';
+        }
+      } else if (ch === '[') {
+        if (buf) {
+          parts.push(buf);
+          buf = '';
+        }
+      } else if (ch === ']') {
+        if (buf) {
+          parts.push(buf);
+          buf = '';
+        }
+      } else {
+        buf += ch;
+      }
+    }
+    if (buf) parts.push(buf);
+    if (parts.length === 0) return false;
+
+    // Walk the facts object along the parts. Accept the path if every step resolves and
+    // the final value is non-null. Numeric parts index into arrays.
+    let current: unknown = facts;
+    for (const part of parts) {
+      if (current === null || current === undefined) return false;
+      if (/^\d+$/.test(part)) {
+        if (!Array.isArray(current)) return false;
+        current = (current as unknown[])[parseInt(part, 10)];
+      } else {
+        if (typeof current !== 'object') return false;
+        current = (current as Record<string, unknown>)[part];
+      }
+    }
+    return current !== null && current !== undefined;
   };
   const dateLookup = facts.week.date_lookup;
 
@@ -1302,9 +1317,11 @@ You receive an existing deck that another writer produced, the analyst brief tha
 
 Your job: rewrite ONLY the cards named in the critic notes. Address each named defect concretely in the named card. Preserve every other card verbatim, including its shape, eyebrow, sources, anchor, and structured fields.
 
+STRUCTURAL PRESERVATION (most important): every body field that exists in the input deck must exist in your output with the same key name. You may change the CONTENT of a field (the prose, the wording). You may NOT remove a field, rename it, or replace it with a different field. If the input has body.grounding, your output has body.grounding. If the input has body.subtitle, your output has body.subtitle. The schema requires these fields; the polish cannot drop them.
+
 What you MAY change in a named card:
-- The prose (headlines, subtitles, footers, paragraphs, item labels, attributions, grounding sentences, letter paragraphs).
-- The wording of question text or grounding text on a question card.
+- The prose (headlines inside body, subtitles, footers, paragraphs, item labels, attributions, grounding sentences, letter paragraphs).
+- The wording of question text or grounding text on a question card. The field structure stays; only the words change.
 - Letter paragraphs entirely (within the 1 to 2 paragraph constraint).
 
 What you MUST preserve verbatim, in every card (named or not):
@@ -1312,9 +1329,15 @@ What you MUST preserve verbatim, in every card (named or not):
 - Each card's shape.
 - Each card's eyebrow if it is not specifically named in the defect.
 - The number of cards and their order.
-- All sources arrays. All source_journal_quote_id and source_observation_id values.
+- All sources arrays. All source_journal_quote_id and source_observation_id values, character-for-character.
 - All structured day_of_week fields, dates, and numbers cited from facts.
-- The classification_chip, mood_arc, and stat_strip on the hero card unless explicitly flagged in a critic note for the hero.
+- The classification_chip, mood_arc, and stat_strip on the hero card unless explicitly flagged in a critic note for the hero. The mood_arc cell count is fixed by the facts; do not add or remove cells.
+
+SPECIFIC CARD GUIDANCE:
+
+Question card sharpness defect: when the critic note says the question body contains two sentences before the question, the fix is to MOVE the framing sentence INTO the body.grounding field (which already exists for that purpose). Do NOT remove the grounding field; do NOT collapse the card to just the question. The result: body.question is one sharp sentence ending in a question mark, body.grounding holds the framing that previously preceded the question.
+
+Letter tone defect: when the critic note says the letter reads as editorial reflection rather than a note to the user, rewrite the body.paragraphs to address the user in second person, name the specific anchors (people, dates, quotes) from middle cards by name, and close without a coaching nudge. Keep the paragraphs[] structure and the signature field intact. Each paragraph still carries its own sources array.
 
 Hard rules (unchanged from the writer):
 - No em dashes and no en dashes. Use commas, full stops, or restructure.
@@ -1323,11 +1346,9 @@ Hard rules (unchanged from the writer):
 - No streak language. Rolling windows only.
 - No weekday words in any prose field. The seven weekday names appear ONLY in structured day_of_week fields, which you do not modify. In any prose, dates are written as month and day or as yyyy-mm-dd, without the weekday name.
 - Second person. Direct. Warm.
-- Never fabricate. Every factual atom must trace to inputs the writer was given.
+- Never fabricate. Every factual atom must trace to inputs the writer was given. Do not invent observation IDs, journal_quote dates, or hard_fact paths; copy them verbatim from the input deck where they already appear.
 
-When rewriting, address the specific defect named in the critic note for that card. If the note says "question card body contains two sentences before the question", produce a body where the question is a single sharp sentence ending with a question mark, with no preceding statement. If the note says "letter tone reads as editorial reflection rather than note to user", produce paragraphs that speak directly to the user in second person, name specific anchors from the middle cards by name, and close without a coaching nudge.
-
-Output JSON only. The full deck object with the same top-level shape as the input deck (classification, through_line, cards, surfaced_anchors). Cards that were named in critic notes have their prose revised. Cards not named are byte-identical to the input. No markdown fences. No prose outside the JSON.`;
+Output JSON only. The full deck object with the same top-level shape as the input deck (classification, through_line, cards, surfaced_anchors). Cards that were named in critic notes have their prose revised but their body field structure intact. Cards not named are byte-identical to the input. No markdown fences. No prose outside the JSON.`;
 
 function buildPolishUserPrompt(
   deck: Deck,
@@ -1376,6 +1397,7 @@ async function callPolish(
 
 export type PolishOutcome =
   | 'not_applicable' // no card-specific quality_issues (only deck-wide notes or no notes at all)
+  | 'advisory_disabled' // polish pass disabled; Haiku quality_issues kept as advisory telemetry only
   | 'applied' // polish ran, polished deck passed fact validation
   | 'failed_validation' // polish ran but polished deck failed deterministic fact check
   | 'failed_call'; // polish call threw

@@ -44,7 +44,7 @@ import type {
 } from './summaryTypes';
 import { loadBrief } from './briefLoader';
 import { loadFacts } from './factsLoader';
-import { writeDeck, polishDeck, type PolishOutcome } from './summaryWriter';
+import { writeDeck, type PolishOutcome } from './summaryWriter';
 import { renderInspectionDeck } from './summaryRender';
 
 export interface GenerateParams {
@@ -231,55 +231,24 @@ export async function generateAdaptiveSummary(params: GenerateParams): Promise<G
   }
 
   const writerDeck: Deck = writeRes.deck;
-  const preFinal = assembleContent(
-    writerDeck,
-    weekStart,
-    facts,
-    writeRes.attempts,
-    writeRes.writer_model,
-    writeRes.checker_model,
-    [...combinedWriterErrors, ...attempt1Errors],
-  );
 
-  // ── 4. Polish pass (only if soft_pass and there is a card-specific critique) ─
-  const hasCardSpecificIssues = writeRes.quality_issues.some((q) => q.card_index !== null);
-  const shouldPolish = writeRes.fact_errors.length === 0 && hasCardSpecificIssues;
-
-  let finalDeck: Deck = writerDeck;
-  let pre_polish_content: AdaptiveSummaryContent | null = null;
-  let pre_polish_quality_issues: QualityIssue[] | null = null;
-  let post_polish_quality_issues: QualityIssue[] | null = null;
-  let polish_outcome: PolishOutcome | 'no_writer_deck' = 'not_applicable';
-  let polish_errors: string[] = [];
-
-  if (shouldPolish) {
-    pre_polish_content = preFinal;
-    pre_polish_quality_issues = writeRes.quality_issues;
-
-    const polishRes = await polishDeck(env, writerDeck, brief, facts, writeRes.quality_issues);
-    polish_outcome = polishRes.outcome;
-    polish_errors = polishRes.errors;
-    post_polish_quality_issues = polishRes.post_polish_quality_issues;
-
-    if (polishRes.outcome === 'applied' && polishRes.polished_deck) {
-      // Polish succeeded validation. Ship the polished deck.
-      finalDeck = polishRes.polished_deck;
-    } else {
-      // Polish failed validation or call. Fall back to the writer's pre-polish deck.
-      finalDeck = writerDeck;
-    }
-  }
+  // ── 4. Polish pass: DISABLED (v0.7a-ship). ────────────────────────────────
+  // The Haiku quality checker is demoted to advisory. Its issues are logged as
+  // telemetry (writeRes.quality_issues) but never gate the deck and never trigger a
+  // polish rewrite. Rationale: reading the actual corpus output showed the checker
+  // over-fires (flagging good letters and sharp questions as failures) and the polish
+  // pass it drove added cost and failure surface to decks that were already good. The
+  // deterministic fact-check (in writeDeck) remains the only hard gate; it catches real
+  // fabrication. The writer's deck ships whenever fact_check passes.
+  const finalDeck: Deck = writerDeck;
+  const pre_polish_content: AdaptiveSummaryContent | null = null;
+  const pre_polish_quality_issues: QualityIssue[] | null = null;
+  const post_polish_quality_issues: QualityIssue[] | null = null;
+  const polish_outcome: PolishOutcome | 'no_writer_deck' = 'advisory_disabled';
+  const polish_errors: string[] = [];
 
   // ── 5. Assemble final content + render ────────────────────────────────────
-  const finalErrors = shouldPolish
-    ? buildPostPolishErrorList(
-        combinedWriterErrors,
-        attempt1Errors,
-        polish_outcome,
-        polish_errors,
-        post_polish_quality_issues,
-      )
-    : [...combinedWriterErrors, ...attempt1Errors];
+  const finalErrors = [...combinedWriterErrors, ...attempt1Errors];
 
   const content = assembleContent(
     finalDeck,
@@ -371,26 +340,4 @@ function assembleContent(
       fed_days_in_window: facts.fed.days_in_window,
     },
   };
-}
-
-function buildPostPolishErrorList(
-  writerErrors: string[],
-  attempt1Errors: string[],
-  outcome: PolishOutcome | 'no_writer_deck',
-  polishErrors: string[],
-  postPolishQuality: QualityIssue[] | null,
-): string[] {
-  const lines: string[] = [];
-  lines.push(`[polish] outcome=${outcome}`);
-  if (polishErrors.length > 0) {
-    for (const e of polishErrors) lines.push(`[polish] error: ${e}`);
-  }
-  if (postPolishQuality && postPolishQuality.length > 0) {
-    for (const q of postPolishQuality) {
-      const idx = q.card_index === null ? 'deck' : `card[${q.card_index}]`;
-      lines.push(`[polish] post quality(${idx}): ${q.issue}`);
-    }
-  }
-  // Keep the original writer errors for telemetry visibility (pre-polish)
-  return [...writerErrors, ...attempt1Errors, ...lines];
 }
