@@ -1418,18 +1418,11 @@ const runShadowSummaryForWeek = inngest.createFunction(
       });
     });
 
-    // Derive separate arrays from the combined errors list.
-    const fact_errors = out.errors.filter((e) => e.startsWith('fact: '));
-    const quality_issues = out.errors.filter((e) => e.startsWith('quality'));
-    // Attempt-1 errors are recorded in content.metadata.fill_errors with an '[a1]' prefix.
-    const attempt_1_errors = (out.content?.metadata?.fill_errors ?? []).filter((e) =>
-      e.startsWith('[a1]'),
-    );
-
+    // v0.7a: GenerateResult exposes all telemetry fields directly.
     const outcome =
-      fact_errors.length === 0 && quality_issues.length === 0
+      out.fact_errors.length === 0 && out.quality_issues.length === 0
         ? 'hard_pass'
-        : fact_errors.length === 0
+        : out.fact_errors.length === 0
           ? 'soft_pass'
           : 'hard_fail';
 
@@ -1440,18 +1433,26 @@ const runShadowSummaryForWeek = inngest.createFunction(
         headers: { ...authHeaders, Prefer: 'return=minimal' },
         body: JSON.stringify({
           user_id,
-          run_kind: 'summary_v07',
+          run_kind: 'summary_v07a',
           run_mode: 'shadow',
           window_start: week_start,
           window_end: week_end,
           payload: {
             content: out.content,
             inspection_html: out.html,
-            fact_errors,
-            quality_issues,
-            attempt_1_errors,
-            attempts: out.content?.metadata?.fill_attempts ?? null,
-            fill_model: out.content?.metadata?.fill_model ?? null,
+            fact_errors: out.fact_errors,
+            quality_issues: out.quality_issues,
+            attempt_1_fact_errors: out.attempt_1_fact_errors,
+            attempt_1_quality_issues: out.attempt_1_quality_issues,
+            attempts: out.attempts,
+            writer_model: out.writer_model,
+            checker_model: out.checker_model,
+            last_attempted_raw: out.last_attempted_raw,
+            pre_polish_content: out.pre_polish_content,
+            pre_polish_quality_issues: out.pre_polish_quality_issues,
+            post_polish_quality_issues: out.post_polish_quality_issues,
+            polish_outcome: out.polish_outcome,
+            polish_errors: out.polish_errors,
             outcome,
           },
         }),
@@ -1467,9 +1468,10 @@ const runShadowSummaryForWeek = inngest.createFunction(
       week_start,
       week_end,
       outcome,
-      fact_errors_count: fact_errors.length,
-      quality_issues_count: quality_issues.length,
-      attempts: out.content?.metadata?.fill_attempts ?? null,
+      fact_errors_count: out.fact_errors.length,
+      quality_issues_count: out.quality_issues.length,
+      polish_outcome: out.polish_outcome,
+      attempts: out.attempts,
     };
   },
 );

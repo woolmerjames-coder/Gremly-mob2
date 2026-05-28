@@ -1,22 +1,27 @@
 /**
- * summaryRender — stage 5, the SHADOW INSPECTION SURFACE.
+ * summaryRender (v0.7) — renders simplified shapes.
  *
- * Pure schema -> HTML. This is NOT the product renderer (that is the native dispatcher rebuilt at
- * Phase 4 cutover). Its only job is to let a human eyeball whether detectors fired correctly and
- * whether FILL prose obeys the schema, tone and no-fabrication rules. It renders all six templates
- * faithfully using the canonical mockup's design tokens so the eyeballing is meaningful.
+ * Schema changes from v0.6:
+ *   moment   — no headline, no body.context. Quote and attribution only.
+ *   question — no headline. Body.question is the visual anchor.
+ *   stat     — no headline. The number is the visual anchor.
+ *   letter   — 1 to 2 paragraphs (was 2 to 3), each carrying its own sources (not rendered).
+ *
+ * Sources arrays on each card are functional metadata for validation and traceability; we do
+ * not render them in the visual output (they belong in inspection mode, not user mode).
  */
 
 import type {
-  SummaryCard,
+  Card,
   AdaptiveSummaryContent,
-  HeroSpineBody,
-  ThenNowSplitBody,
-  RankListBody,
-  ConstellationBody,
-  BigNumberBody,
+  HeroBody,
+  MomentBody,
+  PeopleBody,
+  PatternBody,
+  QuestionBody,
+  StatBody,
+  TimelineBody,
   LetterBody,
-  Valence,
 } from './summaryTypes';
 
 function esc(s: unknown): string {
@@ -35,254 +40,282 @@ const MOOD_COLOR: Record<string, string> = {
   silence: '#EFEAE0',
 };
 
-const ARROW: Record<string, string> = { up: '↗', down: '↘', flat: '→' };
-
-function eyebrow(card: SummaryCard): string {
-  if (!card.eyebrow_text) return '';
-  return `<div class="lab" style="margin-bottom:8px;">${esc(card.eyebrow_text)} <span style="opacity:.5">· ${esc(card.eyebrow_icon)}</span></div>`;
-}
-function heroLine(card: SummaryCard): string {
-  if (!card.hero_sentence) return '';
-  const cont = card.hero_continuation
-    ? ` <span style="font-style:italic;color:var(--golden-deep)">${esc(card.hero_continuation)}</span>`
-    : '';
-  return `<div class="h2" style="margin-bottom:12px;">${esc(card.hero_sentence)}${cont}</div>`;
-}
-function insightBlock(card: SummaryCard): string {
-  if (!card.insight) return '';
-  return `<div class="ins" style="margin-bottom:12px;">${esc(card.insight)}</div>`;
-}
-function recBlock(card: SummaryCard): string {
-  if (!card.recommendation) return '';
-  const glyph: Record<string, string> = {
-    try: '○ Worth trying',
-    hold: '○ Worth holding',
-    mark: '→ Worth noticing',
-    protect: '◇ Worth protecting',
-  };
-  return `<div class="rec"><div style="font-size:10px;color:var(--moss);font-weight:500;margin-bottom:4px;">${glyph[card.recommendation.kind] || ''}</div><div style="font-size:11px;color:var(--ink);">${esc(card.recommendation.text)}</div></div>`;
-}
-function foot(card: SummaryCard): string {
-  return `<div class="foot">${esc(card.data_lineage_footer)}</div>`;
+function eyebrowLine(text: string): string {
+  if (!text) return '';
+  return `<div class="eyebrow">${esc(text)}</div>`;
 }
 
-function renderHeroSpine(b: HeroSpineBody, card: SummaryCard): string {
-  const stats = b.stats
-    .map(
-      (s, i) =>
-        `<div style="text-align:center;${i ? 'border-left:1px solid #EFEAE0;padding-left:14px;' : ''}"><div style="font-size:16px;font-weight:500;">${esc(s.value)}</div><div style="font-size:9px;color:var(--grey-faint);">${esc(s.label)}</div></div>`,
-    )
-    .join('');
-  const cells = b.mood_arc
+// ── Hero ────────────────────────────────────────────────────────────────────
+
+function renderHero(card: Card): string {
+  const b = card.body as HeroBody;
+  const moodCells = b.mood_arc
     .map((m) => {
-      const color = MOOD_COLOR[m.valence ?? 'silence'] || MOOD_COLOR.silence;
-      return `<div style="height:32px;background:${color};border-radius:3px;"></div>`;
+      const color = MOOD_COLOR[(m.valence as string) ?? 'silence'] || MOOD_COLOR.silence;
+      return `<div class="mood-cell" style="background:${color};" title="${esc(m.day_of_week)}"></div>`;
     })
     .join('');
   const labels = b.mood_arc.map((m) => `<div>${esc(m.day_label)}</div>`).join('');
-  const chips = b.world_chips
-    .map((w) => {
-      const bg =
-        w.direction === 'up'
-          ? '#EAF1E8'
-          : w.direction === 'down'
-            ? 'var(--amber-bg)'
-            : 'var(--linen)';
-      const col = w.direction === 'down' ? '#854F0B' : 'var(--moss)';
-      return `<span style="background:${bg};color:${col};font-size:10px;padding:3px 9px;border-radius:9px;">${esc(w.name)} ${ARROW[w.direction]}</span>`;
-    })
-    .join('');
-  return `
-    <div style="text-align:center;">
-      <div style="width:72px;height:72px;background:var(--sage-mist);border-radius:50%;margin:6px auto 12px;"></div>
-      <div class="lab" style="margin-bottom:6px;">${esc(b.vibe_label)}</div>
-      <div class="h1" style="margin-bottom:10px;">${esc(card.hero_sentence)}</div>
-      <div style="font-size:12px;color:var(--grey-soft);max-width:260px;margin:0 auto 12px;">${esc(b.subtitle)}</div>
-      <div style="font-size:11px;color:var(--grey-faint);margin-bottom:14px;">${esc(b.week_range)}</div>
-    </div>
-    <div style="background:var(--linen);border-radius:12px;padding:12px;margin-bottom:12px;">
-      <div style="display:flex;justify-content:space-around;padding-bottom:10px;border-bottom:1px solid #EFEAE0;margin-bottom:10px;">${stats}</div>
-      <div class="lab" style="margin-bottom:6px;">Mood arc</div>
-      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;">${cells}</div>
-      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;font-size:9px;color:var(--grey-faint);text-align:center;margin-top:4px;">${labels}</div>
-    </div>
-    <div style="display:flex;gap:5px;flex-wrap:wrap;">${chips}</div>`;
-}
-
-function renderThenNowSplit(b: ThenNowSplitBody, card: SummaryCard): string {
-  const side = (s: ThenNowSplitBody['left'] | ThenNowSplitBody['right']) => {
-    const bg = s.tone === 'positive' ? '#EAF1E8' : 'var(--amber-bg)';
-    const bar = s.tone === 'positive' ? '#7BA589' : 'var(--golden-deep)';
-    const ink = s.tone === 'positive' ? 'var(--ink)' : 'var(--amber-ink)';
-    return `<div style="background:${bg};border-left:3px solid ${bar};padding:10px 12px;border-radius:0 8px 8px 0;margin-bottom:8px;">
-      <div class="lab" style="margin-bottom:4px;">${esc(s.label)}</div>
-      <div style="font-size:18px;font-weight:600;color:${ink};">${esc(s.value)}</div>
-      <div style="font-size:10px;color:var(--grey-soft);margin-top:3px;">${esc(s.sub)}</div></div>`;
-  };
-  return `${eyebrow(card)}${heroLine(card)}${side(b.left)}${side(b.right)}${insightBlock(card)}${recBlock(card)}${foot(card)}`;
-}
-
-function renderRankList(b: RankListBody, card: SummaryCard): string {
-  const tiers = b.tiers
-    .map((t) => {
-      const items = t.items
-        .map(
-          (i) =>
-            `<div style="display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid #F0ECE2;"><span style="font-size:12px;color:var(--ink);">${esc(i.primary)}</span><span style="font-size:10px;color:var(--grey-soft);white-space:nowrap;">${esc(i.secondary)}</span></div>`,
-        )
-        .join('');
-      return `<div style="margin-bottom:10px;"><div class="lab" style="margin-bottom:4px;">${esc(t.tier_label)}</div>${items}</div>`;
-    })
-    .join('');
-  return `${eyebrow(card)}${heroLine(card)}<div style="background:var(--linen);border-radius:10px;padding:12px;margin-bottom:12px;">${tiers}</div>${insightBlock(card)}${recBlock(card)}${foot(card)}`;
-}
-
-function renderConstellation(b: ConstellationBody, card: SummaryCard): string {
-  const nodes = b.nodes
+  const stats = b.stat_strip
     .map(
-      (n) =>
-        `<div style="background:#EAF1E8;border-radius:10px;padding:10px 12px;text-align:center;"><div style="font-size:12px;font-weight:500;color:var(--moss);">${esc(n.label)}</div><div style="font-size:9px;color:var(--grey-soft);margin-top:3px;">${esc(n.sublabel)}</div></div>`,
+      (s, i) =>
+        `<div class="stat${i ? ' stat-bordered' : ''}"><div class="stat-value">${esc(s.value)}</div><div class="stat-label">${esc(s.label)}</div></div>`,
     )
     .join('');
-  return `${eyebrow(card)}${heroLine(card)}<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">${nodes}</div>${insightBlock(card)}${recBlock(card)}${foot(card)}`;
+  const cols = Math.max(1, Math.min(7, b.mood_arc.length));
+  return `
+    <div class="hero-classification">${esc(b.classification_chip)}</div>
+    <h1 class="hero-headline">${esc(card.headline ?? '')}</h1>
+    <p class="hero-subtitle">${esc(b.subtitle)}</p>
+    <div class="hero-panel">
+      <div class="stat-strip">${stats}</div>
+      <div class="mood-arc" style="grid-template-columns:repeat(${cols},1fr);">${moodCells}</div>
+      <div class="mood-labels" style="grid-template-columns:repeat(${cols},1fr);">${labels}</div>
+    </div>`;
 }
 
-function renderBigNumber(b: BigNumberBody, card: SummaryCard): string {
-  return `${eyebrow(card)}${heroLine(card)}
-    <div style="text-align:center;padding:18px 0 10px;">
-      <div style="font-family:var(--serif);font-size:64px;line-height:1;color:var(--moss);">${esc(b.number)}</div>
-      <div class="lab" style="margin-top:6px;">${esc(b.unit)}</div>
-      <div style="font-size:11px;color:var(--grey-soft);max-width:240px;margin:10px auto 0;">${esc(b.context_line)}</div>
-    </div>${insightBlock(card)}${recBlock(card)}${foot(card)}`;
+// ── Moment (no headline, no context) ───────────────────────────────────────
+
+function renderMoment(card: Card): string {
+  const b = card.body as MomentBody;
+  return `
+    ${eyebrowLine(card.eyebrow)}
+    <blockquote class="moment-quote">${esc(b.quote)}</blockquote>
+    <div class="moment-attr">${esc(b.attribution)}</div>`;
 }
 
-function renderLetter(b: LetterBody, card: SummaryCard): string {
-  const paras = b.paragraphs
-    .map((p) => `<div class="body" style="color:var(--ink);margin-bottom:12px;">${esc(p)}</div>`)
+// ── People ─────────────────────────────────────────────────────────────────
+
+function renderPeople(card: Card): string {
+  const b = card.body as PeopleBody;
+  const chips = b.people
+    .map(
+      (p) =>
+        `<span class="people-chip${p.emphasized ? ' people-chip-emphasized' : ''}" title="${esc(p.relationship ?? '')}">${esc(p.name)}</span>`,
+    )
     .join('');
-  return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:14px;"><span style="color:var(--moss);">✉</span><span style="font-size:12px;font-weight:500;color:var(--moss);">A note for Monday-you</span></div>
-    ${paras}
-    <div style="display:flex;align-items:center;gap:8px;padding-top:12px;border-top:1px solid #C8D8C8;"><div style="width:28px;height:28px;background:var(--sage-mist);border-radius:50%;"></div><span style="font-size:10px;color:var(--grey-soft);"><strong style="color:var(--moss);">${esc(b.signature.name)}</strong> · Level ${esc(b.signature.level)} · ${esc(b.signature.state)}</span></div>`;
-}
-
-function renderSingleSentence(body: Record<string, unknown>, card: SummaryCard): string {
-  const quote = body['grounding_quote'] as string | null;
-  const quoteHtml = quote
-    ? `<blockquote style="border-left:3px solid var(--periwinkle);margin:10px 0;padding:8px 12px;font-size:12px;color:#3A3D5A;font-style:italic;background:#F4F3FA;border-radius:0 6px 6px 0;">${esc(quote)}</blockquote>`
-    : '';
-  return `${eyebrow(card)}${heroLine(card)}${quoteHtml}${insightBlock(card)}${foot(card)}`;
-}
-
-function renderEvidenceChain(body: Record<string, unknown>, card: SummaryCard): string {
-  const points = (body['evidence_points'] as string[] | undefined) ?? [];
-  const quote = body['grounding_quote'] as string | null;
-  const quoteHtml = quote
-    ? `<blockquote style="border-left:3px solid var(--periwinkle);margin:10px 0;padding:8px 12px;font-size:12px;color:#3A3D5A;font-style:italic;background:#F4F3FA;border-radius:0 6px 6px 0;">${esc(quote)}</blockquote>`
-    : '';
-  const chainHtml = points.length
-    ? `<div style="margin-bottom:12px;">${points
-        .map(
-          (pt, i) =>
-            `<div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid #F0ECE2;"><span style="font-size:10px;color:var(--grey-faint);width:16px;flex-shrink:0;">${i + 1}</span><span style="font-size:12px;color:var(--ink);">${esc(pt)}</span></div>`,
-        )
-        .join('')}</div>`
-    : '';
-  return `${eyebrow(card)}${heroLine(card)}${chainHtml}${quoteHtml}${insightBlock(card)}${recBlock(card)}${foot(card)}`;
-}
-
-function renderPhotoLead(body: Record<string, unknown>, card: SummaryCard): string {
-  const quote = body['quote'] as string | null;
-  const caption = body['caption'] as string | null;
-  const quoteHtml = quote
-    ? `<blockquote style="border-left:3px solid var(--golden-deep);margin:10px 0;padding:10px 14px;font-size:13px;color:var(--ink-soft);font-style:italic;background:var(--amber-bg);border-radius:0 8px 8px 0;">${esc(quote)}${caption ? `<div style="font-size:9px;color:var(--grey-faint);margin-top:6px;font-style:normal;">${esc(caption)}</div>` : ''}</blockquote>`
-    : '';
-  return `${eyebrow(card)}${heroLine(card)}${quoteHtml}${insightBlock(card)}${recBlock(card)}${foot(card)}`;
-}
-
-function renderCardInner(card: SummaryCard): string {
-  switch (card.type) {
-    case 'hero_spine_v1':
-      return renderHeroSpine(card.body as HeroSpineBody, card);
-    case 'then_now_split_v1':
-      return renderThenNowSplit(card.body as ThenNowSplitBody, card);
-    case 'rank_list_v1':
-      return renderRankList(card.body as RankListBody, card);
-    case 'constellation_v1':
-      return renderConstellation(card.body as ConstellationBody, card);
-    case 'big_number_v1':
-      return renderBigNumber(card.body as BigNumberBody, card);
-    case 'letter_v1':
-      return renderLetter(card.body as LetterBody, card);
-    case 'single_sentence_v1':
-      return renderSingleSentence(card.body as unknown as Record<string, unknown>, card);
-    case 'evidence_chain_v1':
-      return renderEvidenceChain(card.body as unknown as Record<string, unknown>, card);
-    case 'photo_lead_v1':
-      return renderPhotoLead(card.body as unknown as Record<string, unknown>, card);
-    default:
-      return `<div style="color:#b00;">Unknown template: ${esc((card as SummaryCard).type)}</div>`;
+  let beatsHtml = '';
+  if (b.beats && b.beats.length > 0) {
+    const items = b.beats
+      .map(
+        (e) =>
+          `<li><span class="beat-date">${esc(e.date)}<br><span style="font-size:8px;color:var(--grey-faint);">${esc(e.day_of_week)}</span></span><span class="beat-label">${esc(e.label)}</span></li>`,
+      )
+      .join('');
+    beatsHtml = `<ul class="people-beats">${items}</ul>`;
   }
+  return `
+    ${eyebrowLine(card.eyebrow)}
+    <h2 class="card-headline">${esc(b.headline)}</h2>
+    <div class="people-chips">${chips}</div>
+    ${beatsHtml}`;
 }
 
-function renderCardFrame(card: SummaryCard, index: number, total: number): string {
-  const isLetter = card.type === 'letter_v1';
-  const gcStyle = isLetter ? 'background:#EAF1E8;' : '';
+// ── Pattern ────────────────────────────────────────────────────────────────
+
+function renderPattern(card: Card): string {
+  const b = card.body as PatternBody;
+  const items = b.items
+    .map(
+      (it) => `
+      <li>
+        <span class="pattern-label">${esc(it.label)}</span>
+        ${it.meta ? `<span class="pattern-meta">${esc(it.meta)}</span>` : ''}
+      </li>`,
+    )
+    .join('');
+  const footer = b.footer ? `<p class="pattern-footer">${esc(b.footer)}</p>` : '';
+  return `
+    ${eyebrowLine(card.eyebrow)}
+    <h2 class="card-headline">${esc(b.headline)}</h2>
+    <ul class="pattern-list">${items}</ul>
+    ${footer}`;
+}
+
+// ── Question (no headline; question is the anchor) ─────────────────────────
+
+function renderQuestion(card: Card): string {
+  const b = card.body as QuestionBody;
+  return `
+    ${eyebrowLine(card.eyebrow)}
+    <h2 class="question-headline">${esc(b.question)}</h2>
+    <p class="question-grounding">${esc(b.grounding)}</p>`;
+}
+
+// ── Stat (no headline; number is the anchor) ───────────────────────────────
+
+function renderStat(card: Card): string {
+  const b = card.body as StatBody;
+  return `
+    ${eyebrowLine(card.eyebrow)}
+    <div class="stat-block">
+      <div class="stat-big-number">${esc(b.number)}</div>
+      <div class="stat-big-unit">${esc(b.unit)}</div>
+    </div>
+    <p class="stat-context">${esc(b.context)}</p>`;
+}
+
+// ── Timeline ───────────────────────────────────────────────────────────────
+
+function renderTimeline(card: Card): string {
+  const b = card.body as TimelineBody;
+  const items = b.events
+    .map(
+      (e) => `
+      <li>
+        <span class="tl-date">${esc(e.date)}<br><span style="font-size:8px;color:var(--grey-faint);">${esc(e.day_of_week)}</span></span>
+        <span class="tl-label">${esc(e.label)}</span>
+      </li>`,
+    )
+    .join('');
+  const footer = b.footer ? `<p class="tl-footer">${esc(b.footer)}</p>` : '';
+  return `
+    ${eyebrowLine(card.eyebrow)}
+    <h2 class="card-headline">${esc(b.headline)}</h2>
+    <ol class="timeline">${items}</ol>
+    ${footer}`;
+}
+
+// ── Letter (shorter) ───────────────────────────────────────────────────────
+
+function renderLetter(card: Card): string {
+  const b = card.body as LetterBody;
+  const paras = b.paragraphs.map((p) => `<p class="letter-para">${esc(p.text)}</p>`).join('');
+  const sig = b.signature;
+  return `
+    <div class="letter-eyebrow"><span>✉</span><span>${esc(card.eyebrow || 'A note for Monday-you')}</span></div>
+    ${paras}
+    <div class="letter-sig">
+      <div class="letter-sig-avatar"></div>
+      <span><strong>${esc(sig?.name ?? 'Your Gremly')}</strong> · L${esc(sig?.level ?? 1)} · ${esc(sig?.state ?? '')}</span>
+    </div>`;
+}
+
+// ── Dispatch ───────────────────────────────────────────────────────────────
+
+function renderCard(card: Card, index: number, total: number): string {
+  let inner: string;
+  switch (card.shape) {
+    case 'hero':
+      inner = renderHero(card);
+      break;
+    case 'moment':
+      inner = renderMoment(card);
+      break;
+    case 'people':
+      inner = renderPeople(card);
+      break;
+    case 'pattern':
+      inner = renderPattern(card);
+      break;
+    case 'question':
+      inner = renderQuestion(card);
+      break;
+    case 'stat':
+      inner = renderStat(card);
+      break;
+    case 'timeline':
+      inner = renderTimeline(card);
+      break;
+    case 'letter':
+      inner = renderLetter(card);
+      break;
+    default:
+      inner = `<p>Unsupported shape: ${esc((card as unknown as { shape: string }).shape)}</p>`;
+  }
+  const extraStyle = card.shape === 'letter' ? ' style="background:#EAF1E8;"' : '';
   return `<div class="gph">
-    <div class="gnv"><span>${index === 0 ? '&nbsp;' : '‹'}</span><span>${index + 1} of ${total} · ${esc(card.type)}</span><span>✕</span></div>
-    <div class="gc" style="${gcStyle}">${renderCardInner(card)}</div>
+    <div class="gnv"><span>${index === 0 ? '&nbsp;' : '‹'}</span><span>${index + 1} of ${total} · ${esc(card.shape)}</span><span>✕</span></div>
+    <div class="gc"${extraStyle}>${inner}</div>
   </div>`;
 }
 
-/** Assemble the full single-document inspection deck for one user. */
 export function renderInspectionDeck(label: string, content: AdaptiveSummaryContent): string {
-  const cardsHtml = content.cards
-    .map((c, i) => renderCardFrame(c, i, content.cards.length))
-    .join('\n');
-  const logRows = content.metadata.compose_log
-    .map(
-      (l) =>
-        `<tr><td>${esc(l.detector_id)}</td><td>${esc(l.template_id ?? '')}</td><td style="color:${l.accepted ? '#2E5540' : '#b00'}">${l.accepted ? 'accepted' : 'rejected'}</td><td>${esc(l.reason)}</td></tr>`,
-    )
-    .join('');
+  const cardsHtml = content.cards.map((c, i) => renderCard(c, i, content.cards.length)).join('\n');
   return `
 <div class="inspect">
-  <h2>${esc(label)} — ${esc(content.cards.length)} cards <span style="font-weight:400;color:var(--grey-soft);">(${esc(content.generated_for_week)}, model ${esc(content.metadata.fill_model)})</span></h2>
-  <div class="meta">fired: ${esc(content.metadata.fired_detectors.join(', ') || 'none (floor deck)')}</div>
-  <table class="log"><thead><tr><th>detector</th><th>template</th><th>status</th><th>reason</th></tr></thead><tbody>${logRows}</tbody></table>
+  <h2>${esc(label)} · ${esc(content.cards.length)} cards <span style="font-weight:400;color:var(--grey-soft);">(${esc(content.generated_for_week)}, ${esc(content.metadata.fill_model)}, ${esc(content.metadata.fill_attempts)} attempt(s))</span></h2>
+  <div class="meta">classification: ${esc(content.classification)}</div>
+  <div class="meta">through_line: ${esc(content.through_line)}</div>
+  <div class="meta">card_shapes: ${esc(content.metadata.card_shapes.join(' → '))}</div>
+  <div class="meta">tenure: ${esc(content.metadata.user_tenure_days)}d · first_weekly: ${esc(content.metadata.is_first_weekly)} · fed in window: ${esc(content.metadata.fed_days_in_window)}/7</div>
+  ${content.metadata.fill_errors.length > 0 ? `<div class="meta" style="color:#b00;">errors: ${esc(content.metadata.fill_errors.join(' | '))}</div>` : ''}
   <div class="deck-rail">${cardsHtml}</div>
 </div>`;
 }
 
-/** Wrap one or more user decks in a full HTML document with the canonical design tokens. */
 export function renderInspectionDocument(sections: string[]): string {
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Gremly — Adaptive Weekly Summary v0.5 · Shadow Inspection</title>
+<title>Gremly · Adaptive Weekly Summary v0.7 · Shadow Inspection</title>
 <style>
-  :root{--moss:#2E5540;--moss-deep:#1F3A2D;--sage-mist:#BFD8C0;--periwinkle:#9CA6E0;--golden-pear:#E0C47A;--golden-deep:#C68B40;--linen:#F9F6F1;--ink:#1F3A2D;--ink-soft:#3A4A3D;--grey-soft:#6B7C6E;--grey-faint:#8A9B8D;--amber-bg:#FAEEDA;--amber-ink:#5A3A0F;--serif:Georgia,'Times New Roman',serif;}
-  *{box-sizing:border-box;} body{margin:0;background:#E8E4DC;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:var(--ink);padding:0 0 60px;}
+  :root{
+    --moss:#2E5540; --moss-deep:#1F3A2D; --sage-mist:#BFD8C0; --sage-deep:#7BA589;
+    --periwinkle:#9CA6E0; --periwinkle-bg:#F4F3FA;
+    --golden-pear:#E0C47A; --golden-deep:#C68B40;
+    --linen:#F9F6F1; --cream:#FBF8F2;
+    --ink:#1F3A2D; --ink-soft:#3A4A3D;
+    --grey-soft:#6B7C6E; --grey-faint:#8A9B8D;
+    --amber-bg:#FAEEDA; --amber-ink:#5A3A0F;
+    --serif:Georgia,'Times New Roman',serif;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:#E8E4DC;font-family:var(--sans);color:var(--ink);padding:0 0 60px;}
   .inspect{max-width:760px;margin:0 auto;padding:28px 20px;}
   .inspect h2{font-family:var(--serif);font-weight:500;color:var(--moss);}
-  .inspect .meta{font-family:'SF Mono',monospace;font-size:11px;color:var(--grey-soft);margin-bottom:10px;}
-  table.log{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:20px;background:#fff;border-radius:8px;overflow:hidden;}
-  table.log th,table.log td{text-align:left;padding:6px 10px;border-bottom:1px solid #EFEAE0;}
-  table.log th{background:var(--sage-mist);color:var(--moss-deep);}
-  .deck-rail{display:flex;flex-direction:column;align-items:center;gap:14px;}
-  .gph{background:var(--linen);border-radius:28px;width:340px;padding:12px 12px 16px;box-shadow:0 4px 30px rgba(46,85,64,0.12);}
-  .gnv{display:flex;align-items:center;justify-content:space-between;padding:0 4px 10px;font-size:11px;color:var(--grey-soft);}
-  .gc{background:white;border-radius:16px;padding:18px 16px;}
-  .lab{font-size:9px;letter-spacing:1.5px;color:var(--grey-faint);text-transform:uppercase;font-weight:500;}
-  .h1{font-family:var(--serif);font-size:22px;line-height:1.25;font-weight:500;color:var(--moss);}
-  .h2{font-family:var(--serif);font-size:18px;line-height:1.3;font-weight:500;color:var(--moss);}
-  .body{font-size:13px;line-height:1.6;color:var(--ink-soft);}
-  .ins{background:#F4F3FA;border-left:3px solid var(--periwinkle);padding:11px 13px;border-radius:0 8px 8px 0;font-size:12px;line-height:1.55;color:#3A3D5A;font-style:italic;}
-  .rec{background:#EAF1E8;border-radius:10px;padding:11px 13px;margin-top:4px;}
-  .foot{margin-top:12px;padding-top:10px;border-top:1px solid #EFEAE0;font-size:9px;color:var(--grey-faint);line-height:1.5;}
-</style></head><body>
-<div class="inspect"><h2 style="border-bottom:3px solid var(--golden-pear);padding-bottom:8px;">Adaptive Weekly Summary v0.5 — Shadow Inspection</h2>
-<p class="body">Backend-only proving ground. These are inspection renders of the typed card schemas, not the native product UI. rank_list / constellation / big_number are derived from spec section 5 pending Phase 4 product mockups.</p></div>
-${sections.join('\n')}
-</body></html>`;
+  .meta{font-family:'SF Mono',monospace;font-size:11px;color:var(--grey-soft);margin-bottom:4px;}
+  .deck-rail{display:flex;flex-direction:column;gap:32px;align-items:center;margin-top:24px;}
+  .gph{width:100%;max-width:380px;background:#fff;border-radius:18px;box-shadow:0 4px 16px rgba(0,0,0,0.06);overflow:hidden;}
+  .gnv{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--linen);font-size:10px;color:var(--grey-soft);font-family:'SF Mono',monospace;border-bottom:1px solid #EFEAE0;}
+  .gc{padding:24px 22px;background:#fff;}
+  .eyebrow{font-family:'SF Mono',monospace;font-size:10px;color:var(--grey-soft);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:14px;}
+  .card-headline{font-family:var(--serif);font-size:19px;line-height:1.3;color:var(--ink);font-weight:500;margin:0 0 14px 0;}
+  .hero-classification{display:inline-block;font-family:'SF Mono',monospace;font-size:10px;color:var(--moss);background:var(--sage-mist);padding:4px 10px;border-radius:11px;letter-spacing:0.5px;margin-bottom:14px;}
+  .hero-headline{font-family:var(--serif);font-size:24px;line-height:1.25;color:var(--moss);font-weight:500;margin:0 0 10px 0;}
+  .hero-subtitle{font-size:13px;line-height:1.5;color:var(--grey-soft);margin:0 0 18px 0;}
+  .hero-panel{background:var(--linen);border-radius:14px;padding:14px;}
+  .stat-strip{display:flex;justify-content:space-around;padding-bottom:12px;border-bottom:1px solid #EFEAE0;margin-bottom:12px;}
+  .stat{text-align:center;flex:1;}
+  .stat-bordered{border-left:1px solid #EFEAE0;}
+  .stat-value{font-size:16px;font-weight:500;color:var(--ink);}
+  .stat-label{font-size:9px;color:var(--grey-faint);font-family:'SF Mono',monospace;text-transform:uppercase;letter-spacing:0.4px;margin-top:2px;}
+  .mood-arc{display:grid;gap:4px;margin-bottom:5px;}
+  .mood-cell{height:32px;border-radius:3px;}
+  .mood-labels{display:grid;gap:4px;font-size:9px;color:var(--grey-faint);text-align:center;font-family:'SF Mono',monospace;}
+  .moment-quote{font-family:var(--serif);font-size:22px;line-height:1.35;color:var(--moss);font-style:italic;margin:8px 0 14px 0;border-left:3px solid var(--periwinkle);padding:6px 0 6px 16px;}
+  .moment-attr{font-family:'SF Mono',monospace;font-size:10px;color:var(--grey-soft);text-transform:uppercase;letter-spacing:0.5px;}
+  .people-chips{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 16px 0;}
+  .people-chip{display:inline-block;font-size:12px;color:var(--moss);background:var(--linen);padding:6px 14px;border-radius:14px;font-weight:500;}
+  .people-chip-emphasized{background:var(--sage-mist);color:var(--moss-deep);font-weight:600;}
+  .people-beats{list-style:none;padding:0;margin:14px 0 0 0;}
+  .people-beats li{display:flex;align-items:baseline;gap:10px;padding:6px 0;border-bottom:1px solid #F0ECE2;}
+  .people-beats li:last-child{border-bottom:none;}
+  .beat-date{font-family:'SF Mono',monospace;font-size:10px;color:var(--grey-faint);min-width:60px;line-height:1.2;}
+  .beat-label{font-size:12px;color:var(--ink);}
+  .pattern-list{list-style:none;padding:0;margin:10px 0 14px 0;}
+  .pattern-list li{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:8px 0;border-bottom:1px solid #F0ECE2;}
+  .pattern-list li:last-child{border-bottom:none;}
+  .pattern-label{font-size:13px;color:var(--ink);}
+  .pattern-meta{font-family:'SF Mono',monospace;font-size:10px;color:var(--grey-faint);white-space:nowrap;}
+  .pattern-footer{font-size:11px;color:var(--grey-soft);font-style:italic;margin:8px 0 0 0;line-height:1.5;}
+  .question-headline{font-family:var(--serif);font-size:22px;line-height:1.3;color:var(--moss);font-weight:500;margin:14px 0 18px 0;}
+  .question-grounding{font-size:13px;line-height:1.55;color:var(--ink-soft);margin:0;}
+  .stat-block{text-align:center;padding:22px 0 12px 0;}
+  .stat-big-number{font-family:var(--serif);font-size:72px;line-height:1;color:var(--moss);font-weight:500;}
+  .stat-big-unit{font-family:'SF Mono',monospace;font-size:11px;color:var(--grey-soft);text-transform:uppercase;letter-spacing:0.6px;margin-top:8px;}
+  .stat-context{font-size:12px;color:var(--ink-soft);margin:14px 0 0 0;line-height:1.5;text-align:center;max-width:280px;margin-left:auto;margin-right:auto;}
+  .timeline{list-style:none;padding:0;margin:14px 0 14px 0;}
+  .timeline li{display:flex;align-items:baseline;gap:12px;padding:10px 0;border-bottom:1px solid #F0ECE2;position:relative;padding-left:18px;}
+  .timeline li:before{content:'●';position:absolute;left:0;top:11px;font-size:9px;color:var(--sage-deep);}
+  .timeline li:last-child{border-bottom:none;}
+  .tl-date{font-family:'SF Mono',monospace;font-size:10px;color:var(--grey-faint);min-width:76px;line-height:1.2;}
+  .tl-label{font-size:13px;color:var(--ink);line-height:1.45;}
+  .tl-footer{font-size:11px;color:var(--grey-soft);font-style:italic;margin:8px 0 0 18px;line-height:1.5;}
+  .letter-eyebrow{display:flex;align-items:center;gap:8px;margin-bottom:16px;font-family:'SF Mono',monospace;font-size:10px;color:var(--moss);text-transform:uppercase;letter-spacing:0.6px;}
+  .letter-para{font-size:13px;line-height:1.65;color:var(--ink);margin:0 0 12px 0;}
+  .letter-sig{display:flex;align-items:center;gap:10px;padding-top:14px;border-top:1px solid #C8D8C8;font-size:10px;color:var(--grey-soft);}
+  .letter-sig-avatar{width:28px;height:28px;background:var(--sage-mist);border-radius:50%;}
+  .letter-sig strong{color:var(--moss);}
+</style>
+</head><body>${sections.join('\n<hr style="border:none;border-top:1px solid #d4cfc4;margin:50px 0;">\n')}</body></html>`;
 }
-
-// Re-export for callers that only want a single value type reference.
-export type { Valence };

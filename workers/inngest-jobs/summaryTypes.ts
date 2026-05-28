@@ -1,344 +1,345 @@
 /**
- * summaryTypes — shared contract for the adaptive weekly summary pipeline (Phase 3 v0.5).
+ * summaryTypes — v0.7 contract.
  *
- * This file is the single source of truth for the Detector interface, the Candidate shape,
- * and the typed template/card schemas. It is deliberately designed to accommodate BOTH
- * detector execution models, even though Phase 3 only builds the SQL-backed ones:
+ * Architectural shift from v0.6: schemas strip slots that invite redundancy, and every
+ * factual atom in the output carries a source reference back to inputs. Sonnet's narrative
+ * work (through-line selection, framing, voice, interpretive footers, letter prose between
+ * facts) stays unconstrained. Sonnet's factual claims (dates, quotes, named people, counts,
+ * durations, weekday names) must trace to a specific input.
  *
- *   - source: 'sql'             — fires from a Postgres detector function (built now)
- *   - source: 'analyst_ledger'  — fires by reading persisted analyst observations (Phase 4)
+ * The line: atoms cite, syntheses do not.
  *
- * The uniform `detect(ctx)` method + the rich DetectContext mean a Phase 4 ledger detector
- * slots into the same registry and the same COMPOSE/FILL/RENDER stages without a retrofit.
- * See the "PHASE 4 FORWARD-DESIGN" note at the bottom.
+ * Schema simplifications:
+ *   moment   — drops headline and body.context; the quote and tiny attribution are the card
+ *   question — drops headline; the question itself is the visual anchor
+ *   stat     — drops headline; the big number is the visual anchor
+ *   letter   — shortened (1 to 2 paragraphs, total ~100 words max in render guidance), and
+ *              each paragraph carries its own sources array
+ *
+ * Pre-computed inputs (in HardFacts) so the model never has to infer:
+ *   week.date_lookup        — every date in inputs to its weekday name
+ *   user.address_as         — "second person only; do not use the user's first name"
+ *   entities.user_name      — explicit user name with a marker that this name in any
+ *                              observation refers to a different person
+ *   entities.other_people   — known people in the user's life with their relationship
+ *   mood_arc[].day_of_week  — weekday on each mood cell
+ *   day_by_day[].day_of_week
+ *   journal_quotes[].day_of_week
  */
 
-// ───────────────────────────────────────────────────────────────────────────
-// Identifiers
-// ───────────────────────────────────────────────────────────────────────────
-
-export type DetectorId =
-  // always-fires
-  | 'hero_spine'
-  | 'letter'
-  // deterministic (SQL) — surface metrics, demoted to riding alongside the ledger selectors
-  | 'reschedule_as_soft_no'
-  | 'cadence_calibration_mismatch'
-  | 'cross_domain_alignment'
-  | 'decisive_closure'
-  // analyst-ledger (the depth: cross-week interpretive findings the user cannot see themselves)
-  | 'sustained_chat_action_gap'
-  | 'named_person_arc'
-  | 'state_cluster_burst'
-  | 'ambient_meta_theme'
-  | 'return_longing'
-  | 'naming_then_acting'
-  | 'the_question'
-  | 'magic_moment'
-  | 'behavioral_discovery'
-  // synthesis / framing
-  | 'cross_reference'
-  | 'week_shape';
-
-export type TemplateId =
-  | 'hero_spine_v1'
-  | 'then_now_split_v1'
-  | 'rank_list_v1'
-  | 'constellation_v1'
-  | 'big_number_v1'
-  | 'letter_v1'
-  // referenced by ledger detectors; renderers/schemas added with the FILL/RENDER wiring (Unit follow-on)
-  | 'single_sentence_v1'
-  | 'evidence_chain_v1'
-  | 'photo_lead_v1';
+// ── Identifiers ────────────────────────────────────────────────────────────
 
 export type Valence = 'positive' | 'negative' | 'mixed' | 'neutral';
-export type Urgency = 'low' | 'medium' | 'high';
-export type CadenceType = 'always' | 'episodic' | 'slow_moving' | 'milestone';
-export type RecommendationKind = 'try' | 'hold' | 'mark' | 'protect';
 
-export type GateRule =
-  | 'user_initiated_only'
-  | 'requires_user_named_topic'
-  | 'no_diagnostic_language'
-  | 'requires_followthrough_signal'
-  | 'requires_min_data_age'
-  | { kind: 'min_evidence_count'; n: number }
-  | { kind: 'min_data_volume'; tier: 'low' | 'medium' | 'high' };
+export type CardShape =
+  | 'hero'
+  | 'moment'
+  | 'people'
+  | 'pattern'
+  | 'question'
+  | 'stat'
+  | 'timeline'
+  | 'letter';
 
-// ───────────────────────────────────────────────────────────────────────────
-// Execution context — carries what EITHER model needs
-// ───────────────────────────────────────────────────────────────────────────
+// ── Quality issue (emitted by the Haiku quality checker; consumed by polish) ──
+
+export interface QualityIssue {
+  card_index: number | null;
+  issue: string;
+  fix_hint: string;
+}
+
+// ── Source reference (citations) ───────────────────────────────────────────
 
 /**
- * Runs a named Postgres detector function via /rest/v1/rpc and returns its jsonb result.
- * fnName e.g. 'summary_detect_reschedule_as_soft_no'.
+ * Source reference attached to a factual atom in output prose.
+ *   observation    — points to an analyst observation by UUID
+ *   journal_quote  — points to a specific journal quote by date (verbatim text exists in facts.journal_quotes)
+ *   hard_fact      — points to a path inside HardFacts (e.g. "fed.days_in_window", "totals.todos_completed")
+ *   date           — points to a specific date present in inputs
  */
-export type DetectorSqlRunner = (
-  fnName: string,
-  params: Record<string, unknown>,
-) => Promise<unknown>;
+export type SourceRef =
+  | { type: 'observation'; id: string }
+  | { type: 'journal_quote'; date: string }
+  | { type: 'hard_fact'; path: string }
+  | { type: 'date'; value: string };
 
-export interface DetectContext {
-  userId: string;
-  weekStart: string; // 'yyyy-MM-dd'
-  weekEnd: string; // 'yyyy-MM-dd'
-  env: Record<string, string>;
-  /** SQL-backed detectors call this. */
-  runDetectorSql: DetectorSqlRunner;
-  /** Raw row fetch (REST passthrough) for the few non-function reads (cortex_preferences). */
-  fetchRows: (path: string) => Promise<unknown[]>;
+// ── Hard-fact shapes ───────────────────────────────────────────────────────
 
-  // ── PHASE 4 (optional now, undefined in v0.5) ──────────────────────────────
-  /** Persisted analyst observations for this user-week (stage='analyst'). Phase 4 ledger detectors read this. */
-  analystObservations?: AnalystObservation[];
-  /** Prior surfaced observations, for FILTER recency/evolution. Phase 4 only. */
-  priorObservations?: SurfacedObservation[];
+export interface MoodArcCell {
+  day_label: string; // 'F 22'
+  date: string; // '2026-05-22'
+  day_of_week: string; // 'Friday' (pre-computed; eliminates weekday hallucination)
+  valence: Valence | null;
+  moods: string[];
 }
 
-/** Shape of an analyst-ledger row (observations.stage='analyst'). Read by ledger-selector DETECT. */
-export interface AnalystObservation {
-  kind: string; // 'temporal_observation' | 'magic_moment' | 'behavioral_fingerprint' | ...
-  detector_id: string | null; // null on analyst-emitted rows; the kind/pattern_type is the discriminator
+export interface DayActivity {
+  date: string;
+  day_of_week: string;
+  drops: number;
+  journals: number;
+  sweeps: number;
+  todos_created: number;
+  todos_completed: number;
+  is_fed: boolean;
+}
+
+export interface WorldChip {
+  name: string;
+  direction: 'up' | 'down' | 'flat';
+  delta_text: string;
+}
+
+export interface JournalQuote {
+  id: string; // synthetic id used in SourceRef; format 'q_<date>_<index>'
+  date: string;
+  day_of_week: string;
+  text: string;
+  source: 'journal' | 'drop_note';
+}
+
+export interface EvidenceFacts {
+  rescheduled_todos: Array<{
+    title: string;
+    count: number;
+    age_days: number;
+  }>;
+  habit_cadence_mismatches: Array<{
+    title: string;
+    target_per_week: number;
+    actual_per_week: number;
+    weeks_observed: number;
+    hit_rate_pct: number;
+  }>;
+  chapter_closures: Array<{
+    title: string;
+    days_since_close: number;
+    reopens: number;
+  }>;
+  aligned_worlds_count: number;
+}
+
+/**
+ * Identity + relationship block. Solves the "user named James, son named James" disambiguation
+ * problem by data, not by example.
+ */
+export interface EntitiesBlock {
+  user_name: string | null; // the user's own first name (may be null if not captured)
+  user_address_rule: string; // imperative rule for the writer about second-person address
+  other_people: Array<{
+    name: string;
+    relationship?: string; // 'partner', 'mother', 'son', etc. when known from profile or observations
+    source: 'user_profile' | 'observations';
+  }>;
+}
+
+export interface HardFacts {
+  user: {
+    user_id: string;
+    tenure_days: number;
+    is_first_weekly: boolean;
+    onboarding_at: string | null;
+    current_tier: string;
+    gremly_level: number;
+    name: string | null;
+    pronouns: string | null;
+  };
+  week: {
+    canonical_start: string;
+    canonical_end: string;
+    display_start: string;
+    display_end: string;
+    days_in_display: number;
+    /** Every date appearing anywhere in inputs, mapped to its weekday name. */
+    date_lookup: Record<string, string>;
+  };
+  fed: {
+    days_in_window: number;
+    target: 7;
+    graduated_this_window: boolean;
+  };
+  totals: {
+    drops: number;
+    journals: number;
+    todos_created: number;
+    todos_completed: number;
+  };
+  /** Pre-computed durations the writer would otherwise have to derive (and might botch). */
+  durations: {
+    days_since_onboarding: number;
+    consecutive_zero_fed_weeks: number | null; // null when not applicable
+    days_since_last_fed: number | null;
+  };
+  entities: EntitiesBlock;
+  mood_arc: MoodArcCell[];
+  day_by_day: DayActivity[];
+  worlds: WorldChip[];
+  journal_quotes: JournalQuote[];
+  evidence: EvidenceFacts;
+}
+
+// ── Analyst brief (unchanged shape; depended on heavily for sources) ──────
+
+export interface WeekShapeBrief {
+  classification: string;
+  dominant_theme: string;
+  mood_arc_text: string;
+  highlight: string;
+  concern: string;
+}
+
+export interface AnalystObservationFull {
+  id: string;
+  kind: string;
   claim_summary: string;
-  evidence_snapshot: Record<string, unknown>; // shape varies by kind (see summaryLedgerDetectors)
-  observed_for_week: string;
+  evidence_snapshot: Record<string, unknown>;
 }
 
-/** A previously surfaced observation, used by FILTER recency checks. Phase 4 consumer. */
-export interface SurfacedObservation {
-  detector_id: string;
+export interface PriorSurfacedAnchor {
+  subject: string;
+  observation_id_or_null: string | null;
   surfaced_at: string;
-  evidence_snapshot: Record<string, unknown>;
+  classification_that_week: string | null;
 }
 
-// ───────────────────────────────────────────────────────────────────────────
-// Detector contract
-// ───────────────────────────────────────────────────────────────────────────
-
-export interface Detector {
-  id: DetectorId;
-  source: 'sql' | 'analyst_ledger';
-  cadence_type: CadenceType;
-  valence: Valence;
-  urgency: Urgency;
-
-  /** Cooldown before re-fire. Stored now; ENFORCED in Phase 4 FILTER (no-op in v0.5). */
-  recency_window_weeks: number;
-  /** Below this, a re-fire is allowed as a successor. Stored now; Phase 4 FILTER. */
-  evolution_similarity_threshold: number;
-
-  gates: GateRule[];
-  /** Ranked. COMPOSE assigns preferred_templates[0]; on a VARIETY clash it walks the list. */
-  preferred_templates: TemplateId[];
-  reframe_template: string;
-  recommendation_kind: RecommendationKind | null;
-  data_lineage_footer_template: string;
-  concept_compatible: boolean;
-
-  /**
-   * Uniform across both execution models.
-   *  - source 'sql':            implementation calls ctx.runDetectorSql(...)
-   *  - source 'analyst_ledger': implementation reads ctx.analystObservations (Phase 4)
-   * Returns zero or more candidates (zero = did not fire).
-   */
-  detect(ctx: DetectContext): Promise<Candidate[]>;
+export interface SummaryBrief {
+  user_id: string;
+  week_shape: WeekShapeBrief | null;
+  observations: AnalystObservationFull[];
+  prior_surfaced: PriorSurfacedAnchor[];
 }
 
-// ───────────────────────────────────────────────────────────────────────────
-// Candidate — what a detector emits; what COMPOSE orders; what FILL fills
-// ───────────────────────────────────────────────────────────────────────────
+// ── Card body shapes (simplified, with sources) ────────────────────────────
 
-export interface Candidate {
-  detector_id: DetectorId;
-  /** Assigned by the detector to preferred_templates[0]; may be reassigned by COMPOSE. */
-  template_id: TemplateId;
-  valence: Valence;
-  urgency: Urgency;
-
-  /** The deterministic facts FILL turns into prose. Shape is per-template (see fillInputs below). */
-  fill_input: Record<string, unknown>;
-  /** The mandatory "it's not X, it's Y" prose shape handed to FILL. */
-  reframe_template: string;
-  recommendation_kind: RecommendationKind | null;
-  /** Deterministic footer string (already resolved; FILL does not touch it). */
-  data_lineage: string;
-  concept_compatible: boolean;
-  /** Subject key for cross-week dedup (analyst `subject` / moment title / fingerprint pattern). Used by FILTER. */
-  dedup_key?: string;
-
-  /** For Phase 4 recency/evolution comparison. Populated now, unused by v0.5 FILTER. */
-  evidence_snapshot: Record<string, unknown>;
-  /** Logged verbatim to detector_fires.score_components. */
-  score_components: Record<string, unknown>;
-  /** When true, COMPOSE pins this candidate to the front of the middle deck (before variety ordering). */
-  lead?: boolean;
+export interface HeroBody {
+  subtitle: string;
+  classification_chip: string;
+  mood_arc: { day_label: string; day_of_week: string; valence: Valence | null }[];
+  stat_strip: { value: string; label: string; source: SourceRef }[];
+  sources: SourceRef[];
 }
 
-// ───────────────────────────────────────────────────────────────────────────
-// Template / card schemas (the JSON the native renderer will consume; FILL produces these)
-// ───────────────────────────────────────────────────────────────────────────
-
-export interface Recommendation {
-  kind: RecommendationKind;
-  text: string; // <= 30 words
+/**
+ * Moment card: just the quote and tiny attribution. No headline. No context field.
+ * The quote is the visual anchor; nothing competes with it.
+ */
+export interface MomentBody {
+  quote: string; // verbatim journal text
+  attribution: string; // small text under quote
+  source_journal_quote_id: string; // points to a facts.journal_quotes entry
+  source_observation_id?: string; // analyst observation that surfaced this
 }
 
-/** Common header/footer present on every card. */
-export interface CommonCardFields {
-  type: TemplateId; // discriminator the renderer switches on
-  source_detector: DetectorId;
-  valence: Valence;
-  eyebrow_icon: string; // Lucide icon name
-  eyebrow_text: string; // <= 6 words
-  hero_sentence: string; // <= 14 words
-  hero_continuation?: string; // <= 8 words, italic accent
-  insight: string; // <= 55 words, mandatory
-  recommendation?: Recommendation;
-  concept_ref: ConceptRef | null; // null in v0.5
-  data_lineage_footer: string; // <= 18 words
+export interface PeopleBody {
+  headline: string; // interpretive framing
+  people: { name: string; relationship?: string; emphasized?: boolean }[];
+  beats?: { label: string; date: string; day_of_week: string; source: SourceRef }[];
+  sources: SourceRef[];
 }
 
-export interface ConceptRef {
-  slug: string;
-  claim_short: string;
-  citation_informal: string;
-  citation_url?: string;
+export interface PatternBody {
+  headline: string;
+  items: { label: string; meta?: string; source: SourceRef }[];
+  footer?: string; // interpretive; no source required
 }
 
-// ── Per-template body shapes ────────────────────────────────────────────────
-
-export interface HeroSpineBody {
-  vibe_label: string; // e.g. "This week was" (FILL)
-  subtitle: string; // one sentence under the hero (FILL), <= 18 words
-  week_range: string; // deterministic, e.g. "Apr 27 – May 3"
-  stats: { value: string; label: string }[]; // deterministic 4-up
-  mood_arc: { day_label: string; valence: Valence | null }[]; // null = intentional silence
-  world_chips: { name: string; direction: 'up' | 'down' | 'flat' }[];
+/**
+ * Question card: the question is the visual anchor. There is no separate headline.
+ * Grounding gives 1 to 2 sentences of support drawn from analyst observations.
+ */
+export interface QuestionBody {
+  question: string; // one sentence ending with a question mark
+  grounding: string; // 1 to 2 sentences of support
+  sources: SourceRef[]; // observations the synthesis draws from
 }
 
-export interface ThenNowSplitBody {
-  left: { label: string; value: string; sub: string; tone: 'positive' };
-  right: { label: string; value: string; sub: string; tone: 'amber' };
-}
-
-export interface RankListBody {
-  tiers: { tier_label: string; items: { primary: string; secondary: string }[] }[];
-}
-
-export interface ConstellationBody {
-  nodes: { label: string; sublabel: string }[];
-}
-
-export interface BigNumberBody {
+/**
+ * Stat card: the number is the visual anchor. There is no separate headline.
+ * Context is one short interpretive line; the number's source is required.
+ */
+export interface StatBody {
   number: string;
   unit: string;
-  context_line: string; // <= 24 words (FILL)
+  context: string;
+  source: SourceRef;
 }
 
+export interface TimelineBody {
+  headline: string;
+  events: { date: string; day_of_week: string; label: string; source: SourceRef }[];
+  footer?: string;
+}
+
+/**
+ * Letter: short. One or two paragraphs. Each paragraph carries its own sources for the
+ * factual atoms it contains (named people, dates, quote fragments). Interpretive sentences
+ * inside a paragraph stay free.
+ */
 export interface LetterBody {
-  paragraphs: string[]; // 2–3, FILL
+  paragraphs: Array<{
+    text: string;
+    sources: SourceRef[];
+  }>;
   signature: { name: string; level: number; state: string };
 }
 
 export type CardBody =
-  | HeroSpineBody
-  | ThenNowSplitBody
-  | RankListBody
-  | ConstellationBody
-  | BigNumberBody
+  | HeroBody
+  | MomentBody
+  | PeopleBody
+  | PatternBody
+  | QuestionBody
+  | StatBody
+  | TimelineBody
   | LetterBody;
 
-export type SummaryCard = CommonCardFields & { body: CardBody };
+// ── Card and Deck ───────────────────────────────────────────────────────────
 
-/** Envelope written to weekly_summaries.content in Phase 4; written to shadow_runs in Phase 3. */
-export interface AdaptiveSummaryContent {
-  content_version: 2;
-  generated_for_week: string;
-  cards: SummaryCard[];
-  metadata: {
-    deck_size: number;
-    card_types: TemplateId[];
-    fired_detectors: DetectorId[];
-    compose_log: ComposeLogEntry[];
-    cluster_log?: ClusterLogEntry[];
-    fill_model: string;
-    run_mode: 'shadow';
+export interface Card {
+  shape: CardShape;
+  eyebrow: string;
+  /**
+   * Headline is only present on shapes where it adds value beyond the visual anchor.
+   * For moment / question / stat cards, the visual anchor IS the lead and headline is absent.
+   */
+  headline?: string;
+  body: CardBody;
+  anchor?: {
+    subject: string;
+    observation_id?: string;
   };
 }
 
-export interface ComposeLogEntry {
-  detector_id: DetectorId;
-  template_id: TemplateId | null;
-  accepted: boolean;
-  reason: string;
+export interface Deck {
+  classification: string;
+  through_line: string;
+  cards: Card[];
+  surfaced_anchors: SurfacedAnchor[];
 }
 
-export interface ClusterLogEntry {
-  representative: DetectorId;
-  absorbed: { detector_id: DetectorId; subject: string }[];
-}
-export interface ClusterResult {
-  representatives: Candidate[];
-  log: ClusterLogEntry[];
+export interface SurfacedAnchor {
+  subject: string;
+  observation_id: string | null;
+  card_index: number;
+  card_shape: CardShape;
 }
 
-// ───────────────────────────────────────────────────────────────────────────
-// Mood valence map
-//
-// Fully specified by the schema audit. This is the trivial Phase-1 constant; if a canonical
-// MOOD_VALENCE already lives in the codebase, dedupe to it and delete this copy.
-// ───────────────────────────────────────────────────────────────────────────
-
-export const MOOD_VALENCE: Record<string, 'positive' | 'negative' | 'neutral'> = {
-  great: 'positive',
-  good: 'positive',
-  grateful: 'positive',
-  hopeful: 'positive',
-  focused: 'positive',
-  calm: 'positive',
-  okay: 'neutral',
-  low: 'negative',
-  tired: 'negative',
-  anxious: 'negative',
-  overwhelmed: 'negative',
-  frustrated: 'negative',
-  scattered: 'negative',
-};
-
-/** An entry is positive if it has >=1 positive and 0 negative tags; negative if the mirror; else mixed/neutral. */
-export function moodArrayValence(moods: string[] | null | undefined): Valence | null {
-  if (!moods || moods.length === 0) return null; // silence
-  let pos = 0;
-  let neg = 0;
-  for (const m of moods) {
-    const v = MOOD_VALENCE[(m || '').toLowerCase()];
-    if (v === 'positive') pos++;
-    else if (v === 'negative') neg++;
-  }
-  if (pos > 0 && neg === 0) return 'positive';
-  if (neg > 0 && pos === 0) return 'negative';
-  if (pos > 0 && neg > 0) return 'mixed';
-  return 'neutral';
+export interface AdaptiveSummaryContent {
+  content_version: 4;
+  generated_for_week: string;
+  classification: string;
+  through_line: string;
+  cards: Card[];
+  metadata: {
+    deck_size: number;
+    card_shapes: CardShape[];
+    fill_model: string;
+    fill_attempts: number;
+    fill_errors: string[];
+    run_mode: 'shadow';
+    user_tenure_days: number;
+    is_first_weekly: boolean;
+    fed_days_in_window: number;
+  };
 }
-
-// ───────────────────────────────────────────────────────────────────────────
-// PHASE 4 FORWARD-DESIGN — how a ledger detector fits this same interface
-//
-// A Phase 4 analyst-fed detector is authored identically, differing only in `source` and
-// the body of detect():
-//
-//   export const sustainedChatActionGap: Detector = {
-//     id: 'sustained_chat_action_gap',
-//     source: 'analyst_ledger',
-//     ...
-//     async detect(ctx) {
-//       const obs = (ctx.analystObservations ?? []).filter(o => o.detector_id === 'temporal_observations');
-//       // interpret obs into Candidate[]; no SQL
-//     },
-//   };
-//
-// The registry (summaryDetectors), COMPOSE, FILL, and RENDER do not change. The orchestrator
-// skips any detector whose source is 'analyst_ledger' while ctx.analystObservations is undefined,
-// which is the v0.5 state. That is the entire seam.
-// ───────────────────────────────────────────────────────────────────────────
