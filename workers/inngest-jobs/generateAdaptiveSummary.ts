@@ -136,6 +136,7 @@ export async function generateAdaptiveSummary(params: GenerateParams): Promise<G
         fill_model: `${writerModelEnv} + ${checkerModelEnv}`,
         fill_attempts: 0,
         fill_errors: [errMsg],
+        review_flags: [errMsg],
         run_mode: 'shadow',
         user_tenure_days: facts.user.tenure_days,
         is_first_weekly: facts.user.is_first_weekly,
@@ -203,6 +204,7 @@ export async function generateAdaptiveSummary(params: GenerateParams): Promise<G
         fill_model: `${writeRes.writer_model} + ${writeRes.checker_model}`,
         fill_attempts: writeRes.attempts,
         fill_errors: [...combinedWriterErrors, ...attempt1Errors],
+        review_flags: writeRes.fact_errors,
         run_mode: 'shadow',
         user_tenure_days: facts.user.tenure_days,
         is_first_weekly: facts.user.is_first_weekly,
@@ -258,6 +260,7 @@ export async function generateAdaptiveSummary(params: GenerateParams): Promise<G
     writeRes.writer_model,
     writeRes.checker_model,
     finalErrors,
+    writeRes.fact_errors,
   );
 
   const surfacedAt = new Date().toISOString();
@@ -321,6 +324,7 @@ function assembleContent(
   writerModel: string,
   checkerModel: string,
   errors: string[],
+  reviewFlags: string[],
 ): AdaptiveSummaryContent {
   return {
     content_version: 4,
@@ -334,6 +338,7 @@ function assembleContent(
       fill_model: `${writerModel} + ${checkerModel}`,
       fill_attempts: attempts,
       fill_errors: errors,
+      review_flags: reviewFlags,
       run_mode: 'shadow',
       user_tenure_days: facts.user.tenure_days,
       is_first_weekly: facts.user.is_first_weekly,

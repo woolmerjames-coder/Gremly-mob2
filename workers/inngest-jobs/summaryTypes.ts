@@ -339,6 +339,14 @@ export interface AdaptiveSummaryContent {
     fill_model: string;
     fill_attempts: number;
     fill_errors: string[];
+    /**
+     * Review flags: deterministic fact-check findings on a deck that was PUBLISHED anyway.
+     * Empty array means the deck passed all checks cleanly. Non-empty means the deck went
+     * out to the user but these items looked off and warrant an operator review. The
+     * checker is advisory; it never blocks publication. Recorded in Supabase so flagged
+     * summaries can be audited on a schedule.
+     */
+    review_flags: string[];
     run_mode: 'shadow';
     user_tenure_days: number;
     is_first_weekly: boolean;

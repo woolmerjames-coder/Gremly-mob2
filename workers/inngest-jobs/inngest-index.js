@@ -1599,8 +1599,9 @@ const weeklySummaryV07Worker = inngest.createFunction(
       return { inserted: 0, ok: false };
     });
 
-    // Step 1: run v0.7 generation pipeline (with one top-level retry for transient fact errors).
-    let out = await step.run('generate-summary', async () =>
+    // Step 1: run v0.7 generation pipeline. Publish-always: fact_errors are review flags,
+    // not a publish gate. The only catastrophe guard is genuinely empty cards.
+    const out = await step.run('generate-summary', async () =>
       generateAdaptiveSummary({
         userId: user_id,
         weekStart: week_start,
@@ -1612,39 +1613,16 @@ const weeklySummaryV07Worker = inngest.createFunction(
       }),
     );
 
-    // If the first attempt hard-failed, give it one more chance before giving up.
-    // generateAdaptiveSummary is non-deterministic (temperature 0.4 + internal retry),
-    // so a second top-level attempt clears most one-off fact errors.
-    if (!out.content || out.fact_errors.length > 0) {
-      console.warn(
-        `[V07Worker] Attempt 1 hard-fail for ${user_id} ${week_start}: ${out.fact_errors.join('; ')} — retrying`,
-      );
-      out = await step.run('generate-summary-retry', async () =>
-        generateAdaptiveSummary({
-          userId: user_id,
-          weekStart: week_start,
-          weekEnd: week_end,
-          label: `${user_id.slice(0, 8)} · ${week_start} (retry)`,
-          env,
-          runRpc,
-          fetchRows,
-        }),
-      );
-    }
-
-    // Hard-fail guard: never write a fact-invalid deck to weekly_summaries.
-    if (!out.content || out.fact_errors.length > 0) {
-      console.error(
-        `[V07Worker] Hard-fail (both attempts) for ${user_id} ${week_start}: ${out.fact_errors.join('; ')}`,
-      );
+    // Catastrophe guard: nothing to publish if the writer produced zero cards.
+    if (!out.content || out.content.cards.length === 0) {
+      console.error(`[V07Worker] Catastrophic failure (no cards) for ${user_id} ${week_start}`);
       return {
         success: false,
         user_id,
         week_start,
         week_end,
-        outcome: 'hard_fail',
-        attempts: 2,
-        fact_errors: out.fact_errors,
+        outcome: 'no_cards',
+        fact_errors: out.fact_errors ?? [],
       };
     }
 
@@ -1702,6 +1680,7 @@ const weeklySummaryV07Worker = inngest.createFunction(
           key_themes: [],
           viewed: false,
           banner_dismissed: false,
+          review_flags: out.content.metadata.review_flags ?? [],
           generated_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }),

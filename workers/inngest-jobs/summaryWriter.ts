@@ -1352,11 +1352,40 @@ Return only the JSON. No commentary outside the JSON.`;
     }
   }
 
-  // Two attempts and fact_check still failing. Hard-fail with the writer's last attempt
-  // raw output preserved in last_attempted_raw for telemetry.
+  // Both attempts still have fact_errors. NEW MODEL (publish-always): we no longer withhold
+  // the deck. We build the deck from the last attempt and return it WITH the fact_errors
+  // attached as review flags. The orchestrator and worker always publish; the flags are
+  // recorded in Supabase for the operator to review. The deterministic checker is advisory,
+  // not a publish gate. The ONLY case that still yields deck:null is a genuinely unusable
+  // writer output (no cards array at all), handled just below.
+  const lastRaw = lastAttemptedRaw as Record<string, unknown> | null;
+  const rawCards = Array.isArray(lastRaw?.['cards']) ? (lastRaw!['cards'] as Card[]) : [];
+  if (rawCards.length === 0) {
+    // Genuine structural catastrophe: the writer never produced cards. This is the only
+    // thing that blocks, because there is literally nothing to publish.
+    return {
+      deck: null,
+      attempts: 2,
+      fact_errors: lastFactErrors,
+      quality_issues: lastQualityIssues,
+      attempt_1_fact_errors: attempt1FactErrors,
+      attempt_1_quality_issues: attempt1QualityIssues,
+      writer_model: writerModel,
+      checker_model: checkerModel,
+      last_attempted_raw: lastAttemptedRaw,
+    };
+  }
+
+  const deck: Deck = {
+    classification: String(lastRaw?.['classification'] ?? brief.week_shape?.classification ?? ''),
+    through_line: String(lastRaw?.['through_line'] ?? ''),
+    cards: rawCards,
+    surfaced_anchors: (lastRaw?.['surfaced_anchors'] as Deck['surfaced_anchors']) ?? [],
+  };
   return {
-    deck: null,
+    deck,
     attempts: 2,
+    // fact_errors carried as REVIEW FLAGS, not a block. The deck publishes regardless.
     fact_errors: lastFactErrors,
     quality_issues: lastQualityIssues,
     attempt_1_fact_errors: attempt1FactErrors,
