@@ -1548,8 +1548,10 @@ const weeklySummaryV07Worker = inngest.createFunction(
     }
 
     // Step A: fetch a snapshot so the analyst has raw data.
+    // Pass targetDate: week_end so backfill/historical runs anchor to the requested week,
+    // not to today.
     const snapshot = await step.run('fetch-snapshot', async () =>
-      fetchUserSnapshot(user_id, timezone, 21, env),
+      fetchUserSnapshot(user_id, timezone, 21, env, { targetDate: week_end }),
     );
 
     // Step B: run the analyst — produces week_shape and world_signal_candidate
