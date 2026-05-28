@@ -319,10 +319,11 @@ fed:
 - target: ${facts.fed.target}
 - graduated_this_window: ${facts.fed.graduated_this_window}
 
-totals (cite as hard_fact with path e.g. "totals.todos_completed", "totals.drops", "totals.journals"):
+totals:
 - drops: ${facts.totals.drops}
 - journals: ${facts.totals.journals}
 - todos_completed: ${facts.totals.todos_completed}
+  (when citing the completed-todo count, the hard_fact path is exactly "totals.todos_completed"; there is no "totals.completed")
 
 durations (use these directly; do not derive your own):
 - days_since_onboarding: ${facts.durations.days_since_onboarding}
@@ -502,6 +503,39 @@ Judge the deck against the criteria. Return JSON only.`;
   return { ok, issues };
 }
 
+// ── Prose sanitizer (runs before fact-check) ───────────────────────────────
+/**
+ * Mutates the raw deck in place, stripping cosmetic violations that should never block
+ * publication. Currently: em dashes and en dashes are replaced with a comma+space, so a
+ * stray dash from the writer is silently corrected rather than hard-failing the deck.
+ * Only touches string values; structured fields are untouched.
+ */
+function sanitizeDeckProse(deck: unknown): void {
+  const fix = (s: string): string =>
+    s
+      .replace(/\s*[\u2014\u2013]\s*/g, ', ')
+      .replace(/,\s*,/g, ',')
+      .replace(/\s+,/g, ',');
+  const walk = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach((v, i) => {
+        if (typeof v === 'string') value[i] = fix(v);
+        else walk(v);
+      });
+      return;
+    }
+    if (value && typeof value === 'object') {
+      const obj = value as Record<string, unknown>;
+      for (const k of Object.keys(obj)) {
+        const v = obj[k];
+        if (typeof v === 'string') obj[k] = fix(v);
+        else walk(v);
+      }
+    }
+  };
+  walk(deck);
+}
+
 // ── Deterministic fact-check + source-ref validation ───────────────────────
 
 const VALID_SHAPES = new Set<CardShape>([
@@ -644,22 +678,24 @@ function validateSourceRefs(
   // maintaining an alias for every section heading Sonnet might reach for (mood_arc,
   // worlds, rescheduled_todos[i], themes, etc). With dynamic resolution, any well-formed
   // path that points at real data is valid; invented paths still fail.
-  // Common Sonnet path mistakes: map alias -> canonical so they resolve rather than fail.
-  const PATH_ALIASES: Record<string, string> = {
-    'totals.completed': 'totals.todos_completed',
-    'totals.todos': 'totals.todos_completed',
-    'fed.fed_days': 'fed.days_in_window',
-    'fed.fed_days_in_window': 'fed.days_in_window',
-  };
   const isValidHardFactPath = (path: string): boolean => {
     if (!path || typeof path !== 'string') return false;
-    const resolved = PATH_ALIASES[path] ?? path;
+    // Normalize known aliases: Sonnet recurrently cites short forms that do not match the
+    // canonical field name. Map them to the real path before resolution rather than
+    // hard-failing a deck over a naming slip on a number that genuinely exists.
+    const aliases: Record<string, string> = {
+      'totals.completed': 'totals.todos_completed',
+      'totals.todos': 'totals.todos_completed',
+      'totals.drops_count': 'totals.drops',
+      'totals.journals_count': 'totals.journals',
+    };
+    const normalizedPath = aliases[path] ?? path;
     // Split on dots and array indices: "evidence.rescheduled_todos[0].title" ->
     // ['evidence', 'rescheduled_todos', '0', 'title']
     const parts: string[] = [];
     let buf = '';
-    for (let i = 0; i < resolved.length; i++) {
-      const ch = resolved[i];
+    for (let i = 0; i < normalizedPath.length; i++) {
+      const ch = normalizedPath[i];
       if (ch === '.') {
         if (buf) {
           parts.push(buf);
@@ -890,7 +926,10 @@ function validateAtoms(
     });
   }
 
-  // Tone hard rules
+  // Tone hard rules.
+  // NOTE: em/en dash is NOT checked here. Dashes are cosmetic, not factual, and are
+  // sanitized (stripped/replaced) in sanitizeDeckProse before this fact-check runs, so a
+  // stray dash never blocks publication. Only genuinely false content blocks.
   if (/\bshould\b/i.test(flat.replace(/"shape"\s*:\s*"\w+"/g, ''))) {
     errors.push('output contains the word "should"');
   }
@@ -950,7 +989,14 @@ function validateWeekdayDateAgreement(deck: unknown, facts: HardFacts, errors: s
       if (typeof v === 'string') parts.push(v);
       else if (Array.isArray(v)) v.forEach(walk);
       else if (v && typeof v === 'object') {
-        for (const val of Object.values(v as Record<string, unknown>)) walk(val);
+        // Walk body prose, but skip fields that are NOT writer prose: body.quote is verbatim
+        // user journal text (the user may have written a weekday themselves, correctly or not,
+        // and that is not a writer hallucination), and image_hint is photo-search metadata.
+        // This matches the exemption in isStructuredWeekdayField used by the prose ban.
+        for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+          if (k === 'quote' || k === 'image_hint') continue;
+          walk(val);
+        }
       }
     };
     walk(body);
@@ -1001,34 +1047,6 @@ function validateWeekdayDateAgreement(deck: unknown, facts: HardFacts, errors: s
       }
     }
   });
-}
-
-/**
- * Mutates the raw deck in place, silently replacing em dashes (\u2014) and en dashes
- * (\u2013) with ", " in all string values. A stray dash from the writer is corrected
- * rather than hard-failing the deck. Only touches string values; structured fields
- * (numbers, booleans, arrays) are untouched.
- */
-function sanitizeDeckProse(deck: unknown): void {
-  if (!deck || typeof deck !== 'object') return;
-  if (Array.isArray(deck)) {
-    for (let i = 0; i < deck.length; i++) {
-      if (typeof deck[i] === 'string') {
-        (deck as string[])[i] = (deck[i] as string).replace(/[\u2014\u2013]/g, ', ');
-      } else {
-        sanitizeDeckProse(deck[i]);
-      }
-    }
-    return;
-  }
-  const obj = deck as Record<string, unknown>;
-  for (const key of Object.keys(obj)) {
-    if (typeof obj[key] === 'string') {
-      obj[key] = (obj[key] as string).replace(/[\u2014\u2013]/g, ', ');
-    } else {
-      sanitizeDeckProse(obj[key]);
-    }
-  }
 }
 
 function factCheckDeterministic(
@@ -1280,7 +1298,9 @@ Return only the JSON. No commentary outside the JSON.`;
     }
     lastAttemptedRaw = raw;
 
+    // Sanitize cosmetic violations (em/en dashes) before fact-check so they never block.
     sanitizeDeckProse(raw);
+
     const fc = factCheckDeterministic(raw, brief, facts);
     lastFactErrors = fc.errors;
 
@@ -1510,6 +1530,7 @@ export async function polishDeck(
   }
 
   // The polished output must pass the same fact check the writer's output had to pass.
+  sanitizeDeckProse(raw);
   const fc = factCheckDeterministic(raw, brief, facts);
   if (!fc.ok) {
     return {
