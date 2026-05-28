@@ -1546,6 +1546,58 @@ const weeklySummaryV07Worker = inngest.createFunction(
       return { success: true, skipped: true, reason: 'summary_already_exists' };
     }
 
+    // Step A: fetch a snapshot so the analyst has raw data.
+    const snapshot = await step.run('fetch-snapshot', async () =>
+      fetchUserSnapshot(user_id, timezone, 21, env),
+    );
+
+    // Step B: run the analyst — produces week_shape and world_signal_candidate
+    // observations that loadBrief (inside generateAdaptiveSummary) needs.
+    const analystResult = await step.run('run-analyst', async () => {
+      const weeklySnapshot = buildWeeklySnapshot(snapshot);
+      const lifeMap = snapshot.raw.currentLifeMap?.life_map || null;
+      return runUnifiedAnalyst(weeklySnapshot, lifeMap, week_start, week_end, env);
+    });
+
+    // Step C: persist analyst observations (replaces this user-week's prior rows).
+    await step.run('persist-analyst-observations', async () => {
+      const obsRows = buildAnalystObservations(analystResult.analysis, user_id, week_start);
+      await clearAnalystObservationsForWeek(user_id, week_start, env);
+      const p = await persistAnalystObservations(obsRows, env);
+      if (p.ok) {
+        console.log(
+          `[V07Worker] Persisted ${p.inserted} analyst observations for ${user_id} week ${week_start}`,
+        );
+        return { inserted: p.inserted, ok: true };
+      }
+      // Non-fatal: failed observations write must never abort the summary. Log
+      // with ALERT prefix for log-based alerting, and write a queryable failure
+      // row so a systemic problem is visible by SQL without log archaeology.
+      console.error(
+        `[ALERT][V07Worker] analyst observations persist FAILED for ${user_id} week ${week_start}: ${p.status} ${p.error || ''}`,
+      );
+      try {
+        await fetch(`${env.SUPABASE_URL}/rest/v1/events`, {
+          method: 'POST',
+          headers: { ...authHeaders, Prefer: 'return=minimal' },
+          body: JSON.stringify({
+            owner_id: user_id,
+            kind: 'analyst_observations_persist_failed',
+            payload_json: {
+              week_start,
+              status: p.status ?? null,
+              error: (p.error || '').slice(0, 500),
+            },
+          }),
+        });
+      } catch (e) {
+        console.error(
+          `[ALERT][V07Worker] could not record persist-failure event for ${user_id}: ${String(e).slice(0, 200)}`,
+        );
+      }
+      return { inserted: 0, ok: false };
+    });
+
     // Step 1: run v0.7 generation pipeline.
     const out = await step.run('generate-summary', async () =>
       generateAdaptiveSummary({
@@ -2044,7 +2096,7 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
       await step.sendEvent(
         'dispatch-weekly-users',
         readyUsers.map((u) => ({
-          name: 'app/weekly-summary-v2.run',
+          name: 'app/weekly-summary-v07.run',
           data: {
             user_id: u.user_id,
             timezone: u.timezone,
@@ -3119,10 +3171,10 @@ const handleChallengeCompletion = inngest.createFunction(
       return rows[0]?.token ?? null;
     });
 
-    // Step 5: Fire the weekly summary generation.
-    // weekly-summary-v2-worker has its own idempotency check (user_id + week_key).
+    // Step 5: Fire the weekly summary generation (v07 pipeline).
+    // weeklySummaryV07Worker has its own idempotency check (user_id + week_start).
     await step.sendEvent('trigger-weekly-summary', {
-      name: 'app/weekly-summary-v2.run',
+      name: 'app/weekly-summary-v07.run',
       data: {
         user_id: userId,
         timezone: timezone || 'UTC',
