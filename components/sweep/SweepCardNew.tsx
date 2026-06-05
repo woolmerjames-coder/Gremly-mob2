@@ -95,6 +95,7 @@ type SweepCardNewProps = {
     eventReminder?: 'daybefore' | 'weekbefore' | 'custom';
   }) => void;
   hideGremlyMenu?: boolean;
+  sweepIntent?: 'today' | 'tomorrow' | 'week';
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -124,12 +125,13 @@ export function SweepCardNew({
   onConfirmEventAction,
   onConfirmNoteAction,
   hideGremlyMenu,
+  sweepIntent = 'tomorrow',
 }: SweepCardNewProps) {
   const spaces = useActiveSpaces();
   // ── Action zone state ──
-  const [selectedAction, setSelectedAction] = useState<'tomorrow' | 'nextweek' | 'pickdate'>(
-    'tomorrow',
-  );
+  const [selectedAction, setSelectedAction] = useState<
+    'today' | 'tomorrow' | 'nextweek' | 'pickdate'
+  >(sweepIntent === 'today' ? 'today' : 'tomorrow');
   const [reminderEnabled, setReminderEnabled] = useState(false);
   const [selectedReminder, setSelectedReminder] = useState<
     'daybefore' | 'morning' | 'custom' | null
@@ -178,7 +180,7 @@ export function SweepCardNew({
   // ── Reset on candidate change + restore previousDecision ──
   useEffect(() => {
     // Reset all state
-    setSelectedAction('tomorrow');
+    setSelectedAction(sweepIntent === 'today' ? 'today' : 'tomorrow');
     setReminderEnabled(false);
     setSelectedReminder(null);
     setConfirmedCustomDate(null);
@@ -295,7 +297,9 @@ export function SweepCardNew({
       // Compute due date string
       const ds = getDateService();
       let dueDateStr: string | null = null;
-      if (selectedAction === 'tomorrow') {
+      if (selectedAction === 'today') {
+        dueDateStr = ds.today();
+      } else if (selectedAction === 'tomorrow') {
         dueDateStr = ds.tomorrow();
       } else if (selectedAction === 'nextweek') {
         dueDateStr = ds.toLocalDate(ds.getNextWeekday(1));
@@ -490,6 +494,7 @@ export function SweepCardNew({
                 setDatePickerMode('remind');
                 setShowDatePicker(true);
               }}
+              sweepIntent={sweepIntent}
             />
           )}
           {candidate.kind === 'note' && meta.noteCardType === 'idea' && (

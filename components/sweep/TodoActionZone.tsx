@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Pressable, StyleSheet } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import Animated, { FadeInUp } from 'react-native-reanimated';
-import { ArrowRight, CalendarDays, Calendar, Bell, ChevronDown } from 'lucide-react-native';
+import { ArrowRight, CalendarDays, Calendar, Bell, ChevronDown, Sun } from 'lucide-react-native';
 import { Text } from '../../ui';
 import { ActionPill } from './ActionPill';
 import { ContextHeader } from './ContextHeader';
@@ -11,8 +11,9 @@ import type { SweepCandidate, SweepCardMeta } from '../../lib/sweep/types';
 type TodoActionZoneProps = {
   candidate: SweepCandidate;
   meta: SweepCardMeta;
-  selectedAction: 'tomorrow' | 'nextweek' | 'pickdate';
-  onSelectAction: (action: 'tomorrow' | 'nextweek' | 'pickdate') => void;
+  selectedAction: 'today' | 'tomorrow' | 'nextweek' | 'pickdate';
+  onSelectAction: (action: 'today' | 'tomorrow' | 'nextweek' | 'pickdate') => void;
+  sweepIntent?: 'today' | 'tomorrow' | 'week';
   reminderEnabled: boolean;
   selectedReminder: 'daybefore' | 'morning' | 'custom' | null;
   onToggleReminder: () => void;
@@ -50,6 +51,7 @@ export function TodoActionZone({
   confirmedCustomDate,
   onRequestDatePicker,
   onRequestReminderDatePicker,
+  sweepIntent = 'tomorrow',
 }: TodoActionZoneProps) {
   const status = getStatus(meta);
 
@@ -63,27 +65,65 @@ export function TodoActionZone({
 
       {/* Schedule pills */}
       <View style={styles.pillGroup}>
-        <ActionPill
-          icon={<ArrowRight size={16} strokeWidth={2.5} />}
-          label="Tomorrow"
-          active={selectedAction === 'tomorrow'}
-          onPress={() => onSelectAction('tomorrow')}
-        />
-        <ActionPill
-          icon={<CalendarDays size={16} strokeWidth={2} />}
-          label="Next Week"
-          active={selectedAction === 'nextweek'}
-          onPress={() => onSelectAction('nextweek')}
-        />
-        <ActionPill
-          icon={<Calendar size={16} strokeWidth={2} />}
-          label={confirmedCustomDate ?? 'Pick a date'}
-          active={selectedAction === 'pickdate'}
-          onPress={() => {
-            onSelectAction('pickdate');
-            onRequestDatePicker();
-          }}
-        />
+        {sweepIntent === 'today' ? (
+          <>
+            <ActionPill
+              icon={<Sun size={16} strokeWidth={2} />}
+              label="Today"
+              active={selectedAction === 'today'}
+              onPress={() => onSelectAction('today')}
+            />
+            <ActionPill
+              icon={<ArrowRight size={16} strokeWidth={2.5} />}
+              label="Tomorrow"
+              active={selectedAction === 'tomorrow'}
+              onPress={() => onSelectAction('tomorrow')}
+            />
+            <View style={styles.splitRow}>
+              <View style={{ flex: 1 }}>
+                <ActionPill
+                  label="Next Week"
+                  active={selectedAction === 'nextweek'}
+                  onPress={() => onSelectAction('nextweek')}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <ActionPill
+                  label={confirmedCustomDate ?? 'Pick a date'}
+                  active={selectedAction === 'pickdate'}
+                  onPress={() => {
+                    onSelectAction('pickdate');
+                    onRequestDatePicker();
+                  }}
+                />
+              </View>
+            </View>
+          </>
+        ) : (
+          <>
+            <ActionPill
+              icon={<ArrowRight size={16} strokeWidth={2.5} />}
+              label="Tomorrow"
+              active={selectedAction === 'tomorrow'}
+              onPress={() => onSelectAction('tomorrow')}
+            />
+            <ActionPill
+              icon={<CalendarDays size={16} strokeWidth={2} />}
+              label="Next Week"
+              active={selectedAction === 'nextweek'}
+              onPress={() => onSelectAction('nextweek')}
+            />
+            <ActionPill
+              icon={<Calendar size={16} strokeWidth={2} />}
+              label={confirmedCustomDate ?? 'Pick a date'}
+              active={selectedAction === 'pickdate'}
+              onPress={() => {
+                onSelectAction('pickdate');
+                onRequestDatePicker();
+              }}
+            />
+          </>
+        )}
       </View>
 
       {/* Reminder expandable */}
@@ -163,6 +203,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
   },
   pillGroup: {
+    gap: 6,
+  },
+  splitRow: {
+    flexDirection: 'row' as const,
     gap: 6,
   },
   reminderSection: {

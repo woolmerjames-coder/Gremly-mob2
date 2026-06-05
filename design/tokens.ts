@@ -80,8 +80,8 @@ export const lightTokens = {
       },
       professional: {
         base: '#3A4C60',
-        tint: 'rgba(138,148,165,0.22)',
-        dot: '#8A94A5',
+        tint: 'rgba(91,112,144,0.22)',
+        dot: '#5B7090',
         textOnBase: '#F4EDD7',
       },
       wellness_body: {
@@ -109,9 +109,9 @@ export const lightTokens = {
         textOnBase: '#F4EDD7',
       },
       learning: {
-        base: '#3A4C60',
-        tint: 'rgba(138,148,165,0.22)',
-        dot: '#8A94A5',
+        base: '#4A4E8C',
+        tint: 'rgba(123,135,212,0.22)',
+        dot: '#7B87D4',
         textOnBase: '#F4EDD7',
       },
       generic: {

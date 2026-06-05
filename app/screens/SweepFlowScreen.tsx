@@ -1528,6 +1528,7 @@ function SweepHabitsStep({ onContinue }: StepProps) {
 interface DecisionStepProps {
   onFinished: (summary: SweepSummary) => void;
   onClose?: () => void;
+  sweepIntent?: SweepIntent;
   /** DEV ONLY: Jump to specific card index for testing */
   initialCardIndex?: number;
 }
@@ -1564,7 +1565,12 @@ function useSweepSnapshot(
   };
 }
 
-function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionStepProps) {
+function SweepDecisionStep({
+  onFinished,
+  onClose,
+  sweepIntent = 'tomorrow',
+  initialCardIndex,
+}: DecisionStepProps) {
   // Get candidates from unified store selector (single source of truth)
   const allCandidates = useSweepCandidatesUnified();
   const storeIsLoading = useIsLoading();
@@ -3310,6 +3316,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
               onConvertToType={handleConvertToType}
               onUpdateEventDate={handleUpdateEventDate}
               onRequestPhotoPreview={setPhotoPreviewUrl}
+              sweepIntent={sweepIntent}
             />
 
             {/* Clarification Popup - shown when current card needs clarification */}
@@ -3965,7 +3972,6 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
 
   const [step, setStep] = useState<number>(initialStep);
   // sweepIntent: captured from the intro screen; consumed in Phase 2 (SweepDecisionStep default date).
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [sweepIntent, setSweepIntent] = useState<SweepIntent>('tomorrow');
 
   // Check if user has locked items for lock-in checkpoint (including completed ones for celebration)
@@ -4801,6 +4807,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
             <SweepDecisionStep
               onFinished={handleDecisionFinished}
               onClose={handleClose}
+              sweepIntent={sweepIntent}
               initialCardIndex={initialCardIndex}
             />
           )}
