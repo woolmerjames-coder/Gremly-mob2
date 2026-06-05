@@ -12,6 +12,7 @@ import type {
 } from '../sweep/types';
 import type { SweepIntroItem, SweepIntroStats } from '../sweep/introStats';
 import { computeSweepCardMeta } from '../sweep/computeSweepCardMeta';
+import { computeWorldsForEntity } from './worldsSelectors';
 import type { NowWeeklyHabitSummary, HabitWeeklyStatus } from '../now/nowTypes';
 import { getDateService } from '../date';
 
@@ -53,6 +54,8 @@ const selectTodos = (state: GremlyState) => state.todos;
 const selectHabits = (state: GremlyState) => state.habits;
 const selectNotes = (state: GremlyState) => state.notes;
 const selectSpaces = (state: GremlyState) => state.spaces;
+const selectWorlds = (state: GremlyState) => state.worlds;
+const selectDropWorldLinks = (state: GremlyState) => state.dropWorldLinks;
 const selectTags = (state: GremlyState) => state.tags;
 const selectHabitProgress = (state: GremlyState) => state.habitProgress;
 const selectSpaceChats = (state: GremlyState) => state.spaceChats;
@@ -752,8 +755,14 @@ export const selectSweepGeneralLogs = createSelector([selectNotes], (notes): Not
  * 5. Everything else by createdAt ascending
  */
 export const selectSweepCandidatesUnified = createSelector(
-  [selectTodos, selectNotes, selectSpaces],
-  (todos, notes, spaces): Array<{ candidate: SweepCandidate; meta: SweepCardMeta }> => {
+  [selectTodos, selectNotes, selectSpaces, selectWorlds, selectDropWorldLinks],
+  (
+    todos,
+    notes,
+    spaces,
+    worlds,
+    dropWorldLinks,
+  ): Array<{ candidate: SweepCandidate; meta: SweepCardMeta }> => {
     const today = getTodayDayString();
     const sevenDaysAgo = getDaysAgoDayString(7);
     const candidates: SweepCandidate[] = [];
@@ -880,7 +889,11 @@ export const selectSweepCandidatesUnified = createSelector(
     // Compute meta for each candidate
     const withMeta = candidates.map((candidate) => ({
       candidate,
-      meta: computeSweepCardMeta(candidate, spaces),
+      meta: computeSweepCardMeta(
+        candidate,
+        spaces,
+        computeWorldsForEntity(worlds, dropWorldLinks, candidate.id),
+      ),
     }));
 
     // Sort: overdue → due today → other todos → notes

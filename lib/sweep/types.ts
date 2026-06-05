@@ -195,6 +195,9 @@ export interface SweepCardMeta {
   /** Space ID if assigned */
   spaceId: string | null;
 
+  /** Primary World pill: AI-derived life domain. Separate dimension from space. */
+  world?: { name: string; accentColor: string; extraCount: number };
+
   /** True if commitment === true (locked-in item) */
   isLockedIn: boolean;
 

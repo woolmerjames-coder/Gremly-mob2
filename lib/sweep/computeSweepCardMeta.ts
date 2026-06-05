@@ -14,6 +14,7 @@
 import { format } from 'date-fns';
 import type { SweepCandidate, SweepCardMeta } from './types';
 import type { Space } from '../types';
+import type { WorldForEntity } from '../store/worldsSelectors';
 import { getGremlyResponse } from './gremlyResponses';
 import { getDateService } from '../date';
 
@@ -26,7 +27,11 @@ import { getDateService } from '../date';
  * @param spaces - Array of user's spaces for name lookup
  * @returns Computed metadata for rendering the card
  */
-export function computeSweepCardMeta(candidate: SweepCandidate, spaces: Space[]): SweepCardMeta {
+export function computeSweepCardMeta(
+  candidate: SweepCandidate,
+  spaces: Space[],
+  worldsForEntity: WorldForEntity[] = [],
+): SweepCardMeta {
   // ─────────────────────────────────────────────────────────────────────────
   // Type chip
   // ─────────────────────────────────────────────────────────────────────────
@@ -193,6 +198,15 @@ export function computeSweepCardMeta(candidate: SweepCandidate, spaces: Space[])
     }
   }
 
+  const world =
+    worldsForEntity.length > 0
+      ? {
+          name: worldsForEntity[0].name,
+          accentColor: worldsForEntity[0].accentColor,
+          extraCount: worldsForEntity.length - 1,
+        }
+      : undefined;
+
   return {
     typeChip,
     todoStatus,
@@ -211,5 +225,6 @@ export function computeSweepCardMeta(candidate: SweepCandidate, spaces: Space[])
     eventDate,
     eventDateFormatted,
     daysUntilEvent,
+    world,
   };
 }
