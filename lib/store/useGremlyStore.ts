@@ -180,7 +180,7 @@ export function isHabitLockedIn(habit: Habit): boolean {
 // MMKV Storage Engine (synchronous — hydrates before first render)
 // ═══════════════════════════════════════════════════════════════════
 
-const STORE_SCHEMA_VERSION = 2; // bump this any time persisted shape changes
+const STORE_SCHEMA_VERSION = 3; // bump this any time persisted shape changes
 
 const mmkv = createMMKV({ id: 'gremly-store' });
 
