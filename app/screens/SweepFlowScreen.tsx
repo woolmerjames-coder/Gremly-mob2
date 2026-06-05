@@ -57,6 +57,9 @@ import {
   Repeat,
   ArrowRight,
   Calendar,
+  Sun,
+  Moon,
+  CalendarDays,
 } from 'lucide-react-native';
 import { useAuth } from '../../providers/AuthProvider';
 import { BRAND } from '../../design/brand';
@@ -215,6 +218,26 @@ const JOURNAL_PROMPTS = [
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Step Components
+ */
+
+export type SweepIntent = 'today' | 'tomorrow' | 'week';
+
+function computeIntentProminence(lastSweepCompletedAt: string | null): {
+  primary: SweepIntent;
+  isEvening: boolean;
+  missedYesterday: boolean;
+} {
+  const ds = getDateService();
+  const hour = ds.now().getHours();
+  const isEvening = hour >= 15;
+  const lastDay = lastSweepCompletedAt ? ds.toLocalDate(new Date(lastSweepCompletedAt)) : null;
+  const missedYesterday = lastDay ? ds.daysBetween(lastDay, ds.today()) >= 1 : true;
+  const primary: SweepIntent = isEvening ? 'tomorrow' : 'today';
+  return { primary, isEvening, missedYesterday };
+}
+
+/**
  * Step 0: Intro ("Ready to Sweep?")
  *
  * Welcome screen that introduces the Sweep ritual.
@@ -225,7 +248,7 @@ function SweepIntroStep({
   onHelpPress,
   onClose,
 }: {
-  onStart: () => void;
+  onStart: (intent: SweepIntent) => void;
   onHelpPress?: () => void;
   onClose?: () => void;
 }) {
@@ -266,6 +289,9 @@ function SweepIntroStep({
 
   // First time user
   const isFirstTime = stats?.isFirstSweep || gremlyAge === 0;
+
+  // Intent prominence
+  const { primary, isEvening, missedYesterday } = computeIntentProminence(lastSweepCompletedAt);
 
   // Last sweep text
   const getLastSweepText = () => {
@@ -320,7 +346,11 @@ function SweepIntroStep({
       <Text style={styles.introSubtitle}>
         {isFirstTime
           ? "Let's clear the path for tomorrow"
-          : `Clear your mind in ${getTimeEstimate().replace(/~/g, '').trim()}`}
+          : isEvening
+            ? 'Wind down — let’s line things up for tomorrow.'
+            : missedYesterday
+              ? "You didn't sweep yesterday — let's set up today."
+              : `Clear your mind in ${getTimeEstimate().replace(/~/g, '').trim()}`}
       </Text>
 
       {/* Breakdown Card */}
@@ -357,11 +387,82 @@ function SweepIntroStep({
         </View>
       )}
 
-      {/* CTA */}
-      <TouchableOpacity style={styles.primaryButton} onPress={onStart} activeOpacity={0.8}>
-        <Text style={styles.primaryButtonText}>Let's do this</Text>
-        <ArrowRight size={18} color="white" style={{ marginLeft: 8 }} />
-      </TouchableOpacity>
+      {/* Intent rows */}
+      <View style={styles.intents}>
+        {(
+          [
+            {
+              intent: 'today' as SweepIntent,
+              Icon: Sun,
+              title: isEvening ? 'Wrap up today' : 'Plan today',
+              subtitle: isEvening ? 'What still matters before bed' : 'What matters most today',
+            },
+            {
+              intent: 'tomorrow' as SweepIntent,
+              Icon: Moon,
+              title: 'Plan tomorrow',
+              subtitle: 'Set up the day ahead',
+            },
+            {
+              intent: 'week' as SweepIntent,
+              Icon: CalendarDays,
+              title: 'Plan my week',
+              subtitle: 'Spread things across the days',
+            },
+          ] as {
+            intent: SweepIntent;
+            Icon: React.ComponentType<any>;
+            title: string;
+            subtitle: string;
+          }[]
+        )
+          .sort((a, b) => {
+            if (a.intent === 'week') return 1;
+            if (b.intent === 'week') return -1;
+            if (a.intent === primary) return -1;
+            if (b.intent === primary) return 1;
+            return 0;
+          })
+          .map(({ intent, Icon, title, subtitle }) => {
+            const isPrimary = intent === primary;
+            const isWeek = intent === 'week';
+            // Per-variant color tokens (inline, as spec — set here not in StyleSheet)
+            const titleColor = isPrimary ? 'white' : BRAND.colors.charcoalInk;
+            const subtitleColor = isPrimary ? 'rgba(255,255,255,0.8)' : BRAND.colors.inkMuted;
+            // Icon bg: primary = white-tinted; secondary = sageMist; week = sageMist
+            // (no periwinkle token in BRAND.colors — see style comment)
+            const iconBg = isPrimary ? 'rgba(255,255,255,0.18)' : BRAND.colors.sageMist;
+            const iconColor = isPrimary ? 'white' : BRAND.colors.mossGreen;
+            const variantStyle = isWeek
+              ? styles.intentRowWeek
+              : isPrimary
+                ? styles.intentRowPrimary
+                : styles.intentRowSecondary;
+            return (
+              <TouchableOpacity
+                key={intent}
+                style={[styles.intentRow, variantStyle]}
+                activeOpacity={0.8}
+                onPress={() => {
+                  triggerLight();
+                  onStart(intent);
+                }}
+              >
+                <View style={[styles.intentIcon, { backgroundColor: iconBg }]}>
+                  <Icon size={18} color={iconColor} strokeWidth={2} />
+                </View>
+                <View style={styles.intentTextWrap}>
+                  <Text style={[styles.intentTitle, { color: titleColor }]}>{title}</Text>
+                  <Text style={[styles.intentSubtitle, { color: subtitleColor }]}>{subtitle}</Text>
+                </View>
+                <ArrowRight size={16} color={isPrimary ? 'white' : BRAND.colors.mossGreen} />
+              </TouchableOpacity>
+            );
+          })}
+      </View>
+
+      {/* Batch defer — disabled, Phase 6 */}
+      <Text style={styles.batchDeferLink}>Too much right now? Move everything to a day →</Text>
 
       {/* Last sweep footer */}
       <Text style={styles.lastSweepText}>{getLastSweepText()}</Text>
@@ -3863,6 +3964,9 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   }, []);
 
   const [step, setStep] = useState<number>(initialStep);
+  // sweepIntent: captured from the intro screen; consumed in Phase 2 (SweepDecisionStep default date).
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [sweepIntent, setSweepIntent] = useState<SweepIntent>('tomorrow');
 
   // Check if user has locked items for lock-in checkpoint (including completed ones for celebration)
   const lockedItems = useGremlyStore(selectTodayLockedItems);
@@ -4136,7 +4240,8 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     [overlayClose],
   );
 
-  const handleIntroStart = () => {
+  const handleIntroStart = (intent: SweepIntent) => {
+    setSweepIntent(intent);
     sweepLog.debug('[SweepFlowScreen] handleIntroStart:', {
       hasUnresolvedMultiDrops,
       unresolvedMultiDropsCount: unresolvedMultiDrops.length,
@@ -4964,6 +5069,64 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
   },
+  // ── Intent rows (SweepIntroStep) ────────────────────────────────────────
+  intents: {
+    width: '100%',
+    gap: 10,
+    marginBottom: 16,
+  },
+  intentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 13,
+    paddingVertical: 15,
+    paddingHorizontal: 18,
+    borderRadius: 16,
+  },
+  intentRowPrimary: {
+    backgroundColor: BRAND.colors.mossGreen,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  intentRowSecondary: {
+    backgroundColor: 'rgba(191,216,192,0.30)',
+  },
+  intentRowWeek: {
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    borderWidth: 1,
+    borderColor: 'rgba(191,216,192,0.6)',
+  },
+  intentIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  intentTextWrap: {
+    flex: 1,
+  },
+  intentTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    lineHeight: 19,
+  },
+  intentSubtitle: {
+    fontSize: 12.5,
+    lineHeight: 15,
+  },
+  batchDeferLink: {
+    fontSize: 13,
+    color: BRAND.colors.inkSubtle,
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  // NOTE: no periwinkle/learning accent in BRAND.colors — using BRAND.colors.sageMist
+  // as the closest available token for the week-intent icon background.
+  // Update to a periwinkle token if one is added to BRAND.colors.
   lastSweepText: {
     fontSize: 13,
     color: BRAND.colors.inkSubtle,
