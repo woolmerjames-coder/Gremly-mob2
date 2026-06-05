@@ -11027,6 +11027,7 @@ Return ONLY valid JSON, no explanation:
         let worlds = [];
         let chapters = [];
         let lifeContexts = [];
+        let userPinnedWorldIds = new Set();
 
         try {
           const [worldsRes, chaptersRes, ctxRes] = await Promise.all([
@@ -11065,6 +11066,24 @@ Return ONLY valid JSON, no explanation:
             reason: null,
             skipped: true,
             skipped_reason: 'graph_load_failed',
+          });
+        }
+
+        // Fetch user-pinned world assignments for this entity (fail-open on error)
+        try {
+          const userLinksRes = await fetch(
+            `${env.SUPABASE_URL}/rest/v1/drop_world_links?drop_id=eq.${entityId}&drop_type=eq.${entityType}&assigned_by=eq.user&select=world_id`,
+            { headers: supabaseHeaders },
+          );
+          if (userLinksRes.ok) {
+            const userLinks = await userLinksRes.json();
+            userPinnedWorldIds = new Set(
+              (Array.isArray(userLinks) ? userLinks : []).map((r) => r.world_id),
+            );
+          }
+        } catch (err) {
+          console.log('[AssignWorlds] User-pinned worlds fetch failed (fail-open)', {
+            error: err.message,
           });
         }
 
@@ -11202,6 +11221,10 @@ Respond with a single JSON object containing exactly these four fields. world_li
         const validWorldLinks = rawWorldLinks.filter(
           (l) => validWorldIds.has(l.world_id) && isValidScore(l.relevance_score),
         );
+        // Exclude user-pinned worlds — classifier must not overwrite assigned_by='user' rows
+        const classifierWorldLinks = validWorldLinks.filter(
+          (l) => !userPinnedWorldIds.has(l.world_id),
+        );
         const validChapterLinks = rawChapterLinks.filter(
           (l) => validChapterIds.has(l.chapter_id) && isValidScore(l.relevance_score),
         );
@@ -11234,9 +11257,9 @@ Respond with a single JSON object containing exactly these four fields. world_li
         let upsertedChapters = 0;
         let upsertedContexts = 0;
 
-        if (validWorldLinks.length > 0) {
+        if (classifierWorldLinks.length > 0) {
           try {
-            const rows = validWorldLinks.map((l) => ({
+            const rows = classifierWorldLinks.map((l) => ({
               drop_id: entityId,
               drop_type: entityType,
               world_id: l.world_id,
