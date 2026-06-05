@@ -767,9 +767,11 @@ export class DateService {
       return isoTimestamp;
     }
 
-    // Check for UTC midnight pattern to avoid timezone shift
+    // Check for UTC midnight pattern to avoid timezone shift.
+    // Accepts both ISO 'T' and Supabase/PostgREST space-separated forms, and
+    // all UTC offset variants: Z, +00, +00:00, or no offset (bare midnight).
     const utcMidnightMatch = isoTimestamp.match(
-      /^(\d{4}-\d{2}-\d{2})T00:00:00(?:\.000)?(?:Z|\+00:00)$/,
+      /^(\d{4}-\d{2}-\d{2})[T ]00:00:00(?:\.000)?(?:Z|\+00(?::00)?)?$/,
     );
     if (utcMidnightMatch) {
       return utcMidnightMatch[1];
@@ -783,6 +785,17 @@ export class DateService {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * UTC calendar-date portion of an all-day timestamp, robust to 'T'/space separators.
+   * Returns the leading YYYY-MM-DD without any timezone conversion — correct for all-day
+   * events whose intended date IS their UTC date (stored as UTC midnight).
+   */
+  utcDatePortion(ts: string | null | undefined): string | null {
+    if (!ts) return null;
+    const m = ts.match(/^(\d{4}-\d{2}-\d{2})/);
+    return m ? m[1] : null;
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1187,6 +1200,8 @@ export const fromLocalDate = (dateStr: string | null | undefined) =>
   getDateService().fromLocalDate(dateStr);
 export const extractLocalDate = (iso: string | null | undefined) =>
   getDateService().extractLocalDate(iso);
+export const utcDatePortion = (ts: string | null | undefined) =>
+  getDateService().utcDatePortion(ts);
 
 // Other exports (not renamed)
 export const parseNaturalDate = (input: string, ref?: Date) =>

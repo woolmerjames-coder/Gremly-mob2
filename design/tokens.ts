@@ -122,6 +122,16 @@ export const lightTokens = {
       },
     },
 
+    // Sweep day-grid capacity heat tints
+    sweepHeat: {
+      none: 'rgba(34,34,34,0.03)', // 0 things — neutral, matches inactive pill bg
+      low: 'rgba(191,216,192,0.18)', // 1-2 things — faint sage
+      med: 'rgba(191,216,192,0.34)', // 3-4 things — stronger sage
+      high: 'rgba(224,138,107,0.14)', // 5+ things — warm clay tint (heavy day)
+      heavyText: '#C2613F', // warm text color for count label on heavy days
+      todayRing: 'rgba(46,85,64,0.25)', // inset ring for the today cell
+    },
+
     // Worlds surfaces — grounded in brand tokens, not mockup-oat
     worldsSurface: '#F9F6F1', // body — same as linenCream, explicit alias for Worlds tab
     worldsCard: '#FFFFFF', // opaque card surface — pure white for layering over linen
@@ -382,6 +392,7 @@ export const darkTokens = {
     noticedLabel: '#A299C9',
 
     worldPalette: lightTokens.colors.worldPalette,
+    sweepHeat: lightTokens.colors.sweepHeat,
 
     // Worlds surfaces (dark mode)
     worldsSurface: '#121716', // surface dark

@@ -132,6 +132,7 @@ function buildCalendarEventsByDateFromDbRows(
 ): Record<string, CalendarEvent[]> {
   const eventsByDate: Record<string, CalendarEvent[]> = {};
   const seen = new Set<string>();
+  const ds = getDateService();
 
   for (const row of rows) {
     const event = mapDbRowToProviderCalendarEvent(row);
@@ -141,10 +142,25 @@ function buildCalendarEventsByDateFromDbRows(
     if (seen.has(dedupKey)) continue;
     seen.add(dedupKey);
 
-    const dateKey = getDateService().extractLocalDate(event.startAt);
-    if (!dateKey) continue;
-    const existing = eventsByDate[dateKey] || [];
-    eventsByDate[dateKey] = [...existing, event];
+    if (event.isAllDay) {
+      // All-day events: span every day from startAt..endAt (exclusive end),
+      // using utcDatePortion so space-serialized Supabase timestamps work correctly.
+      const startStr = ds.utcDatePortion(event.startAt);
+      const endStr = ds.utcDatePortion(event.endAt);
+      if (!startStr || !endStr) continue;
+      let cursor = startStr;
+      while (cursor < endStr) {
+        const existing = eventsByDate[cursor] || [];
+        eventsByDate[cursor] = [...existing, event];
+        cursor = ds.addDays(cursor, 1);
+      }
+    } else {
+      // Timed events: convert startAt to local date (already fixed for space form).
+      const dateKey = ds.extractLocalDate(event.startAt);
+      if (!dateKey) continue;
+      const existing = eventsByDate[dateKey] || [];
+      eventsByDate[dateKey] = [...existing, event];
+    }
   }
 
   return eventsByDate;
@@ -6493,9 +6509,10 @@ export const useGremlyStore = create<GremlyState>()(
                 if (event.isAllDay) {
                   // All-day events: span across dates using string math
                   // (avoids DST issues from Date object mutation)
-                  const startStr = event.startAt.split('T')[0]; // "YYYY-MM-DD"
-                  const endStr = event.endAt.split('T')[0]; // "YYYY-MM-DD" (exclusive)
+                  const startStr = dateService.utcDatePortion(event.startAt); // "YYYY-MM-DD"
+                  const endStr = dateService.utcDatePortion(event.endAt); // "YYYY-MM-DD" (exclusive)
 
+                  if (!startStr || !endStr) continue;
                   // Add the event to every date from start to end (exclusive)
                   let cursor = startStr;
                   while (cursor < endStr) {
