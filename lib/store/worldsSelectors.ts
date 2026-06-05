@@ -1745,6 +1745,8 @@ export interface WorldForEntity {
   id: string;
   name: string;
   accentColor: string;
+  assignedBy: 'classifier' | 'user' | 'migration';
+  relevanceScore: number;
 }
 
 export function computeWorldsForEntity(
@@ -1753,18 +1755,42 @@ export function computeWorldsForEntity(
   entityId: string | null | undefined,
 ): WorldForEntity[] {
   if (!entityId) return [];
-  const worldIds = new Set<string>();
+
+  // Build a map of world_id → { assignedBy, relevanceScore } for this entity
+  const linkMeta = new Map<string, { assignedBy: AssignedBy; relevanceScore: number }>();
   for (const link of dropWorldLinks) {
-    if (link.drop_id === entityId) worldIds.add(link.world_id);
+    if (link.drop_id === entityId) {
+      linkMeta.set(link.world_id, {
+        assignedBy: link.assigned_by,
+        relevanceScore: link.relevance_score,
+      });
+    }
   }
-  if (worldIds.size === 0) return [];
+  if (linkMeta.size === 0) return [];
+
   const result: WorldForEntity[] = [];
   for (const w of worlds) {
-    if (!worldIds.has(w.id)) continue;
+    const meta = linkMeta.get(w.id);
+    if (!meta) continue;
     const palette = selectWorldPalette({ worlds } as any, w.id);
-    result.push({ id: w.id, name: w.name, accentColor: palette.dot });
+    result.push({
+      id: w.id,
+      name: w.name,
+      accentColor: palette.dot,
+      assignedBy: meta.assignedBy,
+      relevanceScore: meta.relevanceScore,
+    });
   }
-  result.sort((a, b) => a.name.localeCompare(b.name));
+
+  // Sort: user pins first, then relevanceScore DESC, then name (stable tiebreak)
+  result.sort((a, b) => {
+    const aUser = a.assignedBy === 'user' ? 0 : 1;
+    const bUser = b.assignedBy === 'user' ? 0 : 1;
+    if (aUser !== bUser) return aUser - bUser;
+    if (b.relevanceScore !== a.relevanceScore) return b.relevanceScore - a.relevanceScore;
+    return a.name.localeCompare(b.name);
+  });
+
   return result;
 }
 

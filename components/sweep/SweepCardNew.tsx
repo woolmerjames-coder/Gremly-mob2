@@ -31,6 +31,7 @@ import { IdeaActionZone } from './IdeaActionZone';
 import { GeneralNoteActionZone } from './GeneralNoteActionZone';
 import { EventActionZone } from './EventActionZone';
 import { WrongTypePicker } from './WrongTypePicker';
+import { WorldPickerSheet } from './WorldPickerSheet';
 import { SweepConversionToast } from './SweepConversionToast';
 import type { SweepCandidate, SweepCardMeta } from '../../lib/sweep/types';
 import type { WeekDay } from '../../lib/store/weekGridSelectors';
@@ -180,6 +181,7 @@ export function SweepCardNew({
   const [showSpacePicker, setShowSpacePicker] = useState(false);
   const [showPrepTodoInput, setShowPrepTodoInput] = useState(false);
   const [prepTodoText, setPrepTodoText] = useState('');
+  const [showWorldPicker, setShowWorldPicker] = useState(false);
 
   // ── Reset on candidate change + restore previousDecision ──
   useEffect(() => {
@@ -205,6 +207,7 @@ export function SweepCardNew({
     setShowSpacePicker(false);
     setShowPrepTodoInput(false);
     setPrepTodoText('');
+    setShowWorldPicker(false);
 
     // Restore from previousDecision
     if (previousDecision?.dueDate) {
@@ -491,6 +494,7 @@ export function SweepCardNew({
           isClarified={isClarified}
           onRequestPhotoPreview={onRequestPhotoPreview}
           hideGremlyMenu={hideGremlyMenu}
+          onWorldPress={() => setShowWorldPicker(true)}
         >
           {candidate.kind === 'todo' && (
             <TodoActionZone
@@ -671,6 +675,14 @@ export function SweepCardNew({
           />
         </View>
       )}
+
+      {/* World picker sheet */}
+      <WorldPickerSheet
+        visible={showWorldPicker}
+        dropId={candidate.id}
+        dropType={candidate.kind as 'todo' | 'habit' | 'note'}
+        onClose={() => setShowWorldPicker(false)}
+      />
 
       {/* Date picker modal */}
       <Modal visible={showDatePicker} transparent animationType="fade">

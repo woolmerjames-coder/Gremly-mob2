@@ -1051,6 +1051,11 @@ export interface GremlyState {
   // ═══════════════════════════════════════════════════════════════════
   refreshWorldsGraph: () => Promise<void>;
   dismissWorldObservation: (observationId: string) => Promise<void>;
+  pinDropToWorld: (
+    dropId: string,
+    dropType: 'todo' | 'habit' | 'note',
+    worldId: string,
+  ) => Promise<void>;
   updateChapterDates: (input: {
     chapterId: string;
     startDate: string;
@@ -10133,6 +10138,74 @@ export const useGremlyStore = create<GremlyState>()(
             // Roll back on failure.
             console.warn('[GremlyStore] dismissWorldObservation failed:', err);
             set({ worldObservations: prev });
+          }
+        },
+
+        pinDropToWorld: async (
+          dropId: string,
+          dropType: 'todo' | 'habit' | 'note',
+          worldId: string,
+        ) => {
+          const userId = get().userId;
+          if (!userId) throw new Error('Not authenticated');
+
+          const now = nowTimestamp();
+          const prevLinks = get().dropWorldLinks;
+
+          // 1. OPTIMISTIC UPDATE
+          const existingIdx = prevLinks.findIndex(
+            (l) => l.drop_id === dropId && l.drop_type === dropType && l.world_id === worldId,
+          );
+          if (existingIdx >= 0) {
+            // Update in-place
+            set({
+              dropWorldLinks: prevLinks.map((l, i) =>
+                i === existingIdx
+                  ? {
+                      ...l,
+                      assigned_by: 'user' as const,
+                      relevance_score: 1.0,
+                      last_confirmed_at: now,
+                    }
+                  : l,
+              ),
+            });
+          } else {
+            // Insert new
+            const newLink: DropWorldLink = {
+              drop_id: dropId,
+              drop_type: dropType,
+              world_id: worldId,
+              owner_id: userId,
+              assigned_by: 'user',
+              relevance_score: 1.0,
+              reason: null,
+              created_at: now,
+              last_confirmed_at: now,
+            };
+            set({ dropWorldLinks: [...prevLinks, newLink] });
+          }
+
+          // 2. PERSIST TO SUPABASE
+          try {
+            const { error } = await supabase.from('drop_world_links').upsert(
+              {
+                drop_id: dropId,
+                drop_type: dropType,
+                world_id: worldId,
+                owner_id: userId,
+                assigned_by: 'user',
+                relevance_score: 1.0,
+                last_confirmed_at: now,
+              },
+              { onConflict: 'drop_id,drop_type,world_id' },
+            );
+            if (error) throw error;
+          } catch (err) {
+            // 3. ROLLBACK ON ERROR
+            console.error('[GremlyStore] pinDropToWorld failed:', err);
+            set({ dropWorldLinks: prevLinks });
+            throw err;
           }
         },
 

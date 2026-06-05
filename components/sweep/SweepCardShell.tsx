@@ -132,6 +132,7 @@ type SweepCardShellProps = {
   isClarified?: boolean;
   onRequestPhotoPreview?: (url: string) => void;
   hideGremlyMenu?: boolean;
+  onWorldPress?: () => void;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -152,6 +153,7 @@ export function SweepCardShell({
   isClarified,
   onRequestPhotoPreview,
   hideGremlyMenu,
+  onWorldPress,
 }: SweepCardShellProps) {
   // ── Local state ──
   const [menuVisible, setMenuVisible] = useState(false);
@@ -484,13 +486,18 @@ export function SweepCardShell({
                   </View>
                 ) : null}
                 {meta.world && (
-                  <View style={styles.worldPill}>
+                  <Pressable
+                    onPress={onWorldPress}
+                    style={({ pressed }) => [styles.worldPill, pressed && { opacity: 0.55 }]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`World: ${meta.world.name}. Tap to change.`}
+                  >
                     <View style={[styles.worldDot, { backgroundColor: meta.world.accentColor }]} />
                     <Text style={styles.worldPillText} numberOfLines={1}>
                       {meta.world.name}
                       {meta.world.extraCount > 0 ? ` +${meta.world.extraCount}` : ''}
                     </Text>
-                  </View>
+                  </Pressable>
                 )}
               </View>
 
