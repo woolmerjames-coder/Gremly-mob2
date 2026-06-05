@@ -22,6 +22,7 @@ import { Text } from '../../ui';
 import { BRAND } from '../../design/brand';
 import { GremlyMenuButton, GremlyPopupMenu } from './GremlyPopupMenu';
 import type { SweepCandidate, SweepCandidateNote, SweepCardMeta } from '../../lib/sweep/types';
+import { useWorldsForEntity } from '../../lib/store/worldsSelectors';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -400,6 +401,11 @@ export function SweepCardShell({
         : null;
   const hidePreview = shouldHidePreview(title, previewText);
 
+  // ── Live world pill (overrides snapshot meta.world so mid-sweep pins show instantly) ──
+  const liveWorlds = useWorldsForEntity(candidate.id);
+  const primaryWorld = liveWorlds[0] ?? null;
+  const extraWorldCount = liveWorlds.length - 1;
+
   const noteCandidate = candidate.kind === 'note' ? (candidate as SweepCandidateNote) : null;
   const hasAttachments = noteCandidate?.attachments && noteCandidate.attachments.length > 0;
   const firstAttachment = hasAttachments ? noteCandidate!.attachments![0] : null;
@@ -485,17 +491,19 @@ export function SweepCardShell({
                     )}
                   </View>
                 ) : null}
-                {meta.world && (
+                {primaryWorld && (
                   <Pressable
                     onPress={onWorldPress}
                     style={({ pressed }) => [styles.worldPill, pressed && { opacity: 0.55 }]}
                     accessibilityRole="button"
-                    accessibilityLabel={`World: ${meta.world.name}. Tap to change.`}
+                    accessibilityLabel={`World: ${primaryWorld.name}. Tap to change.`}
                   >
-                    <View style={[styles.worldDot, { backgroundColor: meta.world.accentColor }]} />
+                    <View
+                      style={[styles.worldDot, { backgroundColor: primaryWorld.accentColor }]}
+                    />
                     <Text style={styles.worldPillText} numberOfLines={1}>
-                      {meta.world.name}
-                      {meta.world.extraCount > 0 ? ` +${meta.world.extraCount}` : ''}
+                      {primaryWorld.name}
+                      {extraWorldCount > 0 ? ` +${extraWorldCount}` : ''}
                     </Text>
                   </Pressable>
                 )}
