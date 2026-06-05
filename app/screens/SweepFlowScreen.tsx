@@ -67,6 +67,7 @@ import { triggerLight } from '../../lib/haptics';
 import { getDateService } from '../../lib/date';
 // Zustand store - used for all Sweep data operations
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { useWeekDays } from '../../lib/store/weekGridSelectors';
 import { useNeedsMindDropTutorial, useCanCreate } from '../../lib/store/lifecycleSelectors';
 import {
   useActiveSpaces,
@@ -1644,6 +1645,10 @@ function SweepDecisionStep({
   const [decisions, setDecisions] = useState<Map<string, SweepDecision>>(new Map());
   const decisionsRef = useRef<Map<string, SweepDecision>>(new Map());
 
+  // Week grid commitment counts — reactive over store slices + in-session decisions.
+  // decisions Map is SweepDecision (superset of sessionDecisions contract).
+  const weekDays = useWeekDays(decisions as Map<string, { dueDateStr?: string; action: string }>);
+
   // Entity chat state (for chat button on sweep cards)
   const [showEntityChat, setShowEntityChat] = useState(false);
   const [chatPresetHint, setChatPresetHint] = useState<string | undefined>();
@@ -2788,7 +2793,7 @@ function SweepDecisionStep({
    * Handle confirmed todo action (due date + optional reminder in a single decision)
    */
   const handleConfirmTodoAction = useCallback(
-    (action: { dueDateStr: string; reminderDateStr?: string; reminderTime?: string }) => {
+    (action: { dueDateStr?: string; reminderDateStr?: string; reminderTime?: string }) => {
       useGremlyStore
         .getState()
         .incrementSweepCount()
@@ -3317,6 +3322,7 @@ function SweepDecisionStep({
               onUpdateEventDate={handleUpdateEventDate}
               onRequestPhotoPreview={setPhotoPreviewUrl}
               sweepIntent={sweepIntent}
+              weekDays={sweepIntent === 'week' ? weekDays : undefined}
             />
 
             {/* Clarification Popup - shown when current card needs clarification */}

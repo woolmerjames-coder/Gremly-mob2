@@ -12,7 +12,8 @@ export interface WeekDay {
   dow: string; // 'Sun' | 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri' | 'Sat'
   dayNum: number; // day-of-month integer
   tag: 'Today' | 'Tomorrow' | null;
-  count: number; // total commitments on this day
+  todoCount: number; // todos scheduled on this day
+  eventCount: number; // calendar events on this day
   isToday: boolean;
 }
 
@@ -99,34 +100,13 @@ export function useWeekDays(
       const dowIndex = dateObj.getDay() as 0 | 1 | 2 | 3 | 4 | 5 | 6;
       const dow = DOW[dowIndex];
 
-      const count = eventsCount + todosCount;
-
-      // TEMPORARY DEBUG — remove after diagnosis
-      const ev = getEventsForDate(date).filter((e) => e.source !== 'todo' && e.source !== 'habit');
-      const dbTodos = todos.filter((t) => !t.archived && !t.completed_at && t.due_day === date);
-      const decisionsForDay = [...sessionDecisions.entries()].filter(
-        ([, d]) => d.action === 'keep' && d.dueDateStr === date,
-      );
-      console.log(
-        '[wgdbg]',
-        date,
-        'events=',
-        ev.length,
-        ev.map((e) => e.source),
-        'dbTodos=',
-        dbTodos.length,
-        'decisions=',
-        decisionsForDay.length,
-        'FINAL=',
-        count,
-      );
-
       return {
         date,
         dow,
         dayNum,
         tag,
-        count,
+        todoCount: todosCount,
+        eventCount: eventsCount,
         isToday,
       };
     });

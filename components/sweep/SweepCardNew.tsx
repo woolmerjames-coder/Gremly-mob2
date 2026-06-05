@@ -33,6 +33,7 @@ import { EventActionZone } from './EventActionZone';
 import { WrongTypePicker } from './WrongTypePicker';
 import { SweepConversionToast } from './SweepConversionToast';
 import type { SweepCandidate, SweepCardMeta } from '../../lib/sweep/types';
+import type { WeekDay } from '../../lib/store/weekGridSelectors';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -75,7 +76,7 @@ type SweepCardNewProps = {
   onUpdateEventDate?: (date: Date) => void;
   onRequestPhotoPreview?: (url: string) => void;
   onConfirmTodoAction?: (action: {
-    dueDateStr: string;
+    dueDateStr?: string;
     reminderDateStr?: string;
     reminderTime?: string;
   }) => void;
@@ -96,6 +97,7 @@ type SweepCardNewProps = {
   }) => void;
   hideGremlyMenu?: boolean;
   sweepIntent?: 'today' | 'tomorrow' | 'week';
+  weekDays?: WeekDay[];
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -126,12 +128,14 @@ export function SweepCardNew({
   onConfirmNoteAction,
   hideGremlyMenu,
   sweepIntent = 'tomorrow',
+  weekDays,
 }: SweepCardNewProps) {
   const spaces = useActiveSpaces();
   // ── Action zone state ──
   const [selectedAction, setSelectedAction] = useState<
     'today' | 'tomorrow' | 'nextweek' | 'pickdate'
   >(sweepIntent === 'today' ? 'today' : 'tomorrow');
+  const [selectedWeekDate, setSelectedWeekDate] = useState<string | null>(null);
   const [reminderEnabled, setReminderEnabled] = useState(false);
   const [selectedReminder, setSelectedReminder] = useState<
     'daybefore' | 'morning' | 'custom' | null
@@ -181,6 +185,7 @@ export function SweepCardNew({
   useEffect(() => {
     // Reset all state
     setSelectedAction(sweepIntent === 'today' ? 'today' : 'tomorrow');
+    setSelectedWeekDate(null);
     setReminderEnabled(false);
     setSelectedReminder(null);
     setConfirmedCustomDate(null);
@@ -291,9 +296,21 @@ export function SweepCardNew({
     [candidate.kind, onOpenChat, onOpenEdit, onShowHelp, onConvertToType],
   );
 
+  // ── Week grid day-pick handler (week intent only) ──
+  // Tapping a day STAGES the selection only. Keep / swipe-right commits.
+  const handleSelectWeekDay = useCallback((date: string) => {
+    setSelectedWeekDate(date);
+  }, []);
+
   // ── Swipe handlers ──
   const handleSwipeRight = useCallback(() => {
     if (candidate.kind === 'todo') {
+      // Week mode: commit the staged day (or bare keep if nothing staged)
+      if (sweepIntent === 'week') {
+        onConfirmTodoAction?.(selectedWeekDate ? { dueDateStr: selectedWeekDate } : {});
+        return;
+      }
+
       // Compute due date string
       const ds = getDateService();
       let dueDateStr: string | null = null;
@@ -400,6 +417,8 @@ export function SweepCardNew({
     candidate.kind,
     meta.noteCardType,
     meta.eventDate,
+    sweepIntent,
+    selectedWeekDate,
     selectedAction,
     confirmedCustomDate,
     reminderEnabled,
@@ -495,6 +514,9 @@ export function SweepCardNew({
                 setShowDatePicker(true);
               }}
               sweepIntent={sweepIntent}
+              weekDays={weekDays}
+              selectedWeekDate={selectedWeekDate}
+              onSelectWeekDay={handleSelectWeekDay}
             />
           )}
           {candidate.kind === 'note' && meta.noteCardType === 'idea' && (
