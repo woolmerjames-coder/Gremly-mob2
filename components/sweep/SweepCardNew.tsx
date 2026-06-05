@@ -99,6 +99,7 @@ type SweepCardNewProps = {
   hideGremlyMenu?: boolean;
   sweepIntent?: 'today' | 'tomorrow' | 'week';
   weekDays?: WeekDay[];
+  onSeeMyWeek?: () => void;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -130,6 +131,7 @@ export function SweepCardNew({
   hideGremlyMenu,
   sweepIntent = 'tomorrow',
   weekDays,
+  onSeeMyWeek,
 }: SweepCardNewProps) {
   const spaces = useActiveSpaces();
   // ── Action zone state ──
@@ -495,6 +497,8 @@ export function SweepCardNew({
           onRequestPhotoPreview={onRequestPhotoPreview}
           hideGremlyMenu={hideGremlyMenu}
           onWorldPress={() => setShowWorldPicker(true)}
+          sweepIntent={sweepIntent}
+          onSeeMyWeek={onSeeMyWeek}
         >
           {candidate.kind === 'todo' && (
             <TodoActionZone
