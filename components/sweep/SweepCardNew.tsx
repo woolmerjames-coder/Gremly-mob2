@@ -497,8 +497,6 @@ export function SweepCardNew({
           onRequestPhotoPreview={onRequestPhotoPreview}
           hideGremlyMenu={hideGremlyMenu}
           onWorldPress={() => setShowWorldPicker(true)}
-          sweepIntent={sweepIntent}
-          onSeeMyWeek={onSeeMyWeek}
         >
           {candidate.kind === 'todo' && (
             <TodoActionZone
@@ -525,6 +523,7 @@ export function SweepCardNew({
               weekDays={weekDays}
               selectedWeekDate={selectedWeekDate}
               onSelectWeekDay={handleSelectWeekDay}
+              onSeeMyWeek={onSeeMyWeek}
             />
           )}
           {candidate.kind === 'note' && meta.noteCardType === 'idea' && (

@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { Calendar } from 'lucide-react-native';
 
 type Status = 'new' | 'unscheduled' | 'overdue' | 'due_today';
@@ -8,6 +8,7 @@ type ContextHeaderProps = {
   status: Status;
   label?: string;
   icon?: React.ReactNode;
+  style?: ViewStyle;
 };
 
 const STATUS_CONFIG: Record<Status, { label: string; badge: string; color: string }> = {
@@ -17,14 +18,14 @@ const STATUS_CONFIG: Record<Status, { label: string; badge: string; color: strin
   overdue: { label: 'RESCHEDULE FOR', badge: 'overdue', color: '#C94040' },
 };
 
-export function ContextHeader({ status, label: labelOverride, icon }: ContextHeaderProps) {
+export function ContextHeader({ status, label: labelOverride, icon, style }: ContextHeaderProps) {
   const config = STATUS_CONFIG[status];
   const color = config.color;
   const displayLabel = labelOverride ?? config.label;
   const showBadge = !labelOverride;
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, style]}>
       {icon ?? <Calendar size={12} strokeWidth={2.5} color={color} />}
       <Text style={[styles.label, { color }]}>{displayLabel}</Text>
       {showBadge ? (

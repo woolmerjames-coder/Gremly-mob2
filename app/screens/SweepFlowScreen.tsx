@@ -53,7 +53,6 @@ import {
   Sparkles,
   CheckCircle,
   Check,
-  X,
   Lightbulb,
   Repeat,
   ArrowRight,
@@ -1653,7 +1652,6 @@ function SweepDecisionStep({
 
   // Week board overlay state
   const [showWeekBoard, setShowWeekBoard] = useState(false);
-  const [movingItem, setMovingItem] = useState<{ id: string; fromDay: string } | null>(null);
 
   // Entity chat state (for chat button on sweep cards)
   const [showEntityChat, setShowEntityChat] = useState(false);
@@ -3394,145 +3392,15 @@ function SweepDecisionStep({
         visible={showWeekBoard}
         days={weekDays}
         onClose={() => setShowWeekBoard(false)}
-        onMoveItem={(itemId, fromDay) => {
-          setMovingItem({ id: itemId, fromDay });
+        onConfirmMove={(itemId, targetDay) => {
+          recordDecision({
+            candidateId: itemId,
+            candidateKind: 'todo',
+            action: 'keep',
+            dueDateStr: targetDay,
+          });
         }}
       />
-
-      {/* Move-day picker — shown when an item is tapped in the board */}
-      <Modal
-        visible={movingItem !== null}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setMovingItem(null)}
-      >
-        <Pressable
-          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' }}
-          onPress={() => setMovingItem(null)}
-        />
-        <View
-          style={{
-            backgroundColor: '#F9F6F1',
-            borderTopLeftRadius: 20,
-            borderTopRightRadius: 20,
-            paddingTop: 10,
-            maxHeight: '60%',
-          }}
-        >
-          {/* Handle */}
-          <View
-            style={{
-              width: 36,
-              height: 4,
-              borderRadius: 2,
-              backgroundColor: 'rgba(0,0,0,0.15)',
-              alignSelf: 'center',
-              marginBottom: 12,
-            }}
-          />
-          {/* Header */}
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              paddingHorizontal: 20,
-              paddingBottom: 12,
-            }}
-          >
-            <Text
-              style={{
-                flex: 1,
-                fontSize: 16,
-                fontWeight: '600',
-                color: '#1A1A1A',
-                fontFamily: 'Inter-SemiBold',
-              }}
-            >
-              Move to
-            </Text>
-            <Pressable
-              onPress={() => setMovingItem(null)}
-              style={({ pressed }) => [{ padding: 4 }, pressed && { opacity: 0.5 }]}
-            >
-              <X size={18} strokeWidth={2} color="#8A94A5" />
-            </Pressable>
-          </View>
-          {/* Day list */}
-          <ScrollView
-            bounces={false}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 16 }}
-          >
-            {weekDays.map((day) => {
-              const isCurrent = movingItem?.fromDay === day.date;
-              return (
-                <Pressable
-                  key={day.date}
-                  style={({ pressed }) => [
-                    {
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 10,
-                      paddingVertical: 12,
-                      paddingHorizontal: 12,
-                      borderRadius: 12,
-                    },
-                    isCurrent && { backgroundColor: 'rgba(107,142,107,0.10)' },
-                    pressed && !isCurrent && { opacity: 0.65 },
-                  ]}
-                  onPress={() => {
-                    if (!movingItem || isCurrent) {
-                      setMovingItem(null);
-                      return;
-                    }
-                    recordDecision({
-                      candidateId: movingItem.id,
-                      candidateKind: 'todo',
-                      action: 'keep',
-                      dueDateStr: day.date,
-                    });
-                    setMovingItem(null);
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Move to ${day.dow} ${day.dayNum}${isCurrent ? ', current day' : ''}`}
-                  accessibilityState={{ selected: isCurrent }}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text
-                      style={{
-                        fontSize: 15,
-                        fontWeight: isCurrent ? '600' : '400',
-                        color: isCurrent ? '#2E5540' : '#1A1A1A',
-                        fontFamily: isCurrent ? 'Inter-SemiBold' : 'Inter-Regular',
-                      }}
-                    >
-                      {day.dow}{' '}
-                      <Text
-                        style={{
-                          fontSize: 18,
-                          fontWeight: '700',
-                          fontFamily: 'PlusJakartaSans-Bold',
-                        }}
-                      >
-                        {day.dayNum}
-                      </Text>
-                      {day.tag ? (
-                        <Text
-                          style={{ fontSize: 11, color: '#2E5540', fontFamily: 'Inter-Medium' }}
-                        >
-                          {'  '}
-                          {day.tag}
-                        </Text>
-                      ) : null}
-                    </Text>
-                  </View>
-                  {isCurrent && <Check size={15} strokeWidth={2.5} color="#2E5540" />}
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        </View>
-      </Modal>
 
       {/* Photo Preview Modal */}
       <Modal

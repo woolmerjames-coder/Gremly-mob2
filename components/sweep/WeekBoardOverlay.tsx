@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Modal, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { X, Check, Calendar } from 'lucide-react-native';
@@ -14,7 +14,7 @@ export type WeekBoardOverlayProps = {
   visible: boolean;
   days: WeekDay[];
   onClose: () => void;
-  onMoveItem: (itemId: string, fromDay: string) => void;
+  onConfirmMove: (itemId: string, targetDay: string) => void;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -44,10 +44,10 @@ function ItemRow({ item, onPress }: { item: WeekDayItem; onPress: () => void }) 
 
 function DaySection({
   day,
-  onMoveItem,
+  onItemPress,
 }: {
   day: WeekDay;
-  onMoveItem: (itemId: string, fromDay: string) => void;
+  onItemPress: (itemId: string, fromDay: string) => void;
 }) {
   const hasContent = day.todoCount > 0 || day.eventCount > 0;
 
@@ -86,7 +86,7 @@ function DaySection({
       {/* Items */}
       {day.items.length > 0 ? (
         day.items.map((item) => (
-          <ItemRow key={item.id} item={item} onPress={() => onMoveItem(item.id, day.date)} />
+          <ItemRow key={item.id} item={item} onPress={() => onItemPress(item.id, day.date)} />
         ))
       ) : (
         <View style={styles.emptyRow}>
@@ -101,41 +101,115 @@ function DaySection({
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function WeekBoardOverlay({ visible, days, onClose, onMoveItem }: WeekBoardOverlayProps) {
+export function WeekBoardOverlay({ visible, days, onClose, onConfirmMove }: WeekBoardOverlayProps) {
   const insets = useSafeAreaInsets();
+  const [movingItem, setMovingItem] = useState<{ id: string; fromDay: string } | null>(null);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      {/* Backdrop */}
-      <Pressable style={styles.backdrop} onPress={onClose} />
+      <View style={styles.modalRoot}>
+        {/* Backdrop */}
+        <Pressable style={styles.backdrop} onPress={onClose} />
 
-      {/* Sheet */}
-      <View style={[styles.sheet, { paddingBottom: insets.bottom + 20 }]}>
-        {/* Drag handle */}
-        <View style={styles.handle} />
+        {/* Sheet */}
+        <View style={[styles.sheet, { paddingBottom: insets.bottom + 20 }]}>
+          {/* Drag handle */}
+          <View style={styles.handle} />
 
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Your week</Text>
-          <Pressable
-            onPress={onClose}
-            style={({ pressed }) => [styles.closeBtn, pressed && styles.closeBtnPressed]}
-            accessibilityLabel="Close"
+          {/* Header */}
+          <View style={styles.header}>
+            <Text style={styles.headerTitle}>Your week</Text>
+            <Pressable
+              onPress={onClose}
+              style={({ pressed }) => [styles.closeBtn, pressed && styles.closeBtnPressed]}
+              accessibilityLabel="Close"
+            >
+              <X size={18} color={BRAND.colors.inkMuted} strokeWidth={2} />
+            </Pressable>
+          </View>
+
+          {/* Scrollable day list */}
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
           >
-            <X size={18} color={BRAND.colors.inkMuted} strokeWidth={2} />
-          </Pressable>
+            {days.map((day) => (
+              <DaySection
+                key={day.date}
+                day={day}
+                onItemPress={(id, fromDay) => setMovingItem({ id, fromDay })}
+              />
+            ))}
+          </ScrollView>
         </View>
 
-        {/* Scrollable day list */}
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          {days.map((day) => (
-            <DaySection key={day.date} day={day} onMoveItem={onMoveItem} />
-          ))}
-        </ScrollView>
+        {/* Inline day-picker — absolutely positioned over the board */}
+        {movingItem !== null && (
+          <View style={styles.pickerOverlay}>
+            <Pressable style={styles.pickerScrim} onPress={() => setMovingItem(null)} />
+            <View style={[styles.pickerSheet, { paddingBottom: insets.bottom + 16 }]}>
+              <View style={styles.handle} />
+              <View style={styles.pickerHeader}>
+                <Text style={styles.pickerTitle}>Move to</Text>
+                <Pressable
+                  onPress={() => setMovingItem(null)}
+                  style={({ pressed }) => [styles.closeBtn, pressed && styles.closeBtnPressed]}
+                  accessibilityLabel="Cancel"
+                >
+                  <X size={18} strokeWidth={2} color={BRAND.colors.inkMuted} />
+                </Pressable>
+              </View>
+              <ScrollView
+                bounces={false}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.pickerContent}
+              >
+                {days.map((day) => {
+                  const isCurrent = movingItem.fromDay === day.date;
+                  return (
+                    <Pressable
+                      key={day.date}
+                      style={({ pressed }) => [
+                        styles.pickerDayRow,
+                        isCurrent && styles.pickerDayRowCurrent,
+                        pressed && !isCurrent && { opacity: 0.65 },
+                      ]}
+                      onPress={() => {
+                        if (isCurrent) {
+                          setMovingItem(null);
+                          return;
+                        }
+                        onConfirmMove(movingItem.id, day.date);
+                        setMovingItem(null);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Move to ${day.dow} ${day.dayNum}${
+                        isCurrent ? ', current day' : ''
+                      }`}
+                      accessibilityState={{ selected: isCurrent }}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={[styles.pickerDayText, isCurrent && styles.pickerDayTextCurrent]}
+                        >
+                          {day.dow} <Text style={styles.pickerDayNum}>{day.dayNum}</Text>
+                          {day.tag ? (
+                            <Text style={styles.pickerDayTag}>
+                              {'  '}
+                              {day.tag}
+                            </Text>
+                          ) : null}
+                        </Text>
+                      </View>
+                      {isCurrent && <Check size={15} strokeWidth={2.5} color="#2E5540" />}
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          </View>
+        )}
       </View>
     </Modal>
   );
@@ -149,6 +223,88 @@ const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+
+  modalRoot: {
+    flex: 1,
+  },
+
+  // ── Picker overlay ──
+
+  pickerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 10,
+  },
+
+  pickerScrim: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+
+  pickerSheet: {
+    backgroundColor: '#F9F6F1',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 10,
+    maxHeight: '60%',
+  },
+
+  pickerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+  },
+
+  pickerTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1A1A1A',
+    fontFamily: 'Inter-SemiBold',
+  },
+
+  pickerContent: {
+    paddingHorizontal: 12,
+    paddingBottom: 16,
+  },
+
+  pickerDayRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+  },
+
+  pickerDayRowCurrent: {
+    backgroundColor: 'rgba(107,142,107,0.10)',
+  },
+
+  pickerDayText: {
+    fontSize: 15,
+    fontWeight: '400',
+    color: '#1A1A1A',
+    fontFamily: 'Inter-Regular',
+  },
+
+  pickerDayTextCurrent: {
+    fontWeight: '600',
+    color: '#2E5540',
+    fontFamily: 'Inter-SemiBold',
+  },
+
+  pickerDayNum: {
+    fontSize: 18,
+    fontWeight: '700',
+    fontFamily: 'PlusJakartaSans-Bold',
+  },
+
+  pickerDayTag: {
+    fontSize: 11,
+    color: '#2E5540',
+    fontFamily: 'Inter-Medium',
   },
 
   sheet: {

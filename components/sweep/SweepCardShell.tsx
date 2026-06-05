@@ -17,7 +17,7 @@ import Animated, {
   type SharedValue,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { ArrowLeft, ArrowRight, LayoutGrid } from 'lucide-react-native';
+import { ArrowLeft, ArrowRight } from 'lucide-react-native';
 import { Text } from '../../ui';
 import { BRAND } from '../../design/brand';
 import { GremlyMenuButton, GremlyPopupMenu } from './GremlyPopupMenu';
@@ -134,8 +134,6 @@ type SweepCardShellProps = {
   onRequestPhotoPreview?: (url: string) => void;
   hideGremlyMenu?: boolean;
   onWorldPress?: () => void;
-  sweepIntent?: string;
-  onSeeMyWeek?: () => void;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -157,8 +155,6 @@ export function SweepCardShell({
   onRequestPhotoPreview,
   hideGremlyMenu,
   onWorldPress,
-  sweepIntent,
-  onSeeMyWeek,
 }: SweepCardShellProps) {
   // ── Local state ──
   const [menuVisible, setMenuVisible] = useState(false);
@@ -561,80 +557,61 @@ export function SweepCardShell({
 
       {/* Buttons sit BELOW the card, not inside it — never clipped by borderRadius */}
       <View style={styles.buttonsContainer}>
-        {/* See my week pill — visible in week mode only, centered above Let Go/Keep */}
-        {sweepIntent === 'week' && onSeeMyWeek && (
-          <Pressable
-            style={({ pressed }) => [styles.seeWeekPill, pressed && { opacity: 0.65 }]}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              onSeeMyWeek();
-            }}
-            accessibilityRole="button"
-            accessibilityLabel="See my week"
-          >
-            <LayoutGrid size={16} strokeWidth={2} color={BRAND.colors.mossGreen} />
-            <Text style={styles.seeWeekPillText}>See my week</Text>
-          </Pressable>
-        )}
-        {/* Let go + Keep row */}
-        <View style={styles.buttonsRow}>
-          {/* Let go button */}
-          <View style={styles.buttonColumn}>
-            <Animated.View style={letGoAnimatedStyle}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Let go of this item"
-                onPressIn={() => {
-                  letGoScale.value = withTiming(1.08, { duration: 120 });
-                }}
-                onPressOut={() => {
-                  letGoScale.value = withTiming(1.0, { duration: 120 });
-                }}
-                onPress={handleLetGoPress}
-              >
-                <View style={styles.letGoCircle}>
-                  <LinearGradient
-                    colors={['rgba(224,196,122,0.15)', 'rgba(224,196,122,0.06)']}
-                    start={{ x: 0.25, y: 0 }}
-                    end={{ x: 0.75, y: 1 }}
-                    style={StyleSheet.absoluteFill}
-                  />
-                  <ArrowLeft size={22} strokeWidth={2.5} color="#E0C47A" />
-                </View>
-              </Pressable>
-            </Animated.View>
-            <Text style={styles.letGoLabel}>LET GO</Text>
-          </View>
-
-          {/* Keep button */}
-          <View style={styles.buttonColumn}>
-            <Animated.View style={keepAnimatedStyle}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Keep this item"
-                onPressIn={() => {
-                  keepScale.value = withTiming(1.08, { duration: 120 });
-                }}
-                onPressOut={() => {
-                  keepScale.value = withTiming(1.0, { duration: 120 });
-                }}
-                onPress={handleKeepPress}
-              >
-                <View style={styles.keepCircle}>
-                  <LinearGradient
-                    colors={['#BFD8C0', 'rgba(191,216,192,0.7)']}
-                    start={{ x: 0.25, y: 0 }}
-                    end={{ x: 0.75, y: 1 }}
-                    style={StyleSheet.absoluteFill}
-                  />
-                  <ArrowRight size={22} strokeWidth={2.5} color="#2E5540" />
-                </View>
-              </Pressable>
-            </Animated.View>
-            <Text style={styles.keepLabel}>KEEP</Text>
-          </View>
+        {/* Let go button */}
+        <View style={styles.buttonColumn}>
+          <Animated.View style={letGoAnimatedStyle}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Let go of this item"
+              onPressIn={() => {
+                letGoScale.value = withTiming(1.08, { duration: 120 });
+              }}
+              onPressOut={() => {
+                letGoScale.value = withTiming(1.0, { duration: 120 });
+              }}
+              onPress={handleLetGoPress}
+            >
+              <View style={styles.letGoCircle}>
+                <LinearGradient
+                  colors={['rgba(224,196,122,0.15)', 'rgba(224,196,122,0.06)']}
+                  start={{ x: 0.25, y: 0 }}
+                  end={{ x: 0.75, y: 1 }}
+                  style={StyleSheet.absoluteFill}
+                />
+                <ArrowLeft size={22} strokeWidth={2.5} color="#E0C47A" />
+              </View>
+            </Pressable>
+          </Animated.View>
+          <Text style={styles.letGoLabel}>LET GO</Text>
         </View>
-        {/* end buttonsRow */}
+
+        {/* Keep button */}
+        <View style={styles.buttonColumn}>
+          <Animated.View style={keepAnimatedStyle}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Keep this item"
+              onPressIn={() => {
+                keepScale.value = withTiming(1.08, { duration: 120 });
+              }}
+              onPressOut={() => {
+                keepScale.value = withTiming(1.0, { duration: 120 });
+              }}
+              onPress={handleKeepPress}
+            >
+              <View style={styles.keepCircle}>
+                <LinearGradient
+                  colors={['#BFD8C0', 'rgba(191,216,192,0.7)']}
+                  start={{ x: 0.25, y: 0 }}
+                  end={{ x: 0.75, y: 1 }}
+                  style={StyleSheet.absoluteFill}
+                />
+                <ArrowRight size={22} strokeWidth={2.5} color="#2E5540" />
+              </View>
+            </Pressable>
+          </Animated.View>
+          <Text style={styles.keepLabel}>KEEP</Text>
+        </View>
       </View>
     </View>
   );
@@ -813,31 +790,10 @@ const styles = StyleSheet.create({
     marginTop: 'auto',
     paddingTop: 12,
     paddingBottom: 4,
-    flexDirection: 'column',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 10,
-  },
-  seeWeekPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    backgroundColor: BRAND.colors.sageMist,
-    borderRadius: 20,
-  },
-  seeWeekPillText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: BRAND.colors.mossGreen,
-    fontFamily: 'Inter-Medium',
-  },
-  buttonsRow: {
     flexDirection: 'row',
     justifyContent: 'center',
+    alignItems: 'center',
     gap: 28,
-    alignItems: 'center',
   },
   buttonColumn: {
     alignItems: 'center',
