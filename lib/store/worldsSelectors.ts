@@ -1782,8 +1782,13 @@ export function computeWorldsForEntity(
     });
   }
 
+  // If the user has explicitly pinned any world, show ONLY user-pinned worlds.
+  // Classifier links disappear from the pill — the user's choice is definitive.
+  const hasUserPin = result.some((r) => r.assignedBy === 'user');
+  const visible = hasUserPin ? result.filter((r) => r.assignedBy === 'user') : result;
+
   // Sort: user pins first, then relevanceScore DESC, then name (stable tiebreak)
-  result.sort((a, b) => {
+  visible.sort((a, b) => {
     const aUser = a.assignedBy === 'user' ? 0 : 1;
     const bUser = b.assignedBy === 'user' ? 0 : 1;
     if (aUser !== bUser) return aUser - bUser;
@@ -1791,7 +1796,7 @@ export function computeWorldsForEntity(
     return a.name.localeCompare(b.name);
   });
 
-  return result;
+  return visible;
 }
 
 export const useWorldsForEntity = (entityId: string | null | undefined): WorldForEntity[] => {
