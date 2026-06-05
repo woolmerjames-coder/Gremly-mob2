@@ -10153,25 +10153,33 @@ export const useGremlyStore = create<GremlyState>()(
           const prevLinks = get().dropWorldLinks;
 
           // 1. OPTIMISTIC UPDATE
-          const existingIdx = prevLinks.findIndex(
+          // a) Remove any existing user-pin for a DIFFERENT world on this drop
+          // b) Upsert the chosen world
+          const withoutSuperseded = prevLinks.filter(
+            (l) =>
+              !(
+                l.drop_id === dropId &&
+                l.drop_type === dropType &&
+                l.assigned_by === 'user' &&
+                l.world_id !== worldId
+              ),
+          );
+          const existingIdx = withoutSuperseded.findIndex(
             (l) => l.drop_id === dropId && l.drop_type === dropType && l.world_id === worldId,
           );
+          let optimisticLinks: DropWorldLink[];
           if (existingIdx >= 0) {
-            // Update in-place
-            set({
-              dropWorldLinks: prevLinks.map((l, i) =>
-                i === existingIdx
-                  ? {
-                      ...l,
-                      assigned_by: 'user' as const,
-                      relevance_score: 1.0,
-                      last_confirmed_at: now,
-                    }
-                  : l,
-              ),
-            });
+            optimisticLinks = withoutSuperseded.map((l, i) =>
+              i === existingIdx
+                ? {
+                    ...l,
+                    assigned_by: 'user' as const,
+                    relevance_score: 1.0,
+                    last_confirmed_at: now,
+                  }
+                : l,
+            );
           } else {
-            // Insert new
             const newLink: DropWorldLink = {
               drop_id: dropId,
               drop_type: dropType,
@@ -10183,12 +10191,24 @@ export const useGremlyStore = create<GremlyState>()(
               created_at: now,
               last_confirmed_at: now,
             };
-            set({ dropWorldLinks: [...prevLinks, newLink] });
+            optimisticLinks = [...withoutSuperseded, newLink];
           }
+          set({ dropWorldLinks: optimisticLinks });
 
           // 2. PERSIST TO SUPABASE
           try {
-            const { error } = await supabase.from('drop_world_links').upsert(
+            // Delete superseded user pins first (world_id != chosen)
+            const { error: delError } = await supabase
+              .from('drop_world_links')
+              .delete()
+              .eq('drop_id', dropId)
+              .eq('drop_type', dropType)
+              .eq('assigned_by', 'user')
+              .neq('world_id', worldId);
+            if (delError) throw delError;
+
+            // Upsert the chosen row
+            const { error: upsertError } = await supabase.from('drop_world_links').upsert(
               {
                 drop_id: dropId,
                 drop_type: dropType,
@@ -10200,7 +10220,7 @@ export const useGremlyStore = create<GremlyState>()(
               },
               { onConflict: 'drop_id,drop_type,world_id' },
             );
-            if (error) throw error;
+            if (upsertError) throw upsertError;
           } catch (err) {
             // 3. ROLLBACK ON ERROR
             console.error('[GremlyStore] pinDropToWorld failed:', err);
