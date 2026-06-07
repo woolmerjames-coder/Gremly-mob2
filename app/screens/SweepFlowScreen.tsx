@@ -43,7 +43,7 @@ import Reanimated, {
   interpolate,
 } from 'react-native-reanimated';
 
-import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Screen, Text, Button } from '../../ui';
@@ -1654,6 +1654,17 @@ function SweepDecisionStep({
 
   // Week board overlay state
   const [showWeekBoard, setShowWeekBoard] = useState(false);
+  const reopenWeekBoardRef = useRef(false);
+
+  // Reopen the board when returning from the Calendar screen
+  useFocusEffect(
+    useCallback(() => {
+      if (reopenWeekBoardRef.current) {
+        reopenWeekBoardRef.current = false;
+        setShowWeekBoard(true);
+      }
+    }, []),
+  );
 
   // Entity chat state (for chat button on sweep cards)
   const [showEntityChat, setShowEntityChat] = useState(false);
@@ -3395,6 +3406,8 @@ function SweepDecisionStep({
         days={weekDays}
         onClose={() => setShowWeekBoard(false)}
         onOpenCalendarForDay={(date) => {
+          reopenWeekBoardRef.current = true;
+          setShowWeekBoard(false);
           navigation.navigate('CalendarScreen', { initialDate: date });
         }}
         onConfirmMove={(itemId, targetDay) => {
