@@ -118,6 +118,7 @@ import type { AppRecord } from '../../lib/types';
 import AgeUpCelebrationModal from '../../components/ritual/AgeUpCelebrationModal';
 import { getTierForAge } from '../../lib/constants/soulDocument';
 import { LockInCheckpointStep } from '../components/sweep/LockInCheckpointStep';
+import { SweepIntentionStep } from '../components/sweep/SweepIntentionStep';
 import {
   selectTodayLockedItems,
   selectTodayLockedItemsIncludingCompleted,
@@ -4298,8 +4299,9 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
       hasLockedItems,
       lockInCheckpointComplete,
     });
-    // Check for unresolved multi-drops first
-    if (hasUnresolvedMultiDrops) {
+    if (intent === 'week') {
+      setStep(0.75); // Week mode: intention slide first
+    } else if (hasUnresolvedMultiDrops) {
       setStep(0.25); // Go to multi-split step
     } else if (hasLockedItems && !lockInCheckpointComplete) {
       setStep(0.5); // Go to lock-in checkpoint
@@ -4728,12 +4730,17 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
 
   // Handler for back chevron - goes to previous step or closes if on first step
   const handleGoBack = useCallback(() => {
-    if (step > 0) {
+    if (step === 0.75) {
+      setStep(0);
+    } else if (step === 0.25) {
+      // In week mode 0.25 follows 0.75; in other modes it follows 0 (intro)
+      setStep(sweepIntent === 'week' ? 0.75 : 0);
+    } else if (step > 0) {
       setStep(step - 1);
     } else {
       navigation.goBack();
     }
-  }, [step, navigation]);
+  }, [step, sweepIntent, navigation]);
 
   // ── Demo: show for ANY user who hasn't completed the demo yet ──
   if (!demoSweepCompletedAt) {
@@ -4842,6 +4849,21 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
               onSplit={handleMultiSplit}
               onKeepAsOne={handleMultiKeepAsOne}
               onComplete={handleMultiSplitComplete}
+            />
+          )}
+          {step === 0.75 && sweepIntent === 'week' && (
+            <SweepIntentionStep
+              weekStartDate={getDateService().today()}
+              onContinue={() => {
+                if (hasUnresolvedMultiDrops) setStep(0.25);
+                else if (hasLockedItems && !lockInCheckpointComplete) setStep(0.5);
+                else setStep(1);
+              }}
+              onSkip={() => {
+                if (hasUnresolvedMultiDrops) setStep(0.25);
+                else if (hasLockedItems && !lockInCheckpointComplete) setStep(0.5);
+                else setStep(1);
+              }}
             />
           )}
           {step === 0.5 && (
