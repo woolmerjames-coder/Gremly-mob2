@@ -459,7 +459,7 @@ export function SweepCardShell({
                   <GremlyMenuButton onPress={() => setMenuVisible(true)} />
                 </View>
               )}
-              <View style={styles.menuPosition}>
+              <View style={styles.menuPosition} pointerEvents={menuVisible ? 'auto' : 'box-none'}>
                 <GremlyPopupMenu
                   visible={menuVisible}
                   onClose={() => setMenuVisible(false)}

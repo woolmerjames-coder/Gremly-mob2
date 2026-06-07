@@ -83,13 +83,14 @@ export function TodoActionZone({
         <ContextHeader status={status} style={{ marginBottom: 0 }} />
         {sweepIntent === 'week' && onSeeMyWeek && (
           <Pressable
-            style={({ pressed }) => [styles.weekActionPill, pressed && { opacity: 0.65 }]}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              onSeeMyWeek();
+              onSeeMyWeek?.();
             }}
+            style={({ pressed }) => [styles.weekActionPill, pressed && { opacity: 0.55 }]}
             accessibilityRole="button"
             accessibilityLabel="See my week"
+            hitSlop={8}
           >
             <LayoutGrid size={13} strokeWidth={2} color="#7B87D4" />
             <Text style={styles.weekActionText}>Week</Text>
