@@ -8,7 +8,8 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Link } from 'lucide-react-native';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect, type RouteProp } from '@react-navigation/native';
+import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -30,7 +31,10 @@ import { useGremlyStore } from '../../lib/store/useGremlyStore';
 const LINEN_CREAM = '#F9F6F1';
 
 export default function CalendarScreen() {
-  const [selectedDate, setSelectedDate] = useState(() => getDateService().today());
+  const route = useRoute<RouteProp<RootStackParamList, 'CalendarScreen'>>();
+  const [selectedDate, setSelectedDate] = useState(
+    () => route.params?.initialDate ?? getDateService().today(),
+  );
   const overlayController = useOverlayController();
   const navigation = useNavigation();
   const calendarConnections = useGremlyStore((s) => s.calendarConnections);

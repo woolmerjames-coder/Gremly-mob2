@@ -91,7 +91,7 @@ export type RootStackParamList = {
   Lists: undefined;
   Sweep: { initialStep?: number; initialCardIndex?: number; demoMode?: boolean } | undefined;
   ArchivedItems: { searchQuery?: string } | undefined;
-  CalendarScreen: undefined;
+  CalendarScreen: { initialDate?: string } | undefined;
   Habits: undefined;
   HabitDetail: { habitId: string };
   Settings: undefined;
@@ -345,7 +345,9 @@ export default function RootNavigator() {
             name="ScopedChat"
             component={ScopedChatScreen}
             options={{ headerShown: false, animation: 'slide_from_right' }}
-            getId={({ params }) => `${params?.scopeType}-${params?.scopeId}-${params?.chatId ?? 'new'}`}
+            getId={({ params }) =>
+              `${params?.scopeType}-${params?.scopeId}-${params?.chatId ?? 'new'}`
+            }
           />
           {__DEV__ && (
             <Stack.Screen

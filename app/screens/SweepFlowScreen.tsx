@@ -1604,6 +1604,8 @@ function SweepDecisionStep({
   const archiveHabit = useGremlyStore((state) => state.archiveHabit);
   const resolveEntityClarification = useGremlyStore((state) => state.resolveEntityClarification);
 
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+
   // Use store data for overlay lookups
   const todos = useGremlyStore((state) => state.todos);
   const notes = useGremlyStore((state) => state.notes);
@@ -3392,6 +3394,10 @@ function SweepDecisionStep({
         visible={showWeekBoard}
         days={weekDays}
         onClose={() => setShowWeekBoard(false)}
+        onOpenCalendarForDay={(date) => {
+          setShowWeekBoard(false);
+          navigation.navigate('CalendarScreen', { initialDate: date });
+        }}
         onConfirmMove={(itemId, targetDay) => {
           recordDecision({
             candidateId: itemId,

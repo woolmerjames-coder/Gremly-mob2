@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Modal, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { X, Check, Calendar } from 'lucide-react-native';
+import { X, Check, Calendar, CalendarDays } from 'lucide-react-native';
 import { Text } from '../../ui';
 import { BRAND } from '../../design/brand';
 import type { WeekDay, WeekDayItem } from '../../lib/store/weekGridSelectors';
@@ -15,6 +15,7 @@ export type WeekBoardOverlayProps = {
   days: WeekDay[];
   onClose: () => void;
   onConfirmMove: (itemId: string, targetDay: string) => void;
+  onOpenCalendarForDay: (date: string) => void;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -45,9 +46,11 @@ function ItemRow({ item, onPress }: { item: WeekDayItem; onPress: () => void }) 
 function DaySection({
   day,
   onItemPress,
+  onOpenCalendarForDay,
 }: {
   day: WeekDay;
   onItemPress: (itemId: string, fromDay: string) => void;
+  onOpenCalendarForDay: (date: string) => void;
 }) {
   const hasContent = day.todoCount > 0 || day.eventCount > 0;
 
@@ -55,9 +58,20 @@ function DaySection({
     <View style={styles.daySection}>
       {/* Day header */}
       <View style={styles.dayHeader}>
-        <Text style={styles.dayDow}>{day.dow.toUpperCase()}</Text>
-        <Text style={styles.dayNum}>{day.dayNum}</Text>
-        {day.tag ? <Text style={styles.dayTag}>{day.tag}</Text> : null}
+        <View style={styles.dayHeaderLeft}>
+          <Text style={styles.dayDow}>{day.dow.toUpperCase()}</Text>
+          <Text style={styles.dayNum}>{day.dayNum}</Text>
+          {day.tag ? <Text style={styles.dayTag}>{day.tag}</Text> : null}
+        </View>
+        <Pressable
+          onPress={() => onOpenCalendarForDay(day.date)}
+          style={({ pressed }) => [styles.dayCalBtn, pressed && { opacity: 0.55 }]}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={`Open calendar for ${day.dow} ${day.dayNum}`}
+        >
+          <CalendarDays size={16} strokeWidth={2} color={BRAND.colors.inkMuted} />
+        </Pressable>
       </View>
 
       {/* Count line */}
@@ -101,7 +115,13 @@ function DaySection({
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function WeekBoardOverlay({ visible, days, onClose, onConfirmMove }: WeekBoardOverlayProps) {
+export function WeekBoardOverlay({
+  visible,
+  days,
+  onClose,
+  onConfirmMove,
+  onOpenCalendarForDay,
+}: WeekBoardOverlayProps) {
   const insets = useSafeAreaInsets();
   const [movingItem, setMovingItem] = useState<{ id: string; fromDay: string } | null>(null);
 
@@ -139,6 +159,7 @@ export function WeekBoardOverlay({ visible, days, onClose, onConfirmMove }: Week
                 key={day.date}
                 day={day}
                 onItemPress={(id, fromDay) => setMovingItem({ id, fromDay })}
+                onOpenCalendarForDay={onOpenCalendarForDay}
               />
             ))}
           </ScrollView>
@@ -375,8 +396,13 @@ const styles = StyleSheet.create({
   dayHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
     marginBottom: 4,
+  },
+
+  dayHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
 
   dayDow: {
@@ -400,7 +426,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: BRAND.colors.mossGreen,
     fontFamily: 'Inter-Medium',
+  },
+
+  dayCalBtn: {
     marginLeft: 'auto',
+    padding: 4,
   },
 
   countRow: {
