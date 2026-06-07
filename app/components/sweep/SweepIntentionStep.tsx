@@ -51,16 +51,13 @@ export function SweepIntentionStep({ onContinue, onSkip, weekStartDate }: SweepI
       await createNote({
         subtype: 'journal',
         title: trimmed.slice(0, 80) || 'Weekly intention',
-        body: trimmed,
+        body: trimmed || undefined,
         origin: 'manual',
         canonicalType: 'log',
+        journal_subtype: 'intention',
         target_date: weekStartDate,
         tags: ['intention', 'sweep'],
-        views: {
-          sweep_origin: true,
-          sweep_intention: true,
-          sweep_date: weekStartDate,
-        },
+        views: { sweep_origin: true, sweep_date: weekStartDate },
       });
     } catch {
       // Non-blocking — don't strand the user if the note save fails

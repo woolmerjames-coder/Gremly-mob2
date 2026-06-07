@@ -193,7 +193,10 @@ export const noteZ = baseRecordZ.extend({
   fmt: z.enum(['bullets', 'numbers', 'checkboxes']).nullable().optional(),
   reminders: z.array(z.any()).nullable().optional(), // ReminderRow[]
   tags: tagsZ,
-  journal_subtype: z.enum(['reflection', 'gratitude', 'dream', 'review']).nullable().optional(), // AI-only
+  journal_subtype: z
+    .enum(['reflection', 'gratitude', 'dream', 'review', 'intention'])
+    .nullable()
+    .optional(), // AI-only
   // Commitment/Lock-In fields (Phase X)
   commitment: z.boolean().nullable().optional(),
   commitmentNote: z.string().nullable().optional(),
@@ -352,7 +355,10 @@ export const noteInsertSchema = z.object({
   fmt: z.enum(['bullets', 'numbers', 'checkboxes']).nullable().optional(),
   reminders_json: z.array(z.any()).nullable().optional(), // ReminderRow[]
   tags: tagsZ,
-  journal_subtype: z.enum(['reflection', 'gratitude', 'dream', 'review']).nullable().optional(), // AI-only
+  journal_subtype: z
+    .enum(['reflection', 'gratitude', 'dream', 'review', 'intention'])
+    .nullable()
+    .optional(), // AI-only
   // Make Actionable feature fields
   is_favorite: z.boolean().optional(),
   has_list: z.boolean().optional(),

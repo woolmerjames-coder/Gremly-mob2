@@ -380,7 +380,7 @@ export interface Note {
   date?: string | null; // ISO date for journal entry (may differ from created_at)
   mood?: Mood[] | null; // Multi-select mood array (uses shared/moods.ts)
   reminders?: ItemReminder[] | null; // Per-item reminders JSON for journal reminders
-  journal_subtype?: 'reflection' | 'gratitude' | 'dream' | 'review' | null; // AI-only journal classification
+  journal_subtype?: 'reflection' | 'gratitude' | 'dream' | 'review' | 'intention' | null; // journal classification
   tags_meta?: TagsMeta | null;
 
   // Make Actionable feature fields
