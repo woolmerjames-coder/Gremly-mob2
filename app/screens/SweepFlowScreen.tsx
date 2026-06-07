@@ -3395,7 +3395,6 @@ function SweepDecisionStep({
         days={weekDays}
         onClose={() => setShowWeekBoard(false)}
         onOpenCalendarForDay={(date) => {
-          setShowWeekBoard(false);
           navigation.navigate('CalendarScreen', { initialDate: date });
         }}
         onConfirmMove={(itemId, targetDay) => {
