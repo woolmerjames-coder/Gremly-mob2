@@ -10,7 +10,7 @@
  * No AI, no feeding gauge.
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { View, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { Flame, ChevronLeft, ChevronRight, Check, Circle } from 'lucide-react-native';
 import { Text } from '../../../ui';
@@ -26,7 +26,8 @@ export interface SweepHabitsCheckInStepProps {
 }
 
 export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps) {
-  const habits = useGremlyStore((s) => s.habits.filter((h) => !h.archived));
+  const allHabits = useGremlyStore((s) => s.habits);
+  const habits = useMemo(() => allHabits.filter((h) => !h.archived), [allHabits]);
   const logHabitCompletionForDate = useGremlyStore((s) => s.logHabitCompletionForDate);
   const removeHabitCompletionForDate = useGremlyStore((s) => s.removeHabitCompletionForDate);
 
