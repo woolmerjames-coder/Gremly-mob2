@@ -47,8 +47,6 @@ export const HUB_SECTIONS: HubSection[] = [
     key: 'habits',
     label: 'Check in on habits',
     description: 'Log and review your weekly habits.',
-    disabled: true,
-    comingSoon: true,
   },
   {
     key: 'events',

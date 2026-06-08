@@ -120,6 +120,7 @@ import { getTierForAge } from '../../lib/constants/soulDocument';
 import { LockInCheckpointStep } from '../components/sweep/LockInCheckpointStep';
 import { SweepIntentionStep } from '../components/sweep/SweepIntentionStep';
 import { SweepHubChooser, type HubSectionKey } from '../components/sweep/SweepHubChooser';
+import { SweepHabitsCheckInStep } from '../components/sweep/SweepHabitsCheckInStep';
 import {
   selectTodayLockedItems,
   selectTodayLockedItemsIncludingCompleted,
@@ -4366,7 +4367,8 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     setActiveSection(key);
     if (key === 'todos') setStep(1);
     else if (key === 'intention') setStep(3);
-    // habits + events are disabled this phase
+    else if (key === 'habits') setStep(2);
+    // events disabled this phase
   }, []);
 
   const handleHubLeadThroughAll = useCallback(() => {
@@ -4736,6 +4738,12 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     if (data?.habitsChecked !== undefined) {
       setHabitsCheckedCount(data.habitsChecked);
     }
+    // In hub a-la-carte mode the habits deck is the 'habits' spoke
+    if (hubMode && !guidedAll) {
+      addCompletedSection('habits');
+      backToHub();
+      return;
+    }
     setStep(3); // Habits → Mood
   };
 
@@ -4968,7 +4976,12 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
               initialCardIndex={initialCardIndex}
             />
           )}
-          {step === 2 && <SweepHabitsStep onContinue={handleWrapUpContinue} />}
+          {step === 2 && sweepIntent === 'week' && (
+            <SweepHabitsCheckInStep onFinish={handleWrapUpContinue} />
+          )}
+          {step === 2 && sweepIntent !== 'week' && (
+            <SweepHabitsStep onContinue={handleWrapUpContinue} />
+          )}
           {step === 3 && sweepIntent === 'week' && (
             <SweepIntentionStep
               weekStartDate={getDateService().today()}
