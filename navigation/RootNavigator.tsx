@@ -95,6 +95,7 @@ export type RootStackParamList = {
         initialCardIndex?: number;
         demoMode?: boolean;
         initialIntent?: 'today' | 'tomorrow' | 'week';
+        initialHub?: boolean;
       }
     | undefined;
   ArchivedItems: { searchQuery?: string } | undefined;

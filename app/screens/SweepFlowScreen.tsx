@@ -119,6 +119,7 @@ import AgeUpCelebrationModal from '../../components/ritual/AgeUpCelebrationModal
 import { getTierForAge } from '../../lib/constants/soulDocument';
 import { LockInCheckpointStep } from '../components/sweep/LockInCheckpointStep';
 import { SweepIntentionStep } from '../components/sweep/SweepIntentionStep';
+import { SweepHubChooser, type HubSectionKey } from '../components/sweep/SweepHubChooser';
 import {
   selectTodayLockedItems,
   selectTodayLockedItemsIncludingCompleted,
@@ -3994,6 +3995,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   const initialStep = __DEV__ ? (route.params?.initialStep ?? 0) : 0;
   const initialCardIndex = __DEV__ ? route.params?.initialCardIndex : undefined;
   const initialIntent = __DEV__ ? route.params?.initialIntent : undefined;
+  const initialHub = __DEV__ ? route.params?.initialHub : undefined;
   const demoMode = route.params?.demoMode === true;
 
   // Debug logging for DEV mode step jumping
@@ -4022,6 +4024,15 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   const [sweepIntent, setSweepIntent] = useState<SweepIntent>(
     __DEV__ && initialIntent ? initialIntent : 'tomorrow',
   );
+
+  // ── Week-mode hub state ──────────────────────────────────────────────────
+  // Sentinel step value for the hub chooser screen. Must not collide with
+  // existing steps (0, 0.25, 0.5, 0.75, 1, 2, 3, 4).
+  const HUB = 0.1;
+  const [hubMode, setHubMode] = useState(false);
+  const [completedSections, setCompletedSections] = useState<Set<string>>(new Set());
+  const [guidedAll, setGuidedAll] = useState(false);
+  const [activeSection, setActiveSection] = useState<HubSectionKey | null>(null);
 
   // Check if user has locked items for lock-in checkpoint (including completed ones for celebration)
   const lockedItems = useGremlyStore(selectTodayLockedItems);
@@ -4244,6 +4255,18 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     }
   }, [route.params?.initialIntent]);
 
+  // DEV MODE: Activate hub when initialHub param is set (bypasses handleIntroStart)
+  useEffect(() => {
+    if (__DEV__ && route.params?.initialHub && route.params?.initialIntent === 'week') {
+      setHubMode(true);
+      setGuidedAll(false);
+      setCompletedSections(new Set());
+      setActiveSection(null);
+      setStep(HUB);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route.params?.initialHub, route.params?.initialIntent]);
+
   // Debug: log step changes
   useEffect(() => {
     if (__DEV__) {
@@ -4310,6 +4333,15 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
       hasLockedItems,
       lockInCheckpointComplete,
     });
+    // Week mode opens the hub chooser instead of linear decisions
+    if (intent === 'week') {
+      setHubMode(true);
+      setGuidedAll(false);
+      setCompletedSections(new Set());
+      setActiveSection(null);
+      setStep(HUB);
+      return;
+    }
     // Check for unresolved multi-drops first
     if (hasUnresolvedMultiDrops) {
       setStep(0.25); // Go to multi-split step
@@ -4319,6 +4351,33 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
       setStep(1); // Go to decision cards
     }
   };
+
+  // ── Hub helpers ──────────────────────────────────────────────────────────
+  const backToHub = useCallback(() => {
+    setActiveSection(null);
+    setStep(HUB);
+  }, [HUB]);
+
+  const addCompletedSection = useCallback((key: HubSectionKey) => {
+    setCompletedSections((prev) => new Set(prev).add(key));
+  }, []);
+
+  const handleHubPickSection = useCallback((key: HubSectionKey) => {
+    setActiveSection(key);
+    if (key === 'todos') setStep(1);
+    else if (key === 'intention') setStep(3);
+    // habits + events are disabled this phase
+  }, []);
+
+  const handleHubLeadThroughAll = useCallback(() => {
+    setGuidedAll(true);
+    setActiveSection(null);
+    setStep(1); // Start linear chain: decisions → intention → summary
+  }, []);
+
+  const handleHubFinish = useCallback(() => {
+    setStep(4); // Jump to summary
+  }, []);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Multi-Split Step Handlers
@@ -4664,7 +4723,13 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     if (data?.journalWritten !== undefined) {
       setJournalWritten(data.journalWritten);
     }
-    setStep(4); // Mood → Summary
+    // In hub a-la-carte mode the intention slide is the 'intention' spoke
+    if (hubMode && !guidedAll) {
+      addCompletedSection('intention');
+      backToHub();
+      return;
+    }
+    setStep(4); // Mood/Intention → Summary
   };
 
   const handleWrapUpContinue = (data?: { habitsChecked?: number; journalWritten?: boolean }) => {
@@ -4707,10 +4772,16 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
         }
       }
 
+      // In hub a-la-carte mode, return to hub after decisions
+      if (hubMode && !guidedAll) {
+        addCompletedSection('todos');
+        backToHub();
+        return;
+      }
       // Advance to Habits step
       setStep(2); // Decision → Habits
     },
-    [user],
+    [user, hubMode, guidedAll, addCompletedSection, backToHub],
   );
 
   const handleSummaryDone = () => {
@@ -4740,12 +4811,18 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
 
   // Handler for back chevron - goes to previous step or closes if on first step
   const handleGoBack = useCallback(() => {
-    if (step > 0) {
-      setStep(step - 1);
-    } else {
-      navigation.goBack();
+    // From a spoke in a-la-carte hub mode, go back to the hub
+    if (hubMode && !guidedAll && step !== HUB && step > 0) {
+      backToHub();
+      return;
     }
-  }, [step, navigation]);
+    // From the hub (or guided mode), exit or go to previous step
+    if (step === HUB || step <= 0) {
+      navigation.goBack();
+      return;
+    }
+    setStep(step - 1);
+  }, [step, hubMode, guidedAll, HUB, backToHub, navigation]);
 
   // ── Demo: show for ANY user who hasn't completed the demo yet ──
   if (!demoSweepCompletedAt) {
@@ -4847,6 +4924,15 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
                 completedItems={completedItems}
               />
             </>
+          )}
+          {step === HUB && sweepIntent === 'week' && (
+            <SweepHubChooser
+              completed={completedSections}
+              onPickSection={handleHubPickSection}
+              onLeadThroughAll={handleHubLeadThroughAll}
+              onFinish={handleHubFinish}
+              onExit={handleClose}
+            />
           )}
           {step === 0.25 && (
             <SweepMultiSplitStep
