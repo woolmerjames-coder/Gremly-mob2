@@ -1,7 +1,10 @@
 /**
  * habitCardStats — per-habit stats for the weekly sweep habits deck.
  *
- * Calendar-week (Mon-Sun) framed, NOT rolling-7d.
+ * Window is cadence-aware:
+ *   daily    → rolling 7 days ending today (today is last cell)
+ *   weekly / monthly → calendar week Mon-Sun via getStartOfWeek()
+ *
  * Composes existing streakUtils + frequencyUtils; does NOT duplicate streak math.
  * No AI, no gauge side-effects.
  */
@@ -39,8 +42,10 @@ export interface HabitCardStats {
   status: 'on_track' | 'needs_attention' | 'done_for_week';
 }
 
-// Mon-Sun one-char labels
+// Mon-Sun one-char labels (used for calendar-week window)
 const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+// All-week day labels indexed by JS getDay() (0=Sun)
+const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pure computation
@@ -52,70 +57,97 @@ export function computeHabitCardStats(
 ): HabitCardStats {
   const ds = getDateService();
   const today = ds.today();
-  const weekStart = getStartOfWeek(); // Monday YYYY-MM-DD (timezone-correct)
+  const cadence = habit.cadence ?? 'daily';
+  const targetPerPeriod = habit.target_per_period ?? 1;
 
-  // Build Mon-Sun 7-day array
-  const days: HabitDayCell[] = Array.from({ length: 7 }, (_, i) => {
-    const date = ds.addDays(weekStart, i);
-    return {
-      date,
-      dayLabel: DAY_LABELS[i],
-      isToday: date === today,
-      isFuture: date > today,
-      isCompleted: false, // filled below
-      isScheduled: true, // filled below
-    };
-  });
-
-  // Mark completions from habitProgress
   const progressForHabit = habitProgress.filter((p) => p.habit_id === habit.id);
   const completedDaySet = new Set(progressForHabit.map((p) => p.occurred_day));
-  for (const cell of days) {
-    cell.isCompleted = completedDaySet.has(cell.date);
-  }
 
-  // Mark scheduled days via days_active (0=Sun..6=Sat → shift to Mon-based index)
-  if (habit.days_active && habit.days_active.length > 0) {
-    // days_active uses 0=Sunday; our array index 0=Monday.
-    // Convert: Mon=1,Tue=2,...,Sun=0 → array index 0..6
-    const scheduledSet = new Set(habit.days_active.map((d) => (d === 0 ? 6 : d - 1)));
-    for (let i = 0; i < days.length; i++) {
-      days[i].isScheduled = scheduledSet.has(i);
+  // ── Window: daily = rolling 7d ending today; weekly/monthly = Mon-Sun ──────
+  let days: HabitDayCell[];
+
+  if (cadence === 'daily') {
+    // Rolling 7 days: index 0 = today-6, index 6 = today
+    days = Array.from({ length: 7 }, (_, i) => {
+      const date = ds.addDays(today, -(6 - i));
+      const jsDate = ds.fromLocalDate(date) ?? ds.now();
+      return {
+        date,
+        dayLabel: WEEKDAY_LABELS[jsDate.getDay()],
+        isToday: date === today,
+        isFuture: false, // rolling window never includes future days
+        isCompleted: completedDaySet.has(date),
+        isScheduled: true, // daily = every day
+      };
+    });
+  } else {
+    // Calendar week: Mon-Sun
+    // NOTE: monthly uses Mon-Sun window (same as weekly). This is a known
+    // limitation — flagged for future fix, left as-is per v7-1 spec.
+    const weekStart = getStartOfWeek();
+    days = Array.from({ length: 7 }, (_, i) => {
+      const date = ds.addDays(weekStart, i);
+      return {
+        date,
+        dayLabel: DAY_LABELS[i],
+        isToday: date === today,
+        isFuture: date > today,
+        isCompleted: completedDaySet.has(date),
+        isScheduled: true, // filled below via days_active
+      };
+    });
+
+    // Mark scheduled days via days_active (0=Sun..6=Sat → Mon-based index)
+    if (habit.days_active && habit.days_active.length > 0) {
+      const scheduledSet = new Set(habit.days_active.map((d) => (d === 0 ? 6 : d - 1)));
+      for (let i = 0; i < days.length; i++) {
+        days[i].isScheduled = scheduledSet.has(i);
+      }
     }
   }
 
-  // weekHits = completed and not future (don't count accidental future entries)
-  const weekHits = days.filter((d) => d.isCompleted && !d.isFuture).length;
-
-  // weekTarget:
-  //   daily → count of days elapsed this week (Mon..today, inclusive) — i.e. min(daysElapsed,7)
-  //   weekly / monthly → target_per_period (default 1)
-  const cadence = habit.cadence ?? 'daily';
-  const targetPerPeriod = habit.target_per_period ?? 1;
+  // ── weekHits / weekTarget ─────────────────────────────────────────────────
+  let weekHits: number;
   let weekTarget: number;
+
   if (cadence === 'daily') {
-    const daysElapsed = days.filter((d) => !d.isFuture).length;
-    weekTarget = Math.max(1, daysElapsed);
+    // All 7 cells are past or today — count every completed one
+    weekHits = days.filter((d) => d.isCompleted).length;
+    weekTarget = 7;
   } else {
+    // weekly / monthly: only count non-future completions
+    weekHits = days.filter((d) => d.isCompleted && !d.isFuture).length;
     weekTarget = targetPerPeriod;
   }
 
-  // Streak — delegate entirely to computeHabitStreak
+  // ── Streak ───────────────────────────────────────────────────────────────
   const allCompletedDates = progressForHabit.map((p) => p.occurred_day);
   const streak = computeHabitStreak(allCompletedDates, cadence, targetPerPeriod);
 
-  // Status
-  const daysElapsed = days.filter((d) => !d.isFuture).length;
-  const expectedByNow =
-    cadence === 'daily' ? daysElapsed : Math.round((daysElapsed / 7) * targetPerPeriod);
-
+  // ── Status ───────────────────────────────────────────────────────────────
   let status: HabitCardStats['status'];
-  if (weekHits >= weekTarget) {
-    status = 'done_for_week';
-  } else if (weekHits < expectedByNow) {
-    status = 'needs_attention';
+
+  if (cadence === 'daily') {
+    // Mirror useWeeklyHabitStats.computeDailyStats logic
+    const missedCount = 7 - weekHits;
+    if (weekHits >= 7) {
+      status = 'done_for_week';
+    } else if (missedCount <= 1) {
+      status = 'on_track';
+    } else {
+      status = 'needs_attention';
+    }
   } else {
-    status = 'on_track';
+    // weekly / monthly: done when target met; behind if fewer than expected by now
+    const daysElapsed = days.filter((d) => !d.isFuture).length;
+    const expectedByNow = Math.round((daysElapsed / 7) * targetPerPeriod);
+    if (weekHits >= weekTarget) {
+      status = 'done_for_week';
+    } else if (weekHits < expectedByNow) {
+      status = 'needs_attention';
+    } else {
+      status = 'on_track';
+    }
   }
 
   return {

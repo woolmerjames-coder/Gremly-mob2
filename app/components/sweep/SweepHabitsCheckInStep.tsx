@@ -2,9 +2,12 @@
  * SweepHabitsCheckInStep -- "Check in on habits" spoke (v7-1).
  *
  * A per-habit card deck for the weekly sweep hub. One card per active habit,
- * swipeable / next-prev. Shows Mon-Sun day row with tappable toggle per cell
- * (past + today only). Derived entirely from habitProgress in the store.
- * No AI, no feeding gauge, no rolling-7d window -- calendar week (Mon-Sun).
+ * swipeable / next-prev. Shows a 7-day row with tappable toggle per cell
+ * (past + today only). Window is cadence-aware:
+ *   daily    → rolling 7 days ending today
+ *   weekly / monthly → Mon-Sun calendar week
+ * Derived entirely from habitProgress in the store.
+ * No AI, no feeding gauge.
  */
 
 import React, { useState, useCallback } from 'react';
