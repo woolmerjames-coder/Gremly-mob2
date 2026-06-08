@@ -1,16 +1,18 @@
 /**
  * habitCardStats — per-habit stats for the weekly sweep habits deck.
  *
- * Window is cadence-aware:
- *   daily    → rolling 7 days ending today (today is last cell)
- *   weekly / monthly → calendar week Mon-Sun via getStartOfWeek()
+ * Window: rolling 7 days ending today (today = last cell) for ALL cadences.
+ * No future cells. All 7 cells tappable (past + today).
  *
  * Composes existing streakUtils + frequencyUtils; does NOT duplicate streak math.
  * No AI, no gauge side-effects.
+ *
+ * NOTE: monthly habits use a rolling-7d window — this is imperfect for monthly
+ * cadence but accepted; flagged for future per-cadence refinement.
  */
 
 import { useMemo } from 'react';
-import { getDateService, getStartOfWeek } from '../date/DateService';
+import { getDateService } from '../date/DateService';
 import type { HabitProgressRow } from '../store/useGremlyStore';
 import { useGremlyStore } from '../store/useGremlyStore';
 import { computeHabitStreak } from './streakUtils';
@@ -23,11 +25,11 @@ import type { Habit } from '../types';
 
 export interface HabitDayCell {
   date: string; // YYYY-MM-DD
-  dayLabel: string; // 'M' | 'T' | 'W' | 'T' | 'F' | 'S' | 'S'
+  dayLabel: string; // single char derived from the actual weekday
   isToday: boolean;
-  isFuture: boolean;
+  isFuture: boolean; // always false in rolling window
   isCompleted: boolean;
-  isScheduled: boolean;
+  isScheduled: boolean; // always true in rolling window
 }
 
 export interface HabitCardStats {
@@ -37,14 +39,14 @@ export interface HabitCardStats {
   frequencyLabel: string;
   weekHits: number;
   weekTarget: number;
+  /** 30-day completion percentage (0-100, integer). */
+  pct30: number;
   streak: { count: number; unit: 'day' | 'week' };
   days: HabitDayCell[];
   status: 'on_track' | 'needs_attention' | 'done_for_week';
 }
 
-// Mon-Sun one-char labels (used for calendar-week window)
-const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-// All-week day labels indexed by JS getDay() (0=Sun)
+// One-char weekday labels indexed by JS getDay() (0=Sun)
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -63,62 +65,44 @@ export function computeHabitCardStats(
   const progressForHabit = habitProgress.filter((p) => p.habit_id === habit.id);
   const completedDaySet = new Set(progressForHabit.map((p) => p.occurred_day));
 
-  // ── Window: daily = rolling 7d ending today; weekly/monthly = Mon-Sun ──────
-  let days: HabitDayCell[];
-
-  if (cadence === 'daily') {
-    // Rolling 7 days: index 0 = today-6, index 6 = today
-    days = Array.from({ length: 7 }, (_, i) => {
-      const date = ds.addDays(today, -(6 - i));
-      const jsDate = ds.fromLocalDate(date) ?? ds.now();
-      return {
-        date,
-        dayLabel: WEEKDAY_LABELS[jsDate.getDay()],
-        isToday: date === today,
-        isFuture: false, // rolling window never includes future days
-        isCompleted: completedDaySet.has(date),
-        isScheduled: true, // daily = every day
-      };
-    });
-  } else {
-    // Calendar week: Mon-Sun
-    // NOTE: monthly uses Mon-Sun window (same as weekly). This is a known
-    // limitation — flagged for future fix, left as-is per v7-1 spec.
-    const weekStart = getStartOfWeek();
-    days = Array.from({ length: 7 }, (_, i) => {
-      const date = ds.addDays(weekStart, i);
-      return {
-        date,
-        dayLabel: DAY_LABELS[i],
-        isToday: date === today,
-        isFuture: date > today,
-        isCompleted: completedDaySet.has(date),
-        isScheduled: true, // filled below via days_active
-      };
-    });
-
-    // Mark scheduled days via days_active (0=Sun..6=Sat → Mon-based index)
-    if (habit.days_active && habit.days_active.length > 0) {
-      const scheduledSet = new Set(habit.days_active.map((d) => (d === 0 ? 6 : d - 1)));
-      for (let i = 0; i < days.length; i++) {
-        days[i].isScheduled = scheduledSet.has(i);
-      }
-    }
-  }
+  // ── Rolling 7-day window (ALL cadences) ──────────────────────────────────
+  // Index 0 = today-6, index 6 = today. No future cells, all tappable.
+  const days: HabitDayCell[] = Array.from({ length: 7 }, (_, i) => {
+    const date = ds.addDays(today, -(6 - i));
+    const jsDate = ds.fromLocalDate(date) ?? ds.now();
+    return {
+      date,
+      dayLabel: WEEKDAY_LABELS[jsDate.getDay()],
+      isToday: date === today,
+      isFuture: false,
+      isCompleted: completedDaySet.has(date),
+      isScheduled: true,
+    };
+  });
 
   // ── weekHits / weekTarget ─────────────────────────────────────────────────
-  let weekHits: number;
-  let weekTarget: number;
+  const weekHits = days.filter((d) => d.isCompleted).length;
+  const weekTarget = cadence === 'daily' ? 7 : targetPerPeriod;
 
+  // ── pct30 ─────────────────────────────────────────────────────────────────
+  const last30Start = ds.addDays(today, -29);
+  const distinctDaysIn30 = new Set(
+    progressForHabit
+      .filter((p) => p.occurred_day >= last30Start && p.occurred_day <= today)
+      .map((p) => p.occurred_day),
+  ).size;
+
+  let pct30Denominator: number;
   if (cadence === 'daily') {
-    // All 7 cells are past or today — count every completed one
-    weekHits = days.filter((d) => d.isCompleted).length;
-    weekTarget = 7;
+    pct30Denominator = 30;
+  } else if (cadence === 'weekly') {
+    // ~4.286 weeks in 30 days
+    pct30Denominator = Math.max(1, Math.round(targetPerPeriod * 4.286));
   } else {
-    // weekly / monthly: only count non-future completions
-    weekHits = days.filter((d) => d.isCompleted && !d.isFuture).length;
-    weekTarget = targetPerPeriod;
+    // monthly: ~1 month
+    pct30Denominator = Math.max(1, targetPerPeriod);
   }
+  const pct30 = Math.min(100, Math.round((distinctDaysIn30 / pct30Denominator) * 100));
 
   // ── Streak ───────────────────────────────────────────────────────────────
   const allCompletedDates = progressForHabit.map((p) => p.occurred_day);
@@ -128,7 +112,7 @@ export function computeHabitCardStats(
   let status: HabitCardStats['status'];
 
   if (cadence === 'daily') {
-    // Mirror useWeeklyHabitStats.computeDailyStats logic
+    // Mirror computeDailyStats: done if 7/7; on_track if missed<=1; else needs_attention
     const missedCount = 7 - weekHits;
     if (weekHits >= 7) {
       status = 'done_for_week';
@@ -138,15 +122,13 @@ export function computeHabitCardStats(
       status = 'needs_attention';
     }
   } else {
-    // weekly / monthly: done when target met; behind if fewer than expected by now
-    const daysElapsed = days.filter((d) => !d.isFuture).length;
-    const expectedByNow = Math.round((daysElapsed / 7) * targetPerPeriod);
+    // weekly / monthly rolling-7d: done if target met; on_track if partial; else no activity
     if (weekHits >= weekTarget) {
       status = 'done_for_week';
-    } else if (weekHits < expectedByNow) {
-      status = 'needs_attention';
-    } else {
+    } else if (weekHits > 0) {
       status = 'on_track';
+    } else {
+      status = 'needs_attention';
     }
   }
 
@@ -157,6 +139,7 @@ export function computeHabitCardStats(
     frequencyLabel: getHabitFrequencyLabel(habit) ?? '',
     weekHits,
     weekTarget,
+    pct30,
     streak,
     days,
     status,
