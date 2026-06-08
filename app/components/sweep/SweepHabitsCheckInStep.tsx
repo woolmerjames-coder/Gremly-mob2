@@ -18,6 +18,10 @@ import { BRAND } from '../../../design/brand';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
 import { useHabitCardStats } from '../../../lib/habits/habitCardStats';
 import type { HabitCardStats } from '../../../lib/habits/habitCardStats';
+import {
+  computeFrequencyRecommendation,
+  getFrequencyDisplayLabel,
+} from '../../../lib/habits/habitFrequencyRecommendation';
 
 const SERIF = Platform.select({ ios: 'Georgia', default: 'serif' });
 
@@ -30,12 +34,20 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   const habits = useMemo(() => allHabits.filter((h) => !h.archived), [allHabits]);
   const logHabitCompletionForDate = useGremlyStore((s) => s.logHabitCompletionForDate);
   const removeHabitCompletionForDate = useGremlyStore((s) => s.removeHabitCompletionForDate);
+  const habitProgress = useGremlyStore((s) => s.habitProgress);
+  const updateHabit = useGremlyStore((s) => s.updateHabit);
 
   const cards = useHabitCardStats(habits);
 
   const [index, setIndex] = useState(0);
 
   const card = cards[index] as HabitCardStats | undefined;
+  const currentHabit = habits[index];
+
+  const rec = useMemo(
+    () => (currentHabit ? computeFrequencyRecommendation(currentHabit, habitProgress) : null),
+    [currentHabit, habitProgress],
+  );
 
   const handleToggleDay = useCallback(
     async (date: string, isCompleted: boolean) => {
@@ -173,6 +185,39 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
             );
           })}
         </View>
+
+        {/* Frequency recommendation (conditional — only when data warrants it) */}
+        {rec?.show && (
+          <View style={styles.recBlock}>
+            <Text style={styles.recSentence}>{rec.sentence}</Text>
+            <View style={styles.recChipRow}>
+              {rec.chips.map((n) => {
+                const label = getFrequencyDisplayLabel(rec.cadence, n) ?? `${n}x`;
+                const isActive = n === rec.currentTarget;
+                return (
+                  <TouchableOpacity
+                    key={n}
+                    style={[styles.recChip, isActive && styles.recChipActive]}
+                    onPress={() => {
+                      if (!isActive) {
+                        updateHabit(card.id, { cadence: rec.cadence, target_per_period: n });
+                      }
+                    }}
+                    activeOpacity={isActive ? 1 : 0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Set frequency to ${label}`}
+                    accessibilityState={{ selected: isActive }}
+                  >
+                    <Text style={[styles.recChipText, isActive && styles.recChipTextActive]}>
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={styles.recCaption}>Selecting a chip updates this habit.</Text>
+          </View>
+        )}
       </View>
 
       {/* Navigation */}
@@ -351,6 +396,53 @@ const styles = StyleSheet.create({
   dayCellLabelCompleted: { color: BRAND.colors.mossGreen },
   dayCellLabelDisabled: { color: BRAND.colors.inkMuted },
   dayCellIndicator: { height: 16, alignItems: 'center', justifyContent: 'center' },
+
+  // Frequency recommendation block
+  recBlock: {
+    marginTop: 16,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(34,34,34,0.07)',
+  },
+  recSentence: {
+    fontSize: 13,
+    fontWeight: '400',
+    color: 'rgba(34,34,34,0.65)',
+    lineHeight: 18,
+    marginBottom: 10,
+  },
+  recChipRow: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+    marginBottom: 8,
+  },
+  recChip: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(34,34,34,0.18)',
+    backgroundColor: 'rgba(34,34,34,0.04)',
+  },
+  recChipActive: {
+    borderColor: BRAND.colors.mossGreen,
+    backgroundColor: BRAND.colors.sageMist,
+  },
+  recChipText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+  },
+  recChipTextActive: {
+    color: BRAND.colors.mossGreen,
+    fontWeight: '600',
+  },
+  recCaption: {
+    fontSize: 11,
+    fontWeight: '400',
+    color: 'rgba(34,34,34,0.40)',
+  },
 
   // Navigation
   navRow: {
