@@ -4237,6 +4237,13 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     }
   }, [route.params?.initialStep]);
 
+  // DEV MODE: Sync sweepIntent from route params when they change (for test mode intent jumping)
+  useEffect(() => {
+    if (__DEV__ && route.params?.initialIntent) {
+      setSweepIntent(route.params.initialIntent);
+    }
+  }, [route.params?.initialIntent]);
+
   // Debug: log step changes
   useEffect(() => {
     if (__DEV__) {
