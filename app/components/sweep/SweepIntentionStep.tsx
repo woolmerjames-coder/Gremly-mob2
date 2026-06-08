@@ -1,13 +1,14 @@
 /**
- * SweepIntentionStep — Week-mode only. Step 0.75.
+ * SweepIntentionStep — Week-mode step 3 (replaces mood step in week sweeps).
  *
- * Presents a focused prompt asking the user what this week is about.
- * On "Set intention": saves a journal note with journal_subtype:'intention',
- * mirroring the reflection note shape from SweepMoodStep, then calls onContinue.
- * On "Skip": calls onSkip with no note saved.
+ * Forward-looking "What's your focus this week?" prompt with:
+ *   - Seed chips to lower blank-page cost
+ *   - "Lock in what matters" button opening a bottom-sheet with all week items
+ *   - Star-toggles addCommitment / removeCommitment (cap 5)
+ *   - On Continue: saves a journal note (journal_subtype:'intention') if text entered
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   KeyboardAvoidingView,
@@ -16,36 +17,115 @@ import {
   TouchableOpacity,
   Platform,
   Image,
+  Modal,
+  Pressable,
   StyleSheet,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Star, X } from 'lucide-react-native';
 import { Text } from '../../../ui';
 import { Icon } from '../../../design-system/Icon';
 import { BRAND } from '../../../design/brand';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
+import { useWeekDays } from '../../../lib/store/weekGridSelectors';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const GREMLY_JOURNAL = require('../../../assets/mascot/JournalGremly.png');
+const GREMLY_MASCOT = require('../../../assets/mascot/clipboardgremly.png');
+
+const PERIWINKLE = '#7B87D4';
+const PERIWINKLE_BG = 'rgba(123,135,212,0.12)';
+const PERIWINKLE_BORDER = 'rgba(123,135,212,0.30)';
+const SERIF = Platform.select({ ios: 'Georgia', default: 'serif' });
+const MAX_LOCKED = 5;
+
+const SEED_CHIPS = ['Stay on top of work', 'Make time for myself', 'Catch up', 'Keep it light'];
+
+// By step 3 all session decisions are persisted — empty map gives the full week view
+const EMPTY_DECISIONS = new Map<string, { dueDateStr?: string; action: string }>();
 
 export interface SweepIntentionStepProps {
   onContinue: () => void;
   onSkip: () => void;
-  weekStartDate: string; // YYYY-MM-DD — the Monday / today that anchors this week
+  weekStartDate: string;
 }
 
 export function SweepIntentionStep({ onContinue, onSkip, weekStartDate }: SweepIntentionStepProps) {
   const createNote = useGremlyStore((s) => s.createNote);
+  const addCommitment = useGremlyStore((s) => s.addCommitment);
+  const removeCommitment = useGremlyStore((s) => s.removeCommitment);
+  const todos = useGremlyStore((s) => s.todos);
+
+  const weekDays = useWeekDays(EMPTY_DECISIONS);
+
   const [intentionText, setIntentionText] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [showLockSheet, setShowLockSheet] = useState(false);
 
-  const handleSetIntention = useCallback(async () => {
+  const insets = useSafeAreaInsets();
+
+  const allWeekItems = useMemo(() => {
+    const result: Array<{
+      id: string;
+      title: string;
+      date: string;
+      dow: string;
+      dayNum: number;
+      tag: string | null;
+      world: { name: string; accentColor: string } | null;
+    }> = [];
+    for (const day of weekDays) {
+      for (const item of day.items) {
+        result.push({
+          id: item.id,
+          title: item.title,
+          date: day.date,
+          dow: day.dow,
+          dayNum: day.dayNum,
+          tag: day.tag,
+          world: item.world,
+        });
+      }
+    }
+    return result;
+  }, [weekDays]);
+
+  const committedIds = useMemo(
+    () => new Set(todos.filter((t) => t.commitment === true && !t.archived).map((t) => t.id)),
+    [todos],
+  );
+
+  const lockedCount = useMemo(
+    () => allWeekItems.filter((item) => committedIds.has(item.id)).length,
+    [allWeekItems, committedIds],
+  );
+
+  const lockedItems = useMemo(
+    () => allWeekItems.filter((item) => committedIds.has(item.id)),
+    [allWeekItems, committedIds],
+  );
+
+  const handleChipPress = useCallback((chip: string) => {
+    setIntentionText(chip);
+  }, []);
+
+  const handleToggleCommitment = useCallback(
+    async (id: string) => {
+      if (committedIds.has(id)) {
+        await removeCommitment(id, 'todo');
+      } else {
+        if (lockedCount >= MAX_LOCKED) return;
+        await addCommitment(id, 'todo');
+      }
+    },
+    [committedIds, lockedCount, addCommitment, removeCommitment],
+  );
+
+  const handleContinue = useCallback(async () => {
     const trimmed = intentionText.trim();
-
-    // Nothing typed — treat as implicit skip
     if (!trimmed) {
       onContinue();
       return;
     }
-
     setIsSaving(true);
     try {
       await createNote({
@@ -60,14 +140,12 @@ export function SweepIntentionStep({ onContinue, onSkip, weekStartDate }: SweepI
         views: { sweep_origin: true, sweep_date: weekStartDate },
       });
     } catch {
-      // Non-blocking — don't strand the user if the note save fails
+      // Non-blocking
     } finally {
       setIsSaving(false);
     }
     onContinue();
   }, [intentionText, createNote, weekStartDate, onContinue]);
-
-  const hasText = intentionText.trim().length > 0;
 
   return (
     <KeyboardAvoidingView
@@ -81,126 +159,242 @@ export function SweepIntentionStep({ onContinue, onSkip, weekStartDate }: SweepI
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Header row with mascot */}
         <View style={styles.headerRow}>
           <View style={styles.headerText}>
-            <Text variant="title" style={styles.title}>
-              What's this week about?
-            </Text>
-            <Text style={styles.subcopy}>
-              A sentence is enough. You can always come back to this in your journal.
-            </Text>
+            <Text style={styles.title}>{"What's your focus this week?"}</Text>
+            <Text style={styles.subcopy}>One line is enough.</Text>
           </View>
           <Image
-            source={GREMLY_JOURNAL}
+            source={GREMLY_MASCOT}
             style={styles.mascotImage}
             resizeMode="contain"
-            accessibilityLabel="Gremly journal mascot"
+            accessibilityLabel="Gremly mascot"
           />
         </View>
 
-        {/* Intention text input */}
+        <View style={styles.chipsRow}>
+          {SEED_CHIPS.map((chip) => (
+            <Pressable
+              key={chip}
+              style={({ pressed }) => [styles.chip, pressed && styles.chipPressed]}
+              onPress={() => handleChipPress(chip)}
+              accessibilityRole="button"
+              accessibilityLabel={chip}
+            >
+              <Text style={styles.chipText}>{chip}</Text>
+            </Pressable>
+          ))}
+        </View>
+
         <View style={styles.inputSection}>
           <TextInput
             style={styles.input}
-            placeholder="This week I want to focus on..."
+            placeholder="This week, I want to..."
             placeholderTextColor={BRAND.colors.inkMuted}
             multiline
             value={intentionText}
             onChangeText={setIntentionText}
             textAlignVertical="top"
-            autoFocus={false}
           />
         </View>
+
+        <Pressable
+          style={({ pressed }) => [styles.lockBtn, pressed && { opacity: 0.75 }]}
+          onPress={() => setShowLockSheet(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Lock in priorities for the week"
+        >
+          <Star
+            size={14}
+            strokeWidth={2}
+            color={PERIWINKLE}
+            fill={lockedCount > 0 ? PERIWINKLE : 'transparent'}
+          />
+          <Text style={styles.lockBtnText}>
+            {lockedCount > 0
+              ? `${lockedCount} ${lockedCount === 1 ? 'priority' : 'priorities'} locked in · tap to edit`
+              : 'Lock in what matters'}
+          </Text>
+        </Pressable>
+
+        {lockedItems.length > 0 && (
+          <View style={styles.lockedList}>
+            {lockedItems.map((item) => (
+              <View key={item.id} style={styles.lockedRow}>
+                <Star size={12} strokeWidth={2} color={PERIWINKLE} fill={PERIWINKLE} />
+                <View
+                  style={[
+                    styles.worldDot,
+                    { backgroundColor: item.world?.accentColor ?? BRAND.colors.inkMuted },
+                  ]}
+                />
+                <Text style={styles.lockedTitle} numberOfLines={1}>
+                  {item.title}
+                </Text>
+                <Text style={styles.lockedDay}>{item.dow}</Text>
+              </View>
+            ))}
+          </View>
+        )}
       </ScrollView>
 
-      {/* Footer actions */}
       <View style={styles.footer}>
         <TouchableOpacity
           style={[styles.primaryButton, isSaving && styles.primaryButtonDisabled]}
-          onPress={handleSetIntention}
+          onPress={handleContinue}
           disabled={isSaving}
           activeOpacity={0.8}
         >
           <View style={styles.primaryButtonContent}>
-            <Text style={styles.primaryButtonText}>
-              {isSaving ? 'Saving...' : hasText ? 'Set intention' : 'Continue'}
-            </Text>
-            {!isSaving && (
-              <Icon name="ArrowRight" size="sm" color={BRAND.colors.mossGreen} strokeWidth={2.5} />
-            )}
+            <Text style={styles.primaryButtonText}>{isSaving ? 'Saving...' : 'Continue'}</Text>
+            {!isSaving && <Icon name="ArrowRight" size="sm" color={PERIWINKLE} strokeWidth={2.5} />}
           </View>
         </TouchableOpacity>
         <TouchableOpacity style={styles.skipButton} onPress={onSkip} disabled={isSaving}>
           <Text style={styles.skipButtonText}>Skip for now</Text>
         </TouchableOpacity>
       </View>
+
+      <Modal
+        visible={showLockSheet}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowLockSheet(false)}
+      >
+        <View style={styles.sheetRoot}>
+          <Pressable style={styles.sheetBackdrop} onPress={() => setShowLockSheet(false)} />
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + 20 }]}>
+            <View style={styles.handle} />
+            <View style={styles.sheetHeader}>
+              <View style={styles.sheetHeaderLeft}>
+                <Text style={styles.sheetTitle}>Lock in what matters</Text>
+                <View style={styles.counterPill}>
+                  <Text style={styles.counterText}>
+                    {lockedCount} / {MAX_LOCKED}
+                  </Text>
+                </View>
+              </View>
+              <Pressable
+                onPress={() => setShowLockSheet(false)}
+                style={({ pressed }) => [styles.closeBtn, pressed && { opacity: 0.6 }]}
+                accessibilityLabel="Close"
+              >
+                <X size={18} strokeWidth={2} color={BRAND.colors.inkMuted} />
+              </Pressable>
+            </View>
+            <Text style={styles.sheetSubcopy}>
+              Star up to {MAX_LOCKED} items you are committed to this week.
+            </Text>
+            {allWeekItems.length === 0 ? (
+              <View style={styles.emptySheet}>
+                <Text style={styles.emptySheetText}>No items scheduled this week yet.</Text>
+              </View>
+            ) : (
+              <ScrollView
+                style={styles.sheetScroll}
+                contentContainerStyle={styles.sheetScrollContent}
+                showsVerticalScrollIndicator={false}
+              >
+                {weekDays
+                  .filter((day) => day.items.length > 0)
+                  .map((day) => (
+                    <View key={day.date} style={styles.dayGroup}>
+                      <Text style={styles.dayGroupLabel}>
+                        {day.dow.toUpperCase()} {day.dayNum}
+                        {day.tag ? `  ${day.tag}` : ''}
+                      </Text>
+                      {day.items.map((item) => {
+                        const isLocked = committedIds.has(item.id);
+                        const atCap = !isLocked && lockedCount >= MAX_LOCKED;
+                        return (
+                          <Pressable
+                            key={item.id}
+                            style={({ pressed }) => [
+                              styles.sheetItem,
+                              atCap && styles.sheetItemDimmed,
+                              pressed && !atCap && { opacity: 0.7 },
+                            ]}
+                            onPress={() => handleToggleCommitment(item.id)}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${isLocked ? 'Unstar' : 'Star'} ${item.title}`}
+                          >
+                            <Star
+                              size={16}
+                              strokeWidth={2}
+                              color={isLocked ? PERIWINKLE : BRAND.colors.inkMuted}
+                              fill={isLocked ? PERIWINKLE : 'transparent'}
+                            />
+                            <View
+                              style={[
+                                styles.worldDot,
+                                {
+                                  backgroundColor: item.world?.accentColor ?? BRAND.colors.inkMuted,
+                                },
+                              ]}
+                            />
+                            <Text
+                              style={[styles.sheetItemText, atCap && styles.sheetItemTextDimmed]}
+                              numberOfLines={1}
+                            >
+                              {item.title}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  ))}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Styles — mirrors SweepMoodStep
-// ─────────────────────────────────────────────────────────────────────────────
-
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    paddingTop: 8,
-    backgroundColor: BRAND.colors.linenCream,
-  },
-  scroll: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: 32,
-    paddingHorizontal: 20,
-    paddingTop: 48,
-  },
+  container: { flex: 1, paddingTop: 8, backgroundColor: BRAND.colors.linenCream },
+  scroll: { flex: 1 },
+  scrollContent: { paddingBottom: 32, paddingHorizontal: 20, paddingTop: 48 },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 28,
+    marginBottom: 20,
   },
-  headerText: {
-    flex: 1,
-  },
-  mascotImage: {
-    width: 86,
-    height: 86,
-    opacity: 0.9,
-    marginLeft: 8,
-    marginTop: -12,
-  },
+  headerText: { flex: 1 },
+  mascotImage: { width: 80, height: 80, opacity: 0.9, marginLeft: 8, marginTop: -8 },
   title: {
-    fontSize: 22,
+    fontSize: 24,
+    fontFamily: SERIF,
     fontWeight: '600',
     color: BRAND.colors.charcoalInk,
-    marginBottom: 12,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(191, 216, 192, 0.5)',
+    marginBottom: 8,
+    lineHeight: 31,
     letterSpacing: -0.3,
   },
-  subcopy: {
-    fontSize: 15,
-    fontWeight: '400',
-    color: 'rgba(34, 34, 34, 0.75)',
-    lineHeight: 22,
+  subcopy: { fontSize: 14, fontWeight: '400', color: 'rgba(34,34,34,0.60)', lineHeight: 20 },
+  chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
+  chip: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: PERIWINKLE_BG,
+    borderWidth: 1,
+    borderColor: PERIWINKLE_BORDER,
   },
-  inputSection: {
-    marginBottom: 8,
-  },
+  chipPressed: { backgroundColor: 'rgba(123,135,212,0.22)' },
+  chipText: { fontSize: 13, fontWeight: '500', color: PERIWINKLE },
+  inputSection: { marginBottom: 14 },
   input: {
     backgroundColor: BRAND.colors.linenCream,
     borderRadius: BRAND.radius.lg,
     borderWidth: 1,
-    borderColor: 'rgba(191, 216, 192, 0.30)',
+    borderColor: PERIWINKLE_BORDER,
     padding: 16,
     fontSize: 16,
     color: BRAND.colors.charcoalInk,
-    minHeight: 120,
+    minHeight: 100,
     lineHeight: 24,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
@@ -208,6 +402,24 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 1,
   },
+  lockBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: BRAND.radius.lg,
+    backgroundColor: PERIWINKLE_BG,
+    borderWidth: 1,
+    borderColor: PERIWINKLE_BORDER,
+    marginBottom: 16,
+  },
+  lockBtnText: { fontSize: 14, fontWeight: '500', color: PERIWINKLE, flex: 1 },
+  lockedList: { gap: 8, marginBottom: 8 },
+  lockedRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  worldDot: { width: 8, height: 8, borderRadius: 4 },
+  lockedTitle: { flex: 1, fontSize: 14, fontWeight: '400', color: BRAND.colors.charcoalInk },
+  lockedDay: { fontSize: 12, fontWeight: '500', color: BRAND.colors.inkMuted },
   footer: {
     paddingTop: 8,
     paddingBottom: 16,
@@ -216,38 +428,90 @@ const styles = StyleSheet.create({
     backgroundColor: BRAND.colors.linenCream,
   },
   primaryButton: {
-    backgroundColor: BRAND.colors.sageMist,
+    backgroundColor: PERIWINKLE_BG,
     borderRadius: BRAND.radius.xl,
     height: 54,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: PERIWINKLE_BORDER,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
+    shadowOpacity: 0.08,
     shadowRadius: 10,
-    elevation: 3,
+    elevation: 2,
   },
-  primaryButtonContent: {
+  primaryButtonContent: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  primaryButtonDisabled: { opacity: 0.6 },
+  primaryButtonText: { fontSize: 17, fontWeight: '600', color: PERIWINKLE },
+  skipButton: { alignItems: 'center', paddingVertical: 12, marginTop: 4 },
+  skipButtonText: { color: 'rgba(34,34,34,0.55)', fontSize: 15, fontWeight: '500' },
+  sheetRoot: { flex: 1 },
+  sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' },
+  sheet: {
+    backgroundColor: BRAND.colors.linenCream,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    maxHeight: '75%',
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(34,34,34,0.15)',
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  sheetHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'space-between',
+    marginBottom: 6,
   },
-  primaryButtonDisabled: {
-    opacity: 0.6,
+  sheetHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  sheetTitle: { fontSize: 17, fontWeight: '700', color: BRAND.colors.charcoalInk },
+  counterPill: {
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+    borderRadius: 999,
+    backgroundColor: PERIWINKLE_BG,
+    borderWidth: 1,
+    borderColor: PERIWINKLE_BORDER,
   },
-  primaryButtonText: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: BRAND.colors.mossGreen,
+  counterText: { fontSize: 12, fontWeight: '600', color: PERIWINKLE },
+  closeBtn: { padding: 4 },
+  sheetSubcopy: { fontSize: 13, color: 'rgba(34,34,34,0.55)', marginBottom: 16 },
+  sheetScroll: { flexShrink: 1 },
+  sheetScrollContent: { paddingBottom: 8, gap: 12 },
+  dayGroup: { gap: 4 },
+  dayGroupLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: BRAND.colors.inkMuted,
+    letterSpacing: 0.8,
+    marginBottom: 4,
   },
-  skipButton: {
+  sheetItem: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    marginTop: 4,
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: BRAND.radius.md,
+    backgroundColor: 'rgba(255,255,255,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(34,34,34,0.06)',
   },
-  skipButtonText: {
-    color: 'rgba(34, 34, 34, 0.60)',
-    fontSize: 15,
-    fontWeight: '500',
+  sheetItemDimmed: { opacity: 0.38 },
+  sheetItemText: { flex: 1, fontSize: 15, fontWeight: '400', color: BRAND.colors.charcoalInk },
+  sheetItemTextDimmed: { color: BRAND.colors.inkMuted },
+  emptySheet: { paddingVertical: 32, alignItems: 'center' },
+  emptySheetText: {
+    fontSize: 14,
+    color: 'rgba(34,34,34,0.55)',
+    textAlign: 'center',
+    lineHeight: 21,
   },
 });
