@@ -91,7 +91,7 @@ export function SweepHubChooser({
   const enabledTotal = HUB_SECTIONS.filter((s) => !s.disabled).length;
 
   return (
-    <View style={[styles.container, { paddingBottom: insets.bottom + 16 }]}>
+    <View style={styles.container}>
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
@@ -209,7 +209,7 @@ export function SweepHubChooser({
       </ScrollView>
 
       {/* Footer actions */}
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
         <TouchableOpacity
           style={[styles.finishButton, enabledCompleted === 0 && styles.finishButtonMuted]}
           onPress={onFinish}
@@ -250,8 +250,8 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 52,
-    paddingBottom: 16,
+    paddingTop: 32,
+    paddingBottom: 24,
   },
   header: { marginBottom: 28 },
   heading: {
@@ -278,7 +278,7 @@ const styles = StyleSheet.create({
     gap: 14,
     backgroundColor: BRAND.colors.sageMist,
     borderRadius: BRAND.radius.xl,
-    paddingVertical: 18,
+    paddingVertical: 20,
     paddingHorizontal: 18,
     marginBottom: 20,
     shadowColor: '#000',
@@ -335,14 +335,14 @@ const styles = StyleSheet.create({
     gap: 14,
     backgroundColor: 'rgba(255,255,255,0.70)',
     borderRadius: BRAND.radius.lg,
-    paddingVertical: 14,
+    paddingVertical: 16,
     paddingHorizontal: 16,
     borderWidth: 1,
-    borderColor: 'rgba(34,34,34,0.07)',
+    borderColor: 'rgba(34,34,34,0.09)',
   },
   spokeCardDone: {
-    borderColor: 'rgba(191,216,192,0.55)',
-    backgroundColor: 'rgba(191,216,192,0.12)',
+    borderColor: 'rgba(191,216,192,0.70)',
+    backgroundColor: 'rgba(191,216,192,0.15)',
   },
   spokeCardDisabled: {
     opacity: 0.52,
@@ -389,10 +389,12 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   doneCheck: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: 'rgba(191,216,192,0.40)',
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(191,216,192,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(191,216,192,0.80)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -409,8 +411,11 @@ const styles = StyleSheet.create({
   // Footer
   footer: {
     paddingHorizontal: 20,
-    paddingTop: 8,
-    gap: 4,
+    paddingTop: 10,
+    gap: 2,
+    backgroundColor: BRAND.colors.linenCream,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(34,34,34,0.06)',
   },
   finishButton: {
     backgroundColor: BRAND.colors.sageMist,
@@ -442,7 +447,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 12,
+    paddingVertical: 10,
   },
   exitText: {
     fontSize: 14,
