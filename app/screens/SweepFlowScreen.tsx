@@ -4901,7 +4901,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
           style={
             step === 1
               ? styles.contentDecision
-              : step === 0.5
+              : step === 0.5 || step === HUB
                 ? styles.contentLockIn
                 : styles.content
           }
