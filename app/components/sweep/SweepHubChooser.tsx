@@ -9,7 +9,6 @@
 
 import React from 'react';
 import { View, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   CalendarRange,
   Compass,
@@ -85,8 +84,6 @@ export function SweepHubChooser({
   onFinish,
   onExit,
 }: SweepHubChooserProps) {
-  const insets = useSafeAreaInsets();
-
   const enabledCompleted = HUB_SECTIONS.filter((s) => !s.disabled && completed.has(s.key)).length;
   const enabledTotal = HUB_SECTIONS.filter((s) => !s.disabled).length;
 
@@ -209,7 +206,7 @@ export function SweepHubChooser({
       </ScrollView>
 
       {/* Footer actions */}
-      <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
+      <View style={styles.footer}>
         <TouchableOpacity
           style={[styles.finishButton, enabledCompleted === 0 && styles.finishButtonMuted]}
           onPress={onFinish}
@@ -412,6 +409,7 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 20,
     paddingTop: 10,
+    paddingBottom: 12,
     gap: 2,
     backgroundColor: BRAND.colors.linenCream,
     borderTopWidth: 1,
