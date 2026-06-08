@@ -247,7 +247,9 @@ export function SweepIntentionStep({ onContinue, onSkip, weekStartDate }: SweepI
         >
           <View style={styles.primaryButtonContent}>
             <Text style={styles.primaryButtonText}>{isSaving ? 'Saving...' : 'Continue'}</Text>
-            {!isSaving && <Icon name="ArrowRight" size="sm" color={PERIWINKLE} strokeWidth={2.5} />}
+            {!isSaving && (
+              <Icon name="ArrowRight" size="sm" color={BRAND.colors.mossGreen} strokeWidth={2.5} />
+            )}
           </View>
         </TouchableOpacity>
         <TouchableOpacity style={styles.skipButton} onPress={onSkip} disabled={isSaving}>
@@ -378,19 +380,19 @@ const styles = StyleSheet.create({
   chip: {
     paddingVertical: 6,
     paddingHorizontal: 12,
-    borderRadius: 999,
-    backgroundColor: PERIWINKLE_BG,
+    borderRadius: BRAND.radius.sm,
+    backgroundColor: 'rgba(191,216,192,0.18)',
     borderWidth: 1,
-    borderColor: PERIWINKLE_BORDER,
+    borderColor: 'rgba(191,216,192,0.40)',
   },
-  chipPressed: { backgroundColor: 'rgba(123,135,212,0.22)' },
-  chipText: { fontSize: 13, fontWeight: '500', color: PERIWINKLE },
+  chipPressed: { backgroundColor: 'rgba(191,216,192,0.35)' },
+  chipText: { fontSize: 13, fontWeight: '500', color: BRAND.colors.charcoalInk },
   inputSection: { marginBottom: 14 },
   input: {
     backgroundColor: BRAND.colors.linenCream,
     borderRadius: BRAND.radius.lg,
     borderWidth: 1,
-    borderColor: PERIWINKLE_BORDER,
+    borderColor: 'rgba(191,216,192,0.30)',
     padding: 16,
     fontSize: 16,
     color: BRAND.colors.charcoalInk,
@@ -428,22 +430,20 @@ const styles = StyleSheet.create({
     backgroundColor: BRAND.colors.linenCream,
   },
   primaryButton: {
-    backgroundColor: PERIWINKLE_BG,
+    backgroundColor: BRAND.colors.sageMist,
     borderRadius: BRAND.radius.xl,
     height: 54,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: PERIWINKLE_BORDER,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.12,
     shadowRadius: 10,
-    elevation: 2,
+    elevation: 3,
   },
   primaryButtonContent: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   primaryButtonDisabled: { opacity: 0.6 },
-  primaryButtonText: { fontSize: 17, fontWeight: '600', color: PERIWINKLE },
+  primaryButtonText: { fontSize: 17, fontWeight: '600', color: BRAND.colors.mossGreen },
   skipButton: { alignItems: 'center', paddingVertical: 12, marginTop: 4 },
   skipButtonText: { color: 'rgba(34,34,34,0.55)', fontSize: 15, fontWeight: '500' },
   sheetRoot: { flex: 1 },
