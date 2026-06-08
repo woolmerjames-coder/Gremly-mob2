@@ -3993,6 +3993,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   const route = useRoute<RouteProp<RootStackParamList, 'Sweep'>>();
   const initialStep = __DEV__ ? (route.params?.initialStep ?? 0) : 0;
   const initialCardIndex = __DEV__ ? route.params?.initialCardIndex : undefined;
+  const initialIntent = __DEV__ ? route.params?.initialIntent : undefined;
   const demoMode = route.params?.demoMode === true;
 
   // Debug logging for DEV mode step jumping
@@ -4017,7 +4018,10 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
 
   const [step, setStep] = useState<number>(initialStep);
   // sweepIntent: captured from the intro screen; consumed in Phase 2 (SweepDecisionStep default date).
-  const [sweepIntent, setSweepIntent] = useState<SweepIntent>('tomorrow');
+  // In __DEV__, initialIntent from route params can seed this directly (for test-mode step jumping).
+  const [sweepIntent, setSweepIntent] = useState<SweepIntent>(
+    __DEV__ && initialIntent ? initialIntent : 'tomorrow',
+  );
 
   // Check if user has locked items for lock-in checkpoint (including completed ones for celebration)
   const lockedItems = useGremlyStore(selectTodayLockedItems);

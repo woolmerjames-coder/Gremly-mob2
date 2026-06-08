@@ -89,7 +89,14 @@ export type RootStackParamList = {
     returnToKeyDates?: boolean;
   };
   Lists: undefined;
-  Sweep: { initialStep?: number; initialCardIndex?: number; demoMode?: boolean } | undefined;
+  Sweep:
+    | {
+        initialStep?: number;
+        initialCardIndex?: number;
+        demoMode?: boolean;
+        initialIntent?: 'today' | 'tomorrow' | 'week';
+      }
+    | undefined;
   ArchivedItems: { searchQuery?: string } | undefined;
   CalendarScreen: { initialDate?: string } | undefined;
   Habits: undefined;

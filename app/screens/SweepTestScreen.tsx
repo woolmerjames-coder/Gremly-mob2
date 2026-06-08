@@ -604,6 +604,32 @@ export default function SweepTestScreen() {
                 <Text style={styles.stepButtonText}>Summary (4)</Text>
               </TouchableOpacity>
             </View>
+            <View style={styles.stepButtonRow}>
+              <TouchableOpacity
+                style={styles.stepButton}
+                onPress={() => {
+                  navigation.goBack();
+                  setTimeout(
+                    () => navigation.navigate('Sweep', { initialStep: 1, initialIntent: 'week' }),
+                    150,
+                  );
+                }}
+              >
+                <Text style={styles.stepButtonText}>Week Cards (1)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.stepButton}
+                onPress={() => {
+                  navigation.goBack();
+                  setTimeout(
+                    () => navigation.navigate('Sweep', { initialStep: 3, initialIntent: 'week' }),
+                    150,
+                  );
+                }}
+              >
+                <Text style={styles.stepButtonText}>Week Intention (3)</Text>
+              </TouchableOpacity>
+            </View>
 
             {/* Card index input for Cards step */}
             <View style={styles.cardIndexRow}>
