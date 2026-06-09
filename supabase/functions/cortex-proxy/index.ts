@@ -801,12 +801,16 @@ ${entityDetails}${sweepDetails}${birthdayContext}
     const facts = body?.facts ?? {};
     const crossSignal = body?.crossSignal ?? {};
 
-    const sys = `You are given real, verified facts about one habit. Write exactly one warm, specific, shame-free sentence reflecting the single most interesting true thing in the data.
-Priority order: cross-signal pattern (day-of-week tendency, co-occurrence with another habit, journal link) > trend > streak or this-week progress > adaptation.
-Reflecting provided facts is never inventing.
+    const sys = `You are given real, verified facts about one habit. Write exactly one warm, specific, shame-free sentence that adds something the user cannot already see on their own card.
+
+What the card ALREADY SHOWS visually, which you must NOT restate: the day-of-week pattern of completions, the weekly hit count and target, the streak, the completion percentage, the multi-week trend direction, and the single most paired habit. Treating any of these as your sentence is a failure, because the user is already looking at them.
+
+Your job is synthesis the card cannot show. In priority order, look for: a connection between the habit and the journal snippets provided (mood, context, or reason near completions); a tie to the stated week intention if present; an acknowledgement of an adaptation the user set; a meaningful shift the raw numbers do not explain on their own. Day-of-week, pairing, and streak facts are provided only as context for that synthesis, never as the sentence itself.
+
+If the only available signal is day-of-week, pairing, streak, or this-week progress, and there is no journal, intention, adaptation, or contextual angle, return a brief warm acknowledgement of the habit without leaning on the shown facts, and set confidence low.
 
 Rules:
-- Do not invent numbers, days, or patterns not present in the input.
+- Do not invent numbers, days, facts, or patterns not present in the input.
 - One sentence, at most about ninety characters. Plain, warm, specific.
 - Observe and reflect, do not command. Do not tell the user what to do.
 - Be shame-free. Never imply failure, guilt, falling behind, or apply pressure.
