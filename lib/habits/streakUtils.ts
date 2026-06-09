@@ -46,10 +46,11 @@ export function computeCurrentStreak(
   }
 
   while (dateSet.has(cursor) || isPaused(cursor)) {
-    if (!isPaused(cursor)) {
-      // Only count non-paused completed days toward the streak
+    if (dateSet.has(cursor)) {
+      // A day the user actually completed counts, even if a pause also covers it.
       streak++;
     }
+    // else: paused-but-not-completed day, skipped transparently (no count, no break)
     const d = new Date(cursor + 'T00:00:00');
     d.setDate(d.getDate() - 1);
     cursor = toLocalISO(d);
