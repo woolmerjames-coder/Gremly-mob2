@@ -121,6 +121,7 @@ import { LockInCheckpointStep } from '../components/sweep/LockInCheckpointStep';
 import { SweepIntentionStep } from '../components/sweep/SweepIntentionStep';
 import { SweepHubChooser, type HubSectionKey } from '../components/sweep/SweepHubChooser';
 import { SweepHabitsCheckInStep } from '../components/sweep/SweepHabitsCheckInStep';
+import { SweepEventsStep } from '../components/sweep/SweepEventsStep';
 import {
   selectTodayLockedItems,
   selectTodayLockedItemsIncludingCompleted,
@@ -4030,6 +4031,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   // Sentinel step value for the hub chooser screen. Must not collide with
   // existing steps (0, 0.25, 0.5, 0.75, 1, 2, 3, 4).
   const HUB = 0.1;
+  const EVENTS = 0.2; // Events spoke sentinel
   const [hubMode, setHubMode] = useState(false);
   const [completedSections, setCompletedSections] = useState<Set<string>>(new Set());
   const [guidedAll, setGuidedAll] = useState(false);
@@ -4363,13 +4365,16 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     setCompletedSections((prev) => new Set(prev).add(key));
   }, []);
 
-  const handleHubPickSection = useCallback((key: HubSectionKey) => {
-    setActiveSection(key);
-    if (key === 'todos') setStep(1);
-    else if (key === 'intention') setStep(3);
-    else if (key === 'habits') setStep(2);
-    // events disabled this phase
-  }, []);
+  const handleHubPickSection = useCallback(
+    (key: HubSectionKey) => {
+      setActiveSection(key);
+      if (key === 'todos') setStep(1);
+      else if (key === 'intention') setStep(3);
+      else if (key === 'habits') setStep(2);
+      else if (key === 'events') setStep(EVENTS);
+    },
+    [EVENTS],
+  );
 
   const handleHubLeadThroughAll = useCallback(() => {
     setGuidedAll(true);
@@ -4380,6 +4385,15 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   const handleHubFinish = useCallback(() => {
     setStep(4); // Jump to summary
   }, []);
+
+  const handleEventsFinish = useCallback(() => {
+    if (hubMode && !guidedAll) {
+      addCompletedSection('events');
+      backToHub();
+      return;
+    }
+    setStep(3); // Events → Intention in guided chain
+  }, [hubMode, guidedAll, addCompletedSection, backToHub]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Multi-Split Step Handlers
@@ -4744,7 +4758,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
       backToHub();
       return;
     }
-    setStep(3); // Habits → Mood
+    setStep(EVENTS); // Habits → Events → Intention in guided chain
   };
 
   const handleDecisionFinished = useCallback(
@@ -4981,6 +4995,9 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
           )}
           {step === 2 && sweepIntent !== 'week' && (
             <SweepHabitsStep onContinue={handleWrapUpContinue} />
+          )}
+          {step === EVENTS && sweepIntent === 'week' && (
+            <SweepEventsStep onFinish={handleEventsFinish} />
           )}
           {step === 3 && sweepIntent === 'week' && (
             <SweepIntentionStep

@@ -4,7 +4,7 @@
  * Shows a chooser of planning spokes. The user can either
  * "Lead me through it all" (chained linear run) or pick individual
  * spokes a la carte. Each completed spoke shows a tick but remains
- * re-enterable. Habits and Events are visible but disabled (coming soon).
+ * re-enterable.
  */
 
 import React from 'react';
@@ -52,8 +52,6 @@ export const HUB_SECTIONS: HubSection[] = [
     key: 'events',
     label: "Look at what's coming",
     description: 'Glance at what is on the calendar this week.',
-    disabled: true,
-    comingSoon: true,
   },
 ];
 
