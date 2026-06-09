@@ -7,7 +7,7 @@
  * No AI, no gauge side-effects.
  */
 
-import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   ScrollView,
@@ -18,7 +18,6 @@ import {
   Modal,
   Pressable,
   Alert,
-  Animated,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import {
@@ -33,9 +32,7 @@ import {
   Shield,
   Calendar,
   ChevronUp,
-  Sparkles,
 } from 'lucide-react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
@@ -95,19 +92,12 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   const setHabitAdaptation = useGremlyStore((s) => s.setHabitAdaptation);
   const clearHabitAdaptation = useGremlyStore((s) => s.clearHabitAdaptation);
   const habitAdaptations = useGremlyStore((s) => s.habitAdaptations);
-  const getOrFetchHabitInsight = useGremlyStore((s) => s.getOrFetchHabitInsight);
 
   const cards = useHabitCardStats(habits);
 
   const [index, setIndex] = useState(0);
   // Session-persistent frequency-change confirmations keyed by habitId
   const [appliedChanges, setAppliedChanges] = useState<Record<string, AppliedChange>>({});
-
-  // ── Habit insight state ────────────────────────────────────────────────────
-  type InsightState = { loading: boolean; line: string | null; kind: string | null };
-  const [insightStates, setInsightStates] = useState<Record<string, InsightState>>({});
-  // Per-habitId Animated.Value for fade-in (created lazily when line arrives)
-  const insightFade = useRef<Record<string, Animated.Value>>({});
 
   // ── Adaptation form state ────────────────────────────────────────────────
   type AdaptMode = 'keep' | 'floor' | 'pause';
@@ -126,50 +116,6 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   // Date picker
   const [datePickerTarget, setDatePickerTarget] = useState<DatePickerTarget>(null);
   const [datePickerTempDate, setDatePickerTempDate] = useState<Date>(() => getDateService().now());
-
-  // Fetch insight for the currently visible card (lazy, one call per habit per week)
-  useEffect(() => {
-    const currentHabitId = habits[index]?.id;
-    if (!currentHabitId) return;
-    // Skip if already loaded or loading
-    const existing = insightStates[currentHabitId];
-    if (existing) return;
-    // Mark as loading
-    setInsightStates((prev) => ({
-      ...prev,
-      [currentHabitId]: { loading: true, line: null, kind: null },
-    }));
-    getOrFetchHabitInsight(currentHabitId)
-      .then((result) => {
-        if (result.line) {
-          if (!insightFade.current[currentHabitId]) {
-            insightFade.current[currentHabitId] = new Animated.Value(0);
-          } else {
-            insightFade.current[currentHabitId].setValue(0);
-          }
-          Animated.timing(insightFade.current[currentHabitId], {
-            toValue: 1,
-            duration: 280,
-            useNativeDriver: true,
-          }).start();
-        }
-        setInsightStates((prev) => ({
-          ...prev,
-          [currentHabitId]: {
-            loading: false,
-            line: result.line,
-            kind: result.kind,
-          },
-        }));
-      })
-      .catch(() => {
-        setInsightStates((prev) => ({
-          ...prev,
-          [currentHabitId]: { loading: false, line: null, kind: null },
-        }));
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [index]);
 
   // When the card changes, reset adaptation form and pre-fill from habit
   const resetAdaptForm = useCallback(
@@ -708,58 +654,6 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                   </View>
                 );
               })()}
-
-            {/* AI insight slot */}
-            {(() => {
-              const habitId = card?.id;
-              const insight = habitId ? insightStates[habitId] : undefined;
-              // Nothing if gated out (habit has no history — call was skipped)
-              if (!insight) return null;
-              // Shimmer while call is in flight
-              if (insight.loading) {
-                return <View style={styles.insightShimmer} />;
-              }
-              // Gated-out: no line means no history or call failed
-              if (!insight.line) return null;
-              const isAttention = insight.kind === 'drifting' || insight.kind === 'target_mismatch';
-              const fadeAnim = habitId ? insightFade.current[habitId] : undefined;
-              const tileStyle = isAttention
-                ? styles.insightIconTileWarn
-                : styles.insightIconTileCalm;
-              const InsightIcon = isAttention ? TrendingDown : Sparkles;
-              const textStyle = isAttention
-                ? styles.insightLineTextWarn
-                : styles.insightLineTextCalm;
-              const inner = (
-                <>
-                  <View style={tileStyle}>
-                    <InsightIcon size={15} strokeWidth={1.8} color="#FFFFFF" />
-                  </View>
-                  <Text style={textStyle} numberOfLines={3}>
-                    {insight.line}
-                  </Text>
-                </>
-              );
-              if (isAttention) {
-                return (
-                  <Animated.View style={{ opacity: fadeAnim ?? 1 }}>
-                    <LinearGradient
-                      colors={['rgba(227,178,60,0.10)', 'rgba(240,220,160,0.12)']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.insightBlock}
-                    >
-                      {inner}
-                    </LinearGradient>
-                  </Animated.View>
-                );
-              }
-              return (
-                <Animated.View style={{ opacity: fadeAnim ?? 1 }}>
-                  <View style={[styles.insightBlock, styles.insightBlockCalm]}>{inner}</View>
-                </Animated.View>
-              );
-            })()}
 
             {/* Frequency recommendation (conditional -- hides once change applied) */}
             {rec?.show && !appliedChange && (
