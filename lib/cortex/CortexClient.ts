@@ -2142,7 +2142,12 @@ export async function callHabitInsight(
 ): Promise<HabitInsightProxyResult> {
   const fallback: HabitInsightProxyResult = { ok: true, line: null, kind: null };
   try {
-    const baseUrl = readCortexUrl();
+    const supabaseUrl =
+      safeGetEnv?.('EXPO_PUBLIC_SUPABASE_URL') ??
+      (typeof env.supabaseUrl === 'string' ? env.supabaseUrl : null) ??
+      process.env.EXPO_PUBLIC_SUPABASE_URL ??
+      '';
+    const baseUrl = supabaseUrl ? `${supabaseUrl}/functions/v1/cortex-proxy` : '';
     if (!baseUrl || isAiDisabled()) return fallback;
 
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
