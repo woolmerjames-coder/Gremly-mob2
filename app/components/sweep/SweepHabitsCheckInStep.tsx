@@ -419,7 +419,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                   <Text style={styles.tapToFixText}>this week</Text>
                 </View>
               </View>
-              {card.trend.read !== null && (
+              {card.cadence !== 'daily' && card.trend.read !== null && (
                 <Text
                   style={[
                     styles.trendReadLabel,
@@ -472,7 +472,8 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
             <Text style={styles.tapHint}>Did one you forgot to mark? Tap to add it.</Text>
 
             {/* Weekly trend micro-row — part of the rhythm zone, under the day row */}
-            {card.trend.read !== null &&
+            {card.cadence !== 'daily' &&
+              card.trend.read !== null &&
               (() => {
                 const onTarget = card.trend.bars.filter((b) => b.hits >= b.target).length;
                 const total = card.trend.bars.length;
