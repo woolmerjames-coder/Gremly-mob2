@@ -344,7 +344,11 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
           <View style={styles.heroHeader}>
             {/* Cadence pill */}
             <View style={styles.cadencePill}>
-              <Text style={styles.cadencePillText}>{card.cadence.toUpperCase()}</Text>
+              <Text style={styles.cadencePillText}>
+                {card.isBreak
+                  ? `BREAKING \u00b7 ${card.cadence.toUpperCase()}`
+                  : card.cadence.toUpperCase()}
+              </Text>
             </View>
 
             {/* Habit name */}
@@ -359,7 +363,9 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                   {card.weekHits}
                   <Text style={styles.heroStatDenom}> / {card.weekTarget}</Text>
                 </Text>
-                <Text style={styles.heroStatLabel}>this week</Text>
+                <Text style={styles.heroStatLabel}>
+                  {card.isBreak ? 'clear this wk' : 'this week'}
+                </Text>
               </View>
 
               <View style={styles.heroStatDivider} />
@@ -405,7 +411,9 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
             {/* Your rhythm zone header — day row + weekly trend grouped */}
             <View style={styles.weekRowHeader}>
               <View>
-                <Text style={styles.weekRowLabel}>Your rhythm</Text>
+                <Text style={styles.weekRowLabel}>
+                  {card.isBreak ? 'Days clear' : 'Your rhythm'}
+                </Text>
                 <View style={styles.tapToFix}>
                   <Pencil size={11} strokeWidth={2} color={BRAND.colors.inkMuted} />
                   <Text style={styles.tapToFixText}>this week</Text>
@@ -505,7 +513,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
               <View style={styles.stripDivider} />
               <View style={styles.stripItem}>
                 <Text style={styles.stripNum}>{card.totalCompletions}</Text>
-                <Text style={styles.stripLabel}>total done</Text>
+                <Text style={styles.stripLabel}>{card.isBreak ? 'days clear' : 'total done'}</Text>
               </View>
               <View style={styles.stripDivider} />
               <View style={styles.stripItem}>

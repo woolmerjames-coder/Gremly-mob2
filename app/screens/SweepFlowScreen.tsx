@@ -5132,7 +5132,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 4,
     backgroundColor: BRAND.colors.linenCream,
     // No shadow, no border - pure Linen Cream
   },

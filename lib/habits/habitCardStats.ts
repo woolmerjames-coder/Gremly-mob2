@@ -76,6 +76,10 @@ export interface HabitCardStats {
   totalCompletions: number;
   /** Declared start: start_date, fallback created_at. ISO YYYY-MM-DD or null. */
   trackingSince: string | null;
+  /** 'start_habit' (build) or 'break_habit'. From habit.subtype. */
+  subtype: string;
+  /** Convenience: true when subtype === 'break_habit'. */
+  isBreak: boolean;
 }
 
 // One-char weekday labels indexed by JS getDay() (0=Sun)
@@ -265,6 +269,8 @@ export function computeHabitCardStats(
   const today = ds.today();
   const cadence = habit.cadence ?? 'daily';
   const targetPerPeriod = habit.target_per_period ?? 1;
+  const subtype = (habit.subtype as string) ?? 'start_habit';
+  const isBreak = subtype === 'break_habit';
 
   const progressForHabit = habitProgress.filter((p) => p.habit_id === habit.id);
   const adaptationsForHabit = adaptations.filter((a) => a.habit_id === habit.id);
@@ -411,6 +417,8 @@ export function computeHabitCardStats(
     bestDayAllTime,
     totalCompletions,
     trackingSince,
+    subtype,
+    isBreak,
   };
 }
 
