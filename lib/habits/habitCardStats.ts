@@ -70,10 +70,25 @@ export interface HabitCardStats {
    * NOTE: for the AI payload only — NOT rendered on the card strip.
    */
   bestDay: { weekday: string; count: number } | null;
+  /** Most frequent completion weekday over full history, or null if no completions. */
+  bestDayAllTime: string | null; // e.g. "Fridays"
+  /** Lifetime completion count. */
+  totalCompletions: number;
+  /** Declared start: start_date, fallback created_at. ISO YYYY-MM-DD or null. */
+  trackingSince: string | null;
 }
 
 // One-char weekday labels indexed by JS getDay() (0=Sun)
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+const WEEKDAY_FULL = [
+  'Sundays',
+  'Mondays',
+  'Tuesdays',
+  'Wednesdays',
+  'Thursdays',
+  'Fridays',
+  'Saturdays',
+];
 
 const DOW_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 
@@ -323,6 +338,29 @@ export function computeHabitCardStats(
   const pairing = computeTopPairing(habit.id, habitProgress, allHabits, today);
   const wowDelta = computeWowDelta(progressForHabit, today);
   const bestDay = computeBestDay(progressForHabit, today);
+  // ── Lifetime stats ────────────────────────────────────────────────────────
+  const totalCompletions = progressForHabit.length;
+  let bestDayAllTime: string | null = null;
+  if (progressForHabit.length > 0) {
+    const tally = new Array(7).fill(0);
+    for (const p of progressForHabit) {
+      const d = ds.fromLocalDate(p.occurred_day);
+      if (d) tally[d.getDay()]++;
+    }
+    let bestIdx = -1;
+    let bestN = 0;
+    for (let i = 0; i < 7; i++) {
+      if (tally[i] > bestN) {
+        bestN = tally[i];
+        bestIdx = i;
+      }
+    }
+    bestDayAllTime = bestIdx >= 0 ? WEEKDAY_FULL[bestIdx] : null;
+  }
+  const trackingSince =
+    (habit.start_date as string | null) ??
+    (habit.created_at ? ds.extractLocalDate(habit.created_at) : null) ??
+    null;
   // ── Status ───────────────────────────────────────────────────────────────
   let status: HabitCardStats['status'];
 
@@ -363,6 +401,9 @@ export function computeHabitCardStats(
     pairing,
     wowDelta,
     bestDay,
+    bestDayAllTime,
+    totalCompletions,
+    trackingSince,
   };
 }
 

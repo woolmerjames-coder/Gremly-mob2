@@ -71,6 +71,30 @@ function formatDateDisplay(iso: string): string {
   return `${months[parseInt(parts[1], 10) - 1]} ${parseInt(parts[2], 10)}`;
 }
 
+/** Format an ISO date as a short "since" label: "Apr" (this year) or "Apr '25" (prior year). */
+function formatSince(iso: string | null): string {
+  if (!iso || iso.length < 7) return '--';
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  const parts = iso.split('-');
+  const year = parseInt(parts[0], 10);
+  const mon = months[parseInt(parts[1], 10) - 1] ?? '';
+  const nowYear = parseInt(getDateService().today().slice(0, 4), 10);
+  return year === nowYear ? mon : `${mon} '${String(year).slice(2)}`;
+}
+
 // Per-habit applied frequency changes (persists for the session)
 interface AppliedChange {
   from: number;
@@ -384,7 +408,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                 <Text style={styles.weekRowLabel}>Your rhythm</Text>
                 <View style={styles.tapToFix}>
                   <Pencil size={11} strokeWidth={2} color={BRAND.colors.inkMuted} />
-                  <Text style={styles.tapToFixText}>this week · tap to fix</Text>
+                  <Text style={styles.tapToFixText}>this week</Text>
                 </View>
               </View>
               {card.trend.read !== null && (
@@ -470,41 +494,27 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                 );
               })()}
 
-            {/* Code-insight strip — deterministic facts the timeline does not show */}
-            {card.pairing ? (
-              <View style={styles.stripRow}>
-                <View style={styles.stripItem}>
-                  <Text style={styles.stripNum}>+ {card.pairing.name.split(' ')[0]}</Text>
-                  <Text style={styles.stripLabel}>often paired</Text>
-                </View>
-                <View style={styles.stripDivider} />
-                <View style={styles.stripItem}>
-                  <Text style={styles.stripNum}>{card.pct30}%</Text>
-                  <Text style={styles.stripLabel}>last 30d</Text>
-                </View>
-                <View style={styles.stripDivider} />
-                <View style={styles.stripItem}>
-                  <Text style={styles.stripNum}>
-                    {card.streak.count} / {card.bestStreak}
-                  </Text>
-                  <Text style={styles.stripLabel}>streak / best</Text>
-                </View>
+            {/* Code-insight strip — three fixed lifetime facts */}
+            <View style={styles.stripRow}>
+              <View style={styles.stripItem}>
+                <Text style={styles.stripNum} numberOfLines={1}>
+                  {card.bestDayAllTime ?? '--'}
+                </Text>
+                <Text style={styles.stripLabel}>best day</Text>
               </View>
-            ) : (
-              <View style={styles.stripRow}>
-                <View style={styles.stripItem}>
-                  <Text style={styles.stripNum}>{card.pct30}%</Text>
-                  <Text style={styles.stripLabel}>last 30d</Text>
-                </View>
-                <View style={styles.stripDivider} />
-                <View style={styles.stripItem}>
-                  <Text style={styles.stripNum}>
-                    {card.streak.count} / {card.bestStreak}
-                  </Text>
-                  <Text style={styles.stripLabel}>streak / best</Text>
-                </View>
+              <View style={styles.stripDivider} />
+              <View style={styles.stripItem}>
+                <Text style={styles.stripNum}>{card.totalCompletions}</Text>
+                <Text style={styles.stripLabel}>total done</Text>
               </View>
-            )}
+              <View style={styles.stripDivider} />
+              <View style={styles.stripItem}>
+                <Text style={styles.stripNum} numberOfLines={1}>
+                  {formatSince(card.trackingSince)}
+                </Text>
+                <Text style={styles.stripLabel}>tracking since</Text>
+              </View>
+            </View>
 
             {/* ── Habit Adaptation Block (v7-3a) ── */}
             <View style={styles.adaptBlock}>
