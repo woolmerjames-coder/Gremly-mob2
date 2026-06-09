@@ -14,9 +14,11 @@ import {
   StyleSheet,
   Platform,
   TextInput,
-  ScrollView,
+  Modal,
+  Pressable,
   Alert,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import {
   Flame,
   ChevronLeft,
@@ -27,6 +29,8 @@ import {
   Pause,
   TrendingDown,
   Shield,
+  Calendar,
+  ChevronUp,
 } from 'lucide-react-native';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
@@ -43,6 +47,28 @@ const SERIF = Platform.select({ ios: 'Georgia', default: 'serif' });
 
 // Dot size for the trend row
 const DOT_SIZE = 10;
+
+/** Format YYYY-MM-DD → short display like "Jun 8" */
+function formatDateDisplay(iso: string): string {
+  if (!iso || iso.length < 10) return iso;
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  const parts = iso.split('-');
+  if (parts.length < 3) return iso;
+  return `${months[parseInt(parts[1], 10) - 1]} ${parseInt(parts[2], 10)}`;
+}
 
 // Per-habit applied frequency changes (persists for the session)
 interface AppliedChange {
@@ -74,25 +100,58 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
 
   // ── Adaptation form state ────────────────────────────────────────────────
   type AdaptMode = 'keep' | 'floor' | 'pause';
+  type DatePickerTarget = 'start' | 'end' | null;
+  const [adaptExpanded, setAdaptExpanded] = useState(false);
   const [adaptMode, setAdaptMode] = useState<AdaptMode>('keep');
-  const [adaptStart, setAdaptStart] = useState('');
-  const [adaptEnd, setAdaptEnd] = useState('');
+  const [adaptStart, setAdaptStart] = useState<string>(() => getDateService().today());
+  const [adaptEnd, setAdaptEnd] = useState<string>(() =>
+    getDateService().addDays(getDateService().today(), 6),
+  );
   const [adaptFloorNote, setAdaptFloorNote] = useState('');
   const [adaptOverlapError, setAdaptOverlapError] = useState(false);
   const [adaptSaving, setAdaptSaving] = useState(false);
+  // Date picker
+  const [datePickerTarget, setDatePickerTarget] = useState<DatePickerTarget>(null);
+  const [datePickerTempDate, setDatePickerTempDate] = useState<Date>(() => getDateService().now());
 
   // When the card changes, reset adaptation form and pre-fill from habit
   const resetAdaptForm = useCallback(
     (idx: number) => {
       const h = habits[idx];
+      const ds = getDateService();
+      setAdaptExpanded(false);
       setAdaptMode('keep');
-      setAdaptStart('');
-      setAdaptEnd('');
+      setAdaptStart(ds.today());
+      setAdaptEnd(ds.addDays(ds.today(), 6));
       setAdaptFloorNote(h?.floor_note ?? '');
       setAdaptOverlapError(false);
     },
     [habits],
   );
+
+  const openDatePicker = useCallback(
+    (target: 'start' | 'end') => {
+      const ds = getDateService();
+      const currentIso = target === 'start' ? adaptStart : adaptEnd;
+      const date = (currentIso ? ds.fromLocalDate(currentIso) : null) ?? ds.now();
+      setDatePickerTempDate(date);
+      setDatePickerTarget(target);
+    },
+    [adaptStart, adaptEnd],
+  );
+
+  const handleDatePickerConfirm = useCallback(() => {
+    const ds = getDateService();
+    const iso = ds.toLocalDate(datePickerTempDate);
+    if (datePickerTarget === 'start') {
+      setAdaptStart(iso);
+      // Bump end if it would fall before the new start
+      if (adaptEnd < iso) setAdaptEnd(iso);
+    } else if (datePickerTarget === 'end') {
+      setAdaptEnd(iso);
+    }
+    setDatePickerTarget(null);
+  }, [datePickerTempDate, datePickerTarget, adaptEnd]);
 
   const card = cards[index] as HabitCardStats | undefined;
   const currentHabit = habits[index];
@@ -152,11 +211,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   // ── Save adaptation handler ──────────────────────────────────────────────
   const handleSaveAdaptation = useCallback(async () => {
     if (!card || adaptMode === 'keep') return;
-    // Basic date validation
-    if (!adaptStart || !adaptEnd || adaptStart > adaptEnd) {
-      Alert.alert('Invalid dates', 'Please enter a valid start and end date (YYYY-MM-DD).');
-      return;
-    }
+    if (!adaptStart || !adaptEnd || adaptStart > adaptEnd) return; // guarded by date picker
     setAdaptSaving(true);
     setAdaptOverlapError(false);
     const result = await setHabitAdaptation(card.id, {
@@ -174,10 +229,12 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
       }
       return;
     }
-    // Reset form on success
+    // Success: collapse and reset to defaults
+    const ds = getDateService();
+    setAdaptExpanded(false);
     setAdaptMode('keep');
-    setAdaptStart('');
-    setAdaptEnd('');
+    setAdaptStart(ds.today());
+    setAdaptEnd(ds.addDays(ds.today(), 6));
     setAdaptFloorNote(currentHabit?.floor_note ?? '');
   }, [card, adaptMode, adaptStart, adaptEnd, adaptFloorNote, setHabitAdaptation, currentHabit]);
 
@@ -333,138 +390,193 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
 
           <Text style={styles.tapHint}>Did one you forgot to mark? Tap to add it.</Text>
 
-          {/* ── Habit Adaptation Block (v7-3a) ────────────────────────────── */}
+          {/* ── Habit Adaptation Block (v7-3a) ── */}
           <View style={styles.adaptBlock}>
-            <View style={styles.adaptHeaderRow}>
-              <Text style={styles.adaptLabel}>Adapt this habit</Text>
-              {/* TODO: link to entity chat — requires overlay refactor TICKET #entity-chat-adapt */}
-            </View>
-
-            {/* Active adaptation pill */}
-            {activeAdaptation && (
-              <View style={styles.activeAdaptRow}>
-                <Text style={styles.activeAdaptText}>
-                  {activeAdaptation.mode === 'pause' ? '⏸ Paused' : '⬇ Floored'}{' '}
-                  {activeAdaptation.period_start} → {activeAdaptation.period_end}
-                </Text>
+            {!adaptExpanded ? (
+              activeAdaptation ? (
+                /* Active adaptation pill — always visible, tappable to expand */
                 <TouchableOpacity
-                  onPress={handleClearAdaptation}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  accessibilityRole="button"
-                  accessibilityLabel="Remove adaptation"
-                >
-                  <Text style={styles.activeAdaptRemove}>Remove</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* Mode selector */}
-            <View style={styles.adaptModeRow}>
-              {(['keep', 'floor', 'pause'] as const).map((m) => (
-                <TouchableOpacity
-                  key={m}
-                  style={[styles.adaptModeBtn, adaptMode === m && styles.adaptModeBtnActive]}
-                  onPress={() => setAdaptMode(m)}
+                  style={styles.activeAdaptRow}
+                  onPress={() => setAdaptExpanded(true)}
                   activeOpacity={0.75}
                   accessibilityRole="button"
-                  accessibilityState={{ selected: adaptMode === m }}
-                  accessibilityLabel={m}
+                  accessibilityLabel="Active adaptation. Tap to edit."
                 >
-                  {m === 'keep' && (
-                    <Shield
-                      size={13}
-                      strokeWidth={2}
-                      color={adaptMode === m ? BRAND.colors.mossGreen : BRAND.colors.inkMuted}
-                    />
-                  )}
-                  {m === 'floor' && (
-                    <TrendingDown
-                      size={13}
-                      strokeWidth={2}
-                      color={adaptMode === m ? BRAND.colors.mossGreen : BRAND.colors.inkMuted}
-                    />
-                  )}
-                  {m === 'pause' && (
-                    <Pause
-                      size={13}
-                      strokeWidth={2}
-                      color={adaptMode === m ? BRAND.colors.mossGreen : BRAND.colors.inkMuted}
-                    />
-                  )}
-                  <Text
-                    style={[
-                      styles.adaptModeBtnText,
-                      adaptMode === m && styles.adaptModeBtnTextActive,
-                    ]}
-                  >
-                    {m.charAt(0).toUpperCase() + m.slice(1)}
+                  <Text style={styles.activeAdaptText}>
+                    {activeAdaptation.mode === 'pause'
+                      ? `⏸ Paused ${formatDateDisplay(activeAdaptation.period_start)}–${formatDateDisplay(activeAdaptation.period_end)}`
+                      : `⬇ Floor mode ${formatDateDisplay(activeAdaptation.period_start)}–${formatDateDisplay(activeAdaptation.period_end)}`}
                   </Text>
+                  <TouchableOpacity
+                    onPress={handleClearAdaptation}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Remove adaptation"
+                  >
+                    <Text style={styles.activeAdaptRemove}>Remove</Text>
+                  </TouchableOpacity>
                 </TouchableOpacity>
-              ))}
-            </View>
-
-            {/* Date range + floor note (only when floor or pause selected) */}
-            {adaptMode !== 'keep' && (
-              <View style={styles.adaptFields}>
-                <View style={styles.adaptDateRow}>
-                  {/* TODO: replace with shared date picker when available */}
-                  <TextInput
-                    style={styles.adaptDateInput}
-                    placeholder="Start (YYYY-MM-DD)"
-                    placeholderTextColor={BRAND.colors.inkMuted}
-                    value={adaptStart}
-                    onChangeText={setAdaptStart}
-                    maxLength={10}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    accessibilityLabel="Adaptation start date"
-                  />
-                  <TextInput
-                    style={styles.adaptDateInput}
-                    placeholder="End (YYYY-MM-DD)"
-                    placeholderTextColor={BRAND.colors.inkMuted}
-                    value={adaptEnd}
-                    onChangeText={setAdaptEnd}
-                    maxLength={10}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    accessibilityLabel="Adaptation end date"
-                  />
+              ) : (
+                /* Quiet prompt row
+                   TODO: AI seam (v7-3b) — AI will promote this into a travel/break nudge */
+                <TouchableOpacity
+                  style={styles.adaptPromptRow}
+                  onPress={() => setAdaptExpanded(true)}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel="Adapt this habit for travel or a break"
+                >
+                  <Calendar size={13} strokeWidth={1.8} color={BRAND.colors.inkMuted} />
+                  <Text style={styles.adaptPromptText}>Adapt for travel or a break</Text>
+                </TouchableOpacity>
+              )
+            ) : (
+              /* Expanded controls */
+              <View>
+                {/* Header with collapse button */}
+                <View style={styles.adaptExpandedHeader}>
+                  <Text style={styles.adaptLabel}>Adapt this habit</Text>
+                  <TouchableOpacity
+                    onPress={() => setAdaptExpanded(false)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Collapse"
+                  >
+                    <ChevronUp size={16} strokeWidth={2} color={BRAND.colors.inkMuted} />
+                  </TouchableOpacity>
                 </View>
 
-                {adaptMode === 'floor' && (
-                  <TextInput
-                    style={styles.adaptFloorNoteInput}
-                    placeholder="Floor note (optional)"
-                    placeholderTextColor={BRAND.colors.inkMuted}
-                    value={adaptFloorNote}
-                    onChangeText={setAdaptFloorNote}
-                    maxLength={200}
-                    multiline={false}
-                    accessibilityLabel="Floor note"
-                  />
+                {/* Active adaptation pill in expanded state */}
+                {activeAdaptation && (
+                  <View style={styles.activeAdaptRow}>
+                    <Text style={styles.activeAdaptText}>
+                      {activeAdaptation.mode === 'pause'
+                        ? `⏸ Paused ${formatDateDisplay(activeAdaptation.period_start)}–${formatDateDisplay(activeAdaptation.period_end)}`
+                        : `⬇ Floor mode ${formatDateDisplay(activeAdaptation.period_start)}–${formatDateDisplay(activeAdaptation.period_end)}`}
+                    </Text>
+                    <TouchableOpacity
+                      onPress={handleClearAdaptation}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Remove adaptation"
+                    >
+                      <Text style={styles.activeAdaptRemove}>Remove</Text>
+                    </TouchableOpacity>
+                  </View>
                 )}
 
-                {/* TODO: AI floor-note suggestion seam (v7-3b) */}
+                {/* Mode selector */}
+                <View style={styles.adaptModeRow}>
+                  {(['keep', 'floor', 'pause'] as const).map((m) => (
+                    <TouchableOpacity
+                      key={m}
+                      style={[styles.adaptModeBtn, adaptMode === m && styles.adaptModeBtnActive]}
+                      onPress={() => setAdaptMode(m)}
+                      activeOpacity={0.75}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: adaptMode === m }}
+                      accessibilityLabel={m}
+                    >
+                      {m === 'keep' && (
+                        <Shield
+                          size={13}
+                          strokeWidth={2}
+                          color={adaptMode === m ? BRAND.colors.mossGreen : BRAND.colors.inkMuted}
+                        />
+                      )}
+                      {m === 'floor' && (
+                        <TrendingDown
+                          size={13}
+                          strokeWidth={2}
+                          color={adaptMode === m ? BRAND.colors.mossGreen : BRAND.colors.inkMuted}
+                        />
+                      )}
+                      {m === 'pause' && (
+                        <Pause
+                          size={13}
+                          strokeWidth={2}
+                          color={adaptMode === m ? BRAND.colors.mossGreen : BRAND.colors.inkMuted}
+                        />
+                      )}
+                      <Text
+                        style={[
+                          styles.adaptModeBtnText,
+                          adaptMode === m && styles.adaptModeBtnTextActive,
+                        ]}
+                      >
+                        {m.charAt(0).toUpperCase() + m.slice(1)}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
 
-                {adaptOverlapError && (
-                  <Text style={styles.adaptErrorText}>
-                    This period overlaps an existing adaptation. Remove the existing one first.
-                  </Text>
+                {/* Date range + floor note (only when floor or pause selected) */}
+                {adaptMode !== 'keep' && (
+                  <View style={styles.adaptFields}>
+                    <View style={styles.adaptDateRow}>
+                      <TouchableOpacity
+                        style={[
+                          styles.adaptDateBtn,
+                          datePickerTarget === 'start' && styles.adaptDateBtnActive,
+                        ]}
+                        onPress={() => openDatePicker('start')}
+                        activeOpacity={0.75}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Start date: ${formatDateDisplay(adaptStart)}`}
+                      >
+                        <Calendar size={11} strokeWidth={2} color={BRAND.colors.inkMuted} />
+                        <Text style={styles.adaptDateBtnText}>{formatDateDisplay(adaptStart)}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.adaptDateBtn,
+                          datePickerTarget === 'end' && styles.adaptDateBtnActive,
+                        ]}
+                        onPress={() => openDatePicker('end')}
+                        activeOpacity={0.75}
+                        accessibilityRole="button"
+                        accessibilityLabel={`End date: ${formatDateDisplay(adaptEnd)}`}
+                      >
+                        <Calendar size={11} strokeWidth={2} color={BRAND.colors.inkMuted} />
+                        <Text style={styles.adaptDateBtnText}>{formatDateDisplay(adaptEnd)}</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {adaptMode === 'floor' && (
+                      <TextInput
+                        style={styles.adaptFloorNoteInput}
+                        placeholder="Floor note (optional)"
+                        placeholderTextColor={BRAND.colors.inkMuted}
+                        value={adaptFloorNote}
+                        onChangeText={setAdaptFloorNote}
+                        maxLength={200}
+                        multiline={false}
+                        accessibilityLabel="Floor note"
+                      />
+                    )}
+
+                    {/* TODO: AI floor-note suggestion seam (v7-3b) */}
+
+                    {adaptOverlapError && (
+                      <Text style={styles.adaptErrorText}>
+                        This period overlaps an existing adaptation. Remove the existing one first.
+                      </Text>
+                    )}
+
+                    <TouchableOpacity
+                      style={[styles.adaptSaveBtn, adaptSaving && styles.adaptSaveBtnDisabled]}
+                      onPress={handleSaveAdaptation}
+                      disabled={adaptSaving}
+                      activeOpacity={0.8}
+                      accessibilityRole="button"
+                      accessibilityLabel="Save adaptation"
+                    >
+                      <Text style={styles.adaptSaveBtnText}>
+                        {adaptSaving ? 'Saving...' : 'Save adaptation'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                 )}
-
-                <TouchableOpacity
-                  style={[styles.adaptSaveBtn, adaptSaving && styles.adaptSaveBtnDisabled]}
-                  onPress={handleSaveAdaptation}
-                  disabled={adaptSaving}
-                  activeOpacity={0.8}
-                  accessibilityRole="button"
-                  accessibilityLabel="Save adaptation"
-                >
-                  <Text style={styles.adaptSaveBtnText}>
-                    {adaptSaving ? 'Saving...' : 'Save adaptation'}
-                  </Text>
-                </TouchableOpacity>
               </View>
             )}
           </View>
@@ -597,6 +709,69 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
         <TouchableOpacity style={styles.skipBtn} onPress={onFinish} activeOpacity={0.7}>
           <Text style={styles.skipBtnText}>Finish early</Text>
         </TouchableOpacity>
+      )}
+
+      {/* Date picker — Android: native dialog (no modal needed) */}
+      {datePickerTarget !== null && Platform.OS === 'android' && (
+        <DateTimePicker
+          value={datePickerTempDate}
+          mode="date"
+          display="default"
+          minimumDate={
+            datePickerTarget === 'end'
+              ? (getDateService().fromLocalDate(adaptStart) ?? getDateService().now())
+              : undefined
+          }
+          onChange={(e: any, date?: Date) => {
+            const captured = datePickerTarget;
+            setDatePickerTarget(null);
+            if (e.type === 'set' && date) {
+              const iso = getDateService().toLocalDate(date);
+              if (captured === 'start') {
+                setAdaptStart(iso);
+                if (adaptEnd < iso) setAdaptEnd(iso);
+              } else {
+                setAdaptEnd(iso);
+              }
+            }
+          }}
+        />
+      )}
+
+      {/* Date picker — iOS: bottom sheet with spinner */}
+      {datePickerTarget !== null && Platform.OS === 'ios' && (
+        <Modal visible transparent animationType="slide">
+          <Pressable
+            style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' }}
+            onPress={() => setDatePickerTarget(null)}
+          />
+          <View style={styles.datePickerSheet}>
+            <View style={styles.datePickerSheetHeader}>
+              <TouchableOpacity onPress={() => setDatePickerTarget(null)}>
+                <Text style={styles.datePickerSheetCancel}>Cancel</Text>
+              </TouchableOpacity>
+              <Text style={styles.datePickerSheetTitle}>
+                {datePickerTarget === 'start' ? 'Start date' : 'End date'}
+              </Text>
+              <TouchableOpacity onPress={handleDatePickerConfirm}>
+                <Text style={styles.datePickerSheetDone}>Done</Text>
+              </TouchableOpacity>
+            </View>
+            <DateTimePicker
+              value={datePickerTempDate}
+              mode="date"
+              display="spinner"
+              minimumDate={
+                datePickerTarget === 'end'
+                  ? (getDateService().fromLocalDate(adaptStart) ?? getDateService().now())
+                  : undefined
+              }
+              onChange={(_: any, date?: Date) => {
+                if (date) setDatePickerTempDate(date);
+              }}
+            />
+          </View>
+        </Modal>
       )}
     </View>
   );
@@ -816,7 +991,7 @@ const styles = StyleSheet.create({
     borderTopColor: 'rgba(34,34,34,0.07)',
     marginBottom: 4,
   },
-  adaptHeaderRow: {
+  adaptExpandedHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -827,6 +1002,17 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: BRAND.colors.charcoalInk,
     letterSpacing: 0.2,
+  },
+  adaptPromptRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingVertical: 8,
+  },
+  adaptPromptText: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: BRAND.colors.inkMuted,
   },
   activeAdaptRow: {
     flexDirection: 'row',
@@ -886,16 +1072,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
-  adaptDateInput: {
+  adaptDateBtn: {
     flex: 1,
     height: 38,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
     borderWidth: 1,
     borderColor: 'rgba(34,34,34,0.14)',
     borderRadius: BRAND.radius.md,
-    paddingHorizontal: 10,
-    fontSize: 13,
-    color: BRAND.colors.charcoalInk,
     backgroundColor: BRAND.colors.surface,
+  },
+  adaptDateBtnActive: {
+    borderColor: BRAND.colors.mossGreen,
+    backgroundColor: 'rgba(191,216,192,0.12)',
+  },
+  adaptDateBtnText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
   },
   adaptFloorNoteInput: {
     height: 38,
@@ -926,6 +1122,37 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+
+  // Date picker bottom sheet
+  datePickerSheet: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingBottom: 34,
+  },
+  datePickerSheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(34,34,34,0.08)',
+  },
+  datePickerSheetCancel: {
+    fontSize: 16,
+    color: BRAND.colors.inkMuted,
+  },
+  datePickerSheetTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: BRAND.colors.charcoalInk,
+  },
+  datePickerSheetDone: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: BRAND.colors.mossGreen,
   },
 
   // Trend block
