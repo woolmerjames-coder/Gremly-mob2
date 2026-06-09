@@ -2119,6 +2119,68 @@ export async function callGeneralGreeting(userId: string): Promise<string | null
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Habit Insight (on-demand, per-habit weekly insight line)
+// Direct fetch — does NOT use the inFlight global lock so it never blocks
+// interactive cortex calls.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface HabitInsightProxyResult {
+  ok: boolean;
+  show: boolean;
+  line: string | null;
+  kind: string | null;
+  evidence?: { facts_used: string[]; confidence: number };
+  model?: string;
+  latency_ms?: number;
+  source?: string;
+}
+
+export async function callHabitInsight(
+  facts: unknown,
+  crossSignal: unknown,
+  week: string,
+): Promise<HabitInsightProxyResult> {
+  const fallback: HabitInsightProxyResult = { ok: true, show: false, line: null, kind: null };
+  try {
+    const baseUrl = readCortexUrl();
+    if (!baseUrl || isAiDisabled()) return fallback;
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const sessionToken = await getSessionToken();
+    if (sessionToken) headers.Authorization = `Bearer ${sessionToken}`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const res = await fetch(baseUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ type: 'habit-insight', facts, crossSignal, week }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (!res.ok) return fallback;
+      const data = await res.json();
+      return {
+        ok: true,
+        show: data.show === true,
+        line: typeof data.line === 'string' ? data.line : null,
+        kind: typeof data.kind === 'string' ? data.kind : null,
+        evidence: data.evidence ?? undefined,
+        model: data.model ?? undefined,
+        latency_ms: data.latency_ms ?? undefined,
+        source: data.source ?? undefined,
+      };
+    } catch {
+      clearTimeout(timeout);
+      return fallback;
+    }
+  } catch {
+    return fallback;
+  }
+}
+
 export const CortexClient = {
   callChat,
   callComplete,
@@ -2137,4 +2199,5 @@ export const CortexClient = {
   callEntityChatStreaming,
   callHabitBuilderStreaming,
   callJournalAnalyze,
+  callHabitInsight,
 };

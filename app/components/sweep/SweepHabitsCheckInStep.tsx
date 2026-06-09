@@ -7,7 +7,7 @@
  * No AI, no gauge side-effects.
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   View,
   TouchableOpacity,
@@ -31,6 +31,7 @@ import {
   Shield,
   Calendar,
   ChevronUp,
+  Sparkles,
 } from 'lucide-react-native';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
@@ -91,12 +92,17 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   const setHabitAdaptation = useGremlyStore((s) => s.setHabitAdaptation);
   const clearHabitAdaptation = useGremlyStore((s) => s.clearHabitAdaptation);
   const habitAdaptations = useGremlyStore((s) => s.habitAdaptations);
+  const getOrFetchHabitInsight = useGremlyStore((s) => s.getOrFetchHabitInsight);
 
   const cards = useHabitCardStats(habits);
 
   const [index, setIndex] = useState(0);
   // Session-persistent frequency-change confirmations keyed by habitId
   const [appliedChanges, setAppliedChanges] = useState<Record<string, AppliedChange>>({});
+
+  // ── Habit insight state ────────────────────────────────────────────────────
+  type InsightState = { loading: boolean; show: boolean; line: string | null };
+  const [insightStates, setInsightStates] = useState<Record<string, InsightState>>({});
 
   // ── Adaptation form state ────────────────────────────────────────────────
   type AdaptMode = 'keep' | 'floor' | 'pause';
@@ -115,6 +121,34 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   // Date picker
   const [datePickerTarget, setDatePickerTarget] = useState<DatePickerTarget>(null);
   const [datePickerTempDate, setDatePickerTempDate] = useState<Date>(() => getDateService().now());
+
+  // Fetch insight for the currently visible card (lazy, one call per habit per week)
+  useEffect(() => {
+    const currentHabitId = habits[index]?.id;
+    if (!currentHabitId) return;
+    // Skip if already loaded or loading
+    const existing = insightStates[currentHabitId];
+    if (existing) return;
+    // Mark as loading
+    setInsightStates((prev) => ({
+      ...prev,
+      [currentHabitId]: { loading: true, show: false, line: null },
+    }));
+    getOrFetchHabitInsight(currentHabitId)
+      .then((result) => {
+        setInsightStates((prev) => ({
+          ...prev,
+          [currentHabitId]: { loading: false, show: result.show, line: result.line },
+        }));
+      })
+      .catch(() => {
+        setInsightStates((prev) => ({
+          ...prev,
+          [currentHabitId]: { loading: false, show: false, line: null },
+        }));
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index]);
 
   // When the card changes, reset adaptation form and pre-fill from habit
   const resetAdaptForm = useCallback(
@@ -644,7 +678,24 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
               );
             })()}
 
-          {/* AI insight slot -- reserved for future highlight (v7-next) */}
+          {/* AI insight slot */}
+          {(() => {
+            const habitId = card?.id;
+            const insight = habitId ? insightStates[habitId] : undefined;
+            if (!insight || insight.loading) {
+              // Subtle shimmer placeholder — holds layout space without jumping
+              return <View style={styles.insightShimmer} />;
+            }
+            if (!insight.show || !insight.line) return null;
+            return (
+              <View style={styles.insightLine}>
+                <Sparkles size={12} strokeWidth={1.75} color={BRAND.colors.inkMuted} />
+                <Text style={styles.insightLineText} numberOfLines={2}>
+                  {insight.line}
+                </Text>
+              </View>
+            );
+          })()}
 
           {/* Frequency recommendation (conditional -- hides once change applied) */}
           {rec?.show && !appliedChange && (
@@ -1254,6 +1305,28 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '400',
     color: BRAND.colors.inkMuted,
+  },
+
+  // Habit insight slot
+  insightShimmer: {
+    height: 14,
+    marginTop: 10,
+    borderRadius: 4,
+    backgroundColor: 'rgba(34,34,34,0.05)',
+  },
+  insightLine: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    marginTop: 10,
+    paddingHorizontal: 2,
+  },
+  insightLineText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '400',
+    color: BRAND.colors.inkMuted,
+    lineHeight: 17,
   },
 
   // Frequency recommendation block

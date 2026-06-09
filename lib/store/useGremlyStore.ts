@@ -754,6 +754,19 @@ export interface GremlyState {
   getActiveAdaptation: (habitId: string, dateIso: string) => HabitAdaptationRow | null;
 
   // ═══════════════════════════════════════════════════════════════════
+  // HABIT INSIGHT CACHE
+  // ═══════════════════════════════════════════════════════════════════
+  /** In-memory cache keyed by `${habitId}_${observedForWeek}`. */
+  habitInsightCache: Record<string, import('../habits/habitInsight').HabitInsightResult>;
+  /**
+   * Returns a cached insight for the current week, or fetches and caches one.
+   * Never throws. On any error returns { show: false, line: null, kind: null }.
+   */
+  getOrFetchHabitInsight: (
+    habitId: string,
+  ) => Promise<import('../habits/habitInsight').HabitInsightResult>;
+
+  // ═══════════════════════════════════════════════════════════════════
   // NOTE MUTATIONS
   // ═══════════════════════════════════════════════════════════════════
   createNote: (note: Partial<Note> & { photoUris?: string[] }) => Promise<Note>;
@@ -1131,6 +1144,7 @@ const initialState = {
   tags: [] as Tag[],
   habitProgress: [] as HabitProgressRow[],
   habitAdaptations: [] as HabitAdaptationRow[],
+  habitInsightCache: {} as Record<string, import('../habits/habitInsight').HabitInsightResult>,
   spaceChats: [] as SpaceChat[],
   spaceChatMessages: [] as SpaceChatMessage[],
   generalChats: [] as SpaceChat[],
@@ -10565,6 +10579,110 @@ export const useGremlyStore = create<GremlyState>()(
           if (logErr) {
             console.warn('[GremlyStore] updateChapterTitle — edit log insert failed:', logErr);
           }
+        },
+
+        // ── HABIT INSIGHT ──────────────────────────────────────────────────
+        getOrFetchHabitInsight: async (habitId: string) => {
+          const { buildHabitInsightInput } = await import('../habits/habitInsight');
+          const { callHabitInsight } = await import('../cortex/CortexClient');
+          const ds = getDateService();
+          const observedForWeek = ds.getStartOfWeek();
+          const cacheKey = `${habitId}_${observedForWeek}`;
+          const fallback: import('../habits/habitInsight').HabitInsightResult = {
+            show: false,
+            line: null,
+            kind: null,
+            observedForWeek,
+          };
+
+          // In-memory cache hit
+          const cached = get().habitInsightCache[cacheKey];
+          if (cached !== undefined) return cached;
+
+          // DB cache check
+          try {
+            const { data: dbRow } = await supabase
+              .from('habit_insights' as any)
+              .select('show,line,kind')
+              .eq('habit_id', habitId)
+              .eq('observed_for_week', observedForWeek)
+              .maybeSingle();
+
+            if (dbRow !== null && dbRow !== undefined) {
+              const result: import('../habits/habitInsight').HabitInsightResult = {
+                show: Boolean(dbRow.show),
+                line: typeof dbRow.line === 'string' ? dbRow.line : null,
+                kind: (dbRow.kind ??
+                  null) as import('../habits/habitInsight').HabitInsightResult['kind'],
+                observedForWeek,
+              };
+              set((s) => ({
+                habitInsightCache: { ...s.habitInsightCache, [cacheKey]: result },
+              }));
+              return result;
+            }
+          } catch {
+            // DB read failure — fall through to cortex call
+          }
+
+          // Cortex call (cache miss)
+          const state = get();
+          const input = buildHabitInsightInput(
+            habitId,
+            state.habits,
+            state.habitProgress,
+            state.habitAdaptations,
+            state.notes,
+          );
+          if (!input) {
+            set((s) => ({
+              habitInsightCache: { ...s.habitInsightCache, [cacheKey]: fallback },
+            }));
+            return fallback;
+          }
+
+          let result: import('../habits/habitInsight').HabitInsightResult;
+          try {
+            const proxy = await callHabitInsight(input.facts, input.crossSignal, observedForWeek);
+            result = {
+              show: proxy.show,
+              line: proxy.line,
+              kind: (proxy.kind ??
+                null) as import('../habits/habitInsight').HabitInsightResult['kind'],
+              observedForWeek,
+            };
+          } catch {
+            result = fallback;
+          }
+
+          // Store in memory always
+          set((s) => ({
+            habitInsightCache: { ...s.habitInsightCache, [cacheKey]: result },
+          }));
+
+          // Write to DB only for legitimate results (not hard errors)
+          try {
+            const userId = get().userId;
+            if (userId) {
+              await supabase.from('habit_insights' as any).upsert(
+                {
+                  owner_id: userId,
+                  habit_id: habitId,
+                  observed_for_week: observedForWeek,
+                  show: result.show,
+                  line: result.line,
+                  kind: result.kind,
+                  model: 'gpt-4.1-mini',
+                  updated_at: nowTimestamp(),
+                },
+                { onConflict: 'habit_id,observed_for_week' },
+              );
+            }
+          } catch {
+            // DB write failure is non-fatal
+          }
+
+          return result;
         },
       }),
       {
