@@ -22,6 +22,10 @@ import {
 
 const SERIF = Platform.select({ ios: 'Georgia', default: 'serif' });
 
+// Trend bar chart constants
+const BAR_MAX_H = 52;
+const TARGET_LINE_Y = Math.round(BAR_MAX_H / 1.3); // ~40 — target line offset from bottom
+
 // Per-habit applied frequency changes (persists for the session)
 interface AppliedChange {
   from: number;
@@ -231,7 +235,48 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
 
           <Text style={styles.tapHint}>Did one you forgot to mark? Tap to add it.</Text>
 
-          {/* Frequency recommendation (conditional — hides once change applied) */}
+          {/* Trend bars -- only when >=3 weeks of data (trend.read !== null) */}
+          {card.trend.read !== null && (
+            <View style={styles.trendBlock}>
+              <View style={styles.trendHeader}>
+                <Text style={styles.trendHeaderLabel}>Recent weeks</Text>
+                <Text
+                  style={[
+                    styles.trendReadLabel,
+                    card.trend.read === 'building' && styles.trendReadBuilding,
+                    card.trend.read === 'drifting' && styles.trendReadDrifting,
+                  ]}
+                >
+                  {card.trend.read}
+                </Text>
+              </View>
+              <View style={styles.trendBarsRow}>
+                {card.trend.bars.map((bar) => {
+                  const fill = Math.min(bar.hits / bar.target, 1.3);
+                  const barH = Math.max(4, Math.round((fill / 1.3) * BAR_MAX_H));
+                  return (
+                    <View key={bar.weekLabel} style={styles.trendBarCol}>
+                      <View style={styles.trendTrack}>
+                        <View style={[styles.trendTargetLine, { bottom: TARGET_LINE_Y }]} />
+                        <View
+                          style={[
+                            styles.trendBarFill,
+                            bar.isCurrent && styles.trendBarFillCurrent,
+                            { height: barH },
+                          ]}
+                        />
+                      </View>
+                      <Text style={styles.trendBarWeekLabel}>{bar.weekLabel}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+          )}
+
+          {/* AI insight slot -- reserved for future highlight (v7-next) */}
+
+          {/* Frequency recommendation (conditional -- hides once change applied) */}
           {rec?.show && !appliedChange && (
             <View style={styles.recBlock}>
               <Text style={styles.recSentence}>{rec.sentence}</Text>
@@ -518,6 +563,72 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     color: BRAND.colors.inkMuted,
     marginBottom: 2,
+  },
+
+  // Trend block
+  trendBlock: {
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(34,34,34,0.07)',
+    marginBottom: 4,
+  },
+  trendHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  trendHeaderLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: BRAND.colors.charcoalInk,
+    letterSpacing: 0.2,
+  },
+  trendReadLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: BRAND.colors.inkMuted,
+    textTransform: 'capitalize',
+  },
+  trendReadBuilding: { color: BRAND.colors.mossGreen },
+  trendReadDrifting: { color: '#C07A3A' },
+  trendBarsRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 5,
+  },
+  trendBarCol: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 4,
+  },
+  trendTrack: {
+    width: '100%',
+    height: BAR_MAX_H,
+    justifyContent: 'flex-end',
+  },
+  trendTargetLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: 'rgba(34,34,34,0.22)',
+  },
+  trendBarFill: {
+    width: '100%',
+    borderRadius: 3,
+    backgroundColor: 'rgba(34,34,34,0.16)',
+  },
+  trendBarFillCurrent: {
+    backgroundColor: BRAND.colors.mossGreen,
+    opacity: 0.85,
+  },
+  trendBarWeekLabel: {
+    fontSize: 9,
+    fontWeight: '500',
+    color: BRAND.colors.inkMuted,
+    textAlign: 'center',
   },
 
   // Frequency recommendation block

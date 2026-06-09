@@ -32,6 +32,20 @@ export interface HabitDayCell {
   isScheduled: boolean; // always true in rolling window
 }
 
+export interface TrendBar {
+  weekLabel: string; // "5w" | "4w" | ... | "1w" | "now"
+  hits: number;
+  target: number;
+  isCurrent: boolean;
+}
+
+export interface HabitTrend {
+  /** Empty when < 3 weeks of data. */
+  bars: TrendBar[];
+  /** null when bars is empty (insufficient data). */
+  read: 'building' | 'steady' | 'drifting' | null;
+}
+
 export interface HabitCardStats {
   id: string;
   name: string;
@@ -44,10 +58,86 @@ export interface HabitCardStats {
   streak: { count: number; unit: 'day' | 'week' };
   days: HabitDayCell[];
   status: 'on_track' | 'needs_attention' | 'done_for_week';
+  trend: HabitTrend;
 }
 
 // One-char weekday labels indexed by JS getDay() (0=Sun)
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Trend helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Return the YYYY-MM-DD Monday of the ISO week containing dateStr. */
+function getIsoWeekKey(dateStr: string): string {
+  const ds = getDateService();
+  const d = ds.fromLocalDate(dateStr);
+  if (!d) return dateStr;
+  const day = d.getDay(); // 0=Sun
+  const daysToMon = day === 0 ? -6 : 1 - day;
+  return ds.addDays(dateStr, daysToMon);
+}
+
+/**
+ * Compute trend bars over the last ≤6 ISO weeks ending with the current week.
+ * Only weeks with >=1 hit are included. Returns { bars:[], read:null } when
+ * fewer than 3 weeks have data (not enough to form a trend).
+ */
+function computeTrend(
+  progressForHabit: HabitProgressRow[],
+  barTarget: number,
+  today: string,
+): HabitTrend {
+  const ds = getDateService();
+  const currentWeekKey = getIsoWeekKey(today);
+
+  // 6 consecutive Monday keys sorted oldest → current
+  const weekKeys: string[] = [];
+  for (let i = 5; i >= 0; i--) {
+    weekKeys.push(ds.addDays(currentWeekKey, -i * 7));
+  }
+  // weekKeys[0] = 5 weeks ago, weekKeys[5] = current
+
+  // Bucket distinct occurred_day into week keys
+  const hitsMap = new Map<string, Set<string>>();
+  for (const p of progressForHabit) {
+    const key = getIsoWeekKey(p.occurred_day);
+    if (!hitsMap.has(key)) hitsMap.set(key, new Set());
+    hitsMap.get(key)!.add(p.occurred_day);
+  }
+
+  // Keep only weeks in our window that have >=1 hit
+  const weekKeysWithData = weekKeys.filter((k) => (hitsMap.get(k)?.size ?? 0) >= 1);
+
+  if (weekKeysWithData.length < 3) {
+    return { bars: [], read: null };
+  }
+
+  // Build bar objects; label = weeks-ago from current (0=now)
+  const bars: TrendBar[] = weekKeysWithData.map((key) => {
+    const hits = hitsMap.get(key)?.size ?? 0;
+    const weekIdx = weekKeys.indexOf(key); // 0=oldest(5w ago), 5=current
+    const weeksAgo = 5 - weekIdx;
+    return {
+      weekLabel: weeksAgo === 0 ? 'now' : `${weeksAgo}w`,
+      hits,
+      target: barTarget,
+      isCurrent: key === currentWeekKey,
+    };
+  });
+
+  // Compare recent half vs earlier half (target-relative ratio, capped at 1)
+  const n = bars.length;
+  const half = Math.floor(n / 2);
+  const earlier = bars.slice(0, half);
+  const recent = bars.slice(n - half);
+  const avgRatio = (arr: TrendBar[]) =>
+    arr.reduce((sum, b) => sum + Math.min(b.hits / b.target, 1), 0) / arr.length;
+  const diff = avgRatio(recent) - avgRatio(earlier);
+  const read: HabitTrend['read'] = diff > 0.15 ? 'building' : diff < -0.15 ? 'drifting' : 'steady';
+
+  return { bars, read };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pure computation
@@ -108,6 +198,10 @@ export function computeHabitCardStats(
   const allCompletedDates = progressForHabit.map((p) => p.occurred_day);
   const streak = computeHabitStreak(allCompletedDates, cadence, targetPerPeriod);
 
+  // ── Trend ────────────────────────────────────────────────────────────────
+  const barTarget = cadence === 'daily' ? 7 : targetPerPeriod;
+  const trend = computeTrend(progressForHabit, barTarget, today);
+
   // ── Status ───────────────────────────────────────────────────────────────
   let status: HabitCardStats['status'];
 
@@ -143,6 +237,7 @@ export function computeHabitCardStats(
     streak,
     days,
     status,
+    trend,
   };
 }
 
