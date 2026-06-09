@@ -104,9 +104,9 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   const [appliedChanges, setAppliedChanges] = useState<Record<string, AppliedChange>>({});
 
   // ── Habit insight state ────────────────────────────────────────────────────
-  type InsightState = { loading: boolean; show: boolean; line: string | null; kind: string | null };
+  type InsightState = { loading: boolean; line: string | null; kind: string | null };
   const [insightStates, setInsightStates] = useState<Record<string, InsightState>>({});
-  // Per-habitId Animated.Value for fade-in (created lazily on show:true result)
+  // Per-habitId Animated.Value for fade-in (created lazily when line arrives)
   const insightFade = useRef<Record<string, Animated.Value>>({});
 
   // ── Adaptation form state ────────────────────────────────────────────────
@@ -137,11 +137,11 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
     // Mark as loading
     setInsightStates((prev) => ({
       ...prev,
-      [currentHabitId]: { loading: true, show: false, line: null, kind: null },
+      [currentHabitId]: { loading: true, line: null, kind: null },
     }));
     getOrFetchHabitInsight(currentHabitId)
       .then((result) => {
-        if (result.show && result.line) {
+        if (result.line) {
           if (!insightFade.current[currentHabitId]) {
             insightFade.current[currentHabitId] = new Animated.Value(0);
           } else {
@@ -157,7 +157,6 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
           ...prev,
           [currentHabitId]: {
             loading: false,
-            show: result.show,
             line: result.line,
             kind: result.kind,
           },
@@ -166,7 +165,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
       .catch(() => {
         setInsightStates((prev) => ({
           ...prev,
-          [currentHabitId]: { loading: false, show: false, line: null, kind: null },
+          [currentHabitId]: { loading: false, line: null, kind: null },
         }));
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
