@@ -25,6 +25,8 @@ export interface HabitInsightResult {
     | 'journal_link'
     | 'building'
     | 'drifting'
+    | 'steady'
+    | 'adapted'
     | 'target_mismatch'
     | 'other'
     | null;
