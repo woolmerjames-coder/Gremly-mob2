@@ -10659,7 +10659,7 @@ export const useGremlyStore = create<GremlyState>()(
           let result: import('../habits/habitInsight').HabitInsightResult;
           try {
             const proxy = await callHabitInsight(input.facts, input.crossSignal, observedForWeek);
-            // The endpoint always returns a line; treat any non-empty line as show:true
+            // Endpoint always returns a line; non-empty = render
             const hasLine = typeof proxy.line === 'string' && proxy.line.length > 2;
             result = {
               show: hasLine,
@@ -10677,10 +10677,10 @@ export const useGremlyStore = create<GremlyState>()(
             habitInsightCache: { ...s.habitInsightCache, [cacheKey]: result },
           }));
 
-          // Write to DB only when we have a real line
+          // Write to DB whenever we have a real line
           try {
             const userId = get().userId;
-            if (userId && result.show && result.line) {
+            if (userId && result.line) {
               await supabase.from('habit_insights' as any).upsert(
                 {
                   owner_id: userId,

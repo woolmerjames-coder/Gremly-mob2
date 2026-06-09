@@ -720,8 +720,8 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
               if (insight.loading) {
                 return <View style={styles.insightShimmer} />;
               }
-              // Gated-out: show:false with no line means no history
-              if (!insight.show || !insight.line) return null;
+              // Gated-out: no line means no history or call failed
+              if (!insight.line) return null;
               const isAttention = insight.kind === 'drifting' || insight.kind === 'target_mismatch';
               const fadeAnim = habitId ? insightFade.current[habitId] : undefined;
               const tileStyle = isAttention

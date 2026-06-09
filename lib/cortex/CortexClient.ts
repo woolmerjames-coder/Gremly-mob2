@@ -2127,7 +2127,6 @@ export async function callGeneralGreeting(userId: string): Promise<string | null
 
 export interface HabitInsightProxyResult {
   ok: boolean;
-  show: boolean;
   line: string | null;
   kind: string | null;
   evidence?: { facts_used: string[]; confidence: number };
@@ -2141,7 +2140,7 @@ export async function callHabitInsight(
   crossSignal: unknown,
   week: string,
 ): Promise<HabitInsightProxyResult> {
-  const fallback: HabitInsightProxyResult = { ok: true, show: false, line: null, kind: null };
+  const fallback: HabitInsightProxyResult = { ok: true, line: null, kind: null };
   try {
     const baseUrl = readCortexUrl();
     if (!baseUrl || isAiDisabled()) return fallback;
@@ -2164,7 +2163,6 @@ export async function callHabitInsight(
       const data = await res.json();
       return {
         ok: true,
-        show: data.show === true,
         line: typeof data.line === 'string' ? data.line : null,
         kind: typeof data.kind === 'string' ? data.kind : null,
         evidence: data.evidence ?? undefined,
