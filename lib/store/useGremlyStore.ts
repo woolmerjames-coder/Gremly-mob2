@@ -10608,7 +10608,7 @@ export const useGremlyStore = create<GremlyState>()(
               .eq('observed_for_week', observedForWeek)
               .maybeSingle();
 
-            if (dbRow !== null && dbRow !== undefined) {
+            if (dbRow !== null && dbRow !== undefined && dbRow.show === true) {
               const result: import('../habits/habitInsight').HabitInsightResult = {
                 show: Boolean(dbRow.show),
                 line: typeof dbRow.line === 'string' ? dbRow.line : null,
@@ -10660,10 +10660,11 @@ export const useGremlyStore = create<GremlyState>()(
             habitInsightCache: { ...s.habitInsightCache, [cacheKey]: result },
           }));
 
-          // Write to DB only for legitimate results (not hard errors)
+          // Write to DB only for positive results — never persist show:false so a
+          // re-prompted model can produce a line on the next cold start.
           try {
             const userId = get().userId;
-            if (userId) {
+            if (userId && result.show) {
               await supabase.from('habit_insights' as any).upsert(
                 {
                   owner_id: userId,
