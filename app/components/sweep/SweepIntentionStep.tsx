@@ -22,7 +22,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Star, X } from 'lucide-react-native';
+import { Star, X, RotateCcw } from 'lucide-react-native';
 import { Text } from '../../../ui';
 import { Icon } from '../../../design-system/Icon';
 import { BRAND } from '../../../design/brand';
@@ -40,6 +40,30 @@ const SERIF = Platform.select({ ios: 'Georgia', default: 'serif' });
 const MAX_LOCKED = 5;
 
 const SEED_CHIPS = ['Stay on top of work', 'Make time for myself', 'Catch up', 'Keep it light'];
+
+/**
+ * Format a YYYY-MM-DD date string as "Jun 9" — always month + day, never "Today"/weekday.
+ * Used for the review context line where relative labels would be confusing.
+ */
+function formatShortDate(dateStr: string): string {
+  const MONTHS = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  const [, m, d] = dateStr.split('-').map(Number);
+  if (!m || !d) return dateStr;
+  return `${MONTHS[m - 1]} ${d}`;
+}
 
 // By step 3 all session decisions are persisted — empty map gives the full week view
 const EMPTY_DECISIONS = new Map<string, { dueDateStr?: string; action: string }>();
@@ -142,6 +166,18 @@ export function SweepIntentionStep({ onContinue, onSkip, weekStartDate }: SweepI
     [allWeekItems, committedIds],
   );
 
+  // Review-mode metadata: dates for the context line shown when editing an existing intention.
+  const reviewMeta = useMemo(() => {
+    if (!existingIntention) return null;
+    const ds = getDateService();
+    const createdLocalDate = ds.extractLocalDate(existingIntention.created_at);
+    const nextMonday = ds.addDays(existingIntention.target_date ?? weekStartDate, 7);
+    return {
+      createdLabel: createdLocalDate ? formatShortDate(createdLocalDate) : '',
+      resetLabel: formatShortDate(nextMonday),
+    };
+  }, [existingIntention, weekStartDate]);
+
   const handleChipPress = useCallback((chip: string) => {
     setIntentionText(chip);
   }, []);
@@ -217,6 +253,16 @@ export function SweepIntentionStep({ onContinue, onSkip, weekStartDate }: SweepI
             accessibilityLabel="Gremly mascot"
           />
         </View>
+
+        {/* Review context line — only shown when re-entering an existing week intention */}
+        {reviewMeta && (
+          <View style={styles.reviewLine}>
+            <RotateCcw size={11} strokeWidth={2} color={BRAND.colors.inkMuted} />
+            <Text style={styles.reviewLineText}>
+              {`You set this on ${reviewMeta.createdLabel}. Edit below, or it resets ${reviewMeta.resetLabel}.`}
+            </Text>
+          </View>
+        )}
 
         <View style={styles.chipsRow}>
           {SEED_CHIPS.map((chip) => (
@@ -422,6 +468,20 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
   },
   subcopy: { fontSize: 14, fontWeight: '400', color: 'rgba(34,34,34,0.60)', lineHeight: 20 },
+  reviewLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 16,
+    marginTop: -8,
+  },
+  reviewLineText: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: BRAND.colors.inkMuted,
+    lineHeight: 17,
+    flex: 1,
+  },
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
   chip: {
     paddingVertical: 6,
