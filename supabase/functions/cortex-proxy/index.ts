@@ -801,26 +801,17 @@ ${entityDetails}${sweepDetails}${birthdayContext}
     const facts = body?.facts ?? {};
     const crossSignal = body?.crossSignal ?? {};
 
-    const sys = `You are the habit insight voice for Gremly, a shame-free productivity app.
-You receive pre-computed FACTS about a single habit and CROSS-SIGNAL context as JSON.
-Write one short, warm, specific sentence reflecting how this habit is going.
-
-Disposition:
-- There is almost always something worth reflecting back. Default to writing a line (show=true).
-- If the habit is going well or steadily, say so warmly and specifically.
-- If there is a cross-signal pattern (day-of-week tendency, co-occurrence with another habit, a link to journaling), surface that, since it is more interesting than the rate alone.
-- If the habit is currently adapted (a pause or floor window is active), acknowledge that supportively rather than treating gaps as misses.
-- If the habit is drifting, note it gently and without blame.
-- Only return show=false when the habit is brand new with essentially no completion history, so that any statement would be invented. This should be rare.
+    const sys = `You are given real, verified facts about one habit. Write exactly one warm, specific, shame-free sentence reflecting the single most interesting true thing in the data.
+Priority order: cross-signal pattern (day-of-week tendency, co-occurrence with another habit, journal link) > trend > streak or this-week progress > adaptation.
+Reflecting provided facts is never inventing.
 
 Rules:
+- Do not invent numbers, days, or patterns not present in the input.
+- One sentence, at most about ninety characters. Plain, warm, specific.
 - Observe and reflect, do not command. Do not tell the user what to do.
 - Be shame-free. Never imply failure, guilt, falling behind, or apply pressure.
-- Ground every claim strictly in the provided facts or cross-signal data. Never invent numbers, days, frequencies, or patterns not present in the input. Reflecting that things are going steadily is always grounded if the data supports it.
-- One sentence, at most about ninety characters. Plain, warm, specific.
-- Do not reference any date outside the provided data.
 
-Return ONLY JSON: { "show": boolean, "line": string or null, "kind": one of "day_of_week_pattern" "pairing" "journal_link" "building" "drifting" "steady" "adapted" "target_mismatch" "other" or null, "evidence": { "facts_used": array of strings, "confidence": number between 0 and 1 } }`;
+Return ONLY JSON: { "line": string, "kind": one of "day_of_week_pattern" "pairing" "journal_link" "building" "drifting" "steady" "adapted" "target_mismatch" "other", "evidence": { "facts_used": array of strings, "confidence": number between 0 and 1 } }`;
 
     const messages = [
       { role: 'system', content: sys },
@@ -844,21 +835,34 @@ Return ONLY JSON: { "show": boolean, "line": string or null, "kind": one of "day
         signal: controller.signal,
       });
       clearTimeout(timeout);
-      if (!res.ok) return j({ show: false, source: 'upstream_error' });
+      if (!res.ok) {
+        // Fallback line built from facts so the UI always has something
+        const fallbackLine = buildFallbackLine(facts);
+        return j({
+          line: fallbackLine,
+          kind: 'other',
+          evidence: { facts_used: [], confidence: 0 },
+          source: 'upstream_error',
+        });
+      }
       const oj = await res.json();
       const raw = oj?.choices?.[0]?.message?.content ?? '{}';
       let parsed: any;
       try {
         parsed = JSON.parse(raw);
       } catch {
-        return j({ show: false, source: 'parse_fallback' });
+        return j({
+          line: buildFallbackLine(facts),
+          kind: 'other',
+          evidence: { facts_used: [], confidence: 0 },
+          source: 'parse_fallback',
+        });
       }
 
-      const show = parsed.show === true;
-      let line = typeof parsed.line === 'string' ? parsed.line.trim() : null;
-      if (line && line.length > 140) line = line.slice(0, 137) + '...';
-      if (!show) line = null;
-      if (show && (!line || line.length < 3)) return j({ show: false, source: 'empty_line' });
+      let line = typeof parsed.line === 'string' ? parsed.line.trim() : '';
+      if (line.length > 140) line = line.slice(0, 137) + '...';
+      // If model returned empty, build a safe fallback from facts
+      if (line.length < 3) line = buildFallbackLine(facts);
       const validKinds = [
         'day_of_week_pattern',
         'pairing',
@@ -870,7 +874,7 @@ Return ONLY JSON: { "show": boolean, "line": string or null, "kind": one of "day
         'target_mismatch',
         'other',
       ];
-      const kind = show ? (validKinds.includes(parsed.kind) ? parsed.kind : 'other') : null;
+      const kind = validKinds.includes(parsed.kind) ? parsed.kind : 'other';
       const ev = parsed.evidence && typeof parsed.evidence === 'object' ? parsed.evidence : {};
       const facts_used = Array.isArray(ev.facts_used) ? ev.facts_used.slice(0, 8).map(String) : [];
       let confidence = Number(ev.confidence);
@@ -878,7 +882,6 @@ Return ONLY JSON: { "show": boolean, "line": string or null, "kind": one of "day
       confidence = Math.max(0, Math.min(1, confidence));
 
       return j({
-        show,
         line,
         kind,
         evidence: { facts_used, confidence },
@@ -887,9 +890,27 @@ Return ONLY JSON: { "show": boolean, "line": string or null, "kind": one of "day
       });
     } catch (e) {
       clearTimeout(timeout);
-      return j({ show: false, source: (e as Error).name === 'AbortError' ? 'timeout' : 'error' });
+      return j({
+        line: buildFallbackLine(facts),
+        kind: 'other',
+        evidence: { facts_used: [], confidence: 0 },
+        source: (e as Error).name === 'AbortError' ? 'timeout' : 'error',
+      });
     }
   }
 
   return bad(400, 'invalid_type');
 });
+
+/** Build a minimal grounded fallback line from raw facts so the slot is never empty. */
+function buildFallbackLine(facts: any): string {
+  const name = typeof facts?.name === 'string' && facts.name.length > 0 ? facts.name : 'This habit';
+  const weekHits = typeof facts?.weekHits === 'number' ? facts.weekHits : null;
+  const weekTarget = typeof facts?.weekTarget === 'number' ? facts.weekTarget : null;
+  const streak = typeof facts?.streak?.count === 'number' ? facts.streak.count : 0;
+  const streakUnit = facts?.streak?.unit === 'week' ? 'week' : 'day';
+  if (streak > 1) return `${name} is on a ${streak}-${streakUnit} streak.`;
+  if (weekHits !== null && weekTarget !== null)
+    return `${name} has ${weekHits} of ${weekTarget} completions this week.`;
+  return `${name} is being tracked this week.`;
+}

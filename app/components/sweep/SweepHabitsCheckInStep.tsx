@@ -714,8 +714,14 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
             {(() => {
               const habitId = card?.id;
               const insight = habitId ? insightStates[habitId] : undefined;
-              // Nothing while loading or absent — no shimmer, no layout jump
-              if (!insight || insight.loading || !insight.show || !insight.line) return null;
+              // Nothing if gated out (habit has no history — call was skipped)
+              if (!insight) return null;
+              // Shimmer while call is in flight
+              if (insight.loading) {
+                return <View style={styles.insightShimmer} />;
+              }
+              // Gated-out: show:false with no line means no history
+              if (!insight.show || !insight.line) return null;
               const isAttention = insight.kind === 'drifting' || insight.kind === 'target_mismatch';
               const fadeAnim = habitId ? insightFade.current[habitId] : undefined;
               const tileStyle = isAttention
@@ -1373,6 +1379,12 @@ const styles = StyleSheet.create({
   },
 
   // Habit insight slot
+  insightShimmer: {
+    height: 44,
+    marginTop: 12,
+    borderRadius: 15,
+    backgroundColor: 'rgba(34,34,34,0.05)',
+  },
   insightBlock: {
     flexDirection: 'row',
     alignItems: 'flex-start',

@@ -10588,18 +10588,19 @@ export const useGremlyStore = create<GremlyState>()(
           const ds = getDateService();
           const observedForWeek = ds.getStartOfWeek();
           const cacheKey = `${habitId}_${observedForWeek}`;
-          const fallback: import('../habits/habitInsight').HabitInsightResult = {
+          // Sentinel: habit exists but has no completion history — skip the call
+          const noHistory: import('../habits/habitInsight').HabitInsightResult = {
             show: false,
             line: null,
             kind: null,
             observedForWeek,
           };
 
-          // In-memory cache hit
+          // In-memory cache hit (any value, positive or no-history)
           const cached = get().habitInsightCache[cacheKey];
           if (cached !== undefined) return cached;
 
-          // DB cache check
+          // DB cache check — any row with a non-empty line is valid
           try {
             const { data: dbRow } = await supabase
               .from('habit_insights' as any)
@@ -10608,10 +10609,15 @@ export const useGremlyStore = create<GremlyState>()(
               .eq('observed_for_week', observedForWeek)
               .maybeSingle();
 
-            if (dbRow !== null && dbRow !== undefined && dbRow.show === true) {
+            if (
+              dbRow !== null &&
+              dbRow !== undefined &&
+              typeof dbRow.line === 'string' &&
+              dbRow.line.length > 2
+            ) {
               const result: import('../habits/habitInsight').HabitInsightResult = {
-                show: Boolean(dbRow.show),
-                line: typeof dbRow.line === 'string' ? dbRow.line : null,
+                show: true,
+                line: dbRow.line,
                 kind: (dbRow.kind ??
                   null) as import('../habits/habitInsight').HabitInsightResult['kind'],
                 observedForWeek,
@@ -10625,8 +10631,17 @@ export const useGremlyStore = create<GremlyState>()(
             // DB read failure — fall through to cortex call
           }
 
-          // Cortex call (cache miss)
+          // Gate: skip the call if the habit has no completion history at all
           const state = get();
+          const habitCompletions = state.habitProgress.filter((p) => p.habit_id === habitId);
+          if (habitCompletions.length === 0) {
+            set((s) => ({
+              habitInsightCache: { ...s.habitInsightCache, [cacheKey]: noHistory },
+            }));
+            return noHistory;
+          }
+
+          // Build payload and call cortex
           const input = buildHabitInsightInput(
             habitId,
             state.habits,
@@ -10636,23 +10651,25 @@ export const useGremlyStore = create<GremlyState>()(
           );
           if (!input) {
             set((s) => ({
-              habitInsightCache: { ...s.habitInsightCache, [cacheKey]: fallback },
+              habitInsightCache: { ...s.habitInsightCache, [cacheKey]: noHistory },
             }));
-            return fallback;
+            return noHistory;
           }
 
           let result: import('../habits/habitInsight').HabitInsightResult;
           try {
             const proxy = await callHabitInsight(input.facts, input.crossSignal, observedForWeek);
+            // The endpoint always returns a line; treat any non-empty line as show:true
+            const hasLine = typeof proxy.line === 'string' && proxy.line.length > 2;
             result = {
-              show: proxy.show,
-              line: proxy.line,
+              show: hasLine,
+              line: hasLine ? proxy.line : null,
               kind: (proxy.kind ??
                 null) as import('../habits/habitInsight').HabitInsightResult['kind'],
               observedForWeek,
             };
           } catch {
-            result = fallback;
+            result = noHistory;
           }
 
           // Store in memory always
@@ -10660,17 +10677,16 @@ export const useGremlyStore = create<GremlyState>()(
             habitInsightCache: { ...s.habitInsightCache, [cacheKey]: result },
           }));
 
-          // Write to DB only for positive results — never persist show:false so a
-          // re-prompted model can produce a line on the next cold start.
+          // Write to DB only when we have a real line
           try {
             const userId = get().userId;
-            if (userId && result.show) {
+            if (userId && result.show && result.line) {
               await supabase.from('habit_insights' as any).upsert(
                 {
                   owner_id: userId,
                   habit_id: habitId,
                   observed_for_week: observedForWeek,
-                  show: result.show,
+                  show: true,
                   line: result.line,
                   kind: result.kind,
                   model: 'gpt-4.1-mini',
