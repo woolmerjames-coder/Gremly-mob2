@@ -8,7 +8,7 @@
  *   - On Continue: saves a journal note (journal_subtype:'intention') if text entered
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   KeyboardAvoidingView,
@@ -27,6 +27,7 @@ import { Text } from '../../../ui';
 import { Icon } from '../../../design-system/Icon';
 import { BRAND } from '../../../design/brand';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
+import { getDateService } from '../../../lib/date/DateService';
 import { useWeekDays } from '../../../lib/store/weekGridSelectors';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -51,15 +52,52 @@ export interface SweepIntentionStepProps {
 
 export function SweepIntentionStep({ onContinue, onSkip, weekStartDate }: SweepIntentionStepProps) {
   const createNote = useGremlyStore((s) => s.createNote);
+  const updateNote = useGremlyStore((s) => s.updateNote);
+  const notes = useGremlyStore((s) => s.notes);
   const addCommitment = useGremlyStore((s) => s.addCommitment);
   const removeCommitment = useGremlyStore((s) => s.removeCommitment);
   const todos = useGremlyStore((s) => s.todos);
 
-  const weekDays = useWeekDays(EMPTY_DECISIONS);
+  // Find the existing intention note for the current week (for edit/upsert)
+  const existingIntention = useMemo(() => {
+    const ds = getDateService();
+    const weekStart = ds.getStartOfWeek();
+    const weekEnd = ds.addDays(weekStart, 6);
+    return (
+      notes.find(
+        (n) =>
+          n.journal_subtype === 'intention' &&
+          !n.archived &&
+          n.target_date != null &&
+          n.target_date >= weekStart &&
+          n.target_date <= weekEnd,
+      ) ?? null
+    );
+  }, [notes]);
 
-  const [intentionText, setIntentionText] = useState('');
+  // Prefill from existing note. Read store directly at mount for zero-flash init;
+  // a ref prevents overwriting user edits if the store updates mid-session.
+  const prefillAppliedRef = useRef(false);
+  const [intentionText, setIntentionText] = useState<string>(() => {
+    const storeNotes = useGremlyStore.getState().notes;
+    const ds = getDateService();
+    const weekStart = ds.getStartOfWeek();
+    const weekEnd = ds.addDays(weekStart, 6);
+    const existing = storeNotes.find(
+      (n) =>
+        n.journal_subtype === 'intention' &&
+        !n.archived &&
+        n.target_date != null &&
+        n.target_date >= weekStart &&
+        n.target_date <= weekEnd,
+    );
+    if (existing?.body) prefillAppliedRef.current = true;
+    return existing?.body ?? '';
+  });
   const [isSaving, setIsSaving] = useState(false);
   const [showLockSheet, setShowLockSheet] = useState(false);
+
+  const weekDays = useWeekDays(EMPTY_DECISIONS);
 
   const insets = useSafeAreaInsets();
 
@@ -128,24 +166,32 @@ export function SweepIntentionStep({ onContinue, onSkip, weekStartDate }: SweepI
     }
     setIsSaving(true);
     try {
-      await createNote({
-        subtype: 'journal',
-        title: trimmed.slice(0, 80) || 'Weekly intention',
-        body: trimmed || undefined,
-        origin: 'manual',
-        canonicalType: 'log',
-        journal_subtype: 'intention',
-        target_date: weekStartDate,
-        tags: ['intention', 'sweep'],
-        views: { sweep_origin: true, sweep_date: weekStartDate },
-      });
+      if (existingIntention) {
+        // Update the existing note instead of creating a duplicate
+        await updateNote(existingIntention.id, {
+          title: trimmed.slice(0, 80) || 'Weekly intention',
+          body: trimmed,
+        });
+      } else {
+        await createNote({
+          subtype: 'journal',
+          title: trimmed.slice(0, 80) || 'Weekly intention',
+          body: trimmed || undefined,
+          origin: 'manual',
+          canonicalType: 'log',
+          journal_subtype: 'intention',
+          target_date: weekStartDate,
+          tags: ['intention', 'sweep'],
+          views: { sweep_origin: true, sweep_date: weekStartDate },
+        });
+      }
     } catch {
       // Non-blocking
     } finally {
       setIsSaving(false);
     }
     onContinue();
-  }, [intentionText, createNote, weekStartDate, onContinue]);
+  }, [intentionText, existingIntention, createNote, updateNote, weekStartDate, onContinue]);
 
   return (
     <KeyboardAvoidingView

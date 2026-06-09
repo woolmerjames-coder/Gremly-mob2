@@ -4826,10 +4826,27 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     navigation.goBack();
   };
 
-  // Handler for X close button
+  // Handler for X close button.
+  // In à-la-carte hub mode: X inside a spoke returns to the hub chooser.
+  // From the hub itself, guided mode, or non-hub mode: X exits the sweep.
   const handleClose = useCallback(() => {
+    if (hubMode && !guidedAll && step !== HUB && step > 0) {
+      backToHub();
+      return;
+    }
     navigation.goBack();
-  }, [navigation]);
+  }, [hubMode, guidedAll, step, HUB, backToHub, navigation]);
+
+  // Intercept gesture/hardware back in à-la-carte hub mode so the user
+  // returns to the hub chooser instead of leaving the sweep entirely.
+  useEffect(() => {
+    return navigation.addListener('beforeRemove', (e) => {
+      if (hubMode && !guidedAll && step !== HUB && step > 0) {
+        e.preventDefault();
+        backToHub();
+      }
+    });
+  }, [navigation, hubMode, guidedAll, step, HUB, backToHub]);
 
   // Handler for back chevron - goes to previous step or closes if on first step
   const handleGoBack = useCallback(() => {
@@ -4966,7 +4983,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
           )}
           {step === 0.75 && sweepIntent === 'week' && (
             <SweepIntentionStep
-              weekStartDate={getDateService().today()}
+              weekStartDate={getDateService().getStartOfWeek()}
               onContinue={() => {
                 if (hasUnresolvedMultiDrops) setStep(0.25);
                 else if (hasLockedItems && !lockInCheckpointComplete) setStep(0.5);
@@ -5001,7 +5018,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
           )}
           {step === 3 && sweepIntent === 'week' && (
             <SweepIntentionStep
-              weekStartDate={getDateService().today()}
+              weekStartDate={getDateService().getStartOfWeek()}
               onContinue={handleMoodContinue}
               onSkip={handleMoodContinue}
             />
