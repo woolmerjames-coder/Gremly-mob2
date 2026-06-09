@@ -22,9 +22,8 @@ import {
 
 const SERIF = Platform.select({ ios: 'Georgia', default: 'serif' });
 
-// Trend bar chart constants
-const BAR_MAX_H = 52;
-const TARGET_LINE_Y = Math.round(BAR_MAX_H / 1.3); // ~40 — target line offset from bottom
+// Dot size for the trend row
+const DOT_SIZE = 10;
 
 // Per-habit applied frequency changes (persists for the session)
 interface AppliedChange {
@@ -188,7 +187,10 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
         <View style={styles.cardBody}>
           {/* This week row header */}
           <View style={styles.weekRowHeader}>
-            <Text style={styles.weekRowLabel}>This week</Text>
+            <View>
+              <Text style={styles.weekRowLabel}>This week</Text>
+              <Text style={styles.weekRowSub}>past 7 days</Text>
+            </View>
             <View style={styles.tapToFix}>
               <Pencil size={11} strokeWidth={2} color={BRAND.colors.inkMuted} />
               <Text style={styles.tapToFixText}>tap to fix</Text>
@@ -235,44 +237,49 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
 
           <Text style={styles.tapHint}>Did one you forgot to mark? Tap to add it.</Text>
 
-          {/* Trend bars -- only when >=3 weeks of data (trend.read !== null) */}
-          {card.trend.read !== null && (
-            <View style={styles.trendBlock}>
-              <View style={styles.trendHeader}>
-                <Text style={styles.trendHeaderLabel}>Recent weeks</Text>
-                <Text
-                  style={[
-                    styles.trendReadLabel,
-                    card.trend.read === 'building' && styles.trendReadBuilding,
-                    card.trend.read === 'drifting' && styles.trendReadDrifting,
-                  ]}
-                >
-                  {card.trend.read}
-                </Text>
-              </View>
-              <View style={styles.trendBarsRow}>
-                {card.trend.bars.map((bar) => {
-                  const fill = Math.min(bar.hits / bar.target, 1.3);
-                  const barH = Math.max(4, Math.round((fill / 1.3) * BAR_MAX_H));
-                  return (
-                    <View key={bar.weekLabel} style={styles.trendBarCol}>
-                      <View style={styles.trendTrack}>
-                        <View style={[styles.trendTargetLine, { bottom: TARGET_LINE_Y }]} />
-                        <View
-                          style={[
-                            styles.trendBarFill,
-                            bar.isCurrent && styles.trendBarFillCurrent,
-                            { height: barH },
-                          ]}
-                        />
-                      </View>
-                      <Text style={styles.trendBarWeekLabel}>{bar.weekLabel}</Text>
+          {/* Trend dot row -- only when >=3 weeks of data (trend.read !== null) */}
+          {card.trend.read !== null &&
+            (() => {
+              const onTarget = card.trend.bars.filter((b) => b.hits >= b.target).length;
+              const total = card.trend.bars.length;
+              return (
+                <View style={styles.trendBlock}>
+                  <View style={styles.trendHeader}>
+                    <View>
+                      <Text style={styles.trendHeaderLabel}>Recent weeks</Text>
+                      <Text style={styles.weekRowSub}>week by week</Text>
                     </View>
-                  );
-                })}
-              </View>
-            </View>
-          )}
+                    <Text
+                      style={[
+                        styles.trendReadLabel,
+                        card.trend.read === 'building' && styles.trendReadBuilding,
+                      ]}
+                    >
+                      {card.trend.read}
+                    </Text>
+                  </View>
+                  <View style={styles.trendDotsRow}>
+                    {card.trend.bars.map((bar) => {
+                      const hit = bar.hits >= bar.target;
+                      return (
+                        <View
+                          key={bar.weekLabel}
+                          style={[
+                            styles.trendDot,
+                            hit ? styles.trendDotHit : styles.trendDotMiss,
+                            bar.isCurrent && styles.trendDotCurrent,
+                          ]}
+                          accessibilityLabel={`${bar.weekLabel}: ${bar.hits} of ${bar.target}${hit ? ' hit target' : ' missed target'}`}
+                        />
+                      );
+                    })}
+                  </View>
+                  <Text style={styles.trendCaption}>
+                    {onTarget} of last {total} weeks on target
+                  </Text>
+                </View>
+              );
+            })()}
 
           {/* AI insight slot -- reserved for future highlight (v7-next) */}
 
@@ -501,6 +508,12 @@ const styles = StyleSheet.create({
     color: BRAND.colors.charcoalInk,
     letterSpacing: 0.2,
   },
+  weekRowSub: {
+    fontSize: 10,
+    fontWeight: '400',
+    color: BRAND.colors.inkMuted,
+    marginTop: 1,
+  },
   tapToFix: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -575,7 +588,7 @@ const styles = StyleSheet.create({
   },
   trendHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     marginBottom: 10,
   },
@@ -590,45 +603,39 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: BRAND.colors.inkMuted,
     textTransform: 'capitalize',
+    marginTop: 2,
   },
   trendReadBuilding: { color: BRAND.colors.mossGreen },
-  trendReadDrifting: { color: '#C07A3A' },
-  trendBarsRow: {
+  // drifting intentionally uses default inkMuted (no alarm colour)
+  trendDotsRow: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 5,
-  },
-  trendBarCol: {
-    flex: 1,
+    gap: 8,
     alignItems: 'center',
-    gap: 4,
+    marginBottom: 8,
   },
-  trendTrack: {
-    width: '100%',
-    height: BAR_MAX_H,
-    justifyContent: 'flex-end',
+  trendDot: {
+    width: DOT_SIZE,
+    height: DOT_SIZE,
+    borderRadius: DOT_SIZE / 2,
   },
-  trendTargetLine: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    height: 1,
-    backgroundColor: 'rgba(34,34,34,0.22)',
+  trendDotHit: {
+    backgroundColor: BRAND.colors.sageMist,
+    borderWidth: 1,
+    borderColor: 'rgba(46,85,64,0.35)',
   },
-  trendBarFill: {
-    width: '100%',
-    borderRadius: 3,
-    backgroundColor: 'rgba(34,34,34,0.16)',
+  trendDotMiss: {
+    backgroundColor: 'transparent',
+    borderWidth: 1.5,
+    borderColor: 'rgba(34,34,34,0.22)',
   },
-  trendBarFillCurrent: {
-    backgroundColor: BRAND.colors.mossGreen,
-    opacity: 0.85,
+  trendDotCurrent: {
+    borderWidth: 2,
+    borderColor: BRAND.colors.mossGreen,
   },
-  trendBarWeekLabel: {
-    fontSize: 9,
-    fontWeight: '500',
+  trendCaption: {
+    fontSize: 11,
+    fontWeight: '400',
     color: BRAND.colors.inkMuted,
-    textAlign: 'center',
   },
 
   // Frequency recommendation block
