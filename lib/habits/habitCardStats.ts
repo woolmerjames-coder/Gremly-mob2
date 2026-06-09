@@ -211,15 +211,22 @@ function computeTrend(
     hitsMap.get(key)!.add(p.occurred_day);
   }
 
-  // Keep only weeks in our window that have >=1 hit
-  const weekKeysWithData = weekKeys.filter((k) => (hitsMap.get(k)?.size ?? 0) >= 1);
+  // Find the first week in the window that has data; include EVERY week from
+  // there to now (in-span empty weeks count as misses, not dropped).
+  const firstIdxWithData = weekKeys.findIndex((k) => (hitsMap.get(k)?.size ?? 0) >= 1);
 
-  if (weekKeysWithData.length < 3) {
+  if (firstIdxWithData === -1) {
     return { bars: [], read: null };
   }
 
-  // Build bar objects; label = weeks-ago from current (0=now)
-  const bars: TrendBar[] = weekKeysWithData.map((key) => {
+  const spanKeys = weekKeys.slice(firstIdxWithData); // first activity → current
+
+  // Need at least 3 weeks of span to form a trend read.
+  if (spanKeys.length < 3) {
+    return { bars: [], read: null };
+  }
+
+  const bars: TrendBar[] = spanKeys.map((key) => {
     const hits = hitsMap.get(key)?.size ?? 0;
     const weekIdx = weekKeys.indexOf(key); // 0=oldest(5w ago), 5=current
     const weeksAgo = 5 - weekIdx;

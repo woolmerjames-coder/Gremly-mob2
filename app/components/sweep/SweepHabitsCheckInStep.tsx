@@ -871,7 +871,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: BRAND.colors.linenCream,
     paddingHorizontal: 20,
-    paddingTop: 28,
+    paddingTop: 12,
   },
   cardScroll: {
     flex: 1,
@@ -885,7 +885,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 6,
-    marginBottom: 20,
+    marginBottom: 12,
   },
   progressDot: {
     width: 6,
@@ -1488,7 +1488,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginTop: 8,
+    marginBottom: 6,
   },
   navBtn: {
     width: 44,
@@ -1510,7 +1511,7 @@ const styles = StyleSheet.create({
   navCounter: { fontSize: 13, fontWeight: '500', color: BRAND.colors.inkMuted },
 
   // Finish early
-  skipBtn: { alignItems: 'center', paddingVertical: 10 },
+  skipBtn: { alignItems: 'center', paddingVertical: 6 },
   skipBtnText: { fontSize: 14, fontWeight: '500', color: BRAND.colors.inkMuted },
 
   // Empty state
