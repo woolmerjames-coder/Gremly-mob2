@@ -7,9 +7,10 @@
  * No AI, no gauge side-effects.
  */
 
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   View,
+  ScrollView,
   TouchableOpacity,
   StyleSheet,
   Platform,
@@ -17,6 +18,7 @@ import {
   Modal,
   Pressable,
   Alert,
+  Animated,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import {
@@ -33,6 +35,7 @@ import {
   ChevronUp,
   Sparkles,
 } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
@@ -101,8 +104,10 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   const [appliedChanges, setAppliedChanges] = useState<Record<string, AppliedChange>>({});
 
   // ── Habit insight state ────────────────────────────────────────────────────
-  type InsightState = { loading: boolean; show: boolean; line: string | null };
+  type InsightState = { loading: boolean; show: boolean; line: string | null; kind: string | null };
   const [insightStates, setInsightStates] = useState<Record<string, InsightState>>({});
+  // Per-habitId Animated.Value for fade-in (created lazily on show:true result)
+  const insightFade = useRef<Record<string, Animated.Value>>({});
 
   // ── Adaptation form state ────────────────────────────────────────────────
   type AdaptMode = 'keep' | 'floor' | 'pause';
@@ -132,19 +137,36 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
     // Mark as loading
     setInsightStates((prev) => ({
       ...prev,
-      [currentHabitId]: { loading: true, show: false, line: null },
+      [currentHabitId]: { loading: true, show: false, line: null, kind: null },
     }));
     getOrFetchHabitInsight(currentHabitId)
       .then((result) => {
+        if (result.show && result.line) {
+          if (!insightFade.current[currentHabitId]) {
+            insightFade.current[currentHabitId] = new Animated.Value(0);
+          } else {
+            insightFade.current[currentHabitId].setValue(0);
+          }
+          Animated.timing(insightFade.current[currentHabitId], {
+            toValue: 1,
+            duration: 280,
+            useNativeDriver: true,
+          }).start();
+        }
         setInsightStates((prev) => ({
           ...prev,
-          [currentHabitId]: { loading: false, show: result.show, line: result.line },
+          [currentHabitId]: {
+            loading: false,
+            show: result.show,
+            line: result.line,
+            kind: result.kind,
+          },
         }));
       })
       .catch(() => {
         setInsightStates((prev) => ({
           ...prev,
-          [currentHabitId]: { loading: false, show: false, line: null },
+          [currentHabitId]: { loading: false, show: false, line: null, kind: null },
         }));
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -340,411 +362,449 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
         ))}
       </View>
 
-      {/* Card */}
-      <View style={styles.card}>
-        {/* ── Hero header ── */}
-        <View style={styles.heroHeader}>
-          {/* Cadence pill */}
-          <View style={styles.cadencePill}>
-            <Text style={styles.cadencePillText}>{card.cadence.toUpperCase()}</Text>
-          </View>
-
-          {/* Habit name */}
-          <Text style={styles.heroName} numberOfLines={2}>
-            {card.name}
-          </Text>
-
-          {/* Three stats row */}
-          <View style={styles.heroStats}>
-            <View style={styles.heroStat}>
-              <Text style={styles.heroStatNum}>
-                {card.weekHits}
-                <Text style={styles.heroStatDenom}> / {card.weekTarget}</Text>
-              </Text>
-              <Text style={styles.heroStatLabel}>this week</Text>
+      {/* Card — scrollable so insight / adaptation sections are always reachable */}
+      <ScrollView
+        style={styles.cardScroll}
+        contentContainerStyle={styles.cardScrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        bounces
+      >
+        <View style={styles.card}>
+          {/* ── Hero header ── */}
+          <View style={styles.heroHeader}>
+            {/* Cadence pill */}
+            <View style={styles.cadencePill}>
+              <Text style={styles.cadencePillText}>{card.cadence.toUpperCase()}</Text>
             </View>
 
-            <View style={styles.heroStatDivider} />
+            {/* Habit name */}
+            <Text style={styles.heroName} numberOfLines={2}>
+              {card.name}
+            </Text>
 
-            <View style={styles.heroStat}>
-              {card.streak.count > 0 ? (
-                <>
-                  <View style={styles.heroStatNumRow}>
-                    <Flame size={13} strokeWidth={2} color="rgba(255,255,255,0.80)" />
-                    <Text style={styles.heroStatNum}>
-                      {card.streak.count}
-                      <Text style={styles.heroStatUnit}>
-                        {' '}
-                        {card.streak.unit === 'week' ? 'wk' : 'day'}
-                        {card.streak.count !== 1 ? 's' : ''}
-                      </Text>
-                    </Text>
-                  </View>
-                  <Text style={styles.heroStatLabel}>streak</Text>
-                </>
-              ) : (
-                <>
-                  <Text style={styles.heroStatNum}>--</Text>
-                  <Text style={styles.heroStatLabel}>streak</Text>
-                </>
-              )}
-            </View>
-
-            <View style={styles.heroStatDivider} />
-
-            <View style={styles.heroStat}>
-              <Text style={styles.heroStatNum}>
-                {card.pct30}
-                <Text style={styles.heroStatUnit}>%</Text>
-              </Text>
-              <Text style={styles.heroStatLabel}>last 30d</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* ── Card body ── */}
-        <View style={styles.cardBody}>
-          {/* This week row header */}
-          <View style={styles.weekRowHeader}>
-            <View>
-              <Text style={styles.weekRowLabel}>This week</Text>
-              <Text style={styles.weekRowSub}>past 7 days</Text>
-            </View>
-            <View style={styles.tapToFix}>
-              <Pencil size={11} strokeWidth={2} color={BRAND.colors.inkMuted} />
-              <Text style={styles.tapToFixText}>tap to fix</Text>
-            </View>
-          </View>
-
-          {/* Day row — all 7 cells tappable (rolling window, no future) */}
-          <View style={styles.dayRow}>
-            {card.days.map((day) => (
-              <TouchableOpacity
-                key={day.date}
-                style={[
-                  styles.dayCell,
-                  day.isCompleted && styles.dayCellCompleted,
-                  day.isToday && !day.isCompleted && styles.dayCellToday,
-                  day.isToday && day.isCompleted && styles.dayCellTodayCompleted,
-                  !day.isCompleted && !day.isToday && styles.dayCellMissed,
-                ]}
-                onPress={() => handleToggleDay(day.date, day.isCompleted)}
-                activeOpacity={0.7}
-                accessibilityRole="checkbox"
-                accessibilityLabel={`${day.dayLabel} ${day.date}${day.isCompleted ? ' completed' : ''}`}
-                accessibilityState={{ checked: day.isCompleted }}
-              >
-                <Text
-                  style={[
-                    styles.dayCellLabel,
-                    day.isCompleted && styles.dayCellLabelCompleted,
-                    day.isToday && !day.isCompleted && styles.dayCellLabelToday,
-                  ]}
-                >
-                  {day.dayLabel}
+            {/* Three stats row */}
+            <View style={styles.heroStats}>
+              <View style={styles.heroStat}>
+                <Text style={styles.heroStatNum}>
+                  {card.weekHits}
+                  <Text style={styles.heroStatDenom}> / {card.weekTarget}</Text>
                 </Text>
-                <View style={styles.dayCellIndicator}>
-                  {day.isCompleted ? (
-                    <Check size={12} strokeWidth={2.5} color={BRAND.colors.mossGreen} />
-                  ) : (
-                    <Circle size={12} strokeWidth={1.5} color="rgba(34,34,34,0.20)" />
-                  )}
-                </View>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <Text style={styles.tapHint}>Did one you forgot to mark? Tap to add it.</Text>
-
-          {/* ── Habit Adaptation Block (v7-3a) ── */}
-          <View style={styles.adaptBlock}>
-            {/* Adaptation pills — always visible, one per non-expired adaptation */}
-            {adaptationsForCard.map((a) => (
-              <View key={a.id} style={styles.activeAdaptRow}>
-                <View style={styles.activeAdaptContent}>
-                  {a.mode === 'pause' ? (
-                    <Pause size={11} strokeWidth={2} color={BRAND.colors.charcoalInk} />
-                  ) : (
-                    <TrendingDown size={11} strokeWidth={2} color={BRAND.colors.charcoalInk} />
-                  )}
-                  <Text style={styles.activeAdaptText}>
-                    {a.mode === 'pause'
-                      ? `Paused ${formatDateDisplay(a.period_start)}–${formatDateDisplay(a.period_end)}`
-                      : `Floor ${formatDateDisplay(a.period_start)}–${formatDateDisplay(a.period_end)}`}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  onPress={() => handleClearAdaptation(a.id)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  accessibilityRole="button"
-                  accessibilityLabel="Remove adaptation"
-                >
-                  <Text style={styles.activeAdaptRemove}>Remove</Text>
-                </TouchableOpacity>
+                <Text style={styles.heroStatLabel}>this week</Text>
               </View>
-            ))}
 
-            {/* Add prompt (collapsed) or form (expanded) — always present */}
-            {!adaptExpanded ? (
-              /* Quiet prompt row — always shown so user can always add
-                 TODO: AI seam (v7-3b) — AI will promote this into a travel/break nudge */
-              <TouchableOpacity
-                style={styles.adaptPromptRow}
-                onPress={() => setAdaptExpanded(true)}
-                activeOpacity={0.7}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  adaptationsForCard.length > 0
-                    ? 'Add another adaptation'
-                    : 'Adapt this habit for travel or a break'
-                }
-              >
-                <Calendar size={13} strokeWidth={1.8} color={BRAND.colors.inkMuted} />
-                <Text style={styles.adaptPromptText}>
-                  {adaptationsForCard.length > 0 ? 'Add another' : 'Adapt for travel or a break'}
-                </Text>
-              </TouchableOpacity>
-            ) : (
-              /* Expanded form */
-              <View>
-                {/* Header with collapse button */}
-                <View style={styles.adaptExpandedHeader}>
-                  <Text style={styles.adaptLabel}>Adapt this habit</Text>
-                  <TouchableOpacity
-                    onPress={() => setAdaptExpanded(false)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    accessibilityRole="button"
-                    accessibilityLabel="Collapse"
-                  >
-                    <ChevronUp size={16} strokeWidth={2} color={BRAND.colors.inkMuted} />
-                  </TouchableOpacity>
-                </View>
+              <View style={styles.heroStatDivider} />
 
-                {/* Mode selector */}
-                <View style={styles.adaptModeRow}>
-                  {(['keep', 'floor', 'pause'] as const).map((m) => (
-                    <TouchableOpacity
-                      key={m}
-                      style={[styles.adaptModeBtn, adaptMode === m && styles.adaptModeBtnActive]}
-                      onPress={() => setAdaptMode(m)}
-                      activeOpacity={0.75}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected: adaptMode === m }}
-                      accessibilityLabel={m}
-                    >
-                      {m === 'keep' && (
-                        <Shield
-                          size={13}
-                          strokeWidth={2}
-                          color={adaptMode === m ? BRAND.colors.mossGreen : BRAND.colors.inkMuted}
-                        />
-                      )}
-                      {m === 'floor' && (
-                        <TrendingDown
-                          size={13}
-                          strokeWidth={2}
-                          color={adaptMode === m ? BRAND.colors.mossGreen : BRAND.colors.inkMuted}
-                        />
-                      )}
-                      {m === 'pause' && (
-                        <Pause
-                          size={13}
-                          strokeWidth={2}
-                          color={adaptMode === m ? BRAND.colors.mossGreen : BRAND.colors.inkMuted}
-                        />
-                      )}
-                      <Text
-                        style={[
-                          styles.adaptModeBtnText,
-                          adaptMode === m && styles.adaptModeBtnTextActive,
-                        ]}
-                      >
-                        {m.charAt(0).toUpperCase() + m.slice(1)}
+              <View style={styles.heroStat}>
+                {card.streak.count > 0 ? (
+                  <>
+                    <View style={styles.heroStatNumRow}>
+                      <Flame size={13} strokeWidth={2} color="rgba(255,255,255,0.80)" />
+                      <Text style={styles.heroStatNum}>
+                        {card.streak.count}
+                        <Text style={styles.heroStatUnit}>
+                          {' '}
+                          {card.streak.unit === 'week' ? 'wk' : 'day'}
+                          {card.streak.count !== 1 ? 's' : ''}
+                        </Text>
                       </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                {/* Date range + floor note (only when floor or pause selected) */}
-                {adaptMode !== 'keep' && (
-                  <View style={styles.adaptFields}>
-                    <View style={styles.adaptDateRow}>
-                      <TouchableOpacity
-                        style={[
-                          styles.adaptDateBtn,
-                          datePickerTarget === 'start' && styles.adaptDateBtnActive,
-                        ]}
-                        onPress={() => openDatePicker('start')}
-                        activeOpacity={0.75}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Start date: ${formatDateDisplay(adaptStart)}`}
-                      >
-                        <Calendar size={11} strokeWidth={2} color={BRAND.colors.inkMuted} />
-                        <Text style={styles.adaptDateBtnText}>{formatDateDisplay(adaptStart)}</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[
-                          styles.adaptDateBtn,
-                          datePickerTarget === 'end' && styles.adaptDateBtnActive,
-                        ]}
-                        onPress={() => openDatePicker('end')}
-                        activeOpacity={0.75}
-                        accessibilityRole="button"
-                        accessibilityLabel={`End date: ${formatDateDisplay(adaptEnd)}`}
-                      >
-                        <Calendar size={11} strokeWidth={2} color={BRAND.colors.inkMuted} />
-                        <Text style={styles.adaptDateBtnText}>{formatDateDisplay(adaptEnd)}</Text>
-                      </TouchableOpacity>
                     </View>
-
-                    {adaptMode === 'floor' && (
-                      <TextInput
-                        style={styles.adaptFloorNoteInput}
-                        placeholder="Floor note (optional)"
-                        placeholderTextColor={BRAND.colors.inkMuted}
-                        value={adaptFloorNote}
-                        onChangeText={setAdaptFloorNote}
-                        maxLength={200}
-                        multiline={false}
-                        accessibilityLabel="Floor note"
-                      />
-                    )}
-
-                    {/* TODO: AI floor-note suggestion seam (v7-3b) */}
-
-                    {adaptOverlapError && (
-                      <Text style={styles.adaptErrorText}>
-                        This period overlaps an existing adaptation. Remove the existing one first.
-                      </Text>
-                    )}
-
-                    <TouchableOpacity
-                      style={[styles.adaptSaveBtn, adaptSaving && styles.adaptSaveBtnDisabled]}
-                      onPress={handleSaveAdaptation}
-                      disabled={adaptSaving}
-                      activeOpacity={0.8}
-                      accessibilityRole="button"
-                      accessibilityLabel="Save adaptation"
-                    >
-                      <Text style={styles.adaptSaveBtnText}>
-                        {adaptSaving ? 'Saving...' : 'Save adaptation'}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
+                    <Text style={styles.heroStatLabel}>streak</Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.heroStatNum}>--</Text>
+                    <Text style={styles.heroStatLabel}>streak</Text>
+                  </>
                 )}
               </View>
-            )}
+
+              <View style={styles.heroStatDivider} />
+
+              <View style={styles.heroStat}>
+                <Text style={styles.heroStatNum}>
+                  {card.pct30}
+                  <Text style={styles.heroStatUnit}>%</Text>
+                </Text>
+                <Text style={styles.heroStatLabel}>last 30d</Text>
+              </View>
+            </View>
           </View>
-          {card.trend.read !== null &&
-            (() => {
-              const onTarget = card.trend.bars.filter((b) => b.hits >= b.target).length;
-              const total = card.trend.bars.length;
-              return (
-                <View style={styles.trendBlock}>
-                  <View style={styles.trendHeader}>
-                    <View>
-                      <Text style={styles.trendHeaderLabel}>Recent weeks</Text>
-                      <Text style={styles.weekRowSub}>week by week</Text>
-                    </View>
-                    <Text
-                      style={[
-                        styles.trendReadLabel,
-                        card.trend.read === 'building' && styles.trendReadBuilding,
-                      ]}
-                    >
-                      {card.trend.read}
+
+          {/* ── Card body ── */}
+          <View style={styles.cardBody}>
+            {/* This week row header */}
+            <View style={styles.weekRowHeader}>
+              <View>
+                <Text style={styles.weekRowLabel}>This week</Text>
+                <Text style={styles.weekRowSub}>past 7 days</Text>
+              </View>
+              <View style={styles.tapToFix}>
+                <Pencil size={11} strokeWidth={2} color={BRAND.colors.inkMuted} />
+                <Text style={styles.tapToFixText}>tap to fix</Text>
+              </View>
+            </View>
+
+            {/* Day row — all 7 cells tappable (rolling window, no future) */}
+            <View style={styles.dayRow}>
+              {card.days.map((day) => (
+                <TouchableOpacity
+                  key={day.date}
+                  style={[
+                    styles.dayCell,
+                    day.isCompleted && styles.dayCellCompleted,
+                    day.isToday && !day.isCompleted && styles.dayCellToday,
+                    day.isToday && day.isCompleted && styles.dayCellTodayCompleted,
+                    !day.isCompleted && !day.isToday && styles.dayCellMissed,
+                  ]}
+                  onPress={() => handleToggleDay(day.date, day.isCompleted)}
+                  activeOpacity={0.7}
+                  accessibilityRole="checkbox"
+                  accessibilityLabel={`${day.dayLabel} ${day.date}${day.isCompleted ? ' completed' : ''}`}
+                  accessibilityState={{ checked: day.isCompleted }}
+                >
+                  <Text
+                    style={[
+                      styles.dayCellLabel,
+                      day.isCompleted && styles.dayCellLabelCompleted,
+                      day.isToday && !day.isCompleted && styles.dayCellLabelToday,
+                    ]}
+                  >
+                    {day.dayLabel}
+                  </Text>
+                  <View style={styles.dayCellIndicator}>
+                    {day.isCompleted ? (
+                      <Check size={12} strokeWidth={2.5} color={BRAND.colors.mossGreen} />
+                    ) : (
+                      <Circle size={12} strokeWidth={1.5} color="rgba(34,34,34,0.20)" />
+                    )}
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.tapHint}>Did one you forgot to mark? Tap to add it.</Text>
+
+            {/* ── Habit Adaptation Block (v7-3a) ── */}
+            <View style={styles.adaptBlock}>
+              {/* Adaptation pills — always visible, one per non-expired adaptation */}
+              {adaptationsForCard.map((a) => (
+                <View key={a.id} style={styles.activeAdaptRow}>
+                  <View style={styles.activeAdaptContent}>
+                    {a.mode === 'pause' ? (
+                      <Pause size={11} strokeWidth={2} color={BRAND.colors.charcoalInk} />
+                    ) : (
+                      <TrendingDown size={11} strokeWidth={2} color={BRAND.colors.charcoalInk} />
+                    )}
+                    <Text style={styles.activeAdaptText}>
+                      {a.mode === 'pause'
+                        ? `Paused ${formatDateDisplay(a.period_start)}–${formatDateDisplay(a.period_end)}`
+                        : `Floor ${formatDateDisplay(a.period_start)}–${formatDateDisplay(a.period_end)}`}
                     </Text>
                   </View>
-                  <View style={styles.trendDotsRow}>
-                    {card.trend.bars.map((bar) => {
-                      const hit = bar.hits >= bar.target;
-                      return (
-                        <View
-                          key={bar.weekLabel}
-                          style={[
-                            styles.trendDot,
-                            hit ? styles.trendDotHit : styles.trendDotMiss,
-                            bar.isCurrent && styles.trendDotCurrent,
-                          ]}
-                          accessibilityLabel={`${bar.weekLabel}: ${bar.hits} of ${bar.target}${hit ? ' hit target' : ' missed target'}`}
-                        />
-                      );
-                    })}
-                  </View>
-                  <Text style={styles.trendCaption}>
-                    {onTarget} of last {total} weeks on target
-                  </Text>
+                  <TouchableOpacity
+                    onPress={() => handleClearAdaptation(a.id)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Remove adaptation"
+                  >
+                    <Text style={styles.activeAdaptRemove}>Remove</Text>
+                  </TouchableOpacity>
                 </View>
+              ))}
+
+              {/* Add prompt (collapsed) or form (expanded) — always present */}
+              {!adaptExpanded ? (
+                /* Quiet prompt row — always shown so user can always add
+                 TODO: AI seam (v7-3b) — AI will promote this into a travel/break nudge */
+                <TouchableOpacity
+                  style={styles.adaptPromptRow}
+                  onPress={() => setAdaptExpanded(true)}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    adaptationsForCard.length > 0
+                      ? 'Add another adaptation'
+                      : 'Adapt this habit for travel or a break'
+                  }
+                >
+                  <Calendar size={13} strokeWidth={1.8} color={BRAND.colors.inkMuted} />
+                  <Text style={styles.adaptPromptText}>
+                    {adaptationsForCard.length > 0 ? 'Add another' : 'Adapt for travel or a break'}
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                /* Expanded form */
+                <View>
+                  {/* Header with collapse button */}
+                  <View style={styles.adaptExpandedHeader}>
+                    <Text style={styles.adaptLabel}>Adapt this habit</Text>
+                    <TouchableOpacity
+                      onPress={() => setAdaptExpanded(false)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Collapse"
+                    >
+                      <ChevronUp size={16} strokeWidth={2} color={BRAND.colors.inkMuted} />
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Mode selector */}
+                  <View style={styles.adaptModeRow}>
+                    {(['keep', 'floor', 'pause'] as const).map((m) => (
+                      <TouchableOpacity
+                        key={m}
+                        style={[styles.adaptModeBtn, adaptMode === m && styles.adaptModeBtnActive]}
+                        onPress={() => setAdaptMode(m)}
+                        activeOpacity={0.75}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: adaptMode === m }}
+                        accessibilityLabel={m}
+                      >
+                        {m === 'keep' && (
+                          <Shield
+                            size={13}
+                            strokeWidth={2}
+                            color={adaptMode === m ? BRAND.colors.mossGreen : BRAND.colors.inkMuted}
+                          />
+                        )}
+                        {m === 'floor' && (
+                          <TrendingDown
+                            size={13}
+                            strokeWidth={2}
+                            color={adaptMode === m ? BRAND.colors.mossGreen : BRAND.colors.inkMuted}
+                          />
+                        )}
+                        {m === 'pause' && (
+                          <Pause
+                            size={13}
+                            strokeWidth={2}
+                            color={adaptMode === m ? BRAND.colors.mossGreen : BRAND.colors.inkMuted}
+                          />
+                        )}
+                        <Text
+                          style={[
+                            styles.adaptModeBtnText,
+                            adaptMode === m && styles.adaptModeBtnTextActive,
+                          ]}
+                        >
+                          {m.charAt(0).toUpperCase() + m.slice(1)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  {/* Date range + floor note (only when floor or pause selected) */}
+                  {adaptMode !== 'keep' && (
+                    <View style={styles.adaptFields}>
+                      <View style={styles.adaptDateRow}>
+                        <TouchableOpacity
+                          style={[
+                            styles.adaptDateBtn,
+                            datePickerTarget === 'start' && styles.adaptDateBtnActive,
+                          ]}
+                          onPress={() => openDatePicker('start')}
+                          activeOpacity={0.75}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Start date: ${formatDateDisplay(adaptStart)}`}
+                        >
+                          <Calendar size={11} strokeWidth={2} color={BRAND.colors.inkMuted} />
+                          <Text style={styles.adaptDateBtnText}>
+                            {formatDateDisplay(adaptStart)}
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[
+                            styles.adaptDateBtn,
+                            datePickerTarget === 'end' && styles.adaptDateBtnActive,
+                          ]}
+                          onPress={() => openDatePicker('end')}
+                          activeOpacity={0.75}
+                          accessibilityRole="button"
+                          accessibilityLabel={`End date: ${formatDateDisplay(adaptEnd)}`}
+                        >
+                          <Calendar size={11} strokeWidth={2} color={BRAND.colors.inkMuted} />
+                          <Text style={styles.adaptDateBtnText}>{formatDateDisplay(adaptEnd)}</Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      {adaptMode === 'floor' && (
+                        <TextInput
+                          style={styles.adaptFloorNoteInput}
+                          placeholder="Floor note (optional)"
+                          placeholderTextColor={BRAND.colors.inkMuted}
+                          value={adaptFloorNote}
+                          onChangeText={setAdaptFloorNote}
+                          maxLength={200}
+                          multiline={false}
+                          accessibilityLabel="Floor note"
+                        />
+                      )}
+
+                      {/* TODO: AI floor-note suggestion seam (v7-3b) */}
+
+                      {adaptOverlapError && (
+                        <Text style={styles.adaptErrorText}>
+                          This period overlaps an existing adaptation. Remove the existing one
+                          first.
+                        </Text>
+                      )}
+
+                      <TouchableOpacity
+                        style={[styles.adaptSaveBtn, adaptSaving && styles.adaptSaveBtnDisabled]}
+                        onPress={handleSaveAdaptation}
+                        disabled={adaptSaving}
+                        activeOpacity={0.8}
+                        accessibilityRole="button"
+                        accessibilityLabel="Save adaptation"
+                      >
+                        <Text style={styles.adaptSaveBtnText}>
+                          {adaptSaving ? 'Saving...' : 'Save adaptation'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              )}
+            </View>
+            {card.trend.read !== null &&
+              (() => {
+                const onTarget = card.trend.bars.filter((b) => b.hits >= b.target).length;
+                const total = card.trend.bars.length;
+                return (
+                  <View style={styles.trendBlock}>
+                    <View style={styles.trendHeader}>
+                      <View>
+                        <Text style={styles.trendHeaderLabel}>Recent weeks</Text>
+                        <Text style={styles.weekRowSub}>week by week</Text>
+                      </View>
+                      <Text
+                        style={[
+                          styles.trendReadLabel,
+                          card.trend.read === 'building' && styles.trendReadBuilding,
+                        ]}
+                      >
+                        {card.trend.read}
+                      </Text>
+                    </View>
+                    <View style={styles.trendDotsRow}>
+                      {card.trend.bars.map((bar) => {
+                        const hit = bar.hits >= bar.target;
+                        return (
+                          <View
+                            key={bar.weekLabel}
+                            style={[
+                              styles.trendDot,
+                              hit ? styles.trendDotHit : styles.trendDotMiss,
+                              bar.isCurrent && styles.trendDotCurrent,
+                            ]}
+                            accessibilityLabel={`${bar.weekLabel}: ${bar.hits} of ${bar.target}${hit ? ' hit target' : ' missed target'}`}
+                          />
+                        );
+                      })}
+                    </View>
+                    <Text style={styles.trendCaption}>
+                      {onTarget} of last {total} weeks on target
+                    </Text>
+                  </View>
+                );
+              })()}
+
+            {/* AI insight slot */}
+            {(() => {
+              const habitId = card?.id;
+              const insight = habitId ? insightStates[habitId] : undefined;
+              // Nothing while loading or absent — no shimmer, no layout jump
+              if (!insight || insight.loading || !insight.show || !insight.line) return null;
+              const isAttention = insight.kind === 'drifting' || insight.kind === 'target_mismatch';
+              const fadeAnim = habitId ? insightFade.current[habitId] : undefined;
+              const tileStyle = isAttention
+                ? styles.insightIconTileWarn
+                : styles.insightIconTileCalm;
+              const InsightIcon = isAttention ? TrendingDown : Sparkles;
+              const textStyle = isAttention
+                ? styles.insightLineTextWarn
+                : styles.insightLineTextCalm;
+              const inner = (
+                <>
+                  <View style={tileStyle}>
+                    <InsightIcon size={15} strokeWidth={1.8} color="#FFFFFF" />
+                  </View>
+                  <Text style={textStyle} numberOfLines={3}>
+                    {insight.line}
+                  </Text>
+                </>
+              );
+              if (isAttention) {
+                return (
+                  <Animated.View style={{ opacity: fadeAnim ?? 1 }}>
+                    <LinearGradient
+                      colors={['rgba(227,178,60,0.10)', 'rgba(240,220,160,0.12)']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.insightBlock}
+                    >
+                      {inner}
+                    </LinearGradient>
+                  </Animated.View>
+                );
+              }
+              return (
+                <Animated.View style={{ opacity: fadeAnim ?? 1 }}>
+                  <View style={[styles.insightBlock, styles.insightBlockCalm]}>{inner}</View>
+                </Animated.View>
               );
             })()}
 
-          {/* AI insight slot */}
-          {(() => {
-            const habitId = card?.id;
-            const insight = habitId ? insightStates[habitId] : undefined;
-            if (!insight || insight.loading) {
-              // Subtle shimmer placeholder — holds layout space without jumping
-              return <View style={styles.insightShimmer} />;
-            }
-            if (!insight.show || !insight.line) return null;
-            return (
-              <View style={styles.insightLine}>
-                <Sparkles size={12} strokeWidth={1.75} color={BRAND.colors.inkMuted} />
-                <Text style={styles.insightLineText} numberOfLines={2}>
-                  {insight.line}
+            {/* Frequency recommendation (conditional -- hides once change applied) */}
+            {rec?.show && !appliedChange && (
+              <View style={styles.recBlock}>
+                <Text style={styles.recSentence}>{rec.sentence}</Text>
+                <View style={styles.recChipRow}>
+                  {rec.chips.map((n) => {
+                    const label = getFrequencyDisplayLabel(rec.cadence, n) ?? `${n}x`;
+                    const isActive = n === rec.currentTarget;
+                    return (
+                      <TouchableOpacity
+                        key={n}
+                        style={[styles.recChip, isActive && styles.recChipActive]}
+                        onPress={() => !isActive && handleChipPress(n)}
+                        activeOpacity={isActive ? 1 : 0.7}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Set frequency to ${label}`}
+                        accessibilityState={{ selected: isActive }}
+                      >
+                        <Text style={[styles.recChipText, isActive && styles.recChipTextActive]}>
+                          {label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                <Text style={styles.recCaption}>Selecting a chip updates this habit.</Text>
+              </View>
+            )}
+
+            {/* Adaptation saved banner — persistent for the session */}
+            {adaptConfirmation && (
+              <View style={styles.appliedBanner}>
+                <Check size={13} strokeWidth={2.5} color={BRAND.colors.mossGreen} />
+                <Text style={styles.appliedBannerText}>{adaptConfirmation}</Text>
+              </View>
+            )}
+
+            {/* Applied frequency-change banner — persistent for the session */}
+            {appliedChange && (
+              <View style={styles.appliedBanner}>
+                <Check size={13} strokeWidth={2.5} color={BRAND.colors.mossGreen} />
+                <Text style={styles.appliedBannerText}>
+                  Frequency updated to {appliedChange.label}
                 </Text>
               </View>
-            );
-          })()}
-
-          {/* Frequency recommendation (conditional -- hides once change applied) */}
-          {rec?.show && !appliedChange && (
-            <View style={styles.recBlock}>
-              <Text style={styles.recSentence}>{rec.sentence}</Text>
-              <View style={styles.recChipRow}>
-                {rec.chips.map((n) => {
-                  const label = getFrequencyDisplayLabel(rec.cadence, n) ?? `${n}x`;
-                  const isActive = n === rec.currentTarget;
-                  return (
-                    <TouchableOpacity
-                      key={n}
-                      style={[styles.recChip, isActive && styles.recChipActive]}
-                      onPress={() => !isActive && handleChipPress(n)}
-                      activeOpacity={isActive ? 1 : 0.7}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Set frequency to ${label}`}
-                      accessibilityState={{ selected: isActive }}
-                    >
-                      <Text style={[styles.recChipText, isActive && styles.recChipTextActive]}>
-                        {label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-              <Text style={styles.recCaption}>Selecting a chip updates this habit.</Text>
-            </View>
-          )}
-
-          {/* Adaptation saved banner — persistent for the session */}
-          {adaptConfirmation && (
-            <View style={styles.appliedBanner}>
-              <Check size={13} strokeWidth={2.5} color={BRAND.colors.mossGreen} />
-              <Text style={styles.appliedBannerText}>{adaptConfirmation}</Text>
-            </View>
-          )}
-
-          {/* Applied frequency-change banner — persistent for the session */}
-          {appliedChange && (
-            <View style={styles.appliedBanner}>
-              <Check size={13} strokeWidth={2.5} color={BRAND.colors.mossGreen} />
-              <Text style={styles.appliedBannerText}>
-                Frequency updated to {appliedChange.label}
-              </Text>
-            </View>
-          )}
+            )}
+          </View>
         </View>
-      </View>
+      </ScrollView>
 
       {/* Navigation */}
       <View style={styles.navRow}>
@@ -869,6 +929,11 @@ const styles = StyleSheet.create({
     backgroundColor: BRAND.colors.linenCream,
     paddingHorizontal: 20,
     paddingTop: 28,
+  },
+  cardScroll: {
+    flex: 1,
+  },
+  cardScrollContent: {
     paddingBottom: 16,
   },
 
@@ -1308,25 +1373,49 @@ const styles = StyleSheet.create({
   },
 
   // Habit insight slot
-  insightShimmer: {
-    height: 14,
-    marginTop: 10,
-    borderRadius: 4,
-    backgroundColor: 'rgba(34,34,34,0.05)',
-  },
-  insightLine: {
+  insightBlock: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 6,
-    marginTop: 10,
-    paddingHorizontal: 2,
+    gap: 11,
+    marginTop: 12,
+    paddingVertical: 13,
+    paddingHorizontal: 15,
+    borderRadius: 15,
   },
-  insightLineText: {
+  insightBlockCalm: {
+    backgroundColor: 'rgba(191,216,192,0.10)',
+  },
+  insightIconTileWarn: {
+    width: 30,
+    height: 30,
+    borderRadius: 9,
+    backgroundColor: BRAND.colors.goldenPear,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  insightIconTileCalm: {
+    width: 30,
+    height: 30,
+    borderRadius: 9,
+    backgroundColor: BRAND.colors.mossGreen,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  insightLineTextCalm: {
     flex: 1,
-    fontSize: 12,
+    fontSize: 13.5,
     fontWeight: '400',
     color: BRAND.colors.inkMuted,
-    lineHeight: 17,
+    lineHeight: 20,
+  },
+  insightLineTextWarn: {
+    flex: 1,
+    fontSize: 13.5,
+    fontWeight: '400',
+    color: BRAND.colors.inkSubtle,
+    lineHeight: 20,
   },
 
   // Frequency recommendation block
