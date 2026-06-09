@@ -789,5 +789,101 @@ ${entityDetails}${sweepDetails}${birthdayContext}
     });
   }
 
+  // --- HABIT INSIGHT (on-demand, per-habit weekly insight line) ---
+  if (type === 'habit-insight') {
+    const key = OPENAI_API_KEY;
+    const j = (data: unknown, status = 200) =>
+      new Response(JSON.stringify({ ok: true, ...data }), {
+        status,
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+    const facts = body?.facts ?? {};
+    const crossSignal = body?.crossSignal ?? {};
+
+    const sys = `You are the habit insight voice for Gremly, a shame-free productivity app.
+You receive pre-computed FACTS about a single habit and CROSS-SIGNAL context as JSON.
+Decide whether there is one genuinely useful, specific, evidence-backed observation worth surfacing,
+and if so write it as a single short sentence.
+
+Rules:
+- Only speak if the data shows something specific and real. If the habit is unremarkable, return show=false. Silence is the default and is correct most of the time.
+- Observe, never command. Describe what the data shows. Do not tell the user what to do.
+- Be shame-free. Never imply failure, guilt, falling behind, or apply pressure.
+- Ground every claim strictly in the provided facts or cross-signal data. Never invent numbers, days, frequencies, or patterns that are not present in the input. If you cannot point to a specific provided fact, return show=false.
+- One sentence, at most about ninety characters. Plain, warm, specific.
+- Prefer cross-signal observations such as day-of-week patterns, co-occurrence with other habits, or links to journaling, over restating a rate the user can already see on the card.
+- Do not mention targets the user has not set. Do not reference any date outside the provided data.
+
+Return ONLY JSON with this exact shape:
+{ "show": boolean, "line": string or null, "kind": one of "day_of_week_pattern" "pairing" "journal_link" "building" "drifting" "target_mismatch" "other" or null, "evidence": { "facts_used": array of strings, "confidence": number between 0 and 1 } }`;
+
+    const messages = [
+      { role: 'system', content: sys },
+      { role: 'user', content: JSON.stringify({ facts, crossSignal }).substring(0, 4000) },
+    ];
+
+    const t0 = Date.now();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-4.1-mini',
+          messages,
+          temperature: 0.3,
+          max_completion_tokens: 200,
+          response_format: { type: 'json_object' },
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (!res.ok) return j({ show: false, source: 'upstream_error' });
+      const oj = await res.json();
+      const raw = oj?.choices?.[0]?.message?.content ?? '{}';
+      let parsed: any;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        return j({ show: false, source: 'parse_fallback' });
+      }
+
+      const show = parsed.show === true;
+      let line = typeof parsed.line === 'string' ? parsed.line.trim() : null;
+      if (line && line.length > 140) line = line.slice(0, 137) + '...';
+      if (!show) line = null;
+      if (show && (!line || line.length < 3)) return j({ show: false, source: 'empty_line' });
+      const validKinds = [
+        'day_of_week_pattern',
+        'pairing',
+        'journal_link',
+        'building',
+        'drifting',
+        'target_mismatch',
+        'other',
+      ];
+      const kind = show ? (validKinds.includes(parsed.kind) ? parsed.kind : 'other') : null;
+      const ev = parsed.evidence && typeof parsed.evidence === 'object' ? parsed.evidence : {};
+      const facts_used = Array.isArray(ev.facts_used) ? ev.facts_used.slice(0, 8).map(String) : [];
+      let confidence = Number(ev.confidence);
+      if (!Number.isFinite(confidence)) confidence = 0.5;
+      confidence = Math.max(0, Math.min(1, confidence));
+
+      return j({
+        show,
+        line,
+        kind,
+        evidence: { facts_used, confidence },
+        model: 'gpt-4.1-mini',
+        latency_ms: Date.now() - t0,
+      });
+    } catch (e) {
+      clearTimeout(timeout);
+      return j({ show: false, source: (e as Error).name === 'AbortError' ? 'timeout' : 'error' });
+    }
+  }
+
   return bad(400, 'invalid_type');
 });
