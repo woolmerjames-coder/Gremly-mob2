@@ -417,6 +417,24 @@ export interface HabitProgressRow {
   occurred_day: string; // YYYY-MM-DD
   count: number;
   occurrence_index: number | null;
+  /** True when this completion was logged inside a floor window (smaller version of the habit). */
+  was_floor?: boolean;
+}
+
+export interface HabitAdaptationRow {
+  id: string;
+  owner_id: string;
+  habit_id: string;
+  mode: 'keep' | 'floor' | 'pause';
+  /** Inclusive start date YYYY-MM-DD */
+  period_start: string;
+  /** Inclusive end date YYYY-MM-DD */
+  period_end: string;
+  floor_note?: string | null;
+  /** Foreign key to a calendar event that triggered the adaptation (optional). */
+  source_event_id?: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 // @deprecated — PendingDrop is no longer used at runtime. Tests should migrate to QueuedDrop from dropQueue.ts.
@@ -436,6 +454,8 @@ export interface GremlyState {
   spaces: Space[];
   tags: Tag[];
   habitProgress: HabitProgressRow[];
+  /** Adaptation windows (floor / pause) per habit. Loaded with habits on hydrate. */
+  habitAdaptations: HabitAdaptationRow[];
   spaceChats: SpaceChat[];
   spaceChatMessages: SpaceChatMessage[];
   generalChats: SpaceChat[];
@@ -695,13 +715,43 @@ export interface GremlyState {
   /** Toggle habit completion for TODAY - complete if not done, uncomplete if done */
   toggleHabitToday: (id: string) => Promise<void>;
   /** Log habit completion for a specific date (for Habits This Week) */
-  logHabitCompletionForDate: (habitId: string, dateIso: string) => Promise<void>;
+  logHabitCompletionForDate: (
+    habitId: string,
+    dateIso: string,
+    wasFloor?: boolean,
+  ) => Promise<void>;
   /** Remove habit completion for a specific date (for Habits This Week) */
   removeHabitCompletionForDate: (habitId: string, dateIso: string) => Promise<void>;
   /** Update last_checked_in_at for a habit (user reviewed it) */
   checkInHabit: (habitId: string) => Promise<void>;
   archiveHabit: (id: string, reason?: string) => Promise<void>;
   restoreHabit: (id: string) => Promise<void>;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // HABIT ADAPTATION MUTATIONS
+  // ═══════════════════════════════════════════════════════════════════
+  /**
+   * Create an adaptation window for a habit.
+   * Returns { ok: true, row } on success, or { ok: false, reason: 'overlap' | 'unknown' } on conflict.
+   */
+  setHabitAdaptation: (
+    habitId: string,
+    patch: {
+      mode: 'keep' | 'floor' | 'pause';
+      period_start: string;
+      period_end: string;
+      floor_note?: string | null;
+    },
+  ) => Promise<
+    { ok: true; row: HabitAdaptationRow } | { ok: false; reason: 'overlap' | 'unknown' }
+  >;
+  updateHabitAdaptation: (
+    id: string,
+    patch: Partial<Pick<HabitAdaptationRow, 'mode' | 'period_start' | 'period_end' | 'floor_note'>>,
+  ) => Promise<void>;
+  clearHabitAdaptation: (id: string) => Promise<void>;
+  /** Returns the adaptation covering dateIso for this habit, or null. */
+  getActiveAdaptation: (habitId: string, dateIso: string) => HabitAdaptationRow | null;
 
   // ═══════════════════════════════════════════════════════════════════
   // NOTE MUTATIONS
@@ -1080,6 +1130,7 @@ const initialState = {
   spaces: [] as Space[],
   tags: [] as Tag[],
   habitProgress: [] as HabitProgressRow[],
+  habitAdaptations: [] as HabitAdaptationRow[],
   spaceChats: [] as SpaceChat[],
   spaceChatMessages: [] as SpaceChatMessage[],
   generalChats: [] as SpaceChat[],
@@ -1311,6 +1362,7 @@ export const useGremlyStore = create<GremlyState>()(
               spacesRes,
               tagsRes,
               progressRes,
+              adaptationsRes,
               chatsRes,
               milestonesRes,
               dailyBriefRes,
@@ -1371,6 +1423,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase.from('spaces').select('*').eq('owner_id', userId),
               supabase.from('tags').select('*').eq('owner_id', userId),
               supabase.from('habit_progress').select('*').eq('owner_id', userId),
+              supabase.from('habit_adaptations').select('*').eq('owner_id', userId),
               supabase.from('scope_chats').select('*').eq('user_id', userId),
               supabase.from('space_milestones').select('*').eq('owner_id', userId),
               supabase
@@ -1595,6 +1648,7 @@ export const useGremlyStore = create<GremlyState>()(
               spaces: spacesRes.data ?? [],
               tags: tagsRes.data ?? [],
               habitProgress: progressRes.data ?? [],
+              habitAdaptations: ((adaptationsRes as any).data ?? []) as HabitAdaptationRow[],
               spaceChats: chatsRes.data ?? [],
               milestones: milestonesRes.data ?? [],
               worlds: (worldsRes.data ?? []) as World[],
@@ -1820,6 +1874,7 @@ export const useGremlyStore = create<GremlyState>()(
             spaces: [],
             tags: [],
             habitProgress: [],
+            habitAdaptations: [],
             spaceChats: [],
             spaceChatMessages: [],
             milestones: [],
@@ -3676,8 +3731,9 @@ export const useGremlyStore = create<GremlyState>()(
         /**
          * Log habit completion for a specific date (used by Habits This Week sheet).
          * Updates habitProgress immediately so both Today's Focus and Habits sheet stay in sync.
+         * Pass wasFloor=true when logging inside a floor adaptation window.
          */
-        logHabitCompletionForDate: async (habitId: string, dateIso: string) => {
+        logHabitCompletionForDate: async (habitId: string, dateIso: string, wasFloor = false) => {
           const userId = get().userId;
           if (!userId) throw new Error('Not authenticated');
 
@@ -3707,6 +3763,7 @@ export const useGremlyStore = create<GremlyState>()(
             occurred_day: occurredDay,
             count: 1,
             occurrence_index: null,
+            was_floor: wasFloor || undefined,
           };
           set((state) => ({
             habitProgress: [...state.habitProgress, newProgressRow],
@@ -3725,6 +3782,7 @@ export const useGremlyStore = create<GremlyState>()(
               occurred_day: occurredDay,
               occurred_at: occurredAt,
               count: 1,
+              ...(wasFloor ? { was_floor: true } : {}),
             })
             .then(({ error }) => {
               if (error) {
@@ -3737,7 +3795,11 @@ export const useGremlyStore = create<GremlyState>()(
                   }));
                 }
               } else {
-                console.log('[GremlyStore] ✅ Habit completion logged:', { habitId, occurredDay });
+                console.log('[GremlyStore] ✅ Habit completion logged:', {
+                  habitId,
+                  occurredDay,
+                  wasFloor,
+                });
               }
             });
         },
@@ -3886,6 +3948,130 @@ export const useGremlyStore = create<GremlyState>()(
           }
 
           eventBus.emit('ItemUpdated', { id, source: STORE_EVENT_SOURCE });
+        },
+
+        // ═══════════════════════════════════════════════════════════════════
+        // HABIT ADAPTATION MUTATIONS
+        // ═══════════════════════════════════════════════════════════════════
+
+        setHabitAdaptation: async (habitId, patch) => {
+          const userId = get().userId;
+          if (!userId) throw new Error('Not authenticated');
+
+          const now = nowTimestamp();
+          const tempId = `temp_adapt_${getDateService().now().getTime()}_${Math.random().toString(36).slice(2)}`;
+          const optimisticRow: HabitAdaptationRow = {
+            id: tempId,
+            owner_id: userId,
+            habit_id: habitId,
+            mode: patch.mode,
+            period_start: patch.period_start,
+            period_end: patch.period_end,
+            floor_note: patch.floor_note ?? null,
+            source_event_id: null,
+            created_at: now,
+            updated_at: now,
+          };
+
+          // 1. OPTIMISTIC INSERT
+          set((state) => ({
+            habitAdaptations: [...state.habitAdaptations, optimisticRow],
+          }));
+
+          // 2. PERSIST
+          const { data, error } = await supabase
+            .from('habit_adaptations')
+            .insert({
+              habit_id: habitId,
+              owner_id: userId,
+              mode: patch.mode,
+              period_start: patch.period_start,
+              period_end: patch.period_end,
+              floor_note: patch.floor_note ?? null,
+            })
+            .select()
+            .single();
+
+          if (error) {
+            // Roll back optimistic insert
+            set((state) => ({
+              habitAdaptations: state.habitAdaptations.filter((a) => a.id !== tempId),
+            }));
+            // Detect exclusion / overlap violation
+            if (
+              error.code === '23P01' ||
+              error.code === '23505' ||
+              error.message?.includes('overlap') ||
+              error.message?.includes('exclusion')
+            ) {
+              return { ok: false, reason: 'overlap' as const };
+            }
+            console.error('[GremlyStore] setHabitAdaptation failed:', error);
+            return { ok: false, reason: 'unknown' as const };
+          }
+
+          // Replace temp row with real row from DB
+          set((state) => ({
+            habitAdaptations: state.habitAdaptations.map((a) =>
+              a.id === tempId ? (data as HabitAdaptationRow) : a,
+            ),
+          }));
+          return { ok: true, row: data as HabitAdaptationRow };
+        },
+
+        updateHabitAdaptation: async (id, patch) => {
+          const prev = get().habitAdaptations.find((a) => a.id === id);
+
+          // 1. OPTIMISTIC
+          set((state) => ({
+            habitAdaptations: state.habitAdaptations.map((a) =>
+              a.id === id ? { ...a, ...patch } : a,
+            ),
+          }));
+
+          // 2. PERSIST
+          const { error } = await supabase.from('habit_adaptations').update(patch).eq('id', id);
+
+          if (error) {
+            console.error('[GremlyStore] updateHabitAdaptation failed:', error);
+            if (prev) {
+              set((state) => ({
+                habitAdaptations: state.habitAdaptations.map((a) => (a.id === id ? prev : a)),
+              }));
+            }
+            throw error;
+          }
+        },
+
+        clearHabitAdaptation: async (id) => {
+          const prev = get().habitAdaptations.find((a) => a.id === id);
+
+          // 1. OPTIMISTIC REMOVE
+          set((state) => ({
+            habitAdaptations: state.habitAdaptations.filter((a) => a.id !== id),
+          }));
+
+          // 2. PERSIST
+          const { error } = await supabase.from('habit_adaptations').delete().eq('id', id);
+
+          if (error) {
+            console.error('[GremlyStore] clearHabitAdaptation failed:', error);
+            if (prev) {
+              set((state) => ({
+                habitAdaptations: [...state.habitAdaptations, prev],
+              }));
+            }
+            throw error;
+          }
+        },
+
+        getActiveAdaptation: (habitId, dateIso) => {
+          const day = dateIso.slice(0, 10); // normalise to YYYY-MM-DD
+          return (
+            get().habitAdaptations.find(
+              (a) => a.habit_id === habitId && a.period_start <= day && a.period_end >= day,
+            ) ?? null
+          );
         },
 
         // ═══════════════════════════════════════════════════════════════════
@@ -5549,6 +5735,7 @@ export const useGremlyStore = create<GremlyState>()(
               milestonesRes,
               weeklySummariesRes,
               cortexPrefsRes,
+              adaptationsRes,
             ] = await Promise.all([
               fetchAllPaginated<Todo>(() =>
                 supabase
@@ -5602,6 +5789,7 @@ export const useGremlyStore = create<GremlyState>()(
                 )
                 .eq('owner_id', userId)
                 .maybeSingle(),
+              supabase.from('habit_adaptations').select('*').eq('owner_id', userId),
             ]);
 
             // Check cortex_preferences error — skip prefs reconciliation but continue entity updates
@@ -5651,6 +5839,7 @@ export const useGremlyStore = create<GremlyState>()(
               spaces: spacesRes.data ?? [],
               tags: tagsRes.data ?? [],
               habitProgress: progressRes.data ?? [],
+              habitAdaptations: ((adaptationsRes as any).data ?? []) as HabitAdaptationRow[],
               spaceChats: chatsRes.data ?? [],
               milestones: milestonesRes.data ?? [],
               weeklySummaries: (weeklySummariesRes.data ?? []) as WeeklySummary[],

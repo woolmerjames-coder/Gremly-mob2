@@ -13,7 +13,7 @@
 
 import { useMemo } from 'react';
 import { getDateService } from '../date/DateService';
-import type { HabitProgressRow } from '../store/useGremlyStore';
+import type { HabitProgressRow, HabitAdaptationRow } from '../store/useGremlyStore';
 import { useGremlyStore } from '../store/useGremlyStore';
 import { computeHabitStreak } from './streakUtils';
 import { getHabitFrequencyLabel } from './frequencyUtils';
@@ -146,6 +146,7 @@ function computeTrend(
 export function computeHabitCardStats(
   habit: Habit,
   habitProgress: HabitProgressRow[],
+  adaptations: HabitAdaptationRow[] = [],
 ): HabitCardStats {
   const ds = getDateService();
   const today = ds.today();
@@ -153,7 +154,14 @@ export function computeHabitCardStats(
   const targetPerPeriod = habit.target_per_period ?? 1;
 
   const progressForHabit = habitProgress.filter((p) => p.habit_id === habit.id);
+  const adaptationsForHabit = adaptations.filter((a) => a.habit_id === habit.id);
   const completedDaySet = new Set(progressForHabit.map((p) => p.occurred_day));
+
+  /** True if a YYYY-MM-DD day is fully inside a pause window */
+  const isPaused = (day: string): boolean =>
+    adaptationsForHabit.some(
+      (a) => a.mode === 'pause' && a.period_start <= day && a.period_end >= day,
+    );
 
   // ── Rolling 7-day window (ALL cadences) ──────────────────────────────────
   // Index 0 = today-6, index 6 = today. No future cells, all tappable.
@@ -171,20 +179,34 @@ export function computeHabitCardStats(
   });
 
   // ── weekHits / weekTarget ─────────────────────────────────────────────────
-  const weekHits = days.filter((d) => d.isCompleted).length;
-  const weekTarget = cadence === 'daily' ? 7 : targetPerPeriod;
+  // Paused days are excluded from both numerator and denominator.
+  const weekHits = days.filter((d) => d.isCompleted && !isPaused(d.date)).length;
+  const activeDaysInWindow = days.filter((d) => !isPaused(d.date)).length;
+  const weekTarget =
+    cadence === 'daily'
+      ? activeDaysInWindow // daily: target = scheduled active days
+      : targetPerPeriod;
 
   // ── pct30 ─────────────────────────────────────────────────────────────────
   const last30Start = ds.addDays(today, -29);
+  // Count paused days in the 30-day window to shrink the denominator
+  let pausedDaysIn30 = 0;
+  for (let i = 0; i < 30; i++) {
+    const d = ds.addDays(today, -(29 - i));
+    if (isPaused(d)) pausedDaysIn30++;
+  }
   const distinctDaysIn30 = new Set(
     progressForHabit
-      .filter((p) => p.occurred_day >= last30Start && p.occurred_day <= today)
+      .filter(
+        (p) =>
+          p.occurred_day >= last30Start && p.occurred_day <= today && !isPaused(p.occurred_day),
+      )
       .map((p) => p.occurred_day),
   ).size;
 
   let pct30Denominator: number;
   if (cadence === 'daily') {
-    pct30Denominator = 30;
+    pct30Denominator = Math.max(1, 30 - pausedDaysIn30);
   } else if (cadence === 'weekly') {
     // ~4.286 weeks in 30 days
     pct30Denominator = Math.max(1, Math.round(targetPerPeriod * 4.286));
@@ -196,7 +218,12 @@ export function computeHabitCardStats(
 
   // ── Streak ───────────────────────────────────────────────────────────────
   const allCompletedDates = progressForHabit.map((p) => p.occurred_day);
-  const streak = computeHabitStreak(allCompletedDates, cadence, targetPerPeriod);
+  const streak = computeHabitStreak(
+    allCompletedDates,
+    cadence,
+    targetPerPeriod,
+    adaptationsForHabit,
+  );
 
   // ── Trend ────────────────────────────────────────────────────────────────
   const barTarget = cadence === 'daily' ? 7 : targetPerPeriod;
@@ -247,8 +274,9 @@ export function computeHabitCardStats(
 
 export function useHabitCardStats(habits: Habit[]): HabitCardStats[] {
   const habitProgress = useGremlyStore((s) => s.habitProgress);
+  const habitAdaptations = useGremlyStore((s) => s.habitAdaptations);
   return useMemo(
-    () => habits.map((h) => computeHabitCardStats(h, habitProgress)),
-    [habits, habitProgress],
+    () => habits.map((h) => computeHabitCardStats(h, habitProgress, habitAdaptations)),
+    [habits, habitProgress, habitAdaptations],
   );
 }

@@ -210,6 +210,10 @@ export interface Habit {
 
   /** V2: Days after lock-in to send a check-in nudge */
   check_in_after?: number | null;
+
+  // Habit adaptation (v7-3a)
+  /** Remembered floor description — pre-fills the floor_note field when creating a floor adaptation. */
+  floor_note?: string | null;
 }
 
 /**

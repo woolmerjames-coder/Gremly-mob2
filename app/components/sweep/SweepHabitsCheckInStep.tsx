@@ -8,13 +8,32 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
-import { View, TouchableOpacity, StyleSheet, Platform } from 'react-native';
-import { Flame, ChevronLeft, ChevronRight, Check, Circle, Pencil } from 'lucide-react-native';
+import {
+  View,
+  TouchableOpacity,
+  StyleSheet,
+  Platform,
+  TextInput,
+  ScrollView,
+  Alert,
+} from 'react-native';
+import {
+  Flame,
+  ChevronLeft,
+  ChevronRight,
+  Check,
+  Circle,
+  Pencil,
+  Pause,
+  TrendingDown,
+  Shield,
+} from 'lucide-react-native';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
 import { useHabitCardStats } from '../../../lib/habits/habitCardStats';
 import type { HabitCardStats } from '../../../lib/habits/habitCardStats';
+import { getDateService } from '../../../lib/date/DateService';
 import {
   computeFrequencyRecommendation,
   getFrequencyDisplayLabel,
@@ -43,12 +62,37 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   const removeHabitCompletionForDate = useGremlyStore((s) => s.removeHabitCompletionForDate);
   const habitProgress = useGremlyStore((s) => s.habitProgress);
   const updateHabit = useGremlyStore((s) => s.updateHabit);
+  const setHabitAdaptation = useGremlyStore((s) => s.setHabitAdaptation);
+  const clearHabitAdaptation = useGremlyStore((s) => s.clearHabitAdaptation);
+  const getActiveAdaptation = useGremlyStore((s) => s.getActiveAdaptation);
 
   const cards = useHabitCardStats(habits);
 
   const [index, setIndex] = useState(0);
   // Session-persistent frequency-change confirmations keyed by habitId
   const [appliedChanges, setAppliedChanges] = useState<Record<string, AppliedChange>>({});
+
+  // ── Adaptation form state ────────────────────────────────────────────────
+  type AdaptMode = 'keep' | 'floor' | 'pause';
+  const [adaptMode, setAdaptMode] = useState<AdaptMode>('keep');
+  const [adaptStart, setAdaptStart] = useState('');
+  const [adaptEnd, setAdaptEnd] = useState('');
+  const [adaptFloorNote, setAdaptFloorNote] = useState('');
+  const [adaptOverlapError, setAdaptOverlapError] = useState(false);
+  const [adaptSaving, setAdaptSaving] = useState(false);
+
+  // When the card changes, reset adaptation form and pre-fill from habit
+  const resetAdaptForm = useCallback(
+    (idx: number) => {
+      const h = habits[idx];
+      setAdaptMode('keep');
+      setAdaptStart('');
+      setAdaptEnd('');
+      setAdaptFloorNote(h?.floor_note ?? '');
+      setAdaptOverlapError(false);
+    },
+    [habits],
+  );
 
   const card = cards[index] as HabitCardStats | undefined;
   const currentHabit = habits[index];
@@ -84,16 +128,68 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   );
 
   const handlePrev = useCallback(() => {
-    setIndex((i) => Math.max(0, i - 1));
-  }, []);
+    const next = Math.max(0, index - 1);
+    setIndex(next);
+    resetAdaptForm(next);
+  }, [index, resetAdaptForm]);
 
   const handleNext = useCallback(() => {
     if (index < cards.length - 1) {
-      setIndex(index + 1);
+      const next = index + 1;
+      setIndex(next);
+      resetAdaptForm(next);
     } else {
       onFinish();
     }
-  }, [index, cards.length, onFinish]);
+  }, [index, cards.length, onFinish, resetAdaptForm]);
+
+  // ── Today's ISO date ─────────────────────────────────────────────────────
+  const today = getDateService().today();
+
+  // ── Active adaptation for current habit ──────────────────────────────────
+  const activeAdaptation = card ? getActiveAdaptation(card.id, today) : null;
+
+  // ── Save adaptation handler ──────────────────────────────────────────────
+  const handleSaveAdaptation = useCallback(async () => {
+    if (!card || adaptMode === 'keep') return;
+    // Basic date validation
+    if (!adaptStart || !adaptEnd || adaptStart > adaptEnd) {
+      Alert.alert('Invalid dates', 'Please enter a valid start and end date (YYYY-MM-DD).');
+      return;
+    }
+    setAdaptSaving(true);
+    setAdaptOverlapError(false);
+    const result = await setHabitAdaptation(card.id, {
+      mode: adaptMode,
+      period_start: adaptStart,
+      period_end: adaptEnd,
+      floor_note: adaptMode === 'floor' ? adaptFloorNote || null : null,
+    });
+    setAdaptSaving(false);
+    if (!result.ok) {
+      if (result.reason === 'overlap') {
+        setAdaptOverlapError(true);
+      } else {
+        Alert.alert('Error', 'Could not save adaptation. Please try again.');
+      }
+      return;
+    }
+    // Reset form on success
+    setAdaptMode('keep');
+    setAdaptStart('');
+    setAdaptEnd('');
+    setAdaptFloorNote(currentHabit?.floor_note ?? '');
+  }, [card, adaptMode, adaptStart, adaptEnd, adaptFloorNote, setHabitAdaptation, currentHabit]);
+
+  // ── Clear active adaptation ──────────────────────────────────────────────
+  const handleClearAdaptation = useCallback(async () => {
+    if (!activeAdaptation) return;
+    try {
+      await clearHabitAdaptation(activeAdaptation.id);
+    } catch {
+      Alert.alert('Error', 'Could not remove adaptation. Please try again.');
+    }
+  }, [activeAdaptation, clearHabitAdaptation]);
 
   if (cards.length === 0) {
     return (
@@ -237,7 +333,141 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
 
           <Text style={styles.tapHint}>Did one you forgot to mark? Tap to add it.</Text>
 
-          {/* Trend dot row -- only when >=3 weeks of data (trend.read !== null) */}
+          {/* ── Habit Adaptation Block (v7-3a) ────────────────────────────── */}
+          <View style={styles.adaptBlock}>
+            <View style={styles.adaptHeaderRow}>
+              <Text style={styles.adaptLabel}>Adapt this habit</Text>
+              {/* TODO: link to entity chat — requires overlay refactor TICKET #entity-chat-adapt */}
+            </View>
+
+            {/* Active adaptation pill */}
+            {activeAdaptation && (
+              <View style={styles.activeAdaptRow}>
+                <Text style={styles.activeAdaptText}>
+                  {activeAdaptation.mode === 'pause' ? '⏸ Paused' : '⬇ Floored'}{' '}
+                  {activeAdaptation.period_start} → {activeAdaptation.period_end}
+                </Text>
+                <TouchableOpacity
+                  onPress={handleClearAdaptation}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Remove adaptation"
+                >
+                  <Text style={styles.activeAdaptRemove}>Remove</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Mode selector */}
+            <View style={styles.adaptModeRow}>
+              {(['keep', 'floor', 'pause'] as const).map((m) => (
+                <TouchableOpacity
+                  key={m}
+                  style={[styles.adaptModeBtn, adaptMode === m && styles.adaptModeBtnActive]}
+                  onPress={() => setAdaptMode(m)}
+                  activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: adaptMode === m }}
+                  accessibilityLabel={m}
+                >
+                  {m === 'keep' && (
+                    <Shield
+                      size={13}
+                      strokeWidth={2}
+                      color={adaptMode === m ? BRAND.colors.mossGreen : BRAND.colors.inkMuted}
+                    />
+                  )}
+                  {m === 'floor' && (
+                    <TrendingDown
+                      size={13}
+                      strokeWidth={2}
+                      color={adaptMode === m ? BRAND.colors.mossGreen : BRAND.colors.inkMuted}
+                    />
+                  )}
+                  {m === 'pause' && (
+                    <Pause
+                      size={13}
+                      strokeWidth={2}
+                      color={adaptMode === m ? BRAND.colors.mossGreen : BRAND.colors.inkMuted}
+                    />
+                  )}
+                  <Text
+                    style={[
+                      styles.adaptModeBtnText,
+                      adaptMode === m && styles.adaptModeBtnTextActive,
+                    ]}
+                  >
+                    {m.charAt(0).toUpperCase() + m.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Date range + floor note (only when floor or pause selected) */}
+            {adaptMode !== 'keep' && (
+              <View style={styles.adaptFields}>
+                <View style={styles.adaptDateRow}>
+                  {/* TODO: replace with shared date picker when available */}
+                  <TextInput
+                    style={styles.adaptDateInput}
+                    placeholder="Start (YYYY-MM-DD)"
+                    placeholderTextColor={BRAND.colors.inkMuted}
+                    value={adaptStart}
+                    onChangeText={setAdaptStart}
+                    maxLength={10}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    accessibilityLabel="Adaptation start date"
+                  />
+                  <TextInput
+                    style={styles.adaptDateInput}
+                    placeholder="End (YYYY-MM-DD)"
+                    placeholderTextColor={BRAND.colors.inkMuted}
+                    value={adaptEnd}
+                    onChangeText={setAdaptEnd}
+                    maxLength={10}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    accessibilityLabel="Adaptation end date"
+                  />
+                </View>
+
+                {adaptMode === 'floor' && (
+                  <TextInput
+                    style={styles.adaptFloorNoteInput}
+                    placeholder="Floor note (optional)"
+                    placeholderTextColor={BRAND.colors.inkMuted}
+                    value={adaptFloorNote}
+                    onChangeText={setAdaptFloorNote}
+                    maxLength={200}
+                    multiline={false}
+                    accessibilityLabel="Floor note"
+                  />
+                )}
+
+                {/* TODO: AI floor-note suggestion seam (v7-3b) */}
+
+                {adaptOverlapError && (
+                  <Text style={styles.adaptErrorText}>
+                    This period overlaps an existing adaptation. Remove the existing one first.
+                  </Text>
+                )}
+
+                <TouchableOpacity
+                  style={[styles.adaptSaveBtn, adaptSaving && styles.adaptSaveBtnDisabled]}
+                  onPress={handleSaveAdaptation}
+                  disabled={adaptSaving}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Save adaptation"
+                >
+                  <Text style={styles.adaptSaveBtnText}>
+                    {adaptSaving ? 'Saving...' : 'Save adaptation'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
           {card.trend.read !== null &&
             (() => {
               const onTarget = card.trend.bars.filter((b) => b.hits >= b.target).length;
@@ -576,6 +806,126 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     color: BRAND.colors.inkMuted,
     marginBottom: 2,
+  },
+
+  // Adaptation block
+  adaptBlock: {
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(34,34,34,0.07)',
+    marginBottom: 4,
+  },
+  adaptHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  adaptLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: BRAND.colors.charcoalInk,
+    letterSpacing: 0.2,
+  },
+  activeAdaptRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(191,216,192,0.20)',
+    borderRadius: BRAND.radius.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginBottom: 8,
+  },
+  activeAdaptText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+    flex: 1,
+  },
+  activeAdaptRemove: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: BRAND.colors.mossGreen,
+    marginLeft: 8,
+  },
+  adaptModeRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
+  },
+  adaptModeBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 8,
+    borderRadius: BRAND.radius.md,
+    borderWidth: 1,
+    borderColor: 'rgba(34,34,34,0.12)',
+    backgroundColor: 'rgba(34,34,34,0.03)',
+  },
+  adaptModeBtnActive: {
+    borderColor: BRAND.colors.mossGreen,
+    backgroundColor: 'rgba(191,216,192,0.22)',
+  },
+  adaptModeBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: BRAND.colors.inkMuted,
+  },
+  adaptModeBtnTextActive: {
+    color: BRAND.colors.mossGreen,
+  },
+  adaptFields: {
+    gap: 8,
+  },
+  adaptDateRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  adaptDateInput: {
+    flex: 1,
+    height: 38,
+    borderWidth: 1,
+    borderColor: 'rgba(34,34,34,0.14)',
+    borderRadius: BRAND.radius.md,
+    paddingHorizontal: 10,
+    fontSize: 13,
+    color: BRAND.colors.charcoalInk,
+    backgroundColor: BRAND.colors.surface,
+  },
+  adaptFloorNoteInput: {
+    height: 38,
+    borderWidth: 1,
+    borderColor: 'rgba(34,34,34,0.14)',
+    borderRadius: BRAND.radius.md,
+    paddingHorizontal: 10,
+    fontSize: 13,
+    color: BRAND.colors.charcoalInk,
+    backgroundColor: BRAND.colors.surface,
+  },
+  adaptErrorText: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: '#C0392B',
+    lineHeight: 16,
+  },
+  adaptSaveBtn: {
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderRadius: BRAND.radius.md,
+    backgroundColor: BRAND.colors.mossGreen,
+  },
+  adaptSaveBtnDisabled: {
+    opacity: 0.55,
+  },
+  adaptSaveBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 
   // Trend block
