@@ -34,12 +34,14 @@ import { useWeekDays } from '../../../lib/store/weekGridSelectors';
 const GREMLY_MASCOT = require('../../../assets/mascot/clipboardgremly.png');
 
 const PERIWINKLE = '#7B87D4';
+// Softened periwinkle tokens for the lock-in section — same hue, lower intensity
+const PERIWINKLE_SOFT_BG = 'rgba(123,135,212,0.07)';
+const PERIWINKLE_SOFT_BORDER = 'rgba(123,135,212,0.18)';
+const PERIWINKLE_SOFT = 'rgba(123,135,212,0.65)';
 const PERIWINKLE_BG = 'rgba(123,135,212,0.12)';
 const PERIWINKLE_BORDER = 'rgba(123,135,212,0.30)';
 const SERIF = Platform.select({ ios: 'Georgia', default: 'serif' });
 const MAX_LOCKED = 5;
-
-const SEED_CHIPS = ['Stay on top of work', 'Make time for myself', 'Catch up', 'Keep it light'];
 
 /**
  * Format a YYYY-MM-DD date string as "Jun 9" — always month + day, never "Today"/weekday.
@@ -166,6 +168,14 @@ export function SweepIntentionStep({ onContinue, onSkip, weekStartDate }: SweepI
     [allWeekItems, committedIds],
   );
 
+  // Week range label for the heading, e.g. "Week of Jun 8-14" (Monday to Sunday)
+  const weekRangeLabel = useMemo(() => {
+    const ds = getDateService();
+    const monday = ds.getStartOfWeek();
+    const sunday = ds.addDays(monday, 6);
+    return `Week of ${formatShortDate(monday)}-${formatShortDate(sunday).replace(/^[A-Za-z]+ /, '')}`;
+  }, []);
+
   // Review-mode metadata: dates for the context line shown when editing an existing intention.
   const reviewMeta = useMemo(() => {
     if (!existingIntention) return null;
@@ -177,10 +187,6 @@ export function SweepIntentionStep({ onContinue, onSkip, weekStartDate }: SweepI
       resetLabel: formatShortDate(nextMonday),
     };
   }, [existingIntention, weekStartDate]);
-
-  const handleChipPress = useCallback((chip: string) => {
-    setIntentionText(chip);
-  }, []);
 
   const handleToggleCommitment = useCallback(
     async (id: string) => {
@@ -244,7 +250,7 @@ export function SweepIntentionStep({ onContinue, onSkip, weekStartDate }: SweepI
         <View style={styles.headerRow}>
           <View style={styles.headerText}>
             <Text style={styles.title}>{"What's your focus this week?"}</Text>
-            <Text style={styles.subcopy}>One line is enough.</Text>
+            <Text style={styles.subcopy}>Set an intention or goal.</Text>
           </View>
           <Image
             source={GREMLY_MASCOT}
@@ -252,6 +258,12 @@ export function SweepIntentionStep({ onContinue, onSkip, weekStartDate }: SweepI
             resizeMode="contain"
             accessibilityLabel="Gremly mascot"
           />
+        </View>
+
+        {/* Week range — always shown so user knows which week this intention is for */}
+        <View style={styles.weekRangeRow}>
+          <Icon name="Calendar" size="xs" color={BRAND.colors.inkMuted} strokeWidth={1.5} />
+          <Text style={styles.weekRangeText}>{weekRangeLabel}</Text>
         </View>
 
         {/* Review context line — only shown when re-entering an existing week intention */}
@@ -264,19 +276,9 @@ export function SweepIntentionStep({ onContinue, onSkip, weekStartDate }: SweepI
           </View>
         )}
 
-        <View style={styles.chipsRow}>
-          {SEED_CHIPS.map((chip) => (
-            <Pressable
-              key={chip}
-              style={({ pressed }) => [styles.chip, pressed && styles.chipPressed]}
-              onPress={() => handleChipPress(chip)}
-              accessibilityRole="button"
-              accessibilityLabel={chip}
-            >
-              <Text style={styles.chipText}>{chip}</Text>
-            </Pressable>
-          ))}
-        </View>
+        {/* AI 'suggest an intention' affordance mounts here in the AI slice —
+            quiet, on-tap, grounded in the user's week.
+            Do NOT add static chips back. */}
 
         <View style={styles.inputSection}>
           <TextInput
@@ -298,9 +300,9 @@ export function SweepIntentionStep({ onContinue, onSkip, weekStartDate }: SweepI
         >
           <Star
             size={14}
-            strokeWidth={2}
-            color={PERIWINKLE}
-            fill={lockedCount > 0 ? PERIWINKLE : 'transparent'}
+            strokeWidth={1.75}
+            color={lockedCount > 0 ? PERIWINKLE_SOFT : BRAND.colors.inkMuted}
+            fill={lockedCount > 0 ? PERIWINKLE_SOFT : 'transparent'}
           />
           <Text style={styles.lockBtnText}>
             {lockedCount > 0
@@ -313,11 +315,15 @@ export function SweepIntentionStep({ onContinue, onSkip, weekStartDate }: SweepI
           <View style={styles.lockedList}>
             {lockedItems.map((item) => (
               <View key={item.id} style={styles.lockedRow}>
-                <Star size={12} strokeWidth={2} color={PERIWINKLE} fill={PERIWINKLE} />
+                <Star size={12} strokeWidth={1.75} color={PERIWINKLE_SOFT} fill={PERIWINKLE_SOFT} />
                 <View
                   style={[
                     styles.worldDot,
-                    { backgroundColor: item.world?.accentColor ?? BRAND.colors.inkMuted },
+                    {
+                      backgroundColor: item.world?.accentColor
+                        ? `${item.world.accentColor}99`
+                        : 'rgba(34,34,34,0.22)',
+                    },
                   ]}
                 />
                 <Text style={styles.lockedTitle} numberOfLines={1}>
@@ -468,6 +474,19 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
   },
   subcopy: { fontSize: 14, fontWeight: '400', color: 'rgba(34,34,34,0.60)', lineHeight: 20 },
+  weekRangeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: -12,
+    marginBottom: 14,
+  },
+  weekRangeText: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: BRAND.colors.inkMuted,
+    lineHeight: 17,
+  },
   reviewLine: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -482,17 +501,7 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     flex: 1,
   },
-  chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
-  chip: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: BRAND.radius.sm,
-    backgroundColor: 'rgba(191,216,192,0.18)',
-    borderWidth: 1,
-    borderColor: 'rgba(191,216,192,0.40)',
-  },
-  chipPressed: { backgroundColor: 'rgba(191,216,192,0.35)' },
-  chipText: { fontSize: 13, fontWeight: '500', color: BRAND.colors.charcoalInk },
+  // chipsRow / chip / chipPressed / chipText removed — AI suggestion affordance replaces static chips
   inputSection: { marginBottom: 14 },
   input: {
     backgroundColor: BRAND.colors.linenCream,
@@ -517,12 +526,12 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: BRAND.radius.lg,
-    backgroundColor: PERIWINKLE_BG,
+    backgroundColor: PERIWINKLE_SOFT_BG,
     borderWidth: 1,
-    borderColor: PERIWINKLE_BORDER,
+    borderColor: PERIWINKLE_SOFT_BORDER,
     marginBottom: 16,
   },
-  lockBtnText: { fontSize: 14, fontWeight: '500', color: PERIWINKLE, flex: 1 },
+  lockBtnText: { fontSize: 14, fontWeight: '500', color: PERIWINKLE_SOFT, flex: 1 },
   lockedList: { gap: 8, marginBottom: 8 },
   lockedRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   worldDot: { width: 8, height: 8, borderRadius: 4 },
