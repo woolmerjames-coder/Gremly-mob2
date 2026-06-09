@@ -441,12 +441,13 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                     day.isCompleted && styles.dayCellCompleted,
                     day.isToday && !day.isCompleted && styles.dayCellToday,
                     day.isToday && day.isCompleted && styles.dayCellTodayCompleted,
-                    !day.isCompleted && !day.isToday && styles.dayCellMissed,
+                    !day.isCompleted && day.isPaused && styles.dayCellPaused,
+                    !day.isCompleted && !day.isPaused && !day.isToday && styles.dayCellMissed,
                   ]}
                   onPress={() => handleToggleDay(day.date, day.isCompleted)}
                   activeOpacity={0.7}
                   accessibilityRole="checkbox"
-                  accessibilityLabel={`${day.dayLabel} ${day.date}${day.isCompleted ? ' completed' : ''}`}
+                  accessibilityLabel={`${day.dayLabel} ${day.date}${day.isCompleted ? ' completed' : day.isPaused ? ' paused' : ''}`}
                   accessibilityState={{ checked: day.isCompleted }}
                 >
                   <Text
@@ -461,6 +462,8 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                   <View style={styles.dayCellIndicator}>
                     {day.isCompleted ? (
                       <Check size={12} strokeWidth={2.5} color={BRAND.colors.mossGreen} />
+                    ) : day.isPaused ? (
+                      <Pause size={11} strokeWidth={2} color="rgba(34,34,34,0.35)" />
                     ) : (
                       <Circle size={12} strokeWidth={1.5} color="rgba(34,34,34,0.20)" />
                     )}
@@ -1068,6 +1071,12 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
     borderColor: 'rgba(34,34,34,0.12)',
     backgroundColor: 'transparent',
+  },
+  dayCellPaused: {
+    backgroundColor: 'rgba(34,34,34,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(34,34,34,0.10)',
+    borderStyle: 'solid',
   },
   dayCellLabel: {
     fontSize: 11,

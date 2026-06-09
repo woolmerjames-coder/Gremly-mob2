@@ -30,6 +30,7 @@ export interface HabitDayCell {
   isFuture: boolean; // always false in rolling window
   isCompleted: boolean;
   isScheduled: boolean; // always true in rolling window
+  isPaused: boolean; // true if a pause adaptation covers this day
 }
 
 export interface TrendBar {
@@ -294,6 +295,7 @@ export function computeHabitCardStats(
       isFuture: false,
       isCompleted: completedDaySet.has(date),
       isScheduled: true,
+      isPaused: isPaused(date),
     };
   });
 
