@@ -378,16 +378,25 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
 
           {/* ── Card body ── */}
           <View style={styles.cardBody}>
-            {/* This week row header */}
+            {/* Your rhythm zone header — day row + weekly trend grouped */}
             <View style={styles.weekRowHeader}>
               <View>
-                <Text style={styles.weekRowLabel}>This week</Text>
-                <Text style={styles.weekRowSub}>past 7 days</Text>
+                <Text style={styles.weekRowLabel}>Your rhythm</Text>
+                <View style={styles.tapToFix}>
+                  <Pencil size={11} strokeWidth={2} color={BRAND.colors.inkMuted} />
+                  <Text style={styles.tapToFixText}>this week · tap to fix</Text>
+                </View>
               </View>
-              <View style={styles.tapToFix}>
-                <Pencil size={11} strokeWidth={2} color={BRAND.colors.inkMuted} />
-                <Text style={styles.tapToFixText}>tap to fix</Text>
-              </View>
+              {card.trend.read !== null && (
+                <Text
+                  style={[
+                    styles.trendReadLabel,
+                    card.trend.read === 'building' && styles.trendReadBuilding,
+                  ]}
+                >
+                  {card.trend.read}
+                </Text>
+              )}
             </View>
 
             {/* Day row — all 7 cells tappable (rolling window, no future) */}
@@ -429,6 +438,73 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
             </View>
 
             <Text style={styles.tapHint}>Did one you forgot to mark? Tap to add it.</Text>
+
+            {/* Weekly trend micro-row — part of the rhythm zone, under the day row */}
+            {card.trend.read !== null &&
+              (() => {
+                const onTarget = card.trend.bars.filter((b) => b.hits >= b.target).length;
+                const total = card.trend.bars.length;
+                return (
+                  <View style={styles.rhythmWeeksRow}>
+                    <Text style={styles.rhythmWeeksLabel}>last {total} weeks</Text>
+                    <View style={styles.rhythmWeeksDots}>
+                      {card.trend.bars.map((bar) => {
+                        const hit = bar.hits >= bar.target;
+                        return (
+                          <View
+                            key={bar.weekLabel}
+                            style={[
+                              styles.trendDot,
+                              hit ? styles.trendDotHit : styles.trendDotMiss,
+                              bar.isCurrent && styles.trendDotCurrent,
+                            ]}
+                            accessibilityLabel={`${bar.weekLabel}: ${bar.hits} of ${bar.target}${hit ? ' hit target' : ' missed target'}`}
+                          />
+                        );
+                      })}
+                    </View>
+                    <Text style={styles.rhythmWeeksCaption}>
+                      {onTarget} of {total} on target
+                    </Text>
+                  </View>
+                );
+              })()}
+
+            {/* Code-insight strip — deterministic facts the timeline does not show */}
+            {card.pairing ? (
+              <View style={styles.stripRow}>
+                <View style={styles.stripItem}>
+                  <Text style={styles.stripNum}>+ {card.pairing.name.split(' ')[0]}</Text>
+                  <Text style={styles.stripLabel}>often paired</Text>
+                </View>
+                <View style={styles.stripDivider} />
+                <View style={styles.stripItem}>
+                  <Text style={styles.stripNum}>{card.pct30}%</Text>
+                  <Text style={styles.stripLabel}>last 30d</Text>
+                </View>
+                <View style={styles.stripDivider} />
+                <View style={styles.stripItem}>
+                  <Text style={styles.stripNum}>
+                    {card.streak.count} / {card.bestStreak}
+                  </Text>
+                  <Text style={styles.stripLabel}>streak / best</Text>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.stripRow}>
+                <View style={styles.stripItem}>
+                  <Text style={styles.stripNum}>{card.pct30}%</Text>
+                  <Text style={styles.stripLabel}>last 30d</Text>
+                </View>
+                <View style={styles.stripDivider} />
+                <View style={styles.stripItem}>
+                  <Text style={styles.stripNum}>
+                    {card.streak.count} / {card.bestStreak}
+                  </Text>
+                  <Text style={styles.stripLabel}>streak / best</Text>
+                </View>
+              </View>
+            )}
 
             {/* ── Habit Adaptation Block (v7-3a) ── */}
             <View style={styles.adaptBlock}>
@@ -612,48 +688,6 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                 </View>
               )}
             </View>
-            {card.trend.read !== null &&
-              (() => {
-                const onTarget = card.trend.bars.filter((b) => b.hits >= b.target).length;
-                const total = card.trend.bars.length;
-                return (
-                  <View style={styles.trendBlock}>
-                    <View style={styles.trendHeader}>
-                      <View>
-                        <Text style={styles.trendHeaderLabel}>Recent weeks</Text>
-                        <Text style={styles.weekRowSub}>week by week</Text>
-                      </View>
-                      <Text
-                        style={[
-                          styles.trendReadLabel,
-                          card.trend.read === 'building' && styles.trendReadBuilding,
-                        ]}
-                      >
-                        {card.trend.read}
-                      </Text>
-                    </View>
-                    <View style={styles.trendDotsRow}>
-                      {card.trend.bars.map((bar) => {
-                        const hit = bar.hits >= bar.target;
-                        return (
-                          <View
-                            key={bar.weekLabel}
-                            style={[
-                              styles.trendDot,
-                              hit ? styles.trendDotHit : styles.trendDotMiss,
-                              bar.isCurrent && styles.trendDotCurrent,
-                            ]}
-                            accessibilityLabel={`${bar.weekLabel}: ${bar.hits} of ${bar.target}${hit ? ' hit target' : ' missed target'}`}
-                          />
-                        );
-                      })}
-                    </View>
-                    <Text style={styles.trendCaption}>
-                      {onTarget} of last {total} weeks on target
-                    </Text>
-                  </View>
-                );
-              })()}
 
             {/* Frequency recommendation (conditional -- hides once change applied) */}
             {rec?.show && !appliedChange && (
@@ -1269,6 +1303,59 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '400',
     color: BRAND.colors.inkMuted,
+  },
+
+  // Rhythm zone — micro trend row + code-insight strip
+  rhythmWeeksRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 0.5,
+    borderTopColor: 'rgba(34,34,34,0.07)',
+  },
+  rhythmWeeksLabel: {
+    fontSize: 10,
+    color: 'rgba(34,34,34,0.45)',
+    width: 70,
+  },
+  rhythmWeeksDots: {
+    flexDirection: 'row',
+    gap: 7,
+    alignItems: 'center',
+  },
+  rhythmWeeksCaption: {
+    fontSize: 10,
+    color: 'rgba(34,34,34,0.45)',
+    marginLeft: 'auto' as any,
+  },
+  stripRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(34,34,34,0.03)',
+    borderRadius: 12,
+    paddingVertical: 11,
+    marginTop: 13,
+  },
+  stripItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  stripNum: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: BRAND.colors.mossGreen,
+  },
+  stripLabel: {
+    fontSize: 9.5,
+    color: 'rgba(34,34,34,0.45)',
+    marginTop: 3,
+  },
+  stripDivider: {
+    width: 0.5,
+    height: 24,
+    backgroundColor: 'rgba(34,34,34,0.10)',
   },
 
   // Habit insight slot
