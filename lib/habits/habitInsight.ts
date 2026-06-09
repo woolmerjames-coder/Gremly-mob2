@@ -63,6 +63,8 @@ export interface HabitInsightInput {
     journalNearCompletions: string[];
     /** Current week's intention note body if any */
     weekIntention: string | null;
+    /** Derived single most frequent weekday, or null. Model may use but must not default to it. */
+    bestDay: string | null;
   };
 }
 
@@ -123,6 +125,16 @@ export function buildHabitInsightInput(
   }
 
   // ── crossSignal: pairings (last 28 days, top 3 other habits by co-occurrence) ──
+
+  // Derive bestDay from dayOfWeekDistribution (no second pass)
+  let bestDay: string | null = null;
+  let bestDayCount = -1;
+  for (const [dow, n] of Object.entries(dayOfWeekDistribution)) {
+    if ((n ?? 0) > bestDayCount) {
+      bestDayCount = n ?? 0;
+      bestDay = dow;
+    }
+  }
   const cutoff4w = ds.addDays(today, -28);
   const habitCompletionDays = new Set(
     progressForHabit.filter((p) => p.occurred_day >= cutoff4w).map((p) => p.occurred_day),
@@ -186,6 +198,7 @@ export function buildHabitInsightInput(
       pairings,
       journalNearCompletions,
       weekIntention,
+      bestDay,
     },
   };
 }
