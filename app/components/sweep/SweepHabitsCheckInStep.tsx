@@ -110,6 +110,8 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   const [adaptFloorNote, setAdaptFloorNote] = useState('');
   const [adaptOverlapError, setAdaptOverlapError] = useState(false);
   const [adaptSaving, setAdaptSaving] = useState(false);
+  // Session-persistent adaptation confirmations keyed by habitId
+  const [adaptConfirmations, setAdaptConfirmations] = useState<Record<string, string>>({});
   // Date picker
   const [datePickerTarget, setDatePickerTarget] = useState<DatePickerTarget>(null);
   const [datePickerTempDate, setDatePickerTempDate] = useState<Date>(() => getDateService().now());
@@ -125,6 +127,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
       setAdaptEnd(ds.addDays(ds.today(), 6));
       setAdaptFloorNote(h?.floor_note ?? '');
       setAdaptOverlapError(false);
+      // leave adaptConfirmations intact — persists for the session
     },
     [habits],
   );
@@ -229,7 +232,15 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
       }
       return;
     }
-    // Success: collapse and reset to defaults
+    // Success: persist confirmation banner, collapse, reset defaults
+    const savedMode = adaptMode;
+    const savedStart = adaptStart;
+    const savedEnd = adaptEnd;
+    const confirmLabel =
+      savedMode === 'pause'
+        ? `Paused ${formatDateDisplay(savedStart)}–${formatDateDisplay(savedEnd)}`
+        : `Floor mode ${formatDateDisplay(savedStart)}–${formatDateDisplay(savedEnd)}`;
+    setAdaptConfirmations((prev) => ({ ...prev, [card.id]: confirmLabel }));
     const ds = getDateService();
     setAdaptExpanded(false);
     setAdaptMode('keep');
@@ -264,6 +275,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
 
   const isLast = index === cards.length - 1;
   const appliedChange = appliedChanges[card.id];
+  const adaptConfirmation = adaptConfirmations[card.id];
 
   return (
     <View style={styles.container}>
@@ -654,7 +666,15 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
             </View>
           )}
 
-          {/* Applied change banner — persistent for the session */}
+          {/* Adaptation saved banner — persistent for the session */}
+          {adaptConfirmation && (
+            <View style={styles.appliedBanner}>
+              <Check size={13} strokeWidth={2.5} color={BRAND.colors.mossGreen} />
+              <Text style={styles.appliedBannerText}>{adaptConfirmation}</Text>
+            </View>
+          )}
+
+          {/* Applied frequency-change banner — persistent for the session */}
           {appliedChange && (
             <View style={styles.appliedBanner}>
               <Check size={13} strokeWidth={2.5} color={BRAND.colors.mossGreen} />
@@ -718,8 +738,10 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
           mode="date"
           display="default"
           minimumDate={
+            // Allow past start dates (logging after the fact).
+            // Only constrain End >= Start.
             datePickerTarget === 'end'
-              ? (getDateService().fromLocalDate(adaptStart) ?? getDateService().now())
+              ? (getDateService().fromLocalDate(adaptStart) ?? undefined)
               : undefined
           }
           onChange={(e: any, date?: Date) => {
@@ -762,8 +784,10 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
               mode="date"
               display="spinner"
               minimumDate={
+                // Allow past start dates (logging after the fact).
+                // Only constrain End >= Start.
                 datePickerTarget === 'end'
-                  ? (getDateService().fromLocalDate(adaptStart) ?? getDateService().now())
+                  ? (getDateService().fromLocalDate(adaptStart) ?? undefined)
                   : undefined
               }
               onChange={(_: any, date?: Date) => {
