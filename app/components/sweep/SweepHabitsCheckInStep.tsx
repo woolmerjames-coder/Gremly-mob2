@@ -90,7 +90,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   const updateHabit = useGremlyStore((s) => s.updateHabit);
   const setHabitAdaptation = useGremlyStore((s) => s.setHabitAdaptation);
   const clearHabitAdaptation = useGremlyStore((s) => s.clearHabitAdaptation);
-  const getActiveAdaptation = useGremlyStore((s) => s.getActiveAdaptation);
+  const habitAdaptations = useGremlyStore((s) => s.habitAdaptations);
 
   const cards = useHabitCardStats(habits);
 
@@ -170,10 +170,20 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
       if (isCompleted) {
         await removeHabitCompletionForDate(card.id, date);
       } else {
-        await logHabitCompletionForDate(card.id, date);
+        // Check if the tapped date falls inside an active floor adaptation window.
+        // Only mode==='floor' sets wasFloor=true; pause/keep/none → false.
+        const d = date.slice(0, 10);
+        const covering = habitAdaptations.find(
+          (a) =>
+            a.habit_id === card.id &&
+            a.mode === 'floor' &&
+            a.period_start <= d &&
+            a.period_end >= d,
+        );
+        await logHabitCompletionForDate(card.id, date, !!covering);
       }
     },
-    [card, logHabitCompletionForDate, removeHabitCompletionForDate],
+    [card, habitAdaptations, logHabitCompletionForDate, removeHabitCompletionForDate],
   );
 
   const handleChipPress = useCallback(
@@ -208,8 +218,16 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   // ── Today's ISO date ─────────────────────────────────────────────────────
   const today = getDateService().today();
 
-  // ── Active adaptation for current habit ──────────────────────────────────
-  const activeAdaptation = card ? getActiveAdaptation(card.id, today) : null;
+  // ── All current/future adaptations for this habit (sorted by period_start) ─
+  const adaptationsForCard = useMemo(
+    () =>
+      card
+        ? habitAdaptations
+            .filter((a) => a.habit_id === card.id && a.period_end >= today)
+            .sort((a, b) => a.period_start.localeCompare(b.period_start))
+        : [],
+    [card, habitAdaptations, today],
+  );
 
   // ── Save adaptation handler ──────────────────────────────────────────────
   const handleSaveAdaptation = useCallback(async () => {
@@ -249,15 +267,17 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
     setAdaptFloorNote(currentHabit?.floor_note ?? '');
   }, [card, adaptMode, adaptStart, adaptEnd, adaptFloorNote, setHabitAdaptation, currentHabit]);
 
-  // ── Clear active adaptation ──────────────────────────────────────────────
-  const handleClearAdaptation = useCallback(async () => {
-    if (!activeAdaptation) return;
-    try {
-      await clearHabitAdaptation(activeAdaptation.id);
-    } catch {
-      Alert.alert('Error', 'Could not remove adaptation. Please try again.');
-    }
-  }, [activeAdaptation, clearHabitAdaptation]);
+  // ── Clear a specific adaptation by id ────────────────────────────────────
+  const handleClearAdaptation = useCallback(
+    async (id: string) => {
+      try {
+        await clearHabitAdaptation(id);
+      } catch {
+        Alert.alert('Error', 'Could not remove adaptation. Please try again.');
+      }
+    },
+    [clearHabitAdaptation],
+  );
 
   if (cards.length === 0) {
     return (
@@ -404,46 +424,54 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
 
           {/* ── Habit Adaptation Block (v7-3a) ── */}
           <View style={styles.adaptBlock}>
-            {!adaptExpanded ? (
-              activeAdaptation ? (
-                /* Active adaptation pill — always visible, tappable to expand */
-                <TouchableOpacity
-                  style={styles.activeAdaptRow}
-                  onPress={() => setAdaptExpanded(true)}
-                  activeOpacity={0.75}
-                  accessibilityRole="button"
-                  accessibilityLabel="Active adaptation. Tap to edit."
-                >
+            {/* Adaptation pills — always visible, one per non-expired adaptation */}
+            {adaptationsForCard.map((a) => (
+              <View key={a.id} style={styles.activeAdaptRow}>
+                <View style={styles.activeAdaptContent}>
+                  {a.mode === 'pause' ? (
+                    <Pause size={11} strokeWidth={2} color={BRAND.colors.charcoalInk} />
+                  ) : (
+                    <TrendingDown size={11} strokeWidth={2} color={BRAND.colors.charcoalInk} />
+                  )}
                   <Text style={styles.activeAdaptText}>
-                    {activeAdaptation.mode === 'pause'
-                      ? `⏸ Paused ${formatDateDisplay(activeAdaptation.period_start)}–${formatDateDisplay(activeAdaptation.period_end)}`
-                      : `⬇ Floor mode ${formatDateDisplay(activeAdaptation.period_start)}–${formatDateDisplay(activeAdaptation.period_end)}`}
+                    {a.mode === 'pause'
+                      ? `Paused ${formatDateDisplay(a.period_start)}–${formatDateDisplay(a.period_end)}`
+                      : `Floor ${formatDateDisplay(a.period_start)}–${formatDateDisplay(a.period_end)}`}
                   </Text>
-                  <TouchableOpacity
-                    onPress={handleClearAdaptation}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    accessibilityRole="button"
-                    accessibilityLabel="Remove adaptation"
-                  >
-                    <Text style={styles.activeAdaptRemove}>Remove</Text>
-                  </TouchableOpacity>
-                </TouchableOpacity>
-              ) : (
-                /* Quiet prompt row
-                   TODO: AI seam (v7-3b) — AI will promote this into a travel/break nudge */
+                </View>
                 <TouchableOpacity
-                  style={styles.adaptPromptRow}
-                  onPress={() => setAdaptExpanded(true)}
-                  activeOpacity={0.7}
+                  onPress={() => handleClearAdaptation(a.id)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   accessibilityRole="button"
-                  accessibilityLabel="Adapt this habit for travel or a break"
+                  accessibilityLabel="Remove adaptation"
                 >
-                  <Calendar size={13} strokeWidth={1.8} color={BRAND.colors.inkMuted} />
-                  <Text style={styles.adaptPromptText}>Adapt for travel or a break</Text>
+                  <Text style={styles.activeAdaptRemove}>Remove</Text>
                 </TouchableOpacity>
-              )
+              </View>
+            ))}
+
+            {/* Add prompt (collapsed) or form (expanded) — always present */}
+            {!adaptExpanded ? (
+              /* Quiet prompt row — always shown so user can always add
+                 TODO: AI seam (v7-3b) — AI will promote this into a travel/break nudge */
+              <TouchableOpacity
+                style={styles.adaptPromptRow}
+                onPress={() => setAdaptExpanded(true)}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  adaptationsForCard.length > 0
+                    ? 'Add another adaptation'
+                    : 'Adapt this habit for travel or a break'
+                }
+              >
+                <Calendar size={13} strokeWidth={1.8} color={BRAND.colors.inkMuted} />
+                <Text style={styles.adaptPromptText}>
+                  {adaptationsForCard.length > 0 ? 'Add another' : 'Adapt for travel or a break'}
+                </Text>
+              </TouchableOpacity>
             ) : (
-              /* Expanded controls */
+              /* Expanded form */
               <View>
                 {/* Header with collapse button */}
                 <View style={styles.adaptExpandedHeader}>
@@ -457,25 +485,6 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                     <ChevronUp size={16} strokeWidth={2} color={BRAND.colors.inkMuted} />
                   </TouchableOpacity>
                 </View>
-
-                {/* Active adaptation pill in expanded state */}
-                {activeAdaptation && (
-                  <View style={styles.activeAdaptRow}>
-                    <Text style={styles.activeAdaptText}>
-                      {activeAdaptation.mode === 'pause'
-                        ? `⏸ Paused ${formatDateDisplay(activeAdaptation.period_start)}–${formatDateDisplay(activeAdaptation.period_end)}`
-                        : `⬇ Floor mode ${formatDateDisplay(activeAdaptation.period_start)}–${formatDateDisplay(activeAdaptation.period_end)}`}
-                    </Text>
-                    <TouchableOpacity
-                      onPress={handleClearAdaptation}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      accessibilityRole="button"
-                      accessibilityLabel="Remove adaptation"
-                    >
-                      <Text style={styles.activeAdaptRemove}>Remove</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
 
                 {/* Mode selector */}
                 <View style={styles.adaptModeRow}>
@@ -760,7 +769,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
         />
       )}
 
-      {/* Date picker — iOS: bottom sheet with spinner */}
+      {/* Date picker — iOS: bottom sheet with inline calendar grid */}
       {datePickerTarget !== null && Platform.OS === 'ios' && (
         <Modal visible transparent animationType="slide">
           <Pressable
@@ -782,7 +791,9 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
             <DateTimePicker
               value={datePickerTempDate}
               mode="date"
-              display="spinner"
+              display="inline"
+              themeVariant="light"
+              accentColor={BRAND.colors.mossGreen}
               minimumDate={
                 // Allow past start dates (logging after the fact).
                 // Only constrain End >= Start.
@@ -1048,11 +1059,16 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     marginBottom: 8,
   },
+  activeAdaptContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    flex: 1,
+  },
   activeAdaptText: {
     fontSize: 12,
     fontWeight: '500',
     color: BRAND.colors.charcoalInk,
-    flex: 1,
   },
   activeAdaptRemove: {
     fontSize: 12,
@@ -1154,6 +1170,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     paddingBottom: 34,
+    minHeight: 440,
   },
   datePickerSheetHeader: {
     flexDirection: 'row',
