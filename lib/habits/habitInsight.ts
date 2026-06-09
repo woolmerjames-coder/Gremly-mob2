@@ -157,18 +157,21 @@ export function buildHabitInsightInput(
     .slice(0, 3)
     .map((x) => x.name);
 
-  // ── crossSignal: journalNearCompletions (last 28 days, +/-1 day of completion) ──
+  // ── crossSignal: journalNearCompletions (adaptive window by completion density) ──
+  // Dense habits keep a tight +/-1 day window; sparse habits widen so synthesis
+  // material is not starved purely by low completion frequency.
   const journalNearCompletions: string[] = [];
   const journalNotes = notes.filter(
     (n) => n.subtype === 'journal' && !n.archived && n.body && n.body.length > 3,
   );
-  for (const p of progressForHabit) {
-    if (p.occurred_day < cutoff4w) continue;
-    const dayBefore = ds.addDays(p.occurred_day, -1);
-    const dayAfter = ds.addDays(p.occurred_day, 1);
+  const completions28d = progressForHabit.filter((p) => p.occurred_day >= cutoff4w);
+  const windowDays = completions28d.length >= 8 ? 1 : completions28d.length >= 3 ? 3 : 7;
+  for (const p of completions28d) {
+    const lo = ds.addDays(p.occurred_day, -windowDays);
+    const hi = ds.addDays(p.occurred_day, windowDays);
     for (const n of journalNotes) {
       const noteDate = n.target_date ?? ds.extractLocalDate(n.created_at);
-      if (!noteDate || noteDate < dayBefore || noteDate > dayAfter) continue;
+      if (!noteDate || noteDate < lo || noteDate > hi) continue;
       const snippet = (n.body ?? '').slice(0, 80);
       if (!journalNearCompletions.includes(snippet)) {
         journalNearCompletions.push(snippet);
