@@ -15,7 +15,7 @@ import { useMemo } from 'react';
 import { getDateService } from '../date/DateService';
 import type { HabitProgressRow, HabitAdaptationRow } from '../store/useGremlyStore';
 import { useGremlyStore } from '../store/useGremlyStore';
-import { computeHabitStreak } from './streakUtils';
+import { computeHabitStreak, computeBestStreak } from './streakUtils';
 import { getHabitFrequencyLabel } from './frequencyUtils';
 import type { Habit } from '../types';
 
@@ -59,10 +59,100 @@ export interface HabitCardStats {
   days: HabitDayCell[];
   status: 'on_track' | 'needs_attention' | 'done_for_week';
   trend: HabitTrend;
+  /** Longest historical run of completions (calendar days). Lifted from computeBestStreak. */
+  bestStreak: number;
+  /** Pairing: the single most co-occurring other habit over the last 28 days, or null. */
+  pairing: { name: string; coDays: number } | null;
+  /** Week-over-week delta in hits: current ISO week hits minus prior ISO week hits. */
+  wowDelta: number;
+  /**
+   * Most frequent completion weekday over the last 56 days, or null if no data.
+   * NOTE: for the AI payload only — NOT rendered on the card strip.
+   */
+  bestDay: { weekday: string; count: number } | null;
 }
 
 // One-char weekday labels indexed by JS getDay() (0=Sun)
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+const DOW_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Strip + AI helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Top co-occurring other habit over last 28 days (matches habitInsight pairing). */
+function computeTopPairing(
+  habitId: string,
+  habitProgress: HabitProgressRow[],
+  allHabits: Habit[],
+  today: string,
+): { name: string; coDays: number } | null {
+  const ds = getDateService();
+  const cutoff4w = ds.addDays(today, -28);
+  const myDays = new Set(
+    habitProgress
+      .filter((p) => p.habit_id === habitId && p.occurred_day >= cutoff4w)
+      .map((p) => p.occurred_day),
+  );
+  if (myDays.size === 0) return null;
+
+  const counts = new Map<string, { count: number; name: string }>();
+  for (const p of habitProgress) {
+    if (p.habit_id === habitId) continue;
+    if (!myDays.has(p.occurred_day)) continue;
+    const existing = counts.get(p.habit_id);
+    if (existing) {
+      existing.count++;
+    } else {
+      const h = allHabits.find((x) => x.id === p.habit_id);
+      if (h?.name) counts.set(p.habit_id, { count: 1, name: h.name });
+    }
+  }
+  let top: { name: string; coDays: number } | null = null;
+  for (const v of counts.values()) {
+    if (!top || v.count > top.coDays) top = { name: v.name, coDays: v.count };
+  }
+  return top;
+}
+
+/** Most frequent completion weekday over last 56 days. AI payload only. */
+function computeBestDay(
+  progressForHabit: HabitProgressRow[],
+  today: string,
+): { weekday: string; count: number } | null {
+  const ds = getDateService();
+  const cutoff8w = ds.addDays(today, -56);
+  const tally = new Map<string, number>();
+  for (const p of progressForHabit) {
+    if (p.occurred_day < cutoff8w) continue;
+    const d = ds.fromLocalDate(p.occurred_day);
+    if (!d) continue;
+    const dow = DOW_NAMES[d.getDay()];
+    tally.set(dow, (tally.get(dow) ?? 0) + 1);
+  }
+  let best: { weekday: string; count: number } | null = null;
+  for (const [weekday, count] of tally.entries()) {
+    if (!best || count > best.count) best = { weekday, count };
+  }
+  return best;
+}
+
+/** Week-over-week hit delta: current ISO week distinct-day hits minus prior week's. */
+function computeWowDelta(progressForHabit: HabitProgressRow[], today: string): number {
+  const ds = getDateService();
+  const curKey = getIsoWeekKey(today);
+  const prevKey = ds.addDays(curKey, -7);
+  const distinctInWeek = (weekStart: string) => {
+    const weekEnd = ds.addDays(weekStart, 6);
+    return new Set(
+      progressForHabit
+        .filter((p) => p.occurred_day >= weekStart && p.occurred_day <= weekEnd)
+        .map((p) => p.occurred_day),
+    ).size;
+  };
+  return distinctInWeek(curKey) - distinctInWeek(prevKey);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Trend helpers
@@ -147,6 +237,7 @@ export function computeHabitCardStats(
   habit: Habit,
   habitProgress: HabitProgressRow[],
   adaptations: HabitAdaptationRow[] = [],
+  allHabits: Habit[] = [],
 ): HabitCardStats {
   const ds = getDateService();
   const today = ds.today();
@@ -224,11 +315,14 @@ export function computeHabitCardStats(
     targetPerPeriod,
     adaptationsForHabit,
   );
-
+  const bestStreak = computeBestStreak(allCompletedDates);
   // ── Trend ────────────────────────────────────────────────────────────────
   const barTarget = cadence === 'daily' ? 7 : targetPerPeriod;
   const trend = computeTrend(progressForHabit, barTarget, today);
-
+  // ── Strip + AI fields ────────────────────────────────────────────────────────
+  const pairing = computeTopPairing(habit.id, habitProgress, allHabits, today);
+  const wowDelta = computeWowDelta(progressForHabit, today);
+  const bestDay = computeBestDay(progressForHabit, today);
   // ── Status ───────────────────────────────────────────────────────────────
   let status: HabitCardStats['status'];
 
@@ -265,6 +359,10 @@ export function computeHabitCardStats(
     days,
     status,
     trend,
+    bestStreak,
+    pairing,
+    wowDelta,
+    bestDay,
   };
 }
 
@@ -276,7 +374,7 @@ export function useHabitCardStats(habits: Habit[]): HabitCardStats[] {
   const habitProgress = useGremlyStore((s) => s.habitProgress);
   const habitAdaptations = useGremlyStore((s) => s.habitAdaptations);
   return useMemo(
-    () => habits.map((h) => computeHabitCardStats(h, habitProgress, habitAdaptations)),
+    () => habits.map((h) => computeHabitCardStats(h, habitProgress, habitAdaptations, habits)),
     [habits, habitProgress, habitAdaptations],
   );
 }
