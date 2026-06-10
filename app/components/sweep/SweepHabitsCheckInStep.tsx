@@ -606,10 +606,6 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                   adaptationsForCard.some(
                     (a) => a.mode === 'pause' && a.period_start <= date && a.period_end >= date,
                   );
-                const floorCovers = (date: string) =>
-                  adaptationsForCard.some(
-                    (a) => a.mode === 'floor' && a.period_start <= date && a.period_end >= date,
-                  );
                 const localPlannedDates = habitPlans
                   .filter((p) => p.habit_id === card.id && p.week_start === planStart)
                   .map((p) => p.planned_date);
@@ -622,7 +618,6 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                     dayNum: js.getDate(),
                     isPlanned: localPlannedDates.includes(date),
                     isPaused: pauseCovers(date),
-                    isFloored: floorCovers(date),
                   };
                 });
                 const plannedCount = cells.filter((c) => c.isPlanned).length;
@@ -1017,7 +1012,6 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                           style={[
                             styles.planCell,
                             c.isPlanned && !c.isPaused && styles.planCellActive,
-                            c.isFloored && !c.isPaused && styles.planCellFloored,
                             c.isPaused && styles.planCellPaused,
                           ]}
                           disabled={c.isPaused}
@@ -1025,7 +1019,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                           activeOpacity={0.7}
                           accessibilityRole="button"
                           accessibilityState={{ selected: c.isPlanned, disabled: c.isPaused }}
-                          accessibilityLabel={`${c.dow} ${c.dayNum}${c.isPlanned ? ' planned' : ''}${c.isPaused ? ' paused' : ''}${c.isFloored ? ' floored' : ''}`}
+                          accessibilityLabel={`${c.dow} ${c.dayNum}${c.isPlanned ? ' planned' : ''}${c.isPaused ? ' paused' : ''}`}
                         >
                           <Text
                             style={[styles.planCellDow, c.isPlanned && styles.planCellDowActive]}
@@ -1037,8 +1031,6 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                             <Pause size={11} strokeWidth={2} color="rgba(34,34,34,0.30)" />
                           ) : c.isPlanned ? (
                             <Check size={12} strokeWidth={2.5} color={'#F9F6F1'} />
-                          ) : c.isFloored ? (
-                            <TrendingDown size={10} strokeWidth={2} color="rgba(34,34,34,0.35)" />
                           ) : (
                             <View style={styles.planCellDot} />
                           )}
@@ -1185,6 +1177,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: BRAND.colors.linenCream,
+    paddingHorizontal: 20,
     paddingTop: 6,
   },
   cardScroll: {
@@ -1214,6 +1207,7 @@ const styles = StyleSheet.create({
 
   // ── Card shell ─────────────────────────────────────────────────────────────
   card: {
+    marginHorizontal: -20,
     marginBottom: 20,
   },
 
@@ -1315,6 +1309,7 @@ const styles = StyleSheet.create({
   rhythmHeadingSub: { fontSize: 12, fontWeight: '400', color: 'rgba(34,34,34,0.40)' },
   // Floor suggestion
   floorSuggest: {
+    marginTop: 14,
     marginBottom: 14,
   },
   floorSuggestHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 8 },
@@ -1323,7 +1318,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     color: '#1E3D2B',
-    fontWeight: '500',
+    fontWeight: '600',
   },
   floorIdeaRow: {
     flexDirection: 'row',
@@ -1840,13 +1835,13 @@ const styles = StyleSheet.create({
 
   // Planning surface (P5)
   planSurface: {
-    backgroundColor: BRAND.colors.sageMist,
+    backgroundColor: 'rgba(191,216,192,0.45)',
     paddingHorizontal: 18,
-    paddingVertical: 16,
+    paddingVertical: 18,
     marginHorizontal: -18,
   },
   planHead: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
-  planTitle: { fontSize: 15, fontWeight: '600', color: '#1E3D2B' },
+  planTitle: { fontSize: 16, fontWeight: '700', color: '#1E3D2B' },
   planStartPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1876,7 +1871,7 @@ const styles = StyleSheet.create({
   },
   planStartMenuItemText: { fontSize: 14, fontWeight: '500', color: '#1E3D2B' },
   planAdaptSlot: { marginTop: 8, marginBottom: 8 },
-  planRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 4 },
+  planRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 4, marginTop: 12 },
   planCell: {
     flex: 1,
     alignItems: 'center',
@@ -1890,10 +1885,6 @@ const styles = StyleSheet.create({
   planCellActive: {
     backgroundColor: '#2E5540',
     borderColor: '#2E5540',
-  },
-  planCellFloored: {
-    backgroundColor: 'rgba(224,196,122,0.10)',
-    borderColor: 'rgba(224,196,122,0.40)',
   },
   planCellPaused: { backgroundColor: 'rgba(34,34,34,0.04)', opacity: 0.55 },
   planCellDow: { fontSize: 9.5, fontWeight: '600', color: '#3A5A45' },
@@ -1909,7 +1900,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: 2,
     marginBottom: 2,
-    paddingHorizontal: 20,
   },
   navBtn: {
     width: 40,
