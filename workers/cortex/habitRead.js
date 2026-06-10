@@ -13,7 +13,8 @@
 //     publish-always overall.
 //
 // Provider: aiProvider tier 'mini' (gpt-4.1-mini primary, Gemini Flash
-// fallback, circuit breaker). Mode 'realtime'.
+// fallback, circuit breaker). Mode 'background': the deck never blocks on
+// this call, so no abort timeout; large payloads may take 10-20s.
 //
 // Wiring in cortex-index.js:
 //   import { handleHabitRead } from './habitRead.js';
@@ -55,7 +56,7 @@ import { aiGenerate, getProviders } from './aiProvider.js';
 
 // ── Caps (input boundary) ───────────────────────────────────────────────────
 const MAX_HABITS = 12;
-const MAX_EVENTS = 80;
+const MAX_EVENTS = 40;
 const MAX_NOTES = 40;
 const MAX_COMPLETION_DAYS = 80;
 const MAX_TITLE = 120;
@@ -184,10 +185,36 @@ function sanitizeFactSheet(raw) {
   };
 }
 
+/**
+ * Priority downselect when the event list exceeds MAX_EVENTS. Classes map to
+ * what events are FOR: (1) plan-window events are never cut (disruption
+ * detection input), (2) past all-day or multi-day events (the travel-shaped
+ * signal retro correlation needs), (3) past single-block timed events, newest
+ * first (the ordinary-working-week class the prompt fences as noise anyway).
+ * Enforced here so the boundary never depends on client-side ordering.
+ */
+function downselectEvents(events, planWindow) {
+  if (events.length <= MAX_EVENTS) return { kept: events, cut: 0 };
+  const inWindow = events.filter((e) => e.end >= planWindow.start && e.start <= planWindow.end);
+  const past = events.filter((e) => e.end < planWindow.start);
+  const travelShaped = past.filter((e) => e.all_day || e.end > e.start);
+  const timed = past
+    .filter((e) => !e.all_day && e.end === e.start)
+    .sort((a, b) => b.start.localeCompare(a.start));
+  const seen = new Set();
+  const kept = [];
+  for (const e of [...inWindow, ...travelShaped, ...timed]) {
+    if (seen.has(e.ref) || kept.length >= MAX_EVENTS) continue;
+    seen.add(e.ref);
+    kept.push(e);
+  }
+  return { kept, cut: events.length - kept.length };
+}
+
 function sanitizeSignals(events, eventNotes) {
   const cleanEvents = (Array.isArray(events) ? events : [])
     .filter((e) => e && e.ref && e.title && isIsoDay(String(e.start).slice(0, 10)))
-    .slice(0, MAX_EVENTS)
+    .slice(0, 300)
     .map((e) => ({
       ref: String(e.ref).slice(0, 80),
       title: trimStr(e.title, MAX_TITLE),
@@ -417,16 +444,19 @@ export async function handleHabitRead(body, env) {
       // week even if a client sends it (input-boundary fix for the rolling vs
       // ISO week conflation found in corpus run 1).
       .map((s) => ({ ...s, trend_weeks: s.trend_weeks.filter((w) => w.week_start !== curMon) }))
-      // Eligibility: 3+ weeks WITH data, or 8+ completions. A habit without a
-      // rhythm cannot be read or disrupted (spec 3C; in-span empty weeks do
-      // not count toward rhythm).
-      .filter(
-        (s) => s.trend_weeks.filter((w) => w.hits > 0).length >= 3 || s.completion_days.length >= 8,
-      )
+      // Eligibility v3: enough recent rhythm (2+ completed weeks with data AND
+      // 4+ completions in the 56d window) OR a long history (20+ lifetime),
+      // so dormant long-running habits stay readable while one-completion
+      // habits stay silent (spec 3C).
+      .filter((s) => {
+        const weeksWithData = s.trend_weeks.filter((w) => w.hits > 0).length;
+        return (weeksWithData >= 2 && s.completion_days.length >= 4) || s.total_completions >= 20;
+      })
       .slice(0, MAX_HABITS);
     if (sheets.length === 0) return { ...EMPTY, source: 'no_eligible_habits' };
 
-    const { cleanEvents, cleanNotes } = sanitizeSignals(body.events, body.eventNotes);
+    const { cleanEvents: allEvents, cleanNotes } = sanitizeSignals(body.events, body.eventNotes);
+    const { kept: cleanEvents, cut: eventsCut } = downselectEvents(allEvents, planWindow);
     const refSet = new Set([...cleanEvents.map((e) => e.ref), ...cleanNotes.map((n) => n.ref)]);
 
     const userPayload = JSON.stringify({
@@ -447,7 +477,7 @@ export async function handleHabitRead(body, env) {
 
     const result = await aiGenerate({
       endpoint: 'habit-read',
-      mode: 'realtime',
+      mode: 'background',
       env,
       systemPrompt: HABIT_READ_SYSTEM,
       messages: [{ role: 'user', content: userPayload }],
@@ -489,13 +519,18 @@ export async function handleHabitRead(body, env) {
       reads_out: Object.keys(reads).length,
       disruptions: Object.values(reads).filter((r) => r.disruption).length,
       flags: flags.length,
+      events_cut: eventsCut,
       provider: result.provider,
       model: result.model,
       was_fallback: result.wasFallback === true,
       latency_ms: Date.now() - t0,
     });
 
-    return { ok: true, reads, meta: { flags, model: result.model, latency_ms: Date.now() - t0 } };
+    return {
+      ok: true,
+      reads,
+      meta: { flags, events_cut: eventsCut, model: result.model, latency_ms: Date.now() - t0 },
+    };
   } catch (err) {
     console.error('[HabitRead] handler error:', err.message);
     return { ...EMPTY, source: 'handler_error' };
