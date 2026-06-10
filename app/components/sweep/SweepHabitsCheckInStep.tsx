@@ -32,6 +32,9 @@ import {
   Shield,
   Calendar,
   ChevronUp,
+  Sunrise,
+  SunMedium,
+  Sunset,
 } from 'lucide-react-native';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
@@ -527,6 +530,81 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                 <Text style={styles.stripLabel}>tracking since</Text>
               </View>
             </View>
+
+            {/* ── Time anchor (v7-4a): writes habit.time_window ── */}
+            {(() => {
+              const ANCHORS: Array<{
+                key: 'morning' | 'day' | 'evening';
+                label: string;
+                icon: typeof Sunrise;
+              }> = [
+                { key: 'morning', label: 'Morning', icon: Sunrise },
+                { key: 'day', label: 'Day', icon: SunMedium },
+                { key: 'evening', label: 'Evening', icon: Sunset },
+              ];
+              const current = (currentHabit?.time_window as string | null) ?? 'any';
+              const onPick = async (key: 'morning' | 'day' | 'evening') => {
+                const next = current === key ? 'any' : key;
+                await updateHabit(card.id, { time_window: next });
+              };
+              return (
+                <View style={styles.anchorBlock}>
+                  <Text style={styles.anchorLabel}>
+                    {card.isBreak ? 'When is it hardest?' : 'When do you do this?'}
+                  </Text>
+                  <Text style={styles.anchorSub}>
+                    {card.isBreak
+                      ? 'Gremly will check in with support then'
+                      : 'Helps Gremly time its nudge'}
+                  </Text>
+                  <View style={styles.anchorRow}>
+                    {ANCHORS.map(({ key, label, icon: Ico }) => {
+                      const active = current === key;
+                      return (
+                        <TouchableOpacity
+                          key={key}
+                          style={[
+                            styles.anchorChip,
+                            active &&
+                              (card.isBreak
+                                ? styles.anchorChipActiveBreak
+                                : styles.anchorChipActive),
+                          ]}
+                          onPress={() => onPick(key)}
+                          activeOpacity={0.75}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: active }}
+                          accessibilityLabel={`${label}${active ? ' selected' : ''}`}
+                        >
+                          <Ico
+                            size={17}
+                            strokeWidth={1.8}
+                            color={
+                              active
+                                ? card.isBreak
+                                  ? '#8a6d2f'
+                                  : BRAND.colors.mossGreen
+                                : BRAND.colors.inkMuted
+                            }
+                          />
+                          <Text
+                            style={[
+                              styles.anchorChipText,
+                              active &&
+                                (card.isBreak
+                                  ? styles.anchorChipTextBreak
+                                  : styles.anchorChipTextActive),
+                            ]}
+                          >
+                            {label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              );
+            })()}
 
             {/* ── Habit Adaptation Block (v7-3a) ── */}
             <View style={styles.adaptBlock}>
@@ -1384,6 +1462,60 @@ const styles = StyleSheet.create({
     width: 0.5,
     height: 24,
     backgroundColor: 'rgba(34,34,34,0.10)',
+  },
+
+  // Time anchor (P4a)
+  anchorBlock: {
+    marginTop: 14,
+    paddingTop: 14,
+    borderTopWidth: 0.5,
+    borderTopColor: 'rgba(34,34,34,0.07)',
+  },
+  anchorLabel: {
+    fontSize: 13.5,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+  },
+  anchorSub: {
+    fontSize: 10.5,
+    color: 'rgba(34,34,34,0.45)',
+    marginTop: 1,
+    marginBottom: 10,
+  },
+  anchorRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  anchorChip: {
+    flex: 1,
+    borderRadius: 11,
+    paddingVertical: 10,
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(34,34,34,0.04)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(34,34,34,0.10)',
+  },
+  anchorChipActive: {
+    backgroundColor: BRAND.colors.sageMist,
+    borderColor: BRAND.colors.mossGreen,
+  },
+  anchorChipActiveBreak: {
+    backgroundColor: BRAND.colors.goldenPear,
+    borderColor: 'rgba(138,109,47,0.5)',
+  },
+  anchorChipText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: 'rgba(34,34,34,0.55)',
+  },
+  anchorChipTextActive: {
+    color: BRAND.colors.mossGreen,
+    fontWeight: '600',
+  },
+  anchorChipTextBreak: {
+    color: '#8a6d2f',
+    fontWeight: '600',
   },
 
   // Habit insight slot
