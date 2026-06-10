@@ -14004,6 +14004,8 @@ Weigh the habit itself. Consider what this habit physically requires, its cadenc
 
 If and only if you find a real disruption, suggest two or three smaller ways the user could still genuinely do this habit during it. These keep the same frequency goal; they lower the bar for what counts as one session, not the number of sessions. Make each suggestion specific to this habit and this disruption, derived from what the habit actually involves and what the user's situation will be. If the habit carries a saved floor note, you may build on it. For a break_habit, suggest protective tactics rather than smaller doses.
 
+Keep each suggestion to a single short clause: the smallest action that still counts, stated plainly. Do not explain, justify, or add conditions. Aim for roughly six to ten words per suggestion. Brevity matters because these are shown as compact rows on a card; a long suggestion is worse than a short one.
+
 Silence is the correct answer most weeks. If there is no clear, specific disruption overlapping the days for this habit in either source, return detected false. Never invent events, trips, locations, dates, or details not present in the input. Do not flag a disruption from weak or ambiguous signals.
 
 Return ONLY JSON:
@@ -14129,10 +14131,18 @@ Return ONLY JSON:
               return j({ ok: true, detected: false });
             }
 
-            // 4. ideas
+            // 4. ideas — trim at last word boundary before 90 chars (safety backstop only;
+            // the prompt should already keep ideas short; this avoids mid-word chops)
             const rawIdeas = Array.isArray(parsed.ideas) ? parsed.ideas : [];
             const ideas = rawIdeas
-              .map((s) => (typeof s === 'string' ? s.trim().slice(0, 80) : ''))
+              .map((s) => {
+                if (typeof s !== 'string') return '';
+                const trimmed = s.trim();
+                if (trimmed.length <= 90) return trimmed;
+                const cut = trimmed.slice(0, 90);
+                const lastSpace = cut.lastIndexOf(' ');
+                return lastSpace > 0 ? cut.slice(0, lastSpace) : cut;
+              })
               .filter((s) => s.length > 0)
               .slice(0, 3);
             if (ideas.length === 0) {
