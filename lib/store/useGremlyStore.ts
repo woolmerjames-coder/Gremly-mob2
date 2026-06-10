@@ -446,6 +446,16 @@ export interface HabitPlanRow {
   status: 'planned' | 'kept' | 'missed' | 'rescheduled';
 }
 
+export interface FloorSuggestion {
+  habit_id: string;
+  week_start: string;
+  detected: boolean;
+  disruption: { label: string; start: string; end: string } | null;
+  lead_line: string | null;
+  ideas: string[];
+  confidence: number;
+}
+
 // @deprecated — PendingDrop is no longer used at runtime. Tests should migrate to QueuedDrop from dropQueue.ts.
 export type PendingDrop = Record<string, any>;
 
@@ -467,6 +477,10 @@ export interface GremlyState {
   habitAdaptations: HabitAdaptationRow[];
   /** Forward plans (coming 7+ days) per habit. Loaded on hydrate, current+future weeks. */
   habitPlans: HabitPlanRow[];
+  /** Floor suggestions from AI, keyed by `${habit_id}:${week_start}`. */
+  habitFloorSuggestions: Record<string, FloorSuggestion>;
+  /** True while ensureFloorSuggestions is running. */
+  floorSuggestRunning: boolean;
   spaceChats: SpaceChat[];
   spaceChatMessages: SpaceChatMessage[];
   generalChats: SpaceChat[];
@@ -771,6 +785,18 @@ export interface GremlyState {
   setHabitPlan: (habitId: string, plannedDate: string, weekStart?: string) => Promise<void>;
   /** Remove a planned day (re-tap to deselect). */
   removeHabitPlan: (habitId: string, plannedDate: string) => Promise<void>;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // FLOOR SUGGESTIONS
+  // ═══════════════════════════════════════════════════════════════════
+  /**
+   * Loads cached floor suggestions for weekStart from Supabase, then fires the
+   * worker for any non-daily build habits that have no cached row. Idempotent;
+   * concurrent calls while running are no-ops.
+   */
+  ensureFloorSuggestions: (habits: Habit[], weekStart: string) => Promise<void>;
+  /** Returns the FloorSuggestion for a habit+week, or null. */
+  getFloorSuggestion: (habitId: string, weekStart: string) => FloorSuggestion | null;
 
   // ═══════════════════════════════════════════════════════════════════
   // HABIT INSIGHT CACHE
@@ -1164,6 +1190,8 @@ const initialState = {
   habitProgress: [] as HabitProgressRow[],
   habitAdaptations: [] as HabitAdaptationRow[],
   habitPlans: [] as HabitPlanRow[],
+  habitFloorSuggestions: {} as Record<string, FloorSuggestion>,
+  floorSuggestRunning: false,
   habitInsightCache: {} as Record<string, import('../habits/habitInsight').HabitInsightResult>,
   spaceChats: [] as SpaceChat[],
   spaceChatMessages: [] as SpaceChatMessage[],
@@ -4185,8 +4213,144 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         // ═══════════════════════════════════════════════════════════════════
-        // NOTE MUTATIONS
+        // FLOOR SUGGESTIONS
         // ═══════════════════════════════════════════════════════════════════
+
+        ensureFloorSuggestions: async (habits, weekStart) => {
+          if (get().floorSuggestRunning) return;
+          set({ floorSuggestRunning: true });
+          try {
+            const userId = get().userId;
+            if (!userId) return;
+
+            // 1. Load cache from DB for this week_start
+            const { data: cachedRows } = await supabase
+              .from('habit_floor_suggestions')
+              .select('habit_id, week_start, payload')
+              .eq('owner_id', userId)
+              .eq('week_start', weekStart);
+
+            const hydrated: Record<string, FloorSuggestion> = { ...get().habitFloorSuggestions };
+            const cachedHabitIds = new Set<string>();
+            for (const row of cachedRows ?? []) {
+              const key = `${row.habit_id}:${row.week_start}`;
+              hydrated[key] = row.payload as FloorSuggestion;
+              cachedHabitIds.add(row.habit_id);
+            }
+            set({ habitFloorSuggestions: hydrated });
+
+            // 2. Determine which habits need a run
+            const toRun = habits.filter(
+              (h) =>
+                !h.archived &&
+                h.cadence !== 'daily' &&
+                h.subtype !== 'break_habit' &&
+                !cachedHabitIds.has(h.id),
+            );
+            if (toRun.length === 0) return;
+
+            // 3. Ensure calendar events are loaded for the window
+            const windowEnd = getDateService().addDays(weekStart, 6);
+            await get().fetchCalendarEventsForRange(weekStart, windowEnd);
+
+            const allCalEvents = get().calendarEvents;
+            const windowEvents = Object.entries(allCalEvents)
+              .filter(([date]) => date >= weekStart && date <= windowEnd)
+              .flatMap(([, evts]) => evts)
+              .map((e) => ({
+                title: e.title ?? '',
+                location: (e as any).location ?? null,
+                start_at: e.startAt,
+                end_at: e.endAt,
+                is_all_day: (e as any).isAllDay ?? false,
+              }));
+
+            // 4. Get Cortex URL + auth token
+            const cortexUrl = (process.env.EXPO_PUBLIC_CORTEX_URL ?? '') as string;
+            const token = await getSessionToken();
+            const tz = get().userTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+            const todayISO = getDateService().today();
+
+            // 5. Parallel calls
+            const results = await Promise.allSettled(
+              toRun.map(async (h) => {
+                const res = await fetch(cortexUrl, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                  },
+                  body: JSON.stringify({
+                    type: 'floor-suggest',
+                    habit: {
+                      id: h.id,
+                      name: h.name,
+                      cadence: h.cadence,
+                      target_per_period: h.target_per_period,
+                      subtype: h.subtype,
+                      floor_note: h.floor_note ?? null,
+                    },
+                    planWindow: { start: weekStart, end: windowEnd },
+                    events: windowEvents,
+                    todayISO,
+                    timezone: tz,
+                  }),
+                });
+                if (!res.ok) throw new Error(`floor-suggest HTTP ${res.status}`);
+                const data = await res.json();
+                return { habit: h, data };
+              }),
+            );
+
+            let failCount = 0;
+            const updatedSuggestions: Record<string, FloorSuggestion> = {
+              ...get().habitFloorSuggestions,
+            };
+
+            for (const result of results) {
+              if (result.status === 'rejected') {
+                failCount++;
+                continue;
+              }
+              const { habit: h, data } = result.value;
+              const suggestion: FloorSuggestion = {
+                habit_id: h.id,
+                week_start: weekStart,
+                detected: data.detected === true,
+                disruption: data.disruption ?? null,
+                lead_line: data.lead_line ?? null,
+                ideas: Array.isArray(data.ideas) ? data.ideas : [],
+                confidence: typeof data.confidence === 'number' ? data.confidence : 0,
+              };
+              const key = `${h.id}:${weekStart}`;
+              updatedSuggestions[key] = suggestion;
+
+              // Cache in DB (fire-and-forget, don't block UI)
+              supabase
+                .from('habit_floor_suggestions')
+                .upsert(
+                  { habit_id: h.id, owner_id: userId, week_start: weekStart, payload: suggestion },
+                  { onConflict: 'habit_id,week_start' },
+                )
+                .then(({ error }) => {
+                  if (error) console.warn('[FloorSuggest] Cache write failed:', error.message);
+                });
+            }
+
+            set({ habitFloorSuggestions: updatedSuggestions });
+            if (failCount > 0) {
+              console.warn(`[FloorSuggest] ${failCount} request(s) failed (not cached)`);
+            }
+          } catch (err) {
+            console.error('[FloorSuggest] ensureFloorSuggestions error:', (err as Error).message);
+          } finally {
+            set({ floorSuggestRunning: false });
+          }
+        },
+
+        getFloorSuggestion: (habitId, weekStart) => {
+          return get().habitFloorSuggestions[`${habitId}:${weekStart}`] ?? null;
+        },
 
         createNote: async (note: Partial<Note> & { photoUris?: string[] }) => {
           const userId = get().userId;

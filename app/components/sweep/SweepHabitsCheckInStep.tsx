@@ -7,7 +7,7 @@
  * No AI, no gauge side-effects.
  */
 
-import React, { useState, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import {
   View,
   ScrollView,
@@ -18,6 +18,7 @@ import {
   Modal,
   Pressable,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import {
@@ -33,6 +34,9 @@ import {
   Shield,
   Calendar,
   ChevronUp,
+  Sparkles,
+  ArrowDown,
+  X,
 } from 'lucide-react-native';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
@@ -120,6 +124,8 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   const setHabitPlan = useGremlyStore((s) => s.setHabitPlan);
   const removeHabitPlan = useGremlyStore((s) => s.removeHabitPlan);
   const habitPlans = useGremlyStore((s) => s.habitPlans);
+  const ensureFloorSuggestions = useGremlyStore((s) => s.ensureFloorSuggestions);
+  const getFloorSuggestion = useGremlyStore((s) => s.getFloorSuggestion);
 
   const cards = useHabitCardStats(habits);
 
@@ -143,6 +149,36 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   const [adaptConfirmations, setAdaptConfirmations] = useState<Record<string, string>>({});
   // ── Plan state ───────────────────────────────────────────────────────────
   const [planStart, setPlanStart] = useState<string>(() => getDateService().today());
+  // ── Floor suggestion state ──────────────────────────────────────────────
+  const [floorReady, setFloorReady] = useState(false);
+  const [dismissedFloors, setDismissedFloors] = useState<Set<string>>(new Set());
+  const floorWeekStart = getDateService().today();
+  const hasNonDailyBuild = habits.some(
+    (h) => !h.archived && h.cadence !== 'daily' && h.subtype !== 'break_habit',
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    const weekStart = getDateService().today();
+    const safetyTimer = setTimeout(() => {
+      if (!cancelled) setFloorReady(true);
+    }, 6000);
+    (async () => {
+      try {
+        await ensureFloorSuggestions(habits, weekStart);
+      } catch (_) {
+        // errors handled inside ensureFloorSuggestions
+      } finally {
+        clearTimeout(safetyTimer);
+        if (!cancelled) setFloorReady(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      clearTimeout(safetyTimer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [planStartMenuOpen, setPlanStartMenuOpen] = useState(false);
   // Date picker
   const [datePickerTarget, setDatePickerTarget] = useState<DatePickerTarget>(null);
@@ -312,6 +348,16 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
     },
     [clearHabitAdaptation],
   );
+
+  // ── Load screen: show while floor suggestions are running (non-daily build habits only) ──
+  if (!floorReady && hasNonDailyBuild) {
+    return (
+      <View style={styles.loadWrap}>
+        <ActivityIndicator color={BRAND.colors.periwinkleSmoke} />
+        <Text style={styles.loadText}>Looking over your week...</Text>
+      </View>
+    );
+  }
 
   if (cards.length === 0) {
     return (
@@ -861,7 +907,74 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                       )}
                     </View>
 
-                    {/* Frequency recommendation (conditional) */}
+                    {/* Floor suggestion (AI-detected disruption, above day strip) */}
+                    {(() => {
+                      const suggestion = getFloorSuggestion(card.id, floorWeekStart);
+                      const isDismissed = dismissedFloors.has(card.id);
+                      const showSuggestion =
+                        suggestion?.detected && suggestion.ideas.length > 0 && !isDismissed;
+                      if (!showSuggestion) return null;
+                      const formatRange = (d: { start: string; end: string }) =>
+                        `${formatDateDisplay(d.start)} to ${formatDateDisplay(d.end)}`;
+                      return (
+                        <View style={styles.floorSuggest}>
+                          <View style={styles.floorSuggestHead}>
+                            <Sparkles size={15} strokeWidth={1.8} color={BRAND.colors.goldenPear} />
+                            <Text style={styles.floorSuggestLead}>{suggestion!.lead_line}</Text>
+                            <TouchableOpacity
+                              onPress={() =>
+                                setDismissedFloors((prev) => new Set([...prev, card.id]))
+                              }
+                              hitSlop={8}
+                              accessibilityRole="button"
+                              accessibilityLabel="Dismiss suggestion"
+                            >
+                              <X size={14} strokeWidth={2} color={BRAND.colors.inkMuted} />
+                            </TouchableOpacity>
+                          </View>
+                          {suggestion!.ideas.map((idea, i) => (
+                            <TouchableOpacity
+                              key={i}
+                              style={styles.floorIdeaRow}
+                              onPress={() => {
+                                updateHabit(card.id, { floor_note: idea });
+                                setDismissedFloors((prev) => new Set([...prev, card.id]));
+                              }}
+                              activeOpacity={0.7}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Use this floor: ${idea}`}
+                            >
+                              <ArrowDown
+                                size={13}
+                                strokeWidth={2}
+                                color={BRAND.colors.goldenPear}
+                              />
+                              <Text style={styles.floorIdeaText}>{idea}</Text>
+                            </TouchableOpacity>
+                          ))}
+                          <View style={styles.floorSuggestActions}>
+                            <TouchableOpacity
+                              onPress={() => {
+                                if (suggestion!.disruption) {
+                                  setAdaptMode('pause');
+                                  setAdaptStart(suggestion!.disruption.start);
+                                  setAdaptEnd(suggestion!.disruption.end);
+                                  setAdaptExpanded(true);
+                                }
+                              }}
+                              accessibilityRole="button"
+                            >
+                              <Text style={styles.floorPauseLink}>
+                                {'Or pause '}
+                                {suggestion!.disruption
+                                  ? formatRange(suggestion!.disruption)
+                                  : 'this stretch'}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      );
+                    })()}
                     {rec?.show && !appliedChange && (
                       <View style={styles.recBlock}>
                         <Text style={styles.recSentence}>{rec.sentence}</Text>
@@ -1226,6 +1339,45 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
   rhythmHeadingSub: { fontSize: 12, fontWeight: '400', color: 'rgba(34,34,34,0.40)' },
+  // Floor suggestion
+  floorSuggest: {
+    backgroundColor: 'rgba(224,196,122,0.10)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(224,196,122,0.45)',
+    borderRadius: 10,
+    padding: 11,
+    marginBottom: 12,
+  },
+  floorSuggestHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 8 },
+  floorSuggestLead: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    color: BRAND.colors.charcoalInk,
+    fontWeight: '500',
+  },
+  floorIdeaRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 7, paddingVertical: 5 },
+  floorIdeaText: { flex: 1, fontSize: 12.5, lineHeight: 17, color: BRAND.colors.charcoalInk },
+  floorSuggestActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 9,
+    paddingTop: 9,
+    borderTopWidth: 0.5,
+    borderTopColor: 'rgba(224,196,122,0.35)',
+  },
+  floorPauseLink: { fontSize: 12, color: BRAND.colors.inkMuted, fontWeight: '500' },
+  floorChatLink: { fontSize: 12, color: BRAND.colors.mossGreen, fontWeight: '600' },
+  // Load screen
+  loadWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 14,
+    paddingHorizontal: 40,
+  },
+  loadText: { fontSize: 14, color: BRAND.colors.inkMuted, fontWeight: '500' },
   weekRowSub: {
     fontSize: 10,
     fontWeight: '400',
