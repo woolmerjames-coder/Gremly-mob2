@@ -86,17 +86,21 @@ const WEEKDAY_NAMES = [
 
 const HABIT_READ_SYSTEM = `You are Gremly, a calm companion who reads a person's habit data and writes one short read per habit for their weekly review. You receive fact sheets for several habits plus two sources of signal about their days: event-notes the user captured themselves, and synced calendar entries. Each event and note carries a ref id.
 
-For every habit, compose read_paragraph: a single flowing paragraph, never a list of stitched observations. Open with the most meaningful true thing in that habit's recent data, in a warm plain voice, second person, present tense. The paragraph must read as one thought. Keep it under 280 characters. Never shame the user, never moralize, never use exclamation marks more than once, and never use em or en dashes anywhere in any field.
+Time vocabulary, follow it exactly. week_hits and week_target describe the current week, a rolling seven day window ending today, and they are the only source of truth about the current week. trend_weeks lists prior completed weeks only and says nothing about the current week. Never describe the current week using trend_weeks. Never declare the current week failed, finished, or a streak broken while it is still in progress; a week below target with days remaining is simply open.
 
-Ground every claim in the fact sheet. Numbers, counts, and streaks must match the data exactly. Name a weekday only when the fact sheet's completion days, planned dates, or the disruption window actually contain that weekday. You may connect a below-target week to an event or note whose dates overlap that week, and only then; when the overlap is not plain, say nothing about causes. Stating a pattern the data shows is your job; inventing a reason for it is forbidden.
+Break habits, subtype break_habit, are habits the user is quitting or avoiding. For these, every completion is a day the user stayed CLEAR of the thing: week_hits is clear days this week, total_completions is total clear days, streaks are clear streaks. Read these as wins and never, under any circumstances, describe completions as doing the unwanted thing.
 
-Disruption judgment. Treat the user's own event-notes as the primary, most trustworthy signal. A calendar is secondary and noisy: routine meetings and the ordinary working week are never disruptions, however dense. When a note and a calendar entry plainly concern the same plan, treat them as one situation and prefer the note's framing and dates. A real disruption genuinely displaces the user's normal routine on days they would do this habit: being away from home, or an unusual commitment that crowds the habit out. Weigh what the habit physically requires against what the stretch will allow. Silence is the correct answer most weeks; return disruption null unless the conflict is clear and specific. Never invent events, trips, dates, or locations.
+For every habit, compose read_paragraph: a single flowing paragraph, never a list of stitched observations. Lead with one true judgment about what the data means, not a recital of it; use at most two numbers from the sheet. Warm plain voice, second person, present tense, and vary how paragraphs open across habits. Keep it clearly under 280 characters, shorter when a disruption is present so the setup lands before the options. Never shame the user, never stack multiple negative observations in one paragraph, never speculate about the user's motives, priorities, or reasons beyond what an overlapping event plainly shows, never moralize, at most one exclamation mark, and never use em or en dashes anywhere in any field.
 
-When you return a disruption: ref must be the id of the event or note it came from, label is a short name for it taken from that source, start and end are its dates, and the read_paragraph must mention the label verbatim and end by setting up the choice the options present. Provide two or three ideas, each a single short clause of roughly six to ten words, the smallest version of the habit that still genuinely counts during the disruption, specific to this habit and this situation. If the habit has a saved floor note you may build on it. Set offer_pause true when stepping away entirely is a reasonable choice for this habit and stretch.
+Ground every claim in the fact sheet. Numbers and streaks must match the data exactly. Name a weekday only when the fact sheet's completion days, planned dates, the habit's own name, or the disruption window contain it, and the only weekday you may call the user's best or strongest is the one given as best_day or best_day_all_time. You may connect a below-target completed week to an event or note whose dates overlap that week, and only then; when the overlap is not plain, say nothing about causes. Stating a pattern the data shows is your job; inventing a reason for it is forbidden.
 
-Break habits, subtype break_habit, are habits the user is quitting or avoiding. For these, a disruption is a stretch of elevated temptation or risk. Ideas must be protective tactics that help the user stay clear, never smaller doses of the thing. offer_pause is always false for break habits.
+Disruption judgment. Treat the user's own event-notes as the primary, most trustworthy signal. A calendar is secondary and noisy: routine meetings and the ordinary working week are never disruptions, however dense. When a note and a calendar entry plainly concern the same plan, treat them as one situation and prefer the note's framing and dates. A real disruption genuinely displaces the user's normal routine on days they would do this habit. Weigh what the habit physically requires against what the stretch will allow. Silence is the correct answer most weeks; return disruption null unless the conflict is clear and specific. Never invent events, trips, dates, or locations.
 
-frequency_line: write it only when the fact sheet includes freq_rec, and it must be one plain sentence about the relationship between the typical number and the current target given there. Never propose a number that is not in the provided chips. When freq_rec is absent, frequency_line is null; the paragraph may still note momentum but must not suggest changing the target.
+When an adaptation in the fact sheet already covers a stretch you would otherwise flag, do not return a disruption for it; the user has already decided. Let the paragraph briefly acknowledge the existing pause or floor and how the week works around it.
+
+When you return a disruption: ref must be the id of the event or note it came from, label is a short name for it taken from that source, start and end are its dates, and the read_paragraph must mention the label verbatim and end by setting up the choice the options present. Provide two or three ideas, each a single short clause of roughly six to ten words, the smallest version of the habit that still genuinely counts during the disruption, specific to this habit and this situation. If the habit has a saved floor note you may build on it. Set offer_pause true when stepping away entirely is a reasonable choice for this habit and stretch. For break habits, ideas must be protective tactics that help the user stay clear, never smaller doses, and offer_pause is always false.
+
+frequency_line: write it only when the fact sheet includes freq_rec, and it must be one plain sentence about the relationship between the typical number and the current target given there. Never propose a number that is not in the provided chips, and never restate this relationship inside read_paragraph when frequency_line exists. When freq_rec is absent, frequency_line is null; the paragraph may still note momentum but must not suggest changing the target.
 
 Return ONLY JSON, an object keyed by habit_id, each value:
 {
@@ -218,6 +222,31 @@ function weekdayOfIso(iso) {
   return d.getUTCDay();
 }
 
+function addDaysIso(iso, n) {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Monday of the ISO week containing iso. */
+function isoMondayOf(iso) {
+  const day = weekdayOfIso(iso);
+  return addDaysIso(iso, day === 0 ? -6 : 1 - day);
+}
+
+/**
+ * Sentence-boundary cap for the read paragraph. Returns the paragraph trimmed
+ * at the last full sentence inside the cap, or null when no clean sentence
+ * fits (publishing a mid-sentence fragment is worse than publishing nothing).
+ */
+function sentenceCap(s, max) {
+  const t = s.trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  const lastEnd = Math.max(cut.lastIndexOf('.'), cut.lastIndexOf('!'), cut.lastIndexOf('?'));
+  return lastEnd >= 80 ? cut.slice(0, lastEnd + 1) : null;
+}
+
 /**
  * Weekdays the paragraph is allowed to name for this habit.
  * Deliberately excludes today's weekday: a paragraph about today says
@@ -228,6 +257,12 @@ function allowedWeekdays(sheet, disruption, todayISO) {
   const allowed = new Set();
   for (const day of sheet.completion_days) allowed.add(weekdayOfIso(day));
   for (const day of sheet.planned_dates) allowed.add(weekdayOfIso(day));
+  // A habit whose own name states a weekday licenses that weekday
+  // ("Call Mum Weekly on Saturdays" may say Saturdays).
+  const nameLower = sheet.name.toLowerCase();
+  for (let i = 0; i < 7; i++) {
+    if (nameLower.includes(WEEKDAY_NAMES[i])) allowed.add(i);
+  }
   if (sheet.best_day_all_time) {
     const i = WEEKDAY_NAMES.indexOf(sheet.best_day_all_time.toLowerCase().replace(/s$/, ''));
     if (i >= 0) allowed.add(i);
@@ -279,11 +314,17 @@ function validateOne(parsed, sheet, refSet, planWindow, todayISO, flags) {
     const okDates = isIsoDay(d.start) && isIsoDay(d.end) && d.start <= d.end;
     const okOverlap = okDates && d.start <= planWindow.end && d.end >= planWindow.start;
     const okConf = confidence >= CONF_DISRUPTION;
+    // A disruption fully covered by an existing adaptation is already decided;
+    // the paragraph may acknowledge it but no options are offered (spec 2D).
+    const alreadyAdapted =
+      okDates && sheet.adaptations.some((a) => a.start <= d.start && a.end >= d.end);
     const ideas = (Array.isArray(d.ideas) ? d.ideas : [])
       .map((s) => (typeof s === 'string' ? stripDashes(softCap(s, MAX_IDEA)) : ''))
       .filter((s) => s.length > 0)
       .slice(0, MAX_IDEAS);
-    if (okRef && okDates && okOverlap && okConf && label && ideas.length > 0) {
+    if (alreadyAdapted) {
+      flags.push({ habit_id: sheet.habit_id, drop: 'disruption', reason: 'already_adapted' });
+    } else if (okRef && okDates && okOverlap && okConf && label && ideas.length > 0) {
       disruption = {
         ref,
         label,
@@ -302,10 +343,15 @@ function validateOne(parsed, sheet, refSet, planWindow, todayISO, flags) {
   }
 
   // ── Paragraph ──
-  let paragraph =
-    typeof parsed.read_paragraph === 'string'
-      ? stripDashes(softCap(parsed.read_paragraph, MAX_PARAGRAPH))
-      : null;
+  let paragraph = null;
+  if (typeof parsed.read_paragraph === 'string') {
+    const capped = sentenceCap(stripDashes(parsed.read_paragraph), MAX_PARAGRAPH);
+    if (capped === null) {
+      flags.push({ habit_id: sheet.habit_id, drop: 'paragraph', reason: 'overlength' });
+    } else {
+      paragraph = capped;
+    }
+  }
   if (paragraph) {
     if (confidence < CONF_PARAGRAPH) {
       flags.push({ habit_id: sheet.habit_id, drop: 'paragraph', reason: 'confidence' });
@@ -362,11 +408,21 @@ export async function handleHabitRead(body, env) {
     if (!todayISO || !planWindow) return { ...EMPTY, source: 'bad_input' };
 
     // Input boundary
+    const curMon = isoMondayOf(todayISO);
     const sheets = (Array.isArray(body.factSheets) ? body.factSheets : [])
       .map(sanitizeFactSheet)
       .filter(Boolean)
-      // Eligibility: a habit without a rhythm cannot be read or disrupted (spec 3C).
-      .filter((s) => s.trend_weeks.length >= 3 || s.completion_days.length >= 6)
+      // trend_weeks must contain COMPLETED weeks only; the current week's sole
+      // source of truth is week_hits/week_target. Strip the in-progress ISO
+      // week even if a client sends it (input-boundary fix for the rolling vs
+      // ISO week conflation found in corpus run 1).
+      .map((s) => ({ ...s, trend_weeks: s.trend_weeks.filter((w) => w.week_start !== curMon) }))
+      // Eligibility: 3+ weeks WITH data, or 8+ completions. A habit without a
+      // rhythm cannot be read or disrupted (spec 3C; in-span empty weeks do
+      // not count toward rhythm).
+      .filter(
+        (s) => s.trend_weeks.filter((w) => w.hits > 0).length >= 3 || s.completion_days.length >= 8,
+      )
       .slice(0, MAX_HABITS);
     if (sheets.length === 0) return { ...EMPTY, source: 'no_eligible_habits' };
 
