@@ -13983,6 +13983,7 @@ Return ONLY valid JSON:
           const habit = body.habit || {};
           const planWindow = body.planWindow || {};
           const events = Array.isArray(body.events) ? body.events : [];
+          const eventNotes = Array.isArray(body.eventNotes) ? body.eventNotes : [];
           const todayISO = typeof body.todayISO === 'string' ? body.todayISO : '';
           const tz = typeof body.timezone === 'string' ? body.timezone : 'UTC';
 
@@ -13991,9 +13992,11 @@ Return ONLY valid JSON:
             return j(FLOOR_FALLBACK);
           }
 
-          const FLOOR_SUGGEST_SYSTEM = `You decide whether an upcoming stretch will make ONE specific habit hard to do, and if so, suggest smaller ways the user could still do it. You are given the habit and the user's real calendar events for the coming days. Calendars are noisy. Your job is judgment.
+          const FLOOR_SUGGEST_SYSTEM = `You decide whether an upcoming stretch will make ONE specific habit hard to do, and if so, suggest smaller ways the user could still do it. You are given the habit and two sources of signal about the user's coming days: event-notes the user captured themselves, and synced calendar entries. Your job is judgment.
 
-A real disruption is something that genuinely displaces the user's normal routine for one or more of the days they would do this habit: being physically away from home or their usual environment, or an unusual personal commitment that occupies enough of a day to crowd the habit out. Judge each event on its meaning, not its format.
+Treat the user's own event-notes as the primary, most trustworthy signal: they are things the user deliberately recorded as upcoming, and they carry the user's own description and intended dates. A calendar is a secondary, noisier source: it often holds only fragments of a plan and is full of routine obligations. When a calendar entry and an event-note plainly concern the same real-world plan, treat them as one situation and prefer the note's framing and dates for the span. A single calendar entry may be only one piece of a larger plan that the notes describe more fully; reason about what the whole situation is, not just the literal bounds of one calendar entry.
+
+A real disruption is something that genuinely displaces the user's normal routine for one or more of the days they would do this habit: being physically away from home or their usual environment, or an unusual personal commitment that occupies enough of a day to crowd the habit out. Judge each signal on its meaning, not its format.
 
 Do not treat the ordinary working week as a disruption. Recurring meetings and work obligations are normal life, however many there are. Ignore events that are not actually happening (cancelled), events that are observances rather than commitments, and events that concern other people rather than the user. Ignore brief obligations that leave the rest of the day intact.
 
@@ -14001,7 +14004,7 @@ Weigh the habit itself. Consider what this habit physically requires, its cadenc
 
 If and only if you find a real disruption, suggest two or three smaller ways the user could still genuinely do this habit during it. These keep the same frequency goal; they lower the bar for what counts as one session, not the number of sessions. Make each suggestion specific to this habit and this disruption, derived from what the habit actually involves and what the user's situation will be. If the habit carries a saved floor note, you may build on it. For a break_habit, suggest protective tactics rather than smaller doses.
 
-Silence is the correct answer most weeks. If there is no clear, specific disruption overlapping the days for this habit, return detected false. Never invent events, trips, locations, or details not present in the input. Do not flag a disruption from weak or ambiguous signals.
+Silence is the correct answer most weeks. If there is no clear, specific disruption overlapping the days for this habit in either source, return detected false. Never invent events, trips, locations, dates, or details not present in the input. Do not flag a disruption from weak or ambiguous signals.
 
 Return ONLY JSON:
 {
@@ -14012,9 +14015,27 @@ Return ONLY JSON:
   "confidence": number
 }`;
 
-          const userPayload = JSON.stringify({ habit, planWindow, todayISO, timezone: tz, events });
-          const truncatedPayload =
-            userPayload.length > 4000 ? userPayload.slice(0, 4000) : userPayload;
+          // Build payload prioritising eventNotes (primary signal) over events when truncating
+          const basePayload = { habit, planWindow, todayISO, timezone: tz, eventNotes, events };
+          let userPayload = JSON.stringify(basePayload);
+          if (userPayload.length > 4000) {
+            // Try with eventNotes intact but drop events
+            const withoutEvents = JSON.stringify({
+              habit,
+              planWindow,
+              todayISO,
+              timezone: tz,
+              eventNotes,
+              events: [],
+            });
+            if (withoutEvents.length <= 4000) {
+              userPayload = withoutEvents;
+            } else {
+              // Hard truncate as last resort
+              userPayload = userPayload.slice(0, 4000);
+            }
+          }
+          const truncatedPayload = userPayload;
 
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 8000);
