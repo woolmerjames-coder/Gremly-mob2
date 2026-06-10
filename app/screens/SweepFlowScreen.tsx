@@ -4971,6 +4971,34 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
               onLeadThroughAll={handleHubLeadThroughAll}
               onFinish={handleHubFinish}
               onExit={handleClose}
+              weekLabel={(() => {
+                const _ds = getDateService();
+                const MONTHS = [
+                  'Jan',
+                  'Feb',
+                  'Mar',
+                  'Apr',
+                  'May',
+                  'Jun',
+                  'Jul',
+                  'Aug',
+                  'Sep',
+                  'Oct',
+                  'Nov',
+                  'Dec',
+                ];
+                const start = _ds.getStartOfWeek();
+                const end = _ds.addDays(start, 6);
+                const s = _ds.fromLocalDate(start);
+                const e = _ds.fromLocalDate(end);
+                if (!s || !e) return '';
+                const sLabel = `${MONTHS[s.getMonth()]} ${s.getDate()}`;
+                const eLabel =
+                  e.getMonth() === s.getMonth()
+                    ? `${e.getDate()}`
+                    : `${MONTHS[e.getMonth()]} ${e.getDate()}`;
+                return `${sLabel} \u2013 ${eLabel}`;
+              })()}
             />
           )}
           {step === 0.25 && (
