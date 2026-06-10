@@ -1091,6 +1091,15 @@ export class DateService {
     return this.toLocalDate(date);
   }
 
+  /** Return the YYYY-MM-DD Monday of the ISO week containing dateStr. */
+  startOfWeekMonday(dateStr: string): string {
+    const d = this.fromLocalDate(dateStr);
+    if (!d) return dateStr;
+    const day = d.getDay(); // 0=Sun
+    const daysToMon = day === 0 ? -6 : 1 - day;
+    return this.addDays(dateStr, daysToMon);
+  }
+
   /**
    * Get next occurrence of a weekday (0=Sunday, 1=Monday, etc.)
    * Always returns the NEXT occurrence, even if today is that weekday.

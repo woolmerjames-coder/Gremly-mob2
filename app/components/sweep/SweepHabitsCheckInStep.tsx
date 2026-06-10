@@ -32,9 +32,6 @@ import {
   Shield,
   Calendar,
   ChevronUp,
-  Sunrise,
-  SunMedium,
-  Sunset,
 } from 'lucide-react-native';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
@@ -119,6 +116,8 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   const setHabitAdaptation = useGremlyStore((s) => s.setHabitAdaptation);
   const clearHabitAdaptation = useGremlyStore((s) => s.clearHabitAdaptation);
   const habitAdaptations = useGremlyStore((s) => s.habitAdaptations);
+  const setHabitPlan = useGremlyStore((s) => s.setHabitPlan);
+  const removeHabitPlan = useGremlyStore((s) => s.removeHabitPlan);
 
   const cards = useHabitCardStats(habits);
 
@@ -531,81 +530,6 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
               </View>
             </View>
 
-            {/* ── Time anchor (v7-4a): writes habit.time_window ── */}
-            {(() => {
-              const ANCHORS: Array<{
-                key: 'morning' | 'day' | 'evening';
-                label: string;
-                icon: typeof Sunrise;
-              }> = [
-                { key: 'morning', label: 'Morning', icon: Sunrise },
-                { key: 'day', label: 'Day', icon: SunMedium },
-                { key: 'evening', label: 'Evening', icon: Sunset },
-              ];
-              const current = (currentHabit?.time_window as string | null) ?? 'any';
-              const onPick = async (key: 'morning' | 'day' | 'evening') => {
-                const next = current === key ? 'any' : key;
-                await updateHabit(card.id, { time_window: next });
-              };
-              return (
-                <View style={styles.anchorBlock}>
-                  <Text style={styles.anchorLabel}>
-                    {card.isBreak ? 'When is it hardest?' : 'When do you do this?'}
-                  </Text>
-                  <Text style={styles.anchorSub}>
-                    {card.isBreak
-                      ? 'Gremly will check in with support then'
-                      : 'Helps Gremly time its nudge'}
-                  </Text>
-                  <View style={styles.anchorRow}>
-                    {ANCHORS.map(({ key, label, icon: Ico }) => {
-                      const active = current === key;
-                      return (
-                        <TouchableOpacity
-                          key={key}
-                          style={[
-                            styles.anchorChip,
-                            active &&
-                              (card.isBreak
-                                ? styles.anchorChipActiveBreak
-                                : styles.anchorChipActive),
-                          ]}
-                          onPress={() => onPick(key)}
-                          activeOpacity={0.75}
-                          accessibilityRole="button"
-                          accessibilityState={{ selected: active }}
-                          accessibilityLabel={`${label}${active ? ' selected' : ''}`}
-                        >
-                          <Ico
-                            size={17}
-                            strokeWidth={1.8}
-                            color={
-                              active
-                                ? card.isBreak
-                                  ? '#8a6d2f'
-                                  : BRAND.colors.mossGreen
-                                : BRAND.colors.inkMuted
-                            }
-                          />
-                          <Text
-                            style={[
-                              styles.anchorChipText,
-                              active &&
-                                (card.isBreak
-                                  ? styles.anchorChipTextBreak
-                                  : styles.anchorChipTextActive),
-                            ]}
-                          >
-                            {label}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                </View>
-              );
-            })()}
-
             {/* ── Habit Adaptation Block (v7-3a) ── */}
             <View style={styles.adaptBlock}>
               {/* Adaptation pills — always visible, one per non-expired adaptation */}
@@ -835,6 +759,87 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                 </Text>
               </View>
             )}
+
+            {/* ── Schedule ahead (P5): place this habit on the coming 7 days → habit_plans ── */}
+            {!card.isBreak &&
+              card.cadence !== 'daily' &&
+              (() => {
+                const ds = getDateService();
+                const today = ds.today();
+                const DOW = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+                const cells = Array.from({ length: 7 }, (_, i) => {
+                  const date = ds.addDays(today, i);
+                  const js = ds.fromLocalDate(date) ?? ds.now();
+                  const isAdaptPaused = adaptationsForCard.some(
+                    (a) => a.mode === 'pause' && a.period_start <= date && a.period_end >= date,
+                  );
+                  return {
+                    date,
+                    dow: DOW[js.getDay()],
+                    dayNum: js.getDate(),
+                    isPlanned: card.plannedDates.includes(date),
+                    isPaused: isAdaptPaused,
+                  };
+                });
+                const plannedCount = cells.filter((c) => c.isPlanned).length;
+                const target = card.targetPerPeriod;
+                const onToggle = async (date: string, planned: boolean, paused: boolean) => {
+                  if (paused) return;
+                  if (planned) await removeHabitPlan(card.id, date);
+                  else await setHabitPlan(card.id, date);
+                };
+                return (
+                  <View style={styles.planBlock}>
+                    <View style={styles.planHeaderRow}>
+                      <Text style={styles.planTitle}>When will you do it this week?</Text>
+                      <Text style={styles.planCount}>
+                        {plannedCount} of {target} planned
+                      </Text>
+                    </View>
+                    <Text style={styles.planSub}>Tap the days you will fit this in</Text>
+                    <View style={styles.planRow}>
+                      {cells.map((c) => (
+                        <TouchableOpacity
+                          key={c.date}
+                          style={[
+                            styles.planCell,
+                            c.isPlanned && styles.planCellActive,
+                            c.isPaused && styles.planCellPaused,
+                          ]}
+                          disabled={c.isPaused}
+                          onPress={() => onToggle(c.date, c.isPlanned, c.isPaused)}
+                          activeOpacity={0.7}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: c.isPlanned, disabled: c.isPaused }}
+                          accessibilityLabel={`${c.dow} ${c.dayNum}${c.isPlanned ? ' planned' : ''}${c.isPaused ? ' paused' : ''}`}
+                        >
+                          <Text
+                            style={[styles.planCellDow, c.isPlanned && styles.planCellDowActive]}
+                          >
+                            {c.dow}
+                          </Text>
+                          <Text
+                            style={[styles.planCellNum, c.isPlanned && styles.planCellNumActive]}
+                          >
+                            {c.dayNum}
+                          </Text>
+                          {c.isPaused ? (
+                            <Pause size={11} strokeWidth={2} color="rgba(34,34,34,0.30)" />
+                          ) : c.isPlanned ? (
+                            <Check
+                              size={12}
+                              strokeWidth={2.5}
+                              color={BRAND.colors.periwinkleSmoke}
+                            />
+                          ) : (
+                            <View style={styles.planCellDot} />
+                          )}
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                );
+              })()}
           </View>
         </View>
       </ScrollView>
@@ -1464,60 +1469,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(34,34,34,0.10)',
   },
 
-  // Time anchor (P4a)
-  anchorBlock: {
-    marginTop: 14,
-    paddingTop: 14,
-    borderTopWidth: 0.5,
-    borderTopColor: 'rgba(34,34,34,0.07)',
-  },
-  anchorLabel: {
-    fontSize: 13.5,
-    fontWeight: '500',
-    color: BRAND.colors.charcoalInk,
-  },
-  anchorSub: {
-    fontSize: 10.5,
-    color: 'rgba(34,34,34,0.45)',
-    marginTop: 1,
-    marginBottom: 10,
-  },
-  anchorRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  anchorChip: {
-    flex: 1,
-    borderRadius: 11,
-    paddingVertical: 10,
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: 'rgba(34,34,34,0.04)',
-    borderWidth: 0.5,
-    borderColor: 'rgba(34,34,34,0.10)',
-  },
-  anchorChipActive: {
-    backgroundColor: BRAND.colors.sageMist,
-    borderColor: BRAND.colors.mossGreen,
-  },
-  anchorChipActiveBreak: {
-    backgroundColor: BRAND.colors.goldenPear,
-    borderColor: 'rgba(138,109,47,0.5)',
-  },
-  anchorChipText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: 'rgba(34,34,34,0.55)',
-  },
-  anchorChipTextActive: {
-    color: BRAND.colors.mossGreen,
-    fontWeight: '600',
-  },
-  anchorChipTextBreak: {
-    color: '#8a6d2f',
-    fontWeight: '600',
-  },
-
   // Habit insight slot
   insightShimmer: {
     height: 44,
@@ -1632,6 +1583,43 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: BRAND.colors.mossGreen,
   },
+
+  // Schedule ahead (P5)
+  planBlock: {
+    marginTop: 18,
+    paddingTop: 16,
+    paddingHorizontal: 14,
+    paddingBottom: 16,
+    borderRadius: 16,
+    backgroundColor: 'rgba(156,166,224,0.08)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(156,166,224,0.30)',
+  },
+  planHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
+  planTitle: { fontSize: 14.5, fontWeight: '600', color: BRAND.colors.charcoalInk },
+  planCount: { fontSize: 12, fontWeight: '500', color: BRAND.colors.periwinkleSmoke },
+  planSub: { fontSize: 11, color: 'rgba(34,34,34,0.45)', marginTop: 2, marginBottom: 12 },
+  planRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 5 },
+  planCell: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 9,
+    borderRadius: 11,
+    gap: 3,
+    backgroundColor: 'rgba(34,34,34,0.03)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(34,34,34,0.08)',
+  },
+  planCellActive: {
+    backgroundColor: 'rgba(156,166,224,0.18)',
+    borderColor: BRAND.colors.periwinkleSmoke,
+  },
+  planCellPaused: { backgroundColor: 'rgba(34,34,34,0.04)', opacity: 0.6 },
+  planCellDow: { fontSize: 10, fontWeight: '600', color: 'rgba(34,34,34,0.45)' },
+  planCellDowActive: { color: BRAND.colors.periwinkleSmoke },
+  planCellNum: { fontSize: 13, fontWeight: '600', color: BRAND.colors.charcoalInk },
+  planCellNumActive: { color: BRAND.colors.charcoalInk },
+  planCellDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: 'rgba(34,34,34,0.18)' },
 
   // Navigation
   navRow: {

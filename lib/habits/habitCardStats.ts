@@ -13,7 +13,7 @@
 
 import { useMemo } from 'react';
 import { getDateService } from '../date/DateService';
-import type { HabitProgressRow, HabitAdaptationRow } from '../store/useGremlyStore';
+import type { HabitProgressRow, HabitAdaptationRow, HabitPlanRow } from '../store/useGremlyStore';
 import { useGremlyStore } from '../store/useGremlyStore';
 import { computeHabitStreak, computeBestStreak } from './streakUtils';
 import { getHabitFrequencyLabel } from './frequencyUtils';
@@ -81,6 +81,10 @@ export interface HabitCardStats {
   subtype: string;
   /** Convenience: true when subtype === 'break_habit'. */
   isBreak: boolean;
+  /** How many sessions per period the user aims for (1 for daily, N for weekly/monthly). */
+  targetPerPeriod: number;
+  /** Planned dates for this habit in the coming 7-day window (today..today+6). */
+  plannedDates: string[];
 }
 
 // One-char weekday labels indexed by JS getDay() (0=Sun)
@@ -265,6 +269,7 @@ export function computeHabitCardStats(
   habitProgress: HabitProgressRow[],
   adaptations: HabitAdaptationRow[] = [],
   allHabits: Habit[] = [],
+  habitPlans: HabitPlanRow[] = [],
 ): HabitCardStats {
   const ds = getDateService();
   const today = ds.today();
@@ -276,6 +281,9 @@ export function computeHabitCardStats(
   const progressForHabit = habitProgress.filter((p) => p.habit_id === habit.id);
   const adaptationsForHabit = adaptations.filter((a) => a.habit_id === habit.id);
   const completedDaySet = new Set(progressForHabit.map((p) => p.occurred_day));
+
+  // Planned dates: coming 7 days (today..today+6) that have a plan row for this habit
+  const plannedDates = habitPlans.filter((p) => p.habit_id === habit.id).map((p) => p.planned_date);
 
   /** True if a YYYY-MM-DD day is fully inside a pause window */
   const isPaused = (day: string): boolean =>
@@ -421,6 +429,8 @@ export function computeHabitCardStats(
     trackingSince,
     subtype,
     isBreak,
+    targetPerPeriod,
+    plannedDates,
   };
 }
 
@@ -431,8 +441,12 @@ export function computeHabitCardStats(
 export function useHabitCardStats(habits: Habit[]): HabitCardStats[] {
   const habitProgress = useGremlyStore((s) => s.habitProgress);
   const habitAdaptations = useGremlyStore((s) => s.habitAdaptations);
+  const habitPlans = useGremlyStore((s) => s.habitPlans);
   return useMemo(
-    () => habits.map((h) => computeHabitCardStats(h, habitProgress, habitAdaptations, habits)),
-    [habits, habitProgress, habitAdaptations],
+    () =>
+      habits.map((h) =>
+        computeHabitCardStats(h, habitProgress, habitAdaptations, habits, habitPlans),
+      ),
+    [habits, habitProgress, habitAdaptations, habitPlans],
   );
 }

@@ -437,6 +437,15 @@ export interface HabitAdaptationRow {
   updated_at: string;
 }
 
+export interface HabitPlanRow {
+  id: string;
+  habit_id: string;
+  owner_id: string;
+  planned_date: string; // YYYY-MM-DD
+  week_start: string; // YYYY-MM-DD (Monday)
+  status: 'planned' | 'kept' | 'missed' | 'rescheduled';
+}
+
 // @deprecated — PendingDrop is no longer used at runtime. Tests should migrate to QueuedDrop from dropQueue.ts.
 export type PendingDrop = Record<string, any>;
 
@@ -456,6 +465,8 @@ export interface GremlyState {
   habitProgress: HabitProgressRow[];
   /** Adaptation windows (floor / pause) per habit. Loaded with habits on hydrate. */
   habitAdaptations: HabitAdaptationRow[];
+  /** Forward plans (coming 7+ days) per habit. Loaded on hydrate, current+future weeks. */
+  habitPlans: HabitPlanRow[];
   spaceChats: SpaceChat[];
   spaceChatMessages: SpaceChatMessage[];
   generalChats: SpaceChat[];
@@ -752,6 +763,14 @@ export interface GremlyState {
   clearHabitAdaptation: (id: string) => Promise<void>;
   /** Returns the adaptation covering dateIso for this habit, or null. */
   getActiveAdaptation: (habitId: string, dateIso: string) => HabitAdaptationRow | null;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // HABIT PLAN MUTATIONS
+  // ═══════════════════════════════════════════════════════════════════
+  /** Place a habit on a specific date (idempotent via unique(habit_id, planned_date)). */
+  setHabitPlan: (habitId: string, plannedDate: string) => Promise<void>;
+  /** Remove a planned day (re-tap to deselect). */
+  removeHabitPlan: (habitId: string, plannedDate: string) => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
   // HABIT INSIGHT CACHE
@@ -1144,6 +1163,7 @@ const initialState = {
   tags: [] as Tag[],
   habitProgress: [] as HabitProgressRow[],
   habitAdaptations: [] as HabitAdaptationRow[],
+  habitPlans: [] as HabitPlanRow[],
   habitInsightCache: {} as Record<string, import('../habits/habitInsight').HabitInsightResult>,
   spaceChats: [] as SpaceChat[],
   spaceChatMessages: [] as SpaceChatMessage[],
@@ -1377,6 +1397,7 @@ export const useGremlyStore = create<GremlyState>()(
               tagsRes,
               progressRes,
               adaptationsRes,
+              habitPlansRes,
               chatsRes,
               milestonesRes,
               dailyBriefRes,
@@ -1438,6 +1459,11 @@ export const useGremlyStore = create<GremlyState>()(
               supabase.from('tags').select('*').eq('owner_id', userId),
               supabase.from('habit_progress').select('*').eq('owner_id', userId),
               supabase.from('habit_adaptations').select('*').eq('owner_id', userId),
+              supabase
+                .from('habit_plans')
+                .select('*')
+                .eq('owner_id', userId)
+                .gte('week_start', getDateService().startOfWeekMonday(getDateService().today())),
               supabase.from('scope_chats').select('*').eq('user_id', userId),
               supabase.from('space_milestones').select('*').eq('owner_id', userId),
               supabase
@@ -1889,6 +1915,7 @@ export const useGremlyStore = create<GremlyState>()(
             tags: [],
             habitProgress: [],
             habitAdaptations: [],
+            habitPlans: [],
             spaceChats: [],
             spaceChatMessages: [],
             milestones: [],
@@ -4086,6 +4113,75 @@ export const useGremlyStore = create<GremlyState>()(
               (a) => a.habit_id === habitId && a.period_start <= day && a.period_end >= day,
             ) ?? null
           );
+        },
+
+        // ═══════════════════════════════════════════════════════════════════
+        // HABIT PLAN MUTATIONS
+        // ═══════════════════════════════════════════════════════════════════
+
+        setHabitPlan: async (habitId, plannedDate) => {
+          const userId = get().userId;
+          if (!userId) return;
+          const weekStart = getDateService().startOfWeekMonday(plannedDate);
+          const tempId = `temp-${habitId}-${plannedDate}`;
+          const optimistic: HabitPlanRow = {
+            id: tempId,
+            habit_id: habitId,
+            owner_id: userId,
+            planned_date: plannedDate,
+            week_start: weekStart,
+            status: 'planned',
+          };
+          set((s) => ({
+            habitPlans: [
+              ...s.habitPlans.filter(
+                (p) => !(p.habit_id === habitId && p.planned_date === plannedDate),
+              ),
+              optimistic,
+            ],
+          }));
+          const { data, error } = await supabase
+            .from('habit_plans')
+            .upsert(
+              {
+                habit_id: habitId,
+                owner_id: userId,
+                planned_date: plannedDate,
+                week_start: weekStart,
+                status: 'planned',
+              },
+              { onConflict: 'habit_id,planned_date' },
+            )
+            .select()
+            .single();
+          if (error) {
+            console.error('[GremlyStore] setHabitPlan failed:', error);
+            set((s) => ({
+              habitPlans: s.habitPlans.filter((p) => p.id !== tempId),
+            }));
+          } else {
+            set((s) => ({
+              habitPlans: s.habitPlans.map((p) => (p.id === tempId ? (data as HabitPlanRow) : p)),
+            }));
+          }
+        },
+
+        removeHabitPlan: async (habitId, plannedDate) => {
+          const prev = get().habitPlans;
+          set((s) => ({
+            habitPlans: s.habitPlans.filter(
+              (p) => !(p.habit_id === habitId && p.planned_date === plannedDate),
+            ),
+          }));
+          const { error } = await supabase
+            .from('habit_plans')
+            .delete()
+            .eq('habit_id', habitId)
+            .eq('planned_date', plannedDate);
+          if (error) {
+            console.error('[GremlyStore] removeHabitPlan failed:', error);
+            set({ habitPlans: prev });
+          }
         },
 
         // ═══════════════════════════════════════════════════════════════════
