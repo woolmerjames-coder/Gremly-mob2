@@ -186,6 +186,7 @@ import {
   MODE_TEMP,
 } from './gremlyPersona';
 import { aiClassify, aiGenerate, aiStream, getProviders } from './aiProvider.js';
+import { handleHabitRead } from './habitRead.js';
 
 async function getCachedDomainNames(userId, env) {
   if (!userId || !env.CONTEXT_CACHE) return [];
@@ -3425,6 +3426,7 @@ export default {
         'organize-day',
         'weekly-summary',
         'floor-suggest',
+        'habit-read',
       ]);
       const AUTH_REQUIRED_LANES = new Set([
         'space_chat',
@@ -13969,6 +13971,10 @@ Return ONLY valid JSON:
           aiTitle: title,
           aiTagsDebug: tags,
         });
+      }
+
+      if (type === 'habit-read') {
+        return j(await handleHabitRead(body, env));
       }
 
       // =========================
