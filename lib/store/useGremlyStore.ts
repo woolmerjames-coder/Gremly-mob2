@@ -4247,38 +4247,49 @@ export const useGremlyStore = create<GremlyState>()(
             const signalEnd = ds.addDays(today, 13);
             const planWindow = { start: weekStart, end: ds.addDays(weekStart, 6) };
 
-            // ── Signals: calendar events + event notes with stable refs ──
-            await get().fetchCalendarEventsForRange(lookback, signalEnd);
-            const allCalEvents = get().calendarEvents;
-            const events = Object.entries(allCalEvents)
-              .filter(([date]) => date >= lookback && date <= signalEnd)
-              .flatMap(([, evts]) => evts)
-              .map((e) => ({
-                ref: `cal:${e.provider}-${e.providerEventId}`,
-                title: e.title ?? '',
-                start: e.startAt.slice(0, 10),
-                end: e.endAt.slice(0, 10),
-                all_day: (e as any).isAllDay ?? false,
-              }));
-            const allNotes = get().notes;
-            const eventNotes = allNotes
-              .filter((n) => {
-                if (n.subtype !== 'event' || n.archived) return false;
-                const noteStart = n.target_date ?? (n as any).date ?? null;
-                const noteEnd = n.end_date ?? noteStart;
-                if (!noteStart) return false;
-                return noteStart <= signalEnd && noteEnd >= lookback;
-              })
+            // ── Signals: sourced directly from the DB (same queries as the corpus
+            // harness reference). DB columns are the contract for this payload. ──
+            const [{ data: noteRows }, { data: calRows }] = await Promise.all([
+              supabase
+                .from('notes')
+                .select('id, title, body, target_date, end_date')
+                .eq('owner_id', userId)
+                .eq('subtype', 'event')
+                .eq('archived', false)
+                .not('target_date', 'is', null)
+                .lte('target_date', signalEnd),
+              supabase
+                .from('synced_calendar_events')
+                .select('id, provider, external_id, title, start_at, end_at, is_all_day')
+                .eq('owner_id', userId)
+                .eq('archived', false)
+                .lte('start_at', `${signalEnd}T23:59:59`)
+                .gte('end_at', `${lookback}T00:00:00`),
+            ]);
+            const eventNotes = (noteRows ?? [])
+              .filter((n) => (n.end_date ?? n.target_date) >= lookback)
               .map((n) => ({
                 ref: `note:${n.id}`,
                 title: n.title ?? '',
                 body: n.body ?? null,
-                start: n.target_date ?? (n as any).date ?? null,
-                end: n.end_date ?? n.target_date ?? (n as any).date ?? null,
+                start: n.target_date,
+                end: n.end_date ?? n.target_date,
               }));
+            const events = (calRows ?? []).map((e) => ({
+              ref: `cal:${e.provider}-${e.external_id}`,
+              title: e.title ?? '',
+              start: String(e.start_at).slice(0, 10),
+              end: String(e.end_at ?? e.start_at).slice(0, 10),
+              all_day: e.is_all_day === true,
+            }));
             const eventRefs = events.map((e) => e.ref);
             const noteRefs = eventNotes.map((n) => n.ref);
-            console.log('[HabitReads] signals', events.length, eventNotes.length);
+            console.log(
+              '[HabitReads] signals',
+              events.length,
+              eventNotes.length,
+              eventNotes.slice(0, 3).map((n) => n.title),
+            );
 
             // ── Fact sheets + per-habit input hash ──
             const habitProgress = get().habitProgress;
