@@ -3424,6 +3424,7 @@ export default {
         'entity-chat',
         'organize-day',
         'weekly-summary',
+        'floor-suggest',
       ]);
       const AUTH_REQUIRED_LANES = new Set([
         'space_chat',
@@ -13968,6 +13969,223 @@ Return ONLY valid JSON:
           aiTitle: title,
           aiTagsDebug: tags,
         });
+      }
+
+      // =========================
+      // === FLOOR SUGGEST ===
+      // Given a habit + upcoming calendar events, decide whether a genuine
+      // disruption overlaps the plan window and, if so, return 2-3 smaller-
+      // session floor ideas. Conservative: returns detected:false most weeks.
+      // =========================
+      if (type === 'floor-suggest') {
+        const FLOOR_FALLBACK = { ok: true, detected: false };
+        try {
+          const habit = body.habit || {};
+          const planWindow = body.planWindow || {};
+          const events = Array.isArray(body.events) ? body.events : [];
+          const todayISO = typeof body.todayISO === 'string' ? body.todayISO : '';
+          const tz = typeof body.timezone === 'string' ? body.timezone : 'UTC';
+
+          // Basic input validation
+          if (!habit.id || !habit.name || !planWindow.start || !planWindow.end) {
+            return j(FLOOR_FALLBACK);
+          }
+
+          const FLOOR_SUGGEST_SYSTEM = `You decide whether an upcoming stretch will make ONE specific habit hard to do, and if so, suggest smaller ways the user could still do it. You are given the habit and the user's real calendar events for the coming days. Calendars are noisy. Your job is judgment.
+
+A real disruption is something that genuinely displaces the user's normal routine for one or more of the days they would do this habit: being physically away from home or their usual environment, or an unusual personal commitment that occupies enough of a day to crowd the habit out. Judge each event on its meaning, not its format.
+
+Do not treat the ordinary working week as a disruption. Recurring meetings and work obligations are normal life, however many there are. Ignore events that are not actually happening (cancelled), events that are observances rather than commitments, and events that concern other people rather than the user. Ignore brief obligations that leave the rest of the day intact.
+
+Weigh the habit itself. Consider what this habit physically requires, its cadence, and how many times per period it targets, and judge whether the disruption genuinely threatens the user's ability to meet that frequency. A habit that needs particular conditions is more exposed to being away than one that can be done anywhere in moments. If the habit is a break_habit (the user is quitting or avoiding something), "hard" means contexts where the temptation or risk is higher, and your suggestions should help the user stay clear rather than do a smaller version.
+
+If and only if you find a real disruption, suggest two or three smaller ways the user could still genuinely do this habit during it. These keep the same frequency goal; they lower the bar for what counts as one session, not the number of sessions. Make each suggestion specific to this habit and this disruption, derived from what the habit actually involves and what the user's situation will be. If the habit carries a saved floor note, you may build on it. For a break_habit, suggest protective tactics rather than smaller doses.
+
+Silence is the correct answer most weeks. If there is no clear, specific disruption overlapping the days for this habit, return detected false. Never invent events, trips, locations, or details not present in the input. Do not flag a disruption from weak or ambiguous signals.
+
+Return ONLY JSON:
+{
+  "detected": boolean,
+  "disruption": { "label": string, "start": "YYYY-MM-DD", "end": "YYYY-MM-DD" } | null,
+  "lead_line": string | null,
+  "ideas": string[],
+  "confidence": number
+}`;
+
+          const userPayload = JSON.stringify({ habit, planWindow, todayISO, timezone: tz, events });
+          const truncatedPayload =
+            userPayload.length > 4000 ? userPayload.slice(0, 4000) : userPayload;
+
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+          let res;
+          try {
+            res = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              signal: controller.signal,
+              headers: {
+                Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: 'gpt-4.1-mini',
+                messages: [
+                  { role: 'system', content: FLOOR_SUGGEST_SYSTEM },
+                  { role: 'user', content: truncatedPayload },
+                ],
+                temperature: 0.4,
+                max_completion_tokens: 350,
+                response_format: { type: 'json_object' },
+              }),
+            });
+          } finally {
+            clearTimeout(timeoutId);
+          }
+
+          const t0_fs = Date.now();
+
+          if (!res.ok) {
+            console.warn('[FloorSuggest] OpenAI error', { status: res.status, habit_id: habit.id });
+            return j({ ...FLOOR_FALLBACK, source: 'api_error' });
+          }
+
+          const oj = await res.json();
+          const latency = Date.now() - t0_fs;
+          const raw = oj?.choices?.[0]?.message?.content ?? '{}';
+
+          let parsed;
+          try {
+            parsed = JSON.parse(raw);
+          } catch (_) {
+            console.warn('[FloorSuggest] Parse failed', { habit_id: habit.id });
+            return j({ ...FLOOR_FALLBACK, source: 'parse_fallback' });
+          }
+
+          // ── Validation ──
+          try {
+            // 1. detected must be exactly true to proceed
+            if (parsed.detected !== true) {
+              console.log('[FloorSuggest]', {
+                habit_id: habit.id,
+                detected: false,
+                confidence: parsed.confidence ?? null,
+                idea_count: 0,
+                latency_ms: latency,
+              });
+              return j({ ok: true, detected: false });
+            }
+
+            // 2. confidence gate
+            const confidence =
+              typeof parsed.confidence === 'number'
+                ? Math.max(0, Math.min(1, parsed.confidence))
+                : 0;
+            if (confidence < 0.55) {
+              console.log('[FloorSuggest]', {
+                habit_id: habit.id,
+                detected: false,
+                confidence,
+                idea_count: 0,
+                latency_ms: latency,
+                gate: 'confidence',
+              });
+              return j({ ok: true, detected: false });
+            }
+
+            // 3. lead_line
+            const leadLine =
+              typeof parsed.lead_line === 'string' ? parsed.lead_line.trim().slice(0, 110) : null;
+            if (!leadLine) {
+              console.log('[FloorSuggest]', {
+                habit_id: habit.id,
+                detected: false,
+                confidence,
+                idea_count: 0,
+                latency_ms: latency,
+                gate: 'no_lead_line',
+              });
+              return j({ ok: true, detected: false });
+            }
+
+            // 4. ideas
+            const rawIdeas = Array.isArray(parsed.ideas) ? parsed.ideas : [];
+            const ideas = rawIdeas
+              .map((s) => (typeof s === 'string' ? s.trim().slice(0, 80) : ''))
+              .filter((s) => s.length > 0)
+              .slice(0, 3);
+            if (ideas.length === 0) {
+              console.log('[FloorSuggest]', {
+                habit_id: habit.id,
+                detected: false,
+                confidence,
+                idea_count: 0,
+                latency_ms: latency,
+                gate: 'no_ideas',
+              });
+              return j({ ok: true, detected: false });
+            }
+
+            // 5. disruption window must overlap planWindow
+            const isoDateRe = /^\d{4}-\d{2}-\d{2}$/;
+            let disruption = null;
+            if (
+              parsed.disruption &&
+              typeof parsed.disruption.label === 'string' &&
+              isoDateRe.test(parsed.disruption.start) &&
+              isoDateRe.test(parsed.disruption.end) &&
+              parsed.disruption.start <= planWindow.end &&
+              parsed.disruption.end >= planWindow.start
+            ) {
+              disruption = {
+                label: parsed.disruption.label,
+                start: parsed.disruption.start,
+                end: parsed.disruption.end,
+              };
+            }
+            if (!disruption) {
+              console.log('[FloorSuggest]', {
+                habit_id: habit.id,
+                detected: false,
+                confidence,
+                idea_count: ideas.length,
+                latency_ms: latency,
+                gate: 'invalid_disruption_window',
+              });
+              return j({ ok: true, detected: false });
+            }
+
+            console.log('[FloorSuggest]', {
+              habit_id: habit.id,
+              detected: true,
+              confidence,
+              idea_count: ideas.length,
+              latency_ms: latency,
+            });
+
+            return j({
+              ok: true,
+              detected: true,
+              disruption,
+              lead_line: leadLine,
+              ideas,
+              confidence,
+            });
+          } catch (validationErr) {
+            console.warn('[FloorSuggest] Validation error', {
+              habit_id: habit.id,
+              error: validationErr.message,
+            });
+            return j({ ...FLOOR_FALLBACK, source: 'parse_fallback' });
+          }
+        } catch (err) {
+          const isTimeout = err.name === 'AbortError';
+          console.warn('[FloorSuggest] Error', {
+            error: isTimeout ? 'timeout' : String(err.message),
+            habit_id: body?.habit?.id,
+          });
+          return j({ ...FLOOR_FALLBACK, source: isTimeout ? 'timeout' : 'error' });
+        }
       }
 
       return j({
