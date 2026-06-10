@@ -646,11 +646,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                         accessibilityLabel={`Plan start date: ${formatStartLabel(planStart)}. Tap to change.`}
                       >
                         <Text style={styles.planStartPillText}>{formatStartLabel(planStart)}</Text>
-                        <ChevronDown
-                          size={13}
-                          strokeWidth={2}
-                          color={BRAND.colors.periwinkleSmoke}
-                        />
+                        <ChevronDown size={13} strokeWidth={2} color={'#1E3D2B'} />
                       </TouchableOpacity>
                     </View>
 
@@ -677,11 +673,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                           >
                             <Text style={styles.planStartMenuItemText}>{opt.label}</Text>
                             {planStart === opt.value && (
-                              <Check
-                                size={13}
-                                strokeWidth={2.5}
-                                color={BRAND.colors.periwinkleSmoke}
-                              />
+                              <Check size={13} strokeWidth={2.5} color={'#1E3D2B'} />
                             )}
                           </TouchableOpacity>
                         ))}
@@ -748,7 +740,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                               : 'Adapt this habit for travel or a break'
                           }
                         >
-                          <Calendar size={13} strokeWidth={1.8} color={BRAND.colors.inkMuted} />
+                          <Calendar size={13} strokeWidth={1.8} color={'#3A5A45'} />
                           <Text style={styles.adaptPromptText}>
                             {adaptationsForCard.length > 0
                               ? 'Add another'
@@ -919,7 +911,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                       return (
                         <View style={styles.floorSuggest}>
                           <View style={styles.floorSuggestHead}>
-                            <Sparkles size={15} strokeWidth={1.8} color={BRAND.colors.goldenPear} />
+                            <Sparkles size={15} strokeWidth={1.8} color={'#7A6420'} />
                             <Text style={styles.floorSuggestLead}>{suggestion!.lead_line}</Text>
                             <TouchableOpacity
                               onPress={() =>
@@ -929,7 +921,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                               accessibilityRole="button"
                               accessibilityLabel="Dismiss suggestion"
                             >
-                              <X size={14} strokeWidth={2} color={BRAND.colors.inkMuted} />
+                              <X size={14} strokeWidth={2} color={'#3A5A45'} />
                             </TouchableOpacity>
                           </View>
                           {suggestion!.ideas.map((idea, i) => (
@@ -944,11 +936,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                               accessibilityRole="button"
                               accessibilityLabel={`Use this floor: ${idea}`}
                             >
-                              <ArrowDown
-                                size={13}
-                                strokeWidth={2}
-                                color={BRAND.colors.goldenPear}
-                              />
+                              <ArrowDown size={13} strokeWidth={2} color={'#7A6420'} />
                               <Text style={styles.floorIdeaText}>{idea}</Text>
                             </TouchableOpacity>
                           ))}
@@ -1048,11 +1036,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                           {c.isPaused ? (
                             <Pause size={11} strokeWidth={2} color="rgba(34,34,34,0.30)" />
                           ) : c.isPlanned ? (
-                            <Check
-                              size={12}
-                              strokeWidth={2.5}
-                              color={BRAND.colors.periwinkleSmoke}
-                            />
+                            <Check size={12} strokeWidth={2.5} color={'#F9F6F1'} />
                           ) : c.isFloored ? (
                             <TrendingDown size={10} strokeWidth={2} color="rgba(34,34,34,0.35)" />
                           ) : (
@@ -1201,7 +1185,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: BRAND.colors.linenCream,
-    paddingHorizontal: 20,
     paddingTop: 6,
   },
   cardScroll: {
@@ -1231,15 +1214,6 @@ const styles = StyleSheet.create({
 
   // ── Card shell ─────────────────────────────────────────────────────────────
   card: {
-    borderRadius: BRAND.radius['2xl'],
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(34,34,34,0.07)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 3,
     marginBottom: 20,
   },
 
@@ -1270,7 +1244,7 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontFamily: SERIF,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: '#F9F6F1',
     lineHeight: 28,
     marginBottom: 16,
   },
@@ -1320,8 +1294,8 @@ const styles = StyleSheet.create({
   // ── Card body ──────────────────────────────────────────────────────────────
   cardBody: {
     backgroundColor: BRAND.colors.surface,
-    paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingHorizontal: 18,
+    paddingTop: 16,
     paddingBottom: 16,
   },
 
@@ -1341,23 +1315,25 @@ const styles = StyleSheet.create({
   rhythmHeadingSub: { fontSize: 12, fontWeight: '400', color: 'rgba(34,34,34,0.40)' },
   // Floor suggestion
   floorSuggest: {
-    backgroundColor: 'rgba(224,196,122,0.10)',
-    borderWidth: 0.5,
-    borderColor: 'rgba(224,196,122,0.45)',
-    borderRadius: 10,
-    padding: 11,
-    marginBottom: 12,
+    marginBottom: 14,
   },
   floorSuggestHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 8 },
   floorSuggestLead: {
     flex: 1,
     fontSize: 13,
     lineHeight: 18,
-    color: BRAND.colors.charcoalInk,
+    color: '#1E3D2B',
     fontWeight: '500',
   },
-  floorIdeaRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 7, paddingVertical: 5 },
-  floorIdeaText: { flex: 1, fontSize: 12.5, lineHeight: 17, color: BRAND.colors.charcoalInk },
+  floorIdeaRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 7,
+    paddingVertical: 6,
+    borderTopWidth: 0.5,
+    borderTopColor: 'rgba(30,61,43,0.18)',
+  },
+  floorIdeaText: { flex: 1, flexShrink: 1, fontSize: 13.5, lineHeight: 18, color: '#26442F' },
   floorSuggestActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1365,9 +1341,9 @@ const styles = StyleSheet.create({
     marginTop: 9,
     paddingTop: 9,
     borderTopWidth: 0.5,
-    borderTopColor: 'rgba(224,196,122,0.35)',
+    borderTopColor: 'rgba(30,61,43,0.18)',
   },
-  floorPauseLink: { fontSize: 12, color: BRAND.colors.inkMuted, fontWeight: '500' },
+  floorPauseLink: { fontSize: 12, color: '#3A5A45', fontWeight: '500' },
   floorChatLink: { fontSize: 12, color: BRAND.colors.mossGreen, fontWeight: '600' },
   // Load screen
   loadWrap: {
@@ -1483,7 +1459,7 @@ const styles = StyleSheet.create({
   adaptPromptText: {
     fontSize: 12,
     fontWeight: '400',
-    color: BRAND.colors.inkMuted,
+    color: '#3A5A45',
   },
   activeAdaptRow: {
     flexDirection: 'row',
@@ -1720,10 +1696,12 @@ const styles = StyleSheet.create({
   stripRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(34,34,34,0.03)',
-    borderRadius: 12,
     paddingVertical: 9,
     marginTop: 9,
+    borderTopWidth: 0.5,
+    borderBottomWidth: 0.5,
+    borderTopColor: 'rgba(34,34,34,0.08)',
+    borderBottomColor: 'rgba(34,34,34,0.08)',
   },
   stripItem: {
     flex: 1,
@@ -1801,13 +1779,13 @@ const styles = StyleSheet.create({
   recBlock: {
     marginTop: 14,
     paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(34,34,34,0.07)',
+    borderTopWidth: 0.5,
+    borderTopColor: 'rgba(30,61,43,0.18)',
   },
   recSentence: {
     fontSize: 13,
     fontWeight: '400',
-    color: 'rgba(34,34,34,0.65)',
+    color: '#26442F',
     lineHeight: 18,
     marginBottom: 10,
   },
@@ -1822,20 +1800,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: 'rgba(34,34,34,0.18)',
-    backgroundColor: 'rgba(34,34,34,0.04)',
+    borderColor: 'rgba(30,61,43,0.20)',
+    backgroundColor: 'rgba(255,255,255,0.50)',
   },
   recChipActive: {
-    borderColor: BRAND.colors.mossGreen,
-    backgroundColor: BRAND.colors.sageMist,
+    borderColor: '#2E5540',
+    backgroundColor: '#2E5540',
   },
   recChipText: {
     fontSize: 13,
     fontWeight: '500',
-    color: BRAND.colors.charcoalInk,
+    color: '#1E3D2B',
   },
   recChipTextActive: {
-    color: BRAND.colors.mossGreen,
+    color: '#F9F6F1',
     fontWeight: '600',
   },
   recCaption: {
@@ -1851,8 +1829,8 @@ const styles = StyleSheet.create({
     gap: 6,
     marginTop: 14,
     paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(34,34,34,0.07)',
+    borderTopWidth: 0.5,
+    borderTopColor: 'rgba(30,61,43,0.18)',
   },
   appliedBannerText: {
     fontSize: 13,
@@ -1862,15 +1840,13 @@ const styles = StyleSheet.create({
 
   // Planning surface (P5)
   planSurface: {
-    marginTop: 12,
-    padding: 11,
-    borderRadius: 16,
-    backgroundColor: 'rgba(156,166,224,0.08)',
-    borderWidth: 0.5,
-    borderColor: 'rgba(156,166,224,0.30)',
+    backgroundColor: BRAND.colors.sageMist,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    marginHorizontal: -18,
   },
   planHead: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
-  planTitle: { fontSize: 14.5, fontWeight: '600', color: BRAND.colors.charcoalInk },
+  planTitle: { fontSize: 15, fontWeight: '600', color: '#1E3D2B' },
   planStartPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1878,11 +1854,9 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     paddingHorizontal: 10,
     borderRadius: 9,
-    backgroundColor: 'rgba(156,166,224,0.14)',
-    borderWidth: 0.5,
-    borderColor: 'rgba(156,166,224,0.35)',
+    backgroundColor: 'rgba(255,255,255,0.45)',
   },
-  planStartPillText: { fontSize: 13, fontWeight: '600', color: BRAND.colors.periwinkleSmoke },
+  planStartPillText: { fontSize: 13, fontWeight: '600', color: '#1E3D2B' },
   planStartMenu: {
     marginTop: 6,
     borderRadius: 12,
@@ -1900,7 +1874,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0.5,
     borderBottomColor: 'rgba(34,34,34,0.07)',
   },
-  planStartMenuItemText: { fontSize: 14, fontWeight: '500', color: BRAND.colors.charcoalInk },
+  planStartMenuItemText: { fontSize: 14, fontWeight: '500', color: '#1E3D2B' },
   planAdaptSlot: { marginTop: 8, marginBottom: 8 },
   planRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 4 },
   planCell: {
@@ -1909,24 +1883,24 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: 10,
     gap: 2,
-    backgroundColor: 'rgba(34,34,34,0.03)',
+    backgroundColor: 'rgba(255,255,255,0.50)',
     borderWidth: 0.5,
-    borderColor: 'rgba(34,34,34,0.08)',
+    borderColor: 'rgba(30,61,43,0.12)',
   },
   planCellActive: {
-    backgroundColor: 'rgba(156,166,224,0.18)',
-    borderColor: BRAND.colors.periwinkleSmoke,
+    backgroundColor: '#2E5540',
+    borderColor: '#2E5540',
   },
   planCellFloored: {
     backgroundColor: 'rgba(224,196,122,0.10)',
     borderColor: 'rgba(224,196,122,0.40)',
   },
   planCellPaused: { backgroundColor: 'rgba(34,34,34,0.04)', opacity: 0.55 },
-  planCellDow: { fontSize: 9.5, fontWeight: '600', color: 'rgba(34,34,34,0.45)' },
-  planCellDowActive: { color: BRAND.colors.periwinkleSmoke },
-  planCellNum: { fontSize: 12.5, fontWeight: '600', color: BRAND.colors.charcoalInk },
+  planCellDow: { fontSize: 9.5, fontWeight: '600', color: '#3A5A45' },
+  planCellDowActive: { color: '#F9F6F1' },
+  planCellNum: { fontSize: 12.5, fontWeight: '600', color: '#1E3D2B' },
   planCellDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: 'rgba(34,34,34,0.18)' },
-  planFlexNote: { fontSize: 10.5, color: 'rgba(34,34,34,0.42)', marginTop: 8, textAlign: 'center' },
+  planFlexNote: { fontSize: 10.5, color: '#3A5A45', marginTop: 8, textAlign: 'center' },
 
   // Navigation
   navRow: {
@@ -1935,6 +1909,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: 2,
     marginBottom: 2,
+    paddingHorizontal: 20,
   },
   navBtn: {
     width: 40,
