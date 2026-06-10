@@ -4257,11 +4257,12 @@ export const useGremlyStore = create<GremlyState>()(
                 ref: `cal:${e.provider}-${e.providerEventId}`,
                 title: e.title ?? '',
                 start: e.startAt.slice(0, 10),
-                end: (e.endAt ?? e.startAt).slice(0, 10),
+                end: e.endAt.slice(0, 10),
                 all_day: (e as any).isAllDay ?? false,
               }));
-            const eventNotes = get()
-              .notes.filter((n) => {
+            const allNotes = get().notes;
+            const eventNotes = allNotes
+              .filter((n) => {
                 if (n.subtype !== 'event' || n.archived) return false;
                 const noteStart = n.target_date ?? (n as any).date ?? null;
                 const noteEnd = n.end_date ?? noteStart;
@@ -4330,6 +4331,7 @@ export const useGremlyStore = create<GremlyState>()(
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 30000);
             let data: { reads?: Record<string, HabitRead>; meta?: { model?: string } };
+            console.log('[HabitReads] signals', events.length, eventNotes.length);
             try {
               const res = await fetch(cortexUrl, {
                 method: 'POST',
