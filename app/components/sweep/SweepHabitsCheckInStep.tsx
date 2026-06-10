@@ -1214,7 +1214,7 @@ const styles = StyleSheet.create({
   // ── Hero header ────────────────────────────────────────────────────────────
   heroHeader: {
     backgroundColor: BRAND.colors.mossGreen,
-    paddingHorizontal: 18,
+    paddingHorizontal: 20,
     paddingTop: 16,
     paddingBottom: 18,
   },
@@ -1288,7 +1288,7 @@ const styles = StyleSheet.create({
   // ── Card body ──────────────────────────────────────────────────────────────
   cardBody: {
     backgroundColor: BRAND.colors.surface,
-    paddingHorizontal: 18,
+    paddingHorizontal: 20,
     paddingTop: 16,
     paddingBottom: 16,
   },
@@ -1836,11 +1836,20 @@ const styles = StyleSheet.create({
   // Planning surface (P5)
   planSurface: {
     backgroundColor: 'rgba(191,216,192,0.45)',
-    paddingHorizontal: 18,
+    paddingHorizontal: 20,
     paddingVertical: 18,
-    marginHorizontal: -18,
+    marginHorizontal: -20,
   },
-  planHead: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
+  planHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(30,61,43,0.25)',
+    marginBottom: 12,
+  },
   planTitle: { fontSize: 16, fontWeight: '700', color: '#1E3D2B' },
   planStartPill: {
     flexDirection: 'row',
