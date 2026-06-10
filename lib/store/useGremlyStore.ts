@@ -65,6 +65,8 @@ import { eventBus } from '../events';
 import { parseHabitFrequency } from '../sweep/habitHelpers';
 import { getDateService } from '../date';
 import { nowTimestamp } from '../date/DateService';
+import { buildHabitFactSheet, computeInputHash, type HabitRead } from '../habits/habitFactSheet';
+import type { HabitCardStats } from '../habits/habitCardStats';
 import celebrationController from '../../app/features/celebration/CelebrationController';
 import {
   calendarClient,
@@ -446,6 +448,13 @@ export interface HabitPlanRow {
   status: 'planned' | 'kept' | 'missed' | 'rescheduled';
 }
 
+// ── Habit reads (unified AI read; supersedes floor suggestions in Card C) ──
+export interface HabitReadEntry {
+  read: HabitRead | null; // null = generated but empty (ineligible/validation)
+  input_hash: string;
+  dismissed: boolean;
+}
+
 export interface FloorSuggestion {
   habit_id: string;
   week_start: string;
@@ -481,6 +490,8 @@ export interface GremlyState {
   habitFloorSuggestions: Record<string, FloorSuggestion>;
   /** True while ensureFloorSuggestions is running. */
   floorSuggestRunning: boolean;
+  habitReads: Record<string, HabitReadEntry>;
+  habitReadsRunning: boolean;
   spaceChats: SpaceChat[];
   spaceChatMessages: SpaceChatMessage[];
   generalChats: SpaceChat[];
@@ -795,6 +806,12 @@ export interface GremlyState {
    * concurrent calls while running are no-ops.
    */
   ensureFloorSuggestions: (habits: Habit[], weekStart: string) => Promise<void>;
+  /** One batched habit-read call for the sweep. Caller passes precomputed cards. */
+  ensureHabitReads: (habits: Habit[], cards: HabitCardStats[], weekStart: string) => Promise<void>;
+  /** Returns the HabitReadEntry for a habit+week, or null. */
+  getHabitRead: (habitId: string, weekStart: string) => HabitReadEntry | null;
+  /** Persistently dismiss a read for this week. */
+  dismissHabitRead: (habitId: string, weekStart: string) => Promise<void>;
   /** Returns the FloorSuggestion for a habit+week, or null. */
   getFloorSuggestion: (habitId: string, weekStart: string) => FloorSuggestion | null;
 
@@ -1192,6 +1209,8 @@ const initialState = {
   habitPlans: [] as HabitPlanRow[],
   habitFloorSuggestions: {} as Record<string, FloorSuggestion>,
   floorSuggestRunning: false,
+  habitReads: {} as Record<string, HabitReadEntry>,
+  habitReadsRunning: false,
   habitInsightCache: {} as Record<string, import('../habits/habitInsight').HabitInsightResult>,
   spaceChats: [] as SpaceChat[],
   spaceChatMessages: [] as SpaceChatMessage[],
@@ -4215,6 +4234,186 @@ export const useGremlyStore = create<GremlyState>()(
         // ═══════════════════════════════════════════════════════════════════
         // FLOOR SUGGESTIONS
         // ═══════════════════════════════════════════════════════════════════
+
+        ensureHabitReads: async (habits, cards, weekStart) => {
+          if (get().habitReadsRunning) return;
+          set({ habitReadsRunning: true });
+          try {
+            const userId = get().userId;
+            if (!userId) return;
+            const ds = getDateService();
+            const today = ds.today();
+            const lookback = ds.addDays(today, -42);
+            const signalEnd = ds.addDays(today, 13);
+            const planWindow = { start: weekStart, end: ds.addDays(weekStart, 6) };
+
+            // ── Signals: calendar events + event notes with stable refs ──
+            await get().fetchCalendarEventsForRange(lookback, signalEnd);
+            const allCalEvents = get().calendarEvents;
+            const events = Object.entries(allCalEvents)
+              .filter(([date]) => date >= lookback && date <= signalEnd)
+              .flatMap(([, evts]) => evts)
+              .map((e) => ({
+                ref: `cal:${e.provider}-${e.providerEventId}`,
+                title: e.title ?? '',
+                start: e.startAt.slice(0, 10),
+                end: (e.endAt ?? e.startAt).slice(0, 10),
+                all_day: (e as any).isAllDay ?? false,
+              }));
+            const eventNotes = get()
+              .notes.filter((n) => {
+                if (n.subtype !== 'event' || n.archived) return false;
+                const noteStart = n.target_date ?? (n as any).date ?? null;
+                const noteEnd = n.end_date ?? noteStart;
+                if (!noteStart) return false;
+                return noteStart <= signalEnd && noteEnd >= lookback;
+              })
+              .map((n) => ({
+                ref: `note:${n.id}`,
+                title: n.title ?? '',
+                body: n.body ?? null,
+                start: n.target_date ?? (n as any).date ?? null,
+                end: n.end_date ?? n.target_date ?? (n as any).date ?? null,
+              }));
+            const eventRefs = events.map((e) => e.ref);
+            const noteRefs = eventNotes.map((n) => n.ref);
+
+            // ── Fact sheets + per-habit input hash ──
+            const habitProgress = get().habitProgress;
+            const habitAdaptations = get().habitAdaptations;
+            const activeHabits = habits.filter((h) => !h.archived);
+            const sheetsById = new Map<
+              string,
+              { sheet: ReturnType<typeof buildHabitFactSheet>; hash: string }
+            >();
+            for (const h of activeHabits) {
+              const card = cards.find((c) => c.id === h.id);
+              if (!card) continue;
+              const sheet = buildHabitFactSheet(h, card, habitProgress, habitAdaptations);
+              sheetsById.set(h.id, {
+                sheet,
+                hash: computeInputHash(sheet, eventRefs, noteRefs),
+              });
+            }
+
+            // ── Cache: load rows for this week, decide what needs a run ──
+            const { data: rows } = await supabase
+              .from('habit_reads')
+              .select('habit_id, input_hash, payload, dismissed')
+              .eq('owner_id', userId)
+              .eq('week_start', weekStart);
+            const rowByHabit = new Map((rows ?? []).map((r) => [r.habit_id, r]));
+
+            const hydrated: Record<string, HabitReadEntry> = { ...get().habitReads };
+            const toRun: string[] = [];
+            for (const [habitId, { hash }] of sheetsById) {
+              const row = rowByHabit.get(habitId);
+              if (row && row.input_hash === hash) {
+                const payload = row.payload as Record<string, unknown> | null;
+                hydrated[`${habitId}:${weekStart}`] = {
+                  read:
+                    payload && !(payload as any).empty ? (payload as unknown as HabitRead) : null,
+                  input_hash: row.input_hash,
+                  dismissed: row.dismissed === true,
+                };
+              } else {
+                toRun.push(habitId);
+              }
+            }
+            set({ habitReads: hydrated });
+            if (toRun.length === 0) return;
+
+            // ── One batched call for everything stale or missing ──
+            const cortexUrl = (process.env.EXPO_PUBLIC_CORTEX_URL ?? '') as string;
+            const token = await getSessionToken();
+            const tz = get().userTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000);
+            let data: { reads?: Record<string, HabitRead>; meta?: { model?: string } };
+            try {
+              const res = await fetch(cortexUrl, {
+                method: 'POST',
+                signal: controller.signal,
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                  type: 'habit-read',
+                  todayISO: today,
+                  timezone: tz,
+                  planWindow,
+                  factSheets: toRun.map((id) => sheetsById.get(id)!.sheet),
+                  events,
+                  eventNotes,
+                }),
+              });
+              if (!res.ok) throw new Error(`habit-read HTTP ${res.status}`);
+              data = await res.json();
+            } finally {
+              clearTimeout(timeoutId);
+            }
+
+            const reads = data.reads ?? {};
+            const updated: Record<string, HabitReadEntry> = { ...get().habitReads };
+            for (const habitId of toRun) {
+              const read = reads[habitId] ?? null;
+              const { hash } = sheetsById.get(habitId)!;
+              updated[`${habitId}:${weekStart}`] = {
+                read,
+                input_hash: hash,
+                dismissed: false, // fresh data resets dismissal
+              };
+              // Cache (fire-and-forget). Empty marker prevents re-calling for
+              // ineligible habits until their data actually changes.
+              supabase
+                .from('habit_reads')
+                .upsert(
+                  {
+                    habit_id: habitId,
+                    owner_id: userId,
+                    week_start: weekStart,
+                    input_hash: hash,
+                    payload: read ?? { empty: true },
+                    model: data.meta?.model ?? null,
+                    dismissed: false,
+                    updated_at: nowTimestamp(),
+                  },
+                  { onConflict: 'habit_id,week_start' },
+                )
+                .then(({ error }) => {
+                  if (error) console.warn('[HabitReads] cache write failed:', error.message);
+                });
+            }
+            set({ habitReads: updated });
+          } catch (err) {
+            // Fail soft: code fallback renders; never block the deck.
+            console.warn('[HabitReads] ensureHabitReads error:', (err as Error).message);
+          } finally {
+            set({ habitReadsRunning: false });
+          }
+        },
+
+        getHabitRead: (habitId, weekStart) => {
+          return get().habitReads[`${habitId}:${weekStart}`] ?? null;
+        },
+
+        dismissHabitRead: async (habitId, weekStart) => {
+          const userId = get().userId;
+          if (!userId) return;
+          const key = `${habitId}:${weekStart}`;
+          const entry = get().habitReads[key];
+          if (entry) {
+            set({ habitReads: { ...get().habitReads, [key]: { ...entry, dismissed: true } } });
+          }
+          const { error } = await supabase
+            .from('habit_reads')
+            .update({ dismissed: true, updated_at: nowTimestamp() })
+            .eq('owner_id', userId)
+            .eq('habit_id', habitId)
+            .eq('week_start', weekStart);
+          if (error) console.warn('[HabitReads] dismiss write failed:', error.message);
+        },
 
         ensureFloorSuggestions: async (habits, weekStart) => {
           if (get().floorSuggestRunning) return;

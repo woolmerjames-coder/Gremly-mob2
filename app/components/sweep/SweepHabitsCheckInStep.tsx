@@ -44,12 +44,19 @@ import { useGremlyStore } from '../../../lib/store/useGremlyStore';
 import { useHabitCardStats } from '../../../lib/habits/habitCardStats';
 import type { HabitCardStats } from '../../../lib/habits/habitCardStats';
 import { getDateService } from '../../../lib/date/DateService';
+import { SweepHabitCardC } from './SweepHabitCardC';
 import {
   computeFrequencyRecommendation,
   getFrequencyDisplayLabel,
 } from '../../../lib/habits/habitFrequencyRecommendation';
 
 const SERIF = Platform.select({ ios: 'Georgia', default: 'serif' });
+// Habit-read preview (Phase 3c): dev builds only. Floor suggestions keep
+// running in parallel until Phase 5 cutover.
+const HABIT_READS_PREVIEW = __DEV__;
+// Card C (Phase 4): full redesigned card behind its own flag so old and new
+// can be compared by flipping one constant. Cutover removes both in Phase 5.
+const USE_CARD_C = __DEV__;
 
 // Dot size for the trend row
 const DOT_SIZE = 10;
@@ -126,6 +133,12 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   const habitPlans = useGremlyStore((s) => s.habitPlans);
   const ensureFloorSuggestions = useGremlyStore((s) => s.ensureFloorSuggestions);
   const getFloorSuggestion = useGremlyStore((s) => s.getFloorSuggestion);
+  const ensureHabitReads = useGremlyStore((s) => s.ensureHabitReads);
+  // Reactive subscription (NOT the getHabitRead getter): cards must re-render
+  // when the batched read call hydrates state mid-session.
+  const habitReads = useGremlyStore((s) => s.habitReads);
+  const habitReadsRunning = useGremlyStore((s) => s.habitReadsRunning);
+  const dismissHabitRead = useGremlyStore((s) => s.dismissHabitRead);
 
   const cards = useHabitCardStats(habits);
 
@@ -177,6 +190,13 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
       cancelled = true;
       clearTimeout(safetyTimer);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Phase 3c: one batched habit-read call per sweep open. Fire-and-forget;
+  // never gates rendering and never touches the floorReady flow.
+  useEffect(() => {
+    if (!HABIT_READS_PREVIEW) return;
+    ensureHabitReads(habits, cards, floorWeekStart);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [planStartMenuOpen, setPlanStartMenuOpen] = useState(false);
@@ -377,6 +397,97 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   const appliedChange = appliedChanges[card.id];
   const adaptConfirmation = adaptConfirmations[card.id];
 
+  // ── Card C render path (Phase 4a). Early return: the legacy card below is
+  // untouched and renders when USE_CARD_C is false. ──
+  if (USE_CARD_C) {
+    const ds = getDateService();
+    const todayIso = ds.today();
+    const formatStartLabel = (dateStr: string): string => {
+      if (dateStr === todayIso) return 'Today';
+      if (dateStr === ds.addDays(todayIso, 1)) return 'Tomorrow';
+      const js = ds.fromLocalDate(dateStr);
+      if (!js) return dateStr;
+      const dows = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      return `${dows[js.getDay()]} ${dateStr.slice(5)}`;
+    };
+    return (
+      <View style={styles.container}>
+        <View style={styles.progressRow}>
+          {cards.map((_, i) => (
+            <View key={i} style={[styles.progressDot, i === index && styles.progressDotActive]} />
+          ))}
+        </View>
+        <ScrollView
+          style={styles.cardScroll}
+          contentContainerStyle={styles.cardScrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          bounces
+        >
+          <SweepHabitCardC
+            card={card}
+            readEntry={habitReads[`${card.id}:${floorWeekStart}`] ?? null}
+            readLoading={habitReadsRunning}
+            rec={rec}
+            appliedChange={appliedChanges[card.id] ?? null}
+            adaptationsForCard={adaptationsForCard}
+            planStart={planStart}
+            planStartLabel={formatStartLabel(planStart)}
+            habitPlans={habitPlans}
+            onToggleDay={handleToggleDay}
+            onTogglePlanCell={async (date, planned, paused) => {
+              if (paused) return;
+              if (planned) await removeHabitPlan(card.id, date);
+              else await setHabitPlan(card.id, date, planStart);
+            }}
+            onChipPress={handleChipPress}
+            onDismissRead={() => dismissHabitRead(card.id, floorWeekStart)}
+            onRemoveAdaptation={handleClearAdaptation}
+          />
+          <View style={styles.navRow}>
+            <TouchableOpacity
+              style={[styles.navBtn, index === 0 && styles.navBtnDisabled]}
+              onPress={handlePrev}
+              disabled={index === 0}
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityLabel="Previous habit"
+            >
+              <ChevronLeft
+                size={20}
+                strokeWidth={2}
+                color={index === 0 ? BRAND.colors.inkMuted : BRAND.colors.charcoalInk}
+              />
+            </TouchableOpacity>
+            <View style={styles.navCenter}>
+              <Text style={styles.navCounter}>
+                {index + 1} of {cards.length}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.navBtn, styles.navBtnNext]}
+              onPress={handleNext}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel={isLast ? 'Done' : 'Next habit'}
+            >
+              {isLast ? (
+                <Text style={styles.navBtnNextText}>Done</Text>
+              ) : (
+                <ChevronRight size={20} strokeWidth={2} color={BRAND.colors.mossGreen} />
+              )}
+            </TouchableOpacity>
+          </View>
+          {!isLast && (
+            <TouchableOpacity style={styles.skipBtn} onPress={onFinish} activeOpacity={0.7}>
+              <Text style={styles.skipBtnText}>Finish early</Text>
+            </TouchableOpacity>
+          )}
+        </ScrollView>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       {/* Progress indicator */}
@@ -567,6 +678,35 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                 <Text style={styles.stripLabel}>tracking since</Text>
               </View>
             </View>
+
+            {/* Phase 3c preview: unified habit read (paragraph + raw extras).
+                Reuses the existing insight styles; Card C styling is Phase 4. */}
+            {HABIT_READS_PREVIEW &&
+              (() => {
+                const entry = habitReads[`${card.id}:${floorWeekStart}`];
+                if (!entry || entry.dismissed || !entry.read?.read_paragraph) return null;
+                const r = entry.read;
+                return (
+                  <View style={[styles.insightBlock, styles.insightBlockCalm]}>
+                    <View style={styles.insightIconTileCalm}>
+                      <Sparkles size={15} strokeWidth={2} color={BRAND.colors.linenCream} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.insightLineTextCalm}>{r.read_paragraph}</Text>
+                      {r.frequency_line ? (
+                        <Text style={[styles.insightLineTextCalm, { marginTop: 6 }]}>
+                          {r.frequency_line}
+                        </Text>
+                      ) : null}
+                      {r.disruption ? (
+                        <Text style={[styles.insightLineTextCalm, { marginTop: 6 }]}>
+                          {r.disruption.label}: {r.disruption.ideas.join(' · ')}
+                        </Text>
+                      ) : null}
+                    </View>
+                  </View>
+                );
+              })()}
 
             {/* ── Planning surface (P5): adapt + schedule, one zone ── */}
             {!card.isBreak &&
