@@ -768,7 +768,7 @@ export interface GremlyState {
   // HABIT PLAN MUTATIONS
   // ═══════════════════════════════════════════════════════════════════
   /** Place a habit on a specific date (idempotent via unique(habit_id, planned_date)). */
-  setHabitPlan: (habitId: string, plannedDate: string) => Promise<void>;
+  setHabitPlan: (habitId: string, plannedDate: string, weekStart?: string) => Promise<void>;
   /** Remove a planned day (re-tap to deselect). */
   removeHabitPlan: (habitId: string, plannedDate: string) => Promise<void>;
 
@@ -4119,10 +4119,10 @@ export const useGremlyStore = create<GremlyState>()(
         // HABIT PLAN MUTATIONS
         // ═══════════════════════════════════════════════════════════════════
 
-        setHabitPlan: async (habitId, plannedDate) => {
+        setHabitPlan: async (habitId, plannedDate, explicitWeekStart?) => {
           const userId = get().userId;
           if (!userId) return;
-          const weekStart = getDateService().startOfWeekMonday(plannedDate);
+          const weekStart = explicitWeekStart ?? getDateService().startOfWeekMonday(plannedDate);
           const tempId = `temp-${habitId}-${plannedDate}`;
           const optimistic: HabitPlanRow = {
             id: tempId,

@@ -24,6 +24,7 @@ import {
   Flame,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Check,
   Circle,
   Pencil,
@@ -118,6 +119,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   const habitAdaptations = useGremlyStore((s) => s.habitAdaptations);
   const setHabitPlan = useGremlyStore((s) => s.setHabitPlan);
   const removeHabitPlan = useGremlyStore((s) => s.removeHabitPlan);
+  const habitPlans = useGremlyStore((s) => s.habitPlans);
 
   const cards = useHabitCardStats(habits);
 
@@ -127,7 +129,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
 
   // ── Adaptation form state ────────────────────────────────────────────────
   type AdaptMode = 'keep' | 'floor' | 'pause';
-  type DatePickerTarget = 'start' | 'end' | null;
+  type DatePickerTarget = 'start' | 'end' | 'planStart' | null;
   const [adaptExpanded, setAdaptExpanded] = useState(false);
   const [adaptMode, setAdaptMode] = useState<AdaptMode>('keep');
   const [adaptStart, setAdaptStart] = useState<string>(() => getDateService().today());
@@ -139,6 +141,9 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   const [adaptSaving, setAdaptSaving] = useState(false);
   // Session-persistent adaptation confirmations keyed by habitId
   const [adaptConfirmations, setAdaptConfirmations] = useState<Record<string, string>>({});
+  // ── Plan state ───────────────────────────────────────────────────────────
+  const [planStart, setPlanStart] = useState<string>(() => getDateService().today());
+  const [planStartMenuOpen, setPlanStartMenuOpen] = useState(false);
   // Date picker
   const [datePickerTarget, setDatePickerTarget] = useState<DatePickerTarget>(null);
   const [datePickerTempDate, setDatePickerTempDate] = useState<Date>(() => getDateService().now());
@@ -179,6 +184,8 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
       if (adaptEnd < iso) setAdaptEnd(iso);
     } else if (datePickerTarget === 'end') {
       setAdaptEnd(iso);
+    } else if (datePickerTarget === 'planStart') {
+      setPlanStart(iso);
     }
     setDatePickerTarget(null);
   }, [datePickerTempDate, datePickerTarget, adaptEnd]);
@@ -344,22 +351,31 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
         <View style={styles.card}>
           {/* ── Hero header ── */}
           <View style={styles.heroHeader}>
-            {/* Cadence pill */}
-            <View style={styles.cadencePill}>
-              <Text style={styles.cadencePillText}>
-                {card.isBreak
-                  ? `BREAKING \u00b7 ${card.cadence.toUpperCase()}`
-                  : card.cadence.toUpperCase()}
-              </Text>
-            </View>
+            {/* Cadence pill — break cards only */}
+            {card.isBreak && (
+              <View style={styles.cadencePill}>
+                <Text style={styles.cadencePillText}>BREAKING HABIT</Text>
+              </View>
+            )}
 
             {/* Habit name */}
             <Text style={styles.heroName} numberOfLines={2}>
               {card.name}
             </Text>
 
-            {/* Three stats row */}
+            {/* Three stats row: frequency · this-week · streak */}
             <View style={styles.heroStats}>
+              {/* Stat 1: frequency */}
+              <View style={styles.heroStat}>
+                <Text style={styles.heroStatNum}>
+                  {getFrequencyDisplayLabel(card.cadence, card.targetPerPeriod) ?? card.cadence}
+                </Text>
+                <Text style={styles.heroStatLabel}>frequency</Text>
+              </View>
+
+              <View style={styles.heroStatDivider} />
+
+              {/* Stat 2: this week */}
               <View style={styles.heroStat}>
                 <Text style={styles.heroStatNum}>
                   {card.weekHits}
@@ -372,6 +388,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
 
               <View style={styles.heroStatDivider} />
 
+              {/* Stat 3: streak */}
               <View style={styles.heroStat}>
                 {card.streak.count > 0 ? (
                   <>
@@ -395,16 +412,6 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                   </>
                 )}
               </View>
-
-              <View style={styles.heroStatDivider} />
-
-              <View style={styles.heroStat}>
-                <Text style={styles.heroStatNum}>
-                  {card.pct30}
-                  <Text style={styles.heroStatUnit}>%</Text>
-                </Text>
-                <Text style={styles.heroStatLabel}>last 30d</Text>
-              </View>
             </View>
           </View>
 
@@ -412,25 +419,10 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
           <View style={styles.cardBody}>
             {/* Your rhythm zone header — day row + weekly trend grouped */}
             <View style={styles.weekRowHeader}>
-              <View>
-                <Text style={styles.weekRowLabel}>
-                  {card.isBreak ? 'Days clear' : 'Your rhythm'}
-                </Text>
-                <View style={styles.tapToFix}>
-                  <Pencil size={11} strokeWidth={2} color={BRAND.colors.inkMuted} />
-                  <Text style={styles.tapToFixText}>this week</Text>
-                </View>
-              </View>
-              {card.cadence !== 'daily' && card.trend.read !== null && (
-                <Text
-                  style={[
-                    styles.trendReadLabel,
-                    card.trend.read === 'building' && styles.trendReadBuilding,
-                  ]}
-                >
-                  {card.trend.read}
-                </Text>
-              )}
+              <Text style={styles.weekRowLabel}>
+                {card.isBreak ? 'Days clear' : 'Your rhythm'}
+                <Text style={styles.rhythmHeadingSub}>{' \u00b7 past 7 days'}</Text>
+              </Text>
             </View>
 
             {/* Day row — all 7 cells tappable (rolling window, no future) */}
@@ -530,280 +522,401 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
               </View>
             </View>
 
-            {/* ── Habit Adaptation Block (v7-3a) ── */}
-            <View style={styles.adaptBlock}>
-              {/* Adaptation pills — always visible, one per non-expired adaptation */}
-              {adaptationsForCard.map((a) => (
-                <View key={a.id} style={styles.activeAdaptRow}>
-                  <View style={styles.activeAdaptContent}>
-                    {a.mode === 'pause' ? (
-                      <Pause size={11} strokeWidth={2} color={BRAND.colors.charcoalInk} />
-                    ) : (
-                      <TrendingDown size={11} strokeWidth={2} color={BRAND.colors.charcoalInk} />
-                    )}
-                    <Text style={styles.activeAdaptText}>
-                      {a.mode === 'pause'
-                        ? `Paused ${formatDateDisplay(a.period_start)}–${formatDateDisplay(a.period_end)}`
-                        : `Floor ${formatDateDisplay(a.period_start)}–${formatDateDisplay(a.period_end)}`}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    onPress={() => handleClearAdaptation(a.id)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    accessibilityRole="button"
-                    accessibilityLabel="Remove adaptation"
-                  >
-                    <Text style={styles.activeAdaptRemove}>Remove</Text>
-                  </TouchableOpacity>
-                </View>
-              ))}
-
-              {/* Add prompt (collapsed) or form (expanded) — always present */}
-              {!adaptExpanded ? (
-                /* Quiet prompt row — always shown so user can always add
-                 TODO: AI seam (v7-3b) — AI will promote this into a travel/break nudge */
-                <TouchableOpacity
-                  style={styles.adaptPromptRow}
-                  onPress={() => setAdaptExpanded(true)}
-                  activeOpacity={0.7}
-                  accessibilityRole="button"
-                  accessibilityLabel={
-                    adaptationsForCard.length > 0
-                      ? 'Add another adaptation'
-                      : 'Adapt this habit for travel or a break'
-                  }
-                >
-                  <Calendar size={13} strokeWidth={1.8} color={BRAND.colors.inkMuted} />
-                  <Text style={styles.adaptPromptText}>
-                    {adaptationsForCard.length > 0 ? 'Add another' : 'Adapt for travel or a break'}
-                  </Text>
-                </TouchableOpacity>
-              ) : (
-                /* Expanded form */
-                <View>
-                  {/* Header with collapse button */}
-                  <View style={styles.adaptExpandedHeader}>
-                    <Text style={styles.adaptLabel}>Adapt this habit</Text>
-                    <TouchableOpacity
-                      onPress={() => setAdaptExpanded(false)}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      accessibilityRole="button"
-                      accessibilityLabel="Collapse"
-                    >
-                      <ChevronUp size={16} strokeWidth={2} color={BRAND.colors.inkMuted} />
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Mode selector */}
-                  <View style={styles.adaptModeRow}>
-                    {(['keep', 'floor', 'pause'] as const).map((m) => (
-                      <TouchableOpacity
-                        key={m}
-                        style={[styles.adaptModeBtn, adaptMode === m && styles.adaptModeBtnActive]}
-                        onPress={() => setAdaptMode(m)}
-                        activeOpacity={0.75}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected: adaptMode === m }}
-                        accessibilityLabel={m}
-                      >
-                        {m === 'keep' && (
-                          <Shield
-                            size={13}
-                            strokeWidth={2}
-                            color={adaptMode === m ? BRAND.colors.mossGreen : BRAND.colors.inkMuted}
-                          />
-                        )}
-                        {m === 'floor' && (
-                          <TrendingDown
-                            size={13}
-                            strokeWidth={2}
-                            color={adaptMode === m ? BRAND.colors.mossGreen : BRAND.colors.inkMuted}
-                          />
-                        )}
-                        {m === 'pause' && (
-                          <Pause
-                            size={13}
-                            strokeWidth={2}
-                            color={adaptMode === m ? BRAND.colors.mossGreen : BRAND.colors.inkMuted}
-                          />
-                        )}
-                        <Text
-                          style={[
-                            styles.adaptModeBtnText,
-                            adaptMode === m && styles.adaptModeBtnTextActive,
-                          ]}
-                        >
-                          {m.charAt(0).toUpperCase() + m.slice(1)}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-
-                  {/* Date range + floor note (only when floor or pause selected) */}
-                  {adaptMode !== 'keep' && (
-                    <View style={styles.adaptFields}>
-                      <View style={styles.adaptDateRow}>
-                        <TouchableOpacity
-                          style={[
-                            styles.adaptDateBtn,
-                            datePickerTarget === 'start' && styles.adaptDateBtnActive,
-                          ]}
-                          onPress={() => openDatePicker('start')}
-                          activeOpacity={0.75}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Start date: ${formatDateDisplay(adaptStart)}`}
-                        >
-                          <Calendar size={11} strokeWidth={2} color={BRAND.colors.inkMuted} />
-                          <Text style={styles.adaptDateBtnText}>
-                            {formatDateDisplay(adaptStart)}
-                          </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[
-                            styles.adaptDateBtn,
-                            datePickerTarget === 'end' && styles.adaptDateBtnActive,
-                          ]}
-                          onPress={() => openDatePicker('end')}
-                          activeOpacity={0.75}
-                          accessibilityRole="button"
-                          accessibilityLabel={`End date: ${formatDateDisplay(adaptEnd)}`}
-                        >
-                          <Calendar size={11} strokeWidth={2} color={BRAND.colors.inkMuted} />
-                          <Text style={styles.adaptDateBtnText}>{formatDateDisplay(adaptEnd)}</Text>
-                        </TouchableOpacity>
-                      </View>
-
-                      {adaptMode === 'floor' && (
-                        <TextInput
-                          style={styles.adaptFloorNoteInput}
-                          placeholder="Floor note (optional)"
-                          placeholderTextColor={BRAND.colors.inkMuted}
-                          value={adaptFloorNote}
-                          onChangeText={setAdaptFloorNote}
-                          maxLength={200}
-                          multiline={false}
-                          accessibilityLabel="Floor note"
-                        />
-                      )}
-
-                      {/* TODO: AI floor-note suggestion seam (v7-3b) */}
-
-                      {adaptOverlapError && (
-                        <Text style={styles.adaptErrorText}>
-                          This period overlaps an existing adaptation. Remove the existing one
-                          first.
-                        </Text>
-                      )}
-
-                      <TouchableOpacity
-                        style={[styles.adaptSaveBtn, adaptSaving && styles.adaptSaveBtnDisabled]}
-                        onPress={handleSaveAdaptation}
-                        disabled={adaptSaving}
-                        activeOpacity={0.8}
-                        accessibilityRole="button"
-                        accessibilityLabel="Save adaptation"
-                      >
-                        <Text style={styles.adaptSaveBtnText}>
-                          {adaptSaving ? 'Saving...' : 'Save adaptation'}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-                </View>
-              )}
-            </View>
-
-            {/* Frequency recommendation (conditional -- hides once change applied) */}
-            {rec?.show && !appliedChange && (
-              <View style={styles.recBlock}>
-                <Text style={styles.recSentence}>{rec.sentence}</Text>
-                <View style={styles.recChipRow}>
-                  {rec.chips.map((n) => {
-                    const label = getFrequencyDisplayLabel(rec.cadence, n) ?? `${n}x`;
-                    const isActive = n === rec.currentTarget;
-                    return (
-                      <TouchableOpacity
-                        key={n}
-                        style={[styles.recChip, isActive && styles.recChipActive]}
-                        onPress={() => !isActive && handleChipPress(n)}
-                        activeOpacity={isActive ? 1 : 0.7}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Set frequency to ${label}`}
-                        accessibilityState={{ selected: isActive }}
-                      >
-                        <Text style={[styles.recChipText, isActive && styles.recChipTextActive]}>
-                          {label}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-                <Text style={styles.recCaption}>Selecting a chip updates this habit.</Text>
-              </View>
-            )}
-
-            {/* Adaptation saved banner — persistent for the session */}
-            {adaptConfirmation && (
-              <View style={styles.appliedBanner}>
-                <Check size={13} strokeWidth={2.5} color={BRAND.colors.mossGreen} />
-                <Text style={styles.appliedBannerText}>{adaptConfirmation}</Text>
-              </View>
-            )}
-
-            {/* Applied frequency-change banner — persistent for the session */}
-            {appliedChange && (
-              <View style={styles.appliedBanner}>
-                <Check size={13} strokeWidth={2.5} color={BRAND.colors.mossGreen} />
-                <Text style={styles.appliedBannerText}>
-                  Frequency updated to {appliedChange.label}
-                </Text>
-              </View>
-            )}
-
-            {/* ── Schedule ahead (P5): place this habit on the coming 7 days → habit_plans ── */}
+            {/* ── Planning surface (P5): adapt + schedule, one zone ── */}
             {!card.isBreak &&
               card.cadence !== 'daily' &&
               (() => {
                 const ds = getDateService();
                 const today = ds.today();
                 const DOW = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-                const cells = Array.from({ length: 7 }, (_, i) => {
-                  const date = ds.addDays(today, i);
-                  const js = ds.fromLocalDate(date) ?? ds.now();
-                  const isAdaptPaused = adaptationsForCard.some(
+                const nextMondayFrom = (dateStr: string): string => {
+                  const js = ds.fromLocalDate(dateStr) ?? ds.now();
+                  const daysUntilMon = (8 - js.getDay()) % 7;
+                  return ds.addDays(dateStr, daysUntilMon);
+                };
+                const formatStartLabel = (dateStr: string): string => {
+                  if (dateStr === today) return 'Today';
+                  if (dateStr === ds.addDays(today, 1)) return 'Tomorrow';
+                  const js = ds.fromLocalDate(dateStr);
+                  if (!js) return dateStr;
+                  const dows = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                  const mons = [
+                    'Jan',
+                    'Feb',
+                    'Mar',
+                    'Apr',
+                    'May',
+                    'Jun',
+                    'Jul',
+                    'Aug',
+                    'Sep',
+                    'Oct',
+                    'Nov',
+                    'Dec',
+                  ];
+                  return `${dows[js.getDay()]} ${mons[js.getMonth()]} ${js.getDate()}`;
+                };
+                const pauseCovers = (date: string) =>
+                  adaptationsForCard.some(
                     (a) => a.mode === 'pause' && a.period_start <= date && a.period_end >= date,
                   );
+                const floorCovers = (date: string) =>
+                  adaptationsForCard.some(
+                    (a) => a.mode === 'floor' && a.period_start <= date && a.period_end >= date,
+                  );
+                const localPlannedDates = habitPlans
+                  .filter((p) => p.habit_id === card.id && p.week_start === planStart)
+                  .map((p) => p.planned_date);
+                const cells = Array.from({ length: 7 }, (_, i) => {
+                  const date = ds.addDays(planStart, i);
+                  const js = ds.fromLocalDate(date) ?? ds.now();
                   return {
                     date,
                     dow: DOW[js.getDay()],
                     dayNum: js.getDate(),
-                    isPlanned: card.plannedDates.includes(date),
-                    isPaused: isAdaptPaused,
+                    isPlanned: localPlannedDates.includes(date),
+                    isPaused: pauseCovers(date),
+                    isFloored: floorCovers(date),
                   };
                 });
                 const plannedCount = cells.filter((c) => c.isPlanned).length;
                 const target = card.targetPerPeriod;
+                const mondayOption = nextMondayFrom(today);
                 const onToggle = async (date: string, planned: boolean, paused: boolean) => {
                   if (paused) return;
                   if (planned) await removeHabitPlan(card.id, date);
-                  else await setHabitPlan(card.id, date);
+                  else await setHabitPlan(card.id, date, planStart);
                 };
                 return (
-                  <View style={styles.planBlock}>
-                    <View style={styles.planHeaderRow}>
-                      <Text style={styles.planTitle}>When will you do it this week?</Text>
-                      <Text style={styles.planCount}>
-                        {plannedCount} of {target} planned
-                      </Text>
+                  <View style={styles.planSurface}>
+                    {/* Heading + start date selector */}
+                    <View style={styles.planHead}>
+                      <Text style={styles.planTitle}>Plan your week starting</Text>
+                      <TouchableOpacity
+                        style={styles.planStartPill}
+                        onPress={() => setPlanStartMenuOpen((v) => !v)}
+                        activeOpacity={0.7}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Plan start date: ${formatStartLabel(planStart)}. Tap to change.`}
+                      >
+                        <Text style={styles.planStartPillText}>{formatStartLabel(planStart)}</Text>
+                        <ChevronDown
+                          size={13}
+                          strokeWidth={2}
+                          color={BRAND.colors.periwinkleSmoke}
+                        />
+                      </TouchableOpacity>
                     </View>
-                    <Text style={styles.planSub}>Tap the days you will fit this in</Text>
+
+                    {/* Inline start date menu */}
+                    {planStartMenuOpen && (
+                      <View style={styles.planStartMenu}>
+                        {(
+                          [
+                            { label: 'Today', value: today },
+                            { label: 'Tomorrow', value: ds.addDays(today, 1) },
+                            { label: 'Monday', value: mondayOption },
+                          ] as { label: string; value: string }[]
+                        ).map((opt) => (
+                          <TouchableOpacity
+                            key={opt.label}
+                            style={styles.planStartMenuItem}
+                            onPress={() => {
+                              setPlanStart(opt.value);
+                              setPlanStartMenuOpen(false);
+                            }}
+                            activeOpacity={0.7}
+                            accessibilityRole="button"
+                            accessibilityLabel={opt.label}
+                          >
+                            <Text style={styles.planStartMenuItemText}>{opt.label}</Text>
+                            {planStart === opt.value && (
+                              <Check
+                                size={13}
+                                strokeWidth={2.5}
+                                color={BRAND.colors.periwinkleSmoke}
+                              />
+                            )}
+                          </TouchableOpacity>
+                        ))}
+                        <TouchableOpacity
+                          style={[styles.planStartMenuItem, { borderBottomWidth: 0 }]}
+                          onPress={() => {
+                            setPlanStartMenuOpen(false);
+                            const jsDate = ds.fromLocalDate(planStart) ?? ds.now();
+                            setDatePickerTempDate(jsDate);
+                            setDatePickerTarget('planStart');
+                          }}
+                          activeOpacity={0.7}
+                          accessibilityRole="button"
+                          accessibilityLabel="Pick date"
+                        >
+                          <Text style={styles.planStartMenuItemText}>Pick date...</Text>
+                          <Calendar size={13} strokeWidth={1.8} color={BRAND.colors.inkMuted} />
+                        </TouchableOpacity>
+                      </View>
+                    )}
+
+                    {/* Adapt slot — adapt affordance above the strip so strip reflects reality */}
+                    <View style={styles.planAdaptSlot}>
+                      {/* Adaptation pills — one per non-expired adaptation */}
+                      {adaptationsForCard.map((a) => (
+                        <View key={a.id} style={styles.activeAdaptRow}>
+                          <View style={styles.activeAdaptContent}>
+                            {a.mode === 'pause' ? (
+                              <Pause size={11} strokeWidth={2} color={BRAND.colors.charcoalInk} />
+                            ) : (
+                              <TrendingDown
+                                size={11}
+                                strokeWidth={2}
+                                color={BRAND.colors.charcoalInk}
+                              />
+                            )}
+                            <Text style={styles.activeAdaptText}>
+                              {a.mode === 'pause'
+                                ? `Paused ${formatDateDisplay(a.period_start)} to ${formatDateDisplay(a.period_end)}`
+                                : `Floor ${formatDateDisplay(a.period_start)} to ${formatDateDisplay(a.period_end)}`}
+                            </Text>
+                          </View>
+                          <TouchableOpacity
+                            onPress={() => handleClearAdaptation(a.id)}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            accessibilityRole="button"
+                            accessibilityLabel="Remove adaptation"
+                          >
+                            <Text style={styles.activeAdaptRemove}>Remove</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+
+                      {/* Add prompt (collapsed) or form (expanded) */}
+                      {!adaptExpanded ? (
+                        <TouchableOpacity
+                          style={styles.adaptPromptRow}
+                          onPress={() => setAdaptExpanded(true)}
+                          activeOpacity={0.7}
+                          accessibilityRole="button"
+                          accessibilityLabel={
+                            adaptationsForCard.length > 0
+                              ? 'Add another adaptation'
+                              : 'Adapt this habit for travel or a break'
+                          }
+                        >
+                          <Calendar size={13} strokeWidth={1.8} color={BRAND.colors.inkMuted} />
+                          <Text style={styles.adaptPromptText}>
+                            {adaptationsForCard.length > 0
+                              ? 'Add another'
+                              : 'Adapt for travel or a break'}
+                          </Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <View>
+                          <View style={styles.adaptExpandedHeader}>
+                            <Text style={styles.adaptLabel}>Adapt this habit</Text>
+                            <TouchableOpacity
+                              onPress={() => setAdaptExpanded(false)}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                              accessibilityRole="button"
+                              accessibilityLabel="Collapse"
+                            >
+                              <ChevronUp size={16} strokeWidth={2} color={BRAND.colors.inkMuted} />
+                            </TouchableOpacity>
+                          </View>
+                          <View style={styles.adaptModeRow}>
+                            {(['keep', 'floor', 'pause'] as const).map((m) => (
+                              <TouchableOpacity
+                                key={m}
+                                style={[
+                                  styles.adaptModeBtn,
+                                  adaptMode === m && styles.adaptModeBtnActive,
+                                ]}
+                                onPress={() => setAdaptMode(m)}
+                                activeOpacity={0.75}
+                                accessibilityRole="button"
+                                accessibilityState={{ selected: adaptMode === m }}
+                                accessibilityLabel={m}
+                              >
+                                {m === 'keep' && (
+                                  <Shield
+                                    size={13}
+                                    strokeWidth={2}
+                                    color={
+                                      adaptMode === m
+                                        ? BRAND.colors.mossGreen
+                                        : BRAND.colors.inkMuted
+                                    }
+                                  />
+                                )}
+                                {m === 'floor' && (
+                                  <TrendingDown
+                                    size={13}
+                                    strokeWidth={2}
+                                    color={
+                                      adaptMode === m
+                                        ? BRAND.colors.mossGreen
+                                        : BRAND.colors.inkMuted
+                                    }
+                                  />
+                                )}
+                                {m === 'pause' && (
+                                  <Pause
+                                    size={13}
+                                    strokeWidth={2}
+                                    color={
+                                      adaptMode === m
+                                        ? BRAND.colors.mossGreen
+                                        : BRAND.colors.inkMuted
+                                    }
+                                  />
+                                )}
+                                <Text
+                                  style={[
+                                    styles.adaptModeBtnText,
+                                    adaptMode === m && styles.adaptModeBtnTextActive,
+                                  ]}
+                                >
+                                  {m.charAt(0).toUpperCase() + m.slice(1)}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                          {adaptMode !== 'keep' && (
+                            <View style={styles.adaptFields}>
+                              <View style={styles.adaptDateRow}>
+                                <TouchableOpacity
+                                  style={[
+                                    styles.adaptDateBtn,
+                                    datePickerTarget === 'start' && styles.adaptDateBtnActive,
+                                  ]}
+                                  onPress={() => openDatePicker('start')}
+                                  activeOpacity={0.75}
+                                  accessibilityRole="button"
+                                  accessibilityLabel={`Start date: ${formatDateDisplay(adaptStart)}`}
+                                >
+                                  <Calendar
+                                    size={11}
+                                    strokeWidth={2}
+                                    color={BRAND.colors.inkMuted}
+                                  />
+                                  <Text style={styles.adaptDateBtnText}>
+                                    {formatDateDisplay(adaptStart)}
+                                  </Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={[
+                                    styles.adaptDateBtn,
+                                    datePickerTarget === 'end' && styles.adaptDateBtnActive,
+                                  ]}
+                                  onPress={() => openDatePicker('end')}
+                                  activeOpacity={0.75}
+                                  accessibilityRole="button"
+                                  accessibilityLabel={`End date: ${formatDateDisplay(adaptEnd)}`}
+                                >
+                                  <Calendar
+                                    size={11}
+                                    strokeWidth={2}
+                                    color={BRAND.colors.inkMuted}
+                                  />
+                                  <Text style={styles.adaptDateBtnText}>
+                                    {formatDateDisplay(adaptEnd)}
+                                  </Text>
+                                </TouchableOpacity>
+                              </View>
+                              {adaptMode === 'floor' && (
+                                <TextInput
+                                  style={styles.adaptFloorNoteInput}
+                                  placeholder="Floor note (optional)"
+                                  placeholderTextColor={BRAND.colors.inkMuted}
+                                  value={adaptFloorNote}
+                                  onChangeText={setAdaptFloorNote}
+                                  maxLength={200}
+                                  multiline={false}
+                                  accessibilityLabel="Floor note"
+                                />
+                              )}
+                              {adaptOverlapError && (
+                                <Text style={styles.adaptErrorText}>
+                                  This period overlaps an existing adaptation. Remove the existing
+                                  one first.
+                                </Text>
+                              )}
+                              <TouchableOpacity
+                                style={[
+                                  styles.adaptSaveBtn,
+                                  adaptSaving && styles.adaptSaveBtnDisabled,
+                                ]}
+                                onPress={handleSaveAdaptation}
+                                disabled={adaptSaving}
+                                activeOpacity={0.8}
+                                accessibilityRole="button"
+                                accessibilityLabel="Save adaptation"
+                              >
+                                <Text style={styles.adaptSaveBtnText}>
+                                  {adaptSaving ? 'Saving...' : 'Save adaptation'}
+                                </Text>
+                              </TouchableOpacity>
+                            </View>
+                          )}
+                        </View>
+                      )}
+                    </View>
+
+                    {/* Frequency recommendation (conditional) */}
+                    {rec?.show && !appliedChange && (
+                      <View style={styles.recBlock}>
+                        <Text style={styles.recSentence}>{rec.sentence}</Text>
+                        <View style={styles.recChipRow}>
+                          {rec.chips.map((n) => {
+                            const label = getFrequencyDisplayLabel(rec.cadence, n) ?? `${n}x`;
+                            const isActive = n === rec.currentTarget;
+                            return (
+                              <TouchableOpacity
+                                key={n}
+                                style={[styles.recChip, isActive && styles.recChipActive]}
+                                onPress={() => !isActive && handleChipPress(n)}
+                                activeOpacity={isActive ? 1 : 0.7}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Set frequency to ${label}`}
+                                accessibilityState={{ selected: isActive }}
+                              >
+                                <Text
+                                  style={[styles.recChipText, isActive && styles.recChipTextActive]}
+                                >
+                                  {label}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                        <Text style={styles.recCaption}>Selecting a chip updates this habit.</Text>
+                      </View>
+                    )}
+
+                    {/* Banners */}
+                    {adaptConfirmation && (
+                      <View style={styles.appliedBanner}>
+                        <Check size={13} strokeWidth={2.5} color={BRAND.colors.mossGreen} />
+                        <Text style={styles.appliedBannerText}>{adaptConfirmation}</Text>
+                      </View>
+                    )}
+                    {appliedChange && (
+                      <View style={styles.appliedBanner}>
+                        <Check size={13} strokeWidth={2.5} color={BRAND.colors.mossGreen} />
+                        <Text style={styles.appliedBannerText}>
+                          Frequency updated to {appliedChange.label}
+                        </Text>
+                      </View>
+                    )}
+
+                    {/* 7-day forward strip */}
                     <View style={styles.planRow}>
                       {cells.map((c) => (
                         <TouchableOpacity
                           key={c.date}
                           style={[
                             styles.planCell,
-                            c.isPlanned && styles.planCellActive,
+                            c.isPlanned && !c.isPaused && styles.planCellActive,
+                            c.isFloored && !c.isPaused && styles.planCellFloored,
                             c.isPaused && styles.planCellPaused,
                           ]}
                           disabled={c.isPaused}
@@ -811,18 +924,14 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                           activeOpacity={0.7}
                           accessibilityRole="button"
                           accessibilityState={{ selected: c.isPlanned, disabled: c.isPaused }}
-                          accessibilityLabel={`${c.dow} ${c.dayNum}${c.isPlanned ? ' planned' : ''}${c.isPaused ? ' paused' : ''}`}
+                          accessibilityLabel={`${c.dow} ${c.dayNum}${c.isPlanned ? ' planned' : ''}${c.isPaused ? ' paused' : ''}${c.isFloored ? ' floored' : ''}`}
                         >
                           <Text
                             style={[styles.planCellDow, c.isPlanned && styles.planCellDowActive]}
                           >
                             {c.dow}
                           </Text>
-                          <Text
-                            style={[styles.planCellNum, c.isPlanned && styles.planCellNumActive]}
-                          >
-                            {c.dayNum}
-                          </Text>
+                          <Text style={styles.planCellNum}>{c.dayNum}</Text>
                           {c.isPaused ? (
                             <Pause size={11} strokeWidth={2} color="rgba(34,34,34,0.30)" />
                           ) : c.isPlanned ? (
@@ -831,63 +940,71 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                               strokeWidth={2.5}
                               color={BRAND.colors.periwinkleSmoke}
                             />
+                          ) : c.isFloored ? (
+                            <TrendingDown size={10} strokeWidth={2} color="rgba(34,34,34,0.35)" />
                           ) : (
                             <View style={styles.planCellDot} />
                           )}
                         </TouchableOpacity>
                       ))}
                     </View>
+
+                    <Text style={styles.planFlexNote}>
+                      {plannedCount === 0
+                        ? 'or leave it blank to keep this week flexible'
+                        : `${plannedCount} of ${target} planned`}
+                    </Text>
                   </View>
                 );
               })()}
           </View>
         </View>
-      </ScrollView>
 
-      {/* Navigation */}
-      <View style={styles.navRow}>
-        <TouchableOpacity
-          style={[styles.navBtn, index === 0 && styles.navBtnDisabled]}
-          onPress={handlePrev}
-          disabled={index === 0}
-          activeOpacity={0.75}
-          accessibilityRole="button"
-          accessibilityLabel="Previous habit"
-        >
-          <ChevronLeft
-            size={20}
-            strokeWidth={2}
-            color={index === 0 ? BRAND.colors.inkMuted : BRAND.colors.charcoalInk}
-          />
-        </TouchableOpacity>
+        {/* Navigation */}
+        <View style={styles.navRow}>
+          <TouchableOpacity
+            style={[styles.navBtn, index === 0 && styles.navBtnDisabled]}
+            onPress={handlePrev}
+            disabled={index === 0}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityLabel="Previous habit"
+          >
+            <ChevronLeft
+              size={20}
+              strokeWidth={2}
+              color={index === 0 ? BRAND.colors.inkMuted : BRAND.colors.charcoalInk}
+            />
+          </TouchableOpacity>
 
-        <View style={styles.navCenter}>
-          <Text style={styles.navCounter}>
-            {index + 1} of {cards.length}
-          </Text>
+          <View style={styles.navCenter}>
+            <Text style={styles.navCounter}>
+              {index + 1} of {cards.length}
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            style={[styles.navBtn, styles.navBtnNext]}
+            onPress={handleNext}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel={isLast ? 'Done' : 'Next habit'}
+          >
+            {isLast ? (
+              <Text style={styles.navBtnNextText}>Done</Text>
+            ) : (
+              <ChevronRight size={20} strokeWidth={2} color={BRAND.colors.mossGreen} />
+            )}
+          </TouchableOpacity>
         </View>
 
-        <TouchableOpacity
-          style={[styles.navBtn, styles.navBtnNext]}
-          onPress={handleNext}
-          activeOpacity={0.8}
-          accessibilityRole="button"
-          accessibilityLabel={isLast ? 'Done' : 'Next habit'}
-        >
-          {isLast ? (
-            <Text style={styles.navBtnNextText}>Done</Text>
-          ) : (
-            <ChevronRight size={20} strokeWidth={2} color={BRAND.colors.mossGreen} />
-          )}
-        </TouchableOpacity>
-      </View>
-
-      {/* Finish early */}
-      {!isLast && (
-        <TouchableOpacity style={styles.skipBtn} onPress={onFinish} activeOpacity={0.7}>
-          <Text style={styles.skipBtnText}>Finish early</Text>
-        </TouchableOpacity>
-      )}
+        {/* Finish early */}
+        {!isLast && (
+          <TouchableOpacity style={styles.skipBtn} onPress={onFinish} activeOpacity={0.7}>
+            <Text style={styles.skipBtnText}>Finish early</Text>
+          </TouchableOpacity>
+        )}
+      </ScrollView>
 
       {/* Date picker — Android: native dialog (no modal needed) */}
       {datePickerTarget !== null && Platform.OS === 'android' && (
@@ -896,11 +1013,11 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
           mode="date"
           display="default"
           minimumDate={
-            // Allow past start dates (logging after the fact).
-            // Only constrain End >= Start.
             datePickerTarget === 'end'
               ? (getDateService().fromLocalDate(adaptStart) ?? undefined)
-              : undefined
+              : datePickerTarget === 'planStart'
+                ? (getDateService().fromLocalDate(getDateService().today()) ?? undefined)
+                : undefined
           }
           onChange={(e: any, date?: Date) => {
             const captured = datePickerTarget;
@@ -910,8 +1027,10 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
               if (captured === 'start') {
                 setAdaptStart(iso);
                 if (adaptEnd < iso) setAdaptEnd(iso);
-              } else {
+              } else if (captured === 'end') {
                 setAdaptEnd(iso);
+              } else if (captured === 'planStart') {
+                setPlanStart(iso);
               }
             }
           }}
@@ -931,7 +1050,11 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                 <Text style={styles.datePickerSheetCancel}>Cancel</Text>
               </TouchableOpacity>
               <Text style={styles.datePickerSheetTitle}>
-                {datePickerTarget === 'start' ? 'Start date' : 'End date'}
+                {datePickerTarget === 'start'
+                  ? 'Start date'
+                  : datePickerTarget === 'planStart'
+                    ? 'Plan start date'
+                    : 'End date'}
               </Text>
               <TouchableOpacity onPress={handleDatePickerConfirm}>
                 <Text style={styles.datePickerSheetDone}>Done</Text>
@@ -944,11 +1067,11 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
               themeVariant="light"
               accentColor={BRAND.colors.mossGreen}
               minimumDate={
-                // Allow past start dates (logging after the fact).
-                // Only constrain End >= Start.
                 datePickerTarget === 'end'
                   ? (getDateService().fromLocalDate(adaptStart) ?? undefined)
-                  : undefined
+                  : datePickerTarget === 'planStart'
+                    ? (getDateService().fromLocalDate(getDateService().today()) ?? undefined)
+                    : undefined
               }
               onChange={(_: any, date?: Date) => {
                 if (date) setDatePickerTempDate(date);
@@ -966,13 +1089,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: BRAND.colors.linenCream,
     paddingHorizontal: 20,
-    paddingTop: 12,
+    paddingTop: 6,
   },
   cardScroll: {
     flex: 1,
   },
   cardScrollContent: {
-    paddingBottom: 16,
+    paddingBottom: 10,
   },
 
   // Progress dots
@@ -980,7 +1103,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 6,
-    marginBottom: 12,
+    marginBottom: 8,
   },
   progressDot: {
     width: 6,
@@ -1085,7 +1208,7 @@ const styles = StyleSheet.create({
   cardBody: {
     backgroundColor: BRAND.colors.surface,
     paddingHorizontal: 16,
-    paddingTop: 14,
+    paddingTop: 8,
     paddingBottom: 16,
   },
 
@@ -1102,6 +1225,7 @@ const styles = StyleSheet.create({
     color: BRAND.colors.charcoalInk,
     letterSpacing: 0.2,
   },
+  rhythmHeadingSub: { fontSize: 12, fontWeight: '400', color: 'rgba(34,34,34,0.40)' },
   weekRowSub: {
     fontSize: 10,
     fontWeight: '400',
@@ -1421,8 +1545,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 10,
-    paddingTop: 10,
+    marginTop: 6,
+    paddingTop: 6,
     borderTopWidth: 0.5,
     borderTopColor: 'rgba(34,34,34,0.07)',
   },
@@ -1446,8 +1570,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'rgba(34,34,34,0.03)',
     borderRadius: 12,
-    paddingVertical: 11,
-    marginTop: 13,
+    paddingVertical: 9,
+    marginTop: 9,
   },
   stripItem: {
     flex: 1,
@@ -1584,28 +1708,55 @@ const styles = StyleSheet.create({
     color: BRAND.colors.mossGreen,
   },
 
-  // Schedule ahead (P5)
-  planBlock: {
-    marginTop: 18,
-    paddingTop: 16,
-    paddingHorizontal: 14,
-    paddingBottom: 16,
+  // Planning surface (P5)
+  planSurface: {
+    marginTop: 12,
+    padding: 11,
     borderRadius: 16,
     backgroundColor: 'rgba(156,166,224,0.08)',
     borderWidth: 0.5,
     borderColor: 'rgba(156,166,224,0.30)',
   },
-  planHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
+  planHead: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
   planTitle: { fontSize: 14.5, fontWeight: '600', color: BRAND.colors.charcoalInk },
-  planCount: { fontSize: 12, fontWeight: '500', color: BRAND.colors.periwinkleSmoke },
-  planSub: { fontSize: 11, color: 'rgba(34,34,34,0.45)', marginTop: 2, marginBottom: 12 },
-  planRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 5 },
+  planStartPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 9,
+    backgroundColor: 'rgba(156,166,224,0.14)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(156,166,224,0.35)',
+  },
+  planStartPillText: { fontSize: 13, fontWeight: '600', color: BRAND.colors.periwinkleSmoke },
+  planStartMenu: {
+    marginTop: 6,
+    borderRadius: 12,
+    backgroundColor: BRAND.colors.surface,
+    borderWidth: 0.5,
+    borderColor: 'rgba(34,34,34,0.10)',
+    overflow: 'hidden',
+  },
+  planStartMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    borderBottomWidth: 0.5,
+    borderBottomColor: 'rgba(34,34,34,0.07)',
+  },
+  planStartMenuItemText: { fontSize: 14, fontWeight: '500', color: BRAND.colors.charcoalInk },
+  planAdaptSlot: { marginTop: 8, marginBottom: 8 },
+  planRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 4 },
   planCell: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 9,
-    borderRadius: 11,
-    gap: 3,
+    paddingVertical: 7,
+    borderRadius: 10,
+    gap: 2,
     backgroundColor: 'rgba(34,34,34,0.03)',
     borderWidth: 0.5,
     borderColor: 'rgba(34,34,34,0.08)',
@@ -1614,25 +1765,29 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(156,166,224,0.18)',
     borderColor: BRAND.colors.periwinkleSmoke,
   },
-  planCellPaused: { backgroundColor: 'rgba(34,34,34,0.04)', opacity: 0.6 },
-  planCellDow: { fontSize: 10, fontWeight: '600', color: 'rgba(34,34,34,0.45)' },
+  planCellFloored: {
+    backgroundColor: 'rgba(224,196,122,0.10)',
+    borderColor: 'rgba(224,196,122,0.40)',
+  },
+  planCellPaused: { backgroundColor: 'rgba(34,34,34,0.04)', opacity: 0.55 },
+  planCellDow: { fontSize: 9.5, fontWeight: '600', color: 'rgba(34,34,34,0.45)' },
   planCellDowActive: { color: BRAND.colors.periwinkleSmoke },
-  planCellNum: { fontSize: 13, fontWeight: '600', color: BRAND.colors.charcoalInk },
-  planCellNumActive: { color: BRAND.colors.charcoalInk },
+  planCellNum: { fontSize: 12.5, fontWeight: '600', color: BRAND.colors.charcoalInk },
   planCellDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: 'rgba(34,34,34,0.18)' },
+  planFlexNote: { fontSize: 10.5, color: 'rgba(34,34,34,0.42)', marginTop: 8, textAlign: 'center' },
 
   // Navigation
   navRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 8,
-    marginBottom: 6,
+    marginTop: 2,
+    marginBottom: 2,
   },
   navBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(34,34,34,0.06)',
@@ -1649,7 +1804,7 @@ const styles = StyleSheet.create({
   navCounter: { fontSize: 13, fontWeight: '500', color: BRAND.colors.inkMuted },
 
   // Finish early
-  skipBtn: { alignItems: 'center', paddingVertical: 6 },
+  skipBtn: { alignItems: 'center', paddingVertical: 2 },
   skipBtnText: { fontSize: 14, fontWeight: '500', color: BRAND.colors.inkMuted },
 
   // Empty state
