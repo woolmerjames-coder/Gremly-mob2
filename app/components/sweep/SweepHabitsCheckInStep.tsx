@@ -1177,8 +1177,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: BRAND.colors.linenCream,
-    paddingHorizontal: 20,
-    paddingTop: 6,
   },
   cardScroll: {
     flex: 1,
@@ -1193,6 +1191,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
     marginBottom: 8,
+    paddingTop: 6,
   },
   progressDot: {
     width: 6,
@@ -1207,7 +1206,6 @@ const styles = StyleSheet.create({
 
   // ── Card shell ─────────────────────────────────────────────────────────────
   card: {
-    marginHorizontal: -20,
     marginBottom: 20,
   },
 
@@ -1909,6 +1907,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: 2,
     marginBottom: 2,
+    paddingHorizontal: 20,
   },
   navBtn: {
     width: 40,

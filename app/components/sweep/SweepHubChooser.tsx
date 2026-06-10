@@ -135,7 +135,7 @@ export function SweepHubChooser({
             <TouchableOpacity
               onPress={handleMascotPress}
               activeOpacity={0.8}
-              accessibilityLabel="What is a sweep"
+              accessibilityLabel="What is a weekly sweep"
             >
               <MascotLottie width={64} />
             </TouchableOpacity>
@@ -149,9 +149,9 @@ export function SweepHubChooser({
           activeOpacity={0.75}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           accessibilityRole="button"
-          accessibilityLabel="What is a sweep"
+          accessibilityLabel="What is a weekly sweep"
         >
-          <Text style={styles.explainerTriggerText}>What's a sweep?</Text>
+          <Text style={styles.explainerTriggerText}>What's a weekly sweep?</Text>
           <View style={explainerOpen ? styles.chevronOpen : undefined}>
             <ChevronDown size={13} strokeWidth={2.2} color={BRAND.colors.mossGreen} />
           </View>
