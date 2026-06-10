@@ -20,7 +20,7 @@
  */
 
 import { getDateService } from '../date/DateService';
-import type { HabitProgressRow, HabitAdaptationRow } from '../store/useGremlyStore';
+import type { HabitProgressRow, HabitAdaptationRow, HabitPlanRow } from '../store/useGremlyStore';
 import type { HabitCardStats } from './habitCardStats';
 import { computeFrequencyRecommendation } from './habitFrequencyRecommendation';
 import type { Habit } from '../types';
@@ -153,6 +153,7 @@ export function buildHabitFactSheet(
   card: HabitCardStats,
   habitProgress: HabitProgressRow[],
   habitAdaptations: HabitAdaptationRow[],
+  habitPlans: HabitPlanRow[],
 ): HabitFactSheet {
   const ds = getDateService();
   const today = ds.today();
@@ -179,7 +180,13 @@ export function buildHabitFactSheet(
       today,
     ),
     completion_days: completionDays56,
-    planned_dates: card.plannedDates.filter((d) => d >= today),
+    planned_dates: [
+      ...new Set(
+        habitPlans
+          .filter((p) => p.habit_id === habit.id && p.planned_date >= today)
+          .map((p) => p.planned_date),
+      ),
+    ].sort(),
     best_day: card.bestDay ? (DOW_SHORT_TO_FULL[card.bestDay.weekday] ?? null) : null,
     best_day_all_time: card.bestDayAllTime,
     total_completions: card.totalCompletions,

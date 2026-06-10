@@ -4302,7 +4302,13 @@ export const useGremlyStore = create<GremlyState>()(
             for (const h of activeHabits) {
               const card = cards.find((c) => c.id === h.id);
               if (!card) continue;
-              const sheet = buildHabitFactSheet(h, card, habitProgress, habitAdaptations);
+              const sheet = buildHabitFactSheet(
+                h,
+                card,
+                habitProgress,
+                habitAdaptations,
+                get().habitPlans,
+              );
               sheetsById.set(h.id, {
                 sheet,
                 hash: computeInputHash(sheet, events, eventNotes),

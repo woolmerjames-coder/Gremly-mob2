@@ -159,9 +159,16 @@ export function SweepHabitCardC(props: SweepHabitCardCProps) {
     adaptationsForCard.some(
       (a) => a.mode === 'pause' && a.period_start <= date && a.period_end >= date,
     );
-  const localPlanned = habitPlans
-    .filter((p) => p.habit_id === card.id && p.week_start === planStart)
-    .map((p) => p.planned_date);
+  const planEnd = ds.addDays(planStart, 6);
+  const localPlanned = [
+    ...new Set(
+      habitPlans
+        .filter(
+          (p) => p.habit_id === card.id && p.planned_date >= planStart && p.planned_date <= planEnd,
+        )
+        .map((p) => p.planned_date),
+    ),
+  ];
   const planCells = Array.from({ length: 7 }, (_, i) => {
     const date = ds.addDays(planStart, i);
     const js = ds.fromLocalDate(date) ?? ds.now();
