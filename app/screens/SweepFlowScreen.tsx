@@ -4974,18 +4974,18 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
               weekLabel={(() => {
                 const _ds = getDateService();
                 const MONTHS = [
-                  'Jan',
-                  'Feb',
-                  'Mar',
-                  'Apr',
+                  'January',
+                  'February',
+                  'March',
+                  'April',
                   'May',
-                  'Jun',
-                  'Jul',
-                  'Aug',
-                  'Sep',
-                  'Oct',
-                  'Nov',
-                  'Dec',
+                  'June',
+                  'July',
+                  'August',
+                  'September',
+                  'October',
+                  'November',
+                  'December',
                 ];
                 const start = _ds.getStartOfWeek();
                 const end = _ds.addDays(start, 6);
@@ -4997,7 +4997,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
                   e.getMonth() === s.getMonth()
                     ? `${e.getDate()}`
                     : `${MONTHS[e.getMonth()]} ${e.getDate()}`;
-                return `${sLabel} \u2013 ${eLabel}`;
+                return `${sLabel} to ${eLabel}`;
               })()}
             />
           )}

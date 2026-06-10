@@ -5,10 +5,12 @@
  * "Lead me through it all" (chained linear run) or pick individual
  * spokes a la carte. Each completed spoke shows a tick but remains
  * re-enterable.
+ *
+ * Styled to match the NOW screen design language (NowHeader.tsx).
  */
 
-import React from 'react';
-import { View, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import { View, ScrollView, TouchableOpacity } from 'react-native';
 import {
   CalendarRange,
   Compass,
@@ -16,10 +18,28 @@ import {
   CalendarDays,
   Check,
   ChevronRight,
-  ArrowRight,
+  ChevronDown,
+  Sparkles,
 } from 'lucide-react-native';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
+import { makeStyles } from '../../../design/makeStyles';
+import MascotLottie from '../MascotLottie';
+import { useMascotMode } from '../../../contexts/MascotModeContext';
+
+// TODO(cleanup-ledger): consolidate shared tints into BRAND
+const CARD_BG = '#FAF8F5'; // same as NowHeader CARD_BG_TODAY
+const TINT_SAGE = '#F2F7F0'; // same as NowHeader CARD_BG_HABITS
+const TINT_SAGE_STRONG = '#E8F0EB'; // same as NowScreenV1 headerAddButton
+const TINT_PERI = 'rgba(156,166,224,0.18)';
+const TINT_GOLD = 'rgba(224,196,122,0.22)';
+const CARD_SHADOW = {
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.06,
+  shadowRadius: 8,
+  elevation: 2,
+};
 
 export type HubSectionKey = 'todos' | 'intention' | 'habits' | 'events';
 
@@ -32,23 +52,18 @@ export interface HubSection {
 }
 
 export const HUB_SECTIONS: HubSection[] = [
-  {
-    key: 'todos',
-    label: 'Todos',
-  },
-  {
-    key: 'intention',
-    label: 'Intention',
-  },
-  {
-    key: 'habits',
-    label: 'Habits',
-  },
-  {
-    key: 'events',
-    label: 'Week ahead',
-  },
+  { key: 'todos', label: 'Todos' },
+  { key: 'intention', label: 'Intention' },
+  { key: 'habits', label: 'Habits' },
+  { key: 'events', label: 'Week ahead' },
 ];
+
+const SECTION_SUBTITLES: Record<HubSectionKey, string> = {
+  todos: 'Decide what makes the week',
+  intention: 'One line to anchor it',
+  habits: 'Targets for the week',
+  events: 'A glance at the calendar',
+};
 
 const SECTION_ICONS: Record<
   HubSectionKey,
@@ -58,6 +73,20 @@ const SECTION_ICONS: Record<
   intention: Compass,
   habits: Repeat,
   events: CalendarDays,
+};
+
+const SECTION_CHIP_BG: Record<HubSectionKey, string> = {
+  todos: TINT_PERI,
+  intention: TINT_GOLD,
+  habits: TINT_SAGE,
+  events: TINT_SAGE,
+};
+
+const SECTION_ICON_COLOR: Record<HubSectionKey, string> = {
+  todos: BRAND.colors.periwinkleSmoke,
+  intention: BRAND.colors.goldenPear,
+  habits: BRAND.colors.mossGreen,
+  events: BRAND.colors.mossGreen,
 };
 
 export interface SweepHubChooserProps {
@@ -77,6 +106,16 @@ export function SweepHubChooser({
   onExit,
   weekLabel,
 }: SweepHubChooserProps) {
+  // Ephemeral UI disclosure state — accepted exception to Zustand-default rule
+  const [explainerOpen, setExplainerOpen] = useState(false);
+  const styles = useStyles();
+  const { resetInactivity } = useMascotMode();
+
+  const handleMascotPress = () => {
+    resetInactivity();
+    setExplainerOpen((v) => !v);
+  };
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -85,12 +124,46 @@ export function SweepHubChooser({
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Header */}
-        <View style={styles.eyebrowRow}>
-          <Text style={styles.eyebrow}>WEEKLY SWEEP</Text>
-          <Text style={styles.weekRange}>{weekLabel}</Text>
+        {/* Header — mirrors NowHeader topRow exactly */}
+        <View style={styles.topRow}>
+          <View style={styles.greetingColumn}>
+            <Text style={styles.greeting}>Weekly Sweep</Text>
+            <Text style={styles.dateTime}>{weekLabel}</Text>
+            <View style={styles.headerDivider} />
+          </View>
+          <View style={styles.mascotColumn}>
+            <TouchableOpacity
+              onPress={handleMascotPress}
+              activeOpacity={0.8}
+              accessibilityLabel="What is a sweep"
+            >
+              <MascotLottie width={64} />
+            </TouchableOpacity>
+          </View>
         </View>
-        <Text style={styles.heading}>Plan your week.</Text>
+
+        {/* "What's a sweep?" collapsible */}
+        <TouchableOpacity
+          style={styles.explainerTrigger}
+          onPress={() => setExplainerOpen((v) => !v)}
+          activeOpacity={0.75}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityRole="button"
+          accessibilityLabel="What is a sweep"
+        >
+          <Text style={styles.explainerTriggerText}>What's a sweep?</Text>
+          <View style={explainerOpen ? styles.chevronOpen : undefined}>
+            <ChevronDown size={13} strokeWidth={2.2} color={BRAND.colors.mossGreen} />
+          </View>
+        </TouchableOpacity>
+        {explainerOpen && (
+          <View style={styles.explainerBody}>
+            <Text style={styles.explainerBodyText}>
+              Get ahead of the week before it starts. Sort your todos into days, set an intention,
+              and line up your habit targets. Run through everything or just the parts you need.
+            </Text>
+          </View>
+        )}
 
         {/* Hero card */}
         <TouchableOpacity
@@ -100,63 +173,64 @@ export function SweepHubChooser({
           accessibilityRole="button"
           accessibilityLabel="Lead me through it all"
         >
-          <View style={styles.heroCardText}>
-            <Text style={styles.heroCardTitle}>Lead me through it all</Text>
-            <Text style={styles.heroCardSub}>Guided · about 5 minutes</Text>
+          <View style={styles.heroChip}>
+            <Sparkles size={22} strokeWidth={2} color={BRAND.colors.goldenPear} />
           </View>
-          <View style={styles.heroCardArrow}>
-            <ArrowRight size={19} strokeWidth={2.3} color={BRAND.colors.mossGreen} />
+          <View style={styles.heroText}>
+            <Text style={styles.heroTitle}>Lead me through it all</Text>
+            <Text style={styles.heroSub}>Guided · about 5 minutes</Text>
           </View>
+          <ChevronRight size={16} strokeWidth={2} color={BRAND.colors.goldenPear} />
         </TouchableOpacity>
 
-        {/* Section list */}
-        <Text style={styles.orLabel}>OR ONE AT A TIME</Text>
-        <View>
-          {HUB_SECTIONS.map((section, idx) => {
+        {/* "Or one at a time" — TimeBlockSection label treatment */}
+        <View style={styles.orLabelRow}>
+          <View style={styles.orAccent} />
+          <Text style={styles.orLabel}>Or one at a time</Text>
+        </View>
+
+        {/* Section cards */}
+        <View style={styles.sectionList}>
+          {HUB_SECTIONS.map((section) => {
             const isDone = completed.has(section.key);
             const isDisabled = !!section.disabled;
-            const isLast = idx === HUB_SECTIONS.length - 1;
             const SectionIcon = SECTION_ICONS[section.key];
 
             return (
               <TouchableOpacity
                 key={section.key}
                 style={[
-                  styles.sectionRow,
-                  !isLast && styles.sectionRowBorder,
-                  isDisabled && styles.sectionRowDisabled,
+                  styles.sectionCard,
+                  isDone && styles.sectionCardDone,
+                  isDisabled && styles.sectionCardDisabled,
                 ]}
                 onPress={() => !isDisabled && onPickSection(section.key)}
-                activeOpacity={isDisabled ? 1 : 0.72}
+                activeOpacity={isDisabled ? 1 : 0.78}
                 accessibilityRole="button"
                 accessibilityLabel={section.label}
                 accessibilityState={{ disabled: isDisabled }}
               >
-                <SectionIcon
-                  size={21}
-                  strokeWidth={1.9}
-                  color={
-                    isDone
-                      ? 'rgba(46,85,64,0.45)'
-                      : isDisabled
-                        ? 'rgba(46,85,64,0.30)'
-                        : BRAND.colors.mossGreen
-                  }
-                />
-                <Text style={[styles.sectionLabel, isDone && styles.sectionLabelDone]}>
-                  {section.label}
-                </Text>
-                {section.meta || (isDisabled && section.comingSoon) ? (
-                  <Text style={styles.sectionMeta}>
-                    {isDisabled && section.comingSoon ? 'coming soon' : section.meta}
+                <View
+                  style={[styles.sectionChip, { backgroundColor: SECTION_CHIP_BG[section.key] }]}
+                >
+                  <SectionIcon size={19} strokeWidth={2} color={SECTION_ICON_COLOR[section.key]} />
+                </View>
+                <View style={styles.sectionTextBlock}>
+                  <Text style={[styles.sectionLabel, isDone && styles.sectionLabelDone]}>
+                    {section.label}
                   </Text>
-                ) : null}
-                {isDone ? (
+                  <Text style={styles.sectionSubtitle}>
+                    {section.meta ?? SECTION_SUBTITLES[section.key]}
+                  </Text>
+                </View>
+                {isDisabled && section.comingSoon ? (
+                  <Text style={styles.sectionMeta}>coming soon</Text>
+                ) : isDone ? (
                   <View style={styles.doneCircle}>
-                    <Check size={12} strokeWidth={2.8} color={BRAND.colors.mossGreen} />
+                    <Check size={14} strokeWidth={2.6} color={BRAND.colors.mossGreen} />
                   </View>
                 ) : !isDisabled ? (
-                  <ChevronRight size={15} strokeWidth={2.2} color="rgba(34,34,34,0.30)" />
+                  <ChevronRight size={15} strokeWidth={2} color={BRAND.colors.inkMuted} />
                 ) : null}
               </TouchableOpacity>
             );
@@ -164,7 +238,7 @@ export function SweepHubChooser({
         </View>
       </ScrollView>
 
-      {/* Footer actions */}
+      {/* Footer */}
       <View style={styles.footer}>
         <TouchableOpacity
           style={styles.finishButton}
@@ -190,154 +264,226 @@ export function SweepHubChooser({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((t) => ({
   container: {
     flex: 1,
-    backgroundColor: BRAND.colors.linenCream,
+    backgroundColor: t.colors.linenCream,
   },
   scroll: { flex: 1 },
   scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 32,
     paddingBottom: 24,
   },
 
-  // Header
-  eyebrowRow: {
+  // ── Header (mirrors NowHeader topRow exactly) ─────────────────────────────
+  topRow: {
     flexDirection: 'row',
-    alignItems: 'baseline',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    marginBottom: 14,
+    paddingHorizontal: t.spacing[4],
+    paddingTop: t.spacing[4],
   },
-  eyebrow: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1.8,
-    textTransform: 'uppercase',
-    color: BRAND.colors.mossGreen,
+  greetingColumn: {
+    flex: 1,
+    justifyContent: 'flex-start',
   },
-  weekRange: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: 'rgba(34,34,34,0.45)',
+  mascotColumn: {
+    marginLeft: t.spacing[3],
+    marginTop: 2,
+    justifyContent: 'flex-start',
+    alignItems: 'center',
   },
-  heading: {
-    fontSize: 38,
-    fontFamily: 'Fraunces_700Bold_Italic',
-    fontWeight: '700',
-    fontStyle: 'italic',
-    color: BRAND.colors.charcoalInk,
-    lineHeight: 40,
-    letterSpacing: -0.5,
-    marginBottom: 28,
+  greeting: {
+    fontSize: t.typography.size.xl,
+    lineHeight: Math.ceil(t.typography.size.xl * 1.3),
+    fontFamily: t.typography.fontFamily.bold,
+    color: t.colors.moss,
+  },
+  dateTime: {
+    fontSize: t.typography.size.sm,
+    fontFamily: t.typography.fontFamily.regular,
+    color: t.colors.subtle,
+    marginTop: 0,
+  },
+  headerDivider: {
+    width: '32%',
+    height: 3,
+    backgroundColor: BRAND.colors.mossGreen,
+    borderRadius: 2,
+    marginTop: 8,
   },
 
-  // Hero card
-  heroCard: {
-    backgroundColor: BRAND.colors.mossGreen,
-    borderRadius: 24,
-    paddingVertical: 24,
-    paddingHorizontal: 22,
+  // ── "What's a sweep?" collapsible ─────────────────────────────────────────
+  explainerTrigger: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
-    marginBottom: 30,
+    gap: 5,
+    paddingHorizontal: t.spacing[4],
+    paddingTop: 10,
+    paddingBottom: 2,
   },
-  heroCardText: { flex: 1 },
-  heroCardTitle: {
-    fontSize: 23,
-    fontFamily: 'Fraunces_700Bold_Italic',
-    fontWeight: '700',
-    fontStyle: 'italic',
-    color: BRAND.colors.linenCream,
-    lineHeight: 26,
-    marginBottom: 6,
+  explainerTriggerText: {
+    fontSize: 13,
+    fontFamily: t.typography.fontFamily.medium,
+    color: BRAND.colors.mossGreen,
   },
-  heroCardSub: {
-    fontSize: 12.5,
-    fontWeight: '500',
-    color: 'rgba(249,246,241,0.62)',
+  chevronOpen: {
+    transform: [{ rotate: '180deg' }],
   },
-  heroCardArrow: {
+  explainerBody: {
+    backgroundColor: TINT_SAGE_STRONG,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    marginTop: 8,
+    marginHorizontal: t.spacing[4],
+  },
+  explainerBodyText: {
+    fontSize: 13,
+    lineHeight: 19,
+    fontFamily: t.typography.fontFamily.regular,
+    color: BRAND.colors.mossGreen,
+  },
+
+  // ── Hero card ─────────────────────────────────────────────────────────────
+  heroCard: {
+    ...CARD_SHADOW,
+    backgroundColor: CARD_BG,
+    borderRadius: 16,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 13,
+    borderWidth: 1,
+    borderColor: 'rgba(224,196,122,0.45)',
+    marginTop: 18,
+    marginHorizontal: t.spacing[4],
+  },
+  heroChip: {
     width: 46,
     height: 46,
-    borderRadius: 23,
-    backgroundColor: BRAND.colors.goldenPear,
+    borderRadius: 15,
+    backgroundColor: TINT_GOLD,
     alignItems: 'center',
     justifyContent: 'center',
   },
-
-  // Section list
-  orLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1.8,
-    textTransform: 'uppercase',
-    color: 'rgba(34,34,34,0.38)',
-    marginBottom: 6,
-    paddingHorizontal: 2,
+  heroText: { flex: 1 },
+  heroTitle: {
+    fontSize: 17,
+    fontFamily: t.typography.fontFamily.bold,
+    color: BRAND.colors.charcoalInk,
   },
-  sectionRow: {
+  heroSub: {
+    fontSize: 12.5,
+    fontFamily: t.typography.fontFamily.regular,
+    color: t.colors.subtle,
+    marginTop: 2,
+  },
+
+  // ── "Or one at a time" label (TimeBlockSection treatment) ─────────────────
+  orLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
-    paddingVertical: 19,
-    paddingHorizontal: 2,
+    paddingHorizontal: t.spacing[4],
+    marginTop: 22,
+    marginBottom: 10,
   },
-  sectionRowBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(34,34,34,0.08)',
+  orAccent: {
+    width: 3,
+    height: 16,
+    borderRadius: 1.5,
+    backgroundColor: BRAND.colors.inkMuted,
+    marginRight: 10,
   },
-  sectionRowDisabled: {
+  orLabel: {
+    fontSize: t.typography.size.xs,
+    fontFamily: t.typography.fontFamily.bold,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    color: BRAND.colors.inkMuted,
+  },
+
+  // ── Section cards ─────────────────────────────────────────────────────────
+  sectionList: {
+    gap: 10,
+    paddingHorizontal: t.spacing[4],
+  },
+  sectionCard: {
+    ...CARD_SHADOW,
+    backgroundColor: CARD_BG,
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 13,
+    borderWidth: 1,
+    borderColor: BRAND.colors.borderSubtle,
+  },
+  sectionCardDone: {
+    backgroundColor: TINT_SAGE,
+    borderColor: 'rgba(46,85,64,0.18)',
+  },
+  sectionCardDisabled: {
     opacity: 0.45,
   },
+  sectionChip: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sectionTextBlock: { flex: 1 },
   sectionLabel: {
-    flex: 1,
-    fontSize: 16.5,
-    fontWeight: '600',
-    letterSpacing: -0.2,
+    fontSize: t.typography.size.md,
+    fontFamily: t.typography.fontFamily.bold,
     color: BRAND.colors.charcoalInk,
   },
   sectionLabelDone: {
-    color: 'rgba(34,34,34,0.45)',
+    color: BRAND.colors.inkMuted,
+  },
+  sectionSubtitle: {
+    fontSize: t.typography.size.xs,
+    fontFamily: t.typography.fontFamily.regular,
+    color: t.colors.subtle,
+    marginTop: 1,
   },
   sectionMeta: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: 'rgba(34,34,34,0.38)',
+    fontSize: t.typography.size.xs,
+    fontFamily: t.typography.fontFamily.regular,
+    color: t.colors.subtle,
   },
   doneCircle: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     backgroundColor: BRAND.colors.sageMist,
     alignItems: 'center',
     justifyContent: 'center',
   },
 
-  // Footer
+  // ── Footer ────────────────────────────────────────────────────────────────
   footer: {
-    paddingHorizontal: 20,
+    paddingHorizontal: t.spacing[4],
     paddingTop: 10,
     paddingBottom: 12,
     gap: 2,
-    backgroundColor: BRAND.colors.linenCream,
+    backgroundColor: t.colors.linenCream,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(34,34,34,0.06)',
+    borderTopColor: BRAND.colors.borderSubtle,
   },
   finishButton: {
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: 'transparent',
-    borderWidth: 1.5,
-    borderColor: 'rgba(46,85,64,0.30)',
+    minHeight: 48,
+    borderRadius: 16,
+    backgroundColor: BRAND.colors.mossGreen,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 20,
   },
   finishButtonText: {
-    fontSize: 15.5,
-    fontWeight: '600',
-    color: BRAND.colors.mossGreen,
+    fontSize: t.typography.size.md,
+    fontFamily: t.typography.fontFamily.bold,
+    color: BRAND.colors.linenCream,
   },
   exitRow: {
     alignItems: 'center',
@@ -346,7 +492,7 @@ const styles = StyleSheet.create({
   },
   exitText: {
     fontSize: 13,
-    fontWeight: '500',
-    color: 'rgba(34,34,34,0.40)',
+    fontFamily: t.typography.fontFamily.medium,
+    color: t.colors.subtle,
   },
-});
+}));
