@@ -25,6 +25,8 @@ import type { HabitCardStats } from './habitCardStats';
 import { computeFrequencyRecommendation } from './habitFrequencyRecommendation';
 import type { Habit } from '../types';
 
+export const HABIT_READ_VERSION = 2;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Payload types (mirror the habitRead.js contract)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -203,10 +205,11 @@ export function buildHabitFactSheet(
 
 export function computeInputHash(
   factSheet: HabitFactSheet,
-  eventRefs: string[],
-  noteRefs: string[],
+  events: { ref: string; title: string; start: string; end: string }[],
+  eventNotes: { ref: string; title: string; start: string; end: string }[],
 ): string {
   const basis = JSON.stringify([
+    HABIT_READ_VERSION,
     factSheet.week_hits,
     factSheet.week_target,
     factSheet.streak,
@@ -216,8 +219,8 @@ export function computeInputHash(
     factSheet.freq_rec,
     factSheet.adaptations,
     factSheet.target_per_period,
-    [...eventRefs].sort(),
-    [...noteRefs].sort(),
+    events.map((e) => ({ ref: e.ref, title: e.title, start: e.start, end: e.end })),
+    eventNotes.map((n) => ({ ref: n.ref, title: n.title, start: n.start, end: n.end })),
   ]);
   let hash = 0x811c9dc5;
   for (let i = 0; i < basis.length; i++) {

@@ -4278,6 +4278,7 @@ export const useGremlyStore = create<GremlyState>()(
               }));
             const eventRefs = events.map((e) => e.ref);
             const noteRefs = eventNotes.map((n) => n.ref);
+            console.log('[HabitReads] signals', events.length, eventNotes.length);
 
             // ── Fact sheets + per-habit input hash ──
             const habitProgress = get().habitProgress;
@@ -4293,7 +4294,7 @@ export const useGremlyStore = create<GremlyState>()(
               const sheet = buildHabitFactSheet(h, card, habitProgress, habitAdaptations);
               sheetsById.set(h.id, {
                 sheet,
-                hash: computeInputHash(sheet, eventRefs, noteRefs),
+                hash: computeInputHash(sheet, events, eventNotes),
               });
             }
 
@@ -4331,7 +4332,6 @@ export const useGremlyStore = create<GremlyState>()(
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 30000);
             let data: { reads?: Record<string, HabitRead>; meta?: { model?: string } };
-            console.log('[HabitReads] signals', events.length, eventNotes.length);
             try {
               const res = await fetch(cortexUrl, {
                 method: 'POST',
