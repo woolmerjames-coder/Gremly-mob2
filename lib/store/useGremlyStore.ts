@@ -4253,6 +4253,7 @@ export const useGremlyStore = create<GremlyState>()(
             const windowEnd = getDateService().addDays(weekStart, 6);
             await get().fetchCalendarEventsForRange(weekStart, windowEnd);
 
+            // 3a. Collect synced calendar events overlapping the window
             const allCalEvents = get().calendarEvents;
             const windowEvents = Object.entries(allCalEvents)
               .filter(([date]) => date >= weekStart && date <= windowEnd)
@@ -4263,6 +4264,25 @@ export const useGremlyStore = create<GremlyState>()(
                 start_at: e.startAt,
                 end_at: e.endAt,
                 is_all_day: (e as any).isAllDay ?? false,
+              }));
+
+            // 3b. Collect event-notes (primary disruption signal) overlapping the window
+            const allNotes = get().notes;
+            const eventNotes = allNotes
+              .filter((n) => {
+                if (n.subtype !== 'event' || n.archived) return false;
+                const noteStart = n.target_date ?? (n as any).date ?? null;
+                const noteEnd = n.end_date ?? noteStart;
+                if (!noteStart) return false;
+                // Overlap: noteStart <= windowEnd AND noteEnd >= weekStart
+                return noteStart <= windowEnd && noteEnd >= weekStart;
+              })
+              .map((n) => ({
+                title: n.title ?? '',
+                body: n.body ?? null,
+                start: n.target_date ?? (n as any).date ?? null,
+                end: n.end_date ?? n.target_date ?? (n as any).date ?? null,
+                location: (n as any).location ?? null,
               }));
 
             // 4. Get Cortex URL + auth token
@@ -4292,6 +4312,7 @@ export const useGremlyStore = create<GremlyState>()(
                     },
                     planWindow: { start: weekStart, end: windowEnd },
                     events: windowEvents,
+                    eventNotes,
                     todayISO,
                     timezone: tz,
                   }),
