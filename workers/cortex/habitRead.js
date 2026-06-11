@@ -12,9 +12,9 @@
 //     weekday allowlist, char caps, confidence gates. Drop-on-fail per habit;
 //     publish-always overall.
 //
-// Provider: aiProvider tier 'mini' (gpt-4.1-mini primary, Gemini Flash
-// fallback, circuit breaker). Mode 'background': the deck never blocks on
-// this call, so no abort timeout; large payloads may take 10-20s.
+// Provider: aiProvider tier 'sonnet' (claude-sonnet-4-6 primary, Gemini Flash
+// fallback, circuit breaker). Mode 'background': no server-side abort timeout;
+// large payloads can take 30-60s. Client abort fires after 90s.
 //
 // Wiring in cortex-index.js:
 //   import { handleHabitRead } from './habitRead.js';
@@ -437,7 +437,7 @@ function validateOne(parsed, sheet, refSet, planWindow, todayISO, noteWeekdays, 
 // Handler
 // ─────────────────────────────────────────────────────────────────────────────
 
-export async function handleHabitRead(body, env) {
+export async function handleHabitRead(body, env, ownerId) {
   const EMPTY = { ok: true, reads: {} };
   const t0 = Date.now();
   try {
@@ -538,6 +538,63 @@ export async function handleHabitRead(body, env) {
         flags,
       );
       if (clean) reads[sheet.habit_id] = clean;
+    }
+
+    // ── Cache write (worker-side, fire-and-forget) ──────────────────────────
+    // Persists results so a client abort never wastes the paid run.
+    // owner_id is taken from the verified JWT (sub claim), never from the body.
+    if (ownerId && env.SUPABASE_URL && env.SUPABASE_SERVICE_KEY) {
+      const weekStart =
+        typeof body.weekStart === 'string' && isIsoDay(body.weekStart) ? body.weekStart : null;
+      const inputHashes =
+        body.inputHashes && typeof body.inputHashes === 'object' && !Array.isArray(body.inputHashes)
+          ? body.inputHashes
+          : {};
+      const upsertRows = sheets
+        .map((sheet) => {
+          const inputHash =
+            typeof inputHashes[sheet.habit_id] === 'string' ? inputHashes[sheet.habit_id] : null;
+          if (!weekStart || !inputHash) {
+            console.warn('[HabitRead] skipping cache write — missing weekStart or inputHash', {
+              habit_id: sheet.habit_id,
+            });
+            return null;
+          }
+          return {
+            habit_id: sheet.habit_id,
+            owner_id: ownerId,
+            week_start: weekStart,
+            input_hash: inputHash,
+            payload: reads[sheet.habit_id] ?? { empty: true },
+            model: result.model ?? null,
+            dismissed: false,
+            updated_at: new Date().toISOString(),
+          };
+        })
+        .filter(Boolean);
+      if (upsertRows.length > 0) {
+        fetch(`${env.SUPABASE_URL}/rest/v1/habit_reads?on_conflict=habit_id,week_start`, {
+          method: 'POST',
+          headers: {
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+            'Content-Type': 'application/json',
+            Prefer: 'resolution=merge-duplicates',
+          },
+          body: JSON.stringify(upsertRows),
+        })
+          .then(async (res) => {
+            if (!res.ok) {
+              const text = await res.text().catch(() => '');
+              console.warn('[HabitRead] cache write failed:', res.status, text.slice(0, 200));
+            }
+          })
+          .catch((err) => {
+            console.warn('[HabitRead] cache write error:', err.message);
+          });
+      }
+    } else if (ownerId) {
+      console.warn('[HabitRead] skipping cache write — missing SUPABASE env vars');
     }
 
     console.log('[HabitRead]', {

@@ -13974,7 +13974,7 @@ Return ONLY valid JSON:
       }
 
       if (type === 'habit-read') {
-        return j(await handleHabitRead(body, env));
+        return j(await handleHabitRead(body, env, authenticatedUserId));
       }
 
       // =========================

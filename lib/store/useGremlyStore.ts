@@ -4346,8 +4346,10 @@ export const useGremlyStore = create<GremlyState>()(
             const cortexUrl = (process.env.EXPO_PUBLIC_CORTEX_URL ?? '') as string;
             const token = await getSessionToken();
             const tz = get().userTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+            // 90s: sonnet-tier background call can take 30-60s for large decks;
+            // fail-soft — deck renders code fallback while the AI catches up.
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30000);
+            const timeoutId = setTimeout(() => controller.abort(), 90000);
             let data: { reads?: Record<string, HabitRead>; meta?: { model?: string } };
             try {
               const res = await fetch(cortexUrl, {
@@ -4362,6 +4364,10 @@ export const useGremlyStore = create<GremlyState>()(
                   todayISO: today,
                   timezone: tz,
                   planWindow,
+                  weekStart,
+                  inputHashes: Object.fromEntries(
+                    toRun.map((id) => [id, sheetsById.get(id)!.hash]),
+                  ),
                   factSheets: toRun.map((id) => sheetsById.get(id)!.sheet),
                   events,
                   eventNotes,
@@ -4383,31 +4389,17 @@ export const useGremlyStore = create<GremlyState>()(
                 input_hash: hash,
                 dismissed: false, // fresh data resets dismissal
               };
-              // Cache (fire-and-forget). Empty marker prevents re-calling for
-              // ineligible habits until their data actually changes.
-              supabase
-                .from('habit_reads')
-                .upsert(
-                  {
-                    habit_id: habitId,
-                    owner_id: userId,
-                    week_start: weekStart,
-                    input_hash: hash,
-                    payload: read ?? { empty: true },
-                    model: data.meta?.model ?? null,
-                    dismissed: false,
-                    updated_at: nowTimestamp(),
-                  },
-                  { onConflict: 'habit_id,week_start' },
-                )
-                .then(({ error }) => {
-                  if (error) console.warn('[HabitReads] cache write failed:', error.message);
-                });
+              // Worker persists to habit_reads; client only updates local state.
             }
             set({ habitReads: updated });
           } catch (err) {
             // Fail soft: code fallback renders; never block the deck.
-            console.warn('[HabitReads] ensureHabitReads error:', (err as Error).message);
+            const isAbort = (err as Error).name === 'AbortError';
+            console.warn(
+              '[HabitReads] ensureHabitReads error:',
+              (err as Error).name,
+              isAbort ? 'timed out after 90s' : (err as Error).message,
+            );
           } finally {
             set({ habitReadsRunning: false });
           }
