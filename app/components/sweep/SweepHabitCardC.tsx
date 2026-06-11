@@ -346,39 +346,51 @@ export function SweepHabitCardC(props: SweepHabitCardCProps) {
             }
           />
           {disruption && (
-            <View style={styles.optGroup}>
-              {disruption.ideas.map((idea) => (
-                <TouchableOpacity
-                  key={idea}
-                  style={styles.opt}
-                  activeOpacity={0.75}
-                  onPress={() =>
-                    onSelectIdea?.(idea, disruption.start, disruption.end, disruption.ref)
-                  }
-                  accessibilityRole="button"
-                  accessibilityLabel={`Choose backup: ${idea}`}
-                >
-                  <View style={styles.optRadio} />
-                  <Text style={styles.optText}>{idea}</Text>
-                  <Text style={styles.optSub}>{card.isBreak ? 'protective' : 'still counts'}</Text>
-                </TouchableOpacity>
-              ))}
-              {disruption.offer_pause && (
-                <TouchableOpacity
-                  style={styles.opt}
-                  activeOpacity={0.75}
-                  onPress={() => onSelectPause?.(disruption.start, disruption.end, disruption.ref)}
-                  accessibilityRole="button"
-                  accessibilityLabel="Pause for these days"
-                >
-                  <View style={styles.optRadio} />
-                  <Text style={styles.optText}>
-                    Pause {formatShortDate(disruption.start)} to {formatShortDate(disruption.end)}
-                  </Text>
-                  <Text style={styles.optSub}>no penalty</Text>
-                </TouchableOpacity>
-              )}
-            </View>
+            <>
+              <View style={styles.optGroup}>
+                {disruption.ideas.map((idea, i) => (
+                  <React.Fragment key={idea}>
+                    {i > 0 ? <View style={styles.optDivider} /> : null}
+                    <TouchableOpacity
+                      style={styles.opt}
+                      activeOpacity={0.75}
+                      onPress={() =>
+                        onSelectIdea?.(idea, disruption.start, disruption.end, disruption.ref)
+                      }
+                      accessibilityRole="button"
+                      accessibilityLabel={`Choose backup: ${idea}`}
+                    >
+                      <View style={styles.optRadio} />
+                      <Text style={styles.optText} numberOfLines={2} ellipsizeMode="tail">
+                        {idea}
+                      </Text>
+                    </TouchableOpacity>
+                  </React.Fragment>
+                ))}
+                {disruption.offer_pause && (
+                  <>
+                    <View style={styles.optDivider} />
+                    <TouchableOpacity
+                      style={styles.opt}
+                      activeOpacity={0.75}
+                      onPress={() =>
+                        onSelectPause?.(disruption.start, disruption.end, disruption.ref)
+                      }
+                      accessibilityRole="button"
+                      accessibilityLabel="Pause for these days"
+                    >
+                      <View style={styles.optRadio} />
+                      <Text style={styles.optText} numberOfLines={2} ellipsizeMode="tail">
+                        Pause {formatShortDate(disruption.start)} to{' '}
+                        {formatShortDate(disruption.end)}
+                      </Text>
+                      <Text style={styles.pauseSub}>no penalty</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
+              <Text style={styles.optCaption}>Any of these still counts toward your week.</Text>
+            </>
           )}
           {(showChips || appliedChange || read.frequency_line) && (
             <View style={styles.stepup}>
@@ -655,11 +667,12 @@ const styles = StyleSheet.create({
   shimmer: { marginTop: 19, borderRadius: 18, height: 96, backgroundColor: 'rgba(34,34,34,0.055)' },
 
   read: {
-    marginTop: 19,
+    marginTop: 16,
     borderRadius: 18,
     backgroundColor: PERI_TINT,
-    padding: 16,
-    paddingBottom: 15,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 10,
   },
   readHead: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   diamond: {
@@ -669,41 +682,47 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     transform: [{ rotate: '45deg' }],
   },
-  readHeadText: { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.4, color: PERI_DEEP },
-  readPara: { fontSize: 14, lineHeight: 21.5, color: '#2B2B2B', marginTop: 10 },
-  readParaBold: { fontWeight: '700', color: '#39418A' },
+  readHeadText: { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.1, color: PERI_DEEP },
+  readPara: { fontSize: 12, lineHeight: 17, color: '#2B2B2B', marginTop: 7 },
+  readParaBold: { color: '#39418A' },
 
-  optGroup: { marginTop: 13 },
+  optGroup: {
+    marginTop: 9,
+    borderRadius: 13,
+    backgroundColor: 'rgba(255,255,255,0.86)',
+    overflow: 'hidden',
+  },
+  optDivider: { height: 1, backgroundColor: 'rgba(34,34,34,0.1)' },
   opt: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 10,
-    backgroundColor: 'rgba(255,255,255,0.82)',
-    borderRadius: 13,
-    padding: 12,
-    marginTop: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
   },
   optRadio: {
-    width: 18,
-    height: 18,
+    width: 14,
+    height: 14,
     borderRadius: 99,
     borderWidth: 1.5,
     borderColor: 'rgba(34,34,34,0.25)',
+    marginTop: 2,
   },
-  optText: { flex: 1, fontSize: 13, fontWeight: '500', color: BRAND.colors.charcoalInk },
-  optSub: { fontSize: 11, color: 'rgba(34,34,34,0.38)' },
+  optText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+  },
+  pauseSub: { fontSize: 11, color: 'rgba(34,34,34,0.38)' },
+  optCaption: { marginTop: 5, fontSize: 10.5, color: 'rgba(34,34,34,0.42)' },
 
   stepup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 14,
-    paddingTop: 13,
-    borderTopWidth: 1,
-    borderTopColor: PERI_BORDER,
+    marginTop: 9,
+    gap: 3,
   },
-  stepupText: { flex: 1, minWidth: 150, fontSize: 12, lineHeight: 17, color: '#4A4F7E' },
+  stepupText: { fontSize: 13, lineHeight: 18, color: '#4A4F7E' },
   chipRow: { flexDirection: 'row', gap: 8 },
   chip: {
     borderRadius: 999,
