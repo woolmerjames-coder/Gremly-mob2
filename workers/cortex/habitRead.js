@@ -36,7 +36,7 @@
 //     trend_weeks: [{ week_start, hits, target }],     // oldest first, <= 6
 //     completion_days: ['YYYY-MM-DD', ...],            // last 56d
 //     planned_dates: ['YYYY-MM-DD', ...],
-//     best_day, best_day_all_time,                     // 'Fridays' | null
+//     best_day,                                         // 'Fridays' | null (all-time best weekday)
 //     total_completions, tracking_since, floor_note,
 //     freq_rec: { chips: [int], typical, current } | null,
 //     adaptations: [{ mode: 'pause'|'floor', start, end }]
@@ -81,19 +81,26 @@ const WEEKDAY_NAMES = [
   'saturday',
 ];
 
+// Number + "day(s)" + up to 3 words + remain/remaining/left — catches arithmetic
+// remaining-days claims that conflate the rolling window with forward planning.
+const WINDOW_MATH_RE =
+  /\b(?:[1-7]|one|two|three|four|five|six|seven)\s+days?(?:\s+\w+){0,3}\s+(?:remain(?:ing)?|left)\b/i;
+// Superlative terms that must only be paired with best_day in the paragraph.
+const SUPERLATIVE_RE = /\b(?:best|strongest|top)\b/i;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // System prompt. Semantic rules only, no examples (standing project rule).
 // ─────────────────────────────────────────────────────────────────────────────
 
 const HABIT_READ_SYSTEM = `You are Gremly, a calm companion who reads a person's habit data and writes one short read per habit for their weekly review. You receive fact sheets for several habits plus two sources of signal about their days: event-notes the user captured themselves, and synced calendar entries. Each event and note carries a ref id.
 
-Time vocabulary, follow it exactly. week_hits and week_target describe the current week, a rolling seven day window ending today, and they are the only source of truth about the current week. trend_weeks lists prior completed weeks only and says nothing about the current week. Never describe the current week using trend_weeks. Never declare the current week failed, finished, or a streak broken while it is still in progress; a week below target with days remaining is simply open.
+Time vocabulary, follow it exactly. week_hits and week_target describe the current week, a rolling seven day window ending today, and they are the only source of truth about the current week. trend_weeks lists prior completed weeks only and says nothing about the current week. Never describe the current week using trend_weeks. Never declare the current week failed, finished, or a streak broken while it is still in progress; a week below target with days remaining is simply open. Never state a count of days remaining or left in the week; you may say the week is still open but must not quantify how many days.
 
 Break habits, subtype break_habit, are habits the user is quitting or avoiding. For these, every completion is a day the user stayed CLEAR of the thing: week_hits is clear days this week, total_completions is total clear days, streaks are clear streaks. Read these as wins and never, under any circumstances, describe completions as doing the unwanted thing.
 
 For every habit, compose read_paragraph: a single flowing paragraph, never a list of stitched observations. Lead with one true judgment about what the data means, not a recital of it; use numbers only where they serve that judgment. Warm plain voice, second person, present tense, and vary how paragraphs open across habits. Keep it clearly under 280 characters, shorter when a disruption is present so the setup lands before the options. Never shame the user, never stack multiple negative observations in one paragraph, never speculate about the user's motives, priorities, or reasons beyond what an overlapping event plainly shows, never moralize, at most one exclamation mark, and never use em or en dashes anywhere in any field. Speak in the user's plain language, never in system terms: say paused or doing a lighter version, never words like adaptation, fact sheet, or trend. Do not restate the habit's full title inside the paragraph; the card already shows it.
 
-Ground every claim in the fact sheet. Numbers and streaks must match the data exactly. Name a weekday only when the fact sheet's completion days, planned dates, the habit's own name, or the disruption window contain it, and the only weekday you may call the user's best or strongest is the one given as best_day or best_day_all_time; when those two differ, prefer best_day, the recent one, and make clear it is recent. You may connect a below-target completed week to an event or note whose dates overlap that week, and only then; when the overlap is not plain, say nothing about causes. Stating a pattern the data shows is your job; inventing a reason for it is forbidden.
+Ground every claim in the fact sheet. Numbers and streaks must match the data exactly. Name a weekday only when the fact sheet's completion days, planned dates, the habit's own name, or the disruption window contain it, and the only weekday you may call the user's best or strongest is the one given as best_day; never apply a superlative to any other weekday. You may connect a below-target completed week to an event or note whose dates overlap that week, and only then; when the overlap is not plain, say nothing about causes. Stating a pattern the data shows is your job; inventing a reason for it is forbidden.
 
 Disruption judgment. Treat the user's own event-notes as the primary, most trustworthy signal. A calendar is secondary and noisy: routine meetings and the ordinary working week are never events worth mentioning, however dense, and for the routine calendar silence is the correct answer. When a note and a calendar entry plainly concern the same plan, treat them as one situation and prefer the note's framing and dates. A disruption is a real event that changes where, how, or whether this habit can happen during its dates. Weigh what the habit physically requires against what the event's setting and dates allow, habit by habit: the same trip can disrupt one habit, reshape another, and leave a third untouched. When the user has planned dates for this habit that fall inside the event, that collision alone deserves a disruption. Return a disruption when the event displaces the habit or changes its setting enough that a chosen smaller or adapted version would genuinely help; ideas may adapt the habit to the event's setting as the user described it, including pointing the user toward finding what they need there, but never invent specific named places, venues, or routes. When the event overlaps the week but this habit can work around it, do not return a disruption; instead let the paragraph name the event and say plainly how the week works around it, including which days remain open when that helps. Stay silent about an event only for habits it does not touch. Never invent events, trips, dates, or locations.
 
@@ -170,8 +177,6 @@ function sanitizeFactSheet(raw) {
       .slice(-MAX_COMPLETION_DAYS),
     planned_dates: (Array.isArray(raw.planned_dates) ? raw.planned_dates : []).filter(isIsoDay),
     best_day: typeof raw.best_day === 'string' ? trimStr(raw.best_day, 12) : null,
-    best_day_all_time:
-      typeof raw.best_day_all_time === 'string' ? trimStr(raw.best_day_all_time, 12) : null,
     total_completions: Number(raw.total_completions) || 0,
     tracking_since: isIsoDay(raw.tracking_since) ? raw.tracking_since : null,
     floor_note: raw.floor_note ? trimStr(raw.floor_note, 200) : null,
@@ -300,8 +305,8 @@ function allowedWeekdays(sheet, disruption, todayISO, noteWeekdays) {
   for (let i = 0; i < 7; i++) {
     if (nameLower.includes(WEEKDAY_NAMES[i])) allowed.add(i);
   }
-  if (sheet.best_day_all_time) {
-    const i = WEEKDAY_NAMES.indexOf(sheet.best_day_all_time.toLowerCase().replace(/s$/, ''));
+  if (sheet.best_day) {
+    const i = WEEKDAY_NAMES.indexOf(sheet.best_day.toLowerCase().replace(/s$/, ''));
     if (i >= 0) allowed.add(i);
   }
   if (disruption) {
@@ -324,6 +329,26 @@ function paragraphWeekdaysOk(paragraph, allowed) {
   const lower = paragraph.toLowerCase();
   for (let i = 0; i < 7; i++) {
     if (lower.includes(WEEKDAY_NAMES[i]) && !allowed.has(i)) return false;
+  }
+  return true;
+}
+
+/**
+ * Returns false if any sentence in the paragraph applies a superlative term
+ * (best, strongest, top) to a weekday that is not sheet.best_day.
+ * Case-insensitive; handles plural weekday forms (Tuesdays).
+ */
+function paragraphSuperlativeOk(paragraph, bestDay) {
+  if (!SUPERLATIVE_RE.test(paragraph)) return true; // fast path
+  const bestNorm = bestDay ? bestDay.toLowerCase().replace(/s$/, '') : null;
+  for (const sentence of paragraph.split(/[.!?]+/)) {
+    if (!SUPERLATIVE_RE.test(sentence)) continue;
+    for (const wd of WEEKDAY_NAMES) {
+      if (sentence.toLowerCase().includes(wd)) {
+        // Superlative + weekday in same sentence: must equal best_day
+        if (bestNorm !== wd) return false;
+      }
+    }
   }
   return true;
 }
@@ -405,6 +430,16 @@ function validateOne(parsed, sheet, refSet, planWindow, todayISO, noteWeekdays, 
     ) {
       flags.push({ habit_id: sheet.habit_id, drop: 'paragraph', reason: 'weekday' });
       // A disruption without its paragraph cannot render; drop both.
+      paragraph = null;
+      disruption = null;
+    } else if (!paragraphSuperlativeOk(paragraph, sheet.best_day)) {
+      // A superlative weekday in the paragraph must match best_day exactly.
+      flags.push({ habit_id: sheet.habit_id, drop: 'both', reason: 'best_day_mismatch' });
+      disruption = null;
+      paragraph = null;
+    } else if (WINDOW_MATH_RE.test(paragraph)) {
+      // Remaining-days arithmetic conflates rolling window with forward planning.
+      flags.push({ habit_id: sheet.habit_id, drop: 'paragraph', reason: 'window_math' });
       paragraph = null;
       disruption = null;
     }

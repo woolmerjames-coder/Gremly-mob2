@@ -25,7 +25,7 @@ import type { HabitCardStats } from './habitCardStats';
 import { computeFrequencyRecommendation } from './habitFrequencyRecommendation';
 import type { Habit } from '../types';
 
-export const HABIT_READ_VERSION = 4;
+export const HABIT_READ_VERSION = 5;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Payload types (mirror the habitRead.js contract)
@@ -49,8 +49,7 @@ export interface HabitFactSheet {
   trend_weeks: FactSheetTrendWeek[];
   completion_days: string[]; // last 56d, capped 80
   planned_dates: string[];
-  best_day: string | null; // 56d window, e.g. "Tuesdays"
-  best_day_all_time: string | null;
+  best_day: string | null; // all-time best weekday, e.g. "Tuesdays" (matches card render)
   total_completions: number;
   tracking_since: string | null;
   floor_note: string | null;
@@ -187,8 +186,7 @@ export function buildHabitFactSheet(
           .map((p) => p.planned_date),
       ),
     ].sort(),
-    best_day: card.bestDay ? (DOW_SHORT_TO_FULL[card.bestDay.weekday] ?? null) : null,
-    best_day_all_time: card.bestDayAllTime,
+    best_day: card.bestDayAllTime ?? null,
     total_completions: card.totalCompletions,
     tracking_since: card.trackingSince,
     floor_note: (habit.floor_note as string | null) ?? null,
