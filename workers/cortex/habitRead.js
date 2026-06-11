@@ -477,19 +477,26 @@ export async function handleHabitRead(body, env, ownerId) {
       for (const d of weekdaysOfWindow(n.start, n.end)) noteWeekdays.add(d);
     }
 
-    const userPayload = JSON.stringify({
-      todayISO,
-      timezone: trimStr(body.timezone, 64) || 'UTC',
-      planWindow,
-      factSheets: sheets,
-      eventNotes: cleanNotes, // primary signal first
-      events: cleanEvents,
-    });
+    const userPayload =
+      JSON.stringify({
+        todayISO,
+        timezone: trimStr(body.timezone, 64) || 'UTC',
+        planWindow,
+        factSheets: sheets,
+        eventNotes: cleanNotes, // primary signal first
+        events: cleanEvents,
+      }) +
+      // Append a hard enforcement note so the model does not generate preamble
+      // reasoning text before the JSON. This saves thousands of tokens.
+      '\n\nIMPORTANT: Your response MUST begin with { and end with }. No preamble, no explanation, no markdown. Pure JSON only.';
 
     const providers = getProviders('sonnet', env);
     const callCfg = {
       temperature: 0.4,
-      maxOutputTokens: Math.min(2400, 240 + sheets.length * 220),
+      // 600 tokens per habit + 400 base; capped at 8000 to prevent truncation.
+      // Sonnet generates verbose JSON for disruption objects; 3500 was still
+      // hitting max_tokens on 8-habit decks with multiple disruptions.
+      maxOutputTokens: Math.min(8000, 400 + sheets.length * 600),
       responseFormat: 'json',
     };
 
@@ -504,8 +511,16 @@ export async function handleHabitRead(body, env, ownerId) {
       validate: (content) => {
         try {
           const o = JSON.parse(content);
-          return { valid: o && typeof o === 'object' && !Array.isArray(o) };
-        } catch {
+          const valid = o && typeof o === 'object' && !Array.isArray(o);
+          if (!valid) console.warn('[HabitRead] validate: parsed ok but not object', typeof o);
+          return { valid };
+        } catch (e) {
+          console.warn('[HabitRead] validate: parse failed', {
+            error: e.message,
+            preview: content?.slice(0, 150),
+            tail: content?.slice(-80),
+            len: content?.length,
+          });
           return { valid: false };
         }
       },
@@ -520,7 +535,12 @@ export async function handleHabitRead(body, env, ownerId) {
     try {
       parsed = JSON.parse(result.content);
     } catch {
-      console.warn('[HabitRead] parse failed');
+      console.warn('[HabitRead] parse failed', {
+        content_preview: result.content?.slice(0, 200),
+        content_tail: result.content?.slice(-100),
+        content_len: result.content?.length,
+        stop_reason: result.stop_reason,
+      });
       return { ...EMPTY, source: 'parse_fallback' };
     }
 

@@ -317,14 +317,16 @@ async function callGeminiNonStream(systemPrompt, messages, config) {
 }
 
 async function callAnthropic(systemPrompt, messages, config, signal) {
+  const mappedMessages = messages.map((m) => ({
+    role: m.role,
+    content: m.content,
+  }));
+
   const body = {
     model: config.model,
     max_tokens: config.maxOutputTokens ?? 500,
     system: systemPrompt,
-    messages: messages.map((m) => ({
-      role: m.role,
-      content: m.content,
-    })),
+    messages: mappedMessages,
   };
 
   if (config.temperature !== undefined) {
@@ -407,11 +409,41 @@ async function callAnthropic(systemPrompt, messages, config, signal) {
     }
   }
 
+  // Strip markdown code fences — Claude sometimes wraps JSON output in ```json ... ```
+  // despite explicit "Return ONLY JSON" instructions.
+  const fenceMatch = content.match(/^```(?:json)?\s*([\s\S]*?)\s*```\s*$/);
+  if (fenceMatch) {
+    content = fenceMatch[1].trim();
+  } else {
+    // Strip any preamble text before the opening { and trailing text after the
+    // closing } — handles cases where the model generates reasoning text before/
+    // after the JSON object despite being instructed not to.
+    const jsonStart = content.indexOf('{');
+    const jsonEnd = content.lastIndexOf('}');
+    if (jsonStart > 0 || (jsonEnd !== -1 && jsonEnd < content.length - 1)) {
+      content = jsonStart !== -1 ? content.slice(jsonStart, jsonEnd + 1) : content;
+    }
+  }
+
+  // Prepend the "{" prefill character that Anthropic's response excludes
+  // no-op: prefill approach removed (not supported by claude-sonnet-4-6)
+
+  // Warn on truncation so callers know JSON may be incomplete
+  if (data.stop_reason === 'max_tokens') {
+    console.warn('[callAnthropic] stop_reason=max_tokens: response truncated', {
+      model: data.model,
+      content_len: content.length,
+      content_head: content.slice(0, 300),
+      content_tail: content.slice(-200),
+    });
+  }
+
   return {
     ok: true,
     content,
     functionCalls,
     usage: data.usage || {},
+    stop_reason: data.stop_reason ?? null,
   };
 }
 
