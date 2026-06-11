@@ -437,7 +437,7 @@ function validateOne(parsed, sheet, refSet, planWindow, todayISO, noteWeekdays, 
 // Handler
 // ─────────────────────────────────────────────────────────────────────────────
 
-export async function handleHabitRead(body, env, ownerId) {
+export async function handleHabitRead(body, env, ownerId, ctx) {
   const EMPTY = { ok: true, reads: {} };
   const t0 = Date.now();
   try {
@@ -593,16 +593,19 @@ export async function handleHabitRead(body, env, ownerId) {
         })
         .filter(Boolean);
       if (upsertRows.length > 0) {
-        fetch(`${env.SUPABASE_URL}/rest/v1/habit_reads?on_conflict=habit_id,week_start`, {
-          method: 'POST',
-          headers: {
-            apikey: env.SUPABASE_SERVICE_KEY,
-            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-            'Content-Type': 'application/json',
-            Prefer: 'resolution=merge-duplicates',
+        const upsertPromise = fetch(
+          `${env.SUPABASE_URL}/rest/v1/habit_reads?on_conflict=habit_id,week_start`,
+          {
+            method: 'POST',
+            headers: {
+              apikey: env.SUPABASE_SERVICE_KEY,
+              Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+              'Content-Type': 'application/json',
+              Prefer: 'resolution=merge-duplicates',
+            },
+            body: JSON.stringify(upsertRows),
           },
-          body: JSON.stringify(upsertRows),
-        })
+        )
           .then(async (res) => {
             if (!res.ok) {
               const text = await res.text().catch(() => '');
@@ -612,6 +615,14 @@ export async function handleHabitRead(body, env, ownerId) {
           .catch((err) => {
             console.warn('[HabitRead] cache write error:', err.message);
           });
+        // Register with ctx.waitUntil so Cloudflare keeps the Worker alive until
+        // the write completes. If ctx is not available (e.g. corpus harness), await
+        // directly so the write still happens before returning.
+        if (ctx?.waitUntil) {
+          ctx.waitUntil(upsertPromise);
+        } else {
+          await upsertPromise;
+        }
       }
     } else if (ownerId) {
       console.warn('[HabitRead] skipping cache write — missing SUPABASE env vars');

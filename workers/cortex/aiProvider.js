@@ -409,24 +409,22 @@ async function callAnthropic(systemPrompt, messages, config, signal) {
     }
   }
 
-  // Strip markdown code fences — Claude sometimes wraps JSON output in ```json ... ```
-  // despite explicit "Return ONLY JSON" instructions.
-  const fenceMatch = content.match(/^```(?:json)?\s*([\s\S]*?)\s*```\s*$/);
-  if (fenceMatch) {
-    content = fenceMatch[1].trim();
-  } else {
-    // Strip any preamble text before the opening { and trailing text after the
-    // closing } — handles cases where the model generates reasoning text before/
-    // after the JSON object despite being instructed not to.
-    const jsonStart = content.indexOf('{');
-    const jsonEnd = content.lastIndexOf('}');
-    if (jsonStart > 0 || (jsonEnd !== -1 && jsonEnd < content.length - 1)) {
-      content = jsonStart !== -1 ? content.slice(jsonStart, jsonEnd + 1) : content;
+  // For JSON calls only: strip code fences and preamble/postamble text.
+  // Gated on responseFormat==='json' so prose responses containing braces are
+  // never mutated. (stop_reason warning below stays unconditional.)
+  if (config.responseFormat === 'json') {
+    const fenceMatch = content.match(/^```(?:json)?\s*([\s\S]*?)\s*```\s*$/);
+    if (fenceMatch) {
+      content = fenceMatch[1].trim();
+    } else {
+      // Strip preamble before the opening { and postamble after the closing }.
+      const jsonStart = content.indexOf('{');
+      const jsonEnd = content.lastIndexOf('}');
+      if (jsonStart > 0 || (jsonEnd !== -1 && jsonEnd < content.length - 1)) {
+        content = jsonStart !== -1 ? content.slice(jsonStart, jsonEnd + 1) : content;
+      }
     }
   }
-
-  // Prepend the "{" prefill character that Anthropic's response excludes
-  // no-op: prefill approach removed (not supported by claude-sonnet-4-6)
 
   // Warn on truncation so callers know JSON may be incomplete
   if (data.stop_reason === 'max_tokens') {
