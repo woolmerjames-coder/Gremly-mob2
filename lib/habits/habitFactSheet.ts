@@ -25,7 +25,7 @@ import type { HabitCardStats } from './habitCardStats';
 import { computeFrequencyRecommendation } from './habitFrequencyRecommendation';
 import type { Habit } from '../types';
 
-export const HABIT_READ_VERSION = 3;
+export const HABIT_READ_VERSION = 4;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Payload types (mirror the habitRead.js contract)

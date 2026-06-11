@@ -486,7 +486,7 @@ export async function handleHabitRead(body, env) {
       events: cleanEvents,
     });
 
-    const providers = getProviders('mini', env);
+    const providers = getProviders('sonnet', env);
     const callCfg = {
       temperature: 0.4,
       maxOutputTokens: Math.min(2400, 240 + sheets.length * 220),
