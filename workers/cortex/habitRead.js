@@ -80,6 +80,22 @@ const WEEKDAY_NAMES = [
   'friday',
   'saturday',
 ];
+const LABEL_TOKEN_STOPWORDS = new Set([
+  'the',
+  'a',
+  'an',
+  'with',
+  'and',
+  'to',
+  'of',
+  'for',
+  'in',
+  'on',
+  'trip',
+  'visit',
+  'week',
+  'weekend',
+]);
 
 // Number + "day(s)" + up to 3 words + remain/remaining/left — catches arithmetic
 // remaining-days claims that conflate the rolling window with forward planning.
@@ -87,6 +103,20 @@ const WINDOW_MATH_RE =
   /\b(?:[1-7]|one|two|three|four|five|six|seven)\s+days?(?:\s+\w+){0,3}\s+(?:remain(?:ing)?|left)\b/i;
 // Superlative terms that must only be paired with best_day in the paragraph.
 const SUPERLATIVE_RE = /\b(?:best|strongest|top)\b/i;
+const MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // System prompt. Semantic rules only, no examples (standing project rule).
@@ -95,6 +125,10 @@ const SUPERLATIVE_RE = /\b(?:best|strongest|top)\b/i;
 const HABIT_READ_SYSTEM = `You are Gremly, a calm companion who reads a person's habit data and writes one short read per habit for their weekly review. You receive fact sheets for several habits plus two sources of signal about their days: event-notes the user captured themselves, and synced calendar entries. Each event and note carries a ref id.
 
 Time vocabulary, follow it exactly. week_hits and week_target describe the current week, a rolling seven day window ending today, and they are the only source of truth about the current week. trend_weeks lists prior completed weeks only and says nothing about the current week. Never describe the current week using trend_weeks. Never declare the current week failed, finished, or a streak broken while it is still in progress; a week below target with days remaining is simply open. Never state a count of days remaining or left in the week; you may say the week is still open but must not quantify how many days.
+
+The input states what day today is. Treat that weekday as authoritative. Never write today's or tomorrow's weekday as if it were a different day from today or tomorrow. Never combine today or tomorrow with a third weekday in the same construction. Keep any references to the open window consistent with the stated weekday for today.
+
+When daypart is evening, treat today as nearly spent. Do not propose multiple completions today, and prefer framing around the remaining open days. In evening framing, avoid introducing extra weekday names unless needed for factual grounding. Daypart affects wording only; do not suppress a disruption that is otherwise warranted by the same event and habit facts.
 
 Break habits, subtype break_habit, are habits the user is quitting or avoiding. For these, every completion is a day the user stayed CLEAR of the thing: week_hits is clear days this week, total_completions is total clear days, streaks are clear streaks. Read these as wins and never, under any circumstances, describe completions as doing the unwanted thing.
 
@@ -106,7 +140,7 @@ Disruption judgment. Treat the user's own event-notes as the primary, most trust
 
 When an adaptation in the fact sheet already covers a stretch you would otherwise flag, do not return a disruption for it; the user has already decided. Let the paragraph briefly acknowledge the existing pause or floor, naming the event or note whose dates match it when one exists, and how the week works around it.
 
-When you return a disruption: ref must be the id of the event or note it came from, label is a short name for it taken from that source, start and end are its dates, and the read_paragraph must mention the label verbatim and end by setting up the choice the options present. Provide two or three ideas, each a single short clause of roughly six to ten words, the smallest version of the habit that still genuinely counts during the disruption, specific to this habit and this situation. If the habit has a saved floor note you may build on it. Set offer_pause true when stepping away entirely is a reasonable choice for this habit and stretch. For break habits, ideas must be protective tactics that help the user stay clear, never smaller doses, and offer_pause is always false.
+When you return a disruption: ref must be the id of the event or note it came from, label must be one to three words naming that event in the user's own terms, start and end are its dates, and the read_paragraph must contain that label and end by setting up the choice the options present. Provide two or three ideas, each a single short clause of roughly six to ten words, the smallest version of the habit that still genuinely counts during the disruption, specific to this habit and this situation. If the habit has a saved floor note you may build on it. Set offer_pause true when stepping away entirely is a reasonable choice for this habit and stretch. For break habits, ideas must be protective tactics that help the user stay clear, never smaller doses, and offer_pause is always false.
 
 frequency_line: write it only when the fact sheet includes freq_rec, and it must be one plain sentence about the relationship between the typical number and the current target given there. Never propose a number that is not in the provided chips, and never restate this relationship inside read_paragraph when frequency_line exists. When freq_rec is absent, frequency_line is null; the paragraph may still note momentum but must not suggest changing the target.
 
@@ -244,6 +278,60 @@ function sanitizeSignals(events, eventNotes) {
   return { cleanEvents, cleanNotes };
 }
 
+function weekdayNameFromIso(iso) {
+  return WEEKDAY_NAMES[weekdayOfIso(iso)] || 'unknown';
+}
+
+function titleCase(s) {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+function datePartsInTimezone(date, timezone) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    hour12: false,
+  }).formatToParts(date);
+  const get = (type) => parts.find((p) => p.type === type)?.value || '';
+  return {
+    weekday: get('weekday'),
+    month: get('month'),
+    day: Number(get('day')) || 1,
+    hour: Number(get('hour')) || 0,
+  };
+}
+
+function computeDaypartFromHour(hour) {
+  if (hour < 12) return 'morning';
+  if (hour < 17) return 'afternoon';
+  return 'evening';
+}
+
+function computeTodayContext(todayISO, timezone, daypartOverride) {
+  const safeTz = typeof timezone === 'string' && timezone.trim() ? timezone.trim() : 'UTC';
+  const nowParts = datePartsInTimezone(new Date(), safeTz);
+  const todayParts = datePartsInTimezone(new Date(`${todayISO}T12:00:00Z`), safeTz);
+  const override =
+    typeof daypartOverride === 'string' &&
+    ['morning', 'afternoon', 'evening'].includes(daypartOverride)
+      ? daypartOverride
+      : null;
+  const daypart = override ?? computeDaypartFromHour(nowParts.hour);
+  return {
+    timezone: safeTz,
+    weekday: todayParts.weekday || titleCase(weekdayNameFromIso(todayISO)),
+    month: todayParts.month || MONTH_NAMES[Number(todayISO.slice(5, 7)) - 1],
+    day: todayParts.day,
+    daypart,
+    line: `Today is ${todayParts.weekday || titleCase(weekdayNameFromIso(todayISO))} ${
+      todayParts.month || MONTH_NAMES[Number(todayISO.slice(5, 7)) - 1]
+    } ${todayParts.day}, ${daypart}.`,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Validation helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -358,6 +446,29 @@ function stripDashes(s) {
   return s.replace(/\s*[\u2013\u2014]\s*/g, ', ');
 }
 
+function countWords(s) {
+  const words = s.match(/\S+/g);
+  return words ? words.length : 0;
+}
+
+function longestDistinctiveLabelToken(label) {
+  const tokens = (label.toLowerCase().match(/[a-z0-9']+/g) || []).filter(
+    (tok) => tok.length >= 4 && !LABEL_TOKEN_STOPWORDS.has(tok),
+  );
+  if (tokens.length === 0) return null;
+  tokens.sort((a, b) => b.length - a.length);
+  return tokens[0];
+}
+
+function paragraphContainsLabel(paragraph, label) {
+  const paragraphLower = paragraph.toLowerCase();
+  const labelLower = label.toLowerCase();
+  if (paragraphLower.includes(labelLower)) return true;
+  const token = longestDistinctiveLabelToken(label);
+  if (!token) return false;
+  return paragraphLower.includes(token);
+}
+
 /**
  * Validate and clean one habit's read. Returns a clean HabitRead or null.
  * flags collects drop reasons for observability (review_flags pattern).
@@ -367,13 +478,16 @@ function validateOne(parsed, sheet, refSet, planWindow, todayISO, noteWeekdays, 
 
   const confidence =
     typeof parsed.confidence === 'number' ? Math.max(0, Math.min(1, parsed.confidence)) : 0;
+  let paragraphDropped = false;
 
   // ── Disruption ──
   let disruption = null;
   const d = parsed.disruption;
   if (d && typeof d === 'object') {
     const ref = typeof d.ref === 'string' ? d.ref : '';
-    const label = stripDashes(trimStr(d.label, MAX_LABEL));
+    const rawLabel = stripDashes(trimStr(d.label, MAX_LABEL));
+    const labelWordCount = countWords(rawLabel);
+    const label = labelWordCount > 5 ? '' : rawLabel;
     const okRef = refSet.has(ref);
     const okDates = isIsoDay(d.start) && isIsoDay(d.end) && d.start <= d.end;
     const okOverlap = okDates && d.start <= planWindow.end && d.end >= planWindow.start;
@@ -386,7 +500,9 @@ function validateOne(parsed, sheet, refSet, planWindow, todayISO, noteWeekdays, 
       .map((s) => (typeof s === 'string' ? stripDashes(softCap(s, MAX_IDEA)) : ''))
       .filter((s) => s.length > 0)
       .slice(0, MAX_IDEAS);
-    if (alreadyAdapted) {
+    if (labelWordCount > 5) {
+      flags.push({ habit_id: sheet.habit_id, drop: 'disruption', reason: 'label_too_long' });
+    } else if (alreadyAdapted) {
       flags.push({ habit_id: sheet.habit_id, drop: 'disruption', reason: 'already_adapted' });
     } else if (okRef && okDates && okOverlap && okConf && label && ideas.length > 0) {
       disruption = {
@@ -412,6 +528,7 @@ function validateOne(parsed, sheet, refSet, planWindow, todayISO, noteWeekdays, 
     const capped = sentenceCap(stripDashes(parsed.read_paragraph), MAX_PARAGRAPH);
     if (capped === null) {
       flags.push({ habit_id: sheet.habit_id, drop: 'paragraph', reason: 'overlength' });
+      paragraphDropped = true;
     } else {
       paragraph = capped;
     }
@@ -420,11 +537,13 @@ function validateOne(parsed, sheet, refSet, planWindow, todayISO, noteWeekdays, 
     if (confidence < CONF_PARAGRAPH) {
       flags.push({ habit_id: sheet.habit_id, drop: 'paragraph', reason: 'confidence' });
       paragraph = null;
-    } else if (disruption && !paragraph.toLowerCase().includes(disruption.label.toLowerCase())) {
+      paragraphDropped = true;
+    } else if (disruption && !paragraphContainsLabel(paragraph, disruption.label)) {
       // Paragraph and interactive layer must never drift apart.
       flags.push({ habit_id: sheet.habit_id, drop: 'both', reason: 'label_not_in_paragraph' });
       disruption = null;
       paragraph = null;
+      paragraphDropped = true;
     } else if (
       !paragraphWeekdaysOk(paragraph, allowedWeekdays(sheet, disruption, todayISO, noteWeekdays))
     ) {
@@ -432,16 +551,19 @@ function validateOne(parsed, sheet, refSet, planWindow, todayISO, noteWeekdays, 
       // A disruption without its paragraph cannot render; drop both.
       paragraph = null;
       disruption = null;
+      paragraphDropped = true;
     } else if (!paragraphSuperlativeOk(paragraph, sheet.best_day)) {
       // A superlative weekday in the paragraph must match best_day exactly.
       flags.push({ habit_id: sheet.habit_id, drop: 'both', reason: 'best_day_mismatch' });
       disruption = null;
       paragraph = null;
+      paragraphDropped = true;
     } else if (WINDOW_MATH_RE.test(paragraph)) {
       // Remaining-days arithmetic conflates rolling window with forward planning.
       flags.push({ habit_id: sheet.habit_id, drop: 'paragraph', reason: 'window_math' });
       paragraph = null;
       disruption = null;
+      paragraphDropped = true;
     }
   } else if (disruption) {
     // Disruption requires a paragraph that sets it up.
@@ -456,6 +578,9 @@ function validateOne(parsed, sheet, refSet, planWindow, todayISO, noteWeekdays, 
       : null;
   if (frequencyLine && !sheet.freq_rec) {
     flags.push({ habit_id: sheet.habit_id, drop: 'frequency_line', reason: 'gate' });
+    frequencyLine = null;
+  }
+  if (paragraphDropped) {
     frequencyLine = null;
   }
 
@@ -504,8 +629,21 @@ export async function handleHabitRead(body, env, ownerId, ctx) {
       .slice(0, MAX_HABITS);
     if (sheets.length === 0) return { ...EMPTY, source: 'no_eligible_habits' };
 
+    const timezone = trimStr(body.timezone, 64) || 'UTC';
+    const todayContext = computeTodayContext(todayISO, timezone, body.daypartOverride);
+
     const { cleanEvents: allEvents, cleanNotes } = sanitizeSignals(body.events, body.eventNotes);
     const { kept: cleanEvents, cut: eventsCut } = downselectEvents(allEvents, planWindow);
+    const annotatedEvents = cleanEvents.map((e) => ({
+      ...e,
+      start_weekday: titleCase(weekdayNameFromIso(e.start)),
+      end_weekday: titleCase(weekdayNameFromIso(e.end)),
+    }));
+    const annotatedNotes = cleanNotes.map((n) => ({
+      ...n,
+      start_weekday: titleCase(weekdayNameFromIso(n.start)),
+      end_weekday: titleCase(weekdayNameFromIso(n.end)),
+    }));
     const refSet = new Set([...cleanEvents.map((e) => e.ref), ...cleanNotes.map((n) => n.ref)]);
     const noteWeekdays = new Set();
     for (const n of cleanNotes) {
@@ -514,12 +652,21 @@ export async function handleHabitRead(body, env, ownerId, ctx) {
 
     const userPayload =
       JSON.stringify({
+        today_context_line: todayContext.line,
+        today_context: {
+          todayISO,
+          timezone: todayContext.timezone,
+          weekday: todayContext.weekday,
+          month: todayContext.month,
+          day: todayContext.day,
+          daypart: todayContext.daypart,
+        },
         todayISO,
-        timezone: trimStr(body.timezone, 64) || 'UTC',
+        timezone,
         planWindow,
         factSheets: sheets,
-        eventNotes: cleanNotes, // primary signal first
-        events: cleanEvents,
+        eventNotes: annotatedNotes, // primary signal first
+        events: annotatedEvents,
       }) +
       // Append a hard enforcement note so the model does not generate preamble
       // reasoning text before the JSON. This saves thousands of tokens.
