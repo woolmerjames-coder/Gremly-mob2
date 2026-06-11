@@ -91,11 +91,11 @@ Time vocabulary, follow it exactly. week_hits and week_target describe the curre
 
 Break habits, subtype break_habit, are habits the user is quitting or avoiding. For these, every completion is a day the user stayed CLEAR of the thing: week_hits is clear days this week, total_completions is total clear days, streaks are clear streaks. Read these as wins and never, under any circumstances, describe completions as doing the unwanted thing.
 
-For every habit, compose read_paragraph: a single flowing paragraph, never a list of stitched observations. Lead with one true judgment about what the data means, not a recital of it; use at most two numbers from the sheet. Warm plain voice, second person, present tense, and vary how paragraphs open across habits. Keep it clearly under 280 characters, shorter when a disruption is present so the setup lands before the options. Never shame the user, never stack multiple negative observations in one paragraph, never speculate about the user's motives, priorities, or reasons beyond what an overlapping event plainly shows, never moralize, at most one exclamation mark, and never use em or en dashes anywhere in any field. Speak in the user's plain language, never in system terms: say paused or doing a lighter version, never words like adaptation, fact sheet, or trend. Do not restate the habit's full title inside the paragraph; the card already shows it.
+For every habit, compose read_paragraph: a single flowing paragraph, never a list of stitched observations. Lead with one true judgment about what the data means, not a recital of it; use numbers only where they serve that judgment. Warm plain voice, second person, present tense, and vary how paragraphs open across habits. Keep it clearly under 280 characters, shorter when a disruption is present so the setup lands before the options. Never shame the user, never stack multiple negative observations in one paragraph, never speculate about the user's motives, priorities, or reasons beyond what an overlapping event plainly shows, never moralize, at most one exclamation mark, and never use em or en dashes anywhere in any field. Speak in the user's plain language, never in system terms: say paused or doing a lighter version, never words like adaptation, fact sheet, or trend. Do not restate the habit's full title inside the paragraph; the card already shows it.
 
 Ground every claim in the fact sheet. Numbers and streaks must match the data exactly. Name a weekday only when the fact sheet's completion days, planned dates, the habit's own name, or the disruption window contain it, and the only weekday you may call the user's best or strongest is the one given as best_day or best_day_all_time; when those two differ, prefer best_day, the recent one, and make clear it is recent. You may connect a below-target completed week to an event or note whose dates overlap that week, and only then; when the overlap is not plain, say nothing about causes. Stating a pattern the data shows is your job; inventing a reason for it is forbidden.
 
-Disruption judgment. Treat the user's own event-notes as the primary, most trustworthy signal. A calendar is secondary and noisy: routine meetings and the ordinary working week are never disruptions, however dense. When a note and a calendar entry plainly concern the same plan, treat them as one situation and prefer the note's framing and dates. A real disruption genuinely displaces the user's normal routine on days they would do this habit. Weigh what the habit physically requires against what the stretch will allow. When the user has planned dates for this habit that fall inside such a stretch, that collision is a clear and specific conflict and usually deserves a disruption. Silence is the correct answer most weeks; return disruption null unless the conflict is clear and specific. Never invent events, trips, dates, or locations.
+Disruption judgment. Treat the user's own event-notes as the primary, most trustworthy signal. A calendar is secondary and noisy: routine meetings and the ordinary working week are never events worth mentioning, however dense, and for the routine calendar silence is the correct answer. When a note and a calendar entry plainly concern the same plan, treat them as one situation and prefer the note's framing and dates. A disruption is a real event that changes where, how, or whether this habit can happen during its dates. Weigh what the habit physically requires against what the event's setting and dates allow, habit by habit: the same trip can disrupt one habit, reshape another, and leave a third untouched. When the user has planned dates for this habit that fall inside the event, that collision alone deserves a disruption. Return a disruption when the event displaces the habit or changes its setting enough that a chosen smaller or adapted version would genuinely help; ideas may adapt the habit to the event's setting as the user described it, including pointing the user toward finding what they need there, but never invent specific named places, venues, or routes. When the event overlaps the week but this habit can work around it, do not return a disruption; instead let the paragraph name the event and say plainly how the week works around it, including which days remain open when that helps. Stay silent about an event only for habits it does not touch. Never invent events, trips, dates, or locations.
 
 When an adaptation in the fact sheet already covers a stretch you would otherwise flag, do not return a disruption for it; the user has already decided. Let the paragraph briefly acknowledge the existing pause or floor, naming the event or note whose dates match it when one exists, and how the week works around it.
 
@@ -255,6 +255,17 @@ function addDaysIso(iso, n) {
   return d.toISOString().slice(0, 10);
 }
 
+/** Weekdays covered by a date window (capped at one full week). */
+function weekdaysOfWindow(start, end) {
+  const out = [];
+  let cur = start;
+  for (let i = 0; i < 7 && cur <= end; i++) {
+    out.push(weekdayOfIso(cur));
+    cur = addDaysIso(cur, 1);
+  }
+  return out;
+}
+
 /** Monday of the ISO week containing iso. */
 function isoMondayOf(iso) {
   const day = weekdayOfIso(iso);
@@ -276,11 +287,10 @@ function sentenceCap(s, max) {
 
 /**
  * Weekdays the paragraph is allowed to name for this habit.
- * Deliberately excludes today's weekday: a paragraph about today says
- * "today"; allowing today's weekday name would let one in seven fabricated
- * weekday patterns through by coincidence.
+ * Includes today's weekday (a note covering today licenses it) and every
+ * weekday covered by the user's event-notes window.
  */
-function allowedWeekdays(sheet, disruption, todayISO) {
+function allowedWeekdays(sheet, disruption, todayISO, noteWeekdays) {
   const allowed = new Set();
   for (const day of sheet.completion_days) allowed.add(weekdayOfIso(day));
   for (const day of sheet.planned_dates) allowed.add(weekdayOfIso(day));
@@ -305,6 +315,8 @@ function allowedWeekdays(sheet, disruption, todayISO) {
       guard++;
     }
   }
+  for (const d of noteWeekdays) allowed.add(d);
+  allowed.add(weekdayOfIso(todayISO));
   return allowed;
 }
 
@@ -325,7 +337,7 @@ function stripDashes(s) {
  * Validate and clean one habit's read. Returns a clean HabitRead or null.
  * flags collects drop reasons for observability (review_flags pattern).
  */
-function validateOne(parsed, sheet, refSet, planWindow, todayISO, flags) {
+function validateOne(parsed, sheet, refSet, planWindow, todayISO, noteWeekdays, flags) {
   if (!parsed || typeof parsed !== 'object') return null;
 
   const confidence =
@@ -388,7 +400,9 @@ function validateOne(parsed, sheet, refSet, planWindow, todayISO, flags) {
       flags.push({ habit_id: sheet.habit_id, drop: 'both', reason: 'label_not_in_paragraph' });
       disruption = null;
       paragraph = null;
-    } else if (!paragraphWeekdaysOk(paragraph, allowedWeekdays(sheet, disruption, todayISO))) {
+    } else if (
+      !paragraphWeekdaysOk(paragraph, allowedWeekdays(sheet, disruption, todayISO, noteWeekdays))
+    ) {
       flags.push({ habit_id: sheet.habit_id, drop: 'paragraph', reason: 'weekday' });
       // A disruption without its paragraph cannot render; drop both.
       paragraph = null;
@@ -458,6 +472,10 @@ export async function handleHabitRead(body, env) {
     const { cleanEvents: allEvents, cleanNotes } = sanitizeSignals(body.events, body.eventNotes);
     const { kept: cleanEvents, cut: eventsCut } = downselectEvents(allEvents, planWindow);
     const refSet = new Set([...cleanEvents.map((e) => e.ref), ...cleanNotes.map((n) => n.ref)]);
+    const noteWeekdays = new Set();
+    for (const n of cleanNotes) {
+      for (const d of weekdaysOfWindow(n.start, n.end)) noteWeekdays.add(d);
+    }
 
     const userPayload = JSON.stringify({
       todayISO,
@@ -510,7 +528,15 @@ export async function handleHabitRead(body, env) {
     const reads = {};
     const flags = [];
     for (const sheet of sheets) {
-      const clean = validateOne(parsed[sheet.habit_id], sheet, refSet, planWindow, todayISO, flags);
+      const clean = validateOne(
+        parsed[sheet.habit_id],
+        sheet,
+        refSet,
+        planWindow,
+        todayISO,
+        noteWeekdays,
+        flags,
+      );
       if (clean) reads[sheet.habit_id] = clean;
     }
 
