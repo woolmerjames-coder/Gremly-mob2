@@ -17,6 +17,7 @@
 
 import React from 'react';
 import { View, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import { Text as RNText } from 'react-native';
 import { Check, Pause, Flame, X, Calendar, ChevronDown, TrendingDown } from 'lucide-react-native';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
@@ -103,7 +104,7 @@ function formatSinceLabel(iso: string | null): string {
 /** Render the paragraph with the disruption label and date range bolded. */
 function ReadParagraph({ paragraph, boldTerms }: { paragraph: string; boldTerms: string[] }) {
   if (boldTerms.length === 0) {
-    return <Text style={styles.readPara}>{paragraph}</Text>;
+    return <RNText style={styles.readPara}>{paragraph}</RNText>;
   }
   const pattern = boldTerms
     .filter(Boolean)
@@ -111,17 +112,17 @@ function ReadParagraph({ paragraph, boldTerms }: { paragraph: string; boldTerms:
     .join('|');
   const parts = paragraph.split(new RegExp(`(${pattern})`, 'i'));
   return (
-    <Text style={styles.readPara}>
+    <RNText style={styles.readPara}>
       {parts.map((part, i) =>
         boldTerms.some((t) => t.toLowerCase() === part.toLowerCase()) ? (
-          <Text key={i} style={styles.readParaBold}>
+          <RNText key={i} style={styles.readParaBold}>
             {part}
-          </Text>
+          </RNText>
         ) : (
           part
         ),
       )}
-    </Text>
+    </RNText>
   );
 }
 
@@ -293,28 +294,28 @@ export function SweepHabitCardC(props: SweepHabitCardCProps) {
           </Text>
         </View>
       )}
-      <Text style={styles.trendLine2}>
+      <RNText style={styles.trendLine2}>
         {card.isBreak ? (
           <>
-            Longest run <Text style={styles.trendB}>{card.bestStreak} days</Text>
+            Longest run <RNText style={styles.trendB}>{card.bestStreak} days</RNText>
             {' · clear '}
-            <Text style={styles.trendB}>{card.totalCompletions}</Text>
+            <RNText style={styles.trendB}>{card.totalCompletions}</RNText>
             {sinceLabel ? ` days since ${sinceLabel}` : ' days'}
           </>
         ) : (
           <>
             {card.bestDayAllTime ? (
               <>
-                Best on <Text style={styles.trendB}>{card.bestDayAllTime}</Text>
+                Best on <RNText style={styles.trendB}>{card.bestDayAllTime}</RNText>
                 {' · '}
               </>
             ) : null}
-            <Text style={styles.trendB}>{card.totalCompletions}</Text>
+            <RNText style={styles.trendB}>{card.totalCompletions}</RNText>
             {' done'}
             {sinceLabel ? ` since ${sinceLabel}` : ''}
           </>
         )}
-      </Text>
+      </RNText>
 
       {/* ── Read region: shimmer | Gremly's read | fallback | new-habit ── */}
       {readLoading && !readEntry ? (
@@ -439,10 +440,10 @@ export function SweepHabitCardC(props: SweepHabitCardCProps) {
         </View>
       ) : (
         <View style={styles.fallback}>
-          <Text style={styles.fallbackText}>
-            <Text style={styles.trendB}>{fallbackLead}</Text> {fallbackBody}
+          <RNText style={styles.fallbackText}>
+            <RNText style={styles.trendB}>{fallbackLead}</RNText> {fallbackBody}
             {showChips ? ` ${rec!.sentence}` : ''}
-          </Text>
+          </RNText>
           {showChips && (
             <View style={styles.chipRow}>
               {rec!.chips.map((n) => (

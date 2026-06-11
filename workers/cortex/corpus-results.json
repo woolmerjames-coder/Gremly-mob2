@@ -85,8 +85,8 @@
             "2026-06-10"
           ],
           "planned_dates": [],
-          "best_day": "Sundays",
-          "best_day_all_time": "Sundays",
+          "best_day": null,
+          "best_day_all_time": null,
           "total_completions": 4,
           "tracking_since": "2026-06-08",
           "floor_note": null,
@@ -126,8 +126,8 @@
             "2026-06-09"
           ],
           "planned_dates": [],
-          "best_day": "Tuesdays",
-          "best_day_all_time": "Tuesdays",
+          "best_day": null,
+          "best_day_all_time": null,
           "total_completions": 6,
           "tracking_since": "2026-05-25",
           "floor_note": null,
@@ -158,8 +158,8 @@
             "2026-06-03"
           ],
           "planned_dates": [],
-          "best_day": "Tuesdays",
-          "best_day_all_time": "Tuesdays",
+          "best_day": null,
+          "best_day_all_time": null,
           "total_completions": 2,
           "tracking_since": "2026-05-22",
           "floor_note": null,
@@ -197,8 +197,8 @@
             "2026-06-07"
           ],
           "planned_dates": [],
-          "best_day": "Sundays",
-          "best_day_all_time": "Sundays",
+          "best_day": null,
+          "best_day_all_time": null,
           "total_completions": 4,
           "tracking_since": "2026-05-25",
           "floor_note": null,
@@ -242,8 +242,8 @@
             "2026-06-10"
           ],
           "planned_dates": [],
-          "best_day": "Sundays",
-          "best_day_all_time": "Sundays",
+          "best_day": null,
+          "best_day_all_time": null,
           "total_completions": 10,
           "tracking_since": "2026-05-22",
           "floor_note": null,
@@ -280,8 +280,8 @@
             "2026-06-06"
           ],
           "planned_dates": [],
-          "best_day": "Fridays",
-          "best_day_all_time": "Fridays",
+          "best_day": null,
+          "best_day_all_time": null,
           "total_completions": 3,
           "tracking_since": "2026-05-22",
           "floor_note": null,
@@ -313,8 +313,8 @@
             "2026-06-07"
           ],
           "planned_dates": [],
-          "best_day": "Sundays",
-          "best_day_all_time": "Sundays",
+          "best_day": null,
+          "best_day_all_time": null,
           "total_completions": 3,
           "tracking_since": "2026-05-25",
           "floor_note": null,
@@ -350,8 +350,8 @@
             "2026-06-01"
           ],
           "planned_dates": [],
-          "best_day": "Mondays",
-          "best_day_all_time": "Mondays",
+          "best_day": null,
+          "best_day_all_time": null,
           "total_completions": 2,
           "tracking_since": "2026-05-25",
           "floor_note": null,
@@ -383,8 +383,8 @@
             "2026-06-09"
           ],
           "planned_dates": [],
-          "best_day": "Tuesdays",
-          "best_day_all_time": "Tuesdays",
+          "best_day": null,
+          "best_day_all_time": null,
           "total_completions": 3,
           "tracking_since": "2026-05-25",
           "floor_note": null,
@@ -416,19 +416,19 @@
         "ok": true,
         "reads": {
           "820a492b-f3b9-45b0-bdf7-7ae7d6d45a6c": {
-            "read_paragraph": "You've already hit this week's mark, and that two-week streak is holding steady. The week before last you went well beyond the once-a-week target, so the momentum here is real.",
+            "read_paragraph": "You've already hit your weekly target, keeping a two-week streak alive. The week is done on this one.",
             "frequency_line": null,
             "disruption": null,
             "confidence": 0.95
           },
           "306af962-ae13-430a-b233-096de7f9b7b9": {
-            "read_paragraph": "Two runs in already puts you within one of the week's target, and the week is still open. Last week you hit all three, so you know the rhythm is there.",
+            "read_paragraph": "Two runs in and the week is still open, so you're one run from matching last week's clean hit. The days ahead give you room to get there.",
             "frequency_line": null,
             "disruption": null,
             "confidence": 0.9
           },
           "95551e76-afa4-44e0-b058-fe9c919c6d55": {
-            "read_paragraph": "A six-day streak is a strong signal that this has become a real daily habit. Tonight is still open, and completing it would keep that run going.",
+            "read_paragraph": "A six-day streak is real momentum, and tonight keeps it going. You're one log away from a perfect week.",
             "frequency_line": null,
             "disruption": null,
             "confidence": 0.95
@@ -438,7 +438,7 @@
           "flags": [],
           "events_cut": 0,
           "model": "claude-sonnet-4-6",
-          "latency_ms": 10454
+          "latency_ms": 5495
         }
       }
     }
@@ -511,8 +511,8 @@
             "2026-05-21"
           ],
           "planned_dates": [],
-          "best_day": "Thursdays",
-          "best_day_all_time": "Thursdays",
+          "best_day": null,
+          "best_day_all_time": null,
           "total_completions": 1,
           "tracking_since": "2026-05-16",
           "floor_note": null,
@@ -757,12 +757,12 @@
     "person": "User 7",
     "payload": {
       "type": "habit-read",
-      "todayISO": "2026-06-10",
-      "timezone": "America/Los_Angeles",
+      "todayISO": "2026-06-11",
+      "timezone": "America/New_York",
       "daypartOverride": "evening",
       "planWindow": {
-        "start": "2026-06-10",
-        "end": "2026-06-16"
+        "start": "2026-06-11",
+        "end": "2026-06-17"
       },
       "factSheets": [
         {
@@ -810,7 +810,6 @@
             }
           ],
           "completion_days": [
-            "2026-04-15",
             "2026-04-17",
             "2026-04-20",
             "2026-04-21",
@@ -855,7 +854,7 @@
           "cadence": "weekly",
           "subtype": "start_habit",
           "target_per_period": 2,
-          "week_hits": 1,
+          "week_hits": 0,
           "week_target": 2,
           "streak": {
             "count": 0,
@@ -901,7 +900,7 @@
             "2026-06-04"
           ],
           "planned_dates": [],
-          "best_day": "Sundays",
+          "best_day": null,
           "best_day_all_time": "Sundays",
           "total_completions": 30,
           "tracking_since": "2026-01-08",
@@ -922,7 +921,7 @@
           "cadence": "weekly",
           "subtype": "start_habit",
           "target_per_period": 2,
-          "week_hits": 2,
+          "week_hits": 1,
           "week_target": 2,
           "streak": {
             "count": 1,
@@ -961,7 +960,6 @@
             }
           ],
           "completion_days": [
-            "2026-04-15",
             "2026-04-17",
             "2026-04-24",
             "2026-05-01",
@@ -979,7 +977,6 @@
             "2026-06-07"
           ],
           "planned_dates": [
-            "2026-06-10",
             "2026-06-14",
             "2026-06-12"
           ],
@@ -1009,8 +1006,8 @@
             "2026-04-20"
           ],
           "planned_dates": [],
-          "best_day": "Sundays",
-          "best_day_all_time": "Sundays",
+          "best_day": null,
+          "best_day_all_time": null,
           "total_completions": 12,
           "tracking_since": "2026-02-22",
           "floor_note": null,
@@ -1082,7 +1079,7 @@
           ],
           "planned_dates": [],
           "best_day": "Mondays",
-          "best_day_all_time": "Mondays",
+          "best_day_all_time": null,
           "total_completions": 41,
           "tracking_since": "2026-01-05",
           "floor_note": null,
@@ -1118,7 +1115,7 @@
           "cadence": "daily",
           "subtype": "start_habit",
           "target_per_period": 1,
-          "week_hits": 3,
+          "week_hits": 2,
           "week_target": 7,
           "streak": {
             "count": 0,
@@ -1152,7 +1149,6 @@
             }
           ],
           "completion_days": [
-            "2026-04-15",
             "2026-04-16",
             "2026-04-24",
             "2026-04-25",
@@ -1165,8 +1161,8 @@
             "2026-06-06"
           ],
           "planned_dates": [],
-          "best_day": "Tuesdays",
-          "best_day_all_time": "Tuesdays",
+          "best_day": null,
+          "best_day_all_time": null,
           "total_completions": 11,
           "tracking_since": "2026-04-15",
           "floor_note": null,
@@ -1179,8 +1175,8 @@
           "cadence": "daily",
           "subtype": "break_habit",
           "target_per_period": 1,
-          "week_hits": 1,
-          "week_target": 3,
+          "week_hits": 0,
+          "week_target": 2,
           "streak": {
             "count": 0,
             "unit": "day"
@@ -1266,74 +1262,11 @@
           "all_day": true
         },
         {
-          "ref": "cal:dcf2ac22-2e30-4fec-961c-59d6353cb50f",
-          "title": "Private Appointment",
-          "start": "2026-06-09",
-          "end": "2026-06-10",
-          "all_day": false
-        },
-        {
           "ref": "cal:ae90ba08-518b-445f-b500-74808ed010c6",
           "title": "Stay at citizenM Boston North Station",
           "start": "2026-06-10",
           "end": "2026-06-12",
           "all_day": true
-        },
-        {
-          "ref": "cal:d67ae47c-fcfc-4949-9c2b-c4475526a72d",
-          "title": "Sage & Dentsu - Weekly NA Programmatic Status",
-          "start": "2026-06-10",
-          "end": "2026-06-10",
-          "all_day": false
-        },
-        {
-          "ref": "cal:42513402-eac1-4675-871a-26d8bc43f06c",
-          "title": "Global Sage Leadership Check-in",
-          "start": "2026-06-10",
-          "end": "2026-06-10",
-          "all_day": false
-        },
-        {
-          "ref": "cal:03170086-4584-441c-8e1f-ccc237eb2950",
-          "title": "Canceled: SAGE - NAM - Planning Team Huddle",
-          "start": "2026-06-10",
-          "end": "2026-06-10",
-          "all_day": false
-        },
-        {
-          "ref": "cal:681d8e01-ac4b-4366-a610-ceaf28c01348",
-          "title": "SAGE: IP Internal Huddle",
-          "start": "2026-06-10",
-          "end": "2026-06-10",
-          "all_day": false
-        },
-        {
-          "ref": "cal:d9837946-f5f2-4aa2-a906-2315cff12fb2",
-          "title": "Sage NA Search Bi Weekly",
-          "start": "2026-06-10",
-          "end": "2026-06-10",
-          "all_day": false
-        },
-        {
-          "ref": "cal:4edc20eb-0ca0-4701-a36a-674638e7d36a",
-          "title": "Sage x Dentsu: NA Paid Social Status",
-          "start": "2026-06-10",
-          "end": "2026-06-10",
-          "all_day": false
-        },
-        {
-          "ref": "cal:458fca83-42d9-486c-8ed7-28878dadb56e",
-          "title": "Justine & James 1:1",
-          "start": "2026-06-10",
-          "end": "2026-06-10",
-          "all_day": false
-        },
-        {
-          "ref": "cal:97b7b08e-0947-4717-b78e-a6de92fe8515",
-          "title": "Sage x Dentsu NA Paid Search Status",
-          "start": "2026-06-10",
-          "end": "2026-06-10",
-          "all_day": false
         },
         {
           "ref": "cal:00f3ac5f-e06d-4336-b648-a7412c3414c9",
@@ -1448,15 +1381,15 @@
           "all_day": true
         },
         {
-          "ref": "cal:575d941c-57f3-416e-bc46-2d8c8d0be2b4",
-          "title": "MDWA All Agency Weekly Check-In ",
+          "ref": "cal:3f17e8d5-07d3-474c-8349-34aef9b5fb6a",
+          "title": "Canceled: Merkle DWA - weekly check in",
           "start": "2026-06-15",
           "end": "2026-06-15",
           "all_day": false
         },
         {
-          "ref": "cal:3f17e8d5-07d3-474c-8349-34aef9b5fb6a",
-          "title": "Canceled: Merkle DWA - weekly check in",
+          "ref": "cal:575d941c-57f3-416e-bc46-2d8c8d0be2b4",
+          "title": "MDWA All Agency Weekly Check-In ",
           "start": "2026-06-15",
           "end": "2026-06-15",
           "all_day": false
@@ -1537,16 +1470,72 @@
           "start": "2026-06-16",
           "end": "2026-06-17",
           "all_day": false
+        },
+        {
+          "ref": "cal:25db103d-5b5a-4eed-b2cc-0ca6e8070d99",
+          "title": "Sage & Dentsu - Weekly NA Programmatic Status",
+          "start": "2026-06-17",
+          "end": "2026-06-17",
+          "all_day": false
+        },
+        {
+          "ref": "cal:d1837216-c0aa-49cb-be0b-04420fcfd567",
+          "title": "Global Sage Leadership Check-in",
+          "start": "2026-06-17",
+          "end": "2026-06-17",
+          "all_day": false
+        },
+        {
+          "ref": "cal:2958f44b-c80e-48a2-8ecd-52a9d0515fba",
+          "title": "Canceled: SAGE - NAM - Planning Team Huddle",
+          "start": "2026-06-17",
+          "end": "2026-06-17",
+          "all_day": false
+        },
+        {
+          "ref": "cal:ede1cf85-fb12-4ed1-8bb8-b6a2d439100b",
+          "title": "SAGE: IP Internal Huddle",
+          "start": "2026-06-17",
+          "end": "2026-06-17",
+          "all_day": false
+        },
+        {
+          "ref": "cal:bf32020b-862f-4547-8983-ae2692bb7848",
+          "title": "Sage x Dentsu: NA Paid Social Status",
+          "start": "2026-06-17",
+          "end": "2026-06-17",
+          "all_day": false
+        },
+        {
+          "ref": "cal:9f9d49cd-8192-4ca6-a14d-b35e39471c5d",
+          "title": "Justine & James 1:1",
+          "start": "2026-06-17",
+          "end": "2026-06-17",
+          "all_day": false
+        },
+        {
+          "ref": "cal:0a9c0283-b682-4a20-9c8b-71db3b874866",
+          "title": "Sage x Dentsu NA Paid Search Status",
+          "start": "2026-06-17",
+          "end": "2026-06-17",
+          "all_day": false
+        },
+        {
+          "ref": "cal:98e76450-4399-4d9a-950c-2e1cae6297b0",
+          "title": "Private Appointment",
+          "start": "2026-05-12",
+          "end": "2026-05-13",
+          "all_day": false
+        },
+        {
+          "ref": "cal:ecba304e-91d2-4425-ae47-101b203366f7",
+          "title": "Flight to San Francisco (UA 4786)",
+          "start": "2026-05-14",
+          "end": "2026-05-15",
+          "all_day": false
         }
       ],
       "eventNotes": [
-        {
-          "ref": "note:dbbcbe0f-61ba-4e97-8acb-1226f6357957",
-          "title": "Flying to Berlin at 2pm",
-          "body": "Flying to Berlin at 2pm on Wednesday",
-          "start": "2026-04-29",
-          "end": "2026-04-29"
-        },
         {
           "ref": "note:8d11ac1f-3415-4d3a-bebd-808e2aa99614",
           "title": "Vabali Spa Booked for 5.40pm",
@@ -1597,45 +1586,30 @@
         "ok": true,
         "reads": {
           "80579c29-61fd-45cb-a403-cb650cf354be": {
-            "read_paragraph": "You're already at three rides this week against a target of one, extending an eleven-week streak. The Provincetown trip starts Thursday, but cycling is well ahead and the week is in great shape regardless of what the remaining days bring.",
-            "frequency_line": "You typically ride around three times a week, and your current target is set to one.",
+            "read_paragraph": "Three rides already this week against a target of one: you're well clear and extending an 11-week streak. The week is still open if you want to add more.",
+            "frequency_line": "You typically ride 3 times a week; your current target is set to 1.",
             "disruption": null,
-            "confidence": 0.92
+            "confidence": 0.95
           },
           "f86ceed9-7d9d-408f-a63c-fef5fb782f43": {
-            "read_paragraph": "One run logged so far with the week still open, and the Provincetown trip runs Thursday through Sunday. Getting a second run in tomorrow before you leave would close out the target before the trip takes over the back half of the week.",
-            "frequency_line": "You typically run about once a week, and your current target is set to two.",
+            "read_paragraph": "No runs logged yet this week, and the Provincetown trip runs through Sunday, which covers most of the remaining open days. The week is still open, but the trip shapes what's realistic.",
+            "frequency_line": "You typically run once a week; your current target is set to 2.",
             "disruption": {
               "ref": "note:da180dc0-78fe-4d0c-bc56-ad83f50935f9",
               "label": "Provincetown Trip",
               "start": "2026-06-11",
               "end": "2026-06-14",
               "ideas": [
-                "Run a short route from wherever you're staying",
-                "Do a single easy run on arrival day"
-              ],
-              "offer_pause": true
-            },
-            "confidence": 0.82
-          },
-          "94ef62b9-f466-4733-a543-2f522655cb07": {
-            "read_paragraph": "You've already hit your two sessions this week, so the streak is secure. The Provincetown trip overlaps your planned dates of Friday and Saturday, so it's worth deciding how you want to handle those.",
-            "frequency_line": null,
-            "disruption": {
-              "ref": "note:da180dc0-78fe-4d0c-bc56-ad83f50935f9",
-              "label": "Provincetown Trip",
-              "start": "2026-06-11",
-              "end": "2026-06-14",
-              "ideas": [
-                "Do a quick floor set in your room or outside",
-                "Pair pushups with a morning stretch at the hotel"
+                "One short run in Provincetown",
+                "Run Monday after you're back",
+                "One run, any distance"
               ],
               "offer_pause": true
             },
             "confidence": 0.85
           },
-          "88674092-d317-4236-ab8f-99b209fd1fae": {
-            "read_paragraph": "One session in so far this week against a target of three, and the Provincetown trip covers Thursday through Sunday. Getting sessions in tomorrow and Wednesday next week would keep the week workable, though the trip will compress your window.",
+          "94ef62b9-f466-4733-a543-2f522655cb07": {
+            "read_paragraph": "One session in so far, with planned dates on Friday and Saturday still ahead. The Provincetown trip overlaps Friday, so it's worth deciding how to handle that planned session.",
             "frequency_line": null,
             "disruption": {
               "ref": "note:da180dc0-78fe-4d0c-bc56-ad83f50935f9",
@@ -1643,32 +1617,49 @@
               "start": "2026-06-11",
               "end": "2026-06-14",
               "ideas": [
-                "Find a gym or fitness room where you're staying",
-                "Do a bodyweight session in your room",
-                "Fit a session in on Monday when you're back"
+                "Bodyweight pushups at accommodation",
+                "Core work in your room",
+                "One session when back Sunday"
               ],
               "offer_pause": false
             },
-            "confidence": 0.83
+            "confidence": 0.88
+          },
+          "88674092-d317-4236-ab8f-99b209fd1fae": {
+            "read_paragraph": "One session in against a target of three, and the Provincetown trip takes up most of the remaining days. Monday onward is your clearest window to close the gap.",
+            "frequency_line": null,
+            "disruption": {
+              "ref": "note:da180dc0-78fe-4d0c-bc56-ad83f50935f9",
+              "label": "Provincetown Trip",
+              "start": "2026-06-11",
+              "end": "2026-06-14",
+              "ideas": [
+                "Bodyweight session at accommodation",
+                "Two sessions Monday and Tuesday",
+                "One session, keep the streak"
+              ],
+              "offer_pause": false
+            },
+            "confidence": 0.87
           },
           "36edb14f-d0b6-4e6a-943a-2eca64bd50ae": {
-            "read_paragraph": "Three check-ins logged this week so far, which is already an improvement on several recent weeks. The week is still open and Tuesday is your strongest day, so there's real room to build on this before the week closes.",
+            "read_paragraph": "Two days logged this week out of seven, and the pattern shows long gaps are common. The remaining open days are a real chance to chip away at that.",
             "frequency_line": null,
             "disruption": null,
-            "confidence": 0.78
+            "confidence": 0.8
           },
           "80407b1a-b7b0-4ff9-bf37-01993632de88": {
-            "read_paragraph": "One clear day logged this week, and you've already set a pause covering the Provincetown trip from Thursday through Sunday. That decision is made, and the days before and after it are still yours to work with.",
+            "read_paragraph": "You have a planned pause through Sunday for the Provincetown trip, so this stretch is already covered. The week picks back up from Monday.",
             "frequency_line": null,
             "disruption": null,
-            "confidence": 0.88
+            "confidence": 0.92
           }
         },
         "meta": {
           "flags": [],
           "events_cut": 0,
           "model": "claude-sonnet-4-6",
-          "latency_ms": 23806
+          "latency_ms": 21816
         }
       }
     }
@@ -1944,7 +1935,7 @@
             "2026-06-02"
           ],
           "planned_dates": [],
-          "best_day": "Mondays",
+          "best_day": null,
           "best_day_all_time": "Mondays",
           "total_completions": 61,
           "tracking_since": "2026-01-25",
@@ -1985,8 +1976,8 @@
             "2026-05-24"
           ],
           "planned_dates": [],
-          "best_day": "Sundays",
-          "best_day_all_time": "Sundays",
+          "best_day": null,
+          "best_day_all_time": null,
           "total_completions": 1,
           "tracking_since": "2026-05-23",
           "floor_note": null,
@@ -2031,8 +2022,8 @@
             "2026-05-12"
           ],
           "planned_dates": [],
-          "best_day": "Tuesdays",
-          "best_day_all_time": "Mondays",
+          "best_day": null,
+          "best_day_all_time": null,
           "total_completions": 3,
           "tracking_since": "2026-02-07",
           "floor_note": null,
@@ -2087,13 +2078,13 @@
         "ok": true,
         "reads": {
           "55dd1939-d19d-416f-a45e-3700694bbe0b": {
-            "read_paragraph": "Yesterday's workout snapped a long quiet stretch, and that one hit matters more than the number suggests. The week is still open, and the days ahead are yours to build on.",
+            "read_paragraph": "Yesterday's workout broke a long dry spell, and the week is still open. Getting another one in before Sunday would turn this into real momentum.",
             "frequency_line": null,
             "disruption": null,
             "confidence": 0.82
           },
           "9cac0e9c-ac2e-44e2-bee6-5b196eecc983": {
-            "read_paragraph": "Flossing tends to happen in short bursts then fade, and this week hasn't had one yet. Mondays are your strongest day, so the pattern to chase is simply starting the run earlier next week. Tonight is still a door.",
+            "read_paragraph": "No floss yet this week, but the week is still open. Tonight is a simple place to start.",
             "frequency_line": null,
             "disruption": null,
             "confidence": 0.78
@@ -2103,7 +2094,7 @@
           "flags": [],
           "events_cut": 0,
           "model": "claude-sonnet-4-6",
-          "latency_ms": 5336
+          "latency_ms": 4827
         }
       }
     }

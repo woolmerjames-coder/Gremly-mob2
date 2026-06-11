@@ -206,9 +206,11 @@ function buildFactSheet(habit, progressDays, adaptations, plans, today) {
     if (d >= cutoff56) tally56[weekdayIdx(d)]++;
   }
   const bestOf = (tally) => {
-    let bi = -1, bn = 0;
-    for (let i = 0; i < 7; i++) if (tally[i] > bn) { bn = tally[i]; bi = i; }
-    return bi >= 0 ? WEEKDAY_FULL[bi] : null;
+    const ranked = tally.map((count, idx) => ({ idx, count })).sort((a, b) => b.count - a.count);
+    const top = ranked[0] ?? { idx: -1, count: 0 };
+    const second = ranked[1] ?? { idx: -1, count: 0 };
+    if (top.idx < 0 || top.count < 3 || top.count <= second.count) return null;
+    return WEEKDAY_FULL[top.idx] ?? null;
   };
 
   return {

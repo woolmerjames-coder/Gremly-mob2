@@ -147,6 +147,28 @@ const DOW_SHORT_TO_FULL: Record<string, string> = {
   Sat: 'Saturdays',
 };
 
+const WEEKDAY_FULL = [
+  'Sundays',
+  'Mondays',
+  'Tuesdays',
+  'Wednesdays',
+  'Thursdays',
+  'Fridays',
+  'Saturdays',
+];
+
+function weekdayIdx(iso: string): number {
+  return new Date(`${iso}T12:00:00Z`).getUTCDay();
+}
+
+function bestOf(tally: number[]): string | null {
+  const ranked = tally.map((count, idx) => ({ idx, count })).sort((a, b) => b.count - a.count);
+  const top = ranked[0] ?? { idx: -1, count: 0 };
+  const second = ranked[1] ?? { idx: -1, count: 0 };
+  if (top.idx < 0 || top.count < 3 || top.count <= second.count) return null;
+  return WEEKDAY_FULL[top.idx] ?? null;
+}
+
 export function buildHabitFactSheet(
   habit: Habit,
   card: HabitCardStats,
@@ -162,6 +184,10 @@ export function buildHabitFactSheet(
     ...new Set(habitProgress.filter((p) => p.habit_id === habit.id).map((p) => p.occurred_day)),
   ].sort();
   const completionDays56 = completionDaysAll.filter((d) => d >= cutoff56).slice(-80);
+  const tallyAll = new Array(7).fill(0);
+  for (const d of completionDaysAll) {
+    tallyAll[weekdayIdx(d)]++;
+  }
 
   return {
     habit_id: card.id,
@@ -186,7 +212,7 @@ export function buildHabitFactSheet(
           .map((p) => p.planned_date),
       ),
     ].sort(),
-    best_day: card.bestDayAllTime ?? null,
+    best_day: bestOf(tallyAll),
     total_completions: card.totalCompletions,
     tracking_since: card.trackingSince,
     floor_note: (habit.floor_note as string | null) ?? null,
