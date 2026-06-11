@@ -2209,7 +2209,10 @@ export class SupabaseRepo implements IRepo {
     if (atIso) payload.occurred_at = atIso;
     if (typeof occurrenceIndex === 'number') payload.occurrence_index = occurrenceIndex;
 
-    const { error } = await supabase.from('habit_progress').insert(payload);
+    const { error } = await supabase.from('habit_progress').upsert(payload, {
+      onConflict: 'owner_id,habit_id,occurred_day',
+      ignoreDuplicates: true,
+    });
     if (error) throw new Error(`logHabitProgress failed: ${error.message}`);
   }
 
@@ -2921,13 +2924,19 @@ export class SupabaseRepo implements IRepo {
     // ALSO log to habit_progress table for today - this is what listTodayMerged reads
     const { data: progressData, error: progressError } = await supabase
       .from('habit_progress')
-      .insert({
-        owner_id: userId,
-        habit_id: id,
-        count: 1,
-        occurred_at: atIso,
-        occurred_day: todayDay,
-      })
+      .upsert(
+        {
+          owner_id: userId,
+          habit_id: id,
+          count: 1,
+          occurred_at: atIso,
+          occurred_day: todayDay,
+        },
+        {
+          onConflict: 'owner_id,habit_id,occurred_day',
+          ignoreDuplicates: true,
+        },
+      )
       .select('id, habit_id, count, occurred_day');
 
     if (progressError) {
@@ -3046,13 +3055,19 @@ export class SupabaseRepo implements IRepo {
     }
 
     // Insert new progress record
-    const { error } = await supabase.from('habit_progress').insert({
-      owner_id: userId,
-      habit_id: habitId,
-      count: 1,
-      occurred_at: new Date(occurredDay).toISOString(),
-      occurred_day: occurredDay,
-    });
+    const { error } = await supabase.from('habit_progress').upsert(
+      {
+        owner_id: userId,
+        habit_id: habitId,
+        count: 1,
+        occurred_at: new Date(occurredDay).toISOString(),
+        occurred_day: occurredDay,
+      },
+      {
+        onConflict: 'owner_id,habit_id,occurred_day',
+        ignoreDuplicates: true,
+      },
+    );
 
     if (error) {
       throw new Error(`Failed to complete habit for date: ${error.message}`);
@@ -3086,13 +3101,19 @@ export class SupabaseRepo implements IRepo {
     }
 
     // Insert new progress record
-    const { error } = await supabase.from('habit_progress').insert({
-      owner_id: userId,
-      habit_id: habitId,
-      count: 1,
-      occurred_at: new Date(occurredDay).toISOString(),
-      occurred_day: occurredDay,
-    });
+    const { error } = await supabase.from('habit_progress').upsert(
+      {
+        owner_id: userId,
+        habit_id: habitId,
+        count: 1,
+        occurred_at: new Date(occurredDay).toISOString(),
+        occurred_day: occurredDay,
+      },
+      {
+        onConflict: 'owner_id,habit_id,occurred_day',
+        ignoreDuplicates: true,
+      },
+    );
 
     if (error) {
       throw new Error(`Failed to complete habit for date: ${error.message}`);
