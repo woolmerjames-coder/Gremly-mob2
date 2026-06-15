@@ -357,6 +357,66 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
     setAdaptFloorNote(currentHabit?.floor_note ?? '');
   }, [card, adaptMode, adaptStart, adaptEnd, adaptFloorNote, setHabitAdaptation, currentHabit]);
 
+  const handleSelectIdea = useCallback(
+    async (idea: string, start: string, end: string, ref: string) => {
+      if (!card) return;
+      setAdaptSaving(true);
+      setAdaptOverlapError(false);
+      const result = await setHabitAdaptation(card.id, {
+        mode: 'floor',
+        period_start: start,
+        period_end: end,
+        floor_note: idea,
+        source_ref: ref,
+      });
+      setAdaptSaving(false);
+      if (!result.ok) {
+        if (result.reason === 'overlap') {
+          setAdaptOverlapError(true);
+        } else {
+          Alert.alert('Error', 'Could not save adaptation. Please try again.');
+        }
+        return;
+      }
+      setAdaptConfirmations((prev) => ({
+        ...prev,
+        [card.id]: `Floor mode ${formatDateDisplay(start)}–${formatDateDisplay(end)}`,
+      }));
+    },
+    [card, setHabitAdaptation],
+  );
+
+  const handleSelectPause = useCallback(
+    async (start: string, end: string, ref: string) => {
+      if (!card) return;
+      setAdaptSaving(true);
+      setAdaptOverlapError(false);
+      const result = await setHabitAdaptation(card.id, {
+        mode: 'pause',
+        period_start: start,
+        period_end: end,
+        floor_note: null,
+        source_ref: ref,
+      });
+      setAdaptSaving(false);
+      if (!result.ok) {
+        if (result.reason === 'overlap') {
+          setAdaptOverlapError(true);
+        } else {
+          Alert.alert('Error', 'Could not save adaptation. Please try again.');
+        }
+        return;
+      }
+      setAdaptConfirmations((prev) => ({
+        ...prev,
+        [card.id]: `Paused ${formatDateDisplay(start)}–${formatDateDisplay(end)}`,
+      }));
+    },
+    [card, setHabitAdaptation],
+  );
+
+  const handlePressAdapt = useCallback(() => setAdaptExpanded(true), []);
+
   // ── Clear a specific adaptation by id ────────────────────────────────────
   const handleClearAdaptation = useCallback(
     async (id: string) => {
@@ -441,6 +501,10 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
               else await setHabitPlan(card.id, date, planStart);
             }}
             onChipPress={handleChipPress}
+            onSelectIdea={handleSelectIdea}
+            onSelectPause={handleSelectPause}
+            onPressPlanStart={() => setPlanStartMenuOpen((v) => !v)}
+            onPressAdapt={handlePressAdapt}
             onDismissRead={() => dismissHabitRead(card.id, floorWeekStart)}
             onRemoveAdaptation={handleClearAdaptation}
           />

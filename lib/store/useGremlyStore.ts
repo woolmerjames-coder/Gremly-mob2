@@ -433,6 +433,8 @@ export interface HabitAdaptationRow {
   /** Inclusive end date YYYY-MM-DD */
   period_end: string;
   floor_note?: string | null;
+  /** Free-form source reference for disruption-driven adaptations (optional). */
+  source_ref?: string | null;
   /** Foreign key to a calendar event that triggered the adaptation (optional). */
   source_event_id?: string | null;
   created_at: string;
@@ -777,6 +779,7 @@ export interface GremlyState {
       period_start: string;
       period_end: string;
       floor_note?: string | null;
+      source_ref?: string | null;
     },
   ) => Promise<
     { ok: true; row: HabitAdaptationRow } | { ok: false; reason: 'overlap' | 'unknown' }
@@ -4068,6 +4071,7 @@ export const useGremlyStore = create<GremlyState>()(
             period_start: patch.period_start,
             period_end: patch.period_end,
             floor_note: patch.floor_note ?? null,
+            source_ref: patch.source_ref ?? null,
             source_event_id: null,
             created_at: now,
             updated_at: now,
@@ -4088,6 +4092,7 @@ export const useGremlyStore = create<GremlyState>()(
               period_start: patch.period_start,
               period_end: patch.period_end,
               floor_note: patch.floor_note ?? null,
+              source_ref: patch.source_ref ?? null,
             })
             .select()
             .single();
