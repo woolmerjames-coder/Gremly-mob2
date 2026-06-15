@@ -417,6 +417,10 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
 
   const handlePressAdapt = useCallback(() => setAdaptExpanded(true), []);
 
+  const handlePressPlanStart = useCallback(() => {
+    setPlanStartMenuOpen(true);
+  }, []);
+
   // ── Clear a specific adaptation by id ────────────────────────────────────
   const handleClearAdaptation = useCallback(
     async (id: string) => {
@@ -462,6 +466,11 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   if (USE_CARD_C) {
     const ds = getDateService();
     const todayIso = ds.today();
+    const nextMondayFrom = (dateStr: string): string => {
+      const js = ds.fromLocalDate(dateStr) ?? ds.now();
+      const daysUntilMon = (8 - js.getDay()) % 7;
+      return ds.addDays(dateStr, daysUntilMon);
+    };
     const formatStartLabel = (dateStr: string): string => {
       if (dateStr === todayIso) return 'Today';
       if (dateStr === ds.addDays(todayIso, 1)) return 'Tomorrow';
@@ -503,11 +512,54 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
             onChipPress={handleChipPress}
             onSelectIdea={handleSelectIdea}
             onSelectPause={handleSelectPause}
-            onPressPlanStart={() => setPlanStartMenuOpen((v) => !v)}
+            onPressPlanStart={handlePressPlanStart}
             onPressAdapt={handlePressAdapt}
             onDismissRead={() => dismissHabitRead(card.id, floorWeekStart)}
             onRemoveAdaptation={handleClearAdaptation}
           />
+          {planStartMenuOpen && (
+            <View style={styles.planStartMenu}>
+              {(
+                [
+                  { label: 'Today', value: todayIso },
+                  { label: 'Tomorrow', value: ds.addDays(todayIso, 1) },
+                  { label: 'Monday', value: nextMondayFrom(todayIso) },
+                ] as { label: string; value: string }[]
+              ).map((opt) => (
+                <TouchableOpacity
+                  key={opt.label}
+                  style={styles.planStartMenuItem}
+                  onPress={() => {
+                    setPlanStart(opt.value);
+                    setPlanStartMenuOpen(false);
+                  }}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel={opt.label}
+                >
+                  <Text style={styles.planStartMenuItemText}>{opt.label}</Text>
+                  {planStart === opt.value && (
+                    <Check size={13} strokeWidth={2.5} color={'#1E3D2B'} />
+                  )}
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity
+                style={[styles.planStartMenuItem, { borderBottomWidth: 0 }]}
+                onPress={() => {
+                  setPlanStartMenuOpen(false);
+                  const jsDate = ds.fromLocalDate(planStart) ?? ds.now();
+                  setDatePickerTempDate(jsDate);
+                  setDatePickerTarget('planStart');
+                }}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Pick date"
+              >
+                <Text style={styles.planStartMenuItemText}>Pick date...</Text>
+                <Calendar size={13} strokeWidth={1.8} color={BRAND.colors.inkMuted} />
+              </TouchableOpacity>
+            </View>
+          )}
           <View style={styles.navRow}>
             <TouchableOpacity
               style={[styles.navBtn, index === 0 && styles.navBtnDisabled]}
