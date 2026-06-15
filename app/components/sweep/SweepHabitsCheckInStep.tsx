@@ -468,9 +468,16 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
     const todayIso = ds.today();
     const nextMondayFrom = (dateStr: string): string => {
       const js = ds.fromLocalDate(dateStr) ?? ds.now();
-      const daysUntilMon = (8 - js.getDay()) % 7;
+      const daysUntilMonRaw = (8 - js.getDay()) % 7;
+      const daysUntilMon = daysUntilMonRaw === 0 ? 7 : daysUntilMonRaw;
       return ds.addDays(dateStr, daysUntilMon);
     };
+    const planStartOptions = [
+      { label: 'Today', value: todayIso },
+      { label: 'Tomorrow', value: ds.addDays(todayIso, 1) },
+      { label: 'Monday', value: nextMondayFrom(todayIso) },
+    ] as { label: string; value: string }[];
+    const selectedOptionIndex = planStartOptions.findIndex((opt) => opt.value === planStart);
     const formatStartLabel = (dateStr: string): string => {
       if (dateStr === todayIso) return 'Today';
       if (dateStr === ds.addDays(todayIso, 1)) return 'Tomorrow';
@@ -493,73 +500,75 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
           keyboardShouldPersistTaps="handled"
           bounces
         >
-          <SweepHabitCardC
-            card={card}
-            readEntry={habitReads[`${card.id}:${floorWeekStart}`] ?? null}
-            readLoading={habitReadsRunning}
-            rec={rec}
-            appliedChange={appliedChanges[card.id] ?? null}
-            adaptationsForCard={adaptationsForCard}
-            planStart={planStart}
-            planStartLabel={formatStartLabel(planStart)}
-            habitPlans={habitPlans}
-            onToggleDay={handleToggleDay}
-            onTogglePlanCell={async (date, planned, paused) => {
-              if (paused) return;
-              if (planned) await removeHabitPlan(card.id, date);
-              else await setHabitPlan(card.id, date, planStart);
-            }}
-            onChipPress={handleChipPress}
-            onSelectIdea={handleSelectIdea}
-            onSelectPause={handleSelectPause}
-            onPressPlanStart={handlePressPlanStart}
-            onPressAdapt={handlePressAdapt}
-            onDismissRead={() => dismissHabitRead(card.id, floorWeekStart)}
-            onRemoveAdaptation={handleClearAdaptation}
-          />
-          {planStartMenuOpen && (
-            <View style={styles.planStartMenu}>
-              {(
-                [
-                  { label: 'Today', value: todayIso },
-                  { label: 'Tomorrow', value: ds.addDays(todayIso, 1) },
-                  { label: 'Monday', value: nextMondayFrom(todayIso) },
-                ] as { label: string; value: string }[]
-              ).map((opt) => (
-                <TouchableOpacity
-                  key={opt.label}
-                  style={styles.planStartMenuItem}
-                  onPress={() => {
-                    setPlanStart(opt.value);
-                    setPlanStartMenuOpen(false);
-                  }}
-                  activeOpacity={0.7}
-                  accessibilityRole="button"
-                  accessibilityLabel={opt.label}
-                >
-                  <Text style={styles.planStartMenuItemText}>{opt.label}</Text>
-                  {planStart === opt.value && (
-                    <Check size={13} strokeWidth={2.5} color={'#1E3D2B'} />
-                  )}
-                </TouchableOpacity>
-              ))}
-              <TouchableOpacity
-                style={[styles.planStartMenuItem, { borderBottomWidth: 0 }]}
-                onPress={() => {
-                  setPlanStartMenuOpen(false);
-                  const jsDate = ds.fromLocalDate(planStart) ?? ds.now();
-                  setDatePickerTempDate(jsDate);
-                  setDatePickerTarget('planStart');
-                }}
-                activeOpacity={0.7}
-                accessibilityRole="button"
-                accessibilityLabel="Pick date"
-              >
-                <Text style={styles.planStartMenuItemText}>Pick date...</Text>
-                <Calendar size={13} strokeWidth={1.8} color={BRAND.colors.inkMuted} />
-              </TouchableOpacity>
-            </View>
-          )}
+          <View style={styles.cardCPlanStartAnchor}>
+            <SweepHabitCardC
+              card={card}
+              readEntry={habitReads[`${card.id}:${floorWeekStart}`] ?? null}
+              readLoading={habitReadsRunning}
+              rec={rec}
+              appliedChange={appliedChanges[card.id] ?? null}
+              adaptationsForCard={adaptationsForCard}
+              planStart={planStart}
+              planStartLabel={formatStartLabel(planStart)}
+              habitPlans={habitPlans}
+              onToggleDay={handleToggleDay}
+              onTogglePlanCell={async (date, planned, paused) => {
+                if (paused) return;
+                if (planned) await removeHabitPlan(card.id, date);
+                else await setHabitPlan(card.id, date, planStart);
+              }}
+              onChipPress={handleChipPress}
+              onSelectIdea={handleSelectIdea}
+              onSelectPause={handleSelectPause}
+              onPressPlanStart={handlePressPlanStart}
+              onPressAdapt={handlePressAdapt}
+              onDismissRead={() => dismissHabitRead(card.id, floorWeekStart)}
+              onRemoveAdaptation={handleClearAdaptation}
+            />
+            {planStartMenuOpen && (
+              <>
+                <Pressable
+                  style={styles.cardCPlanStartBackdrop}
+                  onPress={() => setPlanStartMenuOpen(false)}
+                />
+                <View style={styles.cardCPlanStartMenu}>
+                  {planStartOptions.map((opt, idx) => (
+                    <TouchableOpacity
+                      key={opt.label}
+                      style={styles.planStartMenuItem}
+                      onPress={() => {
+                        setPlanStart(opt.value);
+                        setPlanStartMenuOpen(false);
+                      }}
+                      activeOpacity={0.7}
+                      accessibilityRole="button"
+                      accessibilityLabel={opt.label}
+                    >
+                      <Text style={styles.planStartMenuItemText}>{opt.label}</Text>
+                      {idx === selectedOptionIndex && (
+                        <Check size={13} strokeWidth={2.5} color={'#1E3D2B'} />
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                  <TouchableOpacity
+                    style={[styles.planStartMenuItem, { borderBottomWidth: 0 }]}
+                    onPress={() => {
+                      setPlanStartMenuOpen(false);
+                      const jsDate = ds.fromLocalDate(planStart) ?? ds.now();
+                      setDatePickerTempDate(jsDate);
+                      setDatePickerTarget('planStart');
+                    }}
+                    activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel="Pick date"
+                  >
+                    <Text style={styles.planStartMenuItemText}>Pick date...</Text>
+                    <Calendar size={13} strokeWidth={1.8} color={BRAND.colors.inkMuted} />
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </View>
           <View style={styles.navRow}>
             <TouchableOpacity
               style={[styles.navBtn, index === 0 && styles.navBtnDisabled]}
@@ -2115,6 +2124,30 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.45)',
   },
   planStartPillText: { fontSize: 13, fontWeight: '600', color: '#1E3D2B' },
+  cardCPlanStartAnchor: {
+    position: 'relative',
+  },
+  cardCPlanStartBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 40,
+  },
+  cardCPlanStartMenu: {
+    position: 'absolute',
+    top: 352,
+    right: 24,
+    zIndex: 50,
+    elevation: 8,
+    minWidth: 180,
+    borderRadius: 12,
+    backgroundColor: BRAND.colors.surface,
+    borderWidth: 0.5,
+    borderColor: 'rgba(34,34,34,0.10)',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+  },
   planStartMenu: {
     marginTop: 6,
     borderRadius: 12,
