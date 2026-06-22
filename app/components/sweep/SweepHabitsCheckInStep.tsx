@@ -8,6 +8,7 @@
  */
 
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import {
   View,
   ScrollView,
@@ -126,6 +127,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   const habitProgress = useGremlyStore((s) => s.habitProgress);
   const updateHabit = useGremlyStore((s) => s.updateHabit);
   const setHabitAdaptation = useGremlyStore((s) => s.setHabitAdaptation);
+  const updateHabitAdaptation = useGremlyStore((s) => s.updateHabitAdaptation);
   const clearHabitAdaptation = useGremlyStore((s) => s.clearHabitAdaptation);
   const habitAdaptations = useGremlyStore((s) => s.habitAdaptations);
   const setHabitPlan = useGremlyStore((s) => s.setHabitPlan);
@@ -134,6 +136,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   const ensureFloorSuggestions = useGremlyStore((s) => s.ensureFloorSuggestions);
   const getFloorSuggestion = useGremlyStore((s) => s.getFloorSuggestion);
   const ensureHabitReads = useGremlyStore((s) => s.ensureHabitReads);
+  const { weekStart: blockWeekStart } = useGremlyStore(useShallow((s) => s.resolveSweepBlock()));
   // Reactive subscription (NOT the getHabitRead getter): cards must re-render
   // when the batched read call hydrates state mid-session.
   const habitReads = useGremlyStore((s) => s.habitReads);
@@ -157,23 +160,23 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   );
   const [adaptFloorNote, setAdaptFloorNote] = useState('');
   const [adaptSourceRef, setAdaptSourceRef] = useState<string | null>(null);
+  const [editingAdaptationId, setEditingAdaptationId] = useState<string | null>(null);
   const [adaptOverlapError, setAdaptOverlapError] = useState(false);
   const [adaptSaving, setAdaptSaving] = useState(false);
   // Session-persistent adaptation confirmations keyed by habitId
   const [adaptConfirmations, setAdaptConfirmations] = useState<Record<string, string>>({});
   // ── Plan state ───────────────────────────────────────────────────────────
-  const [planStart, setPlanStart] = useState<string>(() => getDateService().today());
+  const [planStart, setPlanStart] = useState<string>(blockWeekStart);
   // ── Floor suggestion state ──────────────────────────────────────────────
   const [floorReady, setFloorReady] = useState(false);
   const [dismissedFloors, setDismissedFloors] = useState<Set<string>>(new Set());
-  const floorWeekStart = getDateService().today();
   const hasNonDailyBuild = habits.some(
     (h) => !h.archived && h.cadence !== 'daily' && h.subtype !== 'break_habit',
   );
 
   useEffect(() => {
     let cancelled = false;
-    const weekStart = getDateService().today();
+    const weekStart = blockWeekStart;
     const safetyTimer = setTimeout(() => {
       if (!cancelled) setFloorReady(true);
     }, 6000);
@@ -197,7 +200,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   // never gates rendering and never touches the floorReady flow.
   useEffect(() => {
     if (!HABIT_READS_PREVIEW) return;
-    ensureHabitReads(habits, cards, floorWeekStart);
+    ensureHabitReads(habits, cards, blockWeekStart);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [planStartMenuOpen, setPlanStartMenuOpen] = useState(false);
@@ -216,6 +219,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
       setAdaptEnd(ds.addDays(ds.today(), 6));
       setAdaptFloorNote(h?.floor_note ?? '');
       setAdaptSourceRef(null);
+      setEditingAdaptationId(null);
       setAdaptOverlapError(false);
       // leave adaptConfirmations intact — persists for the session
     },
@@ -327,13 +331,16 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
     if (!adaptStart || !adaptEnd || adaptStart > adaptEnd) return; // guarded by date picker
     setAdaptSaving(true);
     setAdaptOverlapError(false);
-    const result = await setHabitAdaptation(card.id, {
+    const patch = {
       mode: adaptMode,
       period_start: adaptStart,
       period_end: adaptEnd,
       floor_note: adaptMode === 'floor' ? adaptFloorNote || null : null,
       source_ref: adaptSourceRef,
-    });
+    };
+    const result = editingAdaptationId
+      ? await updateHabitAdaptation(editingAdaptationId, patch)
+      : await setHabitAdaptation(card.id, patch);
     setAdaptSaving(false);
     if (!result.ok) {
       if (result.reason === 'overlap') {
@@ -358,6 +365,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
     setAdaptEnd(ds.addDays(ds.today(), 6));
     setAdaptFloorNote(currentHabit?.floor_note ?? '');
     setAdaptSourceRef(null);
+    setEditingAdaptationId(null);
   }, [
     card,
     adaptMode,
@@ -365,6 +373,8 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
     adaptEnd,
     adaptFloorNote,
     adaptSourceRef,
+    editingAdaptationId,
+    updateHabitAdaptation,
     setHabitAdaptation,
     currentHabit,
   ]);
@@ -377,6 +387,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
       setAdaptEnd(end);
       setAdaptFloorNote(idea);
       setAdaptSourceRef(ref);
+      setEditingAdaptationId(null);
       setAdaptOverlapError(false);
       setAdaptExpanded(true);
     },
@@ -391,6 +402,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
       setAdaptEnd(end);
       setAdaptFloorNote('');
       setAdaptSourceRef(ref);
+      setEditingAdaptationId(null);
       setAdaptOverlapError(false);
       setAdaptExpanded(true);
     },
@@ -399,6 +411,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
 
   const handlePressAdapt = useCallback(() => {
     setAdaptSourceRef(null);
+    setEditingAdaptationId(null);
     setAdaptExpanded(true);
   }, []);
 
@@ -518,15 +531,19 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
         style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' }}
         onPress={() => {
           setAdaptSourceRef(null);
+          setEditingAdaptationId(null);
           setAdaptExpanded(false);
         }}
       />
       <View style={styles.adaptFormSheet}>
         <View style={styles.adaptExpandedHeader}>
-          <Text style={styles.adaptLabel}>Adapt this habit</Text>
+          <Text style={styles.adaptLabel}>
+            {editingAdaptationId ? 'Edit adaptation' : 'Adapt this habit'}
+          </Text>
           <TouchableOpacity
             onPress={() => {
               setAdaptSourceRef(null);
+              setEditingAdaptationId(null);
               setAdaptExpanded(false);
             }}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -541,18 +558,34 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
             <Text style={styles.adaptSheetActiveTitle}>Active this period</Text>
             {adaptationsForCard.map((a) => (
               <View key={a.id} style={styles.activeAdaptRow}>
-                <View style={styles.activeAdaptContent}>
-                  {a.mode === 'pause' ? (
-                    <Pause size={11} strokeWidth={2} color={BRAND.colors.charcoalInk} />
-                  ) : (
-                    <TrendingDown size={11} strokeWidth={2} color={BRAND.colors.charcoalInk} />
-                  )}
-                  <Text style={styles.activeAdaptText}>
-                    {a.mode === 'pause' ? 'Paused' : 'Floor'} {formatDateDisplay(a.period_start)}
-                    {'–'}
-                    {formatDateDisplay(a.period_end)}
-                  </Text>
-                </View>
+                <TouchableOpacity
+                  style={{ flex: 1 }}
+                  activeOpacity={0.75}
+                  onPress={() => {
+                    setAdaptMode(a.mode);
+                    setAdaptStart(a.period_start);
+                    setAdaptEnd(a.period_end);
+                    setAdaptFloorNote(a.floor_note ?? '');
+                    setAdaptSourceRef(a.source_ref ?? null);
+                    setEditingAdaptationId(a.id);
+                    setAdaptOverlapError(false);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Edit adaptation"
+                >
+                  <View style={styles.activeAdaptContent}>
+                    {a.mode === 'pause' ? (
+                      <Pause size={11} strokeWidth={2} color={BRAND.colors.charcoalInk} />
+                    ) : (
+                      <TrendingDown size={11} strokeWidth={2} color={BRAND.colors.charcoalInk} />
+                    )}
+                    <Text style={styles.activeAdaptText}>
+                      {a.mode === 'pause' ? 'Paused' : 'Floor'} {formatDateDisplay(a.period_start)}
+                      {'–'}
+                      {formatDateDisplay(a.period_end)}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => handleClearAdaptation(a.id)}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -658,10 +691,16 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
               disabled={adaptSaving}
               activeOpacity={0.8}
               accessibilityRole="button"
-              accessibilityLabel="Save adaptation"
+              accessibilityLabel={editingAdaptationId ? 'Update adaptation' : 'Save adaptation'}
             >
               <Text style={styles.adaptSaveBtnText}>
-                {adaptSaving ? 'Saving...' : 'Save adaptation'}
+                {editingAdaptationId
+                  ? adaptSaving
+                    ? 'Updating...'
+                    : 'Update'
+                  : adaptSaving
+                    ? 'Saving...'
+                    : 'Save adaptation'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -670,6 +709,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
           style={styles.adaptDoneBtn}
           onPress={() => {
             setAdaptSourceRef(null);
+            setEditingAdaptationId(null);
             setAdaptExpanded(false);
           }}
           activeOpacity={0.75}
@@ -678,9 +718,15 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
         >
           <Text style={styles.adaptDoneBtnText}>Done</Text>
         </TouchableOpacity>
+      </View>
 
-        {datePickerTarget !== null && datePickerTarget !== 'planStart' && Platform.OS === 'ios' && (
-          <View style={[styles.datePickerSheet, styles.adaptSheetDatePickerOverlay]}>
+      {datePickerTarget !== null && datePickerTarget !== 'planStart' && Platform.OS === 'ios' && (
+        <View style={styles.adaptSheetDatePickerOverlay}>
+          <Pressable
+            style={styles.adaptSheetDatePickerBackdrop}
+            onPress={() => setDatePickerTarget(null)}
+          />
+          <View style={styles.datePickerSheet}>
             <View style={styles.datePickerSheetHeader}>
               <TouchableOpacity onPress={() => setDatePickerTarget(null)}>
                 <Text style={styles.datePickerSheetCancel}>Cancel</Text>
@@ -702,15 +748,15 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
               minimumDate={
                 datePickerTarget === 'end'
                   ? (getDateService().fromLocalDate(adaptStart) ?? undefined)
-                  : undefined
+                  : (getDateService().fromLocalDate(getDateService().today()) ?? undefined)
               }
               onChange={(_: any, date?: Date) => {
                 if (date) setDatePickerTempDate(date);
               }}
             />
           </View>
-        )}
-      </View>
+        </View>
+      )}
     </Modal>
   );
 
@@ -756,7 +802,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
           <View style={styles.cardCPlanStartAnchor}>
             <SweepHabitCardC
               card={card}
-              readEntry={habitReads[`${card.id}:${floorWeekStart}`] ?? null}
+              readEntry={habitReads[`${card.id}:${blockWeekStart}`] ?? null}
               readLoading={habitReadsRunning}
               rec={rec}
               appliedChange={appliedChanges[card.id] ?? null}
@@ -775,7 +821,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
               onSelectPause={handleSelectPause}
               onPressPlanStart={handlePressPlanStart}
               onPressAdapt={handlePressAdapt}
-              onDismissRead={() => dismissHabitRead(card.id, floorWeekStart)}
+              onDismissRead={() => dismissHabitRead(card.id, blockWeekStart)}
               onRemoveAdaptation={handleClearAdaptation}
             />
             {planStartMenuOpen && (
@@ -1065,7 +1111,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                 Reuses the existing insight styles; Card C styling is Phase 4. */}
             {HABIT_READS_PREVIEW &&
               (() => {
-                const entry = habitReads[`${card.id}:${floorWeekStart}`];
+                const entry = habitReads[`${card.id}:${blockWeekStart}`];
                 if (!entry || entry.dismissed || !entry.read?.read_paragraph) return null;
                 const r = entry.read;
                 return (
@@ -1128,6 +1174,10 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                   adaptationsForCard.some(
                     (a) => a.mode === 'pause' && a.period_start <= date && a.period_end >= date,
                   );
+                const floorCovers = (date: string) =>
+                  adaptationsForCard.some(
+                    (a) => a.mode === 'floor' && a.period_start <= date && a.period_end >= date,
+                  );
                 const localPlannedDates = habitPlans
                   .filter((p) => p.habit_id === card.id && p.week_start === planStart)
                   .map((p) => p.planned_date);
@@ -1140,8 +1190,23 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                     dayNum: js.getDate(),
                     isPlanned: localPlannedDates.includes(date),
                     isPaused: pauseCovers(date),
+                    isFloored: floorCovers(date),
                   };
                 });
+                if (cells.some((c) => c.date === '2026-06-25')) {
+                  console.log('[FLOOR_PROBE]', {
+                    date: '2026-06-25',
+                    isFloored: floorCovers('2026-06-25'),
+                    adaptCount: habitAdaptations.length,
+                    floorRows: habitAdaptations
+                      .filter((a) => a.mode === 'floor')
+                      .map(
+                        (a) => `${a.period_start}..${a.period_end} card:${a.habit_id === card?.id}`,
+                      ),
+                    cardId: card?.id,
+                    planStart,
+                  });
+                }
                 const plannedCount = cells.filter((c) => c.isPlanned).length;
                 const target = card.targetPerPeriod;
                 const mondayOption = nextMondayFrom(today);
@@ -1250,7 +1315,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                       {!adaptExpanded && (
                         <TouchableOpacity
                           style={styles.adaptPromptRow}
-                          onPress={() => setAdaptExpanded(true)}
+                          onPress={handlePressAdapt}
                           activeOpacity={0.7}
                           accessibilityRole="button"
                           accessibilityLabel={
@@ -1271,7 +1336,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
 
                     {/* Floor suggestion (AI-detected disruption, above day strip) */}
                     {(() => {
-                      const suggestion = getFloorSuggestion(card.id, floorWeekStart);
+                      const suggestion = getFloorSuggestion(card.id, blockWeekStart);
                       const isDismissed = dismissedFloors.has(card.id);
                       const showSuggestion =
                         suggestion?.detected && suggestion.ideas.length > 0 && !isDismissed;
@@ -1386,24 +1451,36 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                           key={c.date}
                           style={[
                             styles.planCell,
-                            c.isPlanned && !c.isPaused && styles.planCellActive,
                             c.isPaused && styles.planCellPaused,
+                            !c.isPaused && c.isFloored && styles.planCellFloored,
+                            !c.isPaused && !c.isFloored && c.isPlanned && styles.planCellActive,
                           ]}
                           disabled={c.isPaused}
                           onPress={() => onToggle(c.date, c.isPlanned, c.isPaused)}
                           activeOpacity={0.7}
                           accessibilityRole="button"
-                          accessibilityState={{ selected: c.isPlanned, disabled: c.isPaused }}
-                          accessibilityLabel={`${c.dow} ${c.dayNum}${c.isPlanned ? ' planned' : ''}${c.isPaused ? ' paused' : ''}`}
+                          accessibilityState={{
+                            selected: c.isPlanned || c.isFloored,
+                            disabled: c.isPaused,
+                          }}
+                          accessibilityLabel={`${c.dow} ${c.dayNum}${c.isPaused ? ' paused' : c.isFloored ? ' floored' : c.isPlanned ? ' planned' : ''}`}
                         >
                           <Text
-                            style={[styles.planCellDow, c.isPlanned && styles.planCellDowActive]}
+                            style={[
+                              styles.planCellDow,
+                              !c.isPaused &&
+                                !c.isFloored &&
+                                c.isPlanned &&
+                                styles.planCellDowActive,
+                            ]}
                           >
                             {c.dow}
                           </Text>
                           <Text style={styles.planCellNum}>{c.dayNum}</Text>
                           {c.isPaused ? (
                             <Pause size={11} strokeWidth={2} color="rgba(34,34,34,0.30)" />
+                          ) : c.isFloored ? (
+                            <TrendingDown size={11} strokeWidth={2} color={'#8A6A28'} />
                           ) : c.isPlanned ? (
                             <Check size={12} strokeWidth={2.5} color={'#F9F6F1'} />
                           ) : (
@@ -1904,7 +1981,6 @@ const styles = StyleSheet.create({
     minHeight: 440,
   },
   adaptFormSheet: {
-    position: 'relative',
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
@@ -1918,9 +1994,12 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    minHeight: 0,
-    paddingHorizontal: 0,
-    zIndex: 10,
+    justifyContent: 'flex-end',
+    zIndex: 20,
+  },
+  adaptSheetDatePickerBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.35)',
   },
   datePickerSheetHeader: {
     flexDirection: 'row',
@@ -2261,6 +2340,11 @@ const styles = StyleSheet.create({
   planCellActive: {
     backgroundColor: '#2E5540',
     borderColor: '#2E5540',
+  },
+  planCellFloored: {
+    backgroundColor: 'rgba(224,196,122,0.30)',
+    borderColor: 'rgba(138,106,40,0.60)',
+    borderWidth: 1,
   },
   planCellPaused: { backgroundColor: 'rgba(34,34,34,0.04)', opacity: 0.55 },
   planCellDow: { fontSize: 9.5, fontWeight: '600', color: '#3A5A45' },

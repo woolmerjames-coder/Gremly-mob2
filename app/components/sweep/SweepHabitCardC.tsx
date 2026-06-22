@@ -193,6 +193,10 @@ export function SweepHabitCardC(props: SweepHabitCardCProps) {
     adaptationsForCard.some(
       (a) => a.mode === 'pause' && a.period_start <= date && a.period_end >= date,
     );
+  const floorCovers = (date: string) =>
+    adaptationsForCard.some(
+      (a) => a.mode === 'floor' && a.period_start <= date && a.period_end >= date,
+    );
   const planEnd = ds.addDays(planStart, 6);
   const localPlanned = [
     ...new Set(
@@ -211,11 +215,12 @@ export function SweepHabitCardC(props: SweepHabitCardCProps) {
       dow: DOW[js.getDay()],
       dayNum: js.getDate(),
       isPlanned: localPlanned.includes(date),
+      isCommitted: localPlanned.includes(date) || floorCovers(date),
       isPaused: pauseCovers(date),
       isToday: date === today,
     };
   });
-  const plannedCount = planCells.filter((c) => c.isPlanned).length;
+  const plannedCount = planCells.filter((c) => c.isCommitted).length;
 
   const onTarget = card.trend.bars.filter((b) => b.hits >= b.target).length;
   const totalWeeks = card.trend.bars.length;
@@ -526,8 +531,8 @@ export function SweepHabitCardC(props: SweepHabitCardCProps) {
                     key={c.date}
                     style={[
                       styles.pc,
-                      c.isPlanned && styles.pcPlanned,
-                      c.isToday && !c.isPlanned && styles.pcToday,
+                      c.isCommitted && styles.pcPlanned,
+                      c.isToday && !c.isCommitted && styles.pcToday,
                       c.isPaused && styles.pcPaused,
                     ]}
                     onPress={() => onTogglePlanCell(c.date, c.isPlanned, c.isPaused)}
@@ -535,12 +540,12 @@ export function SweepHabitCardC(props: SweepHabitCardCProps) {
                     disabled={c.isPaused}
                     accessibilityRole="button"
                     accessibilityState={{ selected: c.isPlanned, disabled: c.isPaused }}
-                    accessibilityLabel={`${c.dow} ${c.dayNum}${c.isPlanned ? ' planned' : ''}${c.isPaused ? ' paused' : ''}`}
+                    accessibilityLabel={`${c.dow} ${c.dayNum}${c.isPlanned ? ' planned' : ''}${c.isCommitted && !c.isPlanned ? ' floor committed' : ''}${c.isPaused ? ' paused' : ''}`}
                   >
                     <RNText
                       style={[
                         styles.pcDow,
-                        c.isPlanned && styles.pcDowOn,
+                        c.isCommitted && styles.pcDowOn,
                         c.isPaused && styles.pcMuted,
                       ]}
                     >
@@ -549,14 +554,14 @@ export function SweepHabitCardC(props: SweepHabitCardCProps) {
                     <RNText
                       style={[
                         styles.pcNum,
-                        c.isPlanned && styles.pcNumOn,
+                        c.isCommitted && styles.pcNumOn,
                         c.isPaused && styles.pcMuted,
                       ]}
                     >
                       {c.dayNum}
                     </RNText>
                     <View style={styles.pcInd}>
-                      {c.isPlanned ? (
+                      {c.isCommitted ? (
                         <Check size={10} strokeWidth={2.6} color={CREAM} />
                       ) : c.isPaused ? (
                         <Pause size={9} strokeWidth={2} color="rgba(34,34,34,0.30)" />

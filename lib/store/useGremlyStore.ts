@@ -112,6 +112,11 @@ let eventBusUnsubscribe: (() => void) | null = null;
 // their set() calls, which causes duplicate events.
 let calendarFetchInFlight: Promise<void> | null = null;
 
+function rangesOverlap(aStart: string, aEnd: string, bStart: string, bEnd: string): boolean {
+  // Inclusive range overlap for YYYY-MM-DD strings.
+  return aStart <= bEnd && bStart <= aEnd;
+}
+
 function mapDbRowToProviderCalendarEvent(row: DbSyncedCalendarEvent): CalendarEvent | null {
   if (!row.external_id || !row.start_at || !row.end_at) return null;
   if (row.provider !== 'google' && row.provider !== 'outlook' && row.provider !== 'ics')
@@ -786,8 +791,10 @@ export interface GremlyState {
   >;
   updateHabitAdaptation: (
     id: string,
-    patch: Partial<Pick<HabitAdaptationRow, 'mode' | 'period_start' | 'period_end' | 'floor_note'>>,
-  ) => Promise<void>;
+    patch: Partial<
+      Pick<HabitAdaptationRow, 'mode' | 'period_start' | 'period_end' | 'floor_note' | 'source_ref'>
+    >,
+  ) => Promise<{ ok: true } | { ok: false; reason: 'overlap' | 'unknown' }>;
   clearHabitAdaptation: (id: string) => Promise<void>;
   /** Returns the adaptation covering dateIso for this habit, or null. */
   getActiveAdaptation: (habitId: string, dateIso: string) => HabitAdaptationRow | null;
@@ -813,6 +820,13 @@ export interface GremlyState {
   ensureHabitReads: (habits: Habit[], cards: HabitCardStats[], weekStart: string) => Promise<void>;
   /** Returns the HabitReadEntry for a habit+week, or null. */
   getHabitRead: (habitId: string, weekStart: string) => HabitReadEntry | null;
+  /** Resolve the canonical sweep week block from reactive currentDate. */
+  resolveSweepBlock: () => {
+    weekStart: string;
+    weekEnd: string;
+    summaryId: string | null;
+    summaryGenerated: boolean;
+  };
   /** Persistently dismiss a read for this week. */
   dismissHabitRead: (habitId: string, weekStart: string) => Promise<void>;
   /** Returns the FloorSuggestion for a habit+week, or null. */
@@ -4061,6 +4075,15 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) throw new Error('Not authenticated');
 
+          const hasOverlap = get().habitAdaptations.some(
+            (a) =>
+              a.habit_id === habitId &&
+              rangesOverlap(patch.period_start, patch.period_end, a.period_start, a.period_end),
+          );
+          if (hasOverlap) {
+            return { ok: false, reason: 'overlap' as const };
+          }
+
           const now = nowTimestamp();
           const tempId = `temp_adapt_${getDateService().now().getTime()}_${Math.random().toString(36).slice(2)}`;
           const optimisticRow: HabitAdaptationRow = {
@@ -4126,6 +4149,21 @@ export const useGremlyStore = create<GremlyState>()(
 
         updateHabitAdaptation: async (id, patch) => {
           const prev = get().habitAdaptations.find((a) => a.id === id);
+          if (!prev) {
+            return { ok: false, reason: 'unknown' as const };
+          }
+
+          const nextStart = patch.period_start ?? prev.period_start;
+          const nextEnd = patch.period_end ?? prev.period_end;
+          const hasOverlap = get().habitAdaptations.some(
+            (a) =>
+              a.habit_id === prev.habit_id &&
+              a.id !== id &&
+              rangesOverlap(nextStart, nextEnd, a.period_start, a.period_end),
+          );
+          if (hasOverlap) {
+            return { ok: false, reason: 'overlap' as const };
+          }
 
           // 1. OPTIMISTIC
           set((state) => ({
@@ -4144,8 +4182,18 @@ export const useGremlyStore = create<GremlyState>()(
                 habitAdaptations: state.habitAdaptations.map((a) => (a.id === id ? prev : a)),
               }));
             }
-            throw error;
+            if (
+              error.code === '23P01' ||
+              error.code === '23505' ||
+              error.message?.includes('overlap') ||
+              error.message?.includes('exclusion')
+            ) {
+              return { ok: false, reason: 'overlap' as const };
+            }
+            return { ok: false, reason: 'unknown' as const };
           }
+
+          return { ok: true as const };
         },
 
         clearHabitAdaptation: async (id) => {
@@ -4424,6 +4472,18 @@ export const useGremlyStore = create<GremlyState>()(
 
         getHabitRead: (habitId, weekStart) => {
           return get().habitReads[`${habitId}:${weekStart}`] ?? null;
+        },
+
+        resolveSweepBlock: () => {
+          const weekStart = getDateService().startOfWeekMonday(get().currentDate);
+          const weekEnd = getDateService().addDays(weekStart, 6);
+          const summary = get().weeklySummaries.find((s) => s.week_start_date === weekStart);
+          return {
+            weekStart,
+            weekEnd,
+            summaryId: summary?.id ?? null,
+            summaryGenerated: !!summary,
+          };
         },
 
         dismissHabitRead: async (habitId, weekStart) => {
