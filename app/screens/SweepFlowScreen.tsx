@@ -15,6 +15,7 @@ import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import {
   View,
   StyleSheet,
+  Text as RNText,
   TextInput,
   KeyboardAvoidingView,
   Platform,
@@ -59,7 +60,6 @@ import {
   ArrowRight,
   ChevronRight,
   Calendar,
-  CalendarX,
   Sun,
   Moon,
   CalendarDays,
@@ -560,37 +560,43 @@ function SweepIntroStep({
       </View>
 
       {/* Footer - pushed to bottom with flex spacer */}
-      <View style={{ flex: 1 }} />
-      <View style={styles.bulkSkipFooter}>
-        <Pressable
-          onPress={() => {
-            if (canSkip) {
-              triggerLight();
-              onStart('skip');
-            }
-          }}
-          style={[styles.bulkSkipRow, !canSkip && styles.bulkSkipRowLocked]}
-          accessibilityRole="button"
-          accessibilityState={{ disabled: !canSkip }}
-          accessibilityLabel={
-            canSkip
-              ? `Move everything to a day. ${remaining} of ${total} skips left this week.`
-              : 'No skips left this week.'
+      <View style={{ flex: 1, maxHeight: 24 }} />
+      <View style={styles.bulkSkipDivider} />
+      <Pressable
+        onPress={() => {
+          if (canSkip) {
+            triggerLight();
+            onStart('skip');
           }
-        >
-          <CalendarX size={16} color={BRAND.colors.inkMuted} />
-          <View style={styles.bulkSkipTextWrap}>
-            <Text style={[styles.bulkSkipLabel, !canSkip && styles.bulkSkipLabelLocked]}>
-              {canSkip ? 'Move everything to a day' : 'No skips left this week'}
-            </Text>
-            <Text style={styles.bulkSkipCount}>
-              {canSkip
-                ? `${remaining} of ${total} skips left this week`
-                : 'Refills as the week rolls forward'}
-            </Text>
-          </View>
-        </Pressable>
-      </View>
+        }}
+        style={({ pressed }) => [
+          styles.bulkSkipRow,
+          pressed && canSkip && styles.bulkSkipRowPressed,
+          !canSkip && styles.bulkSkipRowLocked,
+        ]}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: !canSkip }}
+        accessibilityLabel={
+          canSkip
+            ? `Skip today and move everything forward. ${remaining} of ${total} weekly skips left.`
+            : 'No weekly skips left this week.'
+        }
+      >
+        <View style={styles.bulkSkipTextWrap}>
+          <RNText
+            style={[styles.bulkSkipTitle, !canSkip && styles.bulkSkipTitleLocked]}
+            numberOfLines={1}
+          >
+            {canSkip ? 'Tired? Skip today' : 'No skips left this week'}
+          </RNText>
+          <RNText style={styles.bulkSkipSub} numberOfLines={1}>
+            {canSkip
+              ? `Move it all forward · ${remaining} left`
+              : 'Refills as the week rolls forward'}
+          </RNText>
+        </View>
+        {canSkip && <ChevronRight size={17} color="#B5B2A8" />}
+      </Pressable>
       <Text style={styles.lastSweepText}>{getLastSweepText()}</Text>
     </View>
   );
@@ -5469,7 +5475,7 @@ const styles = StyleSheet.create({
     backgroundColor: BRAND.colors.linenCream,
     alignItems: 'center',
     paddingHorizontal: 24,
-    paddingTop: 20,
+    paddingTop: 4,
     paddingBottom: 16,
   },
   // Scene: mound + mascot + sparkles
@@ -5684,44 +5690,64 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   // Footer
-  bulkSkipFooter: {
-    marginTop: 8,
+  bulkSkipDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#E2DDD0',
     marginHorizontal: 20,
-    paddingTop: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: BRAND.colors.borderSubtle,
+    marginTop: 8,
+    marginBottom: 4,
   },
   bulkSkipRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 0,
     paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: BRAND.radius.md,
-    borderWidth: 1,
-    borderColor: BRAND.colors.borderSubtle,
-    backgroundColor: 'transparent',
+    paddingHorizontal: 20,
   },
-  bulkSkipRowLocked: { opacity: 0.5 },
-  bulkSkipTextWrap: { flex: 1 },
-  bulkSkipLabel: {
-    fontSize: 14,
-    fontFamily: 'Inter-Medium',
+  bulkSkipRowPressed: {
+    opacity: 0.6,
+  },
+  bulkSkipRowLocked: {
+    opacity: 0.55,
+  },
+  bulkSkipChip: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#EDE9DD',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bulkSkipChipLocked: {
+    backgroundColor: '#ECE9E1',
+  },
+  bulkSkipTextWrap: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  bulkSkipTitle: {
+    fontSize: 15,
+    fontFamily: 'PlusJakartaSans-Bold',
     fontWeight: '500',
-    color: BRAND.colors.mossGreen,
+    color: '#5A564E',
+    marginBottom: 2,
   },
-  bulkSkipLabelLocked: { color: BRAND.colors.inkMuted },
-  bulkSkipCount: {
+  bulkSkipTitleLocked: {
+    color: '#9C9A92',
+  },
+  bulkSkipSub: {
     fontSize: 12,
     fontFamily: 'Inter-Regular',
-    color: BRAND.colors.inkMuted,
-    marginTop: 2,
+    fontWeight: '400',
+    color: '#9C9A92',
   },
   lastSweepText: {
     fontSize: 11.5,
     fontFamily: BRAND.typography.bodyMedium.fontFamily,
     color: BRAND.colors.inkMuted,
     textAlign: 'center',
+    marginBottom: 20,
+    paddingBottom: 4,
   },
   secondaryButton: {
     paddingVertical: 12,
