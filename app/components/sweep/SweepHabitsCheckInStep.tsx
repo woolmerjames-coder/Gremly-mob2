@@ -27,6 +27,7 @@ import {
   ChevronRight,
   ChevronDown,
   Check,
+  CheckSquare,
   Circle,
   Pencil,
   Pause,
@@ -119,6 +120,78 @@ export interface SweepHabitsCheckInStepProps {
   onFinish: () => void;
 }
 
+interface HabitStepIntroProps {
+  habitCount: number;
+  onContinue: () => void;
+  onClose: () => void;
+}
+
+function HabitStepIntro({ habitCount, onContinue, onClose }: HabitStepIntroProps) {
+  return (
+    <View style={styles.habitIntroWrap}>
+      <TouchableOpacity
+        style={styles.habitIntroCloseBtn}
+        onPress={onClose}
+        activeOpacity={0.8}
+        accessibilityRole="button"
+        accessibilityLabel="Close habits check-in"
+      >
+        <X size={17} strokeWidth={2} color={BRAND.colors.inkMuted} />
+      </TouchableOpacity>
+
+      <Pressable style={styles.habitIntroPressable} onPress={onContinue}>
+        <View style={styles.habitIntroCenter}>
+          <View style={styles.habitIntroTitleRow}>
+            <Flame size={17} strokeWidth={2.2} color={BRAND.colors.mossGreen} />
+            <Text style={styles.habitIntroTitle}>YOUR HABITS</Text>
+          </View>
+
+          <Text style={styles.habitIntroSubtitle}>a look back at how each one is going</Text>
+          <Text style={styles.habitIntroHint}>one card per habit</Text>
+
+          <View style={styles.habitIntroRows}>
+            <View style={styles.habitIntroRow}>
+              <View style={styles.habitIntroChip}>
+                <Calendar size={14} strokeWidth={2} color={BRAND.colors.mossGreen} />
+              </View>
+              <Text style={styles.habitIntroRowText}>
+                <Text style={styles.habitIntroRowLead}>See your rhythm</Text>
+                {' over the past 7 days, plus streak and stats'}
+              </Text>
+            </View>
+
+            <View style={styles.habitIntroRow}>
+              <View style={styles.habitIntroChip}>
+                <CheckSquare size={14} strokeWidth={2} color={BRAND.colors.mossGreen} />
+              </View>
+              <Text style={styles.habitIntroRowText}>
+                <Text style={styles.habitIntroRowLead}>Tap any day</Text>
+                {' to fix one you forgot to mark'}
+              </Text>
+            </View>
+
+            <View style={styles.habitIntroRow}>
+              <View style={styles.habitIntroChip}>
+                <Calendar size={14} strokeWidth={2} color={BRAND.colors.mossGreen} />
+              </View>
+              <Text style={styles.habitIntroRowText}>
+                <Text style={styles.habitIntroRowLead}>Plan the week ahead</Text>
+                {' and adjust how often if the pace is off'}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.habitIntroFooter}>
+            <MascotLottie />
+            <Text style={styles.habitIntroTap}>tap to start</Text>
+            <Text style={styles.habitIntroCount}>{habitCount} habits this week</Text>
+          </View>
+        </View>
+      </Pressable>
+    </View>
+  );
+}
+
 export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps) {
   const allHabits = useGremlyStore((s) => s.habits);
   const habits = useMemo(() => allHabits.filter((h) => !h.archived), [allHabits]);
@@ -147,6 +220,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   const cards = useHabitCardStats(habits);
 
   const [index, setIndex] = useState(0);
+  const [showHabitIntro, setShowHabitIntro] = useState(true);
   // Session-persistent frequency-change confirmations keyed by habitId
   const [appliedChanges, setAppliedChanges] = useState<Record<string, AppliedChange>>({});
 
@@ -455,6 +529,16 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   }
 
   if (!card) return null;
+
+  if (showHabitIntro) {
+    return (
+      <HabitStepIntro
+        habitCount={cards.length}
+        onContinue={() => setShowHabitIntro(false)}
+        onClose={onFinish}
+      />
+    );
+  }
 
   const isLast = index === cards.length - 1;
   const appliedChange = appliedChanges[card.id];
@@ -1689,6 +1773,104 @@ const styles = StyleSheet.create({
   },
   floorPauseLink: { fontSize: 12, color: '#3A5A45', fontWeight: '500' },
   floorChatLink: { fontSize: 12, color: BRAND.colors.mossGreen, fontWeight: '600' },
+  // Intro gate
+  habitIntroWrap: {
+    flex: 1,
+    backgroundColor: BRAND.colors.linenCream,
+  },
+  habitIntroCloseBtn: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(34,34,34,0.05)',
+    zIndex: 2,
+  },
+  habitIntroPressable: {
+    flex: 1,
+  },
+  habitIntroCenter: {
+    flex: 1,
+    paddingHorizontal: 24,
+    paddingTop: 56,
+    paddingBottom: 20,
+    justifyContent: 'space-between',
+  },
+  habitIntroTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  habitIntroTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: BRAND.colors.charcoalInk,
+    letterSpacing: 0.6,
+  },
+  habitIntroSubtitle: {
+    textAlign: 'center',
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#3A5A45',
+    marginBottom: 6,
+  },
+  habitIntroHint: {
+    textAlign: 'center',
+    fontSize: 13,
+    fontWeight: '400',
+    color: BRAND.colors.inkMuted,
+    marginBottom: 18,
+  },
+  habitIntroRows: {
+    gap: 12,
+  },
+  habitIntroRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    paddingVertical: 2,
+  },
+  habitIntroChip: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(191,216,192,0.35)',
+    marginTop: 1,
+  },
+  habitIntroRowText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#3D3A34',
+    fontWeight: '400',
+  },
+  habitIntroRowLead: {
+    fontWeight: '500',
+    color: '#2F2B25',
+  },
+  habitIntroFooter: {
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 10,
+  },
+  habitIntroTap: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: BRAND.colors.mossGreen,
+  },
+  habitIntroCount: {
+    fontSize: 12,
+    color: BRAND.colors.inkMuted,
+    fontWeight: '500',
+  },
   // Load screen
   loadWrap: {
     flex: 1,
