@@ -98,14 +98,6 @@ export interface HabitRead {
 // Trend: completed ISO weeks, no display gate (rule 1)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function isoWeekMonday(dateStr: string): string {
-  const ds = getDateService();
-  const d = ds.fromLocalDate(dateStr);
-  if (!d) return dateStr;
-  const day = d.getDay(); // 0=Sun
-  return ds.addDays(dateStr, day === 0 ? -6 : 1 - day);
-}
-
 /**
  * The target_per_period in effect for the given habit during the week starting
  * weekStartKey. Picks the latest history row with effective_from <= weekStartKey.
@@ -132,7 +124,7 @@ function computeCompletedTrendWeeks(
   today: string,
 ): FactSheetTrendWeek[] {
   const ds = getDateService();
-  const currentMon = isoWeekMonday(today);
+  const currentMon = ds.startOfWeekMonday(today);
   // Last 6 COMPLETED weeks: currentMon-42 .. currentMon-7. The in-progress
   // ISO week is excluded by construction (rule 2).
   const weekKeys: string[] = [];
@@ -141,7 +133,7 @@ function computeCompletedTrendWeeks(
   }
   const hitsMap = new Map<string, Set<string>>();
   for (const day of completionDays) {
-    const key = isoWeekMonday(day);
+    const key = ds.startOfWeekMonday(day);
     if (!hitsMap.has(key)) hitsMap.set(key, new Set());
     hitsMap.get(key)!.add(day);
   }

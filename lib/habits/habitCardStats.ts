@@ -171,7 +171,7 @@ function computeBestDay(
 /** Week-over-week hit delta: current ISO week distinct-day hits minus prior week's. */
 function computeWowDelta(progressForHabit: HabitProgressRow[], today: string): number {
   const ds = getDateService();
-  const curKey = getIsoWeekKey(today);
+  const curKey = ds.startOfWeekMonday(today);
   const prevKey = ds.addDays(curKey, -7);
   const distinctInWeek = (weekStart: string) => {
     const weekEnd = ds.addDays(weekStart, 6);
@@ -188,16 +188,6 @@ function computeWowDelta(progressForHabit: HabitProgressRow[], today: string): n
 // Trend helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Return the YYYY-MM-DD Monday of the ISO week containing dateStr. */
-function getIsoWeekKey(dateStr: string): string {
-  const ds = getDateService();
-  const d = ds.fromLocalDate(dateStr);
-  if (!d) return dateStr;
-  const day = d.getDay(); // 0=Sun
-  const daysToMon = day === 0 ? -6 : 1 - day;
-  return ds.addDays(dateStr, daysToMon);
-}
-
 /**
  * Compute trend bars over the last ≤6 ISO weeks ending with the current week.
  * Only weeks with >=1 hit are included. Returns { bars:[], read:null } when
@@ -209,7 +199,7 @@ function computeTrend(
   today: string,
 ): HabitTrend {
   const ds = getDateService();
-  const currentWeekKey = getIsoWeekKey(today);
+  const currentWeekKey = ds.startOfWeekMonday(today);
 
   // 6 consecutive Monday keys sorted oldest → current
   const weekKeys: string[] = [];
@@ -221,7 +211,7 @@ function computeTrend(
   // Bucket distinct occurred_day into week keys
   const hitsMap = new Map<string, Set<string>>();
   for (const p of progressForHabit) {
-    const key = getIsoWeekKey(p.occurred_day);
+    const key = ds.startOfWeekMonday(p.occurred_day);
     if (!hitsMap.has(key)) hitsMap.set(key, new Set());
     hitsMap.get(key)!.add(p.occurred_day);
   }
