@@ -166,7 +166,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   // Session-persistent adaptation confirmations keyed by habitId
   const [adaptConfirmations, setAdaptConfirmations] = useState<Record<string, string>>({});
   // ── Plan state ───────────────────────────────────────────────────────────
-  const [planStart, setPlanStart] = useState<string>(blockWeekStart);
+  const [planStart, setPlanStart] = useState<string>(getDateService().today());
   // ── Floor suggestion state ──────────────────────────────────────────────
   const [floorReady, setFloorReady] = useState(false);
   const [dismissedFloors, setDismissedFloors] = useState<Set<string>>(new Set());
