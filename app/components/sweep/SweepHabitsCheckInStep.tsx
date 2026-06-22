@@ -460,6 +460,207 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   const isLast = index === cards.length - 1;
   const appliedChange = appliedChanges[card.id];
   const adaptConfirmation = adaptConfirmations[card.id];
+  const datePickerModals = (
+    <>
+      {/* Date picker — Android: native dialog (no modal needed) */}
+      {datePickerTarget !== null && Platform.OS === 'android' && (
+        <DateTimePicker
+          value={datePickerTempDate}
+          mode="date"
+          display="default"
+          minimumDate={
+            datePickerTarget === 'end'
+              ? (getDateService().fromLocalDate(adaptStart) ?? undefined)
+              : datePickerTarget === 'planStart'
+                ? (getDateService().fromLocalDate(getDateService().today()) ?? undefined)
+                : undefined
+          }
+          onChange={(e: any, date?: Date) => {
+            const captured = datePickerTarget;
+            setDatePickerTarget(null);
+            if (e.type === 'set' && date) {
+              const iso = getDateService().toLocalDate(date);
+              if (captured === 'start') {
+                setAdaptStart(iso);
+                if (adaptEnd < iso) setAdaptEnd(iso);
+              } else if (captured === 'end') {
+                setAdaptEnd(iso);
+              } else if (captured === 'planStart') {
+                setPlanStart(iso);
+              }
+            }
+          }}
+        />
+      )}
+
+      {/* Date picker — iOS: bottom sheet with inline calendar grid */}
+      {datePickerTarget !== null && Platform.OS === 'ios' && (
+        <Modal visible transparent animationType="slide">
+          <Pressable
+            style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' }}
+            onPress={() => setDatePickerTarget(null)}
+          />
+          <View style={styles.datePickerSheet}>
+            <View style={styles.datePickerSheetHeader}>
+              <TouchableOpacity onPress={() => setDatePickerTarget(null)}>
+                <Text style={styles.datePickerSheetCancel}>Cancel</Text>
+              </TouchableOpacity>
+              <Text style={styles.datePickerSheetTitle}>
+                {datePickerTarget === 'start'
+                  ? 'Start date'
+                  : datePickerTarget === 'planStart'
+                    ? 'Plan start date'
+                    : 'End date'}
+              </Text>
+              <TouchableOpacity onPress={handleDatePickerConfirm}>
+                <Text style={styles.datePickerSheetDone}>Done</Text>
+              </TouchableOpacity>
+            </View>
+            <DateTimePicker
+              style={{ marginHorizontal: 8 }}
+              value={datePickerTempDate}
+              mode="date"
+              display="inline"
+              themeVariant="light"
+              accentColor={BRAND.colors.mossGreen}
+              minimumDate={
+                datePickerTarget === 'end'
+                  ? (getDateService().fromLocalDate(adaptStart) ?? undefined)
+                  : datePickerTarget === 'planStart'
+                    ? (getDateService().fromLocalDate(getDateService().today()) ?? undefined)
+                    : undefined
+              }
+              onChange={(_: any, date?: Date) => {
+                if (date) setDatePickerTempDate(date);
+              }}
+            />
+          </View>
+        </Modal>
+      )}
+    </>
+  );
+  const adaptFormModal = (
+    <Modal visible={adaptExpanded} transparent animationType="slide">
+      <Pressable
+        style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' }}
+        onPress={() => setAdaptExpanded(false)}
+      />
+      <View style={styles.adaptFormSheet}>
+        <View style={styles.adaptExpandedHeader}>
+          <Text style={styles.adaptLabel}>Adapt this habit</Text>
+          <TouchableOpacity
+            onPress={() => setAdaptExpanded(false)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Collapse"
+          >
+            <ChevronUp size={16} strokeWidth={2} color={BRAND.colors.inkMuted} />
+          </TouchableOpacity>
+        </View>
+        <View style={styles.adaptModeRow}>
+          {(['keep', 'floor', 'pause'] as const).map((m) => (
+            <TouchableOpacity
+              key={m}
+              style={[styles.adaptModeBtn, adaptMode === m && styles.adaptModeBtnActive]}
+              onPress={() => setAdaptMode(m)}
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityState={{ selected: adaptMode === m }}
+              accessibilityLabel={m}
+            >
+              {m === 'keep' && (
+                <Shield
+                  size={13}
+                  strokeWidth={2}
+                  color={adaptMode === m ? BRAND.colors.mossGreen : BRAND.colors.inkMuted}
+                />
+              )}
+              {m === 'floor' && (
+                <TrendingDown
+                  size={13}
+                  strokeWidth={2}
+                  color={adaptMode === m ? BRAND.colors.mossGreen : BRAND.colors.inkMuted}
+                />
+              )}
+              {m === 'pause' && (
+                <Pause
+                  size={13}
+                  strokeWidth={2}
+                  color={adaptMode === m ? BRAND.colors.mossGreen : BRAND.colors.inkMuted}
+                />
+              )}
+              <Text
+                style={[styles.adaptModeBtnText, adaptMode === m && styles.adaptModeBtnTextActive]}
+              >
+                {m.charAt(0).toUpperCase() + m.slice(1)}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        {adaptMode !== 'keep' && (
+          <View style={styles.adaptFields}>
+            <View style={styles.adaptDateRow}>
+              <TouchableOpacity
+                style={[
+                  styles.adaptDateBtn,
+                  datePickerTarget === 'start' && styles.adaptDateBtnActive,
+                ]}
+                onPress={() => openDatePicker('start')}
+                activeOpacity={0.75}
+                accessibilityRole="button"
+                accessibilityLabel={`Start date: ${formatDateDisplay(adaptStart)}`}
+              >
+                <Calendar size={11} strokeWidth={2} color={BRAND.colors.inkMuted} />
+                <Text style={styles.adaptDateBtnText}>{formatDateDisplay(adaptStart)}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.adaptDateBtn,
+                  datePickerTarget === 'end' && styles.adaptDateBtnActive,
+                ]}
+                onPress={() => openDatePicker('end')}
+                activeOpacity={0.75}
+                accessibilityRole="button"
+                accessibilityLabel={`End date: ${formatDateDisplay(adaptEnd)}`}
+              >
+                <Calendar size={11} strokeWidth={2} color={BRAND.colors.inkMuted} />
+                <Text style={styles.adaptDateBtnText}>{formatDateDisplay(adaptEnd)}</Text>
+              </TouchableOpacity>
+            </View>
+            {adaptMode === 'floor' && (
+              <TextInput
+                style={styles.adaptFloorNoteInput}
+                placeholder="Floor note (optional)"
+                placeholderTextColor={BRAND.colors.inkMuted}
+                value={adaptFloorNote}
+                onChangeText={setAdaptFloorNote}
+                maxLength={200}
+                multiline={false}
+                accessibilityLabel="Floor note"
+              />
+            )}
+            {adaptOverlapError && (
+              <Text style={styles.adaptErrorText}>
+                This period overlaps an existing adaptation. Remove the existing one first.
+              </Text>
+            )}
+            <TouchableOpacity
+              style={[styles.adaptSaveBtn, adaptSaving && styles.adaptSaveBtnDisabled]}
+              onPress={handleSaveAdaptation}
+              disabled={adaptSaving}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Save adaptation"
+            >
+              <Text style={styles.adaptSaveBtnText}>
+                {adaptSaving ? 'Saving...' : 'Save adaptation'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+    </Modal>
+  );
 
   // ── Card C render path (Phase 4a). Early return: the legacy card below is
   // untouched and renders when USE_CARD_C is false. ──
@@ -554,9 +755,11 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                     style={[styles.planStartMenuItem, { borderBottomWidth: 0 }]}
                     onPress={() => {
                       setPlanStartMenuOpen(false);
-                      const jsDate = ds.fromLocalDate(planStart) ?? ds.now();
-                      setDatePickerTempDate(jsDate);
-                      setDatePickerTarget('planStart');
+                      requestAnimationFrame(() => {
+                        const jsDate = ds.fromLocalDate(planStart) ?? ds.now();
+                        setDatePickerTempDate(jsDate);
+                        setDatePickerTarget('planStart');
+                      });
                     }}
                     activeOpacity={0.7}
                     accessibilityRole="button"
@@ -568,6 +771,8 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                 </View>
               </>
             )}
+            {adaptFormModal}
+            {datePickerModals}
           </View>
           <View style={styles.navRow}>
             <TouchableOpacity
@@ -941,9 +1146,11 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                           style={[styles.planStartMenuItem, { borderBottomWidth: 0 }]}
                           onPress={() => {
                             setPlanStartMenuOpen(false);
-                            const jsDate = ds.fromLocalDate(planStart) ?? ds.now();
-                            setDatePickerTempDate(jsDate);
-                            setDatePickerTarget('planStart');
+                            requestAnimationFrame(() => {
+                              const jsDate = ds.fromLocalDate(planStart) ?? ds.now();
+                              setDatePickerTempDate(jsDate);
+                              setDatePickerTarget('planStart');
+                            });
                           }}
                           activeOpacity={0.7}
                           accessibilityRole="button"
@@ -988,7 +1195,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                       ))}
 
                       {/* Add prompt (collapsed) or form (expanded) */}
-                      {!adaptExpanded ? (
+                      {!adaptExpanded && (
                         <TouchableOpacity
                           style={styles.adaptPromptRow}
                           onPress={() => setAdaptExpanded(true)}
@@ -1007,155 +1214,6 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                               : 'Adapt for travel or a break'}
                           </Text>
                         </TouchableOpacity>
-                      ) : (
-                        <View>
-                          <View style={styles.adaptExpandedHeader}>
-                            <Text style={styles.adaptLabel}>Adapt this habit</Text>
-                            <TouchableOpacity
-                              onPress={() => setAdaptExpanded(false)}
-                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                              accessibilityRole="button"
-                              accessibilityLabel="Collapse"
-                            >
-                              <ChevronUp size={16} strokeWidth={2} color={BRAND.colors.inkMuted} />
-                            </TouchableOpacity>
-                          </View>
-                          <View style={styles.adaptModeRow}>
-                            {(['keep', 'floor', 'pause'] as const).map((m) => (
-                              <TouchableOpacity
-                                key={m}
-                                style={[
-                                  styles.adaptModeBtn,
-                                  adaptMode === m && styles.adaptModeBtnActive,
-                                ]}
-                                onPress={() => setAdaptMode(m)}
-                                activeOpacity={0.75}
-                                accessibilityRole="button"
-                                accessibilityState={{ selected: adaptMode === m }}
-                                accessibilityLabel={m}
-                              >
-                                {m === 'keep' && (
-                                  <Shield
-                                    size={13}
-                                    strokeWidth={2}
-                                    color={
-                                      adaptMode === m
-                                        ? BRAND.colors.mossGreen
-                                        : BRAND.colors.inkMuted
-                                    }
-                                  />
-                                )}
-                                {m === 'floor' && (
-                                  <TrendingDown
-                                    size={13}
-                                    strokeWidth={2}
-                                    color={
-                                      adaptMode === m
-                                        ? BRAND.colors.mossGreen
-                                        : BRAND.colors.inkMuted
-                                    }
-                                  />
-                                )}
-                                {m === 'pause' && (
-                                  <Pause
-                                    size={13}
-                                    strokeWidth={2}
-                                    color={
-                                      adaptMode === m
-                                        ? BRAND.colors.mossGreen
-                                        : BRAND.colors.inkMuted
-                                    }
-                                  />
-                                )}
-                                <Text
-                                  style={[
-                                    styles.adaptModeBtnText,
-                                    adaptMode === m && styles.adaptModeBtnTextActive,
-                                  ]}
-                                >
-                                  {m.charAt(0).toUpperCase() + m.slice(1)}
-                                </Text>
-                              </TouchableOpacity>
-                            ))}
-                          </View>
-                          {adaptMode !== 'keep' && (
-                            <View style={styles.adaptFields}>
-                              <View style={styles.adaptDateRow}>
-                                <TouchableOpacity
-                                  style={[
-                                    styles.adaptDateBtn,
-                                    datePickerTarget === 'start' && styles.adaptDateBtnActive,
-                                  ]}
-                                  onPress={() => openDatePicker('start')}
-                                  activeOpacity={0.75}
-                                  accessibilityRole="button"
-                                  accessibilityLabel={`Start date: ${formatDateDisplay(adaptStart)}`}
-                                >
-                                  <Calendar
-                                    size={11}
-                                    strokeWidth={2}
-                                    color={BRAND.colors.inkMuted}
-                                  />
-                                  <Text style={styles.adaptDateBtnText}>
-                                    {formatDateDisplay(adaptStart)}
-                                  </Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                  style={[
-                                    styles.adaptDateBtn,
-                                    datePickerTarget === 'end' && styles.adaptDateBtnActive,
-                                  ]}
-                                  onPress={() => openDatePicker('end')}
-                                  activeOpacity={0.75}
-                                  accessibilityRole="button"
-                                  accessibilityLabel={`End date: ${formatDateDisplay(adaptEnd)}`}
-                                >
-                                  <Calendar
-                                    size={11}
-                                    strokeWidth={2}
-                                    color={BRAND.colors.inkMuted}
-                                  />
-                                  <Text style={styles.adaptDateBtnText}>
-                                    {formatDateDisplay(adaptEnd)}
-                                  </Text>
-                                </TouchableOpacity>
-                              </View>
-                              {adaptMode === 'floor' && (
-                                <TextInput
-                                  style={styles.adaptFloorNoteInput}
-                                  placeholder="Floor note (optional)"
-                                  placeholderTextColor={BRAND.colors.inkMuted}
-                                  value={adaptFloorNote}
-                                  onChangeText={setAdaptFloorNote}
-                                  maxLength={200}
-                                  multiline={false}
-                                  accessibilityLabel="Floor note"
-                                />
-                              )}
-                              {adaptOverlapError && (
-                                <Text style={styles.adaptErrorText}>
-                                  This period overlaps an existing adaptation. Remove the existing
-                                  one first.
-                                </Text>
-                              )}
-                              <TouchableOpacity
-                                style={[
-                                  styles.adaptSaveBtn,
-                                  adaptSaving && styles.adaptSaveBtnDisabled,
-                                ]}
-                                onPress={handleSaveAdaptation}
-                                disabled={adaptSaving}
-                                activeOpacity={0.8}
-                                accessibilityRole="button"
-                                accessibilityLabel="Save adaptation"
-                              >
-                                <Text style={styles.adaptSaveBtnText}>
-                                  {adaptSaving ? 'Saving...' : 'Save adaptation'}
-                                </Text>
-                              </TouchableOpacity>
-                            </View>
-                          )}
-                        </View>
                       )}
                     </View>
 
@@ -1359,81 +1417,8 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
           </TouchableOpacity>
         )}
       </ScrollView>
-
-      {/* Date picker — Android: native dialog (no modal needed) */}
-      {datePickerTarget !== null && Platform.OS === 'android' && (
-        <DateTimePicker
-          value={datePickerTempDate}
-          mode="date"
-          display="default"
-          minimumDate={
-            datePickerTarget === 'end'
-              ? (getDateService().fromLocalDate(adaptStart) ?? undefined)
-              : datePickerTarget === 'planStart'
-                ? (getDateService().fromLocalDate(getDateService().today()) ?? undefined)
-                : undefined
-          }
-          onChange={(e: any, date?: Date) => {
-            const captured = datePickerTarget;
-            setDatePickerTarget(null);
-            if (e.type === 'set' && date) {
-              const iso = getDateService().toLocalDate(date);
-              if (captured === 'start') {
-                setAdaptStart(iso);
-                if (adaptEnd < iso) setAdaptEnd(iso);
-              } else if (captured === 'end') {
-                setAdaptEnd(iso);
-              } else if (captured === 'planStart') {
-                setPlanStart(iso);
-              }
-            }
-          }}
-        />
-      )}
-
-      {/* Date picker — iOS: bottom sheet with inline calendar grid */}
-      {datePickerTarget !== null && Platform.OS === 'ios' && (
-        <Modal visible transparent animationType="slide">
-          <Pressable
-            style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' }}
-            onPress={() => setDatePickerTarget(null)}
-          />
-          <View style={styles.datePickerSheet}>
-            <View style={styles.datePickerSheetHeader}>
-              <TouchableOpacity onPress={() => setDatePickerTarget(null)}>
-                <Text style={styles.datePickerSheetCancel}>Cancel</Text>
-              </TouchableOpacity>
-              <Text style={styles.datePickerSheetTitle}>
-                {datePickerTarget === 'start'
-                  ? 'Start date'
-                  : datePickerTarget === 'planStart'
-                    ? 'Plan start date'
-                    : 'End date'}
-              </Text>
-              <TouchableOpacity onPress={handleDatePickerConfirm}>
-                <Text style={styles.datePickerSheetDone}>Done</Text>
-              </TouchableOpacity>
-            </View>
-            <DateTimePicker
-              value={datePickerTempDate}
-              mode="date"
-              display="inline"
-              themeVariant="light"
-              accentColor={BRAND.colors.mossGreen}
-              minimumDate={
-                datePickerTarget === 'end'
-                  ? (getDateService().fromLocalDate(adaptStart) ?? undefined)
-                  : datePickerTarget === 'planStart'
-                    ? (getDateService().fromLocalDate(getDateService().today()) ?? undefined)
-                    : undefined
-              }
-              onChange={(_: any, date?: Date) => {
-                if (date) setDatePickerTempDate(date);
-              }}
-            />
-          </View>
-        </Modal>
-      )}
+      {adaptFormModal}
+      {datePickerModals}
     </View>
   );
 }
@@ -1839,8 +1824,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
+    paddingHorizontal: 8,
     paddingBottom: 34,
     minHeight: 440,
+  },
+  adaptFormSheet: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 34,
   },
   datePickerSheetHeader: {
     flexDirection: 'row',
