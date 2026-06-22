@@ -434,14 +434,27 @@ function SweepIntroStep({
       {
         intent: 'today' as SweepIntent,
         Icon: Sun,
-        title: isEvening ? 'Wrap up today' : 'Plan today',
-        subtitle: isEvening ? 'What still matters before bed' : 'What matters most today',
+        title: isEvening
+          ? primary === 'today'
+            ? 'Wrap up today'
+            : 'Anything for today?'
+          : primary === 'today'
+            ? 'Plan today'
+            : 'Anything for today?',
+        subtitle: isEvening
+          ? primary === 'today'
+            ? 'What still matters before bed'
+            : "Wrap up what's left"
+          : primary === 'today'
+            ? "Decide what's for today"
+            : "Wrap up what's left",
       },
       {
         intent: 'tomorrow' as SweepIntent,
         Icon: Moon,
-        title: 'Plan tomorrow',
-        subtitle: 'Set up the day ahead',
+        title: primary === 'tomorrow' ? 'Close out today' : 'Set up tomorrow instead',
+        subtitle:
+          primary === 'tomorrow' ? 'Decide what carries to tomorrow' : 'Skip today, plan tomorrow',
       },
       {
         intent: 'week' as SweepIntent,
@@ -5387,10 +5400,13 @@ const styles = StyleSheet.create({
   // Title + when-line
   introTitle: {
     fontSize: 28,
+    lineHeight: 38,
     fontFamily: BRAND.typography.header.fontFamily,
     color: BRAND.colors.mossGreen,
     textAlign: 'center',
     marginTop: 18,
+    paddingTop: 2,
+    includeFontPadding: true,
   },
   introWhenLine: {
     fontSize: 13.5,
