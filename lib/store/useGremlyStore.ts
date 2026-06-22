@@ -4308,7 +4308,7 @@ export const useGremlyStore = create<GremlyState>()(
             if (!userId) return;
             const ds = getDateService();
             const today = ds.today();
-            const lookback = ds.addDays(today, -42);
+            const signalStart = ds.addDays(today, -3);
             const signalEnd = ds.addDays(today, 13);
             const planWindow = { start: weekStart, end: ds.addDays(weekStart, 6) };
 
@@ -4329,10 +4329,10 @@ export const useGremlyStore = create<GremlyState>()(
                 .eq('owner_id', userId)
                 .eq('archived', false)
                 .lte('start_at', `${signalEnd}T23:59:59`)
-                .gte('end_at', `${lookback}T00:00:00`),
+                .gte('end_at', `${signalStart}T00:00:00`),
             ]);
             const eventNotes = (noteRows ?? [])
-              .filter((n) => (n.end_date ?? n.target_date) >= lookback)
+              .filter((n) => (n.end_date ?? n.target_date) >= signalStart)
               .map((n) => ({
                 ref: `note:${n.id}`,
                 title: n.title ?? '',

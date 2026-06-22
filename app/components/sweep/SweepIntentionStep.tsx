@@ -8,7 +8,7 @@
  *   - On Continue: saves a journal note (journal_subtype:'intention') if text entered
  */
 
-import React, { useState, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   View,
   KeyboardAvoidingView,
@@ -22,7 +22,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Star, X, RotateCcw } from 'lucide-react-native';
+import { Star, X, RotateCcw, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { Text } from '../../../ui';
 import { Icon } from '../../../design-system/Icon';
 import { BRAND } from '../../../design/brand';
@@ -76,7 +76,11 @@ export interface SweepIntentionStepProps {
   weekStartDate: string;
 }
 
-export function SweepIntentionStep({ onContinue, onSkip, weekStartDate }: SweepIntentionStepProps) {
+export function SweepIntentionStep({
+  onContinue,
+  onSkip,
+  weekStartDate: _weekStartDate,
+}: SweepIntentionStepProps) {
   const createNote = useGremlyStore((s) => s.createNote);
   const updateNote = useGremlyStore((s) => s.updateNote);
   const notes = useGremlyStore((s) => s.notes);
@@ -84,44 +88,79 @@ export function SweepIntentionStep({ onContinue, onSkip, weekStartDate }: SweepI
   const removeCommitment = useGremlyStore((s) => s.removeCommitment);
   const todos = useGremlyStore((s) => s.todos);
 
+  const ds = getDateService();
+  const currentMonday = ds.startOfWeekMonday(ds.today());
+  const nextMonday = ds.nextWeekMonday(ds.today());
+  const prevMonday = ds.addDays(currentMonday, -7);
+  // Boundary roll: in the last 1-2 days of the block, default to next week.
+  const defaultMonday = ds.daysUntilBlockEnd(ds.today()) <= 1 ? nextMonday : currentMonday;
+  const [selectedMonday, setSelectedMonday] = useState<string>(defaultMonday);
+
+  const isPreviousWeek = selectedMonday === prevMonday;
+  const isNextWeek = selectedMonday === nextMonday;
+
+  const weekEnd = useMemo(() => ds.addDays(selectedMonday, 6), [ds, selectedMonday]);
+
+  const selectedWeekLabel = useMemo(
+    () => `${formatShortDate(selectedMonday)} - ${formatShortDate(weekEnd)}`,
+    [selectedMonday, weekEnd],
+  );
+
+  const headingText = useMemo(() => {
+    if (isPreviousWeek) return "What's your focus last week?";
+    if (isNextWeek) return "What's your focus next week?";
+    return "What's your focus this week?";
+  }, [isNextWeek, isPreviousWeek]);
+
+  const clampMonday = useCallback(
+    (value: string) => {
+      if (value < prevMonday) return prevMonday;
+      if (value > nextMonday) return nextMonday;
+      return value;
+    },
+    [nextMonday, prevMonday],
+  );
+
+  const handleGoPrevWeek = useCallback(() => {
+    setSelectedMonday((prev) => clampMonday(ds.addDays(prev, -7)));
+  }, [clampMonday, ds]);
+
+  const handleGoNextWeek = useCallback(() => {
+    setSelectedMonday((prev) => clampMonday(ds.addDays(prev, 7)));
+  }, [clampMonday, ds]);
+
   // Find the existing intention note for the current week (for edit/upsert)
   const existingIntention = useMemo(() => {
-    const ds = getDateService();
-    const weekStart = ds.getStartOfWeek();
-    const weekEnd = ds.addDays(weekStart, 6);
     return (
       notes.find(
         (n) =>
           n.journal_subtype === 'intention' &&
           !n.archived &&
           n.target_date != null &&
-          n.target_date >= weekStart &&
+          n.target_date >= selectedMonday &&
           n.target_date <= weekEnd,
       ) ?? null
     );
-  }, [notes]);
+  }, [notes, selectedMonday, weekEnd]);
 
-  // Prefill from existing note. Read store directly at mount for zero-flash init;
-  // a ref prevents overwriting user edits if the store updates mid-session.
-  const prefillAppliedRef = useRef(false);
-  const [intentionText, setIntentionText] = useState<string>(() => {
-    const storeNotes = useGremlyStore.getState().notes;
-    const ds = getDateService();
-    const weekStart = ds.getStartOfWeek();
-    const weekEnd = ds.addDays(weekStart, 6);
-    const existing = storeNotes.find(
-      (n) =>
-        n.journal_subtype === 'intention' &&
-        !n.archived &&
-        n.target_date != null &&
-        n.target_date >= weekStart &&
-        n.target_date <= weekEnd,
-    );
-    if (existing?.body) prefillAppliedRef.current = true;
-    return existing?.body ?? '';
-  });
+  const [intentionText, setIntentionText] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [showLockSheet, setShowLockSheet] = useState(false);
+
+  useEffect(() => {
+    const storeNotes = useGremlyStore.getState().notes;
+    const selectedWeekEnd = ds.addDays(selectedMonday, 6);
+    const existing =
+      storeNotes.find(
+        (n) =>
+          n.journal_subtype === 'intention' &&
+          !n.archived &&
+          n.target_date != null &&
+          n.target_date >= selectedMonday &&
+          n.target_date <= selectedWeekEnd,
+      ) ?? null;
+    setIntentionText(existing?.body ?? '');
+  }, [ds, selectedMonday]);
 
   const weekDays = useWeekDays(EMPTY_DECISIONS);
 
@@ -170,23 +209,19 @@ export function SweepIntentionStep({ onContinue, onSkip, weekStartDate }: SweepI
 
   // Week range label for the heading, e.g. "Week of Jun 8-14" (Monday to Sunday)
   const weekRangeLabel = useMemo(() => {
-    const ds = getDateService();
-    const monday = ds.getStartOfWeek();
-    const sunday = ds.addDays(monday, 6);
-    return `Week of ${formatShortDate(monday)}-${formatShortDate(sunday).replace(/^[A-Za-z]+ /, '')}`;
-  }, []);
+    return `Week of ${formatShortDate(selectedMonday)}-${formatShortDate(weekEnd).replace(/^[A-Za-z]+ /, '')}`;
+  }, [selectedMonday, weekEnd]);
 
   // Review-mode metadata: dates for the context line shown when editing an existing intention.
   const reviewMeta = useMemo(() => {
     if (!existingIntention) return null;
-    const ds = getDateService();
     const createdLocalDate = ds.extractLocalDate(existingIntention.created_at);
-    const nextMonday = ds.addDays(existingIntention.target_date ?? weekStartDate, 7);
+    const nextWeekLabelDate = ds.addDays(existingIntention.target_date ?? selectedMonday, 7);
     return {
       createdLabel: createdLocalDate ? formatShortDate(createdLocalDate) : '',
-      resetLabel: formatShortDate(nextMonday),
+      resetLabel: formatShortDate(nextWeekLabelDate),
     };
-  }, [existingIntention, weekStartDate]);
+  }, [ds, existingIntention, selectedMonday]);
 
   const handleToggleCommitment = useCallback(
     async (id: string) => {
@@ -201,6 +236,11 @@ export function SweepIntentionStep({ onContinue, onSkip, weekStartDate }: SweepI
   );
 
   const handleContinue = useCallback(async () => {
+    if (isPreviousWeek) {
+      onContinue();
+      return;
+    }
+
     const trimmed = intentionText.trim();
     if (!trimmed) {
       onContinue();
@@ -222,9 +262,9 @@ export function SweepIntentionStep({ onContinue, onSkip, weekStartDate }: SweepI
           origin: 'manual',
           canonicalType: 'log',
           journal_subtype: 'intention',
-          target_date: weekStartDate,
+          target_date: selectedMonday,
           tags: ['intention', 'sweep'],
-          views: { sweep_origin: true, sweep_date: weekStartDate },
+          views: { sweep_origin: true, sweep_date: selectedMonday },
         });
       }
     } catch {
@@ -233,7 +273,15 @@ export function SweepIntentionStep({ onContinue, onSkip, weekStartDate }: SweepI
       setIsSaving(false);
     }
     onContinue();
-  }, [intentionText, existingIntention, createNote, updateNote, weekStartDate, onContinue]);
+  }, [
+    intentionText,
+    isPreviousWeek,
+    existingIntention,
+    createNote,
+    updateNote,
+    selectedMonday,
+    onContinue,
+  ]);
 
   return (
     <KeyboardAvoidingView
@@ -249,7 +297,7 @@ export function SweepIntentionStep({ onContinue, onSkip, weekStartDate }: SweepI
       >
         <View style={styles.headerRow}>
           <View style={styles.headerText}>
-            <Text style={styles.title}>{"What's your focus this week?"}</Text>
+            <Text style={styles.title}>{headingText}</Text>
             <Text style={styles.subcopy}>Set an intention or goal.</Text>
           </View>
           <Image
@@ -281,13 +329,46 @@ export function SweepIntentionStep({ onContinue, onSkip, weekStartDate }: SweepI
             Do NOT add static chips back. */}
 
         <View style={styles.inputSection}>
+          <View style={styles.weekToggleRow}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.weekToggleButton,
+                selectedMonday === prevMonday && styles.weekToggleButtonDisabled,
+                pressed && selectedMonday !== prevMonday && { opacity: 0.72 },
+              ]}
+              onPress={handleGoPrevWeek}
+              disabled={selectedMonday === prevMonday}
+              accessibilityRole="button"
+              accessibilityLabel="Show previous week"
+            >
+              <ChevronLeft size={18} strokeWidth={2.2} color={BRAND.colors.mossGreen} />
+            </Pressable>
+            <Text style={styles.weekToggleLabel}>{selectedWeekLabel}</Text>
+            <Pressable
+              style={({ pressed }) => [
+                styles.weekToggleButton,
+                selectedMonday === nextMonday && styles.weekToggleButtonDisabled,
+                pressed && selectedMonday !== nextMonday && { opacity: 0.72 },
+              ]}
+              onPress={handleGoNextWeek}
+              disabled={selectedMonday === nextMonday}
+              accessibilityRole="button"
+              accessibilityLabel="Show next week"
+            >
+              <ChevronRight size={18} strokeWidth={2.2} color={BRAND.colors.mossGreen} />
+            </Pressable>
+          </View>
+
+          {isPreviousWeek && <Text style={styles.lastWeekLabel}>Last week</Text>}
+
           <TextInput
-            style={styles.input}
+            style={[styles.input, isPreviousWeek && styles.inputReadOnly]}
             placeholder="This week, I want to..."
             placeholderTextColor={BRAND.colors.inkMuted}
             multiline
             value={intentionText}
             onChangeText={setIntentionText}
+            editable={!isPreviousWeek}
             textAlignVertical="top"
           />
         </View>
@@ -503,6 +584,43 @@ const styles = StyleSheet.create({
   },
   // chipsRow / chip / chipPressed / chipText removed — AI suggestion affordance replaces static chips
   inputSection: { marginBottom: 14 },
+  weekToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    backgroundColor: 'rgba(191,216,192,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(99,124,93,0.22)',
+    borderRadius: BRAND.radius.lg,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+  },
+  weekToggleButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(191,216,192,0.22)',
+  },
+  weekToggleButtonDisabled: {
+    opacity: 0.4,
+  },
+  weekToggleLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: BRAND.colors.charcoalInk,
+    letterSpacing: 0.1,
+  },
+  lastWeekLabel: {
+    fontSize: 11,
+    color: BRAND.colors.inkMuted,
+    marginBottom: 8,
+    marginLeft: 2,
+    fontWeight: '500',
+    letterSpacing: 0.2,
+  },
   input: {
     backgroundColor: BRAND.colors.linenCream,
     borderRadius: BRAND.radius.lg,
@@ -518,6 +636,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.04,
     shadowRadius: 3,
     elevation: 1,
+  },
+  inputReadOnly: {
+    opacity: 0.84,
+    backgroundColor: 'rgba(255,255,255,0.35)',
   },
   lockBtn: {
     flexDirection: 'row',

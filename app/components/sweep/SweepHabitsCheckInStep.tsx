@@ -19,7 +19,6 @@ import {
   Modal,
   Pressable,
   Alert,
-  ActivityIndicator,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import {
@@ -45,6 +44,7 @@ import { useGremlyStore } from '../../../lib/store/useGremlyStore';
 import { useHabitCardStats } from '../../../lib/habits/habitCardStats';
 import type { HabitCardStats } from '../../../lib/habits/habitCardStats';
 import { getDateService } from '../../../lib/date/DateService';
+import MascotLottie from '../MascotLottie';
 import { SweepHabitCardC } from './SweepHabitCardC';
 import {
   computeFrequencyRecommendation,
@@ -432,11 +432,11 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   );
 
   // ── Load screen: show while floor suggestions are running (non-daily build habits only) ──
-  if (!floorReady && hasNonDailyBuild) {
+  if ((!floorReady || habitReadsRunning) && hasNonDailyBuild) {
     return (
       <View style={styles.loadWrap}>
-        <ActivityIndicator color={BRAND.colors.periwinkleSmoke} />
-        <Text style={styles.loadText}>Looking over your week...</Text>
+        <MascotLottie />
+        <Text style={styles.loadText}>Reading your week...</Text>
       </View>
     );
   }
@@ -1106,35 +1106,6 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                 <Text style={styles.stripLabel}>tracking since</Text>
               </View>
             </View>
-
-            {/* Phase 3c preview: unified habit read (paragraph + raw extras).
-                Reuses the existing insight styles; Card C styling is Phase 4. */}
-            {HABIT_READS_PREVIEW &&
-              (() => {
-                const entry = habitReads[`${card.id}:${blockWeekStart}`];
-                if (!entry || entry.dismissed || !entry.read?.read_paragraph) return null;
-                const r = entry.read;
-                return (
-                  <View style={[styles.insightBlock, styles.insightBlockCalm]}>
-                    <View style={styles.insightIconTileCalm}>
-                      <Sparkles size={15} strokeWidth={2} color={BRAND.colors.linenCream} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.insightLineTextCalm}>{r.read_paragraph}</Text>
-                      {r.frequency_line ? (
-                        <Text style={[styles.insightLineTextCalm, { marginTop: 6 }]}>
-                          {r.frequency_line}
-                        </Text>
-                      ) : null}
-                      {r.disruption ? (
-                        <Text style={[styles.insightLineTextCalm, { marginTop: 6 }]}>
-                          {r.disruption.label}: {r.disruption.ideas.join(' · ')}
-                        </Text>
-                      ) : null}
-                    </View>
-                  </View>
-                );
-              })()}
 
             {/* ── Planning surface (P5): adapt + schedule, one zone ── */}
             {!card.isBreak &&

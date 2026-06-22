@@ -16,7 +16,15 @@
  */
 
 import React from 'react';
-import { View, Text as RNText, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import {
+  View,
+  Text as RNText,
+  TouchableOpacity,
+  StyleSheet,
+  Platform,
+  Animated,
+  Easing,
+} from 'react-native';
 import {
   Check,
   Pause,
@@ -45,6 +53,42 @@ const GOLD_DEEP = '#8A6A28';
 const GOLD_BOLD = '#4A3A12';
 const HEADER_BG = BRAND.colors.deepForest;
 const CREAM = BRAND.colors.linenCream;
+
+function ReadLoading() {
+  const [pulse] = React.useState(() => new Animated.Value(0.4));
+
+  React.useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 700,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 0.4,
+          duration: 700,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+
+  return (
+    <View style={styles.read}>
+      <View style={styles.readHead}>
+        <Sparkles size={12} strokeWidth={2} color={GOLD_DEEP} />
+        <RNText style={styles.readHeadText}>GREMLY'S READ</RNText>
+      </View>
+      <Animated.View style={[styles.readLoadingLine, { opacity: pulse }]} />
+      <Animated.View style={[styles.readLoadingLine, { opacity: pulse, width: '70%' }]} />
+    </View>
+  );
+}
 
 export interface SweepHabitCardCProps {
   card: HabitCardStats;
@@ -184,7 +228,8 @@ export function SweepHabitCardC(props: SweepHabitCardCProps) {
   const ds = getDateService();
   const today = ds.today();
   const read = readEntry && !readEntry.dismissed ? readEntry.read : null;
-  const showPlanZone = !card.isBreak && card.cadence !== 'daily';
+  const showPlanZone = !card.isBreak && card.cadence !== 'daily'; // plan strip: non-daily only
+  const showAdaptZone = !card.isBreak; // adapt pills + link: daily AND non-daily
   const isNewHabit = card.trend.bars.length === 0 && card.totalCompletions < 4;
   const sinceLabel = formatSinceLabel(card.trackingSince);
 
@@ -366,7 +411,7 @@ export function SweepHabitCardC(props: SweepHabitCardCProps) {
 
         {/* ════ Read slot: shimmer | gold read slab | new-habit note | chips-only ════ */}
         {readLoading && !readEntry ? (
-          <View style={styles.shimmer} />
+          <ReadLoading />
         ) : read?.read_paragraph ? (
           <View style={styles.read}>
             <View style={styles.readHead}>
@@ -482,24 +527,28 @@ export function SweepHabitCardC(props: SweepHabitCardCProps) {
         ) : null}
 
         {/* ════ NEXT 7 DAYS ════ */}
-        {showPlanZone && (
+        {showAdaptZone && (
           <>
             <View style={styles.planHead}>
               <View style={styles.gutter}>
                 <View style={styles.railDot} />
               </View>
-              <RNText style={styles.secLabel}>NEXT 7 DAYS</RNText>
-              <View style={{ flex: 1 }} />
-              <TouchableOpacity
-                style={styles.startPill}
-                onPress={onPressPlanStart}
-                activeOpacity={0.75}
-                accessibilityRole="button"
-                accessibilityLabel={`Plan start: ${planStartLabel}`}
-              >
-                <RNText style={styles.startPillText}>Starts {planStartLabel}</RNText>
-                <ChevronDown size={12} strokeWidth={2} color="#1E3D2B" />
-              </TouchableOpacity>
+              <RNText style={styles.secLabel}>{showPlanZone ? 'NEXT 7 DAYS' : 'ADAPT'}</RNText>
+              {showPlanZone && (
+                <>
+                  <View style={{ flex: 1 }} />
+                  <TouchableOpacity
+                    style={styles.startPill}
+                    onPress={onPressPlanStart}
+                    activeOpacity={0.75}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Plan start: ${planStartLabel}`}
+                  >
+                    <RNText style={styles.startPillText}>Starts {planStartLabel}</RNText>
+                    <ChevronDown size={12} strokeWidth={2} color="#1E3D2B" />
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
             <View style={styles.secContent}>
               {adaptationsForCard.map((a) => (
@@ -525,55 +574,61 @@ export function SweepHabitCardC(props: SweepHabitCardCProps) {
                   </TouchableOpacity>
                 </View>
               ))}
-              <View style={styles.strip}>
-                {planCells.map((c) => (
-                  <TouchableOpacity
-                    key={c.date}
-                    style={[
-                      styles.pc,
-                      c.isCommitted && styles.pcPlanned,
-                      c.isToday && !c.isCommitted && styles.pcToday,
-                      c.isPaused && styles.pcPaused,
-                    ]}
-                    onPress={() => onTogglePlanCell(c.date, c.isPlanned, c.isPaused)}
-                    activeOpacity={0.75}
-                    disabled={c.isPaused}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: c.isPlanned, disabled: c.isPaused }}
-                    accessibilityLabel={`${c.dow} ${c.dayNum}${c.isPlanned ? ' planned' : ''}${c.isCommitted && !c.isPlanned ? ' floor committed' : ''}${c.isPaused ? ' paused' : ''}`}
-                  >
-                    <RNText
-                      style={[
-                        styles.pcDow,
-                        c.isCommitted && styles.pcDowOn,
-                        c.isPaused && styles.pcMuted,
-                      ]}
-                    >
-                      {c.dow}
+              {showPlanZone && (
+                <>
+                  <View style={styles.strip}>
+                    {planCells.map((c) => (
+                      <TouchableOpacity
+                        key={c.date}
+                        style={[
+                          styles.pc,
+                          c.isCommitted && styles.pcPlanned,
+                          c.isToday && !c.isCommitted && styles.pcToday,
+                          c.isPaused && styles.pcPaused,
+                        ]}
+                        onPress={() => onTogglePlanCell(c.date, c.isPlanned, c.isPaused)}
+                        activeOpacity={0.75}
+                        disabled={c.isPaused}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: c.isPlanned, disabled: c.isPaused }}
+                        accessibilityLabel={`${c.dow} ${c.dayNum}${c.isPlanned ? ' planned' : ''}${c.isCommitted && !c.isPlanned ? ' floor committed' : ''}${c.isPaused ? ' paused' : ''}`}
+                      >
+                        <RNText
+                          style={[
+                            styles.pcDow,
+                            c.isCommitted && styles.pcDowOn,
+                            c.isPaused && styles.pcMuted,
+                          ]}
+                        >
+                          {c.dow}
+                        </RNText>
+                        <RNText
+                          style={[
+                            styles.pcNum,
+                            c.isCommitted && styles.pcNumOn,
+                            c.isPaused && styles.pcMuted,
+                          ]}
+                        >
+                          {c.dayNum}
+                        </RNText>
+                        <View style={styles.pcInd}>
+                          {c.isCommitted ? (
+                            <Check size={10} strokeWidth={2.6} color={CREAM} />
+                          ) : c.isPaused ? (
+                            <Pause size={9} strokeWidth={2} color="rgba(34,34,34,0.30)" />
+                          ) : null}
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  <View style={styles.planCap}>
+                    <RNText style={styles.planCapText}>
+                      {plannedCount} of {card.targetPerPeriod} planned · or leave it flexible
                     </RNText>
-                    <RNText
-                      style={[
-                        styles.pcNum,
-                        c.isCommitted && styles.pcNumOn,
-                        c.isPaused && styles.pcMuted,
-                      ]}
-                    >
-                      {c.dayNum}
-                    </RNText>
-                    <View style={styles.pcInd}>
-                      {c.isCommitted ? (
-                        <Check size={10} strokeWidth={2.6} color={CREAM} />
-                      ) : c.isPaused ? (
-                        <Pause size={9} strokeWidth={2} color="rgba(34,34,34,0.30)" />
-                      ) : null}
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </View>
+                  </View>
+                </>
+              )}
               <View style={styles.planCap}>
-                <RNText style={styles.planCapText}>
-                  {plannedCount} of {card.targetPerPeriod} planned · or leave it flexible
-                </RNText>
                 <TouchableOpacity
                   style={styles.adaptLink}
                   onPress={onPressAdapt}
@@ -735,6 +790,12 @@ const styles = StyleSheet.create({
   },
   readHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   readHeadText: { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.2, color: GOLD_DEEP },
+  readLoadingLine: {
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: 'rgba(138,106,40,0.18)',
+    marginTop: 10,
+  },
   readPara: { fontSize: 13, lineHeight: 19, color: '#33301F', marginTop: 8 },
   readParaBold: { fontWeight: '700', color: GOLD_BOLD },
   optLead: { fontSize: 12, fontWeight: '700', color: GOLD_DEEP, marginTop: 10 },

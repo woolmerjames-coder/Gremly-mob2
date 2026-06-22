@@ -424,30 +424,7 @@ export class DateService {
    * const weekStart = dateService.getStartOfWeek(); // "2025-01-13" (if today is Wed Jan 15)
    */
   getStartOfWeek(): string {
-    const now = this.now();
-    // Get weekday in the injected timezone via Intl
-    const formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: this.timezone,
-      weekday: 'short',
-    });
-    const weekdayName = formatter.format(now);
-    const weekdayMap: Record<string, number> = {
-      Sun: 0,
-      Mon: 1,
-      Tue: 2,
-      Wed: 3,
-      Thu: 4,
-      Fri: 5,
-      Sat: 6,
-    };
-    const day = weekdayMap[weekdayName] ?? 0;
-    // Convert Sunday (0) to 7 for easier Monday calculation
-    const dayOfWeek = day === 0 ? 7 : day;
-    // Get the timezone-correct date, then compute Monday via noon anchoring
-    const todayStr = this.toLocalDate(now);
-    const [y, m, d] = todayStr.split('-').map(Number);
-    const monday = new Date(y, m - 1, d - (dayOfWeek - 1), 12, 0, 0, 0);
-    return this.toLocalDate(monday);
+    return this.startOfWeekMonday(this.today());
   }
 
   /**
@@ -1098,6 +1075,21 @@ export class DateService {
     const day = d.getDay(); // 0=Sun
     const daysToMon = day === 0 ? -6 : 1 - day;
     return this.addDays(dateStr, daysToMon);
+  }
+
+  /** Sunday ending the week containing dateStr (YYYY-MM-DD). */
+  endOfWeekSunday(dateStr: string): string {
+    return this.addDays(this.startOfWeekMonday(dateStr), 6);
+  }
+
+  /** Monday of the week AFTER the one containing dateStr. */
+  nextWeekMonday(dateStr: string): string {
+    return this.addDays(this.startOfWeekMonday(dateStr), 7);
+  }
+
+  /** Whole days from dateStr to the Sunday ending its block (0 = dateStr is that Sunday). */
+  daysUntilBlockEnd(dateStr: string): number {
+    return this.daysBetween(dateStr, this.endOfWeekSunday(dateStr));
   }
 
   /**
