@@ -137,7 +137,7 @@ export function SweepHubChooser({
               activeOpacity={0.8}
               accessibilityLabel="What is a weekly sweep"
             >
-              <MascotLottie width={64} />
+              <MascotLottie width={84} />
             </TouchableOpacity>
           </View>
         </View>
@@ -213,7 +213,7 @@ export function SweepHubChooser({
                 <View
                   style={[styles.sectionChip, { backgroundColor: SECTION_CHIP_BG[section.key] }]}
                 >
-                  <SectionIcon size={19} strokeWidth={2} color={SECTION_ICON_COLOR[section.key]} />
+                  <SectionIcon size={17} strokeWidth={2} color={SECTION_ICON_COLOR[section.key]} />
                 </View>
                 <View style={styles.sectionTextBlock}>
                   <Text style={[styles.sectionLabel, isDone && styles.sectionLabelDone]}>
@@ -271,7 +271,7 @@ const useStyles = makeStyles((t) => ({
   },
   scroll: { flex: 1 },
   scrollContent: {
-    paddingBottom: 24,
+    paddingBottom: 16,
   },
 
   // ── Header (mirrors NowHeader topRow exactly) ─────────────────────────────
@@ -318,8 +318,8 @@ const useStyles = makeStyles((t) => ({
     alignItems: 'center',
     gap: 5,
     paddingHorizontal: t.spacing[4],
-    paddingTop: 10,
-    paddingBottom: 2,
+    paddingTop: 8,
+    paddingBottom: 0,
   },
   explainerTriggerText: {
     fontSize: 13,
@@ -347,21 +347,21 @@ const useStyles = makeStyles((t) => ({
   // ── Hero card ─────────────────────────────────────────────────────────────
   heroCard: {
     ...CARD_SHADOW,
-    backgroundColor: CARD_BG,
+    backgroundColor: 'rgba(224,196,122,0.20)',
     borderRadius: 16,
-    padding: 16,
+    padding: 13,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 13,
     borderWidth: 1,
-    borderColor: 'rgba(224,196,122,0.45)',
-    marginTop: 18,
+    borderColor: 'rgba(224,196,122,0.65)',
+    marginTop: 12,
     marginHorizontal: t.spacing[4],
   },
   heroChip: {
-    width: 46,
-    height: 46,
-    borderRadius: 15,
+    width: 40,
+    height: 40,
+    borderRadius: 13,
     backgroundColor: TINT_GOLD,
     alignItems: 'center',
     justifyContent: 'center',
@@ -384,8 +384,8 @@ const useStyles = makeStyles((t) => ({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: t.spacing[4],
-    marginTop: 22,
-    marginBottom: 10,
+    marginTop: 14,
+    marginBottom: 8,
   },
   orAccent: {
     width: 3,
@@ -404,15 +404,15 @@ const useStyles = makeStyles((t) => ({
 
   // ── Section cards ─────────────────────────────────────────────────────────
   sectionList: {
-    gap: 10,
+    gap: 8,
     paddingHorizontal: t.spacing[4],
   },
   sectionCard: {
     ...CARD_SHADOW,
     backgroundColor: CARD_BG,
     borderRadius: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 15,
+    paddingVertical: 10,
+    paddingHorizontal: 13,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 13,
@@ -427,9 +427,9 @@ const useStyles = makeStyles((t) => ({
     opacity: 0.45,
   },
   sectionChip: {
-    width: 40,
-    height: 40,
-    borderRadius: 13,
+    width: 34,
+    height: 34,
+    borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
   },

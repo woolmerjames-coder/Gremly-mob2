@@ -530,7 +530,12 @@ function SweepIntroStep({
                     {isEvening ? "Tonight's pick" : "Today's pick"}
                   </Text>
                 )}
-                <Text style={[styles.intentTitle, isPrimary && styles.intentTitleHighlight]}>
+                <Text
+                  style={[styles.intentTitle, isPrimary && styles.intentTitleHighlight]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.85}
+                >
                   {title}
                 </Text>
                 <Text style={styles.intentSubtitle}>{subtitle}</Text>
