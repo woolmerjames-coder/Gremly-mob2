@@ -78,6 +78,7 @@ import { DEFAULT_TIME_BLOCK_PREFERENCES, getTimeBlockBoundaries } from '../capac
 import { getRandomFallback } from '../minddrop/confirmationFallbacks';
 import { cancelAllItemReminders } from '../notifications/itemReminderService';
 import type { TimeBlockPreferences } from '../capacity';
+import { selectSweepCandidates, type SweepEligibleTodo } from '../today/sweepSelectors';
 
 /**
  * DATE HANDLING CONVENTION
@@ -550,6 +551,10 @@ export interface GremlyState {
   // ═══════════════════════════════════════════════════════════════════
   weeklySummaries: WeeklySummary[];
   weeklySummaryLoading: boolean;
+  /** Derived from sweep_skip_events rows with created_at >= now()-7d. */
+  skipsUsedLast7Days: number;
+  /** Timestamp of last skip budget derivation refresh. */
+  skipBudgetLoadedAt: string | null;
 
   // ═══════════════════════════════════════════════════════════════════
   // DAILY CONTEXT OBJECT (DCO)
@@ -750,6 +755,8 @@ export interface GremlyState {
   // ═══════════════════════════════════════════════════════════════════
   // TODO MUTATIONS
   // ═══════════════════════════════════════════════════════════════════
+  refreshSkipBudget: () => Promise<void>;
+  bulkSkipSweep: (targetDateStr: string) => Promise<{ movedCount: number }>;
   createTodo: (todo: Partial<Todo>) => Promise<Todo>;
   updateTodo: (id: string, updates: Partial<Todo>) => Promise<void>;
   deleteTodo: (id: string) => Promise<void>;
@@ -1267,6 +1274,8 @@ const initialState = {
   dailyBriefLoading: false,
   weeklySummaries: [] as WeeklySummary[],
   weeklySummaryLoading: false,
+  skipsUsedLast7Days: 0,
+  skipBudgetLoadedAt: null as string | null,
   // DCO
   dco: null as DailyContextObject | null,
   dcoLoading: false,
@@ -2006,6 +2015,8 @@ export const useGremlyStore = create<GremlyState>()(
             dailyBriefLoading: false,
             weeklySummaries: [],
             weeklySummaryLoading: false,
+            skipsUsedLast7Days: 0,
+            skipBudgetLoadedAt: null,
             isLoading: false,
             isInitialized: false,
             lastSyncedAt: null,
@@ -3251,6 +3262,86 @@ export const useGremlyStore = create<GremlyState>()(
         // ═══════════════════════════════════════════════════════════════════
         // TODO MUTATIONS
         // ═══════════════════════════════════════════════════════════════════
+
+        refreshSkipBudget: async () => {
+          const userId = get().userId;
+          if (!userId) return;
+
+          const ds = getDateService();
+          const loadedAt = ds.nowTimestamp();
+          const sevenDaysAgoDay = ds.addDays(ds.toLocalDate(ds.now()), -7);
+          const sevenDaysAgoIso = `${sevenDaysAgoDay}${loadedAt.slice(10)}`;
+
+          try {
+            const { count, error } = await supabase
+              .from('sweep_skip_events')
+              .select('id', { count: 'exact', head: true })
+              .eq('owner_id', userId)
+              .gte('created_at', sevenDaysAgoIso);
+
+            if (error) {
+              console.error('[GremlyStore] refreshSkipBudget failed:', error);
+              set({ skipsUsedLast7Days: 0, skipBudgetLoadedAt: loadedAt });
+              return;
+            }
+
+            set({ skipsUsedLast7Days: count ?? 0, skipBudgetLoadedAt: loadedAt });
+          } catch (error) {
+            console.error('[GremlyStore] refreshSkipBudget failed:', error);
+            set({ skipsUsedLast7Days: 0, skipBudgetLoadedAt: loadedAt });
+          }
+        },
+
+        bulkSkipSweep: async (targetDateStr: string) => {
+          const userId = get().userId;
+          if (!userId) throw new Error('Not authenticated');
+
+          try {
+            const todayDay = getDateService().today();
+            const sweepEligibleTodos = get().todos.map(
+              (t) =>
+                ({
+                  ...(t as unknown as SweepEligibleTodo),
+                  tags: t.tags ?? undefined,
+                }) as SweepEligibleTodo,
+            );
+            const candidateTodos = selectSweepCandidates(sweepEligibleTodos, todayDay);
+            const todosById = new Map(get().todos.map((t) => [t.id, t]));
+
+            await Promise.all(
+              candidateTodos.map(async (candidate) => {
+                const currentTodo = todosById.get(candidate.id);
+                const currentCount = currentTodo?.sweep_reschedule_count ?? 0;
+                await get().updateTodo(candidate.id, {
+                  scheduled_date: targetDateStr,
+                  due_day: targetDateStr,
+                  skipped_in_sweep_at: null,
+                  resurface_at: null,
+                  sweep_reschedule_count: currentCount + 1,
+                });
+              }),
+            );
+
+            const movedCount = candidateTodos.length;
+
+            const { error: insertError } = await supabase.from('sweep_skip_events').insert({
+              owner_id: userId,
+              target_date: targetDateStr,
+              todo_count: movedCount,
+            });
+
+            if (insertError) {
+              console.error('[GremlyStore] bulkSkipSweep failed:', insertError);
+              throw insertError;
+            }
+
+            await get().refreshSkipBudget();
+            return { movedCount };
+          } catch (error) {
+            console.error('[GremlyStore] bulkSkipSweep failed:', error);
+            throw error;
+          }
+        },
 
         createTodo: async (todo: Partial<Todo>) => {
           const userId = get().userId;
