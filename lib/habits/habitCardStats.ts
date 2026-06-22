@@ -13,10 +13,16 @@
 
 import { useMemo } from 'react';
 import { getDateService } from '../date/DateService';
-import type { HabitProgressRow, HabitAdaptationRow, HabitPlanRow } from '../store/useGremlyStore';
+import type {
+  HabitProgressRow,
+  HabitAdaptationRow,
+  HabitPlanRow,
+  HabitTargetHistoryRow,
+} from '../store/useGremlyStore';
 import { useGremlyStore } from '../store/useGremlyStore';
 import { computeHabitStreak, computeBestStreak } from './streakUtils';
 import { getHabitFrequencyLabel } from './frequencyUtils';
+import { targetForWeek } from './habitFactSheet';
 import type { Habit } from '../types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -199,7 +205,7 @@ function getIsoWeekKey(dateStr: string): string {
  */
 function computeTrend(
   progressForHabit: HabitProgressRow[],
-  barTarget: number,
+  resolveTarget: (weekKey: string) => number,
   today: string,
 ): HabitTrend {
   const ds = getDateService();
@@ -242,7 +248,7 @@ function computeTrend(
     return {
       weekLabel: weeksAgo === 0 ? 'now' : `${weeksAgo}w`,
       hits,
-      target: barTarget,
+      target: resolveTarget(key),
       isCurrent: key === currentWeekKey,
     };
   });
@@ -270,6 +276,7 @@ export function computeHabitCardStats(
   adaptations: HabitAdaptationRow[] = [],
   allHabits: Habit[] = [],
   habitPlans: HabitPlanRow[] = [],
+  habitTargetHistory: HabitTargetHistoryRow[] = [],
 ): HabitCardStats {
   const ds = getDateService();
   const today = ds.today();
@@ -355,8 +362,11 @@ export function computeHabitCardStats(
   );
   const bestStreak = computeBestStreak(allCompletedDates);
   // ── Trend ────────────────────────────────────────────────────────────────
-  const barTarget = cadence === 'daily' ? 7 : targetPerPeriod;
-  const trend = computeTrend(progressForHabit, barTarget, today);
+  const resolveTarget =
+    cadence === 'daily'
+      ? (_weekKey: string) => 7
+      : (weekKey: string) => targetForWeek(habitTargetHistory, habit.id, weekKey, targetPerPeriod);
+  const trend = computeTrend(progressForHabit, resolveTarget, today);
   // ── Strip + AI fields ────────────────────────────────────────────────────────
   const pairing = computeTopPairing(habit.id, habitProgress, allHabits, today);
   const wowDelta = computeWowDelta(progressForHabit, today);
@@ -442,11 +452,19 @@ export function useHabitCardStats(habits: Habit[]): HabitCardStats[] {
   const habitProgress = useGremlyStore((s) => s.habitProgress);
   const habitAdaptations = useGremlyStore((s) => s.habitAdaptations);
   const habitPlans = useGremlyStore((s) => s.habitPlans);
+  const habitTargetHistory = useGremlyStore((s) => s.habitTargetHistory);
   return useMemo(
     () =>
       habits.map((h) =>
-        computeHabitCardStats(h, habitProgress, habitAdaptations, habits, habitPlans),
+        computeHabitCardStats(
+          h,
+          habitProgress,
+          habitAdaptations,
+          habits,
+          habitPlans,
+          habitTargetHistory,
+        ),
       ),
-    [habits, habitProgress, habitAdaptations, habitPlans],
+    [habits, habitProgress, habitAdaptations, habitPlans, habitTargetHistory],
   );
 }

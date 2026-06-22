@@ -126,6 +126,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
   const removeHabitCompletionForDate = useGremlyStore((s) => s.removeHabitCompletionForDate);
   const habitProgress = useGremlyStore((s) => s.habitProgress);
   const updateHabit = useGremlyStore((s) => s.updateHabit);
+  const setHabitTarget = useGremlyStore((s) => s.setHabitTarget);
   const setHabitAdaptation = useGremlyStore((s) => s.setHabitAdaptation);
   const updateHabitAdaptation = useGremlyStore((s) => s.updateHabitAdaptation);
   const clearHabitAdaptation = useGremlyStore((s) => s.clearHabitAdaptation);
@@ -286,13 +287,13 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
     async (n: number) => {
       if (!card || !rec) return;
       const label = getFrequencyDisplayLabel(rec.cadence, n) ?? `${n}x`;
-      await updateHabit(card.id, { cadence: rec.cadence, target_per_period: n });
+      await setHabitTarget(card.id, rec.cadence, n);
       setAppliedChanges((prev) => ({
         ...prev,
         [card.id]: { from: rec.currentTarget, to: n, label },
       }));
     },
-    [card, rec, updateHabit],
+    [card, rec, setHabitTarget],
   );
 
   const handlePrev = useCallback(() => {

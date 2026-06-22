@@ -455,6 +455,15 @@ export interface HabitPlanRow {
   status: 'planned' | 'kept' | 'missed' | 'rescheduled';
 }
 
+export interface HabitTargetHistoryRow {
+  id: string;
+  habit_id: string;
+  owner_id: string;
+  cadence: string;
+  target_per_period: number;
+  effective_from: string;
+}
+
 // ── Habit reads (unified AI read; supersedes floor suggestions in Card C) ──
 export interface HabitReadEntry {
   read: HabitRead | null; // null = generated but empty (ineligible/validation)
@@ -493,6 +502,8 @@ export interface GremlyState {
   habitAdaptations: HabitAdaptationRow[];
   /** Forward plans (coming 7+ days) per habit. Loaded on hydrate, current+future weeks. */
   habitPlans: HabitPlanRow[];
+  /** Historical target changes per habit keyed by effective_from date. */
+  habitTargetHistory: HabitTargetHistoryRow[];
   /** Floor suggestions from AI, keyed by `${habit_id}:${week_start}`. */
   habitFloorSuggestions: Record<string, FloorSuggestion>;
   /** True while ensureFloorSuggestions is running. */
@@ -752,6 +763,7 @@ export interface GremlyState {
   // ═══════════════════════════════════════════════════════════════════
   createHabit: (habit: Partial<Habit>) => Promise<Habit>;
   updateHabit: (id: string, updates: Partial<Habit>) => Promise<void>;
+  setHabitTarget: (id: string, cadence: string, target: number) => Promise<void>;
   deleteHabit: (id: string) => Promise<void>;
   completeHabit: (id: string) => Promise<void>;
   uncompleteHabit: (id: string) => Promise<void>;
@@ -1224,6 +1236,7 @@ const initialState = {
   habitProgress: [] as HabitProgressRow[],
   habitAdaptations: [] as HabitAdaptationRow[],
   habitPlans: [] as HabitPlanRow[],
+  habitTargetHistory: [] as HabitTargetHistoryRow[],
   habitFloorSuggestions: {} as Record<string, FloorSuggestion>,
   floorSuggestRunning: false,
   habitReads: {} as Record<string, HabitReadEntry>,
@@ -1462,6 +1475,7 @@ export const useGremlyStore = create<GremlyState>()(
               progressRes,
               adaptationsRes,
               habitPlansRes,
+              habitTargetHistoryRes,
               chatsRes,
               milestonesRes,
               dailyBriefRes,
@@ -1528,6 +1542,9 @@ export const useGremlyStore = create<GremlyState>()(
                 .select('*')
                 .eq('owner_id', userId)
                 .gte('week_start', getDateService().startOfWeekMonday(getDateService().today())),
+              fetchAllPaginated<HabitTargetHistoryRow>(() =>
+                supabase.from('habit_target_history').select('*').eq('owner_id', userId),
+              ),
               supabase.from('scope_chats').select('*').eq('user_id', userId),
               supabase.from('space_milestones').select('*').eq('owner_id', userId),
               supabase
@@ -1753,6 +1770,7 @@ export const useGremlyStore = create<GremlyState>()(
               tags: tagsRes.data ?? [],
               habitProgress: progressRes.data ?? [],
               habitAdaptations: ((adaptationsRes as any).data ?? []) as HabitAdaptationRow[],
+              habitTargetHistory: (habitTargetHistoryRes ?? []) as HabitTargetHistoryRow[],
               spaceChats: chatsRes.data ?? [],
               milestones: milestonesRes.data ?? [],
               worlds: (worldsRes.data ?? []) as World[],
@@ -1980,6 +1998,7 @@ export const useGremlyStore = create<GremlyState>()(
             habitProgress: [],
             habitAdaptations: [],
             habitPlans: [],
+            habitTargetHistory: [],
             spaceChats: [],
             spaceChatMessages: [],
             milestones: [],
@@ -3580,6 +3599,91 @@ export const useGremlyStore = create<GremlyState>()(
           eventBus.emit('ItemUpdated', { id, source: STORE_EVENT_SOURCE });
         },
 
+        setHabitTarget: async (id: string, cadence: string, target: number) => {
+          const habit = get().habits.find((h) => h.id === id);
+          if (!habit) return;
+
+          const ds = getDateService();
+          const ownerId = get().userId;
+          if (!ownerId) return;
+
+          // 1) Backfill the original target as history iff no history exists yet.
+          const { data: existing, error: histErr } = await supabase
+            .from('habit_target_history')
+            .select('id')
+            .eq('habit_id', id)
+            .limit(1);
+          if (histErr) {
+            console.error('[GremlyStore] setHabitTarget history check failed:', histErr);
+          }
+
+          if (!existing || existing.length === 0) {
+            // created_at date is the effective_from for the original target (no gap).
+            const createdDate = (habit.created_at ?? ds.today()).slice(0, 10);
+            const oldTarget = habit.target_per_period ?? 1;
+            const oldCadence = habit.cadence ?? cadence;
+
+            const { data: backfillRow, error: backfillErr } = await supabase
+              .from('habit_target_history')
+              .insert({
+                habit_id: id,
+                owner_id: ownerId,
+                cadence: oldCadence,
+                target_per_period: oldTarget,
+                effective_from: createdDate,
+              })
+              .select('*')
+              .maybeSingle();
+
+            if (backfillErr) {
+              console.error('[GremlyStore] setHabitTarget backfill insert failed:', backfillErr);
+            } else if (backfillRow) {
+              set((state) => ({
+                habitTargetHistory: [
+                  ...state.habitTargetHistory,
+                  backfillRow as HabitTargetHistoryRow,
+                ],
+              }));
+            }
+          }
+
+          // 2) Upsert the new target row from this block's Monday.
+          const effectiveFrom = ds.startOfWeekMonday(ds.today());
+          const { data: targetRow, error: targetErr } = await supabase
+            .from('habit_target_history')
+            .upsert(
+              {
+                habit_id: id,
+                owner_id: ownerId,
+                cadence,
+                target_per_period: target,
+                effective_from: effectiveFrom,
+              },
+              { onConflict: 'habit_id,effective_from' },
+            )
+            .select('*')
+            .maybeSingle();
+
+          if (targetErr) {
+            console.error('[GremlyStore] setHabitTarget upsert failed:', targetErr);
+          } else if (targetRow) {
+            set((state) => ({
+              habitTargetHistory: [
+                ...state.habitTargetHistory.filter(
+                  (r) => !(r.habit_id === id && r.effective_from === effectiveFrom),
+                ),
+                targetRow as HabitTargetHistoryRow,
+              ],
+            }));
+          }
+
+          // 3) Update the canonical habit row using existing optimistic/rollback path.
+          await get().updateHabit(id, {
+            cadence: cadence as Habit['cadence'],
+            target_per_period: target,
+          });
+        },
+
         deleteHabit: async (id: string) => {
           const prevHabit = get().habits.find((h) => h.id === id);
 
@@ -4359,6 +4463,7 @@ export const useGremlyStore = create<GremlyState>()(
             // ── Fact sheets + per-habit input hash ──
             const habitProgress = get().habitProgress;
             const habitAdaptations = get().habitAdaptations;
+            const habitTargetHistory = get().habitTargetHistory;
             const activeHabits = habits.filter((h) => !h.archived);
             const sheetsById = new Map<
               string,
@@ -4373,6 +4478,7 @@ export const useGremlyStore = create<GremlyState>()(
                 habitProgress,
                 habitAdaptations,
                 get().habitPlans,
+                habitTargetHistory,
               );
               sheetsById.set(h.id, {
                 sheet,
@@ -6318,6 +6424,7 @@ export const useGremlyStore = create<GremlyState>()(
               weeklySummariesRes,
               cortexPrefsRes,
               adaptationsRes,
+              habitTargetHistoryRes,
             ] = await Promise.all([
               fetchAllPaginated<Todo>(() =>
                 supabase
@@ -6372,6 +6479,9 @@ export const useGremlyStore = create<GremlyState>()(
                 .eq('owner_id', userId)
                 .maybeSingle(),
               supabase.from('habit_adaptations').select('*').eq('owner_id', userId),
+              fetchAllPaginated<HabitTargetHistoryRow>(() =>
+                supabase.from('habit_target_history').select('*').eq('owner_id', userId),
+              ),
             ]);
 
             // Check cortex_preferences error — skip prefs reconciliation but continue entity updates
@@ -6422,6 +6532,7 @@ export const useGremlyStore = create<GremlyState>()(
               tags: tagsRes.data ?? [],
               habitProgress: progressRes.data ?? [],
               habitAdaptations: ((adaptationsRes as any).data ?? []) as HabitAdaptationRow[],
+              habitTargetHistory: (habitTargetHistoryRes ?? []) as HabitTargetHistoryRow[],
               spaceChats: chatsRes.data ?? [],
               milestones: milestonesRes.data ?? [],
               weeklySummaries: (weeklySummariesRes.data ?? []) as WeeklySummary[],

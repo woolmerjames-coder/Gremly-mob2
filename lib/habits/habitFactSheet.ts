@@ -20,7 +20,12 @@
  */
 
 import { getDateService } from '../date/DateService';
-import type { HabitProgressRow, HabitAdaptationRow, HabitPlanRow } from '../store/useGremlyStore';
+import type {
+  HabitProgressRow,
+  HabitAdaptationRow,
+  HabitPlanRow,
+  HabitTargetHistoryRow,
+} from '../store/useGremlyStore';
 import type { HabitCardStats } from './habitCardStats';
 import { computeFrequencyRecommendation } from './habitFrequencyRecommendation';
 import type { Habit } from '../types';
@@ -101,10 +106,29 @@ function isoWeekMonday(dateStr: string): string {
   return ds.addDays(dateStr, day === 0 ? -6 : 1 - day);
 }
 
+/**
+ * The target_per_period in effect for the given habit during the week starting
+ * weekStartKey. Picks the latest history row with effective_from <= weekStartKey.
+ * Falls back to currentTarget when no history row covers that week.
+ */
+export function targetForWeek(
+  history: HabitTargetHistoryRow[],
+  habitId: string,
+  weekStartKey: string,
+  currentTarget: number,
+): number {
+  const rows = history
+    .filter((h) => h.habit_id === habitId && h.effective_from <= weekStartKey)
+    .sort((a, b) => b.effective_from.localeCompare(a.effective_from));
+  return rows[0]?.target_per_period ?? currentTarget;
+}
+
 function computeCompletedTrendWeeks(
+  habitId: string,
   completionDays: string[],
   cadence: string,
   targetPerPeriod: number,
+  habitTargetHistory: HabitTargetHistoryRow[],
   today: string,
 ): FactSheetTrendWeek[] {
   const ds = getDateService();
@@ -121,7 +145,6 @@ function computeCompletedTrendWeeks(
     if (!hitsMap.has(key)) hitsMap.set(key, new Set());
     hitsMap.get(key)!.add(day);
   }
-  const barTarget = cadence === 'daily' ? 7 : targetPerPeriod;
   const firstIdx = weekKeys.findIndex((k) => (hitsMap.get(k)?.size ?? 0) > 0);
   if (firstIdx === -1) return [];
   // In-span empty weeks are kept: a zero week between active weeks is real
@@ -129,7 +152,8 @@ function computeCompletedTrendWeeks(
   return weekKeys.slice(firstIdx).map((key) => ({
     week_start: key,
     hits: hitsMap.get(key)?.size ?? 0,
-    target: barTarget,
+    target:
+      cadence === 'daily' ? 7 : targetForWeek(habitTargetHistory, habitId, key, targetPerPeriod),
   }));
 }
 
@@ -175,6 +199,7 @@ export function buildHabitFactSheet(
   habitProgress: HabitProgressRow[],
   habitAdaptations: HabitAdaptationRow[],
   habitPlans: HabitPlanRow[],
+  habitTargetHistory: HabitTargetHistoryRow[],
 ): HabitFactSheet {
   const ds = getDateService();
   const today = ds.today();
@@ -199,9 +224,11 @@ export function buildHabitFactSheet(
     week_target: card.weekTarget,
     streak: { count: card.streak.count, unit: card.streak.unit },
     trend_weeks: computeCompletedTrendWeeks(
+      habit.id,
       completionDaysAll,
       card.cadence,
       card.targetPerPeriod,
+      habitTargetHistory,
       today,
     ),
     completion_days: completionDays56,
@@ -229,9 +256,9 @@ export function buildHabitFactSheet(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Input hash: stable FNV-1a over the read-relevant payload. A changed hash
-// means the cached read is stale and must regenerate (plan: hash
-// invalidation drives both freshness and state-aware narration).
+// Input hash: stable FNV-1a over block-identity inputs only. Cache keys
+// already include week_start, so this hash should only reflect read version
+// + habit identity to avoid mid-week regeneration.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function computeInputHash(
@@ -239,20 +266,11 @@ export function computeInputHash(
   events: { ref: string; title: string; start: string; end: string }[],
   eventNotes: { ref: string; title: string; start: string; end: string }[],
 ): string {
-  const basis = JSON.stringify([
-    HABIT_READ_VERSION,
-    factSheet.week_hits,
-    factSheet.week_target,
-    factSheet.streak,
-    factSheet.trend_weeks,
-    factSheet.completion_days,
-    factSheet.planned_dates,
-    factSheet.freq_rec,
-    factSheet.adaptations,
-    factSheet.target_per_period,
-    events.map((e) => ({ ref: e.ref, title: e.title, start: e.start, end: e.end })),
-    eventNotes.map((n) => ({ ref: n.ref, title: n.title, start: n.start, end: n.end })),
-  ]);
+  // Keep params in signature for caller compatibility; hash no longer depends on them.
+  void events;
+  void eventNotes;
+
+  const basis = JSON.stringify([HABIT_READ_VERSION, factSheet.habit_id]);
   let hash = 0x811c9dc5;
   for (let i = 0; i < basis.length; i++) {
     hash ^= basis.charCodeAt(i);
