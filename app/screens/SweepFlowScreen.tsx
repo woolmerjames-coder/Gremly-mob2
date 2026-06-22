@@ -59,6 +59,7 @@ import {
   ArrowRight,
   ChevronRight,
   Calendar,
+  CalendarX,
   Sun,
   Moon,
   CalendarDays,
@@ -74,6 +75,7 @@ import { useNeedsMindDropTutorial, useCanCreate } from '../../lib/store/lifecycl
 import {
   useActiveSpaces,
   useIsLoading,
+  useSkipBudget,
   useSweepCandidatesUnified,
 } from '../../lib/store/selectors';
 
@@ -281,6 +283,12 @@ function SweepIntroStep({
   const gremlyAge = useGremlyStore.getState().gremlyAge;
   const lastSweepCompletedAt = useGremlyStore((state) => state.lastSweepCompletedAt);
   const candidates = useSweepCandidatesUnified();
+  const { remaining, total, canSkip } = useSkipBudget();
+  const refreshSkipBudget = useGremlyStore((s) => s.refreshSkipBudget);
+
+  useEffect(() => {
+    refreshSkipBudget();
+  }, [refreshSkipBudget]);
 
   // Count items by type
   const todoCount = candidates.filter((c) => c.candidate.kind === 'todo').length;
@@ -553,7 +561,36 @@ function SweepIntroStep({
 
       {/* Footer - pushed to bottom with flex spacer */}
       <View style={{ flex: 1 }} />
-      <Text style={styles.batchDeferLink}>Too much right now? Move everything to a day</Text>
+      <View style={styles.bulkSkipFooter}>
+        <Pressable
+          onPress={() => {
+            if (canSkip) {
+              triggerLight();
+              onStart('skip');
+            }
+          }}
+          style={[styles.bulkSkipRow, !canSkip && styles.bulkSkipRowLocked]}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: !canSkip }}
+          accessibilityLabel={
+            canSkip
+              ? `Move everything to a day. ${remaining} of ${total} skips left this week.`
+              : 'No skips left this week.'
+          }
+        >
+          <CalendarX size={16} color={BRAND.colors.inkMuted} />
+          <View style={styles.bulkSkipTextWrap}>
+            <Text style={[styles.bulkSkipLabel, !canSkip && styles.bulkSkipLabelLocked]}>
+              {canSkip ? 'Move everything to a day' : 'No skips left this week'}
+            </Text>
+            <Text style={styles.bulkSkipCount}>
+              {canSkip
+                ? `${remaining} of ${total} skips left this week`
+                : 'Refills as the week rolls forward'}
+            </Text>
+          </View>
+        </Pressable>
+      </View>
       <Text style={styles.lastSweepText}>{getLastSweepText()}</Text>
     </View>
   );
@@ -1617,7 +1654,7 @@ function SweepHabitsStep({ onContinue }: StepProps) {
 interface DecisionStepProps {
   onFinished: (summary: SweepSummary) => void;
   onClose?: () => void;
-  sweepIntent?: SweepIntent;
+  sweepIntent?: Exclude<SweepIntent, 'skip'>;
   /** DEV ONLY: Jump to specific card index for testing */
   initialCardIndex?: number;
 }
@@ -5156,7 +5193,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
             <SweepDecisionStep
               onFinished={handleDecisionFinished}
               onClose={handleClose}
-              sweepIntent={sweepIntent}
+              sweepIntent={sweepIntent === 'skip' ? 'tomorrow' : sweepIntent}
               initialCardIndex={initialCardIndex}
             />
           )}
@@ -5647,12 +5684,38 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   // Footer
-  batchDeferLink: {
-    fontSize: 13,
-    fontFamily: BRAND.typography.bodyMedium.fontFamily,
+  bulkSkipFooter: {
+    marginTop: 8,
+    marginHorizontal: 20,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: BRAND.colors.borderSubtle,
+  },
+  bulkSkipRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: BRAND.radius.md,
+    borderWidth: 1,
+    borderColor: BRAND.colors.borderSubtle,
+    backgroundColor: 'transparent',
+  },
+  bulkSkipRowLocked: { opacity: 0.5 },
+  bulkSkipTextWrap: { flex: 1 },
+  bulkSkipLabel: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    fontWeight: '500',
     color: BRAND.colors.mossGreen,
-    textAlign: 'center',
-    marginBottom: 8,
+  },
+  bulkSkipLabelLocked: { color: BRAND.colors.inkMuted },
+  bulkSkipCount: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: BRAND.colors.inkMuted,
+    marginTop: 2,
   },
   lastSweepText: {
     fontSize: 11.5,
