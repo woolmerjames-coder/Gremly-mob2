@@ -1433,20 +1433,19 @@ export const useSweepCount = () => useGremlyStore(selectSweepCandidateCount);
 export const useSweepCandidatesUnified = () => useGremlyStore(selectSweepCandidatesUnified);
 export const useSweepCountUnified = () => useGremlyStore(selectSweepCandidateCountUnified);
 
-const WEEKLY_SKIP_BUDGET = 3;
+export const WEEKLY_SKIP_BUDGET = 3;
 
-export const useSkipBudget = () =>
-  useGremlyStore((state) => {
-    const total = WEEKLY_SKIP_BUDGET;
-    const used = state.skipsUsedLast7Days;
-    const remaining = Math.max(0, total - used);
-    const canSkip = remaining > 0;
-    // TODO: nextRefillDate requires oldest in-window sweep_skip_events.created_at timestamp.
-    // The store currently mirrors only count, so we cannot derive this date accurately.
-    const nextRefillDate: Date | null = null;
+export const useSkipBudget = () => {
+  // Subscribe to a single primitive — stable reference, no snapshot loop.
+  const used = useGremlyStore((state) => state.skipsUsedLast7Days);
 
-    return { used, remaining, total, canSkip, nextRefillDate };
-  });
+  // Derive everything else outside the store subscription. Cheap, no memo needed.
+  const total = WEEKLY_SKIP_BUDGET;
+  const remaining = Math.max(0, total - used);
+  const canSkip = remaining > 0;
+
+  return { used, remaining, total, canSkip };
+};
 
 export const useRecentDrops = () => useGremlyStore(selectRecentDrops);
 export const useForgottenTodos = () => useGremlyStore(selectForgottenTodos);
