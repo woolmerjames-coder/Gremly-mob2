@@ -3507,6 +3507,7 @@ function SweepDecisionStep({
           itemCount={currentTransition?.count || 0}
           onContinue={handleTransitionContinue}
           onClose={onClose}
+          sweepIntent={sweepIntent}
         />
       </Modal>
 
