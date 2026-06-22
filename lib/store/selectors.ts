@@ -1433,6 +1433,21 @@ export const useSweepCount = () => useGremlyStore(selectSweepCandidateCount);
 export const useSweepCandidatesUnified = () => useGremlyStore(selectSweepCandidatesUnified);
 export const useSweepCountUnified = () => useGremlyStore(selectSweepCandidateCountUnified);
 
+const WEEKLY_SKIP_BUDGET = 3;
+
+export const useSkipBudget = () =>
+  useGremlyStore((state) => {
+    const total = WEEKLY_SKIP_BUDGET;
+    const used = state.skipsUsedLast7Days;
+    const remaining = Math.max(0, total - used);
+    const canSkip = remaining > 0;
+    // TODO: nextRefillDate requires oldest in-window sweep_skip_events.created_at timestamp.
+    // The store currently mirrors only count, so we cannot derive this date accurately.
+    const nextRefillDate: Date | null = null;
+
+    return { used, remaining, total, canSkip, nextRefillDate };
+  });
+
 export const useRecentDrops = () => useGremlyStore(selectRecentDrops);
 export const useForgottenTodos = () => useGremlyStore(selectForgottenTodos);
 export const useYourNotes = () => useGremlyStore(selectYourNotes);
