@@ -156,6 +156,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
     getDateService().addDays(getDateService().today(), 6),
   );
   const [adaptFloorNote, setAdaptFloorNote] = useState('');
+  const [adaptSourceRef, setAdaptSourceRef] = useState<string | null>(null);
   const [adaptOverlapError, setAdaptOverlapError] = useState(false);
   const [adaptSaving, setAdaptSaving] = useState(false);
   // Session-persistent adaptation confirmations keyed by habitId
@@ -214,6 +215,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
       setAdaptStart(ds.today());
       setAdaptEnd(ds.addDays(ds.today(), 6));
       setAdaptFloorNote(h?.floor_note ?? '');
+      setAdaptSourceRef(null);
       setAdaptOverlapError(false);
       // leave adaptConfirmations intact — persists for the session
     },
@@ -330,6 +332,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
       period_start: adaptStart,
       period_end: adaptEnd,
       floor_note: adaptMode === 'floor' ? adaptFloorNote || null : null,
+      source_ref: adaptSourceRef,
     });
     setAdaptSaving(false);
     if (!result.ok) {
@@ -350,72 +353,54 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
         : `Floor mode ${formatDateDisplay(savedStart)}–${formatDateDisplay(savedEnd)}`;
     setAdaptConfirmations((prev) => ({ ...prev, [card.id]: confirmLabel }));
     const ds = getDateService();
-    setAdaptExpanded(false);
     setAdaptMode('keep');
     setAdaptStart(ds.today());
     setAdaptEnd(ds.addDays(ds.today(), 6));
     setAdaptFloorNote(currentHabit?.floor_note ?? '');
-  }, [card, adaptMode, adaptStart, adaptEnd, adaptFloorNote, setHabitAdaptation, currentHabit]);
+    setAdaptSourceRef(null);
+  }, [
+    card,
+    adaptMode,
+    adaptStart,
+    adaptEnd,
+    adaptFloorNote,
+    adaptSourceRef,
+    setHabitAdaptation,
+    currentHabit,
+  ]);
 
   const handleSelectIdea = useCallback(
-    async (idea: string, start: string, end: string, ref: string) => {
+    (idea: string, start: string, end: string, ref: string) => {
       if (!card) return;
-      setAdaptSaving(true);
+      setAdaptMode('floor');
+      setAdaptStart(start);
+      setAdaptEnd(end);
+      setAdaptFloorNote(idea);
+      setAdaptSourceRef(ref);
       setAdaptOverlapError(false);
-      const result = await setHabitAdaptation(card.id, {
-        mode: 'floor',
-        period_start: start,
-        period_end: end,
-        floor_note: idea,
-        source_ref: ref,
-      });
-      setAdaptSaving(false);
-      if (!result.ok) {
-        if (result.reason === 'overlap') {
-          setAdaptOverlapError(true);
-        } else {
-          Alert.alert('Error', 'Could not save adaptation. Please try again.');
-        }
-        return;
-      }
-      setAdaptConfirmations((prev) => ({
-        ...prev,
-        [card.id]: `Floor mode ${formatDateDisplay(start)}–${formatDateDisplay(end)}`,
-      }));
+      setAdaptExpanded(true);
     },
-    [card, setHabitAdaptation],
+    [card],
   );
 
   const handleSelectPause = useCallback(
-    async (start: string, end: string, ref: string) => {
+    (start: string, end: string, ref: string) => {
       if (!card) return;
-      setAdaptSaving(true);
+      setAdaptMode('pause');
+      setAdaptStart(start);
+      setAdaptEnd(end);
+      setAdaptFloorNote('');
+      setAdaptSourceRef(ref);
       setAdaptOverlapError(false);
-      const result = await setHabitAdaptation(card.id, {
-        mode: 'pause',
-        period_start: start,
-        period_end: end,
-        floor_note: null,
-        source_ref: ref,
-      });
-      setAdaptSaving(false);
-      if (!result.ok) {
-        if (result.reason === 'overlap') {
-          setAdaptOverlapError(true);
-        } else {
-          Alert.alert('Error', 'Could not save adaptation. Please try again.');
-        }
-        return;
-      }
-      setAdaptConfirmations((prev) => ({
-        ...prev,
-        [card.id]: `Paused ${formatDateDisplay(start)}–${formatDateDisplay(end)}`,
-      }));
+      setAdaptExpanded(true);
     },
-    [card, setHabitAdaptation],
+    [card],
   );
 
-  const handlePressAdapt = useCallback(() => setAdaptExpanded(true), []);
+  const handlePressAdapt = useCallback(() => {
+    setAdaptSourceRef(null);
+    setAdaptExpanded(true);
+  }, []);
 
   const handlePressPlanStart = useCallback(() => {
     setPlanStartMenuOpen(true);
@@ -493,8 +478,8 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
         />
       )}
 
-      {/* Date picker — iOS: bottom sheet with inline calendar grid */}
-      {datePickerTarget !== null && Platform.OS === 'ios' && (
+      {/* Date picker — iOS standalone modal (planStart only). Start/end now render in-sheet overlay. */}
+      {datePickerTarget === 'planStart' && Platform.OS === 'ios' && (
         <Modal visible transparent animationType="slide">
           <Pressable
             style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' }}
@@ -505,13 +490,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
               <TouchableOpacity onPress={() => setDatePickerTarget(null)}>
                 <Text style={styles.datePickerSheetCancel}>Cancel</Text>
               </TouchableOpacity>
-              <Text style={styles.datePickerSheetTitle}>
-                {datePickerTarget === 'start'
-                  ? 'Start date'
-                  : datePickerTarget === 'planStart'
-                    ? 'Plan start date'
-                    : 'End date'}
-              </Text>
+              <Text style={styles.datePickerSheetTitle}>Plan start date</Text>
               <TouchableOpacity onPress={handleDatePickerConfirm}>
                 <Text style={styles.datePickerSheetDone}>Done</Text>
               </TouchableOpacity>
@@ -523,13 +502,7 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
               display="inline"
               themeVariant="light"
               accentColor={BRAND.colors.mossGreen}
-              minimumDate={
-                datePickerTarget === 'end'
-                  ? (getDateService().fromLocalDate(adaptStart) ?? undefined)
-                  : datePickerTarget === 'planStart'
-                    ? (getDateService().fromLocalDate(getDateService().today()) ?? undefined)
-                    : undefined
-              }
+              minimumDate={getDateService().fromLocalDate(getDateService().today()) ?? undefined}
               onChange={(_: any, date?: Date) => {
                 if (date) setDatePickerTempDate(date);
               }}
@@ -543,13 +516,19 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
     <Modal visible={adaptExpanded} transparent animationType="slide">
       <Pressable
         style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' }}
-        onPress={() => setAdaptExpanded(false)}
+        onPress={() => {
+          setAdaptSourceRef(null);
+          setAdaptExpanded(false);
+        }}
       />
       <View style={styles.adaptFormSheet}>
         <View style={styles.adaptExpandedHeader}>
           <Text style={styles.adaptLabel}>Adapt this habit</Text>
           <TouchableOpacity
-            onPress={() => setAdaptExpanded(false)}
+            onPress={() => {
+              setAdaptSourceRef(null);
+              setAdaptExpanded(false);
+            }}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             accessibilityRole="button"
             accessibilityLabel="Collapse"
@@ -557,6 +536,35 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
             <ChevronUp size={16} strokeWidth={2} color={BRAND.colors.inkMuted} />
           </TouchableOpacity>
         </View>
+        {adaptationsForCard.length > 0 && (
+          <View style={styles.adaptSheetActiveSection}>
+            <Text style={styles.adaptSheetActiveTitle}>Active this period</Text>
+            {adaptationsForCard.map((a) => (
+              <View key={a.id} style={styles.activeAdaptRow}>
+                <View style={styles.activeAdaptContent}>
+                  {a.mode === 'pause' ? (
+                    <Pause size={11} strokeWidth={2} color={BRAND.colors.charcoalInk} />
+                  ) : (
+                    <TrendingDown size={11} strokeWidth={2} color={BRAND.colors.charcoalInk} />
+                  )}
+                  <Text style={styles.activeAdaptText}>
+                    {a.mode === 'pause' ? 'Paused' : 'Floor'} {formatDateDisplay(a.period_start)}
+                    {'–'}
+                    {formatDateDisplay(a.period_end)}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => handleClearAdaptation(a.id)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Remove adaptation"
+                >
+                  <Text style={styles.activeAdaptRemove}>Remove</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
         <View style={styles.adaptModeRow}>
           {(['keep', 'floor', 'pause'] as const).map((m) => (
             <TouchableOpacity
@@ -656,6 +664,50 @@ export function SweepHabitsCheckInStep({ onFinish }: SweepHabitsCheckInStepProps
                 {adaptSaving ? 'Saving...' : 'Save adaptation'}
               </Text>
             </TouchableOpacity>
+          </View>
+        )}
+        <TouchableOpacity
+          style={styles.adaptDoneBtn}
+          onPress={() => {
+            setAdaptSourceRef(null);
+            setAdaptExpanded(false);
+          }}
+          activeOpacity={0.75}
+          accessibilityRole="button"
+          accessibilityLabel="Done"
+        >
+          <Text style={styles.adaptDoneBtnText}>Done</Text>
+        </TouchableOpacity>
+
+        {datePickerTarget !== null && datePickerTarget !== 'planStart' && Platform.OS === 'ios' && (
+          <View style={[styles.datePickerSheet, styles.adaptSheetDatePickerOverlay]}>
+            <View style={styles.datePickerSheetHeader}>
+              <TouchableOpacity onPress={() => setDatePickerTarget(null)}>
+                <Text style={styles.datePickerSheetCancel}>Cancel</Text>
+              </TouchableOpacity>
+              <Text style={styles.datePickerSheetTitle}>
+                {datePickerTarget === 'start' ? 'Start date' : 'End date'}
+              </Text>
+              <TouchableOpacity onPress={handleDatePickerConfirm}>
+                <Text style={styles.datePickerSheetDone}>Done</Text>
+              </TouchableOpacity>
+            </View>
+            <DateTimePicker
+              style={{ marginHorizontal: 8 }}
+              value={datePickerTempDate}
+              mode="date"
+              display="inline"
+              themeVariant="light"
+              accentColor={BRAND.colors.mossGreen}
+              minimumDate={
+                datePickerTarget === 'end'
+                  ? (getDateService().fromLocalDate(adaptStart) ?? undefined)
+                  : undefined
+              }
+              onChange={(_: any, date?: Date) => {
+                if (date) setDatePickerTempDate(date);
+              }}
+            />
           </View>
         )}
       </View>
@@ -1731,6 +1783,15 @@ const styles = StyleSheet.create({
     color: BRAND.colors.mossGreen,
     marginLeft: 8,
   },
+  adaptSheetActiveSection: {
+    marginBottom: 10,
+  },
+  adaptSheetActiveTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: BRAND.colors.charcoalInk,
+    marginBottom: 6,
+  },
   adaptModeRow: {
     flexDirection: 'row',
     gap: 8,
@@ -1818,6 +1879,20 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#FFFFFF',
   },
+  adaptDoneBtn: {
+    marginTop: 10,
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderRadius: BRAND.radius.md,
+    borderWidth: 1,
+    borderColor: 'rgba(34,34,34,0.14)',
+    backgroundColor: BRAND.colors.surface,
+  },
+  adaptDoneBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: BRAND.colors.charcoalInk,
+  },
 
   // Date picker bottom sheet
   datePickerSheet: {
@@ -1829,12 +1904,23 @@ const styles = StyleSheet.create({
     minHeight: 440,
   },
   adaptFormSheet: {
+    position: 'relative',
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     paddingHorizontal: 16,
     paddingTop: 14,
     paddingBottom: 34,
+  },
+  adaptSheetDatePickerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    minHeight: 0,
+    paddingHorizontal: 0,
+    zIndex: 10,
   },
   datePickerSheetHeader: {
     flexDirection: 'row',
