@@ -28,6 +28,7 @@ import {
   Vibration,
   Dimensions,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import Reanimated, {
   FadeIn,
   FadeInUp,
@@ -228,7 +229,7 @@ const JOURNAL_PROMPTS = [
  * Step Components
  */
 
-export type SweepIntent = 'today' | 'tomorrow' | 'week';
+export type SweepIntent = 'today' | 'tomorrow' | 'week' | 'skip';
 
 function computeIntentProminence(lastSweepCompletedAt: string | null): {
   primary: SweepIntent;
@@ -4094,6 +4095,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   const { user } = useAuth();
   const demoSweepCompletedAt = useGremlyStore((s) => s.demoSweepCompletedAt);
   const canCreate = useCanCreate();
+  const bulkSkipSweep = useGremlyStore((state) => state.bulkSkipSweep);
 
   // Suppress the global age-up modal while sweep screen is active.
   // The sweep has its own local AgeUpCelebrationModal shown post-summary.
@@ -4108,6 +4110,8 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   const [sweepIntent, setSweepIntent] = useState<SweepIntent>(
     __DEV__ && initialIntent ? initialIntent : 'tomorrow',
   );
+  const [bulkSkipPickerVisible, setBulkSkipPickerVisible] = useState(false);
+  const [bulkSkipPickerDate, setBulkSkipPickerDate] = useState<Date>(() => getDateService().now());
 
   // ── Week-mode hub state ──────────────────────────────────────────────────
   // Sentinel step value for the hub chooser screen. Must not collide with
@@ -4418,6 +4422,11 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
       hasLockedItems,
       lockInCheckpointComplete,
     });
+    if (intent === 'skip') {
+      setBulkSkipPickerDate(getDateService().now());
+      setBulkSkipPickerVisible(true);
+      return;
+    }
     // Week mode opens the hub chooser instead of linear decisions
     if (intent === 'week') {
       setHubMode(true);
@@ -4888,6 +4897,40 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     [user, hubMode, guidedAll, addCompletedSection, backToHub],
   );
 
+  const handleBulkSkipConfirm = useCallback(
+    async (pickedDate: Date) => {
+      try {
+        const ds = getDateService();
+        const targetDateStr = ds.toLocalDate(pickedDate);
+        const { movedCount } = await bulkSkipSweep(targetDateStr);
+
+        if (user?.id) {
+          const result = await markSweepCompleted(user.id, supabase, {
+            kept: 0,
+            cleared: movedCount,
+          });
+          const { setSweepPreferences, totalSweepCount } = useGremlyStore.getState();
+          setSweepPreferences({
+            lastSweepCompletedAt: getDateService().nowTimestamp(),
+            sweepStreak: result.streak,
+            totalSweepCount: totalSweepCount + 1,
+          });
+        }
+
+        triggerLight();
+        setBulkSkipPickerVisible(false);
+        setKeptCount(0);
+        setClearedCount(movedCount);
+        setSummaryItems({ todos: [], thoughts: [], habits: [] });
+        setStep(4);
+      } catch (err) {
+        sweepLog.error('[SweepFlowScreen] Failed to bulk skip from intro:', err);
+        setBulkSkipPickerVisible(false);
+      }
+    },
+    [bulkSkipSweep, user],
+  );
+
   const handleSummaryDone = () => {
     if (summaryDidAgeUp) {
       setCelebrationAge(summaryGremlyAge);
@@ -5210,6 +5253,70 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
         </View>
       ) : null}
 
+      {/* Bulk skip date picker (same native picker used by sweep card quick-date flows) */}
+      <Modal
+        visible={bulkSkipPickerVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setBulkSkipPickerVisible(false)}
+      >
+        <View style={styles.bulkSkipPickerModalRoot}>
+          <Pressable
+            style={styles.bulkSkipPickerBackdrop}
+            onPress={() => setBulkSkipPickerVisible(false)}
+          />
+          <View style={styles.bulkSkipPickerSheet}>
+            <Text style={styles.bulkSkipPickerTitle}>Pick a day to move everything</Text>
+            {Platform.OS === 'ios' ? (
+              <>
+                <DateTimePicker
+                  value={bulkSkipPickerDate}
+                  mode="date"
+                  display="inline"
+                  onChange={(_, date) => {
+                    if (date) setBulkSkipPickerDate(date);
+                  }}
+                />
+                <View style={styles.bulkSkipPickerActions}>
+                  <TouchableOpacity
+                    style={styles.bulkSkipPickerCancelButton}
+                    onPress={() => setBulkSkipPickerVisible(false)}
+                  >
+                    <Text style={styles.bulkSkipPickerCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.bulkSkipPickerConfirmButton}
+                    onPress={() => {
+                      void handleBulkSkipConfirm(bulkSkipPickerDate);
+                    }}
+                  >
+                    <Text style={styles.bulkSkipPickerConfirmText}>Move all</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              <DateTimePicker
+                value={bulkSkipPickerDate}
+                mode="date"
+                display="default"
+                onChange={(event, date) => {
+                  if (event.type === 'dismissed') {
+                    setBulkSkipPickerVisible(false);
+                    return;
+                  }
+                  if (!date) {
+                    setBulkSkipPickerVisible(false);
+                    return;
+                  }
+                  setBulkSkipPickerDate(date);
+                  void handleBulkSkipConfirm(date);
+                }}
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
+
       {/* Age-Up Celebration Modal */}
       <AgeUpCelebrationModal
         visible={showAgeUpModal}
@@ -5356,6 +5463,57 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 30,
     top: 54,
+  },
+  bulkSkipPickerModalRoot: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  bulkSkipPickerBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  bulkSkipPickerSheet: {
+    backgroundColor: '#F9F6F1',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 18,
+  },
+  bulkSkipPickerTitle: {
+    fontSize: 16,
+    color: BRAND.colors.charcoalInk,
+    textAlign: 'center',
+    marginBottom: 8,
+    fontFamily: 'Inter-SemiBold',
+  },
+  bulkSkipPickerActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 8,
+  },
+  bulkSkipPickerCancelButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: '#ECE7DD',
+  },
+  bulkSkipPickerCancelText: {
+    color: BRAND.colors.charcoalInk,
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+  },
+  bulkSkipPickerConfirmButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: BRAND.colors.mossGreen,
+  },
+  bulkSkipPickerConfirmText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontFamily: 'Inter-SemiBold',
   },
   introSparkle2: {
     position: 'absolute',
