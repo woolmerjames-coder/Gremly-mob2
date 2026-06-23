@@ -1601,6 +1601,64 @@ const weeklySummaryV07Worker = inngest.createFunction(
       return { inserted: 0, ok: false };
     });
 
+    // Step C.5: rebuild the Life Map from this week's analyst output (incremental delta merge).
+    const lifeMapRebuild = await step.run('rebuild-life-map', async () => {
+      const currentLifeMap = snapshot.raw.currentLifeMap?.life_map || null;
+      if (!currentLifeMap) {
+        console.warn(`[V07Worker] No existing Life Map for ${user_id}; skipping rebuild`);
+        return { skipped: true, mergedLifeMap: null };
+      }
+      const userProfile = snapshot.raw.userProfile?.profile_text || null;
+      const spaces = snapshot.raw.spaces || [];
+      const journals = (snapshot.raw.journals || []).map((j) => ({
+        title: j.title,
+        body: j.body,
+        mood: j.mood,
+        date: j.created_at ? j.created_at.split('T')[0] : null,
+      }));
+      const result = await rebuildLifeMap(
+        currentLifeMap,
+        analystResult.analysis,
+        userProfile,
+        spaces,
+        journals,
+        env,
+      );
+      const mergedLifeMap = mergeWeeklyLifeMapUpdates(
+        JSON.parse(JSON.stringify(currentLifeMap)),
+        result.delta,
+      );
+      return {
+        skipped: false,
+        mergedLifeMap,
+        currentVersion: snapshot.raw.currentLifeMap?.version || 1,
+      };
+    });
+
+    // Step C.6: persist the rebuilt Life Map (only if a rebuild happened).
+    await step.run('save-life-map', async () => {
+      if (lifeMapRebuild.skipped || !lifeMapRebuild.mergedLifeMap) {
+        return { saved: false };
+      }
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/user_life_map?on_conflict=user_id`, {
+        method: 'POST',
+        headers: { ...authHeaders, Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify({
+          user_id,
+          life_map: lifeMapRebuild.mergedLifeMap,
+          version: lifeMapRebuild.currentVersion,
+          rebuilt_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          last_evidence_date: extractLastEvidenceDate(lifeMapRebuild.mergedLifeMap),
+        }),
+      });
+      if (!res.ok) {
+        console.error(`[V07Worker] Failed to save Life Map for ${user_id}: ${res.statusText}`);
+        return { saved: false };
+      }
+      return { saved: true };
+    });
+
     // Step 1: run v0.7 generation pipeline. Publish-always: fact_errors are review flags,
     // not a publish gate. The only catastrophe guard is genuinely empty cards.
     const out = await step.run('generate-summary', async () =>
@@ -1703,6 +1761,32 @@ const weeklySummaryV07Worker = inngest.createFunction(
       polish_outcome: out.polish_outcome,
       attempts: out.attempts,
     };
+  },
+);
+
+const backfillWeeklyV07 = inngest.createFunction(
+  { id: 'backfill-weekly-v07', name: 'Backfill Weekly V07', concurrency: { limit: 1 } },
+  { event: 'app/backfill-weekly-v07.run' },
+  async ({ event, step }) => {
+    const userIds = Array.isArray(event.data?.user_ids) ? event.data.user_ids : [];
+    const weekStarts = Array.isArray(event.data?.week_starts)
+      ? [...event.data.week_starts].sort()
+      : [];
+    if (!userIds.length || !weekStarts.length) {
+      throw new Error('user_ids and week_starts are both required and must be non-empty');
+    }
+
+    const results = [];
+    for (const userId of userIds) {
+      for (const weekStart of weekStarts) {
+        const r = await step.invoke(`run-${userId.slice(0, 8)}-${weekStart}`, {
+          function: weeklySummaryV07Worker,
+          data: { user_id: userId, week_start: weekStart, timezone: 'UTC' },
+        });
+        results.push({ user_id: userId, week_start: weekStart, result: r });
+      }
+    }
+    return { processed: results.length, results };
   },
 );
 
@@ -2104,7 +2188,7 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
             user_id: u.user_id,
             timezone: u.timezone,
             push_token: u.push_token,
-            week_key: weekKeys[u.user_id],
+            week_start: weekKeys[u.user_id],
           },
         })),
       );
@@ -8914,6 +8998,7 @@ const inngestHandler = serve({
     backfillAnalystForWeek,
     runShadowSummaryForWeek,
     weeklySummaryV07Worker,
+    backfillWeeklyV07,
     testWorldsOutputDualRun,
     testSummaryV05,
     weeklySummaryV2Dispatcher,
