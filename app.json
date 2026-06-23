@@ -113,6 +113,23 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "extraPods": [
+              {
+                "name": "GoogleUtilities",
+                "modular_headers": true
+              },
+              {
+                "name": "RecaptchaInterop",
+                "modular_headers": true
+              }
+            ]
+          }
+        }
+      ],
       "expo-apple-authentication",
       [
         "expo-notifications",
@@ -129,7 +146,8 @@
           "project": "react-native",
           "organization": "gremly"
         }
-      ]
+      ],
+      "expo-build-properties"
     ],
     "extra": {
       "EXPO_PUBLIC_MIND_DROP_V2": "process.env.EXPO_PUBLIC_MIND_DROP_V2",
