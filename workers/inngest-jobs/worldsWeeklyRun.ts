@@ -28,13 +28,15 @@ export function createWorldsWeeklyRun(inngest: Inngest<{ id: 'gremly' }>) {
         .slice(0, 10);
 
       // ── Step 1: process the window ───────────────────────────────
-      const { classifierCounts, writeResult } = await step.run('process-window', async () =>
-        processWorldsWindow({
-          ownerId: userId,
-          windowStart,
-          windowEnd,
-          env,
-        }),
+      const { classifierCounts, writeResult } = await step.run(
+        'process-window',
+        async () =>
+          processWorldsWindow({
+            ownerId: userId,
+            windowStart,
+            windowEnd,
+            env,
+          }),
       );
 
       // ── Step 2: record completion event in Supabase ──────────────
