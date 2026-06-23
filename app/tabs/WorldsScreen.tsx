@@ -27,7 +27,7 @@ export default function WorldsScreen() {
   }, [refreshWorldsGraph]);
 
   function handlePressPastSummaries() {
-    nav.navigate('WeeklySummary', undefined);
+    nav.navigate('WeeklyArchive');
   }
 
   function handlePressProposals() {
