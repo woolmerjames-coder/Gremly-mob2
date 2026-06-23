@@ -1756,9 +1756,12 @@ export function computeWorldsForEntity(
 ): WorldForEntity[] {
   if (!entityId) return [];
 
+  const safeWorlds = Array.isArray(worlds) ? worlds : [];
+  const safeDropWorldLinks = Array.isArray(dropWorldLinks) ? dropWorldLinks : [];
+
   // Build a map of world_id → { assignedBy, relevanceScore } for this entity
   const linkMeta = new Map<string, { assignedBy: AssignedBy; relevanceScore: number }>();
-  for (const link of dropWorldLinks) {
+  for (const link of safeDropWorldLinks) {
     if (link.drop_id === entityId) {
       linkMeta.set(link.world_id, {
         assignedBy: link.assigned_by,
@@ -1769,10 +1772,10 @@ export function computeWorldsForEntity(
   if (linkMeta.size === 0) return [];
 
   const result: WorldForEntity[] = [];
-  for (const w of worlds) {
+  for (const w of safeWorlds) {
     const meta = linkMeta.get(w.id);
     if (!meta) continue;
-    const palette = selectWorldPalette({ worlds } as any, w.id);
+    const palette = selectWorldPalette({ worlds: safeWorlds } as any, w.id);
     result.push({
       id: w.id,
       name: w.name,

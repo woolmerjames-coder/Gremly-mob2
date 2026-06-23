@@ -20,6 +20,8 @@ jest.mock('../lib/env', () => {
         today: {
           ...actual.env.feature?.today,
           v3: false,
+          v4Lanes: false,
+          nowV1: false,
         },
       },
     },

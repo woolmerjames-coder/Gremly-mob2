@@ -41,7 +41,7 @@ afterEach(() => {
 
 describe('Today V4 Lanes flag', () => {
   it('renders TodayV4LanesView when v4Lanes is enabled', () => {
-    setTodayFlags({ v4Lanes: true, v3: false });
+    setTodayFlags({ nowV1: false, v4Lanes: true, v3: false });
 
     renderWithProviders(<TodayScreen />);
     expect(screen.getByTestId('today-v4-lanes-screen')).toBeTruthy();
@@ -50,7 +50,7 @@ describe('Today V4 Lanes flag', () => {
 
 describe('Today V3 fallback when v4Lanes is disabled', () => {
   it('renders TodayV3View when v4Lanes is disabled and v3 is enabled', () => {
-    setTodayFlags({ v4Lanes: false, v3: true });
+    setTodayFlags({ nowV1: false, v4Lanes: false, v3: true });
 
     renderWithProviders(<TodayScreen />);
     expect(screen.getByTestId('today-v3-screen')).toBeTruthy();

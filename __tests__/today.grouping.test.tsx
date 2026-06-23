@@ -24,6 +24,8 @@ jest.mock('../lib/env', () => {
         today: {
           ...actual.env.feature?.today,
           v3: false,
+          v4Lanes: false,
+          nowV1: false,
         },
       },
     },
@@ -130,7 +132,12 @@ describe('Today Screen - Grouping Features', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    process.env.JEST_WORKAROUND = '1';
     mockUseTodayData.mockReturnValue(defaultMockData);
+  });
+
+  afterEach(() => {
+    delete process.env.JEST_WORKAROUND;
   });
 
   describe('Space Grouping', () => {

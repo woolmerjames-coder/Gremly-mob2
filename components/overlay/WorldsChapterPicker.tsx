@@ -25,6 +25,12 @@ import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useAuth } from '../../providers/AuthProvider';
 import type { DropType } from '../../lib/supabase/types';
 import { nowTimestamp } from '../../lib/date/DateService';
+import {
+  deleteDropChapterLink,
+  deleteDropWorldLink,
+  upsertDropChapterLinks,
+  upsertDropWorldLinks,
+} from '../../lib/repo/linkingRepo';
 
 interface WorldsChapterPickerProps {
   visible: boolean;
@@ -155,8 +161,6 @@ export function WorldsChapterPicker({
     const chaptersToRemove = [...initialChapters].filter((id) => !selectedChapters.has(id));
 
     try {
-      const { supabase } = await import('../../lib/supabase/client');
-
       // ── drop_world_links ──────────────────────────────────────────────────
       if (worldsToAdd.length > 0) {
         const rows = worldsToAdd.map((worldId) => ({
@@ -168,19 +172,10 @@ export function WorldsChapterPicker({
           assigned_by: 'user' as const,
           reason: null,
         }));
-        const { error } = await supabase.from('drop_world_links').upsert(rows, {
-          onConflict: 'drop_id,world_id',
-          ignoreDuplicates: true,
-        });
-        if (error) throw error;
+        await upsertDropWorldLinks(rows);
       }
       for (const worldId of worldsToRemove) {
-        const { error } = await supabase
-          .from('drop_world_links')
-          .delete()
-          .eq('drop_id', entityId)
-          .eq('world_id', worldId);
-        if (error) throw error;
+        await deleteDropWorldLink(entityId, worldId);
       }
 
       // ── drop_chapter_links ────────────────────────────────────────────────
@@ -194,19 +189,10 @@ export function WorldsChapterPicker({
           assigned_by: 'user' as const,
           reason: null,
         }));
-        const { error } = await supabase.from('drop_chapter_links').upsert(rows, {
-          onConflict: 'drop_id,chapter_id',
-          ignoreDuplicates: true,
-        });
-        if (error) throw error;
+        await upsertDropChapterLinks(rows);
       }
       for (const chapterId of chaptersToRemove) {
-        const { error } = await supabase
-          .from('drop_chapter_links')
-          .delete()
-          .eq('drop_id', entityId)
-          .eq('chapter_id', chapterId);
-        if (error) throw error;
+        await deleteDropChapterLink(entityId, chapterId);
       }
 
       // Update Zustand immediately so chips re-render without a full store reload

@@ -556,6 +556,10 @@ function isLetter(c: { shape: unknown }): boolean {
   return c.shape === 'letter';
 }
 
+function hasShape(value: unknown): value is { shape: unknown } {
+  return !!value && typeof value === 'object' && 'shape' in value;
+}
+
 function inputAllowedNumbers(brief: SummaryBrief, facts: HardFacts): Set<string> {
   const nums = new Set<string>();
   const re = /\b(\d{1,5})\b/g;
@@ -1072,8 +1076,12 @@ function factCheckDeterministic(
     return { ok: false, errors };
   }
 
-  if (!isHero(cards[0])) errors.push('card 1 must be shape=hero');
-  if (!isLetter(cards[cards.length - 1])) errors.push('last card must be shape=letter');
+  const firstCard = cards[0];
+  const lastCard = cards[cards.length - 1];
+  if (!hasShape(firstCard) || !isHero(firstCard)) errors.push('card 1 must be shape=hero');
+  if (!hasShape(lastCard) || !isLetter(lastCard)) {
+    errors.push('last card must be shape=letter');
+  }
 
   cards.forEach((c, i) => {
     const shape = c.shape as CardShape;

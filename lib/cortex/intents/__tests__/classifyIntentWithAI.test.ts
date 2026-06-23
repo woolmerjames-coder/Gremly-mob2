@@ -559,14 +559,26 @@ describe('classifyIntentWithAI', () => {
 });
 
 describe('isAIClassificationAvailable', () => {
-  const originalEnv = process.env;
+  const originalDisableAI = process.env.EXPO_PUBLIC_DISABLE_AI;
+  const originalCortexUrl = process.env.EXPO_PUBLIC_CORTEX_URL;
 
   beforeEach(() => {
-    process.env = { ...originalEnv };
+    delete process.env.EXPO_PUBLIC_DISABLE_AI;
+    delete process.env.EXPO_PUBLIC_CORTEX_URL;
   });
 
   afterEach(() => {
-    process.env = originalEnv;
+    if (typeof originalDisableAI === 'string') {
+      process.env.EXPO_PUBLIC_DISABLE_AI = originalDisableAI;
+    } else {
+      delete process.env.EXPO_PUBLIC_DISABLE_AI;
+    }
+
+    if (typeof originalCortexUrl === 'string') {
+      process.env.EXPO_PUBLIC_CORTEX_URL = originalCortexUrl;
+    } else {
+      delete process.env.EXPO_PUBLIC_CORTEX_URL;
+    }
   });
 
   it('should return false when AI is explicitly disabled', () => {
@@ -577,8 +589,8 @@ describe('isAIClassificationAvailable', () => {
   });
 
   it('should return false when Cortex URL is missing', () => {
-    process.env.EXPO_PUBLIC_DISABLE_AI = undefined;
-    process.env.EXPO_PUBLIC_CORTEX_URL = undefined;
+    delete process.env.EXPO_PUBLIC_DISABLE_AI;
+    delete process.env.EXPO_PUBLIC_CORTEX_URL;
 
     expect(isAIClassificationAvailable()).toBe(false);
   });
@@ -586,7 +598,7 @@ describe('isAIClassificationAvailable', () => {
   it.skip('should return true when AI is enabled and Cortex URL exists', () => {
     // Skipped: Test environment may have EXPO_PUBLIC_DISABLE_AI set globally
     // This is a simple env check that's tested in integration
-    process.env.EXPO_PUBLIC_DISABLE_AI = undefined;
+    delete process.env.EXPO_PUBLIC_DISABLE_AI;
     process.env.EXPO_PUBLIC_CORTEX_URL = 'https://cortex.example.com';
 
     expect(isAIClassificationAvailable()).toBe(true);

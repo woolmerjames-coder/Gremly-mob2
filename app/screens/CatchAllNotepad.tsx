@@ -151,6 +151,7 @@ import { applyTagQualityFilter } from '../../lib/tags/quality';
 import { extractMeaningfulTags } from '../../lib/tags/extractTags';
 import { buildHabitFields } from '../../lib/cortex/textNormalization';
 import { hashString } from '../../lib/telemetry/catchallLogger';
+import { upsertEveningNotificationPreference } from '../../lib/repo/linkingRepo';
 import { useMindDropSubmit } from '../../hooks/useMindDropSubmit';
 import { useMascotActions } from '../../hooks/useMascotActions';
 import { useVoiceCapture, VoiceCaptureState } from '../../hooks/useVoiceCapture';
@@ -3369,21 +3370,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           const timeStr = `${hours}:${minutes}:00`;
 
           try {
-            const { error } = await supabase.from('notification_preferences').upsert(
-              {
-                user_id: userId,
-                evening_enabled: true,
-                evening_time: timeStr,
-                updated_at: nowTimestamp(),
-              },
-              { onConflict: 'user_id' },
-            );
-
-            if (error) {
-              console.warn('[Training] Failed to save evening time:', error);
-            } else {
-              console.log('[Training] Evening notification time saved:', timeStr);
-            }
+            await upsertEveningNotificationPreference({
+              userId,
+              eveningTime: timeStr,
+              updatedAt: nowTimestamp(),
+            });
+            console.log('[Training] Evening notification time saved:', timeStr);
           } catch (err) {
             console.warn('[Training] Failed to save evening time:', err);
           }
@@ -3404,15 +3396,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           const minutes = time.getMinutes().toString().padStart(2, '0');
           const timeStr = `${hours}:${minutes}:00`;
           try {
-            await supabase.from('notification_preferences').upsert(
-              {
-                user_id: userId,
-                evening_enabled: true,
-                evening_time: timeStr,
-                updated_at: nowTimestamp(),
-              },
-              { onConflict: 'user_id' },
-            );
+            await upsertEveningNotificationPreference({
+              userId,
+              eveningTime: timeStr,
+              updatedAt: nowTimestamp(),
+            });
           } catch (err) {
             console.warn('[Training] Failed to save evening time:', err);
           }
