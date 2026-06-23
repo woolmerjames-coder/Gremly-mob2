@@ -21,21 +21,20 @@ export function createWorldsWeeklyRun(inngest: Inngest<{ id: 'gremly' }>) {
       const userId: string = event.data?.user_id;
       if (!userId) throw new Error('user_id is required in event.data');
 
-      const windowEnd = new Date().toISOString();
-      const windowStart = new Date(
-        Date.now() - 28 * 24 * 60 * 60 * 1000,
-      ).toISOString();
+      const now = new Date();
+      const windowEnd = now.toISOString().slice(0, 10);
+      const windowStart = new Date(now.getTime() - 28 * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10);
 
       // ── Step 1: process the window ───────────────────────────────
-      const { classifierCounts, writeResult } = await step.run(
-        'process-window',
-        async () =>
-          processWorldsWindow({
-            ownerId: userId,
-            windowStart,
-            windowEnd,
-            env,
-          }),
+      const { classifierCounts, writeResult } = await step.run('process-window', async () =>
+        processWorldsWindow({
+          ownerId: userId,
+          windowStart,
+          windowEnd,
+          env,
+        }),
       );
 
       // ── Step 2: record completion event in Supabase ──────────────
