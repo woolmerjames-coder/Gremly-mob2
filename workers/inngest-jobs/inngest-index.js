@@ -628,8 +628,8 @@ const testGatherForUser = inngest.createFunction(
     const gathered = await gatherTodayFacts(userId, timezone, env);
     const bucketed = bucketTodayFacts(gathered);
     const text = renderTodayFactsText(bucketed);
-    console.log('[TEST Gather] text block for', userId.slice(0, 8), '\n' + text);
-    return { user_id: userId, targetDate: bucketed.targetDate, bucketed, text };
+    console.log('[TEST Gather]', userId.slice(0, 8), '\n' + text);
+    return { user_id: userId, targetDate: bucketed.targetDate, text, bucketed };
   },
 );
 
@@ -6181,17 +6181,19 @@ async function gatherTodayFacts(userId, timezone, env) {
   const targetDate = getUserLocalDate(timezone);
   const nowIso = new Date().toISOString();
   const in72hIso = new Date(Date.now() + 72 * 3600 * 1000).toISOString();
+  const startOfTodayIso = new Date(targetDate + 'T00:00:00Z').toISOString();
+  const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
 
-  const results = await Promise.all([
+  const queries = [
     fetch(
-      `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&status=eq.active&archived=eq.false&select=id,title,name,scheduled_date,due_day,due_date,due_time,target_date,time_window,time_estimate_minutes,duration_minutes,priority_kind,daily_block,scheduled_start_iso,space_id,created_at&limit=1000`,
+      `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&status=eq.active&archived=eq.false&select=id,title,name,scheduled_date,due_day,due_date,due_time,target_date,time_window,time_estimate_minutes,duration_minutes,priority_kind,daily_block,scheduled_start_iso,locked_in,space_id,created_at&limit=1000`,
       { headers },
     )
       .then((r) => r.json())
       .catch(() => []),
 
     fetch(
-      `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${userId}&archived=eq.false&select=id,name,title,frequency,frequency_json,days_active,time_window,time_estimate_minutes,scheduled_start_iso,daily_block,subtype,commitment,locked_in,commitment_until,target_per_period,cadence,space_id&limit=100`,
+      `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${userId}&archived=eq.false&select=id,name,title,frequency,frequency_json,days_active,time_window,time_estimate_minutes,scheduled_start_iso,daily_block,subtype,commitment,commitment_until,locked_in,target_per_period,cadence,space_id&limit=100`,
       { headers },
     )
       .then((r) => r.json())
@@ -6205,7 +6207,7 @@ async function gatherTodayFacts(userId, timezone, env) {
       .catch(() => []),
 
     fetch(
-      `${env.SUPABASE_URL}/rest/v1/synced_calendar_events?owner_id=eq.${userId}&archived=eq.false&start_at=gte.${nowIso}&start_at=lte.${in72hIso}&select=id,title,start_at,end_at,is_all_day,location,provider&order=start_at.asc&limit=200`,
+      `${env.SUPABASE_URL}/rest/v1/synced_calendar_events?owner_id=eq.${userId}&archived=eq.false&start_at=gte.${startOfTodayIso}&start_at=lte.${in72hIso}&select=id,title,start_at,end_at,is_all_day,location,provider&order=start_at.asc&limit=200`,
       { headers },
     )
       .then((r) => r.json())
@@ -6217,7 +6219,82 @@ async function gatherTodayFacts(userId, timezone, env) {
     )
       .then((r) => r.json())
       .catch(() => []),
-  ]);
+  ];
+
+  // GATHER part B inserted here
+  queries.push(
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&journal_subtype=eq.intention&archived=eq.false&select=id,title,body,created_at&order=created_at.desc&limit=3`,
+      { headers },
+    )
+      .then((r) => r.json())
+      .catch(() => []),
+  );
+
+  queries.push(
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/habit_adaptations?owner_id=eq.${userId}&period_end=gte.${targetDate}&select=id,habit_id,mode,period_start,period_end,floor_note&limit=100`,
+      { headers },
+    )
+      .then((r) => r.json())
+      .catch(() => []),
+  );
+
+  queries.push(
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/habit_plans?owner_id=eq.${userId}&week_start=gte.${weekAgo}&select=id,habit_id,planned_date,week_start,status&order=planned_date.asc&limit=200`,
+      { headers },
+    )
+      .then((r) => r.json())
+      .catch(() => []),
+  );
+
+  queries.push(
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/sweep_skip_events?owner_id=eq.${userId}&created_at=gte.${weekAgo}&select=id,target_date,todo_count,created_at&order=created_at.desc&limit=20`,
+      { headers },
+    )
+      .then((r) => r.json())
+      .catch(() => []),
+  );
+
+  queries.push(
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/daily_briefs?owner_id=eq.${userId}&date=eq.${targetDate}&select=id,one_thing_id,one_thing_type,morning_sequence,day_sequence,evening_sequence,completed_at&limit=1`,
+      { headers },
+    )
+      .then((r) => r.json())
+      .catch(() => []),
+  );
+
+  queries.push(
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/habit_floor_suggestions?owner_id=eq.${userId}&week_start=gte.${weekAgo}&select=id,habit_id,week_start,payload&limit=100`,
+      { headers },
+    )
+      .then((r) => r.json())
+      .catch(() => []),
+  );
+
+  queries.push(
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/space_milestones?owner_id=eq.${userId}&is_active=eq.true&completed=eq.false&select=id,title,name,date,space_id&order=date.asc&limit=50`,
+      { headers },
+    )
+      .then((r) => r.json())
+      .catch(() => []),
+  );
+
+  queries.push(
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&subtype=eq.journal&mood=not.is.null&created_at=gte.${weekAgo}&select=id,title,mood,created_at&order=created_at.desc&limit=20`,
+      { headers },
+    )
+      .then((r) => r.json())
+      .catch(() => []),
+  );
+
+  const results = await Promise.all(queries);
 
   const safeArr = (v) => (Array.isArray(v) ? v : []);
 
@@ -6226,13 +6303,32 @@ async function gatherTodayFacts(userId, timezone, env) {
   const habitProgressToday = safeArr(results[2]);
   const syncedEvents = safeArr(results[3]);
   const anchors = safeArr(results[4]);
+  const intentionNotes = safeArr(results[5]);
+  const habitAdaptations = safeArr(results[6]);
+  const habitPlans = safeArr(results[7]);
+  const skipEvents = safeArr(results[8]);
+  const dailyBriefRows = safeArr(results[9]);
+  const dailyBrief = dailyBriefRows[0] || null;
+  const floorSuggestions = safeArr(results[10]);
+  const milestones = safeArr(results[11]);
+  const moodNotes = safeArr(results[12]);
 
   console.log(`[Gather] Built for ${userId.slice(0, 8)} (${targetDate}):`, {
+    nowIso,
+    weekAgo,
     todos: todos.length,
     habits: habits.length,
     habitProgressToday: habitProgressToday.length,
     syncedEvents: syncedEvents.length,
     anchors: anchors.length,
+    intentionNotes: intentionNotes.length,
+    habitAdaptations: habitAdaptations.length,
+    habitPlans: habitPlans.length,
+    skipEvents: skipEvents.length,
+    dailyBrief: dailyBrief ? 1 : 0,
+    floorSuggestions: floorSuggestions.length,
+    milestones: milestones.length,
+    moodNotes: moodNotes.length,
   });
 
   return {
@@ -6242,79 +6338,131 @@ async function gatherTodayFacts(userId, timezone, env) {
     habitProgressToday,
     syncedEvents,
     anchors,
+    intentionNotes,
+    habitAdaptations,
+    habitPlans,
+    skipEvents,
+    dailyBrief,
+    floorSuggestions,
+    milestones,
+    moodNotes,
   };
 }
 
 function bucketTodayFacts(gathered) {
-  const { targetDate, todos, habits, habitProgressToday, syncedEvents, anchors } = gathered;
+  const {
+    targetDate,
+    todos,
+    habits,
+    habitProgressToday,
+    syncedEvents,
+    anchors,
+    intentionNotes,
+    habitAdaptations,
+    habitPlans,
+    skipEvents,
+    dailyBrief,
+    floorSuggestions,
+    milestones,
+    moodNotes,
+  } = gathered;
+
+  const safeArr = (v) => (Array.isArray(v) ? v : []);
+  const todosArr = safeArr(todos);
+  const habitsArr = safeArr(habits);
+  const habitProgressArr = safeArr(habitProgressToday);
+  const syncedEventsArr = safeArr(syncedEvents);
+  const anchorsArr = safeArr(anchors);
+  const intentionNotesArr = safeArr(intentionNotes);
+  const habitAdaptationsArr = safeArr(habitAdaptations);
+  const habitPlansArr = safeArr(habitPlans);
+  const skipEventsArr = safeArr(skipEvents);
+  const floorSuggestionsArr = safeArr(floorSuggestions);
+  const milestonesArr = safeArr(milestones);
+  const moodNotesArr = safeArr(moodNotes);
 
   const todoDay = (t) => t?.scheduled_date || t?.due_day || t?.target_date || null;
 
-  const dueToday = (Array.isArray(todos) ? todos : [])
-    .filter((t) => todoDay(t) === targetDate)
-    .map((t) => ({
-      title: t.title || t.name,
-      day: todoDay(t),
-      time_window: t.time_window || null,
-      due_time: t.due_time || null,
-      est_minutes: t.time_estimate_minutes ?? t.duration_minutes ?? null,
-      priority_kind: t.priority_kind || null,
-      daily_block: t.daily_block || null,
-    }));
+  const projectTodo = (t) => ({
+    title: t.title || t.name,
+    day: todoDay(t),
+    time_window: t.time_window || null,
+    due_time: t.due_time || null,
+    est_minutes: t.time_estimate_minutes ?? t.duration_minutes ?? null,
+    priority_kind: t.priority_kind || null,
+    daily_block: t.daily_block || null,
+    locked_in: !!t.locked_in,
+  });
 
-  const overdue = (Array.isArray(todos) ? todos : [])
+  const dueToday = todosArr.filter((t) => todoDay(t) === targetDate).map(projectTodo);
+  const overdue = todosArr
     .filter((t) => {
       const day = todoDay(t);
       return day !== null && day < targetDate;
     })
-    .map((t) => ({
-      title: t.title || t.name,
-      day: todoDay(t),
-      time_window: t.time_window || null,
-      due_time: t.due_time || null,
-      est_minutes: t.time_estimate_minutes ?? t.duration_minutes ?? null,
-      priority_kind: t.priority_kind || null,
-      daily_block: t.daily_block || null,
-    }));
+    .map(projectTodo);
+  const lockedIn = todosArr.filter((t) => t.locked_in === true).map(projectTodo);
+  const untimedCount = todosArr.filter((t) => todoDay(t) === null).length;
+  const totalActive = todosArr.length;
 
-  const untimedCount = (Array.isArray(todos) ? todos : []).filter(
-    (t) => todoDay(t) === null,
-  ).length;
+  const doneSet = new Set(habitProgressArr.map((hp) => hp?.habit_id).filter(Boolean));
 
-  const doneSet = new Set(
-    (Array.isArray(habitProgressToday) ? habitProgressToday : [])
-      .map((hp) => hp?.habit_id)
-      .filter(Boolean),
-  );
+  const adaptationMap = {};
+  for (const a of habitAdaptationsArr) {
+    if (!a?.habit_id) continue;
+    adaptationMap[a.habit_id] = {
+      mode: a.mode || null,
+      floor_note: a.floor_note || null,
+      period_end: a.period_end || null,
+    };
+  }
 
-  const projectedHabits = (Array.isArray(habits) ? habits : []).map((h) => ({
+  const planTodayMap = {};
+  for (const p of habitPlansArr) {
+    if (!p?.habit_id) continue;
+    if (p.planned_date === targetDate) {
+      planTodayMap[p.habit_id] = p.status || null;
+    }
+  }
+
+  const projectHabit = (h) => ({
+    id: h.id,
     name: h.name || h.title,
     done_today: doneSet.has(h.id),
     time_window: h.time_window || null,
     scheduled_start_iso: h.scheduled_start_iso || null,
     daily_block: h.daily_block || null,
-    est_minutes: h.time_estimate_minutes ?? null,
-    subtype: h.subtype || null,
     locked_in: !!h.locked_in,
-  }));
+    adaptation: adaptationMap[h.id] || null,
+    planned_today: planTodayMap[h.id] || null,
+  });
 
-  const habitsScheduledToday = projectedHabits.filter(
+  const projectedHabits = habitsArr.map(projectHabit);
+
+  const scheduledToday = projectedHabits.filter(
     (h) =>
       (h.time_window && String(h.time_window).toLowerCase() !== 'any') ||
       !!h.scheduled_start_iso ||
-      !!h.daily_block,
+      !!h.daily_block ||
+      !!h.planned_today,
   );
-
-  const habitsOther = projectedHabits.filter(
+  const other = projectedHabits.filter(
     (h) =>
       !(
         (h.time_window && String(h.time_window).toLowerCase() !== 'any') ||
         !!h.scheduled_start_iso ||
-        !!h.daily_block
+        !!h.daily_block ||
+        !!h.planned_today
       ),
   );
 
-  const calendarToday = (Array.isArray(syncedEvents) ? syncedEvents : []).map((e) => ({
+  const adaptedHabitIds = new Set(
+    habitAdaptationsArr
+      .filter((a) => a?.habit_id && (a.mode === 'pause' || a.mode === 'floor'))
+      .map((a) => a.habit_id),
+  );
+
+  const calendarToday = syncedEventsArr.map((e) => ({
     title: e.title || null,
     start_at: e.start_at,
     end_at: e.end_at || null,
@@ -6323,7 +6471,7 @@ function bucketTodayFacts(gathered) {
     provider: e.provider || null,
   }));
 
-  const anchorsActive = (Array.isArray(anchors) ? anchors : []).map((a) => ({
+  const anchorsActive = anchorsArr.map((a) => ({
     title: a.title,
     category: a.category,
     date_text: a.date_text || null,
@@ -6333,140 +6481,300 @@ function bucketTodayFacts(gathered) {
     range_end: a.date_range_end || null,
   }));
 
+  const weeklyIntention = intentionNotesArr[0]
+    ? {
+        text: intentionNotesArr[0].title || intentionNotesArr[0].body,
+        set_at: intentionNotesArr[0].created_at,
+      }
+    : null;
+
+  const projectedSkipEvents = skipEventsArr.map((s) => ({
+    target_date: s.target_date,
+    todo_count: s.todo_count,
+    created_at: s.created_at,
+  }));
+
+  const projectedDailyBrief = dailyBrief
+    ? {
+        one_thing_id: dailyBrief.one_thing_id,
+        one_thing_type: dailyBrief.one_thing_type,
+        has_morning: (dailyBrief.morning_sequence?.length || 0) > 0,
+        has_day: (dailyBrief.day_sequence?.length || 0) > 0,
+        has_evening: (dailyBrief.evening_sequence?.length || 0) > 0,
+        completed: !!dailyBrief.completed_at,
+      }
+    : null;
+
+  const floorCount = floorSuggestionsArr.length;
+
+  const projectedMilestones = milestonesArr.map((m) => ({
+    title: m.title || m.name,
+    date: m.date,
+    space_id: m.space_id,
+  }));
+
+  const recentMood = moodNotesArr.map((n) => ({
+    date: n.created_at,
+    moods: safeArr(n.mood),
+  }));
+
+  const commitmentHabits = habitsArr
+    .filter((h) => {
+      if (h.commitment !== true) return false;
+      if (!h.commitment_until) return true;
+      const untilDate = String(h.commitment_until).slice(0, 10);
+      return untilDate >= targetDate;
+    })
+    .map((h) => ({
+      name: h.name || h.title,
+      until: h.commitment_until || null,
+    }));
+
   return {
     targetDate,
+    weeklyIntention,
     todos: {
       dueToday,
       overdue,
+      lockedIn,
       untimedCount,
-      totalActive: (Array.isArray(todos) ? todos : []).length,
+      totalActive,
     },
     habits: {
-      scheduledToday: habitsScheduledToday,
-      other: habitsOther,
-      doneTodayCount: projectedHabits.filter((h) => h.done_today).length,
+      scheduledToday,
+      other,
+      doneTodayCount: doneSet.size,
+      adaptedHabitIds: [...adaptedHabitIds],
+      commitments: commitmentHabits,
     },
     calendarToday,
     anchorsActive,
+    recentMood,
+    deliberate: {
+      skipEvents: projectedSkipEvents,
+      dailyBrief: projectedDailyBrief,
+      floorCount,
+      milestones: projectedMilestones,
+    },
   };
 }
 
 function renderTodayFactsText(bucketed) {
-  const lines = [];
+  const parts = [];
 
-  const targetDate = bucketed?.targetDate || null;
-  const todosDueToday = Array.isArray(bucketed?.todos?.dueToday) ? bucketed.todos.dueToday : [];
-  const todosOverdue = Array.isArray(bucketed?.todos?.overdue) ? bucketed.todos.overdue : [];
+  const safeArr = (v) => (Array.isArray(v) ? v : []);
+  const targetDate = bucketed?.targetDate || 'unknown';
+  const weeklyIntention = bucketed?.weeklyIntention || null;
+
+  const todosDueToday = safeArr(bucketed?.todos?.dueToday);
+  const todosOverdue = safeArr(bucketed?.todos?.overdue);
+  const todosLockedIn = safeArr(bucketed?.todos?.lockedIn);
   const untimedCount = Number.isFinite(bucketed?.todos?.untimedCount)
     ? bucketed.todos.untimedCount
     : 0;
   const totalActive = Number.isFinite(bucketed?.todos?.totalActive)
     ? bucketed.todos.totalActive
     : 0;
-  const habitsScheduled = Array.isArray(bucketed?.habits?.scheduledToday)
-    ? bucketed.habits.scheduledToday
-    : [];
-  const habitsOther = Array.isArray(bucketed?.habits?.other) ? bucketed.habits.other : [];
-  const calendarToday = Array.isArray(bucketed?.calendarToday) ? bucketed.calendarToday : [];
-  const anchorsActive = Array.isArray(bucketed?.anchorsActive) ? bucketed.anchorsActive : [];
 
-  lines.push(`=== TODOS DUE TODAY (${targetDate}) ===`);
+  const habitsScheduled = safeArr(bucketed?.habits?.scheduledToday);
+  const habitsOther = safeArr(bucketed?.habits?.other);
+  const allHabits = [...habitsScheduled, ...habitsOther];
+  const adaptedHabits = allHabits.filter((h) => h?.adaptation?.mode);
+  const calendarToday = safeArr(bucketed?.calendarToday);
+  const anchorsActive = safeArr(bucketed?.anchorsActive);
+  const milestones = safeArr(bucketed?.deliberate?.milestones);
+  const recentMood = safeArr(bucketed?.recentMood);
+  const commitments = safeArr(bucketed?.habits?.commitments);
+  const skipEvents = safeArr(bucketed?.deliberate?.skipEvents);
+  const dailyBrief = bucketed?.deliberate?.dailyBrief || null;
+  const floorCount = Number.isFinite(bucketed?.deliberate?.floorCount)
+    ? bucketed.deliberate.floorCount
+    : 0;
+
+  parts.push("=== THIS WEEK'S INTENTION (set by user in Sweep) ===");
+  if (weeklyIntention?.text) {
+    const setAt = weeklyIntention?.set_at || 'unknown';
+    parts.push(`"${weeklyIntention.text}" (set ${setAt})`);
+    parts.push(
+      "This is the user's stated focus for the week. Treat it as a strong lens on today, but today's concrete reality or emotional state can take precedence when warranted.",
+    );
+  } else {
+    parts.push('(no weekly intention set)');
+  }
+
+  parts.push('');
+  parts.push(`=== TODOS DUE TODAY (${targetDate}) ===`);
   if (todosDueToday.length === 0) {
-    lines.push('(none)');
+    parts.push('(none)');
   } else {
     for (const t of todosDueToday) {
-      const title = t?.title || null;
+      const title = t?.title || 'Untitled';
       const timeWindow = t?.time_window || 'any';
-      const estMinutes = t?.est_minutes ?? '?';
-      const priorityKind = t?.priority_kind || 'none';
-      const dailyBlock = t?.daily_block || 'none';
-      lines.push(
-        `- "${title}" [window: ${timeWindow}, est: ${estMinutes}m, priority: ${priorityKind}, block: ${dailyBlock}]`,
+      const est = t?.est_minutes ?? '?';
+      const priority = t?.priority_kind || 'none';
+      const block = t?.daily_block || 'none';
+      const lockedSuffix = t?.locked_in ? ', LOCKED IN' : '';
+      parts.push(
+        `- "${title}" [window: ${timeWindow}, est: ${est}m, priority: ${priority}, block: ${block}]${lockedSuffix}`,
       );
     }
   }
 
-  lines.push('');
-  lines.push('=== OVERDUE TODOS ===');
+  parts.push('');
+  parts.push('=== OVERDUE TODOS ===');
   if (todosOverdue.length === 0) {
-    lines.push('(none)');
+    parts.push('(none)');
   } else {
     for (const t of todosOverdue) {
-      const title = t?.title || null;
+      const title = t?.title || 'Untitled';
       const day = t?.day || 'unknown';
-      const timeWindow = t?.time_window || 'any';
-      const estMinutes = t?.est_minutes ?? '?';
-      const priorityKind = t?.priority_kind || 'none';
-      const dailyBlock = t?.daily_block || 'none';
-      lines.push(
-        `- "${title}" (was ${day}) [window: ${timeWindow}, est: ${estMinutes}m, priority: ${priorityKind}, block: ${dailyBlock}]`,
-      );
+      const priority = t?.priority_kind || 'none';
+      parts.push(`- "${title}" (was ${day}) [priority: ${priority}]`);
     }
   }
 
-  lines.push('');
-  lines.push('=== TODOS (other) ===');
-  lines.push(`${untimedCount} untimed, ${totalActive} active total`);
+  parts.push('');
+  parts.push("=== LOCKED IN (user's explicit priorities) ===");
+  if (todosLockedIn.length === 0) {
+    parts.push('(none)');
+  } else {
+    for (const t of todosLockedIn) {
+      const title = t?.title || 'Untitled';
+      const dayPart = t?.day ? `, due ${t.day}` : '';
+      parts.push(`- "${title}"${dayPart}`);
+    }
+  }
 
-  lines.push('');
-  lines.push('=== HABITS SCHEDULED TODAY ===');
+  parts.push('');
+  parts.push('=== TODOS (other) ===');
+  parts.push(`${untimedCount} untimed, ${totalActive} active total`);
+
+  parts.push('');
+  parts.push('=== HABITS SCHEDULED TODAY ===');
   if (habitsScheduled.length === 0) {
-    lines.push('(none)');
+    parts.push('(none)');
   } else {
     for (const h of habitsScheduled) {
-      const name = h?.name || null;
-      const timeWindow = h?.time_window || 'any';
-      const scheduledStart = h?.scheduled_start_iso || 'none';
-      const dailyBlock = h?.daily_block || 'none';
-      const doneToday = h?.done_today ? 'yes' : 'no';
-      lines.push(
-        `- "${name}" [window: ${timeWindow}, start: ${scheduledStart}, block: ${dailyBlock}, done_today: ${doneToday}]`,
-      );
+      const name = h?.name || 'Untitled habit';
+      const windowVal = h?.time_window || 'any';
+      const startVal = h?.scheduled_start_iso || 'none';
+      const done = h?.done_today ? 'yes' : 'no';
+      const planned = h?.planned_today || 'none';
+      let line = `- "${name}" [window: ${windowVal}, start: ${startVal}, done_today: ${done}, planned: ${planned}]`;
+      if (h?.adaptation?.mode) {
+        const floorNote = h?.adaptation?.floor_note ? `, floor: ${h.adaptation.floor_note}` : '';
+        line += ` | ADAPTED: ${h.adaptation.mode}${floorNote}`;
+      }
+      parts.push(line);
     }
   }
 
-  lines.push('');
-  lines.push('=== HABITS (other active) ===');
+  parts.push('');
+  parts.push('=== HABITS (other active) ===');
   if (habitsOther.length === 0) {
-    lines.push('(none)');
+    parts.push('(none)');
   } else {
     for (const h of habitsOther) {
-      const name = h?.name || null;
-      const doneToday = h?.done_today ? 'yes' : 'no';
-      lines.push(`- "${name}" [done_today: ${doneToday}]`);
+      const name = h?.name || 'Untitled habit';
+      const done = h?.done_today ? 'yes' : 'no';
+      let line = `- "${name}" [done_today: ${done}]`;
+      if (h?.adaptation?.mode) {
+        line += ` | ADAPTED: ${h.adaptation.mode}`;
+      }
+      parts.push(line);
     }
   }
 
-  lines.push('');
-  lines.push('=== CALENDAR TODAY (next 72h) ===');
+  parts.push('');
+  parts.push('=== HABIT ADAPTATIONS THIS WEEK (deliberate keep/floor/pause) ===');
+  if (adaptedHabits.length === 0) {
+    parts.push('(none)');
+  } else {
+    for (const h of adaptedHabits) {
+      const name = h?.name || 'Untitled habit';
+      const mode = h?.adaptation?.mode || 'unknown';
+      const floorNote = h?.adaptation?.floor_note ? `, floor: ${h.adaptation.floor_note}` : '';
+      parts.push(`- "${name}" mode: ${mode}${floorNote}`);
+    }
+    parts.push(
+      'These are deliberate choices; habits marked pause or floor must NOT be treated as streak risks.',
+    );
+  }
+
+  parts.push('');
+  parts.push('=== CALENDAR TODAY (today + next 72h) ===');
   if (calendarToday.length === 0) {
-    lines.push('(none)');
+    parts.push('(none)');
   } else {
     for (const e of calendarToday) {
-      const title = e?.title || null;
+      const title = e?.title || 'Untitled';
       const startAt = e?.start_at || 'unknown';
       const endAt = e?.end_at || 'open';
-      const timingLabel = e?.is_all_day ? 'all day' : 'timed';
-      const locationPart = e?.location ? `, ${e.location}` : '';
-      lines.push(`- "${title}" ${startAt} to ${endAt} [${timingLabel}]${locationPart}`);
+      const timing = e?.is_all_day ? 'all day' : 'timed';
+      const locationPart = e?.location ? `, at ${e.location}` : '';
+      parts.push(`- "${title}" ${startAt} to ${endAt} [${timing}]${locationPart}`);
     }
   }
 
-  lines.push('');
-  lines.push('=== DATED ANCHORS (active, from conversations) ===');
+  parts.push('');
+  parts.push('=== DATED ANCHORS (active, from conversations) ===');
   if (anchorsActive.length === 0) {
-    lines.push('(none)');
+    parts.push('(none)');
   } else {
     for (const a of anchorsActive) {
-      const title = a?.title || null;
+      const title = a?.title || 'Untitled';
       const category = a?.category || 'unknown';
       const dateVal = a?.resolved_date || a?.date_text || 'unknown';
       const confidence = a?.date_confidence ?? 'unknown';
-      lines.push(`- "${title}" [${category}] date: ${dateVal}, confidence: ${confidence}`);
+      parts.push(`- "${title}" [${category}] date: ${dateVal}, confidence: ${confidence}`);
     }
   }
 
-  return lines.join('\n');
+  parts.push('');
+  parts.push('=== MILESTONES (active, dated targets) ===');
+  if (milestones.length === 0) {
+    parts.push('(none)');
+  } else {
+    for (const m of milestones) {
+      const title = m?.title || 'Untitled';
+      const date = m?.date || 'none';
+      parts.push(`- "${title}" target: ${date}`);
+    }
+  }
+
+  parts.push('');
+  parts.push("=== THIS WEEK'S SHAPE ===");
+  const briefState = dailyBrief ? 'set today' : 'not set today';
+  const oneThingPart = dailyBrief?.one_thing_id ? ', one_thing present' : '';
+  parts.push(`Daily Brief: ${briefState}${oneThingPart}`);
+  parts.push(`Sweep skips last 7d: ${skipEvents.length > 0 ? skipEvents.length : '(none)'}`);
+  parts.push(`Floor suggestions active: ${floorCount}`);
+
+  parts.push('');
+  parts.push('=== RECENT MOOD (last 7d, user-logged) ===');
+  if (recentMood.length === 0) {
+    parts.push('(none logged)');
+  } else {
+    for (const m of recentMood) {
+      const date = m?.date || 'unknown';
+      const moods = safeArr(m?.moods);
+      parts.push(`- ${date}: ${moods.length > 0 ? moods.join(', ') : 'none'}`);
+    }
+  }
+
+  parts.push('');
+  parts.push('=== ACTIVE COMMITMENTS (habits user formally committed to) ===');
+  if (commitments.length === 0) {
+    parts.push('(none)');
+  } else {
+    for (const c of commitments) {
+      const name = c?.name || 'Untitled habit';
+      const untilPart = c?.until ? `, until ${c.until}` : '';
+      parts.push(`- "${name}"${untilPart}`);
+    }
+  }
+
+  return parts.join('\n');
 }
 
 async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
@@ -6768,7 +7076,7 @@ async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
     const bucketed = bucketTodayFacts(gathered);
     todayFacts = { bucketed, text: renderTodayFactsText(bucketed) };
   } catch (e) {
-    console.error('[Gather] failed (non-fatal in Phase 1):', e?.message || e);
+    console.error('[Gather] failed (non-fatal Phase 1):', e?.message || e);
   }
 
   return {
