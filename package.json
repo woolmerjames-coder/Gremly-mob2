@@ -72,6 +72,7 @@
     "expo-web-browser": "~15.0.10",
     "immer": "11.1.4",
     "inngest": "3.49.3",
+    "jsonrepair": "3.14.0",
     "lottie-react-native": "7.3.4",
     "lucide-react-native": "0.545.0",
     "nanoid": "5.1.6",
