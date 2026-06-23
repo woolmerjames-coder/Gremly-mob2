@@ -2098,7 +2098,7 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
         .filter((p) => {
           if (!tokenMap[p.user_id]) {
             droppedNoToken++;
-            return false;
+            // Do NOT exclude: summary still generates; push is skipped downstream when token is absent.
           }
           if (!accessMap[p.user_id]) {
             droppedNoAccess++;
@@ -2111,7 +2111,7 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
           timezone: p.timezone || 'UTC',
           weekly_time: p.weekly_time,
           weekly_day: p.weekly_day ?? 0, // 0 = Sunday
-          push_token: tokenMap[p.user_id],
+          push_token: tokenMap[p.user_id] ?? null,
         }));
 
       console.log(
