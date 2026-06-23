@@ -9,6 +9,20 @@
 import { Inngest, InngestMiddleware } from 'inngest';
 import { serve } from 'inngest/cloudflare';
 import { jsonrepair } from 'jsonrepair';
+import { buildOutputAgnosticAnalystPrompt } from './analystPrompt';
+import {
+  buildAnalystObservations,
+  persistAnalystObservations,
+  clearAnalystObservationsForWeek,
+} from './analystObservations';
+import { buildDualRunReport } from './analystDualRunReport';
+import { collectSignalForBackfillClassifier } from './signalCollector';
+import { buildUnifiedUserBundle } from './unifiedUserBundle';
+import { findEarliestDropDate, computeWindows } from './worldsHarness';
+import { buildWindowReport, buildUserReport } from './worldsBundleEquivalenceReport';
+import { processWorldsWindow } from './processWorldsWindow';
+import { generateAdaptiveSummary } from './generateAdaptiveSummary';
+import { buildOutputDualRunReport } from './worldsOutputDiffReport';
 import { createWorldsWriterTest } from './worldsWriterTest';
 import { createWorldsBootstrap } from './worldsBootstrap';
 import { createWorldsWeeklyRun } from './worldsWeeklyRun';
@@ -824,6 +838,1122 @@ const testWeeklySummaryV2 = inngest.createFunction(
 );
 
 // ============================================================================
+// Analyst Dual-Run Shadow Test
+// ============================================================================
+
+const testAnalystDualRun = inngest.createFunction(
+  {
+    id: 'test-analyst-dual-run',
+    name: 'Test Analyst Dual Run (Phase 2a validation)',
+    concurrency: { limit: 1 },
+  },
+  { event: 'app/test.analyst-dual-run' },
+  async ({ event, step, env }) => {
+    const userId = event.data.user_id;
+    if (!userId) throw new Error('user_id is required');
+    const timezone = event.data.timezone || 'UTC';
+
+    // 1. Weekly snapshot (21-day window, same as the live weekly pipeline).
+    const snapshot = await step.run('fetch-snapshot', async () => {
+      return fetchUserSnapshot(userId, timezone, 21, env);
+    });
+
+    // 2. Week boundaries (identical math to the weekly run).
+    const weekDates = await step.run('compute-week', async () => {
+      const target = new Date(snapshot.targetDate + 'T00:00:00Z');
+      const dayOfWeek = target.getUTCDay();
+      const weekEndDate = new Date(target);
+      weekEndDate.setUTCDate(target.getUTCDate() - (dayOfWeek === 0 ? 0 : dayOfWeek));
+      const weekStartDate = new Date(weekEndDate);
+      weekStartDate.setUTCDate(weekEndDate.getUTCDate() - 6);
+      return { weekStart: formatDateOnly(weekStartDate), weekEnd: formatDateOnly(weekEndDate) };
+    });
+
+    // 3. Resolve the current Life Map. A live map runs incremental against it
+    //    (read only, never written). No live map is the cold-start case: wide
+    //    historical fetch (exercises the wide-fetch path) plus a build-only
+    //    bootstrap into a SHADOW map that is never written to user_life_map.
+    const mapCtx = await step.run('resolve-current-map', async () => {
+      const liveMap = snapshot.raw?.currentLifeMap?.life_map || null;
+      if (liveMap) {
+        return { mode: 'incremental', currentMap: liveMap };
+      }
+      const full = await fetchFullHistoricalSnapshot(userId, env);
+      const seeded = await bootstrapLifeMap(full, env);
+      return { mode: 'bootstrap', currentMap: seeded };
+    });
+    const lm = mapCtx.currentMap;
+
+    // Shared rebuild inputs, cloned from the live weekly worker.
+    const rebuildInputs = () => ({
+      userProfile: snapshot.raw?.userProfile?.profile_text || null,
+      spaces: snapshot.raw?.spaces || [],
+      journals: (snapshot.raw?.journals || []).map((j) => ({
+        title: j.title,
+        body: j.body,
+        mood: j.mood,
+        date: j.created_at ? j.created_at.split('T')[0] : null,
+      })),
+    });
+
+    // 4-6. Analyst: two legacy draws (the noise floor) plus one output-agnostic
+    //      draw, all over the SAME weekly snapshot and current map.
+    const analysisLegacyA = await step.run('analyst-legacy-a', async () => {
+      const ws = buildWeeklySnapshot(snapshot);
+      const r = await runUnifiedAnalyst(ws, lm, weekDates.weekStart, weekDates.weekEnd, env);
+      return r.analysis;
+    });
+    const analysisLegacyB = await step.run('analyst-legacy-b', async () => {
+      const ws = buildWeeklySnapshot(snapshot);
+      const r = await runUnifiedAnalyst(ws, lm, weekDates.weekStart, weekDates.weekEnd, env);
+      return r.analysis;
+    });
+    const analysisNew = await step.run('analyst-new', async () => {
+      const ws = buildWeeklySnapshot(snapshot);
+      const r = await runUnifiedAnalyst(ws, lm, weekDates.weekStart, weekDates.weekEnd, env, {
+        outputAgnostic: true,
+      });
+      return r.analysis;
+    });
+
+    // 7-9. Rebuilder against the SAME current map. Legacy draws trust the
+    //      mapping; the new draw self-maps. Take the delta only. Never merge or
+    //      write it anywhere.
+    const deltaLegacyA = await step.run('rebuild-legacy-a', async () => {
+      const { userProfile, spaces, journals } = rebuildInputs();
+      const r = await rebuildLifeMap(lm, analysisLegacyA, userProfile, spaces, journals, env);
+      return r.delta;
+    });
+    const deltaLegacyB = await step.run('rebuild-legacy-b', async () => {
+      const { userProfile, spaces, journals } = rebuildInputs();
+      const r = await rebuildLifeMap(lm, analysisLegacyB, userProfile, spaces, journals, env);
+      return r.delta;
+    });
+    const deltaNew = await step.run('rebuild-new', async () => {
+      const { userProfile, spaces, journals } = rebuildInputs();
+      const r = await rebuildLifeMap(lm, analysisNew, userProfile, spaces, journals, env, {
+        selfMap: true,
+      });
+      return r.delta;
+    });
+
+    // 10. Build observation rows (NOT inserted), assemble the report, and write
+    //     everything to shadow_runs. observations and user_life_map are untouched.
+    const result = await step.run('build-and-write', async () => {
+      const obsRows = buildAnalystObservations(analysisNew, userId, weekDates.weekStart);
+      const observationKinds = {};
+      for (const row of obsRows) {
+        observationKinds[row.kind] = (observationKinds[row.kind] || 0) + 1;
+      }
+
+      const seededMapDomains =
+        mapCtx.mode === 'bootstrap'
+          ? (lm.domains || []).map((d) => ({
+              name: d.name,
+              thread_count: (d.threads || []).length,
+            }))
+          : null;
+
+      const report = buildDualRunReport({
+        userId,
+        weekStart: weekDates.weekStart,
+        weekEnd: weekDates.weekEnd,
+        runMode: mapCtx.mode,
+        legacyAnalyst: analysisLegacyA,
+        newAnalyst: analysisNew,
+        legacyDeltaA: deltaLegacyA,
+        legacyDeltaB: deltaLegacyB,
+        newDelta: deltaNew,
+        observationRowCount: obsRows.length,
+        observationKinds,
+        seededMapDomains,
+      });
+
+      const payload = {
+        report,
+        new_analyst_output: analysisNew,
+        built_observation_rows: obsRows,
+        seeded_map: mapCtx.mode === 'bootstrap' ? lm : null,
+      };
+
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/shadow_runs`, {
+        method: 'POST',
+        headers: {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          run_kind: 'analyst_dual_run',
+          run_mode: mapCtx.mode,
+          payload,
+          window_start: weekDates.weekStart,
+          window_end: weekDates.weekEnd,
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(`shadow_runs write failed: ${res.status} ${errText.slice(0, 200)}`);
+      }
+
+      return {
+        user_id: userId,
+        run_mode: mapCtx.mode,
+        verdict: report.verdict,
+        boundary_clean: report.boundary_clean,
+        signal_divergence: report.signal_divergence,
+        noise_divergence: report.noise_divergence,
+        observation_rows: obsRows.length,
+      };
+    });
+
+    return result;
+  },
+);
+
+const testWorldsBundleEquivalence = inngest.createFunction(
+  {
+    id: 'test-worlds-bundle-equivalence',
+    name: 'Test Worlds Bundle Equivalence (Phase 2b Step A)',
+    concurrency: { limit: 1 },
+  },
+  { event: 'app/test.worlds-bundle-equivalence' },
+  async ({ event, step, env }) => {
+    const userId = event.data.user_id;
+    if (!userId) throw new Error('user_id is required');
+
+    // Project a bundle (legacy backfill OR unified-range) down to the 11
+    // Worlds-consumed sections. Legacy bundle has the sections at top level;
+    // the unified bundle has them under `raw`.
+    const projectLegacy = (b) => ({
+      journals: b.journals,
+      notes: b.notes,
+      todos: b.todos,
+      habits: b.habits,
+      habitProgress: b.habitProgress,
+      chatSummaries: b.chatSummaries,
+      temporalAnchors: b.temporalAnchors,
+      profileOverrides: b.profileOverrides,
+      ritualProgress: b.ritualProgress,
+      photoNotes: b.photoNotes,
+      calendarSummary: b.calendarSummary,
+    });
+    const projectUnified = (b) => ({
+      journals: b.raw.journals,
+      notes: b.raw.notes,
+      todos: b.raw.todos,
+      habits: b.raw.habits,
+      habitProgress: b.raw.habitProgress,
+      chatSummaries: b.raw.chatSummaries,
+      temporalAnchors: b.raw.temporalAnchors,
+      profileOverrides: b.raw.profileOverrides,
+      ritualProgress: b.raw.ritualProgress,
+      photoNotes: b.raw.photoNotes,
+      calendarSummary: b.raw.calendarSummary,
+    });
+
+    // 1. Resolve the window set: the live 28-day weekly window, plus the
+    //    bootstrap windows (28d window / 14d stride from earliest signal),
+    //    capped at recent-4-plus-earliest per the agreed plan (A-D1).
+    const windowPlan = await step.run('resolve-windows', async () => {
+      const nowMs = Date.now();
+      const dateOnly = (ms) => new Date(ms).toISOString().slice(0, 10);
+      const weekly = {
+        index: 'weekly',
+        start: dateOnly(nowMs - 28 * 24 * 60 * 60 * 1000),
+        end: dateOnly(nowMs),
+      };
+
+      const earliest = await findEarliestDropDate(userId, env);
+      const all = computeWindows(earliest, new Date(nowMs).toISOString(), 28, 14).map((w) => ({
+        index: w.index,
+        start: w.start.slice(0, 10),
+        end: w.end.slice(0, 10),
+      }));
+
+      // recent-4-plus-earliest: dedupe by index in case of overlap
+      const chosen = [];
+      const seen = new Set();
+      const pushWin = (w) => {
+        if (!seen.has(w.index)) {
+          seen.add(w.index);
+          chosen.push(w);
+        }
+      };
+      if (all.length > 0) pushWin(all[0]); // earliest (true cold-start boundary)
+      for (const w of all.slice(-4)) pushWin(w); // most recent 4
+
+      return { weekly, bootstrap: chosen, total_bootstrap_windows: all.length };
+    });
+
+    // 2. For each window, dual-collect and diff. One step per window keeps the
+    //    function resumable and visible in the Inngest UI.
+    const windowReports = [];
+
+    const runWindow = async (idx, ws, we) => {
+      const [legacyBundle, unifiedBundle] = await Promise.all([
+        collectSignalForBackfillClassifier(userId, env, ws, we),
+        buildUnifiedUserBundle(userId, env, { mode: 'range', windowStart: ws, windowEnd: we }),
+      ]);
+      return buildWindowReport(
+        idx,
+        ws,
+        we,
+        projectLegacy(legacyBundle),
+        projectUnified(unifiedBundle),
+      );
+    };
+
+    const weeklyReport = await step.run('window-weekly', async () =>
+      runWindow(windowPlan.weekly.index, windowPlan.weekly.start, windowPlan.weekly.end),
+    );
+    windowReports.push(weeklyReport);
+
+    for (const w of windowPlan.bootstrap) {
+      const r = await step.run(`window-bootstrap-${w.index}`, async () =>
+        runWindow(w.index, w.start, w.end),
+      );
+      windowReports.push(r);
+    }
+
+    // 3. Assemble the per-user report and write it to shadow_runs. Nothing is
+    //    classified; nothing is written to worlds/chapters/life_contexts.
+    const result = await step.run('build-and-write', async () => {
+      const notes = [
+        `bootstrap windows total: ${windowPlan.total_bootstrap_windows}, sampled: ${windowPlan.bootstrap.length} (recent-4-plus-earliest)`,
+      ];
+      const report = buildUserReport(userId, windowReports, notes);
+
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/shadow_runs`, {
+        method: 'POST',
+        headers: {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          run_kind: 'worlds_bundle_equivalence',
+          run_mode: 'range',
+          payload: { report },
+          window_start: windowPlan.weekly.start.slice(0, 10),
+          window_end: windowPlan.weekly.end.slice(0, 10),
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(`shadow_runs write failed: ${res.status} ${errText.slice(0, 200)}`);
+      }
+
+      return {
+        user_id: userId,
+        verdict: report.verdict,
+        any_regression: report.any_regression,
+        any_identical_failure: report.any_identical_failure,
+        total_superset_extras: report.total_superset_extras,
+        windows_checked: windowReports.length,
+      };
+    });
+
+    return result;
+  },
+);
+
+const testAnalystObservationsWrite = inngest.createFunction(
+  {
+    id: 'test-analyst-observations-write',
+    name: 'Test Analyst Observations Write (Phase 2b Step B1)',
+    concurrency: { limit: 1 },
+  },
+  { event: 'app/test.analyst-observations-write' },
+  async ({ event, step, env }) => {
+    const userId = event.data.user_id;
+    if (!userId) throw new Error('user_id is required');
+    const timezone = event.data.timezone || 'UTC';
+
+    // 1. Snapshot + week boundaries (same math as the live weekly).
+    const snapshot = await step.run('fetch-snapshot', async () => {
+      return fetchUserSnapshot(userId, timezone, 21, env);
+    });
+    const weekDates = await step.run('compute-week', async () => {
+      const target = new Date(snapshot.targetDate + 'T00:00:00Z');
+      const dayOfWeek = target.getUTCDay();
+      const weekEndDate = new Date(target);
+      weekEndDate.setUTCDate(target.getUTCDate() - (dayOfWeek === 0 ? 0 : dayOfWeek));
+      const weekStartDate = new Date(weekEndDate);
+      weekStartDate.setUTCDate(weekEndDate.getUTCDate() - 6);
+      return { weekStart: formatDateOnly(weekStartDate), weekEnd: formatDateOnly(weekEndDate) };
+    });
+
+    // 2. Output-agnostic analyst (same call the dual-run uses).
+    const analysisNew = await step.run('run-analyst', async () => {
+      const ws = buildWeeklySnapshot(snapshot);
+      const lifeMap = snapshot.raw?.currentLifeMap?.life_map || null;
+      const r = await runUnifiedAnalyst(ws, lifeMap, weekDates.weekStart, weekDates.weekEnd, env, {
+        outputAgnostic: true,
+      });
+      return r.analysis;
+    });
+
+    // Helper: read back the live analyst rows for this user-week.
+    const readBack = async () => {
+      const res = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/observations` +
+          `?user_id=eq.${userId}&stage=eq.analyst&observed_for_week=eq.${weekDates.weekStart}` +
+          `&select=id,kind`,
+        {
+          headers: {
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          },
+        },
+      );
+      if (!res.ok)
+        throw new Error(`readBack failed: ${res.status} ${await res.text().catch(() => '')}`);
+      const rows = await res.json();
+      const byKind = {};
+      const ids = [];
+      for (const r of rows) {
+        byKind[r.kind] = (byKind[r.kind] || 0) + 1;
+        ids.push(r.id);
+      }
+      return { count: rows.length, byKind, ids: ids.sort() };
+    };
+
+    // 3. The idempotency gate: clear+persist TWICE, reading the table back after
+    //    each, and compare. clear-then-persist is one step.run so a crash between
+    //    them self-heals on retry (clear is idempotent, persist re-inserts).
+    const rows = buildAnalystObservations(analysisNew, userId, weekDates.weekStart);
+
+    const expected_by_kind = {};
+    for (const row of rows) expected_by_kind[row.kind] = (expected_by_kind[row.kind] || 0) + 1;
+
+    const firstWrite = await step.run('clear-and-persist-1', async () => {
+      await clearAnalystObservationsForWeek(userId, weekDates.weekStart, env);
+      const p = await persistAnalystObservations(rows, env);
+      if (!p.ok) throw new Error(`persist 1 failed: ${p.status} ${p.error || ''}`);
+      return p;
+    });
+    const afterFirst = await step.run('read-back-1', async () => readBack());
+
+    const secondWrite = await step.run('clear-and-persist-2', async () => {
+      await clearAnalystObservationsForWeek(userId, weekDates.weekStart, env);
+      const p = await persistAnalystObservations(rows, env);
+      if (!p.ok) throw new Error(`persist 2 failed: ${p.status} ${p.error || ''}`);
+      return p;
+    });
+    const afterSecond = await step.run('read-back-2', async () => readBack());
+
+    // 4. Assemble the proof and write a record to shadow_runs. The real analyst
+    //    rows remain in observations (that is the graduation: live, correct rows).
+    const result = await step.run('assess-and-record', async () => {
+      const countsStable = afterFirst.count === afterSecond.count;
+      const expectedCount = rows.length;
+      const sameKindMap = (a, b) => {
+        const ak = Object.keys(a).sort();
+        const bk = Object.keys(b).sort();
+        if (ak.length !== bk.length) return false;
+        for (const k of ak) {
+          if (a[k] !== b[k]) return false;
+        }
+        return true;
+      };
+      const matchesExpected =
+        afterFirst.count === expectedCount && sameKindMap(afterFirst.byKind, expected_by_kind);
+
+      const report = {
+        user_id: userId,
+        week_start: weekDates.weekStart,
+        expected_count: expectedCount,
+        expected_by_kind,
+        inserted_first: afterFirst.count,
+        inserted_second: afterSecond.count,
+        by_kind_first: afterFirst.byKind,
+        by_kind_second: afterSecond.byKind,
+        counts_stable: countsStable,
+        clear_worked: countsStable && afterSecond.count === expectedCount,
+        matches_expected: matchesExpected,
+        verdict:
+          countsStable && matchesExpected && afterSecond.count === expectedCount ? 'pass' : 'fail',
+      };
+
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/shadow_runs`, {
+        method: 'POST',
+        headers: {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          run_kind: 'analyst_observations_write_test',
+          run_mode: 'incremental',
+          payload: { report },
+          window_start: weekDates.weekStart,
+          window_end: weekDates.weekEnd,
+        }),
+      });
+      if (!res.ok)
+        throw new Error(
+          `shadow_runs write failed: ${res.status} ${await res.text().catch(() => '')}`,
+        );
+
+      return report;
+    });
+
+    return result;
+  },
+);
+
+const backfillAnalystForWeek = inngest.createFunction(
+  {
+    id: 'backfill-analyst-for-week',
+    name: 'Backfill analyst observations for a specific historical week',
+  },
+  { event: 'app/backfill.analyst-for-week' },
+  async ({ event, step, env }) => {
+    const { user_id: userId, week_start, timezone = 'UTC' } = event.data;
+    if (!userId) throw new Error('user_id is required');
+    if (!week_start) throw new Error('week_start is required (yyyy-mm-dd, must be a Monday)');
+
+    const start = new Date(week_start + 'T00:00:00Z');
+    if (start.getUTCDay() !== 1) {
+      throw new Error(`week_start ${week_start} is not a Monday (UTC day ${start.getUTCDay()})`);
+    }
+    const week_end = formatDateOnly(new Date(+start + 6 * 86400000));
+
+    // Step 1: fetch historical snapshot anchored to the target week's Sunday.
+    // opts.targetDate overrides "today" in fetchUserSnapshot's date math, so the
+    // 21-day window looks back from week_end rather than from the current date.
+    const snapshot = await step.run('fetch-snapshot', async () => {
+      return fetchUserSnapshot(userId, timezone, 21, env, { targetDate: week_end });
+    });
+
+    // Step 2: run the output-agnostic analyst against the historical snapshot.
+    const analysis = await step.run('run-analyst', async () => {
+      const ws = buildWeeklySnapshot(snapshot);
+      const lifeMap = snapshot.raw?.currentLifeMap?.life_map || null;
+      const r = await runUnifiedAnalyst(ws, lifeMap, week_start, week_end, env, {
+        outputAgnostic: true,
+      });
+      return r.analysis;
+    });
+
+    // Step 3: build rows, clear-before-persist (idempotent), write.
+    const rows = buildAnalystObservations(analysis, userId, week_start);
+
+    const written = await step.run('clear-and-persist', async () => {
+      await clearAnalystObservationsForWeek(userId, week_start, env);
+      const p = await persistAnalystObservations(rows, env);
+      if (!p.ok) throw new Error(`persist failed: ${p.status} ${p.error || ''}`);
+      return rows.length;
+    });
+
+    return { user_id: userId, week_start, week_end, observations_written: written };
+  },
+);
+
+const runShadowSummaryForWeek = inngest.createFunction(
+  {
+    id: 'run-shadow-summary-for-week',
+    name: 'Run v0.7 adaptive weekly summary in shadow mode and persist to shadow_runs',
+  },
+  { event: 'app/shadow.summary-for-week' },
+  async ({ event, step, env }) => {
+    const { user_id, week_start, timezone = 'UTC' } = event.data;
+    if (!user_id) throw new Error('user_id is required');
+    if (!week_start) throw new Error('week_start is required (yyyy-mm-dd, must be a Monday)');
+
+    const start = new Date(week_start + 'T00:00:00Z');
+    if (start.getUTCDay() !== 1) {
+      throw new Error(`week_start ${week_start} is not a Monday (UTC day ${start.getUTCDay()})`);
+    }
+    const week_end = formatDateOnly(new Date(+start + 6 * 86400000));
+
+    const authHeaders = {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+    };
+    const runRpc = async (fnName, params) => {
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/${fnName}`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify(params),
+      });
+      if (!res.ok)
+        throw new Error(
+          `rpc ${fnName} failed: ${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`,
+        );
+      return res.json();
+    };
+    const fetchRows = async (path) => {
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/${path}`, {
+        method: 'GET',
+        headers: authHeaders,
+      });
+      if (!res.ok)
+        throw new Error(
+          `fetch ${path} failed: ${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`,
+        );
+      return res.json();
+    };
+
+    // Step 1: run the full v0.7 generation pipeline.
+    // generateAdaptiveSummary returns { content, html, surfaced_observations, errors }
+    // where errors[] is prefixed: 'fact: ...' for fact failures, 'quality(...): ...' for quality.
+    const out = await step.run('generate-summary', async () => {
+      return generateAdaptiveSummary({
+        userId: user_id,
+        weekStart: week_start,
+        weekEnd: week_end,
+        label: `${user_id.slice(0, 8)} · ${week_start}`,
+        env,
+        runRpc,
+        fetchRows,
+      });
+    });
+
+    // v0.7a: GenerateResult exposes all telemetry fields directly.
+    const outcome =
+      out.fact_errors.length === 0 && out.quality_issues.length === 0
+        ? 'hard_pass'
+        : out.fact_errors.length === 0
+          ? 'soft_pass'
+          : 'hard_fail';
+
+    // Step 1b: resolve image hints so shadow_runs contains resolved image_urls.
+    const resolvedShadowContent = await step.run('resolve-image-hints', async () => {
+      if (!out.content?.cards) return out.content;
+      await resolveV07ImageHints(out.content.cards, env);
+      return out.content;
+    });
+
+    // Step 2: persist to shadow_runs.
+    await step.run('persist-shadow-run', async () => {
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/shadow_runs`, {
+        method: 'POST',
+        headers: { ...authHeaders, Prefer: 'return=minimal' },
+        body: JSON.stringify({
+          user_id,
+          run_kind: 'summary_v07a',
+          run_mode: 'shadow',
+          window_start: week_start,
+          window_end: week_end,
+          payload: {
+            content: resolvedShadowContent,
+            inspection_html: out.html,
+            fact_errors: out.fact_errors,
+            quality_issues: out.quality_issues,
+            attempt_1_fact_errors: out.attempt_1_fact_errors,
+            attempt_1_quality_issues: out.attempt_1_quality_issues,
+            attempts: out.attempts,
+            writer_model: out.writer_model,
+            checker_model: out.checker_model,
+            last_attempted_raw: out.last_attempted_raw,
+            pre_polish_content: out.pre_polish_content,
+            pre_polish_quality_issues: out.pre_polish_quality_issues,
+            post_polish_quality_issues: out.post_polish_quality_issues,
+            polish_outcome: out.polish_outcome,
+            polish_errors: out.polish_errors,
+            outcome,
+          },
+        }),
+      });
+      if (!res.ok)
+        throw new Error(
+          `shadow_runs write failed: ${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`,
+        );
+    });
+
+    return {
+      user_id,
+      week_start,
+      week_end,
+      outcome,
+      fact_errors_count: out.fact_errors.length,
+      quality_issues_count: out.quality_issues.length,
+      polish_outcome: out.polish_outcome,
+      attempts: out.attempts,
+    };
+  },
+);
+
+const weeklySummaryV07Worker = inngest.createFunction(
+  {
+    id: 'weekly-summary-v07-worker',
+    name: 'Weekly Summary V07 Worker',
+    concurrency: { limit: 3 },
+    retries: 2,
+    idempotency:
+      'event.data.idempotency_key ? event.data.idempotency_key : (event.data.user_id + "-" + event.data.week_start)',
+  },
+  { event: 'app/weekly-summary-v07.run' },
+  async ({ event, step, env }) => {
+    const { user_id, week_start, timezone = 'UTC' } = event.data;
+    if (!user_id) throw new Error('user_id is required');
+    if (!week_start) throw new Error('week_start is required (yyyy-mm-dd, must be a Monday)');
+
+    const start = new Date(week_start + 'T00:00:00Z');
+    if (start.getUTCDay() !== 1) {
+      throw new Error(`week_start ${week_start} is not a Monday (UTC day ${start.getUTCDay()})`);
+    }
+    const week_end = formatDateOnly(new Date(+start + 6 * 86400000));
+
+    const authHeaders = {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+    };
+    const runRpc = async (fnName, params) => {
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/${fnName}`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify(params),
+      });
+      if (!res.ok)
+        throw new Error(
+          `rpc ${fnName} failed: ${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`,
+        );
+      return res.json();
+    };
+    const fetchRows = async (path) => {
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/${path}`, {
+        method: 'GET',
+        headers: authHeaders,
+      });
+      if (!res.ok)
+        throw new Error(
+          `fetch ${path} failed: ${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`,
+        );
+      return res.json();
+    };
+
+    // Step 0: idempotency — skip if a summary already exists for this week.
+    const alreadyExists = await step.run('check-existing-summary', async () => {
+      const res = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/weekly_summaries?user_id=eq.${user_id}&week_start_date=eq.${week_start}&select=id&limit=1`,
+        { headers: authHeaders },
+      );
+      if (!res.ok) return false;
+      const rows = await res.json();
+      return Array.isArray(rows) && rows.length > 0;
+    });
+    if (alreadyExists) {
+      return { success: true, skipped: true, reason: 'summary_already_exists' };
+    }
+
+    // Step A: fetch a snapshot so the analyst has raw data.
+    // Pass targetDate: week_end so backfill/historical runs anchor to the requested week,
+    // not to today.
+    const snapshot = await step.run('fetch-snapshot', async () =>
+      fetchUserSnapshot(user_id, timezone, 21, env, { targetDate: week_end }),
+    );
+
+    // Step B: run the analyst — produces week_shape and world_signal_candidate
+    // observations that loadBrief (inside generateAdaptiveSummary) needs.
+    const analystResult = await step.run('run-analyst', async () => {
+      const weeklySnapshot = buildWeeklySnapshot(snapshot);
+      const lifeMap = snapshot.raw.currentLifeMap?.life_map || null;
+      return runUnifiedAnalyst(weeklySnapshot, lifeMap, week_start, week_end, env);
+    });
+
+    // Step C: persist analyst observations (replaces this user-week's prior rows).
+    await step.run('persist-analyst-observations', async () => {
+      const obsRows = buildAnalystObservations(analystResult.analysis, user_id, week_start);
+      await clearAnalystObservationsForWeek(user_id, week_start, env);
+      const p = await persistAnalystObservations(obsRows, env);
+      if (p.ok) {
+        console.log(
+          `[V07Worker] Persisted ${p.inserted} analyst observations for ${user_id} week ${week_start}`,
+        );
+        return { inserted: p.inserted, ok: true };
+      }
+      // Non-fatal: failed observations write must never abort the summary. Log
+      // with ALERT prefix for log-based alerting, and write a queryable failure
+      // row so a systemic problem is visible by SQL without log archaeology.
+      console.error(
+        `[ALERT][V07Worker] analyst observations persist FAILED for ${user_id} week ${week_start}: ${p.status} ${p.error || ''}`,
+      );
+      try {
+        await fetch(`${env.SUPABASE_URL}/rest/v1/events`, {
+          method: 'POST',
+          headers: { ...authHeaders, Prefer: 'return=minimal' },
+          body: JSON.stringify({
+            owner_id: user_id,
+            kind: 'analyst_observations_persist_failed',
+            payload_json: {
+              week_start,
+              status: p.status ?? null,
+              error: (p.error || '').slice(0, 500),
+            },
+          }),
+        });
+      } catch (e) {
+        console.error(
+          `[ALERT][V07Worker] could not record persist-failure event for ${user_id}: ${String(e).slice(0, 200)}`,
+        );
+      }
+      return { inserted: 0, ok: false };
+    });
+
+    // Step 1: run v0.7 generation pipeline. Publish-always: fact_errors are review flags,
+    // not a publish gate. The only catastrophe guard is genuinely empty cards.
+    const out = await step.run('generate-summary', async () =>
+      generateAdaptiveSummary({
+        userId: user_id,
+        weekStart: week_start,
+        weekEnd: week_end,
+        label: `${user_id.slice(0, 8)} · ${week_start}`,
+        env,
+        runRpc,
+        fetchRows,
+      }),
+    );
+
+    // Catastrophe guard: nothing to publish if the writer produced zero cards.
+    if (!out.content || out.content.cards.length === 0) {
+      console.error(`[V07Worker] Catastrophic failure (no cards) for ${user_id} ${week_start}`);
+      return {
+        success: false,
+        user_id,
+        week_start,
+        week_end,
+        outcome: 'no_cards',
+        fact_errors: out.fact_errors ?? [],
+      };
+    }
+
+    // Step 2: resolve image hints on hero and moment cards.
+    const resolvedContent = await step.run('resolve-image-hints', async () => {
+      await resolveV07ImageHints(out.content.cards, env);
+      return out.content;
+    });
+
+    // Step 3: claim notification slot, delete any existing row, insert new summary.
+    await step.run('save-weekly-summary', async () => {
+      const headers = authHeaders;
+
+      // Claim the notification slot — only done when we have a shippable deck.
+      await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/claim_notification_slot`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          p_user_id: user_id,
+          p_type: 'weekly',
+          p_date_key: week_start,
+        }),
+      });
+
+      // Delete any existing summary for this week before insert.
+      await fetch(
+        `${env.SUPABASE_URL}/rest/v1/weekly_summaries?user_id=eq.${user_id}&week_start_date=eq.${week_start}`,
+        { method: 'DELETE', headers },
+      );
+
+      const cards = resolvedContent.cards ?? [];
+
+      // Extract moment dates from source_journal_quote_id ('q_yyyy-mm-dd_n' format).
+      const momentDates = cards
+        .filter((c) => c.shape === 'moment')
+        .map((c) => {
+          const m = c.body?.source_journal_quote_id?.match(/^q_(\d{4}-\d{2}-\d{2})_/);
+          return m ? m[1] : null;
+        })
+        .filter(Boolean);
+
+      const insertRes = await fetch(`${env.SUPABASE_URL}/rest/v1/weekly_summaries`, {
+        method: 'POST',
+        headers: { ...headers, Prefer: 'return=minimal' },
+        body: JSON.stringify({
+          user_id,
+          week_start_date: week_start,
+          week_end_date: week_end,
+          content: resolvedContent,
+          moment_dates: momentDates,
+          stats_snapshot: {
+            card_count: cards.length,
+            card_shapes: cards.map((c) => c.shape),
+          },
+          key_themes: [],
+          viewed: false,
+          banner_dismissed: false,
+          review_flags: out.content.metadata.review_flags ?? [],
+          generated_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }),
+      });
+      if (!insertRes.ok) {
+        const errText = await insertRes.text();
+        throw new Error(`Failed to save weekly summary: ${errText}`);
+      }
+    });
+
+    return {
+      success: true,
+      user_id,
+      week_start,
+      week_end,
+      outcome: out.quality_issues.length === 0 ? 'hard_pass' : 'soft_pass',
+      card_shapes: (resolvedContent.cards ?? []).map((c) => c.shape),
+      polish_outcome: out.polish_outcome,
+      attempts: out.attempts,
+    };
+  },
+);
+
+const testWorldsOutputDualRun = inngest.createFunction(
+  {
+    id: 'test-worlds-output-dual-run',
+    name: 'Test Worlds Output Dual Run (Phase 2b Step C)',
+    concurrency: { limit: 1 },
+  },
+  { event: 'app/test.worlds-output-dual-run' },
+  async ({ event, step, env }) => {
+    const userId = event.data.user_id;
+    if (!userId) throw new Error('user_id is required');
+
+    // Fixed recent 28-day window, matching the live weekly worlds run.
+    const windowEnd = new Date().toISOString().slice(0, 10);
+    const windowStart = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    const penv = {
+      ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
+      SUPABASE_URL: env.SUPABASE_URL,
+      SUPABASE_SERVICE_KEY: env.SUPABASE_SERVICE_KEY,
+    };
+    const runCombo = (useUnifiedBundle, useAnalystLedger) =>
+      processWorldsWindow({
+        ownerId: userId,
+        windowStart,
+        windowEnd,
+        env: penv,
+        opts: { useUnifiedBundle, useAnalystLedger, dryRun: true },
+      });
+
+    // Five dry-run draws. Each its own step for resumability and UI visibility.
+    const base = await step.run(
+      'draw-base',
+      async () => (await runCombo(false, false)).classifierOutput,
+    );
+    const base2 = await step.run(
+      'draw-base2-noise',
+      async () => (await runCombo(false, false)).classifierOutput,
+    );
+    const c1 = await step.run(
+      'draw-c1-bundle',
+      async () => (await runCombo(true, false)).classifierOutput,
+    );
+    const c2 = await step.run(
+      'draw-c2-ledger',
+      async () => (await runCombo(false, true)).classifierOutput,
+    );
+    const target = await step.run(
+      'draw-target',
+      async () => (await runCombo(true, true)).classifierOutput,
+    );
+
+    // Pull the analyst world_signal_candidate labels actually available for this
+    // user (latest week), to feed the anti-poisoning check. These are the labels
+    // the c2/target runs would have been hinted with.
+    const analystCandidateLabels = await step.run('fetch-candidate-labels', async () => {
+      const headers = {
+        apikey: env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      };
+      const latestRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/observations` +
+          `?user_id=eq.${userId}&stage=eq.analyst&select=observed_for_week&order=observed_for_week.desc&limit=1`,
+        { headers },
+      );
+      const latestRows = latestRes.ok ? await latestRes.json() : [];
+      const latestWeek = Array.isArray(latestRows) && latestRows[0]?.observed_for_week;
+      if (!latestWeek) return [];
+      const res = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/observations` +
+          `?user_id=eq.${userId}&stage=eq.analyst&observed_for_week=eq.${latestWeek}` +
+          `&kind=eq.world_signal_candidate&select=evidence_snapshot`,
+        { headers },
+      );
+      const rows = res.ok ? await res.json() : [];
+      return rows.map((r) => r.evidence_snapshot?.label).filter(Boolean);
+    });
+
+    const result = await step.run('build-and-write', async () => {
+      const report = buildOutputDualRunReport({
+        userId,
+        windowStart,
+        windowEnd,
+        base,
+        base2,
+        c1,
+        c2,
+        target,
+        analystCandidateLabels,
+      });
+
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/shadow_runs`, {
+        method: 'POST',
+        headers: {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          run_kind: 'worlds_output_dual_run',
+          run_mode: 'range',
+          payload: { report },
+          window_start: windowStart,
+          window_end: windowEnd,
+        }),
+      });
+      if (!res.ok)
+        throw new Error(
+          `shadow_runs write failed: ${res.status} ${await res.text().catch(() => '')}`,
+        );
+
+      return {
+        user_id: userId,
+        noise_divergence: report.noise_divergence,
+        c1_divergence: report.c1_divergence,
+        c2_divergence: report.c2_divergence,
+        target_divergence: report.target_divergence,
+        target_exceeds_noise: report.target_exceeds_noise,
+        attribution: report.attribution,
+        suspected_echo: report.anti_poisoning.suspected_echo,
+      };
+    });
+
+    return result;
+  },
+);
+
+// ── Phase 3 v0.5: Adaptive Weekly Summary shadow harness ─────────────────────
+// Runs the net-new five-stage pipeline over the shadow users; writes decks to
+// shadow_runs and fires to detector_fires. Never touches weekly_summaries/observations.
+const SUMMARY_V05_SHADOW_USERS = [
+  { label: 'James', uid: '05a3c53d-b242-4b5f-a0db-83004c8e3892' },
+  { label: 'Dave', uid: 'c7674834-114b-4f6d-ac57-4d18aec8393b' },
+  { label: 'Tina', uid: 'c64ec85f-735c-4d5c-859a-1ac6630aebb3' },
+];
+
+const testSummaryV05 = inngest.createFunction(
+  {
+    id: 'test-summary-v05',
+    name: 'Test Adaptive Weekly Summary v0.5 (Phase 3 proving ground)',
+    concurrency: { limit: 1 },
+  },
+  { event: 'app/test.summary-v05' },
+  async ({ event, step, env }) => {
+    const users = event.data?.users?.length ? event.data.users : SUMMARY_V05_SHADOW_USERS;
+
+    // Default to the most recent completed Mon-Sun week (UTC); override via week_start/week_end.
+    const week = await step.run('compute-week', async () => {
+      if (event.data?.week_start && event.data?.week_end) {
+        return { weekStart: event.data.week_start, weekEnd: event.data.week_end };
+      }
+      const today = new Date();
+      const dow = today.getUTCDay(); // 0 = Sunday
+      const back = dow === 0 ? 7 : dow;
+      const weekEnd = new Date(today);
+      weekEnd.setUTCDate(today.getUTCDate() - back);
+      const weekStart = new Date(weekEnd);
+      weekStart.setUTCDate(weekEnd.getUTCDate() - 6);
+      return { weekStart: formatDateOnly(weekStart), weekEnd: formatDateOnly(weekEnd) };
+    });
+
+    const authHeaders = {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+    };
+    const runRpc = async (fnName, params) => {
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/${fnName}`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify(params),
+      });
+      if (!res.ok)
+        throw new Error(
+          `rpc ${fnName} failed: ${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`,
+        );
+      return res.json();
+    };
+    const fetchRows = async (path) => {
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/${path}`, {
+        method: 'GET',
+        headers: authHeaders,
+      });
+      if (!res.ok)
+        throw new Error(
+          `fetch ${path} failed: ${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`,
+        );
+      return res.json();
+    };
+
+    const results = [];
+    for (const u of users) {
+      const r = await step.run(`summary-${u.label}`, async () => {
+        const out = await generateAdaptiveSummary({
+          userId: u.uid,
+          weekStart: week.weekStart,
+          weekEnd: week.weekEnd,
+          label: u.label,
+          env,
+          runRpc,
+          fetchRows,
+        });
+
+        if (out.detector_fires.length > 0) {
+          const fres = await fetch(`${env.SUPABASE_URL}/rest/v1/detector_fires`, {
+            method: 'POST',
+            headers: { ...authHeaders, Prefer: 'return=minimal' },
+            body: JSON.stringify(out.detector_fires),
+          });
+          if (!fres.ok)
+            throw new Error(
+              `detector_fires write failed: ${fres.status} ${(await fres.text().catch(() => '')).slice(0, 200)}`,
+            );
+        }
+
+        const sres = await fetch(`${env.SUPABASE_URL}/rest/v1/shadow_runs`, {
+          method: 'POST',
+          headers: { ...authHeaders, Prefer: 'return=minimal' },
+          body: JSON.stringify({
+            user_id: u.uid,
+            run_kind: 'summary_v05',
+            run_mode: 'shadow',
+            payload: { content: out.content, inspection_html: out.html },
+            window_start: week.weekStart,
+            window_end: week.weekEnd,
+          }),
+        });
+        if (!sres.ok)
+          throw new Error(
+            `shadow_runs write failed: ${sres.status} ${(await sres.text().catch(() => '')).slice(0, 200)}`,
+          );
+
+        return {
+          label: u.label,
+          deck_size: out.content.cards.length,
+          card_types: out.content.metadata.card_types,
+          fired_detectors: out.content.metadata.fired_detectors,
+          fires_logged: out.detector_fires.length,
+        };
+      });
+      results.push(r);
+    }
+    return { week, users: results };
+  },
+);
+
+// ============================================================================
 // Weekly Summary V2: Dispatcher (cron + manual trigger)
 // ============================================================================
 
@@ -969,7 +2099,7 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
       await step.sendEvent(
         'dispatch-weekly-users',
         readyUsers.map((u) => ({
-          name: 'app/weekly-summary-v2.run',
+          name: 'app/weekly-summary-v07.run',
           data: {
             user_id: u.user_id,
             timezone: u.timezone,
@@ -1059,6 +2189,62 @@ const weeklySummaryV2Worker = inngest.createFunction(
         weekDates.weekEnd,
         env,
       );
+    });
+
+    await step.run('persist-analyst-observations', async () => {
+      const obsRows = buildAnalystObservations(analystResult.analysis, userId, weekDates.weekStart);
+      // Replace-the-user-week: clear this user-week's prior analyst rows, then
+      // insert the fresh set, so a weekly re-run does not accumulate duplicates.
+      // The clear preserves any observation a shipped summary already references
+      // (surfaced_in_summary_id IS NULL guard lives in clearAnalystObservationsForWeek).
+      await clearAnalystObservationsForWeek(userId, weekDates.weekStart, env);
+      const p = await persistAnalystObservations(obsRows, env);
+
+      if (p.ok) {
+        console.log(
+          `[Weekly V2] Persisted ${p.inserted} analyst observations for ${userId} week ${weekDates.weekStart}`,
+        );
+        return { inserted: p.inserted, ok: true };
+      }
+
+      // Non-fatal: a failed observations write must never abort the weekly
+      // summary or Life Map rebuild (the user-visible deliverables). The rows
+      // are unread until Step C and the write self-heals next weekly. BUT a
+      // PERSISTENT failure (schema drift, permissions) would otherwise fail
+      // silently for weeks. So: log with a distinctive ALERT prefix (greppable
+      // for log-based alerting) AND record a queryable failure row in `events`
+      // so a pattern is visible by SQL without log archaeology. One transient
+      // failure is one row; a systemic failure is a visible pile.
+      console.error(
+        `[ALERT][Weekly V2] analyst observations persist FAILED for ${userId} week ${weekDates.weekStart}: ${p.status} ${p.error || ''}`,
+      );
+      try {
+        await fetch(`${env.SUPABASE_URL}/rest/v1/events`, {
+          method: 'POST',
+          headers: {
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+            'Content-Type': 'application/json',
+            Prefer: 'return=minimal',
+          },
+          body: JSON.stringify({
+            owner_id: userId,
+            kind: 'analyst_observations_persist_failed',
+            payload_json: {
+              week_start: weekDates.weekStart,
+              status: p.status ?? null,
+              error: (p.error || '').slice(0, 500),
+            },
+          }),
+        });
+      } catch (e) {
+        // If even the failure-record write fails, the ALERT log line is the
+        // last resort. Do not throw; the deliverables must still ship.
+        console.error(
+          `[ALERT][Weekly V2] could not record persist-failure event for ${userId}: ${String(e).slice(0, 200)}`,
+        );
+      }
+      return { inserted: 0, ok: false };
     });
 
     const rebuildResult = await step.run('rebuild-life-map', async () => {
@@ -1988,10 +3174,10 @@ const handleChallengeCompletion = inngest.createFunction(
       return rows[0]?.token ?? null;
     });
 
-    // Step 5: Fire the weekly summary generation.
-    // weekly-summary-v2-worker has its own idempotency check (user_id + week_key).
+    // Step 5: Fire the weekly summary generation (v07 pipeline).
+    // weeklySummaryV07Worker has its own idempotency check (user_id + week_start).
     await step.sendEvent('trigger-weekly-summary', {
-      name: 'app/weekly-summary-v2.run',
+      name: 'app/weekly-summary-v07.run',
       data: {
         user_id: userId,
         timezone: timezone || 'UTC',
@@ -3022,7 +4208,18 @@ RULES:
   return lifeMap;
 }
 
-async function rebuildLifeMap(currentLifeMap, analystOutput, userProfile, spaces, journals, env) {
+/**
+ * @param {{ selfMap?: boolean }} [opts]
+ */
+async function rebuildLifeMap(
+  currentLifeMap,
+  analystOutput,
+  userProfile,
+  spaces,
+  journals,
+  env,
+  opts = {},
+) {
   const t0 = Date.now();
 
   // Format current Life Map as compact reference (summaries + metadata, skip evidence arrays)
@@ -3076,7 +4273,28 @@ async function rebuildLifeMap(currentLifeMap, analystOutput, userProfile, spaces
     .map((s) => `"${s.name}" (id: ${s.id})`)
     .join(', ');
 
-  const systemPrompt = `You are updating a Life Map — a structured model of what matters in a person's life. An analyst AI has already organized this week's raw data by thread. Your job: decide what changed and output ONLY THE CHANGES.
+  const selfMap = opts.selfMap !== false;
+
+  const analystFraming = selfMap
+    ? `An analyst AI has already organized this week's raw data into observed clusters. These clusters are labeled descriptively and are NOT pre-assigned to your threads; you decide which existing thread each one corresponds to.`
+    : `An analyst AI has already organized this week's raw data by thread.`;
+
+  const matchingBlock = selfMap
+    ? `MATCHING CLUSTERS TO THREADS:
+- The analyst's themes are observed clusters with descriptive labels. They are not assigned to your threads, and they do not name your threads or domains.
+- For each cluster, decide which existing thread in the CURRENT LIFE MAP it corresponds to by comparing the cluster's label, evidence, and content against the thread names and summaries you were given.
+- When a cluster matches an existing thread, emit a thread_update keyed on that exact thread_name and domain_name.
+- When a cluster matches no existing thread, do not force it. Treat it as a candidate for new_threads per the NEW THREADS rules.
+- A single cluster may inform more than one thread, and more than one cluster may inform a single thread. Judge from the content.
+
+`
+    : ``;
+
+  const threadUpdatesFirstBullet = selfMap
+    ? `- Include an update for EVERY existing thread you matched a cluster to that had activity this week.`
+    : `- Include an update for EVERY thread the analyst flagged with activity this week.`;
+
+  const systemPrompt = `You are updating a Life Map — a structured model of what matters in a person's life. ${analystFraming} Your job: decide what changed and output ONLY THE CHANGES.
 
 KEY PRINCIPLE: Output deltas, not the full Life Map. Unchanged threads should NOT appear in your output. Code will merge your changes into the existing Life Map.
 
@@ -3144,8 +4362,8 @@ OUTPUT FORMAT — respond with ONLY valid JSON, no markdown:
 
 RULES:
 
-THREAD UPDATES:
-- Include an update for EVERY thread the analyst flagged with activity this week.
+${matchingBlock}THREAD UPDATES:
+${threadUpdatesFirstBullet}
 - Also include threads where the analyst flagged lifecycle changes (approaching_dormant, concluded) even if activity was zero — these need status/lifecycle/attention updates.
 - Do NOT include threads with zero activity and no lifecycle change — they stay as-is.
 - SUMMARY must be the FULL replacement text. Read the existing summary and weave in this week. It should read as accumulated understanding over weeks, not just this week's snapshot. Cross-check raw journals for emotional texture the analyst may have condensed.
@@ -3631,6 +4849,21 @@ async function resolveImageUrl(imageHint, env) {
     console.warn('[WeeklySummaryV2] Unsplash failed:', imageHint, e.message);
     return null;
   }
+}
+
+// ── Resolve image hints on v0.7 hero and moment cards ───────────────────────
+// Mutates cards in-place; returns the content object (for step.run return values).
+async function resolveV07ImageHints(cards, env) {
+  if (!Array.isArray(cards) || !env.UNSPLASH_ACCESS_KEY) return;
+  await Promise.all(
+    cards
+      .filter((c) => (c.shape === 'hero' || c.shape === 'moment') && c.body?.image_hint)
+      .map((c) =>
+        resolveImageUrl(c.body.image_hint, env).then((url) => {
+          if (url) c.body.image_url = url;
+        }),
+      ),
+  );
 }
 
 // ── Safe JSON parse with jsonrepair ─────────────────────────────────────────
@@ -4956,10 +6189,10 @@ async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
     );
   }
 
-  // 11: Space chat running summaries (active chats with summaries, updated in window)
+  // 11: Scope chat running summaries (renamed from space_chats in Spaces→Scopes migration)
   queries.push(
     fetch(
-      `${env.SUPABASE_URL}/rest/v1/space_chats?user_id=eq.${userId}&archived_at=is.null&running_summary=neq.&running_summary=not.is.null&updated_at=gte.${windowStartStr}&select=id,space_id,title,running_summary,updated_at&order=updated_at.desc&limit=10`,
+      `${env.SUPABASE_URL}/rest/v1/scope_chats?user_id=eq.${userId}&running_summary=neq.&running_summary=not.is.null&updated_at=gte.${windowStartStr}&select=id,scope_id,title,running_summary,updated_at&order=updated_at.desc&limit=10`,
       { headers },
     )
       .then((r) => r.json())
@@ -5675,7 +6908,10 @@ function formatLifeMapForAnalyst(lifeMap) {
   return lines.join('\n');
 }
 
-async function runUnifiedAnalyst(weeklySnapshot, lifeMap, weekStart, weekEnd, env) {
+/**
+ * @param {{ outputAgnostic?: boolean }} [opts]
+ */
+async function runUnifiedAnalyst(weeklySnapshot, lifeMap, weekStart, weekEnd, env, opts = {}) {
   const t0 = Date.now();
 
   const lifeMapRef = formatLifeMapForAnalyst(lifeMap);
@@ -5694,7 +6930,10 @@ async function runUnifiedAnalyst(weeklySnapshot, lifeMap, weekStart, weekEnd, en
     ? Object.entries(weeklySnapshot.habitProgressByWeek)
     : [];
 
-  const systemPrompt = `You are a meticulous analyst for a personal productivity app called Gremly. You receive 21 days of raw user data plus a reference to their existing Life Map (a structured understanding of their life domains and threads).
+  const outputAgnostic = opts.outputAgnostic !== false;
+  const systemPrompt = outputAgnostic
+    ? buildOutputAgnosticAnalystPrompt(weekStart, weekEnd)
+    : `You are a meticulous analyst for a personal productivity app called Gremly. You receive 21 days of raw user data plus a reference to their existing Life Map (a structured understanding of their life domains and threads).
 
 Your job: Deeply analyze the week of ${weekStart} to ${weekEnd}. Organize EVERYTHING into a structured extraction that serves two downstream consumers — a Life Map rebuild AI and a weekly summary storyteller AI. Both need maximum detail organized clearly.
 
@@ -6342,10 +7581,12 @@ Prior weekly summaries are provided under "PRIOR WEEKLY SUMMARIES." Use them to:
     engagement_metrics: extractSection(cleanedText, 'engagement_metrics'),
     new_theme_candidates: extractSection(cleanedText, 'new_theme_candidates'),
     week_shape: extractSection(cleanedText, 'week_shape'),
+    world_signal_candidates: extractSection(cleanedText, 'world_signal_candidates'),
+    temporal_observations: extractSection(cleanedText, 'temporal_observations'),
   };
 
   const parsedSections = Object.entries(sections).filter(([k, v]) => v !== null).length;
-  console.log(`[UnifiedAnalyst] Parsed ${parsedSections}/10 sections`);
+  console.log(`[UnifiedAnalyst] Parsed ${parsedSections}/${Object.keys(sections).length} sections`);
 
   // If NO sections parsed at all, try legacy full-JSON parse as fallback
   let parsed;
@@ -7534,6 +8775,125 @@ const archiveStaleEvents = inngest.createFunction(
   },
 );
 
+// ============================================================================
+// Challenge completion detector — runs every 5 min, idempotent via PATCH guard
+// ============================================================================
+const detectChallengeCompletion = inngest.createFunction(
+  {
+    id: 'detect-challenge-completion',
+    name: 'Detect Challenge Completion',
+    concurrency: { limit: 1 },
+    retries: 2,
+  },
+  [{ cron: '*/5 * * * *' }, { event: 'app/challenge-completion.detect' }],
+  async ({ step, env }) => {
+    const nowIso = new Date().toISOString();
+    const trialWindowMs = 14 * 24 * 60 * 60 * 1000;
+
+    // Step 1: Fetch candidates — challenge not yet stamped, trial started
+    const candidates = await step.run('fetch-candidates', async () => {
+      const res = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/cortex_preferences?challenge_completed_at=is.null&trial_started_at=not.is.null&select=owner_id,trial_started_at`,
+        {
+          headers: {
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          },
+        },
+      );
+      if (!res.ok) throw new Error(`fetch-candidates failed: ${res.status}`);
+      const rows = await res.json();
+      // Keep only users still inside their 14-day trial window
+      const now = Date.now();
+      return rows.filter((r) => {
+        const started = new Date(r.trial_started_at).getTime();
+        return !isNaN(started) && now < started + trialWindowMs;
+      });
+    });
+
+    if (candidates.length === 0) {
+      return { checked: 0, completed: 0 };
+    }
+
+    const ownerIds = candidates.map((c) => c.owner_id);
+
+    // Step 2: Count true fed days per candidate
+    const fedCounts = await step.run('count-fed-days', async () => {
+      const inList = ownerIds.map((id) => `"${id}"`).join(',');
+      const res = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/daily_ritual_progress?owner_id=in.(${inList})&is_fed=eq.true&select=owner_id`,
+        {
+          headers: {
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          },
+        },
+      );
+      if (!res.ok) throw new Error(`count-fed-days failed: ${res.status}`);
+      const rows = await res.json();
+      const counts = {};
+      for (const row of rows) {
+        counts[row.owner_id] = (counts[row.owner_id] ?? 0) + 1;
+      }
+      return counts;
+    });
+
+    // Step 3: For each candidate with >= 7 fed days, attempt idempotent write then emit
+    const qualified = candidates.filter((c) => (fedCounts[c.owner_id] ?? 0) >= 7);
+    let completed = 0;
+
+    for (const candidate of qualified) {
+      const userId = candidate.owner_id;
+
+      const wrote = await step.run(`stamp-completion-${userId}`, async () => {
+        const res = await fetch(
+          `${env.SUPABASE_URL}/rest/v1/cortex_preferences?owner_id=eq.${userId}&challenge_completed_at=is.null`,
+          {
+            method: 'PATCH',
+            headers: {
+              apikey: env.SUPABASE_SERVICE_KEY,
+              Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+              'Content-Type': 'application/json',
+              Prefer: 'return=representation',
+            },
+            body: JSON.stringify({ challenge_completed_at: nowIso }),
+          },
+        );
+        if (!res.ok) throw new Error(`stamp-completion failed for ${userId}: ${res.status}`);
+        const rows = await res.json();
+        // 0 rows means another run already stamped it — skip
+        return Array.isArray(rows) && rows.length > 0;
+      });
+
+      if (!wrote) continue;
+
+      const timezone = await step.run(`fetch-timezone-${userId}`, async () => {
+        const res = await fetch(
+          `${env.SUPABASE_URL}/rest/v1/notification_preferences?user_id=eq.${userId}&select=timezone&limit=1`,
+          {
+            headers: {
+              apikey: env.SUPABASE_SERVICE_KEY,
+              Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+            },
+          },
+        );
+        if (!res.ok) return 'UTC';
+        const rows = await res.json();
+        return rows[0]?.timezone ?? 'UTC';
+      });
+
+      await step.sendEvent(`emit-challenge-completed-${userId}`, {
+        name: 'app/challenge.completed',
+        data: { user_id: userId, completed_at: nowIso, timezone },
+      });
+
+      completed++;
+    }
+
+    return { checked: candidates.length, qualified: qualified.length, completed };
+  },
+);
+
 // Inngest serve handler
 const inngestHandler = serve({
   client: inngest,
@@ -7544,9 +8904,18 @@ const inngestHandler = serve({
     generateSingleUserDco,
     bootstrapSingleUserLifeMap,
     handleChallengeCompletion,
+    detectChallengeCompletion,
     testUnifiedAnalyst,
     testLifeMapRebuild,
     testWeeklySummaryV2,
+    testAnalystDualRun,
+    testWorldsBundleEquivalence,
+    testAnalystObservationsWrite,
+    backfillAnalystForWeek,
+    runShadowSummaryForWeek,
+    weeklySummaryV07Worker,
+    testWorldsOutputDualRun,
+    testSummaryV05,
     weeklySummaryV2Dispatcher,
     weeklySummaryV2Worker,
     backfillIdentity,
@@ -7568,6 +8937,11 @@ export default {
     // Handle CORS preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
+    }
+
+    // CVE-2026-42047: reject methods serve() doesn't use
+    if (!['GET', 'POST', 'PUT'].includes(request.method)) {
+      return new Response('Method Not Allowed', { status: 405, headers: CORS_HEADERS });
     }
 
     // Custom API endpoint: manually trigger space suggestions for a user
@@ -8508,3 +9882,6 @@ export default {
     return inngestHandler(request, env, ctx);
   },
 };
+
+// ─── Named exports (for off-worker consumers, e.g. equivalence-check scripts) ─
+export { fetchUserSnapshot };

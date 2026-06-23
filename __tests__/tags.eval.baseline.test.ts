@@ -18,9 +18,11 @@ const SAMPLE_INPUTS = [
   'Reflection: thinking about progress on the cabin project.',
 ];
 
+const evalTest = typeof fetch === 'function' ? test : test.skip;
+
 describe('tags eval baseline', () => {
   for (const input of SAMPLE_INPUTS) {
-    test(`ensures stable tag shape for: ${input.slice(0, 32)}…`, async () => {
+    evalTest(`ensures stable tag shape for: ${input.slice(0, 32)}…`, async () => {
       const { raw, finalTags } = await classifyTextForEval(input);
       const normalized = normalizeTags(finalTags);
       const typeTags = normalized.filter((tag) => tag.startsWith('*'));

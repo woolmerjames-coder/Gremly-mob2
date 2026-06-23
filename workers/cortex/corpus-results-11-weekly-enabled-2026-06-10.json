@@ -1,0 +1,2072 @@
+[
+  {
+    "person": "User 1",
+    "payload": {
+      "type": "habit-read",
+      "todayISO": "2026-06-10",
+      "timezone": "America/Los_Angeles",
+      "planWindow": {
+        "start": "2026-06-10",
+        "end": "2026-06-16"
+      },
+      "factSheets": [
+        {
+          "habit_id": "77f6ef76-4238-4842-bd9d-805fd688eb60",
+          "name": "Floss Every Night",
+          "cadence": "daily",
+          "subtype": "start_habit",
+          "target_per_period": 1,
+          "week_hits": 0,
+          "week_target": 7,
+          "streak": {
+            "count": 0,
+            "unit": "day"
+          },
+          "trend_weeks": [],
+          "completion_days": [],
+          "planned_dates": [],
+          "best_day": null,
+          "best_day_all_time": null,
+          "total_completions": 0,
+          "tracking_since": "2026-04-18",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        }
+      ],
+      "events": [],
+      "eventNotes": []
+    },
+    "response": {
+      "http": 200,
+      "body": {
+        "ok": true,
+        "reads": {},
+        "source": "no_eligible_habits"
+      }
+    }
+  },
+  {
+    "person": "User 2",
+    "payload": {
+      "type": "habit-read",
+      "todayISO": "2026-06-11",
+      "timezone": "Europe/London",
+      "planWindow": {
+        "start": "2026-06-11",
+        "end": "2026-06-17"
+      },
+      "factSheets": [
+        {
+          "habit_id": "6141316f-fb6b-4fe2-97a9-f02636bedb22",
+          "name": "Stand on One Leg While Cleaning Teeth",
+          "cadence": "daily",
+          "subtype": "start_habit",
+          "target_per_period": 1,
+          "week_hits": 4,
+          "week_target": 7,
+          "streak": {
+            "count": 4,
+            "unit": "day"
+          },
+          "trend_weeks": [
+            {
+              "week_start": "2026-06-01",
+              "hits": 1,
+              "target": 7
+            }
+          ],
+          "completion_days": [
+            "2026-06-07",
+            "2026-06-08",
+            "2026-06-09",
+            "2026-06-10"
+          ],
+          "planned_dates": [],
+          "best_day": "Sundays",
+          "best_day_all_time": "Sundays",
+          "total_completions": 4,
+          "tracking_since": "2026-06-08",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        },
+        {
+          "habit_id": "820a492b-f3b9-45b0-bdf7-7ae7d6d45a6c",
+          "name": "Update Bush Website Weekly",
+          "cadence": "weekly",
+          "subtype": "start_habit",
+          "target_per_period": 1,
+          "week_hits": 1,
+          "week_target": 1,
+          "streak": {
+            "count": 2,
+            "unit": "week"
+          },
+          "trend_weeks": [
+            {
+              "week_start": "2026-05-25",
+              "hits": 1,
+              "target": 1
+            },
+            {
+              "week_start": "2026-06-01",
+              "hits": 4,
+              "target": 1
+            }
+          ],
+          "completion_days": [
+            "2026-05-29",
+            "2026-06-01",
+            "2026-06-02",
+            "2026-06-03",
+            "2026-06-04",
+            "2026-06-09"
+          ],
+          "planned_dates": [],
+          "best_day": "Tuesdays",
+          "best_day_all_time": "Tuesdays",
+          "total_completions": 6,
+          "tracking_since": "2026-05-25",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        },
+        {
+          "habit_id": "be4acec8-827f-4fb5-996c-8ad7a4c7dfba",
+          "name": "Take Collagen and Creatine Every Day",
+          "cadence": "daily",
+          "subtype": "start_habit",
+          "target_per_period": 1,
+          "week_hits": 0,
+          "week_target": 7,
+          "streak": {
+            "count": 0,
+            "unit": "day"
+          },
+          "trend_weeks": [
+            {
+              "week_start": "2026-06-01",
+              "hits": 2,
+              "target": 7
+            }
+          ],
+          "completion_days": [
+            "2026-06-02",
+            "2026-06-03"
+          ],
+          "planned_dates": [],
+          "best_day": "Tuesdays",
+          "best_day_all_time": "Tuesdays",
+          "total_completions": 2,
+          "tracking_since": "2026-05-22",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        },
+        {
+          "habit_id": "306af962-ae13-430a-b233-096de7f9b7b9",
+          "name": "Run Three Times a Week",
+          "cadence": "weekly",
+          "subtype": "start_habit",
+          "target_per_period": 3,
+          "week_hits": 2,
+          "week_target": 3,
+          "streak": {
+            "count": 1,
+            "unit": "week"
+          },
+          "trend_weeks": [
+            {
+              "week_start": "2026-05-25",
+              "hits": 1,
+              "target": 3
+            },
+            {
+              "week_start": "2026-06-01",
+              "hits": 3,
+              "target": 3
+            }
+          ],
+          "completion_days": [
+            "2026-05-27",
+            "2026-06-02",
+            "2026-06-05",
+            "2026-06-07"
+          ],
+          "planned_dates": [],
+          "best_day": "Sundays",
+          "best_day_all_time": "Sundays",
+          "total_completions": 4,
+          "tracking_since": "2026-05-25",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        },
+        {
+          "habit_id": "95551e76-afa4-44e0-b058-fe9c919c6d55",
+          "name": "Floss Once a Day",
+          "cadence": "daily",
+          "subtype": "start_habit",
+          "target_per_period": 1,
+          "week_hits": 6,
+          "week_target": 7,
+          "streak": {
+            "count": 6,
+            "unit": "day"
+          },
+          "trend_weeks": [
+            {
+              "week_start": "2026-05-25",
+              "hits": 1,
+              "target": 7
+            },
+            {
+              "week_start": "2026-06-01",
+              "hits": 6,
+              "target": 7
+            }
+          ],
+          "completion_days": [
+            "2026-05-31",
+            "2026-06-01",
+            "2026-06-02",
+            "2026-06-03",
+            "2026-06-05",
+            "2026-06-06",
+            "2026-06-07",
+            "2026-06-08",
+            "2026-06-09",
+            "2026-06-10"
+          ],
+          "planned_dates": [],
+          "best_day": "Sundays",
+          "best_day_all_time": "Sundays",
+          "total_completions": 10,
+          "tracking_since": "2026-05-22",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        },
+        {
+          "habit_id": "4289d432-fd65-45d7-a4ac-53f3707ef46d",
+          "name": "Arrange Regular Time to Speak to James",
+          "cadence": "weekly",
+          "subtype": "start_habit",
+          "target_per_period": 1,
+          "week_hits": 2,
+          "week_target": 1,
+          "streak": {
+            "count": 2,
+            "unit": "week"
+          },
+          "trend_weeks": [
+            {
+              "week_start": "2026-05-25",
+              "hits": 1,
+              "target": 1
+            },
+            {
+              "week_start": "2026-06-01",
+              "hits": 2,
+              "target": 1
+            }
+          ],
+          "completion_days": [
+            "2026-05-29",
+            "2026-06-05",
+            "2026-06-06"
+          ],
+          "planned_dates": [],
+          "best_day": "Fridays",
+          "best_day_all_time": "Fridays",
+          "total_completions": 3,
+          "tracking_since": "2026-05-22",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        },
+        {
+          "habit_id": "7b2ced12-9934-41fb-8fb4-c4ecd8ea69fd",
+          "name": "Swim Twice a Week",
+          "cadence": "weekly",
+          "subtype": "start_habit",
+          "target_per_period": 2,
+          "week_hits": 2,
+          "week_target": 2,
+          "streak": {
+            "count": 1,
+            "unit": "week"
+          },
+          "trend_weeks": [
+            {
+              "week_start": "2026-06-01",
+              "hits": 3,
+              "target": 2
+            }
+          ],
+          "completion_days": [
+            "2026-06-03",
+            "2026-06-06",
+            "2026-06-07"
+          ],
+          "planned_dates": [],
+          "best_day": "Sundays",
+          "best_day_all_time": "Sundays",
+          "total_completions": 3,
+          "tracking_since": "2026-05-25",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        },
+        {
+          "habit_id": "7fa0d35c-b5b7-40e8-a321-be4e9767ba5c",
+          "name": "Read More and Watch Tv Less",
+          "cadence": "daily",
+          "subtype": "start_habit",
+          "target_per_period": 1,
+          "week_hits": 0,
+          "week_target": 7,
+          "streak": {
+            "count": 0,
+            "unit": "day"
+          },
+          "trend_weeks": [
+            {
+              "week_start": "2026-05-25",
+              "hits": 1,
+              "target": 7
+            },
+            {
+              "week_start": "2026-06-01",
+              "hits": 1,
+              "target": 7
+            }
+          ],
+          "completion_days": [
+            "2026-05-29",
+            "2026-06-01"
+          ],
+          "planned_dates": [],
+          "best_day": "Mondays",
+          "best_day_all_time": "Mondays",
+          "total_completions": 2,
+          "tracking_since": "2026-05-25",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        },
+        {
+          "habit_id": "dd93aa50-3623-409a-89c9-a1507b3c6d74",
+          "name": "Update Bush Engineering Social Media Twice Weekly",
+          "cadence": "weekly",
+          "subtype": "start_habit",
+          "target_per_period": 2,
+          "week_hits": 1,
+          "week_target": 2,
+          "streak": {
+            "count": 1,
+            "unit": "week"
+          },
+          "trend_weeks": [
+            {
+              "week_start": "2026-06-01",
+              "hits": 2,
+              "target": 2
+            }
+          ],
+          "completion_days": [
+            "2026-06-02",
+            "2026-06-04",
+            "2026-06-09"
+          ],
+          "planned_dates": [],
+          "best_day": "Tuesdays",
+          "best_day_all_time": "Tuesdays",
+          "total_completions": 3,
+          "tracking_since": "2026-05-25",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        }
+      ],
+      "events": [],
+      "eventNotes": [
+        {
+          "ref": "note:43bace2a-0396-429f-9d91-a5e9068c72df",
+          "title": "Volunteering at Holy Family School",
+          "body": "Volunteering at Holy Family School every Tuesday afternoon from 1pm",
+          "start": "2026-06-02",
+          "end": "2026-06-02"
+        },
+        {
+          "ref": "note:5a7c0193-8ffc-48e9-9c15-602ea033bcd7",
+          "title": "Seeing the Musical Six Tonight",
+          "body": "Seeing the musical, Six, tonight",
+          "start": "2026-06-06",
+          "end": "2026-06-06"
+        }
+      ]
+    },
+    "response": {
+      "http": 200,
+      "body": {
+        "ok": true,
+        "reads": {
+          "820a492b-f3b9-45b0-bdf7-7ae7d6d45a6c": {
+            "read_paragraph": "You're already done for the week, and that makes two weeks running. The site is getting consistent attention, and Tuesdays are your strongest day for it when you need an anchor.",
+            "frequency_line": null,
+            "disruption": null,
+            "confidence": 0.92
+          },
+          "306af962-ae13-430a-b233-096de7f9b7b9": {
+            "read_paragraph": "Two runs in already puts you well on your way, with the week still open. Last week you hit all three, so the momentum is real. Sundays are your strongest day, and one more run gets you there.",
+            "frequency_line": null,
+            "disruption": null,
+            "confidence": 0.88
+          },
+          "95551e76-afa4-44e0-b058-fe9c919c6d55": {
+            "read_paragraph": "Six days in a row is a genuine streak, and it has been building steadily. The week is still open, so today is simply the next step in keeping it going.",
+            "frequency_line": null,
+            "disruption": null,
+            "confidence": 0.95
+          }
+        },
+        "meta": {
+          "flags": [],
+          "events_cut": 0,
+          "model": "claude-sonnet-4-6",
+          "latency_ms": 6951
+        }
+      }
+    }
+  },
+  {
+    "person": "User 3",
+    "payload": {
+      "type": "habit-read",
+      "todayISO": "2026-06-11",
+      "timezone": "Europe/London",
+      "planWindow": {
+        "start": "2026-06-11",
+        "end": "2026-06-17"
+      },
+      "factSheets": [
+        {
+          "habit_id": "b653d499-5644-47db-87ea-986f57990214",
+          "name": "Start Having Smoothies in the Morning",
+          "cadence": "daily",
+          "subtype": "start_habit",
+          "target_per_period": 1,
+          "week_hits": 0,
+          "week_target": 7,
+          "streak": {
+            "count": 0,
+            "unit": "day"
+          },
+          "trend_weeks": [],
+          "completion_days": [],
+          "planned_dates": [],
+          "best_day": null,
+          "best_day_all_time": null,
+          "total_completions": 0,
+          "tracking_since": "2026-05-24",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        },
+        {
+          "habit_id": "69b94cbd-6000-4ccf-b17e-6c9c623fa1e3",
+          "name": "Walk 10000 Steps a Day",
+          "cadence": "daily",
+          "subtype": "start_habit",
+          "target_per_period": 1,
+          "week_hits": 0,
+          "week_target": 7,
+          "streak": {
+            "count": 0,
+            "unit": "day"
+          },
+          "trend_weeks": [
+            {
+              "week_start": "2026-05-18",
+              "hits": 1,
+              "target": 7
+            },
+            {
+              "week_start": "2026-05-25",
+              "hits": 0,
+              "target": 7
+            },
+            {
+              "week_start": "2026-06-01",
+              "hits": 0,
+              "target": 7
+            }
+          ],
+          "completion_days": [
+            "2026-05-21"
+          ],
+          "planned_dates": [],
+          "best_day": "Thursdays",
+          "best_day_all_time": "Thursdays",
+          "total_completions": 1,
+          "tracking_since": "2026-05-16",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        }
+      ],
+      "events": [],
+      "eventNotes": [
+        {
+          "ref": "note:b5f4fdc1-accf-4dac-80da-c03d5b45cce8",
+          "title": "Arsenal Game at 12pm Monday",
+          "body": "Arsenal game 12pm on Monday",
+          "start": "2026-05-18",
+          "end": "2026-05-18"
+        }
+      ]
+    },
+    "response": {
+      "http": 200,
+      "body": {
+        "ok": true,
+        "reads": {},
+        "source": "no_eligible_habits"
+      }
+    }
+  },
+  {
+    "person": "User 4",
+    "payload": {
+      "type": "habit-read",
+      "todayISO": "2026-06-10",
+      "timezone": "America/Los_Angeles",
+      "planWindow": {
+        "start": "2026-06-10",
+        "end": "2026-06-16"
+      },
+      "factSheets": [
+        {
+          "habit_id": "fc40caa3-7350-425e-918a-1648547bb5e4",
+          "name": "Run Three Times a Week",
+          "cadence": "weekly",
+          "subtype": "start_habit",
+          "target_per_period": 3,
+          "week_hits": 0,
+          "week_target": 3,
+          "streak": {
+            "count": 0,
+            "unit": "week"
+          },
+          "trend_weeks": [],
+          "completion_days": [],
+          "planned_dates": [],
+          "best_day": null,
+          "best_day_all_time": null,
+          "total_completions": 0,
+          "tracking_since": "2026-04-16",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        }
+      ],
+      "events": [],
+      "eventNotes": []
+    },
+    "response": {
+      "http": 200,
+      "body": {
+        "ok": true,
+        "reads": {},
+        "source": "no_eligible_habits"
+      }
+    }
+  },
+  {
+    "person": "User 5",
+    "payload": {
+      "type": "habit-read",
+      "todayISO": "2026-06-10",
+      "timezone": "America/Los_Angeles",
+      "planWindow": {
+        "start": "2026-06-10",
+        "end": "2026-06-16"
+      },
+      "factSheets": [
+        {
+          "habit_id": "64cfeaca-27d9-4972-9850-fb21e03e90cd",
+          "name": "Read Every Night",
+          "cadence": "daily",
+          "subtype": "start_habit",
+          "target_per_period": 1,
+          "week_hits": 0,
+          "week_target": 7,
+          "streak": {
+            "count": 0,
+            "unit": "day"
+          },
+          "trend_weeks": [],
+          "completion_days": [],
+          "planned_dates": [],
+          "best_day": null,
+          "best_day_all_time": null,
+          "total_completions": 0,
+          "tracking_since": "2026-04-16",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        }
+      ],
+      "events": [],
+      "eventNotes": []
+    },
+    "response": {
+      "http": 200,
+      "body": {
+        "ok": true,
+        "reads": {},
+        "source": "no_eligible_habits"
+      }
+    }
+  },
+  {
+    "person": "User 6",
+    "payload": {
+      "type": "habit-read",
+      "todayISO": "2026-06-10",
+      "timezone": "America/Los_Angeles",
+      "planWindow": {
+        "start": "2026-06-10",
+        "end": "2026-06-16"
+      },
+      "factSheets": [
+        {
+          "habit_id": "a7a76dcc-cbcd-4252-b41e-8e2d56f14d68",
+          "name": "Running Sessions",
+          "cadence": "weekly",
+          "subtype": "start_habit",
+          "target_per_period": 4,
+          "week_hits": 0,
+          "week_target": 4,
+          "streak": {
+            "count": 0,
+            "unit": "week"
+          },
+          "trend_weeks": [],
+          "completion_days": [],
+          "planned_dates": [],
+          "best_day": null,
+          "best_day_all_time": null,
+          "total_completions": 0,
+          "tracking_since": "2026-04-15",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        },
+        {
+          "habit_id": "77f08fc6-0596-400a-a8db-b376e7640b57",
+          "name": "Yoga Practice",
+          "cadence": "weekly",
+          "subtype": "start_habit",
+          "target_per_period": 2,
+          "week_hits": 0,
+          "week_target": 2,
+          "streak": {
+            "count": 0,
+            "unit": "week"
+          },
+          "trend_weeks": [],
+          "completion_days": [],
+          "planned_dates": [],
+          "best_day": null,
+          "best_day_all_time": null,
+          "total_completions": 0,
+          "tracking_since": "2026-04-15",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        },
+        {
+          "habit_id": "4b771516-3a2c-46b5-a61a-28f7861118a7",
+          "name": "Running Habit",
+          "cadence": "weekly",
+          "subtype": "start_habit",
+          "target_per_period": 3,
+          "week_hits": 0,
+          "week_target": 3,
+          "streak": {
+            "count": 0,
+            "unit": "week"
+          },
+          "trend_weeks": [],
+          "completion_days": [],
+          "planned_dates": [],
+          "best_day": null,
+          "best_day_all_time": null,
+          "total_completions": 0,
+          "tracking_since": "2026-04-15",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        },
+        {
+          "habit_id": "29dd3cf6-06d8-4479-907e-9d3a29b59352",
+          "name": "Daily Meditation Practice",
+          "cadence": "daily",
+          "subtype": "start_habit",
+          "target_per_period": 1,
+          "week_hits": 0,
+          "week_target": 7,
+          "streak": {
+            "count": 0,
+            "unit": "day"
+          },
+          "trend_weeks": [],
+          "completion_days": [],
+          "planned_dates": [],
+          "best_day": null,
+          "best_day_all_time": null,
+          "total_completions": 0,
+          "tracking_since": "2026-04-15",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        }
+      ],
+      "events": [],
+      "eventNotes": []
+    },
+    "response": {
+      "http": 200,
+      "body": {
+        "ok": true,
+        "reads": {},
+        "source": "no_eligible_habits"
+      }
+    }
+  },
+  {
+    "person": "User 7",
+    "payload": {
+      "type": "habit-read",
+      "todayISO": "2026-06-10",
+      "timezone": "America/Los_Angeles",
+      "planWindow": {
+        "start": "2026-06-10",
+        "end": "2026-06-16"
+      },
+      "factSheets": [
+        {
+          "habit_id": "80579c29-61fd-45cb-a403-cb650cf354be",
+          "name": "Weekly Cycling Routine",
+          "cadence": "weekly",
+          "subtype": "start_habit",
+          "target_per_period": 1,
+          "week_hits": 2,
+          "week_target": 1,
+          "streak": {
+            "count": 11,
+            "unit": "week"
+          },
+          "trend_weeks": [
+            {
+              "week_start": "2026-04-27",
+              "hits": 2,
+              "target": 1
+            },
+            {
+              "week_start": "2026-05-04",
+              "hits": 4,
+              "target": 1
+            },
+            {
+              "week_start": "2026-05-11",
+              "hits": 1,
+              "target": 1
+            },
+            {
+              "week_start": "2026-05-18",
+              "hits": 2,
+              "target": 1
+            },
+            {
+              "week_start": "2026-05-25",
+              "hits": 1,
+              "target": 1
+            },
+            {
+              "week_start": "2026-06-01",
+              "hits": 4,
+              "target": 1
+            }
+          ],
+          "completion_days": [
+            "2026-04-15",
+            "2026-04-17",
+            "2026-04-20",
+            "2026-04-21",
+            "2026-04-22",
+            "2026-04-24",
+            "2026-04-28",
+            "2026-04-30",
+            "2026-05-05",
+            "2026-05-07",
+            "2026-05-08",
+            "2026-05-10",
+            "2026-05-15",
+            "2026-05-19",
+            "2026-05-24",
+            "2026-05-26",
+            "2026-06-01",
+            "2026-06-02",
+            "2026-06-06",
+            "2026-06-07"
+          ],
+          "planned_dates": [],
+          "best_day": "Tuesdays",
+          "best_day_all_time": "Mondays",
+          "total_completions": 45,
+          "tracking_since": "2026-01-05",
+          "floor_note": null,
+          "freq_rec": {
+            "chips": [
+              1,
+              2,
+              3
+            ],
+            "typical": 3,
+            "current": 1
+          },
+          "adaptations": []
+        },
+        {
+          "habit_id": "f86ceed9-7d9d-408f-a63c-fef5fb782f43",
+          "name": "Run 3 Times A Week",
+          "cadence": "weekly",
+          "subtype": "start_habit",
+          "target_per_period": 2,
+          "week_hits": 1,
+          "week_target": 2,
+          "streak": {
+            "count": 0,
+            "unit": "week"
+          },
+          "trend_weeks": [
+            {
+              "week_start": "2026-04-27",
+              "hits": 1,
+              "target": 2
+            },
+            {
+              "week_start": "2026-05-04",
+              "hits": 2,
+              "target": 2
+            },
+            {
+              "week_start": "2026-05-11",
+              "hits": 1,
+              "target": 2
+            },
+            {
+              "week_start": "2026-05-18",
+              "hits": 0,
+              "target": 2
+            },
+            {
+              "week_start": "2026-05-25",
+              "hits": 0,
+              "target": 2
+            },
+            {
+              "week_start": "2026-06-01",
+              "hits": 1,
+              "target": 2
+            }
+          ],
+          "completion_days": [
+            "2026-04-27",
+            "2026-05-06",
+            "2026-05-10",
+            "2026-05-17",
+            "2026-06-04"
+          ],
+          "planned_dates": [],
+          "best_day": "Sundays",
+          "best_day_all_time": "Sundays",
+          "total_completions": 30,
+          "tracking_since": "2026-01-08",
+          "floor_note": null,
+          "freq_rec": {
+            "chips": [
+              1,
+              2
+            ],
+            "typical": 1,
+            "current": 2
+          },
+          "adaptations": []
+        },
+        {
+          "habit_id": "94ef62b9-f466-4733-a543-2f522655cb07",
+          "name": "Alternate Pushups with Core Exercises",
+          "cadence": "weekly",
+          "subtype": "start_habit",
+          "target_per_period": 2,
+          "week_hits": 2,
+          "week_target": 2,
+          "streak": {
+            "count": 1,
+            "unit": "week"
+          },
+          "trend_weeks": [
+            {
+              "week_start": "2026-04-27",
+              "hits": 3,
+              "target": 2
+            },
+            {
+              "week_start": "2026-05-04",
+              "hits": 2,
+              "target": 2
+            },
+            {
+              "week_start": "2026-05-11",
+              "hits": 2,
+              "target": 2
+            },
+            {
+              "week_start": "2026-05-18",
+              "hits": 3,
+              "target": 2
+            },
+            {
+              "week_start": "2026-05-25",
+              "hits": 0,
+              "target": 2
+            },
+            {
+              "week_start": "2026-06-01",
+              "hits": 3,
+              "target": 2
+            }
+          ],
+          "completion_days": [
+            "2026-04-15",
+            "2026-04-17",
+            "2026-04-24",
+            "2026-05-01",
+            "2026-05-02",
+            "2026-05-03",
+            "2026-05-07",
+            "2026-05-08",
+            "2026-05-11",
+            "2026-05-12",
+            "2026-05-19",
+            "2026-05-22",
+            "2026-05-24",
+            "2026-06-02",
+            "2026-06-04",
+            "2026-06-07"
+          ],
+          "planned_dates": [
+            "2026-06-10",
+            "2026-06-14",
+            "2026-06-12"
+          ],
+          "best_day": "Fridays",
+          "best_day_all_time": "Fridays",
+          "total_completions": 18,
+          "tracking_since": "2026-04-06",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        },
+        {
+          "habit_id": "0c828d5c-c3ff-4d14-a371-a5d1cbc332c6",
+          "name": "Social Media Posts",
+          "cadence": "weekly",
+          "subtype": "start_habit",
+          "target_per_period": 3,
+          "week_hits": 0,
+          "week_target": 3,
+          "streak": {
+            "count": 0,
+            "unit": "week"
+          },
+          "trend_weeks": [],
+          "completion_days": [
+            "2026-04-19",
+            "2026-04-20"
+          ],
+          "planned_dates": [],
+          "best_day": "Sundays",
+          "best_day_all_time": "Sundays",
+          "total_completions": 12,
+          "tracking_since": "2026-02-22",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": [
+            {
+              "mode": "pause",
+              "start": "2026-06-11",
+              "end": "2026-06-14"
+            }
+          ]
+        },
+        {
+          "habit_id": "88674092-d317-4236-ab8f-99b209fd1fae",
+          "name": "Strength Training Sessions",
+          "cadence": "weekly",
+          "subtype": "start_habit",
+          "target_per_period": 3,
+          "week_hits": 1,
+          "week_target": 3,
+          "streak": {
+            "count": 1,
+            "unit": "week"
+          },
+          "trend_weeks": [
+            {
+              "week_start": "2026-04-27",
+              "hits": 2,
+              "target": 3
+            },
+            {
+              "week_start": "2026-05-04",
+              "hits": 3,
+              "target": 3
+            },
+            {
+              "week_start": "2026-05-11",
+              "hits": 0,
+              "target": 3
+            },
+            {
+              "week_start": "2026-05-18",
+              "hits": 3,
+              "target": 3
+            },
+            {
+              "week_start": "2026-05-25",
+              "hits": 0,
+              "target": 3
+            },
+            {
+              "week_start": "2026-06-01",
+              "hits": 3,
+              "target": 3
+            }
+          ],
+          "completion_days": [
+            "2026-04-27",
+            "2026-05-01",
+            "2026-05-07",
+            "2026-05-08",
+            "2026-05-10",
+            "2026-05-18",
+            "2026-05-21",
+            "2026-05-24",
+            "2026-06-01",
+            "2026-06-02",
+            "2026-06-06"
+          ],
+          "planned_dates": [],
+          "best_day": "Mondays",
+          "best_day_all_time": "Mondays",
+          "total_completions": 41,
+          "tracking_since": "2026-01-05",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        },
+        {
+          "habit_id": "f8814893-9245-4193-a267-256b2a410645",
+          "name": "Weekly Yoga Practice",
+          "cadence": "weekly",
+          "subtype": "start_habit",
+          "target_per_period": 1,
+          "week_hits": 0,
+          "week_target": 1,
+          "streak": {
+            "count": 0,
+            "unit": "week"
+          },
+          "trend_weeks": [],
+          "completion_days": [],
+          "planned_dates": [],
+          "best_day": null,
+          "best_day_all_time": "Thursdays",
+          "total_completions": 5,
+          "tracking_since": "2026-01-05",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        },
+        {
+          "habit_id": "36edb14f-d0b6-4e6a-943a-2eca64bd50ae",
+          "name": "Messaging People Back",
+          "cadence": "daily",
+          "subtype": "start_habit",
+          "target_per_period": 1,
+          "week_hits": 3,
+          "week_target": 7,
+          "streak": {
+            "count": 0,
+            "unit": "day"
+          },
+          "trend_weeks": [
+            {
+              "week_start": "2026-05-04",
+              "hits": 3,
+              "target": 7
+            },
+            {
+              "week_start": "2026-05-11",
+              "hits": 0,
+              "target": 7
+            },
+            {
+              "week_start": "2026-05-18",
+              "hits": 0,
+              "target": 7
+            },
+            {
+              "week_start": "2026-05-25",
+              "hits": 0,
+              "target": 7
+            },
+            {
+              "week_start": "2026-06-01",
+              "hits": 4,
+              "target": 7
+            }
+          ],
+          "completion_days": [
+            "2026-04-15",
+            "2026-04-16",
+            "2026-04-24",
+            "2026-04-25",
+            "2026-05-04",
+            "2026-05-05",
+            "2026-05-06",
+            "2026-06-02",
+            "2026-06-04",
+            "2026-06-05",
+            "2026-06-06"
+          ],
+          "planned_dates": [],
+          "best_day": "Tuesdays",
+          "best_day_all_time": "Tuesdays",
+          "total_completions": 11,
+          "tracking_since": "2026-04-15",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        },
+        {
+          "habit_id": "80407b1a-b7b0-4ff9-bf37-01993632de88",
+          "name": "Stop drinking alcohol",
+          "cadence": "daily",
+          "subtype": "break_habit",
+          "target_per_period": 1,
+          "week_hits": 1,
+          "week_target": 3,
+          "streak": {
+            "count": 0,
+            "unit": "day"
+          },
+          "trend_weeks": [
+            {
+              "week_start": "2026-04-27",
+              "hits": 2,
+              "target": 7
+            },
+            {
+              "week_start": "2026-05-04",
+              "hits": 4,
+              "target": 7
+            },
+            {
+              "week_start": "2026-05-11",
+              "hits": 1,
+              "target": 7
+            },
+            {
+              "week_start": "2026-05-18",
+              "hits": 2,
+              "target": 7
+            },
+            {
+              "week_start": "2026-05-25",
+              "hits": 2,
+              "target": 7
+            },
+            {
+              "week_start": "2026-06-01",
+              "hits": 4,
+              "target": 7
+            }
+          ],
+          "completion_days": [
+            "2026-04-19",
+            "2026-04-20",
+            "2026-04-21",
+            "2026-04-22",
+            "2026-04-23",
+            "2026-04-26",
+            "2026-04-27",
+            "2026-04-28",
+            "2026-05-04",
+            "2026-05-05",
+            "2026-05-06",
+            "2026-05-07",
+            "2026-05-14",
+            "2026-05-18",
+            "2026-05-19",
+            "2026-05-25",
+            "2026-05-26",
+            "2026-06-01",
+            "2026-06-02",
+            "2026-06-03",
+            "2026-06-04",
+            "2026-06-08"
+          ],
+          "planned_dates": [],
+          "best_day": "Mondays",
+          "best_day_all_time": "Mondays",
+          "total_completions": 88,
+          "tracking_since": "2026-01-01",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": [
+            {
+              "mode": "pause",
+              "start": "2026-06-11",
+              "end": "2026-06-14"
+            }
+          ]
+        }
+      ],
+      "events": [
+        {
+          "ref": "cal:70e5cd1a-a781-4f40-8be7-ed7dd8366fe6",
+          "title": "Paolo on PTO",
+          "start": "2026-06-08",
+          "end": "2026-06-11",
+          "all_day": true
+        },
+        {
+          "ref": "cal:dcf2ac22-2e30-4fec-961c-59d6353cb50f",
+          "title": "Private Appointment",
+          "start": "2026-06-09",
+          "end": "2026-06-10",
+          "all_day": false
+        },
+        {
+          "ref": "cal:ae90ba08-518b-445f-b500-74808ed010c6",
+          "title": "Stay at citizenM Boston North Station",
+          "start": "2026-06-10",
+          "end": "2026-06-12",
+          "all_day": true
+        },
+        {
+          "ref": "cal:d67ae47c-fcfc-4949-9c2b-c4475526a72d",
+          "title": "Sage & Dentsu - Weekly NA Programmatic Status",
+          "start": "2026-06-10",
+          "end": "2026-06-10",
+          "all_day": false
+        },
+        {
+          "ref": "cal:42513402-eac1-4675-871a-26d8bc43f06c",
+          "title": "Global Sage Leadership Check-in",
+          "start": "2026-06-10",
+          "end": "2026-06-10",
+          "all_day": false
+        },
+        {
+          "ref": "cal:03170086-4584-441c-8e1f-ccc237eb2950",
+          "title": "Canceled: SAGE - NAM - Planning Team Huddle",
+          "start": "2026-06-10",
+          "end": "2026-06-10",
+          "all_day": false
+        },
+        {
+          "ref": "cal:681d8e01-ac4b-4366-a610-ceaf28c01348",
+          "title": "SAGE: IP Internal Huddle",
+          "start": "2026-06-10",
+          "end": "2026-06-10",
+          "all_day": false
+        },
+        {
+          "ref": "cal:d9837946-f5f2-4aa2-a906-2315cff12fb2",
+          "title": "Sage NA Search Bi Weekly",
+          "start": "2026-06-10",
+          "end": "2026-06-10",
+          "all_day": false
+        },
+        {
+          "ref": "cal:4edc20eb-0ca0-4701-a36a-674638e7d36a",
+          "title": "Sage x Dentsu: NA Paid Social Status",
+          "start": "2026-06-10",
+          "end": "2026-06-10",
+          "all_day": false
+        },
+        {
+          "ref": "cal:458fca83-42d9-486c-8ed7-28878dadb56e",
+          "title": "Justine & James 1:1",
+          "start": "2026-06-10",
+          "end": "2026-06-10",
+          "all_day": false
+        },
+        {
+          "ref": "cal:97b7b08e-0947-4717-b78e-a6de92fe8515",
+          "title": "Sage x Dentsu NA Paid Search Status",
+          "start": "2026-06-10",
+          "end": "2026-06-10",
+          "all_day": false
+        },
+        {
+          "ref": "cal:00f3ac5f-e06d-4336-b648-a7412c3414c9",
+          "title": "Flight to Boston (DL 860)",
+          "start": "2026-06-10",
+          "end": "2026-06-11",
+          "all_day": false
+        },
+        {
+          "ref": "cal:e78f560f-6c72-4712-8e0f-fd7949dc9edf",
+          "title": "Canceled: Attribution bi-weekly Touchbase - Nadya & Anto",
+          "start": "2026-06-11",
+          "end": "2026-06-11",
+          "all_day": false
+        },
+        {
+          "ref": "cal:2cadd7ab-2e0c-4985-ac55-1d9bddffd249",
+          "title": "Sage - VCCP x Dentsu - FY26 weekly meeting",
+          "start": "2026-06-11",
+          "end": "2026-06-11",
+          "all_day": false
+        },
+        {
+          "ref": "cal:2cfb7541-8563-49e5-b461-e7ec788e5ec3",
+          "title": "SAGE: IP Internal Huddle",
+          "start": "2026-06-11",
+          "end": "2026-06-11",
+          "all_day": false
+        },
+        {
+          "ref": "cal:7defdd35-baa2-4647-9e5f-ba9898d2d051",
+          "title": "Semiweekly Contract Q&A Session (Optional)",
+          "start": "2026-06-11",
+          "end": "2026-06-11",
+          "all_day": false
+        },
+        {
+          "ref": "cal:6a56f5fe-e4df-4581-b617-9b549fdd19fd",
+          "title": "Weekly internal channel connect- Programmatic ",
+          "start": "2026-06-11",
+          "end": "2026-06-11",
+          "all_day": false
+        },
+        {
+          "ref": "cal:31ef8b50-62f9-46b3-ba9f-8555f5088359",
+          "title": "Justin / James / Sam / Simon Weekly",
+          "start": "2026-06-11",
+          "end": "2026-06-11",
+          "all_day": false
+        },
+        {
+          "ref": "cal:fd774f72-184b-4623-9c75-07c1117bc64c",
+          "title": "Canceled: iProspect Town Hall",
+          "start": "2026-06-11",
+          "end": "2026-06-11",
+          "all_day": false
+        },
+        {
+          "ref": "cal:a7cb83eb-df0e-49bd-a16b-cb07ce212a5b",
+          "title": "Weekly internal channel connect- Social",
+          "start": "2026-06-11",
+          "end": "2026-06-11",
+          "all_day": false
+        },
+        {
+          "ref": "cal:5b6c7541-9171-4516-8bc5-a7ed8f2880d6",
+          "title": "Weekly internal channel connect- Search",
+          "start": "2026-06-11",
+          "end": "2026-06-11",
+          "all_day": false
+        },
+        {
+          "ref": "cal:a8766526-3ac3-413c-9246-d7e8380fd387",
+          "title": "Merkle | Google Commerce Office Hours",
+          "start": "2026-06-11",
+          "end": "2026-06-11",
+          "all_day": false
+        },
+        {
+          "ref": "cal:931b1432-5749-4b8a-aa9d-0de17e1f571f",
+          "title": "Sage Cyber Security Deadline - EOP",
+          "start": "2026-06-12",
+          "end": "2026-06-13",
+          "all_day": true
+        },
+        {
+          "ref": "cal:dacdea91-b880-4343-8fe3-219c28261647",
+          "title": "NETAPP - send bi-weekly brand report",
+          "start": "2026-06-12",
+          "end": "2026-06-12",
+          "all_day": false
+        },
+        {
+          "ref": "cal:6659c248-2db4-4696-bedc-e76df06e5ae0",
+          "title": "SAGE: IP Internal Huddle",
+          "start": "2026-06-12",
+          "end": "2026-06-12",
+          "all_day": false
+        },
+        {
+          "ref": "cal:f5015ed4-0572-40d4-a628-d401ca49c3e5",
+          "title": "Timesheets",
+          "start": "2026-06-12",
+          "end": "2026-06-12",
+          "all_day": false
+        },
+        {
+          "ref": "cal:00582c79-d065-477f-9990-aa1d9704a9e0",
+          "title": "Flag Day",
+          "start": "2026-06-14",
+          "end": "2026-06-15",
+          "all_day": true
+        },
+        {
+          "ref": "cal:3f17e8d5-07d3-474c-8349-34aef9b5fb6a",
+          "title": "Canceled: Merkle DWA - weekly check in",
+          "start": "2026-06-15",
+          "end": "2026-06-15",
+          "all_day": false
+        },
+        {
+          "ref": "cal:575d941c-57f3-416e-bc46-2d8c8d0be2b4",
+          "title": "MDWA All Agency Weekly Check-In ",
+          "start": "2026-06-15",
+          "end": "2026-06-15",
+          "all_day": false
+        },
+        {
+          "ref": "cal:a161b9c9-e8b2-47e5-a432-d0047e4d807a",
+          "title": "DWA | EMEA + APAC Sync",
+          "start": "2026-06-15",
+          "end": "2026-06-15",
+          "all_day": false
+        },
+        {
+          "ref": "cal:95c105f7-c6db-45ee-8315-b06548f24c27",
+          "title": "SAGE: IP Internal Huddle",
+          "start": "2026-06-15",
+          "end": "2026-06-15",
+          "all_day": false
+        },
+        {
+          "ref": "cal:cd43f529-b03b-4b1a-a2ac-8643b869109e",
+          "title": "NEW Sage Internal: North America Status",
+          "start": "2026-06-15",
+          "end": "2026-06-15",
+          "all_day": false
+        },
+        {
+          "ref": "cal:2b2bf1a1-c721-4841-99d5-e473fb69b809",
+          "title": "SAGE: IP Internal Huddle",
+          "start": "2026-06-16",
+          "end": "2026-06-16",
+          "all_day": false
+        },
+        {
+          "ref": "cal:08602c6f-0595-49ec-a6bb-f8292f05349e",
+          "title": "NA Sage + Dentsu Weekly Status",
+          "start": "2026-06-16",
+          "end": "2026-06-16",
+          "all_day": false
+        },
+        {
+          "ref": "cal:fd811ae5-9abd-4324-b142-68020ac64a91",
+          "title": "Semiweekly Contract Q&A Session (Optional)",
+          "start": "2026-06-16",
+          "end": "2026-06-16",
+          "all_day": false
+        },
+        {
+          "ref": "cal:fccbd1c6-f3f6-42ef-9323-b5467586f5a4",
+          "title": "Sage | Weekly Internal Analytics + Media",
+          "start": "2026-06-16",
+          "end": "2026-06-16",
+          "all_day": false
+        },
+        {
+          "ref": "cal:217856ba-389b-4412-a7ec-1d4e0adc34aa",
+          "title": "Canceled: SLT Monthly Meeting",
+          "start": "2026-06-16",
+          "end": "2026-06-16",
+          "all_day": false
+        },
+        {
+          "ref": "cal:e5e9e74a-178b-4578-b9cc-fea942d0c3df",
+          "title": "Canceled: Qlik - 1on1 Media Team Sync",
+          "start": "2026-06-16",
+          "end": "2026-06-16",
+          "all_day": false
+        },
+        {
+          "ref": "cal:19bdb2c4-c3e4-4fd7-b07c-cf038016abcf",
+          "title": "Justin & Anto - Analytics connect ",
+          "start": "2026-06-16",
+          "end": "2026-06-16",
+          "all_day": false
+        },
+        {
+          "ref": "cal:c0c6c223-5eec-47a4-b419-83a87616412b",
+          "title": "Private Appointment",
+          "start": "2026-06-16",
+          "end": "2026-06-17",
+          "all_day": false
+        }
+      ],
+      "eventNotes": [
+        {
+          "ref": "note:dbbcbe0f-61ba-4e97-8acb-1226f6357957",
+          "title": "Flying to Berlin at 2pm",
+          "body": "Flying to Berlin at 2pm on Wednesday",
+          "start": "2026-04-29",
+          "end": "2026-04-29"
+        },
+        {
+          "ref": "note:8d11ac1f-3415-4d3a-bebd-808e2aa99614",
+          "title": "Vabali Spa Booked for 5.40pm",
+          "body": "Vabali spa booked for 5.40pm on may 3rd",
+          "start": "2026-05-03",
+          "end": "2026-05-03"
+        },
+        {
+          "ref": "note:1baef311-625c-4737-9ba9-d79b3554398b",
+          "title": "Parents Visit San Francisco",
+          "body": "Parents visit SF from 14-24 May",
+          "start": "2026-05-14",
+          "end": "2026-05-24"
+        },
+        {
+          "ref": "note:5c9f11ff-39ac-4ec9-b990-73bec89151ca",
+          "title": "Running Bay to Breakers with Mum and Dave",
+          "body": "Running Bay to Breakers with Mum and Dave on May 17",
+          "start": "2026-05-17",
+          "end": "2026-05-17"
+        },
+        {
+          "ref": "note:d8cc2327-b67f-417c-8e01-66358dad8068",
+          "title": "Palm Springs Trip",
+          "body": "Palm Springs trip from Sunday (today) through Thursday",
+          "start": "2026-05-17",
+          "end": "2026-05-14"
+        },
+        {
+          "ref": "note:29f575c5-aa11-491e-a426-bde7a25230d6",
+          "title": "Going to Guerneville",
+          "body": "Going to Guerneville from tomorrow till Monday",
+          "start": "2026-05-28",
+          "end": "2026-06-01"
+        },
+        {
+          "ref": "note:da180dc0-78fe-4d0c-bc56-ad83f50935f9",
+          "title": "Provincetown Trip with Issam and Dave",
+          "body": "Provincetown trip with Issam and Dave from Thursday to Sunday",
+          "start": "2026-06-11",
+          "end": "2026-06-14"
+        }
+      ]
+    },
+    "response": {
+      "http": 200,
+      "body": {
+        "ok": true,
+        "reads": {
+          "80579c29-61fd-45cb-a403-cb650cf354be": {
+            "read_paragraph": "You're already past your weekly target with two rides in, and an 11-week streak running. The Provincetown trip overlaps part of the week but cycling is clearly working around it just fine.",
+            "frequency_line": "You typically ride around 3 times a week; your current target is set to 1.",
+            "disruption": null,
+            "confidence": 0.92
+          },
+          "f86ceed9-7d9d-408f-a63c-fef5fb782f43": {
+            "read_paragraph": null,
+            "frequency_line": "You typically run around once a week; your current target is set to 2.",
+            "disruption": null,
+            "confidence": 0.85
+          },
+          "36edb14f-d0b6-4e6a-943a-2eca64bd50ae": {
+            "read_paragraph": "Three days logged so far this week, which is a real step up from the last few weeks of near-silence. The week is still open and Tuesdays are your best day, so today is a good one to keep the momentum going.",
+            "frequency_line": null,
+            "disruption": null,
+            "confidence": 0.82
+          },
+          "80407b1a-b7b0-4ff9-bf37-01993632de88": {
+            "read_paragraph": "You have a pause already set for the Provincetown Trip with Issam and Dave covering Thursday through Sunday, so that stretch is handled. One clear day is logged so far and today and tomorrow are open before the pause begins.",
+            "frequency_line": null,
+            "disruption": null,
+            "confidence": 0.9
+          }
+        },
+        "meta": {
+          "flags": [
+            {
+              "habit_id": "f86ceed9-7d9d-408f-a63c-fef5fb782f43",
+              "drop": "both",
+              "reason": "label_not_in_paragraph"
+            },
+            {
+              "habit_id": "94ef62b9-f466-4733-a543-2f522655cb07",
+              "drop": "both",
+              "reason": "label_not_in_paragraph"
+            },
+            {
+              "habit_id": "88674092-d317-4236-ab8f-99b209fd1fae",
+              "drop": "both",
+              "reason": "label_not_in_paragraph"
+            }
+          ],
+          "events_cut": 0,
+          "model": "claude-sonnet-4-6",
+          "latency_ms": 24433
+        }
+      }
+    }
+  },
+  {
+    "person": "User 8",
+    "payload": {
+      "type": "habit-read",
+      "todayISO": "2026-06-10",
+      "timezone": "America/Los_Angeles",
+      "planWindow": {
+        "start": "2026-06-10",
+        "end": "2026-06-16"
+      },
+      "factSheets": [
+        {
+          "habit_id": "656b0cc3-4f17-407f-85e0-54cd17384cc9",
+          "name": "Run Three Times a Week",
+          "cadence": "weekly",
+          "subtype": "start_habit",
+          "target_per_period": 3,
+          "week_hits": 0,
+          "week_target": 3,
+          "streak": {
+            "count": 0,
+            "unit": "week"
+          },
+          "trend_weeks": [],
+          "completion_days": [],
+          "planned_dates": [],
+          "best_day": null,
+          "best_day_all_time": null,
+          "total_completions": 0,
+          "tracking_since": "2026-04-16",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        }
+      ],
+      "events": [],
+      "eventNotes": []
+    },
+    "response": {
+      "http": 200,
+      "body": {
+        "ok": true,
+        "reads": {},
+        "source": "no_eligible_habits"
+      }
+    }
+  },
+  {
+    "person": "User 9",
+    "payload": {
+      "type": "habit-read",
+      "todayISO": "2026-06-10",
+      "timezone": "America/Los_Angeles",
+      "planWindow": {
+        "start": "2026-06-10",
+        "end": "2026-06-16"
+      },
+      "factSheets": [
+        {
+          "habit_id": "906f1169-fef1-4b10-af0c-9afab4372618",
+          "name": "Do Yoga a Couple Times a Week",
+          "cadence": "weekly",
+          "subtype": "start_habit",
+          "target_per_period": 2,
+          "week_hits": 0,
+          "week_target": 2,
+          "streak": {
+            "count": 0,
+            "unit": "week"
+          },
+          "trend_weeks": [],
+          "completion_days": [],
+          "planned_dates": [],
+          "best_day": null,
+          "best_day_all_time": null,
+          "total_completions": 0,
+          "tracking_since": "2026-04-16",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        }
+      ],
+      "events": [],
+      "eventNotes": []
+    },
+    "response": {
+      "http": 200,
+      "body": {
+        "ok": true,
+        "reads": {},
+        "source": "no_eligible_habits"
+      }
+    }
+  },
+  {
+    "person": "User 10",
+    "payload": {
+      "type": "habit-read",
+      "todayISO": "2026-06-10",
+      "timezone": "America/Los_Angeles",
+      "planWindow": {
+        "start": "2026-06-10",
+        "end": "2026-06-16"
+      },
+      "factSheets": [
+        {
+          "habit_id": "18d8e004-04be-401e-9940-90b05ef01b24",
+          "name": "Run Three Times a Week",
+          "cadence": "weekly",
+          "subtype": "start_habit",
+          "target_per_period": 3,
+          "week_hits": 0,
+          "week_target": 3,
+          "streak": {
+            "count": 0,
+            "unit": "week"
+          },
+          "trend_weeks": [],
+          "completion_days": [],
+          "planned_dates": [],
+          "best_day": null,
+          "best_day_all_time": null,
+          "total_completions": 0,
+          "tracking_since": "2026-04-17",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        }
+      ],
+      "events": [],
+      "eventNotes": []
+    },
+    "response": {
+      "http": 200,
+      "body": {
+        "ok": true,
+        "reads": {},
+        "source": "no_eligible_habits"
+      }
+    }
+  },
+  {
+    "person": "User 11",
+    "payload": {
+      "type": "habit-read",
+      "todayISO": "2026-06-10",
+      "timezone": "America/Los_Angeles",
+      "planWindow": {
+        "start": "2026-06-10",
+        "end": "2026-06-16"
+      },
+      "factSheets": [
+        {
+          "habit_id": "55dd1939-d19d-416f-a45e-3700694bbe0b",
+          "name": "Workout",
+          "cadence": "daily",
+          "subtype": "start_habit",
+          "target_per_period": 1,
+          "week_hits": 1,
+          "week_target": 7,
+          "streak": {
+            "count": 1,
+            "unit": "day"
+          },
+          "trend_weeks": [
+            {
+              "week_start": "2026-04-27",
+              "hits": 3,
+              "target": 7
+            },
+            {
+              "week_start": "2026-05-04",
+              "hits": 0,
+              "target": 7
+            },
+            {
+              "week_start": "2026-05-11",
+              "hits": 0,
+              "target": 7
+            },
+            {
+              "week_start": "2026-05-18",
+              "hits": 1,
+              "target": 7
+            },
+            {
+              "week_start": "2026-05-25",
+              "hits": 0,
+              "target": 7
+            },
+            {
+              "week_start": "2026-06-01",
+              "hits": 0,
+              "target": 7
+            }
+          ],
+          "completion_days": [
+            "2026-04-27",
+            "2026-04-28",
+            "2026-05-02",
+            "2026-05-19",
+            "2026-06-09"
+          ],
+          "planned_dates": [],
+          "best_day": "Tuesdays",
+          "best_day_all_time": "Tuesdays",
+          "total_completions": 44,
+          "tracking_since": "2026-01-26",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        },
+        {
+          "habit_id": "9cac0e9c-ac2e-44e2-bee6-5b196eecc983",
+          "name": "Flossing",
+          "cadence": "daily",
+          "subtype": "start_habit",
+          "target_per_period": 1,
+          "week_hits": 0,
+          "week_target": 7,
+          "streak": {
+            "count": 0,
+            "unit": "day"
+          },
+          "trend_weeks": [
+            {
+              "week_start": "2026-04-27",
+              "hits": 1,
+              "target": 7
+            },
+            {
+              "week_start": "2026-05-04",
+              "hits": 0,
+              "target": 7
+            },
+            {
+              "week_start": "2026-05-11",
+              "hits": 0,
+              "target": 7
+            },
+            {
+              "week_start": "2026-05-18",
+              "hits": 2,
+              "target": 7
+            },
+            {
+              "week_start": "2026-05-25",
+              "hits": 0,
+              "target": 7
+            },
+            {
+              "week_start": "2026-06-01",
+              "hits": 1,
+              "target": 7
+            }
+          ],
+          "completion_days": [
+            "2026-04-19",
+            "2026-04-20",
+            "2026-04-21",
+            "2026-04-26",
+            "2026-04-27",
+            "2026-05-18",
+            "2026-05-19",
+            "2026-06-02"
+          ],
+          "planned_dates": [],
+          "best_day": "Mondays",
+          "best_day_all_time": "Mondays",
+          "total_completions": 61,
+          "tracking_since": "2026-01-25",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        },
+        {
+          "habit_id": "2796c3c6-290d-461f-b87d-06cf5ecf85a4",
+          "name": "Call Mum Weekly on Saturdays",
+          "cadence": "weekly",
+          "subtype": "start_habit",
+          "target_per_period": 1,
+          "week_hits": 0,
+          "week_target": 1,
+          "streak": {
+            "count": 0,
+            "unit": "week"
+          },
+          "trend_weeks": [
+            {
+              "week_start": "2026-05-18",
+              "hits": 1,
+              "target": 1
+            },
+            {
+              "week_start": "2026-05-25",
+              "hits": 0,
+              "target": 1
+            },
+            {
+              "week_start": "2026-06-01",
+              "hits": 0,
+              "target": 1
+            }
+          ],
+          "completion_days": [
+            "2026-05-24"
+          ],
+          "planned_dates": [],
+          "best_day": "Sundays",
+          "best_day_all_time": "Sundays",
+          "total_completions": 1,
+          "tracking_since": "2026-05-23",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        },
+        {
+          "habit_id": "c8b21b55-af30-45d1-b251-8c17286bd079",
+          "name": "Vacuuming the House",
+          "cadence": "weekly",
+          "subtype": "start_habit",
+          "target_per_period": 2,
+          "week_hits": 0,
+          "week_target": 2,
+          "streak": {
+            "count": 0,
+            "unit": "week"
+          },
+          "trend_weeks": [
+            {
+              "week_start": "2026-05-11",
+              "hits": 1,
+              "target": 2
+            },
+            {
+              "week_start": "2026-05-18",
+              "hits": 0,
+              "target": 2
+            },
+            {
+              "week_start": "2026-05-25",
+              "hits": 0,
+              "target": 2
+            },
+            {
+              "week_start": "2026-06-01",
+              "hits": 0,
+              "target": 2
+            }
+          ],
+          "completion_days": [
+            "2026-05-12"
+          ],
+          "planned_dates": [],
+          "best_day": "Tuesdays",
+          "best_day_all_time": "Mondays",
+          "total_completions": 3,
+          "tracking_since": "2026-02-07",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        },
+        {
+          "habit_id": "f4905f26-edfa-4250-9a7d-8f19bcaec5e2",
+          "name": "Stop Doing Drugs Regularly",
+          "cadence": "daily",
+          "subtype": "break_habit",
+          "target_per_period": 1,
+          "week_hits": 0,
+          "week_target": 7,
+          "streak": {
+            "count": 0,
+            "unit": "day"
+          },
+          "trend_weeks": [],
+          "completion_days": [],
+          "planned_dates": [],
+          "best_day": null,
+          "best_day_all_time": null,
+          "total_completions": 0,
+          "tracking_since": "2026-04-19",
+          "floor_note": null,
+          "freq_rec": null,
+          "adaptations": []
+        }
+      ],
+      "events": [],
+      "eventNotes": [
+        {
+          "ref": "note:0b30f7d9-5905-4ec1-99f6-673e0a4b5a1e",
+          "title": "Rufus De Sol Concert in Berlin",
+          "body": "Berlin for Rufus de Sol on May 1",
+          "start": "2026-05-01",
+          "end": "2026-05-01"
+        },
+        {
+          "ref": "note:7133923f-a9ac-4ccf-b0a7-38d03dcbfd15",
+          "title": "James’ Parents Visiting",
+          "body": "James’ parents visiting May 14 to 24",
+          "start": "2026-05-14",
+          "end": "2026-05-24"
+        }
+      ]
+    },
+    "response": {
+      "http": 200,
+      "body": {
+        "ok": true,
+        "reads": {
+          "55dd1939-d19d-416f-a45e-3700694bbe0b": {
+            "read_paragraph": "You got one workout in to start the week, and the week is still open. Tuesdays are your strongest day, so that's a natural next anchor. The recent stretch has been quiet, but today's hit is a real foothold.",
+            "frequency_line": null,
+            "disruption": null,
+            "confidence": 0.72
+          },
+          "9cac0e9c-ac2e-44e2-bee6-5b196eecc983": {
+            "read_paragraph": "No floss days yet this week, but Mondays are your best day and today is still here. The pattern lately has been one or two days most weeks, so even a single tonight would keep that going. The week is open.",
+            "frequency_line": null,
+            "disruption": null,
+            "confidence": 0.68
+          }
+        },
+        "meta": {
+          "flags": [],
+          "events_cut": 0,
+          "model": "claude-sonnet-4-6",
+          "latency_ms": 5228
+        }
+      }
+    }
+  }
+]

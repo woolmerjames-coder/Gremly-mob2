@@ -80,8 +80,8 @@ export const lightTokens = {
       },
       professional: {
         base: '#3A4C60',
-        tint: 'rgba(138,148,165,0.22)',
-        dot: '#8A94A5',
+        tint: 'rgba(91,112,144,0.22)',
+        dot: '#5B7090',
         textOnBase: '#F4EDD7',
       },
       wellness_body: {
@@ -109,9 +109,9 @@ export const lightTokens = {
         textOnBase: '#F4EDD7',
       },
       learning: {
-        base: '#3A4C60',
-        tint: 'rgba(138,148,165,0.22)',
-        dot: '#8A94A5',
+        base: '#4A4E8C',
+        tint: 'rgba(123,135,212,0.22)',
+        dot: '#7B87D4',
         textOnBase: '#F4EDD7',
       },
       generic: {
@@ -120,6 +120,16 @@ export const lightTokens = {
         dot: '#8A94A5',
         textOnBase: '#F4EDD7',
       },
+    },
+
+    // Sweep day-grid capacity heat tints
+    sweepHeat: {
+      none: 'rgba(34,34,34,0.03)', // 0 things — neutral, matches inactive pill bg
+      low: 'rgba(191,216,192,0.18)', // 1-2 things — faint sage
+      med: 'rgba(191,216,192,0.34)', // 3-4 things — stronger sage
+      high: 'rgba(224,138,107,0.14)', // 5+ things — warm clay tint (heavy day)
+      heavyText: '#C2613F', // warm text color for count label on heavy days
+      todayRing: 'rgba(46,85,64,0.25)', // inset ring for the today cell
     },
 
     // Worlds surfaces — grounded in brand tokens, not mockup-oat
@@ -382,6 +392,7 @@ export const darkTokens = {
     noticedLabel: '#A299C9',
 
     worldPalette: lightTokens.colors.worldPalette,
+    sweepHeat: lightTokens.colors.sweepHeat,
 
     // Worlds surfaces (dark mode)
     worldsSurface: '#121716', // surface dark

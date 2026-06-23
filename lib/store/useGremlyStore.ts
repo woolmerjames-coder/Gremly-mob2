@@ -65,6 +65,8 @@ import { eventBus } from '../events';
 import { parseHabitFrequency } from '../sweep/habitHelpers';
 import { getDateService } from '../date';
 import { nowTimestamp } from '../date/DateService';
+import { buildHabitFactSheet, computeInputHash, type HabitRead } from '../habits/habitFactSheet';
+import type { HabitCardStats } from '../habits/habitCardStats';
 import celebrationController from '../../app/features/celebration/CelebrationController';
 import {
   calendarClient,
@@ -76,6 +78,7 @@ import { DEFAULT_TIME_BLOCK_PREFERENCES, getTimeBlockBoundaries } from '../capac
 import { getRandomFallback } from '../minddrop/confirmationFallbacks';
 import { cancelAllItemReminders } from '../notifications/itemReminderService';
 import type { TimeBlockPreferences } from '../capacity';
+import { selectSweepCandidates, type SweepEligibleTodo } from '../today/sweepSelectors';
 
 /**
  * DATE HANDLING CONVENTION
@@ -110,6 +113,11 @@ let eventBusUnsubscribe: (() => void) | null = null;
 // their set() calls, which causes duplicate events.
 let calendarFetchInFlight: Promise<void> | null = null;
 
+function rangesOverlap(aStart: string, aEnd: string, bStart: string, bEnd: string): boolean {
+  // Inclusive range overlap for YYYY-MM-DD strings.
+  return aStart <= bEnd && bStart <= aEnd;
+}
+
 function mapDbRowToProviderCalendarEvent(row: DbSyncedCalendarEvent): CalendarEvent | null {
   if (!row.external_id || !row.start_at || !row.end_at) return null;
   if (row.provider !== 'google' && row.provider !== 'outlook' && row.provider !== 'ics')
@@ -132,6 +140,7 @@ function buildCalendarEventsByDateFromDbRows(
 ): Record<string, CalendarEvent[]> {
   const eventsByDate: Record<string, CalendarEvent[]> = {};
   const seen = new Set<string>();
+  const ds = getDateService();
 
   for (const row of rows) {
     const event = mapDbRowToProviderCalendarEvent(row);
@@ -141,10 +150,25 @@ function buildCalendarEventsByDateFromDbRows(
     if (seen.has(dedupKey)) continue;
     seen.add(dedupKey);
 
-    const dateKey = getDateService().extractLocalDate(event.startAt);
-    if (!dateKey) continue;
-    const existing = eventsByDate[dateKey] || [];
-    eventsByDate[dateKey] = [...existing, event];
+    if (event.isAllDay) {
+      // All-day events: span every day from startAt..endAt (exclusive end),
+      // using utcDatePortion so space-serialized Supabase timestamps work correctly.
+      const startStr = ds.utcDatePortion(event.startAt);
+      const endStr = ds.utcDatePortion(event.endAt);
+      if (!startStr || !endStr) continue;
+      let cursor = startStr;
+      while (cursor < endStr) {
+        const existing = eventsByDate[cursor] || [];
+        eventsByDate[cursor] = [...existing, event];
+        cursor = ds.addDays(cursor, 1);
+      }
+    } else {
+      // Timed events: convert startAt to local date (already fixed for space form).
+      const dateKey = ds.extractLocalDate(event.startAt);
+      if (!dateKey) continue;
+      const existing = eventsByDate[dateKey] || [];
+      eventsByDate[dateKey] = [...existing, event];
+    }
   }
 
   return eventsByDate;
@@ -164,7 +188,7 @@ export function isHabitLockedIn(habit: Habit): boolean {
 // MMKV Storage Engine (synchronous — hydrates before first render)
 // ═══════════════════════════════════════════════════════════════════
 
-const STORE_SCHEMA_VERSION = 2; // bump this any time persisted shape changes
+const STORE_SCHEMA_VERSION = 3; // bump this any time persisted shape changes
 
 const mmkv = createMMKV({ id: 'gremly-store' });
 
@@ -401,6 +425,61 @@ export interface HabitProgressRow {
   occurred_day: string; // YYYY-MM-DD
   count: number;
   occurrence_index: number | null;
+  /** True when this completion was logged inside a floor window (smaller version of the habit). */
+  was_floor?: boolean;
+}
+
+export interface HabitAdaptationRow {
+  id: string;
+  owner_id: string;
+  habit_id: string;
+  mode: 'keep' | 'floor' | 'pause';
+  /** Inclusive start date YYYY-MM-DD */
+  period_start: string;
+  /** Inclusive end date YYYY-MM-DD */
+  period_end: string;
+  floor_note?: string | null;
+  /** Free-form source reference for disruption-driven adaptations (optional). */
+  source_ref?: string | null;
+  /** Foreign key to a calendar event that triggered the adaptation (optional). */
+  source_event_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HabitPlanRow {
+  id: string;
+  habit_id: string;
+  owner_id: string;
+  planned_date: string; // YYYY-MM-DD
+  week_start: string; // YYYY-MM-DD (Monday)
+  status: 'planned' | 'kept' | 'missed' | 'rescheduled';
+}
+
+export interface HabitTargetHistoryRow {
+  id: string;
+  habit_id: string;
+  owner_id: string;
+  cadence: string;
+  target_per_period: number;
+  effective_from: string;
+}
+
+// ── Habit reads (unified AI read; supersedes floor suggestions in Card C) ──
+export interface HabitReadEntry {
+  read: HabitRead | null; // null = generated but empty (ineligible/validation)
+  input_hash: string;
+  dismissed: boolean;
+}
+
+export interface FloorSuggestion {
+  habit_id: string;
+  week_start: string;
+  detected: boolean;
+  disruption: { label: string; start: string; end: string } | null;
+  lead_line: string | null;
+  ideas: string[];
+  confidence: number;
 }
 
 // @deprecated — PendingDrop is no longer used at runtime. Tests should migrate to QueuedDrop from dropQueue.ts.
@@ -420,6 +499,18 @@ export interface GremlyState {
   spaces: Space[];
   tags: Tag[];
   habitProgress: HabitProgressRow[];
+  /** Adaptation windows (floor / pause) per habit. Loaded with habits on hydrate. */
+  habitAdaptations: HabitAdaptationRow[];
+  /** Forward plans (coming 7+ days) per habit. Loaded on hydrate, current+future weeks. */
+  habitPlans: HabitPlanRow[];
+  /** Historical target changes per habit keyed by effective_from date. */
+  habitTargetHistory: HabitTargetHistoryRow[];
+  /** Floor suggestions from AI, keyed by `${habit_id}:${week_start}`. */
+  habitFloorSuggestions: Record<string, FloorSuggestion>;
+  /** True while ensureFloorSuggestions is running. */
+  floorSuggestRunning: boolean;
+  habitReads: Record<string, HabitReadEntry>;
+  habitReadsRunning: boolean;
   spaceChats: SpaceChat[];
   spaceChatMessages: SpaceChatMessage[];
   generalChats: SpaceChat[];
@@ -460,6 +551,10 @@ export interface GremlyState {
   // ═══════════════════════════════════════════════════════════════════
   weeklySummaries: WeeklySummary[];
   weeklySummaryLoading: boolean;
+  /** Derived from sweep_skip_events rows with created_at >= now()-7d. */
+  skipsUsedLast7Days: number;
+  /** Timestamp of last skip budget derivation refresh. */
+  skipBudgetLoadedAt: string | null;
 
   // ═══════════════════════════════════════════════════════════════════
   // DAILY CONTEXT OBJECT (DCO)
@@ -660,6 +755,8 @@ export interface GremlyState {
   // ═══════════════════════════════════════════════════════════════════
   // TODO MUTATIONS
   // ═══════════════════════════════════════════════════════════════════
+  refreshSkipBudget: () => Promise<void>;
+  bulkSkipSweep: (targetDateStr: string) => Promise<{ movedCount: number }>;
   createTodo: (todo: Partial<Todo>) => Promise<Todo>;
   updateTodo: (id: string, updates: Partial<Todo>) => Promise<void>;
   deleteTodo: (id: string) => Promise<void>;
@@ -673,19 +770,99 @@ export interface GremlyState {
   // ═══════════════════════════════════════════════════════════════════
   createHabit: (habit: Partial<Habit>) => Promise<Habit>;
   updateHabit: (id: string, updates: Partial<Habit>) => Promise<void>;
+  setHabitTarget: (id: string, cadence: string, target: number) => Promise<void>;
   deleteHabit: (id: string) => Promise<void>;
   completeHabit: (id: string) => Promise<void>;
   uncompleteHabit: (id: string) => Promise<void>;
   /** Toggle habit completion for TODAY - complete if not done, uncomplete if done */
   toggleHabitToday: (id: string) => Promise<void>;
   /** Log habit completion for a specific date (for Habits This Week) */
-  logHabitCompletionForDate: (habitId: string, dateIso: string) => Promise<void>;
+  logHabitCompletionForDate: (
+    habitId: string,
+    dateIso: string,
+    wasFloor?: boolean,
+  ) => Promise<void>;
   /** Remove habit completion for a specific date (for Habits This Week) */
   removeHabitCompletionForDate: (habitId: string, dateIso: string) => Promise<void>;
   /** Update last_checked_in_at for a habit (user reviewed it) */
   checkInHabit: (habitId: string) => Promise<void>;
   archiveHabit: (id: string, reason?: string) => Promise<void>;
   restoreHabit: (id: string) => Promise<void>;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // HABIT ADAPTATION MUTATIONS
+  // ═══════════════════════════════════════════════════════════════════
+  /**
+   * Create an adaptation window for a habit.
+   * Returns { ok: true, row } on success, or { ok: false, reason: 'overlap' | 'unknown' } on conflict.
+   */
+  setHabitAdaptation: (
+    habitId: string,
+    patch: {
+      mode: 'keep' | 'floor' | 'pause';
+      period_start: string;
+      period_end: string;
+      floor_note?: string | null;
+      source_ref?: string | null;
+    },
+  ) => Promise<
+    { ok: true; row: HabitAdaptationRow } | { ok: false; reason: 'overlap' | 'unknown' }
+  >;
+  updateHabitAdaptation: (
+    id: string,
+    patch: Partial<
+      Pick<HabitAdaptationRow, 'mode' | 'period_start' | 'period_end' | 'floor_note' | 'source_ref'>
+    >,
+  ) => Promise<{ ok: true } | { ok: false; reason: 'overlap' | 'unknown' }>;
+  clearHabitAdaptation: (id: string) => Promise<void>;
+  /** Returns the adaptation covering dateIso for this habit, or null. */
+  getActiveAdaptation: (habitId: string, dateIso: string) => HabitAdaptationRow | null;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // HABIT PLAN MUTATIONS
+  // ═══════════════════════════════════════════════════════════════════
+  /** Place a habit on a specific date (idempotent via unique(habit_id, planned_date)). */
+  setHabitPlan: (habitId: string, plannedDate: string, weekStart?: string) => Promise<void>;
+  /** Remove a planned day (re-tap to deselect). */
+  removeHabitPlan: (habitId: string, plannedDate: string) => Promise<void>;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // FLOOR SUGGESTIONS
+  // ═══════════════════════════════════════════════════════════════════
+  /**
+   * Loads cached floor suggestions for weekStart from Supabase, then fires the
+   * worker for any non-daily build habits that have no cached row. Idempotent;
+   * concurrent calls while running are no-ops.
+   */
+  ensureFloorSuggestions: (habits: Habit[], weekStart: string) => Promise<void>;
+  /** One batched habit-read call for the sweep. Caller passes precomputed cards. */
+  ensureHabitReads: (habits: Habit[], cards: HabitCardStats[], weekStart: string) => Promise<void>;
+  /** Returns the HabitReadEntry for a habit+week, or null. */
+  getHabitRead: (habitId: string, weekStart: string) => HabitReadEntry | null;
+  /** Resolve the canonical sweep week block from reactive currentDate. */
+  resolveSweepBlock: () => {
+    weekStart: string;
+    weekEnd: string;
+    summaryId: string | null;
+    summaryGenerated: boolean;
+  };
+  /** Persistently dismiss a read for this week. */
+  dismissHabitRead: (habitId: string, weekStart: string) => Promise<void>;
+  /** Returns the FloorSuggestion for a habit+week, or null. */
+  getFloorSuggestion: (habitId: string, weekStart: string) => FloorSuggestion | null;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // HABIT INSIGHT CACHE
+  // ═══════════════════════════════════════════════════════════════════
+  /** In-memory cache keyed by `${habitId}_${observedForWeek}`. */
+  habitInsightCache: Record<string, import('../habits/habitInsight').HabitInsightResult>;
+  /**
+   * Returns a cached insight for the current week, or fetches and caches one.
+   * Never throws. On any error returns { show: false, line: null, kind: null }.
+   */
+  getOrFetchHabitInsight: (
+    habitId: string,
+  ) => Promise<import('../habits/habitInsight').HabitInsightResult>;
 
   // ═══════════════════════════════════════════════════════════════════
   // NOTE MUTATIONS
@@ -1035,6 +1212,11 @@ export interface GremlyState {
   // ═══════════════════════════════════════════════════════════════════
   refreshWorldsGraph: () => Promise<void>;
   dismissWorldObservation: (observationId: string) => Promise<void>;
+  pinDropToWorld: (
+    dropId: string,
+    dropType: 'todo' | 'habit' | 'note',
+    worldId: string,
+  ) => Promise<void>;
   updateChapterDates: (input: {
     chapterId: string;
     startDate: string;
@@ -1059,6 +1241,14 @@ const initialState = {
   spaces: [] as Space[],
   tags: [] as Tag[],
   habitProgress: [] as HabitProgressRow[],
+  habitAdaptations: [] as HabitAdaptationRow[],
+  habitPlans: [] as HabitPlanRow[],
+  habitTargetHistory: [] as HabitTargetHistoryRow[],
+  habitFloorSuggestions: {} as Record<string, FloorSuggestion>,
+  floorSuggestRunning: false,
+  habitReads: {} as Record<string, HabitReadEntry>,
+  habitReadsRunning: false,
+  habitInsightCache: {} as Record<string, import('../habits/habitInsight').HabitInsightResult>,
   spaceChats: [] as SpaceChat[],
   spaceChatMessages: [] as SpaceChatMessage[],
   generalChats: [] as SpaceChat[],
@@ -1084,6 +1274,8 @@ const initialState = {
   dailyBriefLoading: false,
   weeklySummaries: [] as WeeklySummary[],
   weeklySummaryLoading: false,
+  skipsUsedLast7Days: 0,
+  skipBudgetLoadedAt: null as string | null,
   // DCO
   dco: null as DailyContextObject | null,
   dcoLoading: false,
@@ -1290,6 +1482,9 @@ export const useGremlyStore = create<GremlyState>()(
               spacesRes,
               tagsRes,
               progressRes,
+              adaptationsRes,
+              habitPlansRes,
+              habitTargetHistoryRes,
               chatsRes,
               milestonesRes,
               dailyBriefRes,
@@ -1350,6 +1545,15 @@ export const useGremlyStore = create<GremlyState>()(
               supabase.from('spaces').select('*').eq('owner_id', userId),
               supabase.from('tags').select('*').eq('owner_id', userId),
               supabase.from('habit_progress').select('*').eq('owner_id', userId),
+              supabase.from('habit_adaptations').select('*').eq('owner_id', userId),
+              supabase
+                .from('habit_plans')
+                .select('*')
+                .eq('owner_id', userId)
+                .gte('week_start', getDateService().startOfWeekMonday(getDateService().today())),
+              fetchAllPaginated<HabitTargetHistoryRow>(() =>
+                supabase.from('habit_target_history').select('*').eq('owner_id', userId),
+              ),
               supabase.from('scope_chats').select('*').eq('user_id', userId),
               supabase.from('space_milestones').select('*').eq('owner_id', userId),
               supabase
@@ -1574,6 +1778,8 @@ export const useGremlyStore = create<GremlyState>()(
               spaces: spacesRes.data ?? [],
               tags: tagsRes.data ?? [],
               habitProgress: progressRes.data ?? [],
+              habitAdaptations: ((adaptationsRes as any).data ?? []) as HabitAdaptationRow[],
+              habitTargetHistory: (habitTargetHistoryRes ?? []) as HabitTargetHistoryRow[],
               spaceChats: chatsRes.data ?? [],
               milestones: milestonesRes.data ?? [],
               worlds: (worldsRes.data ?? []) as World[],
@@ -1799,6 +2005,9 @@ export const useGremlyStore = create<GremlyState>()(
             spaces: [],
             tags: [],
             habitProgress: [],
+            habitAdaptations: [],
+            habitPlans: [],
+            habitTargetHistory: [],
             spaceChats: [],
             spaceChatMessages: [],
             milestones: [],
@@ -1806,6 +2015,8 @@ export const useGremlyStore = create<GremlyState>()(
             dailyBriefLoading: false,
             weeklySummaries: [],
             weeklySummaryLoading: false,
+            skipsUsedLast7Days: 0,
+            skipBudgetLoadedAt: null,
             isLoading: false,
             isInitialized: false,
             lastSyncedAt: null,
@@ -2970,7 +3181,6 @@ export const useGremlyStore = create<GremlyState>()(
           const newSockCount = sockCount + 1;
 
           set({
-            challengeCompletedAt: now,
             graduatedAt: now, // legacy reads
             pendingGraduation: false,
             postGraduationMessageShown: false,
@@ -2981,7 +3191,6 @@ export const useGremlyStore = create<GremlyState>()(
             supabase
               .from('cortex_preferences')
               .update({
-                challenge_completed_at: now,
                 graduated_at: now,
                 pending_graduation: false,
                 sock_count: newSockCount,
@@ -2998,7 +3207,6 @@ export const useGremlyStore = create<GremlyState>()(
             lifecycleCache: state.lifecycleCache
               ? {
                   ...state.lifecycleCache,
-                  challengeCompletedAt: now,
                   graduatedAt: now,
                   cachedAt: nowTimestamp(),
                 }
@@ -3047,51 +3255,93 @@ export const useGremlyStore = create<GremlyState>()(
 
           if (fedDays < 7) return;
 
-          // Fire summary pipeline via the Cloudflare Worker
-          const now = nowTimestamp();
-          try {
-            const workerUrl = env.cortexUrl;
-            if (!workerUrl) {
-              console.warn(
-                '[GremlyStore] No cortexUrl configured, skipping challenge.completed event',
-              );
-            } else {
-              const response = await fetch(`${workerUrl}/api/challenge-completed`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  user_id: userId,
-                  completed_at: now,
-                  timezone:
-                    get().userTimezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC',
-                }),
-              });
-
-              if (!response.ok) {
-                throw new Error(`challenge-completed POST failed: ${response.status}`);
-              }
-
-              if (__DEV__) console.log('[GremlyStore] ✅ challenge.completed event emitted');
-            }
-          } catch (err) {
-            console.error('[GremlyStore] Failed to emit challenge.completed event:', err);
-            try {
-              // eslint-disable-next-line @typescript-eslint/no-var-requires
-              const Sentry = require('@sentry/react-native');
-              Sentry.captureException(err);
-            } catch {
-              /* Sentry not available */
-            }
-            // Fall through — still show the graduation flow even if the worker call failed.
-          }
-
-          // Queue the graduation flow. finalizeGraduation will write challenge_completed_at.
+          // Queue the graduation flow.
           set({ pendingGraduation: true });
         },
 
         // ═══════════════════════════════════════════════════════════════════
         // TODO MUTATIONS
         // ═══════════════════════════════════════════════════════════════════
+
+        refreshSkipBudget: async () => {
+          const userId = get().userId;
+          if (!userId) return;
+
+          const ds = getDateService();
+          const loadedAt = ds.nowTimestamp();
+          const sevenDaysAgoDay = ds.addDays(ds.toLocalDate(ds.now()), -7);
+          const sevenDaysAgoIso = `${sevenDaysAgoDay}${loadedAt.slice(10)}`;
+
+          try {
+            const { count, error } = await supabase
+              .from('sweep_skip_events')
+              .select('id', { count: 'exact', head: true })
+              .eq('owner_id', userId)
+              .gte('created_at', sevenDaysAgoIso);
+
+            if (error) {
+              console.error('[GremlyStore] refreshSkipBudget failed:', error);
+              set({ skipsUsedLast7Days: 0, skipBudgetLoadedAt: loadedAt });
+              return;
+            }
+
+            set({ skipsUsedLast7Days: count ?? 0, skipBudgetLoadedAt: loadedAt });
+          } catch (error) {
+            console.error('[GremlyStore] refreshSkipBudget failed:', error);
+            set({ skipsUsedLast7Days: 0, skipBudgetLoadedAt: loadedAt });
+          }
+        },
+
+        bulkSkipSweep: async (targetDateStr: string) => {
+          const userId = get().userId;
+          if (!userId) throw new Error('Not authenticated');
+
+          try {
+            const todayDay = getDateService().today();
+            const sweepEligibleTodos = get().todos.map(
+              (t) =>
+                ({
+                  ...(t as unknown as SweepEligibleTodo),
+                  tags: t.tags ?? undefined,
+                }) as SweepEligibleTodo,
+            );
+            const candidateTodos = selectSweepCandidates(sweepEligibleTodos, todayDay);
+            const todosById = new Map(get().todos.map((t) => [t.id, t]));
+
+            await Promise.all(
+              candidateTodos.map(async (candidate) => {
+                const currentTodo = todosById.get(candidate.id);
+                const currentCount = currentTodo?.sweep_reschedule_count ?? 0;
+                await get().updateTodo(candidate.id, {
+                  scheduled_date: targetDateStr,
+                  due_day: targetDateStr,
+                  skipped_in_sweep_at: null,
+                  resurface_at: null,
+                  sweep_reschedule_count: currentCount + 1,
+                });
+              }),
+            );
+
+            const movedCount = candidateTodos.length;
+
+            const { error: insertError } = await supabase.from('sweep_skip_events').insert({
+              owner_id: userId,
+              target_date: targetDateStr,
+              todo_count: movedCount,
+            });
+
+            if (insertError) {
+              console.error('[GremlyStore] bulkSkipSweep failed:', insertError);
+              throw insertError;
+            }
+
+            await get().refreshSkipBudget();
+            return { movedCount };
+          } catch (error) {
+            console.error('[GremlyStore] bulkSkipSweep failed:', error);
+            throw error;
+          }
+        },
 
         createTodo: async (todo: Partial<Todo>) => {
           const userId = get().userId;
@@ -3440,6 +3690,91 @@ export const useGremlyStore = create<GremlyState>()(
           eventBus.emit('ItemUpdated', { id, source: STORE_EVENT_SOURCE });
         },
 
+        setHabitTarget: async (id: string, cadence: string, target: number) => {
+          const habit = get().habits.find((h) => h.id === id);
+          if (!habit) return;
+
+          const ds = getDateService();
+          const ownerId = get().userId;
+          if (!ownerId) return;
+
+          // 1) Backfill the original target as history iff no history exists yet.
+          const { data: existing, error: histErr } = await supabase
+            .from('habit_target_history')
+            .select('id')
+            .eq('habit_id', id)
+            .limit(1);
+          if (histErr) {
+            console.error('[GremlyStore] setHabitTarget history check failed:', histErr);
+          }
+
+          if (!existing || existing.length === 0) {
+            // created_at date is the effective_from for the original target (no gap).
+            const createdDate = (habit.created_at ?? ds.today()).slice(0, 10);
+            const oldTarget = habit.target_per_period ?? 1;
+            const oldCadence = habit.cadence ?? cadence;
+
+            const { data: backfillRow, error: backfillErr } = await supabase
+              .from('habit_target_history')
+              .insert({
+                habit_id: id,
+                owner_id: ownerId,
+                cadence: oldCadence,
+                target_per_period: oldTarget,
+                effective_from: createdDate,
+              })
+              .select('*')
+              .maybeSingle();
+
+            if (backfillErr) {
+              console.error('[GremlyStore] setHabitTarget backfill insert failed:', backfillErr);
+            } else if (backfillRow) {
+              set((state) => ({
+                habitTargetHistory: [
+                  ...state.habitTargetHistory,
+                  backfillRow as HabitTargetHistoryRow,
+                ],
+              }));
+            }
+          }
+
+          // 2) Upsert the new target row from this block's Monday.
+          const effectiveFrom = ds.startOfWeekMonday(ds.today());
+          const { data: targetRow, error: targetErr } = await supabase
+            .from('habit_target_history')
+            .upsert(
+              {
+                habit_id: id,
+                owner_id: ownerId,
+                cadence,
+                target_per_period: target,
+                effective_from: effectiveFrom,
+              },
+              { onConflict: 'habit_id,effective_from' },
+            )
+            .select('*')
+            .maybeSingle();
+
+          if (targetErr) {
+            console.error('[GremlyStore] setHabitTarget upsert failed:', targetErr);
+          } else if (targetRow) {
+            set((state) => ({
+              habitTargetHistory: [
+                ...state.habitTargetHistory.filter(
+                  (r) => !(r.habit_id === id && r.effective_from === effectiveFrom),
+                ),
+                targetRow as HabitTargetHistoryRow,
+              ],
+            }));
+          }
+
+          // 3) Update the canonical habit row using existing optimistic/rollback path.
+          await get().updateHabit(id, {
+            cadence: cadence as Habit['cadence'],
+            target_per_period: target,
+          });
+        },
+
         deleteHabit: async (id: string) => {
           const prevHabit = get().habits.find((h) => h.id === id);
 
@@ -3497,13 +3832,19 @@ export const useGremlyStore = create<GremlyState>()(
 
           try {
             // 2. INSERT into habit_progress (source of truth for completions)
-            const { error: progressError } = await supabase.from('habit_progress').insert({
-              habit_id: id,
-              owner_id: userId,
-              occurred_day: todayDate,
-              occurred_at: occurredAt,
-              count: 1,
-            });
+            const { error: progressError } = await supabase.from('habit_progress').upsert(
+              {
+                habit_id: id,
+                owner_id: userId,
+                occurred_day: todayDate,
+                occurred_at: occurredAt,
+                count: 1,
+              },
+              {
+                onConflict: 'owner_id,habit_id,occurred_day',
+                ignoreDuplicates: true,
+              },
+            );
 
             if (progressError) {
               // Check if it's a duplicate (already completed today)
@@ -3696,8 +4037,9 @@ export const useGremlyStore = create<GremlyState>()(
         /**
          * Log habit completion for a specific date (used by Habits This Week sheet).
          * Updates habitProgress immediately so both Today's Focus and Habits sheet stay in sync.
+         * Pass wasFloor=true when logging inside a floor adaptation window.
          */
-        logHabitCompletionForDate: async (habitId: string, dateIso: string) => {
+        logHabitCompletionForDate: async (habitId: string, dateIso: string, wasFloor = false) => {
           const userId = get().userId;
           if (!userId) throw new Error('Not authenticated');
 
@@ -3727,6 +4069,7 @@ export const useGremlyStore = create<GremlyState>()(
             occurred_day: occurredDay,
             count: 1,
             occurrence_index: null,
+            was_floor: wasFloor || undefined,
           };
           set((state) => ({
             habitProgress: [...state.habitProgress, newProgressRow],
@@ -3739,13 +4082,20 @@ export const useGremlyStore = create<GremlyState>()(
           // 2. PERSIST TO SUPABASE (don't await, fire-and-forget with error handling)
           supabase
             .from('habit_progress')
-            .insert({
-              habit_id: habitId,
-              owner_id: userId,
-              occurred_day: occurredDay,
-              occurred_at: occurredAt,
-              count: 1,
-            })
+            .upsert(
+              {
+                habit_id: habitId,
+                owner_id: userId,
+                occurred_day: occurredDay,
+                occurred_at: occurredAt,
+                count: 1,
+                ...(wasFloor ? { was_floor: true } : {}),
+              },
+              {
+                onConflict: 'owner_id,habit_id,occurred_day',
+                ignoreDuplicates: true,
+              },
+            )
             .then(({ error }) => {
               if (error) {
                 // Rollback on error
@@ -3757,7 +4107,11 @@ export const useGremlyStore = create<GremlyState>()(
                   }));
                 }
               } else {
-                console.log('[GremlyStore] ✅ Habit completion logged:', { habitId, occurredDay });
+                console.log('[GremlyStore] ✅ Habit completion logged:', {
+                  habitId,
+                  occurredDay,
+                  wasFloor,
+                });
               }
             });
         },
@@ -3909,8 +4263,599 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         // ═══════════════════════════════════════════════════════════════════
-        // NOTE MUTATIONS
+        // HABIT ADAPTATION MUTATIONS
         // ═══════════════════════════════════════════════════════════════════
+
+        setHabitAdaptation: async (habitId, patch) => {
+          const userId = get().userId;
+          if (!userId) throw new Error('Not authenticated');
+
+          const hasOverlap = get().habitAdaptations.some(
+            (a) =>
+              a.habit_id === habitId &&
+              rangesOverlap(patch.period_start, patch.period_end, a.period_start, a.period_end),
+          );
+          if (hasOverlap) {
+            return { ok: false, reason: 'overlap' as const };
+          }
+
+          const now = nowTimestamp();
+          const tempId = `temp_adapt_${getDateService().now().getTime()}_${Math.random().toString(36).slice(2)}`;
+          const optimisticRow: HabitAdaptationRow = {
+            id: tempId,
+            owner_id: userId,
+            habit_id: habitId,
+            mode: patch.mode,
+            period_start: patch.period_start,
+            period_end: patch.period_end,
+            floor_note: patch.floor_note ?? null,
+            source_ref: patch.source_ref ?? null,
+            source_event_id: null,
+            created_at: now,
+            updated_at: now,
+          };
+
+          // 1. OPTIMISTIC INSERT
+          set((state) => ({
+            habitAdaptations: [...state.habitAdaptations, optimisticRow],
+          }));
+
+          // 2. PERSIST
+          const { data, error } = await supabase
+            .from('habit_adaptations')
+            .insert({
+              habit_id: habitId,
+              owner_id: userId,
+              mode: patch.mode,
+              period_start: patch.period_start,
+              period_end: patch.period_end,
+              floor_note: patch.floor_note ?? null,
+              source_ref: patch.source_ref ?? null,
+            })
+            .select()
+            .single();
+
+          if (error) {
+            // Roll back optimistic insert
+            set((state) => ({
+              habitAdaptations: state.habitAdaptations.filter((a) => a.id !== tempId),
+            }));
+            // Detect exclusion / overlap violation
+            if (
+              error.code === '23P01' ||
+              error.code === '23505' ||
+              error.message?.includes('overlap') ||
+              error.message?.includes('exclusion')
+            ) {
+              return { ok: false, reason: 'overlap' as const };
+            }
+            console.error('[GremlyStore] setHabitAdaptation failed:', error);
+            return { ok: false, reason: 'unknown' as const };
+          }
+
+          // Replace temp row with real row from DB
+          set((state) => ({
+            habitAdaptations: state.habitAdaptations.map((a) =>
+              a.id === tempId ? (data as HabitAdaptationRow) : a,
+            ),
+          }));
+          return { ok: true, row: data as HabitAdaptationRow };
+        },
+
+        updateHabitAdaptation: async (id, patch) => {
+          const prev = get().habitAdaptations.find((a) => a.id === id);
+          if (!prev) {
+            return { ok: false, reason: 'unknown' as const };
+          }
+
+          const nextStart = patch.period_start ?? prev.period_start;
+          const nextEnd = patch.period_end ?? prev.period_end;
+          const hasOverlap = get().habitAdaptations.some(
+            (a) =>
+              a.habit_id === prev.habit_id &&
+              a.id !== id &&
+              rangesOverlap(nextStart, nextEnd, a.period_start, a.period_end),
+          );
+          if (hasOverlap) {
+            return { ok: false, reason: 'overlap' as const };
+          }
+
+          // 1. OPTIMISTIC
+          set((state) => ({
+            habitAdaptations: state.habitAdaptations.map((a) =>
+              a.id === id ? { ...a, ...patch } : a,
+            ),
+          }));
+
+          // 2. PERSIST
+          const { error } = await supabase.from('habit_adaptations').update(patch).eq('id', id);
+
+          if (error) {
+            console.error('[GremlyStore] updateHabitAdaptation failed:', error);
+            if (prev) {
+              set((state) => ({
+                habitAdaptations: state.habitAdaptations.map((a) => (a.id === id ? prev : a)),
+              }));
+            }
+            if (
+              error.code === '23P01' ||
+              error.code === '23505' ||
+              error.message?.includes('overlap') ||
+              error.message?.includes('exclusion')
+            ) {
+              return { ok: false, reason: 'overlap' as const };
+            }
+            return { ok: false, reason: 'unknown' as const };
+          }
+
+          return { ok: true as const };
+        },
+
+        clearHabitAdaptation: async (id) => {
+          const prev = get().habitAdaptations.find((a) => a.id === id);
+
+          // 1. OPTIMISTIC REMOVE
+          set((state) => ({
+            habitAdaptations: state.habitAdaptations.filter((a) => a.id !== id),
+          }));
+
+          // 2. PERSIST
+          const { error } = await supabase.from('habit_adaptations').delete().eq('id', id);
+
+          if (error) {
+            console.error('[GremlyStore] clearHabitAdaptation failed:', error);
+            if (prev) {
+              set((state) => ({
+                habitAdaptations: [...state.habitAdaptations, prev],
+              }));
+            }
+            throw error;
+          }
+        },
+
+        getActiveAdaptation: (habitId, dateIso) => {
+          const day = dateIso.slice(0, 10); // normalise to YYYY-MM-DD
+          return (
+            get().habitAdaptations.find(
+              (a) => a.habit_id === habitId && a.period_start <= day && a.period_end >= day,
+            ) ?? null
+          );
+        },
+
+        // ═══════════════════════════════════════════════════════════════════
+        // HABIT PLAN MUTATIONS
+        // ═══════════════════════════════════════════════════════════════════
+
+        setHabitPlan: async (habitId, plannedDate, explicitWeekStart?) => {
+          const userId = get().userId;
+          if (!userId) return;
+          const weekStart = explicitWeekStart ?? getDateService().startOfWeekMonday(plannedDate);
+          const tempId = `temp-${habitId}-${plannedDate}`;
+          const optimistic: HabitPlanRow = {
+            id: tempId,
+            habit_id: habitId,
+            owner_id: userId,
+            planned_date: plannedDate,
+            week_start: weekStart,
+            status: 'planned',
+          };
+          set((s) => ({
+            habitPlans: [
+              ...s.habitPlans.filter(
+                (p) => !(p.habit_id === habitId && p.planned_date === plannedDate),
+              ),
+              optimistic,
+            ],
+          }));
+          const { data, error } = await supabase
+            .from('habit_plans')
+            .upsert(
+              {
+                habit_id: habitId,
+                owner_id: userId,
+                planned_date: plannedDate,
+                week_start: weekStart,
+                status: 'planned',
+              },
+              { onConflict: 'habit_id,planned_date' },
+            )
+            .select()
+            .single();
+          if (error) {
+            console.error('[GremlyStore] setHabitPlan failed:', error);
+            set((s) => ({
+              habitPlans: s.habitPlans.filter((p) => p.id !== tempId),
+            }));
+          } else {
+            set((s) => ({
+              habitPlans: s.habitPlans.map((p) => (p.id === tempId ? (data as HabitPlanRow) : p)),
+            }));
+          }
+        },
+
+        removeHabitPlan: async (habitId, plannedDate) => {
+          const prev = get().habitPlans;
+          set((s) => ({
+            habitPlans: s.habitPlans.filter(
+              (p) => !(p.habit_id === habitId && p.planned_date === plannedDate),
+            ),
+          }));
+          const { error } = await supabase
+            .from('habit_plans')
+            .delete()
+            .eq('habit_id', habitId)
+            .eq('planned_date', plannedDate);
+          if (error) {
+            console.error('[GremlyStore] removeHabitPlan failed:', error);
+            set({ habitPlans: prev });
+          }
+        },
+
+        // ═══════════════════════════════════════════════════════════════════
+        // FLOOR SUGGESTIONS
+        // ═══════════════════════════════════════════════════════════════════
+
+        ensureHabitReads: async (habits, cards, weekStart) => {
+          if (get().habitReadsRunning) return;
+          set({ habitReadsRunning: true });
+          try {
+            const userId = get().userId;
+            if (!userId) return;
+            const ds = getDateService();
+            const today = ds.today();
+            const signalStart = ds.addDays(today, -3);
+            const signalEnd = ds.addDays(today, 13);
+            const planWindow = { start: weekStart, end: ds.addDays(weekStart, 6) };
+
+            // ── Signals: sourced directly from the DB (same queries as the corpus
+            // harness reference). DB columns are the contract for this payload. ──
+            const [{ data: noteRows }, { data: calRows }] = await Promise.all([
+              supabase
+                .from('notes')
+                .select('id, title, body, target_date, end_date')
+                .eq('owner_id', userId)
+                .eq('subtype', 'event')
+                .eq('archived', false)
+                .not('target_date', 'is', null)
+                .lte('target_date', signalEnd),
+              supabase
+                .from('synced_calendar_events')
+                .select('id, provider, external_id, title, start_at, end_at, is_all_day')
+                .eq('owner_id', userId)
+                .eq('archived', false)
+                .lte('start_at', `${signalEnd}T23:59:59`)
+                .gte('end_at', `${signalStart}T00:00:00`),
+            ]);
+            const eventNotes = (noteRows ?? [])
+              .filter((n) => (n.end_date ?? n.target_date) >= signalStart)
+              .map((n) => ({
+                ref: `note:${n.id}`,
+                title: n.title ?? '',
+                body: n.body ?? null,
+                start: n.target_date,
+                end: n.end_date ?? n.target_date,
+              }));
+            const events = (calRows ?? []).map((e) => ({
+              ref: `cal:${e.provider}-${e.external_id}`,
+              title: e.title ?? '',
+              start: String(e.start_at).slice(0, 10),
+              end: String(e.end_at ?? e.start_at).slice(0, 10),
+              all_day: e.is_all_day === true,
+            }));
+            const eventRefs = events.map((e) => e.ref);
+            const noteRefs = eventNotes.map((n) => n.ref);
+            console.log(
+              '[HabitReads] signals',
+              events.length,
+              eventNotes.length,
+              eventNotes.slice(0, 3).map((n) => n.title),
+            );
+
+            // ── Fact sheets + per-habit input hash ──
+            const habitProgress = get().habitProgress;
+            const habitAdaptations = get().habitAdaptations;
+            const habitTargetHistory = get().habitTargetHistory;
+            const activeHabits = habits.filter((h) => !h.archived);
+            const sheetsById = new Map<
+              string,
+              { sheet: ReturnType<typeof buildHabitFactSheet>; hash: string }
+            >();
+            for (const h of activeHabits) {
+              const card = cards.find((c) => c.id === h.id);
+              if (!card) continue;
+              const sheet = buildHabitFactSheet(
+                h,
+                card,
+                habitProgress,
+                habitAdaptations,
+                get().habitPlans,
+                habitTargetHistory,
+              );
+              sheetsById.set(h.id, {
+                sheet,
+                hash: computeInputHash(sheet, events, eventNotes),
+              });
+            }
+
+            // ── Cache: load rows for this week, decide what needs a run ──
+            const { data: rows } = await supabase
+              .from('habit_reads')
+              .select('habit_id, input_hash, payload, dismissed')
+              .eq('owner_id', userId)
+              .eq('week_start', weekStart);
+            const rowByHabit = new Map((rows ?? []).map((r) => [r.habit_id, r]));
+
+            const hydrated: Record<string, HabitReadEntry> = { ...get().habitReads };
+            const toRun: string[] = [];
+            for (const [habitId, { hash }] of sheetsById) {
+              const row = rowByHabit.get(habitId);
+              if (row && row.input_hash === hash) {
+                const payload = row.payload as Record<string, unknown> | null;
+                hydrated[`${habitId}:${weekStart}`] = {
+                  read:
+                    payload && !(payload as any).empty ? (payload as unknown as HabitRead) : null,
+                  input_hash: row.input_hash,
+                  dismissed: row.dismissed === true,
+                };
+              } else {
+                toRun.push(habitId);
+              }
+            }
+            set({ habitReads: hydrated });
+            if (toRun.length === 0) return;
+
+            // ── One batched call for everything stale or missing ──
+            const cortexUrl = (process.env.EXPO_PUBLIC_CORTEX_URL ?? '') as string;
+            const token = await getSessionToken();
+            const tz = get().userTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+            // 90s: sonnet-tier background call can take 30-60s for large decks;
+            // fail-soft — deck renders code fallback while the AI catches up.
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 90000);
+            let data: { reads?: Record<string, HabitRead>; meta?: { model?: string } };
+            try {
+              const res = await fetch(cortexUrl, {
+                method: 'POST',
+                signal: controller.signal,
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                  type: 'habit-read',
+                  todayISO: today,
+                  timezone: tz,
+                  planWindow,
+                  weekStart,
+                  inputHashes: Object.fromEntries(
+                    toRun.map((id) => [id, sheetsById.get(id)!.hash]),
+                  ),
+                  factSheets: toRun.map((id) => sheetsById.get(id)!.sheet),
+                  events,
+                  eventNotes,
+                }),
+              });
+              if (!res.ok) throw new Error(`habit-read HTTP ${res.status}`);
+              data = await res.json();
+            } finally {
+              clearTimeout(timeoutId);
+            }
+
+            const reads = data.reads ?? {};
+            const updated: Record<string, HabitReadEntry> = { ...get().habitReads };
+            for (const habitId of toRun) {
+              const read = reads[habitId] ?? null;
+              const { hash } = sheetsById.get(habitId)!;
+              updated[`${habitId}:${weekStart}`] = {
+                read,
+                input_hash: hash,
+                dismissed: false, // fresh data resets dismissal
+              };
+              // Worker persists to habit_reads; client only updates local state.
+            }
+            set({ habitReads: updated });
+          } catch (err) {
+            // Fail soft: code fallback renders; never block the deck.
+            const isAbort = (err as Error).name === 'AbortError';
+            console.warn(
+              '[HabitReads] ensureHabitReads error:',
+              (err as Error).name,
+              isAbort ? 'timed out after 90s' : (err as Error).message,
+            );
+          } finally {
+            set({ habitReadsRunning: false });
+          }
+        },
+
+        getHabitRead: (habitId, weekStart) => {
+          return get().habitReads[`${habitId}:${weekStart}`] ?? null;
+        },
+
+        resolveSweepBlock: () => {
+          const weekStart = getDateService().startOfWeekMonday(get().currentDate);
+          const weekEnd = getDateService().addDays(weekStart, 6);
+          const summary = get().weeklySummaries.find((s) => s.week_start_date === weekStart);
+          return {
+            weekStart,
+            weekEnd,
+            summaryId: summary?.id ?? null,
+            summaryGenerated: !!summary,
+          };
+        },
+
+        dismissHabitRead: async (habitId, weekStart) => {
+          const userId = get().userId;
+          if (!userId) return;
+          const key = `${habitId}:${weekStart}`;
+          const entry = get().habitReads[key];
+          if (entry) {
+            set({ habitReads: { ...get().habitReads, [key]: { ...entry, dismissed: true } } });
+          }
+          const { error } = await supabase
+            .from('habit_reads')
+            .update({ dismissed: true, updated_at: nowTimestamp() })
+            .eq('owner_id', userId)
+            .eq('habit_id', habitId)
+            .eq('week_start', weekStart);
+          if (error) console.warn('[HabitReads] dismiss write failed:', error.message);
+        },
+
+        ensureFloorSuggestions: async (habits, weekStart) => {
+          if (get().floorSuggestRunning) return;
+          set({ floorSuggestRunning: true });
+          try {
+            const userId = get().userId;
+            if (!userId) return;
+
+            // 1. Load cache from DB for this week_start
+            const { data: cachedRows } = await supabase
+              .from('habit_floor_suggestions')
+              .select('habit_id, week_start, payload')
+              .eq('owner_id', userId)
+              .eq('week_start', weekStart);
+
+            const hydrated: Record<string, FloorSuggestion> = { ...get().habitFloorSuggestions };
+            const cachedHabitIds = new Set<string>();
+            for (const row of cachedRows ?? []) {
+              const key = `${row.habit_id}:${row.week_start}`;
+              hydrated[key] = row.payload as FloorSuggestion;
+              cachedHabitIds.add(row.habit_id);
+            }
+            set({ habitFloorSuggestions: hydrated });
+
+            // 2. Determine which habits need a run
+            const toRun = habits.filter(
+              (h) =>
+                !h.archived &&
+                h.cadence !== 'daily' &&
+                h.subtype !== 'break_habit' &&
+                !cachedHabitIds.has(h.id),
+            );
+            if (toRun.length === 0) return;
+
+            // 3. Ensure calendar events are loaded for the window
+            const windowEnd = getDateService().addDays(weekStart, 6);
+            await get().fetchCalendarEventsForRange(weekStart, windowEnd);
+
+            // 3a. Collect synced calendar events overlapping the window
+            const allCalEvents = get().calendarEvents;
+            const windowEvents = Object.entries(allCalEvents)
+              .filter(([date]) => date >= weekStart && date <= windowEnd)
+              .flatMap(([, evts]) => evts)
+              .map((e) => ({
+                title: e.title ?? '',
+                location: (e as any).location ?? null,
+                start_at: e.startAt,
+                end_at: e.endAt,
+                is_all_day: (e as any).isAllDay ?? false,
+              }));
+
+            // 3b. Collect event-notes (primary disruption signal) overlapping the window
+            const allNotes = get().notes;
+            const eventNotes = allNotes
+              .filter((n) => {
+                if (n.subtype !== 'event' || n.archived) return false;
+                const noteStart = n.target_date ?? (n as any).date ?? null;
+                const noteEnd = n.end_date ?? noteStart;
+                if (!noteStart) return false;
+                // Overlap: noteStart <= windowEnd AND noteEnd >= weekStart
+                return noteStart <= windowEnd && noteEnd >= weekStart;
+              })
+              .map((n) => ({
+                title: n.title ?? '',
+                body: n.body ?? null,
+                start: n.target_date ?? (n as any).date ?? null,
+                end: n.end_date ?? n.target_date ?? (n as any).date ?? null,
+                location: (n as any).location ?? null,
+              }));
+
+            // 4. Get Cortex URL + auth token
+            const cortexUrl = (process.env.EXPO_PUBLIC_CORTEX_URL ?? '') as string;
+            const token = await getSessionToken();
+            const tz = get().userTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+            const todayISO = getDateService().today();
+
+            // 5. Parallel calls
+            const results = await Promise.allSettled(
+              toRun.map(async (h) => {
+                const res = await fetch(cortexUrl, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                  },
+                  body: JSON.stringify({
+                    type: 'floor-suggest',
+                    habit: {
+                      id: h.id,
+                      name: h.name,
+                      cadence: h.cadence,
+                      target_per_period: h.target_per_period,
+                      subtype: h.subtype,
+                      floor_note: h.floor_note ?? null,
+                    },
+                    planWindow: { start: weekStart, end: windowEnd },
+                    events: windowEvents,
+                    eventNotes,
+                    todayISO,
+                    timezone: tz,
+                  }),
+                });
+                if (!res.ok) throw new Error(`floor-suggest HTTP ${res.status}`);
+                const data = await res.json();
+                return { habit: h, data };
+              }),
+            );
+
+            let failCount = 0;
+            const updatedSuggestions: Record<string, FloorSuggestion> = {
+              ...get().habitFloorSuggestions,
+            };
+
+            for (const result of results) {
+              if (result.status === 'rejected') {
+                failCount++;
+                continue;
+              }
+              const { habit: h, data } = result.value;
+              const suggestion: FloorSuggestion = {
+                habit_id: h.id,
+                week_start: weekStart,
+                detected: data.detected === true,
+                disruption: data.disruption ?? null,
+                lead_line: data.lead_line ?? null,
+                ideas: Array.isArray(data.ideas) ? data.ideas : [],
+                confidence: typeof data.confidence === 'number' ? data.confidence : 0,
+              };
+              const key = `${h.id}:${weekStart}`;
+              updatedSuggestions[key] = suggestion;
+
+              // Cache in DB (fire-and-forget, don't block UI)
+              supabase
+                .from('habit_floor_suggestions')
+                .upsert(
+                  { habit_id: h.id, owner_id: userId, week_start: weekStart, payload: suggestion },
+                  { onConflict: 'habit_id,week_start' },
+                )
+                .then(({ error }) => {
+                  if (error) console.warn('[FloorSuggest] Cache write failed:', error.message);
+                });
+            }
+
+            set({ habitFloorSuggestions: updatedSuggestions });
+            if (failCount > 0) {
+              console.warn(`[FloorSuggest] ${failCount} request(s) failed (not cached)`);
+            }
+          } catch (err) {
+            console.error('[FloorSuggest] ensureFloorSuggestions error:', (err as Error).message);
+          } finally {
+            set({ floorSuggestRunning: false });
+          }
+        },
+
+        getFloorSuggestion: (habitId, weekStart) => {
+          return get().habitFloorSuggestions[`${habitId}:${weekStart}`] ?? null;
+        },
 
         createNote: async (note: Partial<Note> & { photoUris?: string[] }) => {
           const userId = get().userId;
@@ -5569,6 +6514,8 @@ export const useGremlyStore = create<GremlyState>()(
               milestonesRes,
               weeklySummariesRes,
               cortexPrefsRes,
+              adaptationsRes,
+              habitTargetHistoryRes,
             ] = await Promise.all([
               fetchAllPaginated<Todo>(() =>
                 supabase
@@ -5622,6 +6569,10 @@ export const useGremlyStore = create<GremlyState>()(
                 )
                 .eq('owner_id', userId)
                 .maybeSingle(),
+              supabase.from('habit_adaptations').select('*').eq('owner_id', userId),
+              fetchAllPaginated<HabitTargetHistoryRow>(() =>
+                supabase.from('habit_target_history').select('*').eq('owner_id', userId),
+              ),
             ]);
 
             // Check cortex_preferences error — skip prefs reconciliation but continue entity updates
@@ -5671,6 +6622,8 @@ export const useGremlyStore = create<GremlyState>()(
               spaces: spacesRes.data ?? [],
               tags: tagsRes.data ?? [],
               habitProgress: progressRes.data ?? [],
+              habitAdaptations: ((adaptationsRes as any).data ?? []) as HabitAdaptationRow[],
+              habitTargetHistory: (habitTargetHistoryRes ?? []) as HabitTargetHistoryRow[],
               spaceChats: chatsRes.data ?? [],
               milestones: milestonesRes.data ?? [],
               weeklySummaries: (weeklySummariesRes.data ?? []) as WeeklySummary[],
@@ -6534,9 +7487,10 @@ export const useGremlyStore = create<GremlyState>()(
                 if (event.isAllDay) {
                   // All-day events: span across dates using string math
                   // (avoids DST issues from Date object mutation)
-                  const startStr = event.startAt.split('T')[0]; // "YYYY-MM-DD"
-                  const endStr = event.endAt.split('T')[0]; // "YYYY-MM-DD" (exclusive)
+                  const startStr = dateService.utcDatePortion(event.startAt); // "YYYY-MM-DD"
+                  const endStr = dateService.utcDatePortion(event.endAt); // "YYYY-MM-DD" (exclusive)
 
+                  if (!startStr || !endStr) continue;
                   // Add the event to every date from start to end (exclusive)
                   let cursor = startStr;
                   while (cursor < endStr) {
@@ -10160,6 +11114,94 @@ export const useGremlyStore = create<GremlyState>()(
           }
         },
 
+        pinDropToWorld: async (
+          dropId: string,
+          dropType: 'todo' | 'habit' | 'note',
+          worldId: string,
+        ) => {
+          const userId = get().userId;
+          if (!userId) throw new Error('Not authenticated');
+
+          const now = nowTimestamp();
+          const prevLinks = get().dropWorldLinks;
+
+          // 1. OPTIMISTIC UPDATE
+          // a) Remove any existing user-pin for a DIFFERENT world on this drop
+          // b) Upsert the chosen world
+          const withoutSuperseded = prevLinks.filter(
+            (l) =>
+              !(
+                l.drop_id === dropId &&
+                l.drop_type === dropType &&
+                l.assigned_by === 'user' &&
+                l.world_id !== worldId
+              ),
+          );
+          const existingIdx = withoutSuperseded.findIndex(
+            (l) => l.drop_id === dropId && l.drop_type === dropType && l.world_id === worldId,
+          );
+          let optimisticLinks: DropWorldLink[];
+          if (existingIdx >= 0) {
+            optimisticLinks = withoutSuperseded.map((l, i) =>
+              i === existingIdx
+                ? {
+                    ...l,
+                    assigned_by: 'user' as const,
+                    relevance_score: 1.0,
+                    last_confirmed_at: now,
+                  }
+                : l,
+            );
+          } else {
+            const newLink: DropWorldLink = {
+              drop_id: dropId,
+              drop_type: dropType,
+              world_id: worldId,
+              owner_id: userId,
+              assigned_by: 'user',
+              relevance_score: 1.0,
+              reason: null,
+              created_at: now,
+              last_confirmed_at: now,
+            };
+            optimisticLinks = [...withoutSuperseded, newLink];
+          }
+          set({ dropWorldLinks: optimisticLinks });
+
+          // 2. PERSIST TO SUPABASE
+          try {
+            // Delete superseded user pins first (world_id != chosen)
+            const { error: delError } = await supabase
+              .from('drop_world_links')
+              .delete()
+              .eq('drop_id', dropId)
+              .eq('drop_type', dropType)
+              .eq('assigned_by', 'user')
+              .neq('world_id', worldId);
+            if (delError) throw delError;
+
+            // Upsert the chosen row
+            const { error: upsertError } = await supabase.from('drop_world_links').upsert(
+              {
+                drop_id: dropId,
+                drop_type: dropType,
+                world_id: worldId,
+                owner_id: userId,
+                assigned_by: 'user',
+                relevance_score: 1.0,
+                last_confirmed_at: now,
+              },
+              { onConflict: 'drop_id,drop_type,world_id' },
+            );
+            if (upsertError) throw upsertError;
+          } catch (err) {
+            // 3. ROLLBACK ON ERROR
+            console.error('[GremlyStore] pinDropToWorld failed:', err);
+            set({ dropWorldLinks: prevLinks });
+            throw err;
+          }
+        },
+
         updateChapterDates: async (input: {
           chapterId: string;
           startDate: string;
@@ -10307,6 +11349,127 @@ export const useGremlyStore = create<GremlyState>()(
           if (logErr) {
             console.warn('[GremlyStore] updateChapterTitle — edit log insert failed:', logErr);
           }
+        },
+
+        // ── HABIT INSIGHT ──────────────────────────────────────────────────
+        getOrFetchHabitInsight: async (habitId: string) => {
+          const { buildHabitInsightInput } = await import('../habits/habitInsight');
+          const { callHabitInsight } = await import('../cortex/CortexClient');
+          const ds = getDateService();
+          const observedForWeek = ds.getStartOfWeek();
+          const cacheKey = `${habitId}_${observedForWeek}`;
+          // Sentinel: habit exists but has no completion history — skip the call
+          const noHistory: import('../habits/habitInsight').HabitInsightResult = {
+            show: false,
+            line: null,
+            kind: null,
+            observedForWeek,
+          };
+
+          // In-memory cache hit (any value, positive or no-history)
+          const cached = get().habitInsightCache[cacheKey];
+          if (cached !== undefined) return cached;
+
+          // DB cache check — any row with a non-empty line is valid
+          try {
+            const { data: dbRow } = await supabase
+              .from('habit_insights' as any)
+              .select('show,line,kind')
+              .eq('habit_id', habitId)
+              .eq('observed_for_week', observedForWeek)
+              .maybeSingle();
+
+            if (
+              dbRow !== null &&
+              dbRow !== undefined &&
+              typeof dbRow.line === 'string' &&
+              dbRow.line.length > 2
+            ) {
+              const result: import('../habits/habitInsight').HabitInsightResult = {
+                show: true,
+                line: dbRow.line,
+                kind: (dbRow.kind ??
+                  null) as import('../habits/habitInsight').HabitInsightResult['kind'],
+                observedForWeek,
+              };
+              set((s) => ({
+                habitInsightCache: { ...s.habitInsightCache, [cacheKey]: result },
+              }));
+              return result;
+            }
+          } catch {
+            // DB read failure — fall through to cortex call
+          }
+
+          // Gate: skip the call if the habit has no completion history at all
+          const state = get();
+          const habitCompletions = state.habitProgress.filter((p) => p.habit_id === habitId);
+          if (habitCompletions.length === 0) {
+            set((s) => ({
+              habitInsightCache: { ...s.habitInsightCache, [cacheKey]: noHistory },
+            }));
+            return noHistory;
+          }
+
+          // Build payload and call cortex
+          const input = buildHabitInsightInput(
+            habitId,
+            state.habits,
+            state.habitProgress,
+            state.habitAdaptations,
+            state.notes,
+          );
+          if (!input) {
+            set((s) => ({
+              habitInsightCache: { ...s.habitInsightCache, [cacheKey]: noHistory },
+            }));
+            return noHistory;
+          }
+
+          let result: import('../habits/habitInsight').HabitInsightResult;
+          try {
+            const proxy = await callHabitInsight(input.facts, input.crossSignal, observedForWeek);
+            // Endpoint always returns a line; non-empty = render
+            const hasLine = typeof proxy.line === 'string' && proxy.line.length > 2;
+            result = {
+              show: hasLine,
+              line: hasLine ? proxy.line : null,
+              kind: (proxy.kind ??
+                null) as import('../habits/habitInsight').HabitInsightResult['kind'],
+              observedForWeek,
+            };
+          } catch {
+            result = noHistory;
+          }
+
+          // Store in memory always
+          set((s) => ({
+            habitInsightCache: { ...s.habitInsightCache, [cacheKey]: result },
+          }));
+
+          // Write to DB whenever we have a real line
+          try {
+            const userId = get().userId;
+            if (userId && result.line) {
+              await supabase.from('habit_insights' as any).upsert(
+                {
+                  owner_id: userId,
+                  habit_id: habitId,
+                  observed_for_week: observedForWeek,
+                  show: true,
+                  line: result.line,
+                  kind: result.kind,
+                  model: 'gpt-4.1-mini',
+                  updated_at: nowTimestamp(),
+                },
+                { onConflict: 'habit_id,observed_for_week' },
+              );
+            }
+          } catch {
+            // DB write failure is non-fatal
+          }
+
+          return result;
         },
       }),
       {

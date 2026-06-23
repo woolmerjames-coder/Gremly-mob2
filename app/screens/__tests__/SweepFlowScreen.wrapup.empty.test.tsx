@@ -53,6 +53,7 @@ jest.mock('../../../lib/store/selectors', () => ({
   }),
   useIsLoading: () => false,
   useActiveSpaces: () => [],
+  useSkipBudget: () => ({ used: 0, remaining: 3, total: 3, canSkip: true }),
   selectTodayLockedItems: () => [],
   selectTodayLockedItemsIncludingCompleted: () => [],
 }));
@@ -65,9 +66,11 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
       notes: [],
       habits: [],
       habitProgress: [],
+      userCalendarEvents: [],
       isLoading: false,
       gremlyAge: 5,
       totalSweepCount: 10,
+      refreshSkipBudget: () => Promise.resolve(undefined),
       updateTodo: () => Promise.resolve(undefined),
       archiveTodo: () => Promise.resolve(undefined),
       updateNote: () => Promise.resolve(undefined),
@@ -85,6 +88,8 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
   mockUseGremlyStore.getState = () => ({
     gremlyAge: 5,
     totalSweepCount: 10,
+    userCalendarEvents: [],
+    refreshSkipBudget: () => Promise.resolve(undefined),
   });
   return {
     __esModule: true,

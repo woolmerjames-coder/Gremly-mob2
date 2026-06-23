@@ -789,5 +789,132 @@ ${entityDetails}${sweepDetails}${birthdayContext}
     });
   }
 
+  // --- HABIT INSIGHT (on-demand, per-habit weekly insight line) ---
+  if (type === 'habit-insight') {
+    const key = OPENAI_API_KEY;
+    const j = (data: unknown, status = 200) =>
+      new Response(JSON.stringify({ ok: true, ...data }), {
+        status,
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+    const facts = body?.facts ?? {};
+    const crossSignal = body?.crossSignal ?? {};
+
+    const sys = `You are given real, verified facts about one habit. Write exactly one warm, specific, shame-free sentence that adds something the user cannot already see on their own card.
+
+What the card ALREADY SHOWS visually, which you must NOT restate: the day-of-week pattern of completions, the weekly hit count and target, the streak, the completion percentage, the multi-week trend direction, and the single most paired habit. Treating any of these as your sentence is a failure, because the user is already looking at them.
+
+Your job is synthesis the card cannot show. In priority order, look for: a connection between the habit and the journal snippets provided (mood, context, or reason near completions); a tie to the stated week intention if present; an acknowledgement of an adaptation the user set; a meaningful shift the raw numbers do not explain on their own. Day-of-week, pairing, and streak facts are provided only as context for that synthesis, never as the sentence itself.
+
+If the only available signal is day-of-week, pairing, streak, or this-week progress, and there is no journal, intention, adaptation, or contextual angle, return a brief warm acknowledgement of the habit without leaning on the shown facts, and set confidence low.
+
+Rules:
+- Do not invent numbers, days, facts, or patterns not present in the input.
+- One sentence, at most about ninety characters. Plain, warm, specific.
+- Observe and reflect, do not command. Do not tell the user what to do.
+- Be shame-free. Never imply failure, guilt, falling behind, or apply pressure.
+
+Return ONLY JSON: { "line": string, "kind": one of "day_of_week_pattern" "pairing" "journal_link" "building" "drifting" "steady" "adapted" "target_mismatch" "other", "evidence": { "facts_used": array of strings, "confidence": number between 0 and 1 } }`;
+
+    const messages = [
+      { role: 'system', content: sys },
+      { role: 'user', content: JSON.stringify({ facts, crossSignal }).substring(0, 4000) },
+    ];
+
+    const t0 = Date.now();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-4.1-mini',
+          messages,
+          temperature: 0.3,
+          max_completion_tokens: 200,
+          response_format: { type: 'json_object' },
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (!res.ok) {
+        // Fallback line built from facts so the UI always has something
+        const fallbackLine = buildFallbackLine(facts);
+        return j({
+          line: fallbackLine,
+          kind: 'other',
+          evidence: { facts_used: [], confidence: 0 },
+          source: 'upstream_error',
+        });
+      }
+      const oj = await res.json();
+      const raw = oj?.choices?.[0]?.message?.content ?? '{}';
+      let parsed: any;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        return j({
+          line: buildFallbackLine(facts),
+          kind: 'other',
+          evidence: { facts_used: [], confidence: 0 },
+          source: 'parse_fallback',
+        });
+      }
+
+      let line = typeof parsed.line === 'string' ? parsed.line.trim() : '';
+      if (line.length > 140) line = line.slice(0, 137) + '...';
+      // If model returned empty, build a safe fallback from facts
+      if (line.length < 3) line = buildFallbackLine(facts);
+      const validKinds = [
+        'day_of_week_pattern',
+        'pairing',
+        'journal_link',
+        'building',
+        'drifting',
+        'steady',
+        'adapted',
+        'target_mismatch',
+        'other',
+      ];
+      const kind = validKinds.includes(parsed.kind) ? parsed.kind : 'other';
+      const ev = parsed.evidence && typeof parsed.evidence === 'object' ? parsed.evidence : {};
+      const facts_used = Array.isArray(ev.facts_used) ? ev.facts_used.slice(0, 8).map(String) : [];
+      let confidence = Number(ev.confidence);
+      if (!Number.isFinite(confidence)) confidence = 0.5;
+      confidence = Math.max(0, Math.min(1, confidence));
+
+      return j({
+        line,
+        kind,
+        evidence: { facts_used, confidence },
+        model: 'gpt-4.1-mini',
+        latency_ms: Date.now() - t0,
+      });
+    } catch (e) {
+      clearTimeout(timeout);
+      return j({
+        line: buildFallbackLine(facts),
+        kind: 'other',
+        evidence: { facts_used: [], confidence: 0 },
+        source: (e as Error).name === 'AbortError' ? 'timeout' : 'error',
+      });
+    }
+  }
+
   return bad(400, 'invalid_type');
 });
+
+/** Build a minimal grounded fallback line from raw facts so the slot is never empty. */
+function buildFallbackLine(facts: any): string {
+  const name = typeof facts?.name === 'string' && facts.name.length > 0 ? facts.name : 'This habit';
+  const weekHits = typeof facts?.weekHits === 'number' ? facts.weekHits : null;
+  const weekTarget = typeof facts?.weekTarget === 'number' ? facts.weekTarget : null;
+  const streak = typeof facts?.streak?.count === 'number' ? facts.streak.count : 0;
+  const streakUnit = facts?.streak?.unit === 'week' ? 'week' : 'day';
+  if (streak > 1) return `${name} is on a ${streak}-${streakUnit} streak.`;
+  if (weekHits !== null && weekTarget !== null)
+    return `${name} has ${weekHits} of ${weekTarget} completions this week.`;
+  return `${name} is being tracked this week.`;
+}

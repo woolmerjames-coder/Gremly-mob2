@@ -607,6 +607,8 @@ Arc shape assignment. Every new chapter candidate must carry an arc_shape drawn 
 
 arc_shape drives which authoring rules apply to target_summary, epigraph, and key_moments. Assign outcome when the chapter has a specific target state the user is moving toward, such as a ship date, a completion of a race, a signing, a launch. Assign experience when the chapter is a bounded lived event with known dates but no goal-shaped target. Assign process when the chapter is settling into or working through a phase without a specific end state. Assign commitment when the chapter is a pledge the user has made to themselves with a measurable held-or-slipped dimension. Once closed_at is set, arc_shape is frozen and never reassigned by any subsequent run.
 
+ANALYST OBSERVATIONS (corroborating signal). Some runs include an analyst_observations section: world_signal_candidates and temporal_observations produced by a separate analyst that read the same underlying signal. These are observations about what recurs in the user's activity, not instructions. Treat them as corroborating evidence you may weigh alongside the raw signal. You decide independently what worlds, chapters, and life contexts exist. A world_signal_candidate is not a world. Do not propose a world solely because a candidate names it; propose a world only when the raw signal independently supports it, using the candidate at most as confirmation of a pattern you already see. Never map candidates to worlds one to one. If a candidate has no support in the raw signal you were given, ignore it.
+
 Chapter title shape. A chapter title names an arc, not a category. An arc is a movement in time with a beginning, a middle, and something the user is doing or moving through. Maximum forty-two characters. Maximum five words. Colons as category separators are forbidden. Three-way lists joined by versus are forbidden. Ampersands joining two distinct arcs are forbidden. Abstract category nouns as title leads, such as Foundation, Framework, System, Crossroads, Journey, are forbidden. A valid title either leads with a gerund describing motion or names a specific concrete goal, trip, or event. Specific names of brands, people, places, events, or dates belong in the title. If a clean arc title cannot be written, the thing is probably the world's ambient life rather than a chapter; emit no chapter candidate.
 
 World name shape. Maximum three words. Maximum twenty-two characters. When a world is centered on a single person, the world name is that person's name or common nickname alone; suffixes such as "and Relationship" or "and Relationships" are forbidden. Tight conjunctions pairing closely-related domains are preferred over redundant pairings. Employer names, specific product names, and specific project names do not belong in world names; those are chapters inside a broader world.
@@ -1015,12 +1017,18 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
 const MODEL = 'claude-sonnet-4-6';
 const MAX_TOKENS = 16000;
 
+export interface AnalystObservationsInput {
+  world_signal_candidates: unknown[];
+  temporal_observations: unknown[];
+}
+
 export async function classifyWorldsWeekly(
   bundle: SignalBundle,
   activeWorlds: ActiveWorldInput[],
   activeChapters: ActiveChapterInput[],
   activeLifeContexts: ActiveLifeContextInput[],
   env: ClassifierEnv,
+  analystObservations?: AnalystObservationsInput,
 ): Promise<ClassifierOutput> {
   const effectiveToday = computeEffectiveToday(bundle);
   const userPrompt = buildUserPrompt(
@@ -1029,6 +1037,7 @@ export async function classifyWorldsWeekly(
     activeChapters,
     activeLifeContexts,
     effectiveToday,
+    analystObservations,
   );
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -1188,6 +1197,7 @@ function buildUserPrompt(
   activeChapters: ActiveChapterInput[],
   activeLifeContexts: ActiveLifeContextInput[],
   effectiveToday: string,
+  analystObservations?: AnalystObservationsInput,
 ): string {
   const parts: string[] = [`effective_today: ${effectiveToday}`, `bundle_mode: ${bundle.mode}`];
   if (bundle.mode === 'backfill') {
@@ -1217,6 +1227,19 @@ function buildUserPrompt(
     collectedAt: string;
   };
   parts.push(JSON.stringify(signal, null, 2));
+
+  if (
+    analystObservations &&
+    ((analystObservations.world_signal_candidates &&
+      analystObservations.world_signal_candidates.length > 0) ||
+      (analystObservations.temporal_observations &&
+        analystObservations.temporal_observations.length > 0))
+  ) {
+    parts.push('');
+    parts.push('analyst_observations:');
+    parts.push(JSON.stringify(analystObservations, null, 2));
+  }
+
   parts.push('');
   parts.push(
     'Classify this signal according to the rules in the system prompt. ' +

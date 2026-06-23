@@ -45,6 +45,35 @@ const MASCOT_CHARACTERS: Record<MascotState, string> = {
 };
 
 /**
+ * MascotVisual — stateless presentational emoji tile.
+ * No hooks, no context dependency. Safe to use outside MascotProvider.
+ */
+export function MascotVisual({
+  state,
+  size = 'md',
+}: {
+  state: MascotState;
+  size?: MascotSize;
+}): React.JSX.Element | null {
+  if (!env.feature.mascot.enabled) return null;
+  const sizeConfig = SIZE_CONFIG[size];
+  return (
+    <Text
+      style={{
+        fontSize: sizeConfig.fontSize,
+        width: sizeConfig.width,
+        height: sizeConfig.height,
+        lineHeight: sizeConfig.height,
+        textAlign: 'center',
+        textAlignVertical: 'center',
+      }}
+    >
+      {MASCOT_CHARACTERS[state]}
+    </Text>
+  );
+}
+
+/**
  * Mascot Component - Animated character that responds to chat events
  */
 export function Mascot({ size = 'md', style }: MascotProps): React.JSX.Element | null {

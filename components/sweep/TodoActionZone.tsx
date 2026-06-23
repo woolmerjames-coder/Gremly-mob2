@@ -2,17 +2,32 @@ import React from 'react';
 import { View, Pressable, StyleSheet } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import Animated, { FadeInUp } from 'react-native-reanimated';
-import { ArrowRight, CalendarDays, Calendar, Bell, ChevronDown } from 'lucide-react-native';
+import {
+  ArrowRight,
+  CalendarDays,
+  Calendar,
+  Bell,
+  ChevronDown,
+  Sun,
+  LayoutGrid,
+} from 'lucide-react-native';
 import { Text } from '../../ui';
 import { ActionPill } from './ActionPill';
 import { ContextHeader } from './ContextHeader';
+import { WeekGridScheduler } from './WeekGridScheduler';
+import type { WeekDay } from '../../lib/store/weekGridSelectors';
 import type { SweepCandidate, SweepCardMeta } from '../../lib/sweep/types';
 
 type TodoActionZoneProps = {
   candidate: SweepCandidate;
   meta: SweepCardMeta;
-  selectedAction: 'tomorrow' | 'nextweek' | 'pickdate';
-  onSelectAction: (action: 'tomorrow' | 'nextweek' | 'pickdate') => void;
+  selectedAction: 'today' | 'tomorrow' | 'nextweek' | 'pickdate';
+  onSelectAction: (action: 'today' | 'tomorrow' | 'nextweek' | 'pickdate') => void;
+  sweepIntent?: 'today' | 'tomorrow' | 'week';
+  weekDays?: WeekDay[];
+  selectedWeekDate?: string | null;
+  onSelectWeekDay?: (date: string) => void;
+  onSeeMyWeek?: () => void;
   reminderEnabled: boolean;
   selectedReminder: 'daybefore' | 'morning' | 'custom' | null;
   onToggleReminder: () => void;
@@ -50,6 +65,11 @@ export function TodoActionZone({
   confirmedCustomDate,
   onRequestDatePicker,
   onRequestReminderDatePicker,
+  sweepIntent = 'tomorrow',
+  weekDays,
+  selectedWeekDate,
+  onSelectWeekDay,
+  onSeeMyWeek,
 }: TodoActionZoneProps) {
   const status = getStatus(meta);
 
@@ -58,33 +78,97 @@ export function TodoActionZone({
 
   return (
     <View style={styles.container}>
-      {/* Context header */}
-      <ContextHeader status={status} />
-
-      {/* Schedule pills */}
-      <View style={styles.pillGroup}>
-        <ActionPill
-          icon={<ArrowRight size={16} strokeWidth={2.5} />}
-          label="Tomorrow"
-          active={selectedAction === 'tomorrow'}
-          onPress={() => onSelectAction('tomorrow')}
-        />
-        <ActionPill
-          icon={<CalendarDays size={16} strokeWidth={2} />}
-          label="Next Week"
-          active={selectedAction === 'nextweek'}
-          onPress={() => onSelectAction('nextweek')}
-        />
-        <ActionPill
-          icon={<Calendar size={16} strokeWidth={2} />}
-          label={confirmedCustomDate ?? 'Pick a date'}
-          active={selectedAction === 'pickdate'}
-          onPress={() => {
-            onSelectAction('pickdate');
-            onRequestDatePicker();
-          }}
-        />
+      {/* Context header with optional Week pill */}
+      <View style={styles.headerRow}>
+        <ContextHeader status={status} style={{ marginBottom: 0 }} />
+        {sweepIntent === 'week' && onSeeMyWeek && (
+          <Pressable
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              onSeeMyWeek?.();
+            }}
+            style={({ pressed }) => [styles.weekActionPill, pressed && { opacity: 0.55 }]}
+            accessibilityRole="button"
+            accessibilityLabel="See my week"
+            hitSlop={8}
+          >
+            <LayoutGrid size={13} strokeWidth={2} color="#7B87D4" />
+            <Text style={styles.weekActionText}>Week</Text>
+          </Pressable>
+        )}
       </View>
+
+      {/* Schedule pills — or week grid when sweepIntent === 'week' */}
+      {sweepIntent === 'week' && weekDays ? (
+        <WeekGridScheduler
+          days={weekDays}
+          selectedDate={selectedWeekDate ?? null}
+          onSelectDay={onSelectWeekDay ?? (() => {})}
+          onRequestDatePicker={onRequestDatePicker}
+        />
+      ) : (
+        <View style={styles.pillGroup}>
+          {sweepIntent === 'today' ? (
+            <>
+              <ActionPill
+                icon={<Sun size={16} strokeWidth={2} />}
+                label="Today"
+                active={selectedAction === 'today'}
+                onPress={() => onSelectAction('today')}
+              />
+              <ActionPill
+                icon={<ArrowRight size={16} strokeWidth={2.5} />}
+                label="Tomorrow"
+                active={selectedAction === 'tomorrow'}
+                onPress={() => onSelectAction('tomorrow')}
+              />
+              <View style={styles.splitRow}>
+                <View style={{ flex: 1 }}>
+                  <ActionPill
+                    label="Next Week"
+                    active={selectedAction === 'nextweek'}
+                    onPress={() => onSelectAction('nextweek')}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <ActionPill
+                    label={confirmedCustomDate ?? 'Pick a date'}
+                    active={selectedAction === 'pickdate'}
+                    onPress={() => {
+                      onSelectAction('pickdate');
+                      onRequestDatePicker();
+                    }}
+                  />
+                </View>
+              </View>
+            </>
+          ) : (
+            <>
+              <ActionPill
+                icon={<ArrowRight size={16} strokeWidth={2.5} />}
+                label="Tomorrow"
+                active={selectedAction === 'tomorrow'}
+                onPress={() => onSelectAction('tomorrow')}
+              />
+              <ActionPill
+                icon={<CalendarDays size={16} strokeWidth={2} />}
+                label="Next Week"
+                active={selectedAction === 'nextweek'}
+                onPress={() => onSelectAction('nextweek')}
+              />
+              <ActionPill
+                icon={<Calendar size={16} strokeWidth={2} />}
+                label={confirmedCustomDate ?? 'Pick a date'}
+                active={selectedAction === 'pickdate'}
+                onPress={() => {
+                  onSelectAction('pickdate');
+                  onRequestDatePicker();
+                }}
+              />
+            </>
+          )}
+        </View>
+      )}
 
       {/* Reminder expandable */}
       <View style={styles.reminderSection}>
@@ -162,7 +246,33 @@ const styles = StyleSheet.create({
   container: {
     paddingHorizontal: 22,
   },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  weekActionPill: {
+    marginLeft: 'auto',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(123,135,212,0.12)',
+    borderRadius: 999,
+    paddingVertical: 5,
+    paddingLeft: 9,
+    paddingRight: 10,
+  },
+  weekActionText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#7B87D4',
+    fontFamily: 'Inter-SemiBold',
+  },
   pillGroup: {
+    gap: 6,
+  },
+  splitRow: {
+    flexDirection: 'row' as const,
     gap: 6,
   },
   reminderSection: {

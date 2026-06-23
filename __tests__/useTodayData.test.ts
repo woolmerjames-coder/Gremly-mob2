@@ -21,6 +21,24 @@ jest.mock('../design/animations', () => ({
   useReducedMotion: jest.fn(() => true),
 }));
 
+jest.mock('../lib/env', () => {
+  const actual = jest.requireActual('../lib/env');
+  return {
+    ...actual,
+    env: {
+      ...actual.env,
+      todayDebugWindow: 'midday',
+      feature: {
+        ...actual.env.feature,
+        today: {
+          ...actual.env.feature.today,
+          suggestions: true,
+        },
+      },
+    },
+  };
+});
+
 // Mock getTodayDayString to return a fixed date for consistent testing
 jest.mock('../lib/date/computeDueDay', () => ({
   ...jest.requireActual('../lib/date/computeDueDay'),

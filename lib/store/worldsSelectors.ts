@@ -1745,25 +1745,68 @@ export interface WorldForEntity {
   id: string;
   name: string;
   accentColor: string;
+  assignedBy: 'classifier' | 'user' | 'migration';
+  relevanceScore: number;
+}
+
+export function computeWorldsForEntity(
+  worlds: GremlyState['worlds'],
+  dropWorldLinks: GremlyState['dropWorldLinks'],
+  entityId: string | null | undefined,
+): WorldForEntity[] {
+  if (!entityId) return [];
+
+  const safeWorlds = Array.isArray(worlds) ? worlds : [];
+  const safeDropWorldLinks = Array.isArray(dropWorldLinks) ? dropWorldLinks : [];
+
+  // Build a map of world_id → { assignedBy, relevanceScore } for this entity
+  const linkMeta = new Map<string, { assignedBy: AssignedBy; relevanceScore: number }>();
+  for (const link of safeDropWorldLinks) {
+    if (link.drop_id === entityId) {
+      linkMeta.set(link.world_id, {
+        assignedBy: link.assigned_by,
+        relevanceScore: link.relevance_score,
+      });
+    }
+  }
+  if (linkMeta.size === 0) return [];
+
+  const result: WorldForEntity[] = [];
+  for (const w of safeWorlds) {
+    const meta = linkMeta.get(w.id);
+    if (!meta) continue;
+    const palette = selectWorldPalette({ worlds: safeWorlds } as any, w.id);
+    result.push({
+      id: w.id,
+      name: w.name,
+      accentColor: palette.dot,
+      assignedBy: meta.assignedBy,
+      relevanceScore: meta.relevanceScore,
+    });
+  }
+
+  // If the user has explicitly pinned any world, show ONLY user-pinned worlds.
+  // Classifier links disappear from the pill — the user's choice is definitive.
+  const hasUserPin = result.some((r) => r.assignedBy === 'user');
+  const visible = hasUserPin ? result.filter((r) => r.assignedBy === 'user') : result;
+
+  // Sort: user pins first, then relevanceScore DESC, then name (stable tiebreak)
+  visible.sort((a, b) => {
+    const aUser = a.assignedBy === 'user' ? 0 : 1;
+    const bUser = b.assignedBy === 'user' ? 0 : 1;
+    if (aUser !== bUser) return aUser - bUser;
+    if (b.relevanceScore !== a.relevanceScore) return b.relevanceScore - a.relevanceScore;
+    return a.name.localeCompare(b.name);
+  });
+
+  return visible;
 }
 
 export const useWorldsForEntity = (entityId: string | null | undefined): WorldForEntity[] => {
   const worlds = useGremlyStore((s) => s.worlds);
   const dropWorldLinks = useGremlyStore((s) => s.dropWorldLinks);
-  return useMemo(() => {
-    if (!entityId) return [];
-    const worldIds = new Set<string>();
-    for (const link of dropWorldLinks) {
-      if (link.drop_id === entityId) worldIds.add(link.world_id);
-    }
-    if (worldIds.size === 0) return [];
-    const result: WorldForEntity[] = [];
-    for (const w of worlds) {
-      if (!worldIds.has(w.id)) continue;
-      const palette = selectWorldPalette({ worlds } as any, w.id);
-      result.push({ id: w.id, name: w.name, accentColor: palette.dot });
-    }
-    result.sort((a, b) => a.name.localeCompare(b.name));
-    return result;
-  }, [entityId, worlds, dropWorldLinks]);
+  return useMemo(
+    () => computeWorldsForEntity(worlds, dropWorldLinks, entityId),
+    [entityId, worlds, dropWorldLinks],
+  );
 };

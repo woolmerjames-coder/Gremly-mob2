@@ -186,6 +186,7 @@ import {
   MODE_TEMP,
 } from './gremlyPersona';
 import { aiClassify, aiGenerate, aiStream, getProviders } from './aiProvider.js';
+import { handleHabitRead } from './habitRead.js';
 
 async function getCachedDomainNames(userId, env) {
   if (!userId || !env.CONTEXT_CACHE) return [];
@@ -2219,7 +2220,15 @@ async function fetchPlannerProjection(userId, timezone, env) {
       if (dco.day_type) parts.push(`Day type: ${dco.day_type}`);
       if (dco.tone) parts.push(`Today's tone: ${dco.tone}`);
       if (dco.life_moment) parts.push(`Life moment: ${dco.life_moment}`);
-      if (dco.lead_story) parts.push(`Lead story: ${dco.lead_story}`);
+      // fix: lead_story was rendering as [object Object] — it is {domain, thread, detail, why_today}, not a string
+      if (dco.lead_story) {
+        const ls = dco.lead_story;
+        const leadText =
+          typeof ls === 'string'
+            ? ls
+            : ls.detail || ls.why_today || [ls.domain, ls.thread].filter(Boolean).join(' › ');
+        if (leadText) parts.push(`Lead story: ${leadText}`);
+      }
     }
 
     // Thread priorities — what to protect and prioritize
@@ -3416,8 +3425,15 @@ export default {
         'entity-chat',
         'organize-day',
         'weekly-summary',
+        'floor-suggest',
+        'habit-read',
       ]);
-      const AUTH_REQUIRED_LANES = new Set(['space_chat', 'general_chat', 'world_chat', 'chapter_chat']);
+      const AUTH_REQUIRED_LANES = new Set([
+        'space_chat',
+        'general_chat',
+        'world_chat',
+        'chapter_chat',
+      ]);
 
       const needsAuth = AUTH_REQUIRED_TYPES.has(type) || (lane && AUTH_REQUIRED_LANES.has(lane));
 
@@ -11014,6 +11030,7 @@ Return ONLY valid JSON, no explanation:
         let worlds = [];
         let chapters = [];
         let lifeContexts = [];
+        let userPinnedWorldIds = new Set();
 
         try {
           const [worldsRes, chaptersRes, ctxRes] = await Promise.all([
@@ -11052,6 +11069,24 @@ Return ONLY valid JSON, no explanation:
             reason: null,
             skipped: true,
             skipped_reason: 'graph_load_failed',
+          });
+        }
+
+        // Fetch user-pinned world assignments for this entity (fail-open on error)
+        try {
+          const userLinksRes = await fetch(
+            `${env.SUPABASE_URL}/rest/v1/drop_world_links?drop_id=eq.${entityId}&drop_type=eq.${entityType}&assigned_by=eq.user&select=world_id`,
+            { headers: supabaseHeaders },
+          );
+          if (userLinksRes.ok) {
+            const userLinks = await userLinksRes.json();
+            userPinnedWorldIds = new Set(
+              (Array.isArray(userLinks) ? userLinks : []).map((r) => r.world_id),
+            );
+          }
+        } catch (err) {
+          console.log('[AssignWorlds] User-pinned worlds fetch failed (fail-open)', {
+            error: err.message,
           });
         }
 
@@ -11189,6 +11224,10 @@ Respond with a single JSON object containing exactly these four fields. world_li
         const validWorldLinks = rawWorldLinks.filter(
           (l) => validWorldIds.has(l.world_id) && isValidScore(l.relevance_score),
         );
+        // Exclude user-pinned worlds — classifier must not overwrite assigned_by='user' rows
+        const classifierWorldLinks = validWorldLinks.filter(
+          (l) => !userPinnedWorldIds.has(l.world_id),
+        );
         const validChapterLinks = rawChapterLinks.filter(
           (l) => validChapterIds.has(l.chapter_id) && isValidScore(l.relevance_score),
         );
@@ -11221,9 +11260,9 @@ Respond with a single JSON object containing exactly these four fields. world_li
         let upsertedChapters = 0;
         let upsertedContexts = 0;
 
-        if (validWorldLinks.length > 0) {
+        if (classifierWorldLinks.length > 0) {
           try {
-            const rows = validWorldLinks.map((l) => ({
+            const rows = classifierWorldLinks.map((l) => ({
               drop_id: entityId,
               drop_type: entityType,
               world_id: l.world_id,
@@ -13513,7 +13552,10 @@ Return ONLY valid JSON:
         );
 
         if (!worldGeminiResult.ok) {
-          return j({ error: worldGeminiResult.error || 'gemini_error', code: worldGeminiResult.status }, 200);
+          return j(
+            { error: worldGeminiResult.error || 'gemini_error', code: worldGeminiResult.status },
+            200,
+          );
         }
 
         let worldContent = worldGeminiResult.content;
@@ -13524,12 +13566,21 @@ Return ONLY valid JSON:
         if (worldToolCall?.name === 'web_search') {
           try {
             worldSearchQuery = worldToolCall.args?.query;
-            const worldSearchResults = await executeTavilySearch(worldSearchQuery, env.TAVILY_API_KEY);
+            const worldSearchResults = await executeTavilySearch(
+              worldSearchQuery,
+              env.TAVILY_API_KEY,
+            );
             if (worldSearchResults?.results?.length > 0) {
               const worldFollowUp = buildFollowUpContents(
                 convertMessages(worldTriageMessages),
                 worldGeminiResult.parts || [],
-                [{ name: 'web_search', id: worldToolCall.id, response: { results: formatSearchBrief(worldSearchResults) } }],
+                [
+                  {
+                    name: 'web_search',
+                    id: worldToolCall.id,
+                    response: { results: formatSearchBrief(worldSearchResults) },
+                  },
+                ],
               );
               const worldFollowUpResult = await geminiGenerate(
                 worldGenConfig.systemPrompt,
@@ -13543,7 +13594,10 @@ Return ONLY valid JSON:
                 env.GOOGLE_API_KEY,
               );
               worldContent = worldFollowUpResult.ok ? worldFollowUpResult.content : worldContent;
-              worldSources = worldSearchResults.results.map((r) => ({ title: r.title, url: r.url }));
+              worldSources = worldSearchResults.results.map((r) => ({
+                title: r.title,
+                url: r.url,
+              }));
             }
           } catch (worldSearchErr) {
             console.log('[WorldChat:NonStreaming] Search error:', worldSearchErr);
@@ -13551,8 +13605,12 @@ Return ONLY valid JSON:
         }
 
         worldContent = stripFillerOpening(worldContent);
-        const { suggestion: worldSaveSuggestion, cleanContent: worldClean } = extractSaveSuggestion(worldContent);
-        worldContent = worldClean.replace(/<!--SAVE:.*?-->/gs, '').replace(/<!--SAVE:.*$/s, '').trim();
+        const { suggestion: worldSaveSuggestion, cleanContent: worldClean } =
+          extractSaveSuggestion(worldContent);
+        worldContent = worldClean
+          .replace(/<!--SAVE:.*?-->/gs, '')
+          .replace(/<!--SAVE:.*$/s, '')
+          .trim();
 
         console.log('[WorldChat:NonStreaming] Complete', {
           latency_ms: Date.now() - t0NonStream,
@@ -13565,7 +13623,12 @@ Return ONLY valid JSON:
               try {
                 const prevRes = await fetch(
                   `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=running_summary`,
-                  { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } },
+                  {
+                    headers: {
+                      apikey: env.SUPABASE_SERVICE_KEY,
+                      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                    },
+                  },
                 );
                 const prevData = prevRes?.ok ? await prevRes.json().catch(() => []) : [];
                 await generateRunningSummary(
@@ -13633,7 +13696,9 @@ Return ONLY valid JSON:
         }
 
         const chapterContext = { runningSummary: body.runningSummary || '' };
-        const chapterScopeContextStr = chapterEntities ? formatChapterEntities(chapterEntities) : null;
+        const chapterScopeContextStr = chapterEntities
+          ? formatChapterEntities(chapterEntities)
+          : null;
         const lastUserMsgChapter = messages.filter((m) => m.role === 'user').pop()?.content || '';
         const previousExchangeChapter = extractPreviousExchange(messages);
 
@@ -13690,7 +13755,13 @@ Return ONLY valid JSON:
         );
 
         if (!chapterGeminiResult.ok) {
-          return j({ error: chapterGeminiResult.error || 'gemini_error', code: chapterGeminiResult.status }, 200);
+          return j(
+            {
+              error: chapterGeminiResult.error || 'gemini_error',
+              code: chapterGeminiResult.status,
+            },
+            200,
+          );
         }
 
         let chapterContent = chapterGeminiResult.content;
@@ -13701,12 +13772,21 @@ Return ONLY valid JSON:
         if (chapterToolCall?.name === 'web_search') {
           try {
             chapterSearchQuery = chapterToolCall.args?.query;
-            const chapterSearchResults = await executeTavilySearch(chapterSearchQuery, env.TAVILY_API_KEY);
+            const chapterSearchResults = await executeTavilySearch(
+              chapterSearchQuery,
+              env.TAVILY_API_KEY,
+            );
             if (chapterSearchResults?.results?.length > 0) {
               const chapterFollowUp = buildFollowUpContents(
                 convertMessages(chapterTriageMessages),
                 chapterGeminiResult.parts || [],
-                [{ name: 'web_search', id: chapterToolCall.id, response: { results: formatSearchBrief(chapterSearchResults) } }],
+                [
+                  {
+                    name: 'web_search',
+                    id: chapterToolCall.id,
+                    response: { results: formatSearchBrief(chapterSearchResults) },
+                  },
+                ],
               );
               const chapterFollowUpResult = await geminiGenerate(
                 chapterGenConfig.systemPrompt,
@@ -13719,8 +13799,13 @@ Return ONLY valid JSON:
                 },
                 env.GOOGLE_API_KEY,
               );
-              chapterContent = chapterFollowUpResult.ok ? chapterFollowUpResult.content : chapterContent;
-              chapterSources = chapterSearchResults.results.map((r) => ({ title: r.title, url: r.url }));
+              chapterContent = chapterFollowUpResult.ok
+                ? chapterFollowUpResult.content
+                : chapterContent;
+              chapterSources = chapterSearchResults.results.map((r) => ({
+                title: r.title,
+                url: r.url,
+              }));
             }
           } catch (chapterSearchErr) {
             console.log('[ChapterChat:NonStreaming] Search error:', chapterSearchErr);
@@ -13728,8 +13813,12 @@ Return ONLY valid JSON:
         }
 
         chapterContent = stripFillerOpening(chapterContent);
-        const { suggestion: chapterSaveSuggestion, cleanContent: chapterClean } = extractSaveSuggestion(chapterContent);
-        chapterContent = chapterClean.replace(/<!--SAVE:.*?-->/gs, '').replace(/<!--SAVE:.*$/s, '').trim();
+        const { suggestion: chapterSaveSuggestion, cleanContent: chapterClean } =
+          extractSaveSuggestion(chapterContent);
+        chapterContent = chapterClean
+          .replace(/<!--SAVE:.*?-->/gs, '')
+          .replace(/<!--SAVE:.*$/s, '')
+          .trim();
 
         console.log('[ChapterChat:NonStreaming] Complete', {
           latency_ms: Date.now() - t0NonStream,
@@ -13742,7 +13831,12 @@ Return ONLY valid JSON:
               try {
                 const prevRes = await fetch(
                   `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=running_summary`,
-                  { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } },
+                  {
+                    headers: {
+                      apikey: env.SUPABASE_SERVICE_KEY,
+                      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                    },
+                  },
                 );
                 const prevData = prevRes?.ok ? await prevRes.json().catch(() => []) : [];
                 await generateRunningSummary(
@@ -13879,6 +13973,258 @@ Return ONLY valid JSON:
         });
       }
 
+      if (type === 'habit-read') {
+        return j(await handleHabitRead(body, env, authenticatedUserId, ctx));
+      }
+
+      // =========================
+      // === FLOOR SUGGEST ===
+      // Given a habit + upcoming calendar events, decide whether a genuine
+      // disruption overlaps the plan window and, if so, return 2-3 smaller-
+      // session floor ideas. Conservative: returns detected:false most weeks.
+      // =========================
+      if (type === 'floor-suggest') {
+        const FLOOR_FALLBACK = { ok: true, detected: false };
+        try {
+          const habit = body.habit || {};
+          const planWindow = body.planWindow || {};
+          const events = Array.isArray(body.events) ? body.events : [];
+          const eventNotes = Array.isArray(body.eventNotes) ? body.eventNotes : [];
+          const todayISO = typeof body.todayISO === 'string' ? body.todayISO : '';
+          const tz = typeof body.timezone === 'string' ? body.timezone : 'UTC';
+
+          // Basic input validation
+          if (!habit.id || !habit.name || !planWindow.start || !planWindow.end) {
+            return j(FLOOR_FALLBACK);
+          }
+
+          const FLOOR_SUGGEST_SYSTEM = `You decide whether an upcoming stretch will make ONE specific habit hard to do, and if so, suggest smaller ways the user could still do it. You are given the habit and two sources of signal about the user's coming days: event-notes the user captured themselves, and synced calendar entries. Your job is judgment.
+
+Treat the user's own event-notes as the primary, most trustworthy signal: they are things the user deliberately recorded as upcoming, and they carry the user's own description and intended dates. A calendar is a secondary, noisier source: it often holds only fragments of a plan and is full of routine obligations. When a calendar entry and an event-note plainly concern the same real-world plan, treat them as one situation and prefer the note's framing and dates for the span. A single calendar entry may be only one piece of a larger plan that the notes describe more fully; reason about what the whole situation is, not just the literal bounds of one calendar entry.
+
+A real disruption is something that genuinely displaces the user's normal routine for one or more of the days they would do this habit: being physically away from home or their usual environment, or an unusual personal commitment that occupies enough of a day to crowd the habit out. Judge each signal on its meaning, not its format.
+
+Do not treat the ordinary working week as a disruption. Recurring meetings and work obligations are normal life, however many there are. Ignore events that are not actually happening (cancelled), events that are observances rather than commitments, and events that concern other people rather than the user. Ignore brief obligations that leave the rest of the day intact.
+
+Weigh the habit itself. Consider what this habit physically requires, its cadence, and how many times per period it targets, and judge whether the disruption genuinely threatens the user's ability to meet that frequency. A habit that needs particular conditions is more exposed to being away than one that can be done anywhere in moments. If the habit is a break_habit (the user is quitting or avoiding something), "hard" means contexts where the temptation or risk is higher, and your suggestions should help the user stay clear rather than do a smaller version.
+
+If and only if you find a real disruption, suggest two or three smaller ways the user could still genuinely do this habit during it. These keep the same frequency goal; they lower the bar for what counts as one session, not the number of sessions. Make each suggestion specific to this habit and this disruption, derived from what the habit actually involves and what the user's situation will be. If the habit carries a saved floor note, you may build on it. For a break_habit, suggest protective tactics rather than smaller doses.
+
+Keep each suggestion to a single short clause: the smallest action that still counts, stated plainly. Do not explain, justify, or add conditions. Aim for roughly six to ten words per suggestion. Brevity matters because these are shown as compact rows on a card; a long suggestion is worse than a short one.
+
+Silence is the correct answer most weeks. If there is no clear, specific disruption overlapping the days for this habit in either source, return detected false. Never invent events, trips, locations, dates, or details not present in the input. Do not flag a disruption from weak or ambiguous signals.
+
+Return ONLY JSON:
+{
+  "detected": boolean,
+  "disruption": { "label": string, "start": "YYYY-MM-DD", "end": "YYYY-MM-DD" } | null,
+  "lead_line": string | null,
+  "ideas": string[],
+  "confidence": number
+}`;
+
+          // Build payload prioritising eventNotes (primary signal) over events when truncating
+          const basePayload = { habit, planWindow, todayISO, timezone: tz, eventNotes, events };
+          let userPayload = JSON.stringify(basePayload);
+          if (userPayload.length > 4000) {
+            // Try with eventNotes intact but drop events
+            const withoutEvents = JSON.stringify({
+              habit,
+              planWindow,
+              todayISO,
+              timezone: tz,
+              eventNotes,
+              events: [],
+            });
+            if (withoutEvents.length <= 4000) {
+              userPayload = withoutEvents;
+            } else {
+              // Hard truncate as last resort
+              userPayload = userPayload.slice(0, 4000);
+            }
+          }
+          const truncatedPayload = userPayload;
+
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+          let res;
+          try {
+            res = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              signal: controller.signal,
+              headers: {
+                Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: 'gpt-4.1-mini',
+                messages: [
+                  { role: 'system', content: FLOOR_SUGGEST_SYSTEM },
+                  { role: 'user', content: truncatedPayload },
+                ],
+                temperature: 0.4,
+                max_completion_tokens: 500,
+                response_format: { type: 'json_object' },
+              }),
+            });
+          } finally {
+            clearTimeout(timeoutId);
+          }
+
+          const t0_fs = Date.now();
+
+          if (!res.ok) {
+            console.warn('[FloorSuggest] OpenAI error', { status: res.status, habit_id: habit.id });
+            return j({ ...FLOOR_FALLBACK, source: 'api_error' });
+          }
+
+          const oj = await res.json();
+          const latency = Date.now() - t0_fs;
+          const raw = oj?.choices?.[0]?.message?.content ?? '{}';
+
+          let parsed;
+          try {
+            parsed = JSON.parse(raw);
+          } catch (_) {
+            console.warn('[FloorSuggest] Parse failed', { habit_id: habit.id });
+            return j({ ...FLOOR_FALLBACK, source: 'parse_fallback' });
+          }
+
+          // ── Validation ──
+          try {
+            // 1. detected must be exactly true to proceed
+            if (parsed.detected !== true) {
+              console.log('[FloorSuggest]', {
+                habit_id: habit.id,
+                detected: false,
+                confidence: parsed.confidence ?? null,
+                idea_count: 0,
+                latency_ms: latency,
+              });
+              return j({ ok: true, detected: false });
+            }
+
+            // 2. confidence gate
+            const confidence =
+              typeof parsed.confidence === 'number'
+                ? Math.max(0, Math.min(1, parsed.confidence))
+                : 0;
+            if (confidence < 0.55) {
+              console.log('[FloorSuggest]', {
+                habit_id: habit.id,
+                detected: false,
+                confidence,
+                idea_count: 0,
+                latency_ms: latency,
+                gate: 'confidence',
+              });
+              return j({ ok: true, detected: false });
+            }
+
+            // 3. lead_line
+            const leadLine =
+              typeof parsed.lead_line === 'string' ? parsed.lead_line.trim().slice(0, 110) : null;
+            if (!leadLine) {
+              console.log('[FloorSuggest]', {
+                habit_id: habit.id,
+                detected: false,
+                confidence,
+                idea_count: 0,
+                latency_ms: latency,
+                gate: 'no_lead_line',
+              });
+              return j({ ok: true, detected: false });
+            }
+
+            // 4. ideas — trim at last word boundary before 90 chars (safety backstop only;
+            // the prompt should already keep ideas short; this avoids mid-word chops)
+            const rawIdeas = Array.isArray(parsed.ideas) ? parsed.ideas : [];
+            const ideas = rawIdeas
+              .map((s) => {
+                if (typeof s !== 'string') return '';
+                const trimmed = s.trim();
+                if (trimmed.length <= 90) return trimmed;
+                const cut = trimmed.slice(0, 90);
+                const lastSpace = cut.lastIndexOf(' ');
+                return lastSpace > 0 ? cut.slice(0, lastSpace) : cut;
+              })
+              .filter((s) => s.length > 0)
+              .slice(0, 3);
+            if (ideas.length === 0) {
+              console.log('[FloorSuggest]', {
+                habit_id: habit.id,
+                detected: false,
+                confidence,
+                idea_count: 0,
+                latency_ms: latency,
+                gate: 'no_ideas',
+              });
+              return j({ ok: true, detected: false });
+            }
+
+            // 5. disruption window must overlap planWindow
+            const isoDateRe = /^\d{4}-\d{2}-\d{2}$/;
+            let disruption = null;
+            if (
+              parsed.disruption &&
+              typeof parsed.disruption.label === 'string' &&
+              isoDateRe.test(parsed.disruption.start) &&
+              isoDateRe.test(parsed.disruption.end) &&
+              parsed.disruption.start <= planWindow.end &&
+              parsed.disruption.end >= planWindow.start
+            ) {
+              disruption = {
+                label: parsed.disruption.label,
+                start: parsed.disruption.start,
+                end: parsed.disruption.end,
+              };
+            }
+            if (!disruption) {
+              console.log('[FloorSuggest]', {
+                habit_id: habit.id,
+                detected: false,
+                confidence,
+                idea_count: ideas.length,
+                latency_ms: latency,
+                gate: 'invalid_disruption_window',
+              });
+              return j({ ok: true, detected: false });
+            }
+
+            console.log('[FloorSuggest]', {
+              habit_id: habit.id,
+              detected: true,
+              confidence,
+              idea_count: ideas.length,
+              latency_ms: latency,
+            });
+
+            return j({
+              ok: true,
+              detected: true,
+              disruption,
+              lead_line: leadLine,
+              ideas,
+              confidence,
+            });
+          } catch (validationErr) {
+            console.warn('[FloorSuggest] Validation error', {
+              habit_id: habit.id,
+              error: validationErr.message,
+            });
+            return j({ ...FLOOR_FALLBACK, source: 'parse_fallback' });
+          }
+        } catch (err) {
+          const isTimeout = err.name === 'AbortError';
+          console.warn('[FloorSuggest] Error', {
+            error: isTimeout ? 'timeout' : String(err.message),
+            habit_id: body?.habit?.id,
+          });
+          return j({ ...FLOOR_FALLBACK, source: isTimeout ? 'timeout' : 'error' });
+        }
+      }
+
       return j({
         id: String((oj.id || '').replace(/^chatcmpl-/, 'cmpl-')),
         content,
@@ -13910,15 +14256,22 @@ function extractSaveSuggestionModuleLevel(content) {
   const match = content.match(savePattern);
   if (!match) return { suggestion: null, cleanContent: content };
   try {
-    const jsonStr = match[1].replace(/[\n\r]/g, ' ').replace(/\s+/g, ' ').trim();
+    const jsonStr = match[1]
+      .replace(/[\n\r]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
     const suggestion = JSON.parse(jsonStr);
     if (!suggestion.type || !suggestion.title) return { suggestion: null, cleanContent: content };
-    if (!['todo', 'habit', 'note'].includes(suggestion.type)) return { suggestion: null, cleanContent: content };
+    if (!['todo', 'habit', 'note'].includes(suggestion.type))
+      return { suggestion: null, cleanContent: content };
     if (suggestion.steps) {
       if (!Array.isArray(suggestion.steps)) {
         delete suggestion.steps;
       } else {
-        suggestion.steps = suggestion.steps.slice(0, 12).map((s) => String(s).trim()).filter((s) => s.length > 0 && s.length < 200);
+        suggestion.steps = suggestion.steps
+          .slice(0, 12)
+          .map((s) => String(s).trim())
+          .filter((s) => s.length > 0 && s.length < 200);
         if (suggestion.steps.length === 0) delete suggestion.steps;
       }
     }
@@ -14195,9 +14548,7 @@ function runScopedChatStream(
         // Web search follow-up
         let sources = undefined;
         let searchQueries = [];
-        const webSearchCalls = toolCalls.filter(
-          (tc) => tc.name === 'web_search' && tc.arguments,
-        );
+        const webSearchCalls = toolCalls.filter((tc) => tc.name === 'web_search' && tc.arguments);
 
         if (webSearchCalls.length > 0) {
           let firstQuery = '';
@@ -14212,9 +14563,7 @@ function runScopedChatStream(
               ? `${firstQuery} (+${webSearchCalls.length - 1} more)`
               : firstQuery;
           await writer.write(
-            encoder.encode(
-              `data: ${JSON.stringify({ searching: true, query: searchNotice })}\n\n`,
-            ),
+            encoder.encode(`data: ${JSON.stringify({ searching: true, query: searchNotice })}\n\n`),
           );
 
           const searchResults = await Promise.all(
@@ -14237,9 +14586,7 @@ function runScopedChatStream(
             }),
           );
 
-          const successfulSearches = searchResults.filter(
-            (sr) => sr.results?.results?.length > 0,
-          );
+          const successfulSearches = searchResults.filter((sr) => sr.results?.results?.length > 0);
 
           if (successfulSearches.length > 0) {
             const originalContents = convertMessages(chatMessages);
@@ -14319,9 +14666,7 @@ function runScopedChatStream(
               const cleaned = stripFillerOpening(fuFillerBuffer);
               if (cleaned) {
                 await writer.write(
-                  encoder.encode(
-                    `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
-                  ),
+                  encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`),
                 );
               }
             }
@@ -14361,7 +14706,8 @@ function runScopedChatStream(
         }
 
         const searchQuery = searchQueries.length > 0 ? searchQueries.join(' | ') : undefined;
-        const { suggestion: smartSuggestion, cleanContent } = extractSaveSuggestionModuleLevel(fullContent);
+        const { suggestion: smartSuggestion, cleanContent } =
+          extractSaveSuggestionModuleLevel(fullContent);
         fullContent = cleanContent
           .replace(/<!--SAVE:.*?-->/gs, '')
           .replace(/<!--SAVE:.*$/s, '')

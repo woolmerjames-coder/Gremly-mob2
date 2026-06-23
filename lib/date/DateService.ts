@@ -424,30 +424,7 @@ export class DateService {
    * const weekStart = dateService.getStartOfWeek(); // "2025-01-13" (if today is Wed Jan 15)
    */
   getStartOfWeek(): string {
-    const now = this.now();
-    // Get weekday in the injected timezone via Intl
-    const formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: this.timezone,
-      weekday: 'short',
-    });
-    const weekdayName = formatter.format(now);
-    const weekdayMap: Record<string, number> = {
-      Sun: 0,
-      Mon: 1,
-      Tue: 2,
-      Wed: 3,
-      Thu: 4,
-      Fri: 5,
-      Sat: 6,
-    };
-    const day = weekdayMap[weekdayName] ?? 0;
-    // Convert Sunday (0) to 7 for easier Monday calculation
-    const dayOfWeek = day === 0 ? 7 : day;
-    // Get the timezone-correct date, then compute Monday via noon anchoring
-    const todayStr = this.toLocalDate(now);
-    const [y, m, d] = todayStr.split('-').map(Number);
-    const monday = new Date(y, m - 1, d - (dayOfWeek - 1), 12, 0, 0, 0);
-    return this.toLocalDate(monday);
+    return this.startOfWeekMonday(this.today());
   }
 
   /**
@@ -767,9 +744,11 @@ export class DateService {
       return isoTimestamp;
     }
 
-    // Check for UTC midnight pattern to avoid timezone shift
+    // Check for UTC midnight pattern to avoid timezone shift.
+    // Accepts both ISO 'T' and Supabase/PostgREST space-separated forms, and
+    // all UTC offset variants: Z, +00, +00:00, or no offset (bare midnight).
     const utcMidnightMatch = isoTimestamp.match(
-      /^(\d{4}-\d{2}-\d{2})T00:00:00(?:\.000)?(?:Z|\+00:00)$/,
+      /^(\d{4}-\d{2}-\d{2})[T ]00:00:00(?:\.000)?(?:Z|\+00(?::00)?)?$/,
     );
     if (utcMidnightMatch) {
       return utcMidnightMatch[1];
@@ -783,6 +762,17 @@ export class DateService {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * UTC calendar-date portion of an all-day timestamp, robust to 'T'/space separators.
+   * Returns the leading YYYY-MM-DD without any timezone conversion — correct for all-day
+   * events whose intended date IS their UTC date (stored as UTC midnight).
+   */
+  utcDatePortion(ts: string | null | undefined): string | null {
+    if (!ts) return null;
+    const m = ts.match(/^(\d{4}-\d{2}-\d{2})/);
+    return m ? m[1] : null;
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1078,6 +1068,30 @@ export class DateService {
     return this.toLocalDate(date);
   }
 
+  /** Return the YYYY-MM-DD Monday of the ISO week containing dateStr. */
+  startOfWeekMonday(dateStr: string): string {
+    const d = this.fromLocalDate(dateStr);
+    if (!d) return dateStr;
+    const day = d.getDay(); // 0=Sun
+    const daysToMon = day === 0 ? -6 : 1 - day;
+    return this.addDays(dateStr, daysToMon);
+  }
+
+  /** Sunday ending the week containing dateStr (YYYY-MM-DD). */
+  endOfWeekSunday(dateStr: string): string {
+    return this.addDays(this.startOfWeekMonday(dateStr), 6);
+  }
+
+  /** Monday of the week AFTER the one containing dateStr. */
+  nextWeekMonday(dateStr: string): string {
+    return this.addDays(this.startOfWeekMonday(dateStr), 7);
+  }
+
+  /** Whole days from dateStr to the Sunday ending its block (0 = dateStr is that Sunday). */
+  daysUntilBlockEnd(dateStr: string): number {
+    return this.daysBetween(dateStr, this.endOfWeekSunday(dateStr));
+  }
+
   /**
    * Get next occurrence of a weekday (0=Sunday, 1=Monday, etc.)
    * Always returns the NEXT occurrence, even if today is that weekday.
@@ -1187,6 +1201,8 @@ export const fromLocalDate = (dateStr: string | null | undefined) =>
   getDateService().fromLocalDate(dateStr);
 export const extractLocalDate = (iso: string | null | undefined) =>
   getDateService().extractLocalDate(iso);
+export const utcDatePortion = (ts: string | null | undefined) =>
+  getDateService().utcDatePortion(ts);
 
 // Other exports (not renamed)
 export const parseNaturalDate = (input: string, ref?: Date) =>

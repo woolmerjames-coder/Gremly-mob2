@@ -317,14 +317,16 @@ async function callGeminiNonStream(systemPrompt, messages, config) {
 }
 
 async function callAnthropic(systemPrompt, messages, config, signal) {
+  const mappedMessages = messages.map((m) => ({
+    role: m.role,
+    content: m.content,
+  }));
+
   const body = {
     model: config.model,
     max_tokens: config.maxOutputTokens ?? 500,
     system: systemPrompt,
-    messages: messages.map((m) => ({
-      role: m.role,
-      content: m.content,
-    })),
+    messages: mappedMessages,
   };
 
   if (config.temperature !== undefined) {
@@ -407,11 +409,39 @@ async function callAnthropic(systemPrompt, messages, config, signal) {
     }
   }
 
+  // For JSON calls only: strip code fences and preamble/postamble text.
+  // Gated on responseFormat==='json' so prose responses containing braces are
+  // never mutated. (stop_reason warning below stays unconditional.)
+  if (config.responseFormat === 'json') {
+    const fenceMatch = content.match(/^```(?:json)?\s*([\s\S]*?)\s*```\s*$/);
+    if (fenceMatch) {
+      content = fenceMatch[1].trim();
+    } else {
+      // Strip preamble before the opening { and postamble after the closing }.
+      const jsonStart = content.indexOf('{');
+      const jsonEnd = content.lastIndexOf('}');
+      if (jsonStart > 0 || (jsonEnd !== -1 && jsonEnd < content.length - 1)) {
+        content = jsonStart !== -1 ? content.slice(jsonStart, jsonEnd + 1) : content;
+      }
+    }
+  }
+
+  // Warn on truncation so callers know JSON may be incomplete
+  if (data.stop_reason === 'max_tokens') {
+    console.warn('[callAnthropic] stop_reason=max_tokens: response truncated', {
+      model: data.model,
+      content_len: content.length,
+      content_head: content.slice(0, 300),
+      content_tail: content.slice(-200),
+    });
+  }
+
   return {
     ok: true,
     content,
     functionCalls,
     usage: data.usage || {},
+    stop_reason: data.stop_reason ?? null,
   };
 }
 

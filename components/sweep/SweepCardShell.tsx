@@ -22,6 +22,7 @@ import { Text } from '../../ui';
 import { BRAND } from '../../design/brand';
 import { GremlyMenuButton, GremlyPopupMenu } from './GremlyPopupMenu';
 import type { SweepCandidate, SweepCandidateNote, SweepCardMeta } from '../../lib/sweep/types';
+import { useWorldsForEntity } from '../../lib/store/worldsSelectors';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -132,6 +133,7 @@ type SweepCardShellProps = {
   isClarified?: boolean;
   onRequestPhotoPreview?: (url: string) => void;
   hideGremlyMenu?: boolean;
+  onWorldPress?: () => void;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -140,7 +142,7 @@ type SweepCardShellProps = {
 
 export function SweepCardShell({
   candidate,
-  meta: _meta,
+  meta,
   typeWhisper,
   typeIcon,
   badge,
@@ -152,6 +154,7 @@ export function SweepCardShell({
   isClarified,
   onRequestPhotoPreview,
   hideGremlyMenu,
+  onWorldPress,
 }: SweepCardShellProps) {
   // ── Local state ──
   const [menuVisible, setMenuVisible] = useState(false);
@@ -398,6 +401,11 @@ export function SweepCardShell({
         : null;
   const hidePreview = shouldHidePreview(title, previewText);
 
+  // ── Live world pill (overrides snapshot meta.world so mid-sweep pins show instantly) ──
+  const liveWorlds = useWorldsForEntity(candidate.id);
+  const primaryWorld = liveWorlds[0] ?? null;
+  const extraWorldCount = liveWorlds.length - 1;
+
   const noteCandidate = candidate.kind === 'note' ? (candidate as SweepCandidateNote) : null;
   const hasAttachments = noteCandidate?.attachments && noteCandidate.attachments.length > 0;
   const firstAttachment = hasAttachments ? noteCandidate!.attachments![0] : null;
@@ -451,7 +459,7 @@ export function SweepCardShell({
                   <GremlyMenuButton onPress={() => setMenuVisible(true)} />
                 </View>
               )}
-              <View style={styles.menuPosition}>
+              <View style={styles.menuPosition} pointerEvents={menuVisible ? 'auto' : 'box-none'}>
                 <GremlyPopupMenu
                   visible={menuVisible}
                   onClose={() => setMenuVisible(false)}
@@ -483,6 +491,22 @@ export function SweepCardShell({
                     )}
                   </View>
                 ) : null}
+                {primaryWorld && (
+                  <Pressable
+                    onPress={onWorldPress}
+                    style={({ pressed }) => [styles.worldPill, pressed && { opacity: 0.55 }]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`World: ${primaryWorld.name}. Tap to change.`}
+                  >
+                    <View
+                      style={[styles.worldDot, { backgroundColor: primaryWorld.accentColor }]}
+                    />
+                    <Text style={styles.worldPillText} numberOfLines={1}>
+                      {primaryWorld.name}
+                      {extraWorldCount > 0 ? ` +${extraWorldCount}` : ''}
+                    </Text>
+                  </Pressable>
+                )}
               </View>
 
               {/* Title */}
@@ -720,6 +744,23 @@ const styles = StyleSheet.create({
     fontSize: 9.5,
     fontWeight: '600',
   },
+  worldPill: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 5,
+  },
+  worldDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  worldPillText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: 'rgba(46,85,64,0.55)',
+    fontFamily: 'Inter-Medium',
+    // normal casing — no textTransform, no letterSpacing (this is a name, not a label)
+  },
   title: {
     fontSize: 26,
     fontWeight: '700',
@@ -751,8 +792,8 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 28,
     alignItems: 'center',
+    gap: 28,
   },
   buttonColumn: {
     alignItems: 'center',

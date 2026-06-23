@@ -45,6 +45,7 @@ jest.mock('../../../lib/store/selectors', () => ({
   useSweepIntroStats: () => ({ stats: { urgentCount: 0, pendingCount: 0 }, isLoading: false }),
   useIsLoading: () => false,
   useActiveSpaces: () => [],
+  useSkipBudget: () => ({ used: 0, remaining: 3, total: 3, canSkip: true }),
   selectTodayLockedItems: () => [], // No locked items in tests
   selectTodayLockedItemsIncludingCompleted: () => [], // No locked items in tests
 }));
@@ -56,7 +57,12 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
       todos: [],
       notes: [],
       habits: [],
+      worlds: [],
+      dropWorldLinks: [],
+      chapters: [],
+      chapterWorldLinks: [],
       habitProgress: [],
+      userCalendarEvents: [],
       isLoading: false,
       gremlyAge: 5,
       feedingGaugeValue: 0,
@@ -64,6 +70,7 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
       fedDaysCount: 0,
       feedingHistory: [],
       fetchFeedingHistory: () => Promise.resolve(undefined),
+      refreshSkipBudget: () => Promise.resolve(undefined),
       totalSweepCount: 10,
       demoSweepCompletedAt: '2025-01-01T00:00:00Z',
       updateTodo: () => Promise.resolve(undefined),
@@ -94,8 +101,14 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
     totalSweepCount: 10,
     demoSweepCompletedAt: '2025-01-01T00:00:00Z',
     calendarEvents: {},
+    userCalendarEvents: [],
     currentDate: '2025-01-01',
     notes: [],
+    worlds: [],
+    dropWorldLinks: [],
+    chapters: [],
+    chapterWorldLinks: [],
+    refreshSkipBudget: () => Promise.resolve(undefined),
     incrementSweepCount: () => Promise.resolve({ didAgeUp: false, newAge: 5 }),
     setSweepPreferences: () => {},
     updateTodo: () => Promise.resolve(undefined),
@@ -214,6 +227,9 @@ jest.mock('@react-navigation/native', () => {
       setOptions: jest.fn(),
       goBack: mockGoBack,
     }),
+    useFocusEffect: (effect: () => void | (() => void)) => {
+      effect();
+    },
     useRoute: () => ({
       params: {},
     }),
@@ -311,6 +327,14 @@ const mockNoteCandidate: SweepCandidate = {
   } as any,
 };
 
+const INTRO_DECISION_LABEL =
+  /Close out today|Wrap up today|Plan today|Anything for today\?|Set up tomorrow instead/;
+
+function pressIntroDecisionIntent(result: ReturnType<typeof render>) {
+  const button = result.getAllByText(INTRO_DECISION_LABEL)[0];
+  fireEvent.press(button);
+}
+
 const mockNoteCandidate2: SweepCandidate = {
   id: 'note-2',
   kind: 'note',
@@ -339,11 +363,11 @@ const mockNoteCandidate2: SweepCandidate = {
 async function renderAtDecisionStep() {
   const result = render(<SweepFlowScreen navigation={mockNavigation} />);
 
-  // Step 0: Intro - tap "Let's do this" to go to Decision
+  // Step 0: Intro - tap a non-week intent row to go to Decision
   await waitFor(() => {
-    result.getByText(/Let's do this/);
+    expect(result.getAllByText(INTRO_DECISION_LABEL).length).toBeGreaterThan(0);
   });
-  fireEvent.press(result.getByText(/Let's do this/));
+  pressIntroDecisionIntent(result);
 
   return result;
 }

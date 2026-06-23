@@ -60,14 +60,18 @@ function convertTools(tools) {
 }
 
 function buildRequestBody(systemPrompt, contents, config) {
+  const generationConfig = {
+    temperature: config.temperature,
+    maxOutputTokens: config.maxOutputTokens,
+  };
+  const level = resolveThinkingLevel(config.thinkingLevel);
+  if (level !== 'none') {
+    generationConfig.thinkingConfig = { thinkingLevel: level };
+  }
   const body = {
     systemInstruction: { parts: [{ text: systemPrompt }] },
     contents,
-    generationConfig: {
-      temperature: config.temperature,
-      maxOutputTokens: config.maxOutputTokens,
-      thinkingConfig: { thinkingLevel: resolveThinkingLevel(config.thinkingLevel) },
-    },
+    generationConfig,
   };
   const nativeTools = convertTools(config.tools);
   if (nativeTools) body.tools = nativeTools;

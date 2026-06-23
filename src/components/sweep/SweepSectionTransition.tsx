@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Pressable } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -21,9 +21,14 @@ import Animated, {
 } from 'react-native-reanimated';
 import {
   CheckSquare,
+  Check,
   Repeat,
+  RotateCcw,
   StickyNote,
   Calendar,
+  Bell,
+  ListChecks,
+  PenLine,
   ArrowRight,
   ArrowLeft,
   X,
@@ -51,6 +56,7 @@ export interface SweepSectionTransitionProps {
   itemCount: number;
   onContinue: () => void;
   onClose?: () => void;
+  sweepIntent?: 'today' | 'tomorrow' | 'week';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -87,6 +93,161 @@ const SECTION_CONTENT: Record<'todo' | 'habit' | 'note' | 'event', SectionConten
   },
 };
 
+type WeeklyIconKey =
+  | 'calendar'
+  | 'bell'
+  | 'arrowLeft'
+  | 'rotate'
+  | 'checkbox'
+  | 'check'
+  | 'listCheck'
+  | 'pencil';
+
+const WEEKLY_ICON_MAP: Record<WeeklyIconKey, LucideIcon> = {
+  calendar: Calendar,
+  bell: Bell,
+  arrowLeft: ArrowLeft,
+  rotate: RotateCcw,
+  checkbox: CheckSquare,
+  check: Check,
+  listCheck: ListChecks,
+  pencil: PenLine,
+};
+
+const WEEKLY_SECTION_COPY: Record<
+  'todo' | 'note' | 'event',
+  {
+    title: string;
+    subtitle: string;
+    hint: string;
+    rows: {
+      icon:
+        | 'calendar'
+        | 'bell'
+        | 'arrowLeft'
+        | 'rotate'
+        | 'checkbox'
+        | 'check'
+        | 'listCheck'
+        | 'pencil';
+      bold: string;
+      rest: string;
+      muted?: boolean;
+    }[];
+  }
+> = {
+  todo: {
+    title: 'YOUR TODOS',
+    subtitle: 'sorting through, one at a time',
+    hint: 'on each card you can',
+    rows: [
+      { icon: 'calendar', bold: 'Tap a day', rest: ' to schedule it, then Keep' },
+      { icon: 'bell', bold: 'Add a reminder', rest: ' if you want a nudge' },
+      { icon: 'arrowLeft', bold: 'Let go', rest: ' if it no longer matters', muted: true },
+    ],
+  },
+  note: {
+    title: 'YOUR NOTES',
+    subtitle: 'a few thoughts to revisit',
+    hint: 'for each one, decide what is next',
+    rows: [
+      { icon: 'rotate', bold: 'Resurface later', rest: ' to bring it back in a future sweep' },
+      { icon: 'checkbox', bold: 'Make it a todo', rest: ' if it needs doing' },
+      { icon: 'check', bold: 'It is fine as is', rest: ' to leave it filed' },
+    ],
+  },
+  event: {
+    title: 'YOUR EVENTS',
+    subtitle: 'things coming up to get ready for',
+    hint: 'on each card you can',
+    rows: [
+      { icon: 'bell', bold: 'Set a reminder', rest: ' for the day or week before' },
+      { icon: 'listCheck', bold: 'Add a prep todo', rest: ' if there is something to do first' },
+      {
+        icon: 'pencil',
+        bold: 'Fix the timing',
+        rest: ' by tapping the date if it is off',
+        muted: true,
+      },
+    ],
+  },
+};
+
+interface WeeklySectionExplainerProps {
+  copy: (typeof WEEKLY_SECTION_COPY)['todo'];
+  onContinue: () => void;
+  onClose?: () => void;
+}
+
+function WeeklySectionExplainer({ copy, onContinue, onClose }: WeeklySectionExplainerProps) {
+  const titleIcon: LucideIcon =
+    copy.title === 'YOUR NOTES'
+      ? StickyNote
+      : copy.title === 'YOUR EVENTS'
+        ? Calendar
+        : CheckSquare;
+
+  return (
+    <Pressable style={styles.container} onPress={onContinue}>
+      {onClose && (
+        <TouchableOpacity
+          style={styles.closeButton}
+          onPress={onClose}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <X size={24} color={BRAND.colors.mossGreen} />
+        </TouchableOpacity>
+      )}
+
+      <View style={styles.weeklyTitleRow}>
+        {React.createElement(titleIcon, {
+          size: 24,
+          color: BRAND.colors.mossGreen,
+          strokeWidth: 2,
+        })}
+        <Text style={styles.title}>{copy.title}</Text>
+      </View>
+
+      <Text style={styles.weeklySubtitle}>{copy.subtitle}</Text>
+      <Text style={styles.weeklyHint}>{copy.hint}</Text>
+
+      <View style={styles.weeklyRows}>
+        {copy.rows.map((row, idx) => {
+          const RowIcon = WEEKLY_ICON_MAP[row.icon];
+          const rowMuted = !!row.muted;
+          return (
+            <View key={`${row.icon}-${idx}`} style={styles.weeklyRow}>
+              <View
+                style={[
+                  styles.weeklyRowChip,
+                  rowMuted ? styles.weeklyRowChipMuted : styles.weeklyRowChipNormal,
+                ]}
+              >
+                <RowIcon
+                  size={14}
+                  strokeWidth={2}
+                  color={rowMuted ? '#A8842F' : BRAND.colors.mossGreen}
+                />
+              </View>
+              <Text style={styles.weeklyRowText}>
+                <Text style={styles.weeklyRowLead}>{row.bold}</Text>
+                {row.rest}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+
+      <View style={{ flex: 1 }} />
+
+      <View style={styles.buttonContainer}>
+        <Animated.Image source={GREMLY_BUTTON} style={styles.gremlyButton} resizeMode="contain" />
+        <Text style={styles.buttonHint}>tap to start</Text>
+      </View>
+    </Pressable>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -96,6 +257,7 @@ export function SweepSectionTransition({
   itemCount,
   onContinue,
   onClose,
+  sweepIntent = 'tomorrow',
 }: SweepSectionTransitionProps) {
   const [canContinue, setCanContinue] = useState(false);
   const [isPressing, setIsPressing] = useState(false);
@@ -160,6 +322,12 @@ export function SweepSectionTransition({
   // ─────────────────────────────────────────────────────────────────────────────
   // Render
   // ─────────────────────────────────────────────────────────────────────────────
+
+  if (sweepIntent === 'week') {
+    const copy =
+      WEEKLY_SECTION_COPY[sectionType as 'todo' | 'note' | 'event'] ?? WEEKLY_SECTION_COPY.todo;
+    return <WeeklySectionExplainer copy={copy} onContinue={onContinue} onClose={onClose} />;
+  }
 
   return (
     <View style={styles.container}>
@@ -273,6 +441,61 @@ const styles = StyleSheet.create({
     color: BRAND.colors.inkMuted,
     marginTop: 8,
     marginBottom: 32,
+  },
+  weeklyTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    marginTop: 6,
+  },
+  weeklySubtitle: {
+    fontSize: 15,
+    color: BRAND.colors.inkMuted,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  weeklyHint: {
+    fontSize: 12,
+    color: BRAND.colors.inkSubtle,
+    marginTop: 8,
+    marginBottom: 26,
+    textAlign: 'center',
+  },
+  weeklyRows: {
+    width: '100%',
+    paddingHorizontal: 14,
+    gap: 12,
+  },
+  weeklyRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  weeklyRowChip: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
+  weeklyRowChipNormal: {
+    backgroundColor: '#cfe0cf',
+  },
+  weeklyRowChipMuted: {
+    backgroundColor: '#f0e6cf',
+  },
+  weeklyRowText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    color: BRAND.colors.charcoalInk,
+    fontWeight: '400',
+  },
+  weeklyRowLead: {
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
   },
   optionsContainer: {
     width: '100%',

@@ -1160,7 +1160,10 @@ export const useGremlyStore = create<GremlyState>()(
                 )
                 .then(({ error: upsertError }) => {
                   if (upsertError) {
-                    console.error('[GremlyStore] Auto-complete onboarding upsert failed:', JSON.stringify(upsertError, null, 2));
+                    console.error(
+                      '[GremlyStore] Auto-complete onboarding upsert failed:',
+                      JSON.stringify(upsertError, null, 2),
+                    );
                   } else {
                     console.log('[GremlyStore] Auto-completed onboarding for existing user');
                   }
@@ -1594,7 +1597,10 @@ export const useGremlyStore = create<GremlyState>()(
           );
 
           if (error) {
-            console.error('[GremlyStore] setOnboardingCompletedAt failed:', JSON.stringify(error, null, 2));
+            console.error(
+              '[GremlyStore] setOnboardingCompletedAt failed:',
+              JSON.stringify(error, null, 2),
+            );
             return;
           }
 
@@ -1615,7 +1621,10 @@ export const useGremlyStore = create<GremlyState>()(
             );
 
           if (error) {
-            console.error('[GremlyStore] markOnboardingComplete failed:', JSON.stringify(error, null, 2));
+            console.error(
+              '[GremlyStore] markOnboardingComplete failed:',
+              JSON.stringify(error, null, 2),
+            );
             return;
           }
 
@@ -2096,13 +2105,19 @@ export const useGremlyStore = create<GremlyState>()(
 
           try {
             // 2. INSERT into habit_progress (source of truth for completions)
-            const { error: progressError } = await supabase.from('habit_progress').insert({
-              habit_id: id,
-              owner_id: userId,
-              occurred_day: todayDate,
-              occurred_at: occurredAt,
-              count: 1,
-            });
+            const { error: progressError } = await supabase.from('habit_progress').upsert(
+              {
+                habit_id: id,
+                owner_id: userId,
+                occurred_day: todayDate,
+                occurred_at: occurredAt,
+                count: 1,
+              },
+              {
+                onConflict: 'owner_id,habit_id,occurred_day',
+                ignoreDuplicates: true,
+              },
+            );
 
             if (progressError) {
               // Check if it's a duplicate (already completed today)
@@ -2332,13 +2347,19 @@ export const useGremlyStore = create<GremlyState>()(
           // 2. PERSIST TO SUPABASE (don't await, fire-and-forget with error handling)
           supabase
             .from('habit_progress')
-            .insert({
-              habit_id: habitId,
-              owner_id: userId,
-              occurred_day: occurredDay,
-              occurred_at: occurredAt,
-              count: 1,
-            })
+            .upsert(
+              {
+                habit_id: habitId,
+                owner_id: userId,
+                occurred_day: occurredDay,
+                occurred_at: occurredAt,
+                count: 1,
+              },
+              {
+                onConflict: 'owner_id,habit_id,occurred_day',
+                ignoreDuplicates: true,
+              },
+            )
             .then(({ error }) => {
               if (error) {
                 // Rollback on error

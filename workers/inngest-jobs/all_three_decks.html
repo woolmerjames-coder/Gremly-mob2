@@ -1,0 +1,203 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gremly · Adaptive Weekly Summary v0.6 · Shadow Inspection</title>
+<style>
+  :root{
+    --moss:#2E5540; --moss-deep:#1F3A2D; --sage-mist:#BFD8C0; --sage-deep:#7BA589;
+    --periwinkle:#9CA6E0; --periwinkle-bg:#F4F3FA;
+    --golden-pear:#E0C47A; --golden-deep:#C68B40;
+    --linen:#F9F6F1; --cream:#FBF8F2;
+    --ink:#1F3A2D; --ink-soft:#3A4A3D;
+    --grey-soft:#6B7C6E; --grey-faint:#8A9B8D;
+    --amber-bg:#FAEEDA; --amber-ink:#5A3A0F;
+    --serif:Georgia,'Times New Roman',serif;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:#E8E4DC;font-family:var(--sans);color:var(--ink);padding:0 0 60px;}
+  .inspect{max-width:760px;margin:0 auto;padding:28px 20px;}
+  .inspect h2{font-family:var(--serif);font-weight:500;color:var(--moss);}
+  .meta{font-family:'SF Mono',monospace;font-size:11px;color:var(--grey-soft);margin-bottom:4px;}
+  .deck-rail{display:flex;flex-direction:column;gap:32px;align-items:center;margin-top:24px;}
+
+  /* Card frame */
+  .gph{width:100%;max-width:380px;background:#fff;border-radius:18px;box-shadow:0 4px 16px rgba(0,0,0,0.06);overflow:hidden;}
+  .gnv{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--linen);font-size:10px;color:var(--grey-soft);font-family:'SF Mono',monospace;border-bottom:1px solid #EFEAE0;}
+  .gc{padding:24px 22px;background:#fff;}
+
+  /* Eyebrow (small all-caps label at top of cards) */
+  .eyebrow{font-family:'SF Mono',monospace;font-size:10px;color:var(--grey-soft);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:14px;}
+
+  /* Generic card headline */
+  .card-headline{font-family:var(--serif);font-size:19px;line-height:1.3;color:var(--ink);font-weight:500;margin:0 0 14px 0;}
+
+  /* ── HERO ── */
+  .hero-classification{display:inline-block;font-family:'SF Mono',monospace;font-size:10px;color:var(--moss);background:var(--sage-mist);padding:4px 10px;border-radius:11px;letter-spacing:0.5px;margin-bottom:14px;}
+  .hero-headline{font-family:var(--serif);font-size:24px;line-height:1.25;color:var(--moss);font-weight:500;margin:0 0 10px 0;}
+  .hero-subtitle{font-size:13px;line-height:1.5;color:var(--grey-soft);margin:0 0 18px 0;}
+  .hero-panel{background:var(--linen);border-radius:14px;padding:14px;}
+  .stat-strip{display:flex;justify-content:space-around;padding-bottom:12px;border-bottom:1px solid #EFEAE0;margin-bottom:12px;}
+  .stat{text-align:center;flex:1;}
+  .stat-bordered{border-left:1px solid #EFEAE0;}
+  .stat-value{font-size:16px;font-weight:500;color:var(--ink);}
+  .stat-label{font-size:9px;color:var(--grey-faint);font-family:'SF Mono',monospace;text-transform:uppercase;letter-spacing:0.4px;margin-top:2px;}
+  .mood-arc{display:grid;gap:4px;margin-bottom:5px;}
+  .mood-cell{height:32px;border-radius:3px;}
+  .mood-labels{display:grid;gap:4px;font-size:9px;color:var(--grey-faint);text-align:center;font-family:'SF Mono',monospace;}
+
+  /* ── MOMENT ── */
+  .moment-quote{font-family:var(--serif);font-size:21px;line-height:1.35;color:var(--moss);font-style:italic;margin:8px 0 14px 0;border-left:3px solid var(--periwinkle);padding:6px 0 6px 16px;background:transparent;}
+  .moment-attr{font-family:'SF Mono',monospace;font-size:10px;color:var(--grey-soft);text-transform:uppercase;letter-spacing:0.5px;}
+  .moment-context{font-size:12px;color:var(--grey-soft);margin:10px 0 0 0;line-height:1.5;}
+
+  /* ── PEOPLE ── */
+  .people-chips{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 16px 0;}
+  .people-chip{display:inline-block;font-size:12px;color:var(--moss);background:var(--linen);padding:6px 14px;border-radius:14px;font-weight:500;}
+  .people-chip-emphasized{background:var(--sage-mist);color:var(--moss-deep);font-weight:600;}
+  .people-beats{list-style:none;padding:0;margin:14px 0 0 0;}
+  .people-beats li{display:flex;align-items:baseline;gap:10px;padding:6px 0;border-bottom:1px solid #F0ECE2;}
+  .people-beats li:last-child{border-bottom:none;}
+  .beat-date{font-family:'SF Mono',monospace;font-size:10px;color:var(--grey-faint);min-width:48px;}
+  .beat-label{font-size:12px;color:var(--ink);}
+
+  /* ── PATTERN ── */
+  .pattern-list{list-style:none;padding:0;margin:10px 0 14px 0;}
+  .pattern-list li{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:8px 0;border-bottom:1px solid #F0ECE2;}
+  .pattern-list li:last-child{border-bottom:none;}
+  .pattern-label{font-size:13px;color:var(--ink);}
+  .pattern-meta{font-family:'SF Mono',monospace;font-size:10px;color:var(--grey-faint);white-space:nowrap;}
+  .pattern-footer{font-size:11px;color:var(--grey-soft);font-style:italic;margin:8px 0 0 0;line-height:1.5;}
+
+  /* ── QUESTION ── */
+  .question-headline{font-family:var(--serif);font-size:22px;line-height:1.3;color:var(--moss);font-weight:500;margin:14px 0 18px 0;}
+  .question-grounding{font-size:13px;line-height:1.55;color:var(--ink-soft);margin:0;}
+
+  /* ── STAT ── */
+  .stat-block{text-align:center;padding:22px 0 12px 0;}
+  .stat-big-number{font-family:var(--serif);font-size:72px;line-height:1;color:var(--moss);font-weight:500;}
+  .stat-big-unit{font-family:'SF Mono',monospace;font-size:11px;color:var(--grey-soft);text-transform:uppercase;letter-spacing:0.6px;margin-top:8px;}
+  .stat-context{font-size:12px;color:var(--ink-soft);margin:14px 0 0 0;line-height:1.5;text-align:center;max-width:280px;margin-left:auto;margin-right:auto;}
+
+  /* ── TIMELINE ── */
+  .timeline{list-style:none;padding:0;margin:14px 0 14px 0;counter-reset:none;}
+  .timeline li{display:flex;align-items:baseline;gap:12px;padding:10px 0;border-bottom:1px solid #F0ECE2;position:relative;padding-left:18px;}
+  .timeline li:before{content:'●';position:absolute;left:0;top:11px;font-size:9px;color:var(--sage-deep);}
+  .timeline li:last-child{border-bottom:none;}
+  .tl-date{font-family:'SF Mono',monospace;font-size:10px;color:var(--grey-faint);min-width:64px;}
+  .tl-label{font-size:13px;color:var(--ink);line-height:1.45;}
+  .tl-footer{font-size:11px;color:var(--grey-soft);font-style:italic;margin:8px 0 0 18px;line-height:1.5;}
+
+  /* ── LETTER ── */
+  .letter-eyebrow{display:flex;align-items:center;gap:8px;margin-bottom:16px;font-family:'SF Mono',monospace;font-size:10px;color:var(--moss);text-transform:uppercase;letter-spacing:0.6px;}
+  .letter-eyebrow span:first-child{color:var(--moss);}
+  .letter-para{font-size:13px;line-height:1.65;color:var(--ink);margin:0 0 12px 0;}
+  .letter-sig{display:flex;align-items:center;gap:10px;padding-top:14px;border-top:1px solid #C8D8C8;font-size:10px;color:var(--grey-soft);}
+  .letter-sig-avatar{width:28px;height:28px;background:var(--sage-mist);border-radius:50%;}
+  .letter-sig strong{color:var(--moss);}
+</style>
+</head><body>
+<div class="inspect">
+  <h2>James · 6 cards <span style="font-weight:400;color:var(--grey-soft);">(2026-05-18, claude-sonnet-4-6 + claude-haiku-4-5-20251001, 2 attempt(s))</span></h2>
+  <div class="meta">classification: Collision and Displacement Week</div>
+  <div class="meta">through_line: You built the experience. You waited for the question that never came.</div>
+  <div class="meta">card_shapes: hero → moment → timeline → question → stat → letter</div>
+  <div class="meta">tenure: 39d · first_weekly: false · fed in window: 0/7</div>
+  <div class="meta" style="color:#b00;">errors: quality(card[3]): Question card headline violates sharpness criterion. The headline is two sentences: 'Is this stall about time, or about whether anyone believes it is worth building?' followed by a second sentence in the grounding field that restates context. The question itself is sharp, but the headline structure repeats the question verbatim in both the headline and the grounding 'question' field, creating redundancy. More critically, the grounding paragraph is doing interpretive work that should be supporting the question, not explaining it away. | quality(card[5]): Letter tone reads as editorial reflection about the user rather than a direct note to the user. Phrases like 'Your week had a shape' and 'What followed was not laziness' are analytical observations framed in second person, but the overall movement is toward interpretation and insight-delivery rather than companionship. The closing paragraph ('The thing your Gremly is sitting with...') shifts into coaching language about 'the whole answer,' which implies a next step without naming it directly. The letter should name the specific people and moments (Bay to Breakers, the May 19 journal quote, the displacement to family tech support, the fitness completions) more directly and close without the implicit nudge toward resolution. | quality(card[1]): The moment card's context line ('In April you wrote that you wanted to maximize the visit. You ran the race. You planned the activities. Then this.') is doing narrative work that should be in the letter, not supporting the quote. The quote itself is the anchor and is properly isolated. However, the context is performing a before-and-after that dilutes the moment's isolation. The card should let the quote stand with minimal framing. | [a1] fact: card[5] weekday/date mismatch: prose says &quot;Monday&quot; but 2026-05-19 is a Tuesday | [a1] quality(card[3]): Question card headline violates sharpness criterion. The headline is 19 words and reads as a statement followed by a question, rather than a single sharp interrogative sentence. The form requires one clean question ending in a question mark, roughly 15 words or fewer. | [a1] quality(card[5]): Letter tone reads as editorial reflection about the user rather than direct address to the user. Phrases like 'This week had a shape,' 'That sentence matters,' and 'This is not a failure of insight' position the writer as an observer analyzing the user's week, rather than a companion speaking directly to the user about what they noticed. The letter should address the user in second person throughout and speak as if in conversation, not as a summary. | [a1] quality(card[5]): Letter closing contains a coaching nudge disguised as a question. The final sentence ('The question your Gremly is sitting with for you this Monday is not about productivity. It is the one from May 19: do you believe this is worth building, even if the people you love most never ask about it?') frames a rhetorical question designed to prompt reflection and next-step thinking. This violates the criterion that the letter should close without instruction or action-prompting questions.</div>
+  <div class="deck-rail"><div class="gph">
+    <div class="gnv"><span>&nbsp;</span><span>1 of 6 · hero</span><span>✕</span></div>
+    <div class="gc">
+    <div class="hero-classification">Collision and Displacement Week</div>
+    <h1 class="hero-headline">A week where careful orchestration met quiet indifference, and the stall deepened from a time problem into a worth problem.</h1>
+    <p class="hero-subtitle">The family visit landed, Bay to Breakers was run, and two days later you named what was missing: no one asked.</p>
+    <div class="hero-panel">
+      <div class="stat-strip"><div class="stat"><div class="stat-value">0</div><div class="stat-label">Todos completed</div></div><div class="stat stat-bordered"><div class="stat-value">6</div><div class="stat-label">Journals this week</div></div><div class="stat stat-bordered"><div class="stat-value">2</div><div class="stat-label">Drops this week</div></div><div class="stat stat-bordered"><div class="stat-value">56</div><div class="stat-label">Gremly level</div></div></div>
+      <div class="mood-arc" style="grid-template-columns:repeat(7,1fr);"><div class="mood-cell" style="background:#EFEAE0;"></div><div class="mood-cell" style="background:#D89B6A;"></div><div class="mood-cell" style="background:#EFEAE0;"></div><div class="mood-cell" style="background:#EFEAE0;"></div><div class="mood-cell" style="background:#EFEAE0;"></div><div class="mood-cell" style="background:#EFEAE0;"></div><div class="mood-cell" style="background:#EFEAE0;"></div></div>
+      <div class="mood-labels" style="grid-template-columns:repeat(7,1fr);"><div>M 18</div><div>Tu 19</div><div>W 20</div><div>Th 21</div><div>F 22</div><div>Sa 23</div><div>Su 24</div></div>
+    </div></div>
+  </div>
+<div class="gph">
+    <div class="gnv"><span>‹</span><span>2 of 6 · moment</span><span>✕</span></div>
+    <div class="gc">
+    <div class="eyebrow">THE INVISIBLE MOMENT  -  TU 19 MAY</div>
+    <blockquote class="moment-quote">Upset with my parents for showing very little interest in Gremly or work. They seem to never ask questions</blockquote>
+    <div class="moment-attr">Journal, 2026-05-19, two days after Bay to Breakers</div>
+    <p class="moment-context">In April you wrote that you wanted to maximize the visit. You ran the race. You planned the activities. Then this.</p></div>
+  </div>
+<div class="gph">
+    <div class="gnv"><span>‹</span><span>3 of 6 · timeline</span><span>✕</span></div>
+    <div class="gc">
+    <div class="eyebrow">THE DISPLACEMENT ARC</div>
+    <h2 class="card-headline">After May 19, energy moved away from Gremly and into service, one small task at a time.</h2>
+    <ol class="timeline">
+      <li>
+        <span class="tl-date">2026-05-17</span>
+        <span class="tl-label">Bay to Breakers run with Mum and Dave: the relational peak</span>
+      </li>
+      <li>
+        <span class="tl-date">2026-05-19</span>
+        <span class="tl-label">Journal: parental indifference named, frustration logged</span>
+      </li>
+      <li>
+        <span class="tl-date">2026-05-20</span>
+        <span class="tl-label">Todo created: Have Conversation with Parents About Feeling Invisible</span>
+      </li>
+      <li>
+        <span class="tl-date">2026-05-22</span>
+        <span class="tl-label">Todo created: Change Getting Greener to Getting Fuller, the week's only Gremly-adjacent move</span>
+      </li>
+      <li>
+        <span class="tl-date">2026-05-23</span>
+        <span class="tl-label">Todos created: Investigate App Blip Mum Pointed Out, Help Mum with Busheng Email Address Creation</span>
+      </li></ol>
+    <p class="tl-footer">Core Gremly development: zero completions, third consecutive week.</p></div>
+  </div>
+<div class="gph">
+    <div class="gnv"><span>‹</span><span>4 of 6 · question</span><span>✕</span></div>
+    <div class="gc">
+    <div class="eyebrow">THE WORTH PROBLEM</div>
+    <h2 class="question-headline">Is this stall about time, or about whether anyone believes it is worth building?</h2>
+    <p class="question-grounding">Three named voids are now running in parallel: product doubt from May 10, work unsustainability from April 29, and parental indifference from May 19. None has produced a single operational todo. The stall that began as a logistics problem in April has become something quieter and harder to schedule your way out of.</p></div>
+  </div>
+<div class="gph">
+    <div class="gnv"><span>‹</span><span>5 of 6 · stat</span><span>✕</span></div>
+    <div class="gc">
+    <div class="eyebrow">THE ONE DOMAIN THAT KEPT ITS PROMISES</div>
+    <h2 class="card-headline">While Gremly stalled and messages went unanswered, your body delivered every time.</h2>
+    <div class="stat-block">
+      <div class="stat-big-number">3/3</div>
+      <div class="stat-big-unit">Strength Training and Pushups/Core targets hit, with Cycling at 2/3</div>
+    </div>
+    <p class="stat-context">In a week where your app is in its third zero-completion week, your parents did not ask, and your messaging habit sits at 0/7, fitness was the one place where input equalled output and no external validation was required.</p></div>
+  </div>
+<div class="gph">
+    <div class="gnv"><span>‹</span><span>6 of 6 · letter</span><span>✕</span></div>
+    <div class="gc" style="background:#EAF1E8;">
+    <div class="letter-eyebrow"><span>✉</span><span>A NOTE FOR MONDAY-YOU</span></div>
+    <p class="letter-para">Your week had a shape. It started with Bay to Breakers on May 17, a run you planned carefully, with your mum and Dave, operationalizing something you wrote back in April about wanting to maximize the visit. Then Tuesday arrived, and you wrote the sentence that changed the week's character: upset with your parents for showing very little interest in Gremly or work, they seem to never ask questions. That sentence did not come from nowhere. It came from someone who had done a lot of work to create the conditions for a question that never came.</p><p class="letter-para">What followed was not laziness. It was displacement. You created a todo to have the conversation about feeling invisible, then did not start it. You shifted toward helping your mum with an email address and investigating an app blip she mentioned. You renamed a product feature. Your Gremly noticed that the only Gremly-adjacent move all week was a naming change, while Multi Daily Habits Integration has been rescheduled 35 times and Audit Photo Drops 32 times. The product work is not waiting for time. It is waiting for something else.</p><p class="letter-para">The thing your Gremly is sitting with is not about your schedule. It is the question that surfaced on May 19: whether you believe this is worth building, even if the people you love most never ask about it. Your fitness kept its promises this week, 3/3 on strength, 3/3 on pushups and core, your body the one domain where effort lands without needing anyone else to notice. That is not a small thing. It is also not the whole answer.</p>
+    <div class="letter-sig">
+      <div class="letter-sig-avatar"></div>
+      <span><strong>Your Gremly</strong> · L56 · Guide</span>
+    </div></div>
+  </div></div>
+</div>
+<hr style="border:none;border-top:1px solid #d4cfc4;margin:50px 0;">
+
+<div class="inspect">
+  <h2>Dave · 0 cards <span style="font-weight:400;color:var(--grey-soft);">(2026-05-18, claude-sonnet-4-6 + claude-haiku-4-5-20251001, 2 attempt(s))</span></h2>
+  <div class="meta">classification: Micro-shift beneath surface</div>
+  <div class="meta">through_line: (write failed)</div>
+  <div class="meta">card_shapes: </div>
+  <div class="meta">tenure: 44d · first_weekly: false · fed in window: 0/7</div>
+  <div class="meta" style="color:#b00;">errors: fact: card[5] weekday/date mismatch: prose says &quot;Saturday&quot; but 2026-05-20 is a Wednesday | quality(card[3]): Question card headline violates sharpness criterion. The headline 'When does the execution window finally open?' is followed by a full grounding paragraph that restates and contextualizes the question. The question itself is the visual anchor and should stand alone as the headline. The current structure buries the sharp interrogative under supporting prose. | quality(card[5]): Letter tone reads as editorial reflection about the user rather than a direct note to the user. Phrases like 'Your Gremly noticed something on May 20 that the rest of the week almost buried' and 'That is not a coincidence' perform analysis and interpretation rather than speaking directly to the person. The second paragraph begins 'The question card in this deck names the thing' which addresses the deck structure rather than the user's experience. The closing line 'That is what this week named' is a summary statement, not a companion's closing.</div>
+  <div class="deck-rail"></div>
+</div>
+<hr style="border:none;border-top:1px solid #d4cfc4;margin:50px 0;">
+
+<div class="inspect">
+  <h2>Tina · 0 cards <span style="font-weight:400;color:var(--grey-soft);">(2026-05-18, claude-sonnet-4-6 + claude-haiku-4-5-20251001, 2 attempt(s))</span></h2>
+  <div class="meta">classification: Travel + Reflection + Reset</div>
+  <div class="meta">through_line: (write failed)</div>
+  <div class="meta">card_shapes: </div>
+  <div class="meta">tenure: 5d · first_weekly: true · fed in window: 3/7</div>
+  <div class="meta" style="color:#b00;">errors: fact: card[1] weekday/date mismatch: prose says &quot;Saturday&quot; but 2026-05-22 is a Friday | fact: card[2] weekday/date mismatch: prose says &quot;Saturday&quot; but 2026-05-22 is a Friday | quality(card[4]): Question card headline violates sharpness criterion. The headline 'How do you close the gap between doing and recording?' is repeated verbatim in the grounding section as 'The question:' field, creating redundancy. More critically, the grounding paragraph that follows is two full sentences of context-setting before the question is restated, which defeats the visual-first form of a question card. The question should stand alone as the headline anchor; supporting context belongs in grounding, not embedded in prose that precedes the question. | quality(card[5]): Letter closing contains a coaching nudge disguised as an experiment suggestion. The final sentence ('That is worth one small experiment this week: the next time you walk, or stretch, or call James, just mark it.') directs the user toward a specific action and frames it as a prescription for the coming week. This violates the criterion that the letter should close without instruction. The letter reads as editorial guidance rather than a companion's note of what was noticed. | quality(card[5]): Letter tone shifts toward essay-about-you rather than note-to-you in the second paragraph. The sentence 'The place and the people have become genuinely important to you' is interpretive commentary on the user's emotional state rather than a direct observation of a named moment or quote. It reads as the writer reflecting on the user's feelings rather than the user hearing what was noticed. Compare to the first paragraph, which names the specific action (guilt → todo → presence in 24 hours) and lets the user draw the conclusion.</div>
+  <div class="deck-rail"></div>
+</div></body></html>

@@ -18,6 +18,8 @@
     "worldsHarness.ts",
     "signalCollector.ts",
     "worldsActiveState.ts",
-    "worldsBootstrap.ts"
+    "worldsBootstrap.ts",
+    "unifiedUserBundle.ts",
+    "moodValence.ts"
   ]
 }

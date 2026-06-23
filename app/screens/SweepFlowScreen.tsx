@@ -15,6 +15,7 @@ import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import {
   View,
   StyleSheet,
+  Text as RNText,
   TextInput,
   KeyboardAvoidingView,
   Platform,
@@ -28,6 +29,7 @@ import {
   Vibration,
   Dimensions,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import Reanimated, {
   FadeIn,
   FadeInUp,
@@ -43,7 +45,7 @@ import Reanimated, {
   interpolate,
 } from 'react-native-reanimated';
 
-import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Screen, Text, Button } from '../../ui';
@@ -56,7 +58,11 @@ import {
   Lightbulb,
   Repeat,
   ArrowRight,
+  ChevronRight,
   Calendar,
+  Sun,
+  Moon,
+  CalendarDays,
 } from 'lucide-react-native';
 import { useAuth } from '../../providers/AuthProvider';
 import { BRAND } from '../../design/brand';
@@ -64,10 +70,12 @@ import { triggerLight } from '../../lib/haptics';
 import { getDateService } from '../../lib/date';
 // Zustand store - used for all Sweep data operations
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { useWeekDays } from '../../lib/store/weekGridSelectors';
 import { useNeedsMindDropTutorial, useCanCreate } from '../../lib/store/lifecycleSelectors';
 import {
   useActiveSpaces,
   useIsLoading,
+  useSkipBudget,
   useSweepCandidatesUnified,
 } from '../../lib/store/selectors';
 
@@ -86,6 +94,7 @@ import type {
   SweepSummaryItem,
 } from '../../lib/sweep/types';
 import { SweepCardNew } from '../../components/sweep/SweepCardNew';
+import { WeekBoardOverlay } from '../../components/sweep/WeekBoardOverlay';
 import { SweepDemoFlow } from '../../components/sweep/SweepDemoFlow';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import { SweepMultiSplitStep } from '../../components/sweep/SweepMultiSplitStep';
@@ -113,6 +122,10 @@ import type { AppRecord } from '../../lib/types';
 import AgeUpCelebrationModal from '../../components/ritual/AgeUpCelebrationModal';
 import { getTierForAge } from '../../lib/constants/soulDocument';
 import { LockInCheckpointStep } from '../components/sweep/LockInCheckpointStep';
+import { SweepIntentionStep } from '../components/sweep/SweepIntentionStep';
+import { SweepHubChooser, type HubSectionKey } from '../components/sweep/SweepHubChooser';
+import { SweepHabitsCheckInStep } from '../components/sweep/SweepHabitsCheckInStep';
+import { SweepEventsStep } from '../components/sweep/SweepEventsStep';
 import {
   selectTodayLockedItems,
   selectTodayLockedItemsIncludingCompleted,
@@ -215,6 +228,43 @@ const JOURNAL_PROMPTS = [
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Step Components
+ */
+
+export type SweepIntent = 'today' | 'tomorrow' | 'week' | 'skip';
+
+function computeIntentProminence(lastSweepCompletedAt: string | null): {
+  primary: SweepIntent;
+  isEvening: boolean;
+  missedYesterday: boolean;
+} {
+  const ds = getDateService();
+  const hour = ds.now().getHours();
+  const isEvening = hour >= 15;
+  const lastDay = lastSweepCompletedAt ? ds.toLocalDate(new Date(lastSweepCompletedAt)) : null;
+  const missedYesterday = lastDay ? ds.daysBetween(lastDay, ds.today()) >= 1 : true;
+  const primary: SweepIntent = isEvening ? 'tomorrow' : 'today';
+  return { primary, isEvening, missedYesterday };
+}
+
+// TODO(cleanup-ledger): consolidate into BRAND
+const INTRO_CARD_BG = '#FCFAF6';
+const INTRO_TINT_MOUND = '#E3EDE0';
+const INTRO_TINT_SAGE = '#F2F7F0';
+const INTRO_TINT_PERI = 'rgba(156,166,224,0.18)';
+const INTRO_TINT_GOLD = 'rgba(224,196,122,0.20)';
+const INTRO_GOLD_CHIP = 'rgba(224,196,122,0.35)';
+const INTRO_GOLD_DEEP = '#A8842F';
+const INTRO_PERI_DEEP = '#7A86CC';
+const INTRO_SOFT_SHADOW = {
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.06,
+  shadowRadius: 8,
+  elevation: 2,
+};
+
+/**
  * Step 0: Intro ("Ready to Sweep?")
  *
  * Welcome screen that introduces the Sweep ritual.
@@ -225,7 +275,7 @@ function SweepIntroStep({
   onHelpPress,
   onClose,
 }: {
-  onStart: () => void;
+  onStart: (intent: SweepIntent) => void;
   onHelpPress?: () => void;
   onClose?: () => void;
 }) {
@@ -233,6 +283,12 @@ function SweepIntroStep({
   const gremlyAge = useGremlyStore.getState().gremlyAge;
   const lastSweepCompletedAt = useGremlyStore((state) => state.lastSweepCompletedAt);
   const candidates = useSweepCandidatesUnified();
+  const { remaining, total, canSkip } = useSkipBudget();
+  const refreshSkipBudget = useGremlyStore((s) => s.refreshSkipBudget);
+
+  useEffect(() => {
+    refreshSkipBudget();
+  }, [refreshSkipBudget]);
 
   // Count items by type
   const todoCount = candidates.filter((c) => c.candidate.kind === 'todo').length;
@@ -253,19 +309,11 @@ function SweepIntroStep({
     return '~ 5 min ~';
   };
 
-  // Build breakdown string
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const buildBreakdown = () => {
-    const parts: string[] = [];
-    if (todoCount > 0) parts.push(`${todoCount} ${todoCount === 1 ? 'todo' : 'todos'}`);
-    if (eventCount > 0) parts.push(`${eventCount} ${eventCount === 1 ? 'event' : 'events'}`);
-    if (noteCount > 0) parts.push(`${noteCount} ${noteCount === 1 ? 'idea' : 'ideas'}`);
-    if (habitCount > 0) parts.push(`${habitCount} ${habitCount === 1 ? 'habit' : 'habits'}`);
-    return parts.join(' · ');
-  };
-
   // First time user
   const isFirstTime = stats?.isFirstSweep || gremlyAge === 0;
+
+  // Intent prominence
+  const { primary, isEvening, missedYesterday } = computeIntentProminence(lastSweepCompletedAt);
 
   // Last sweep text
   const getLastSweepText = () => {
@@ -286,19 +334,60 @@ function SweepIntroStep({
     }
   };
 
+  // When-line: "Tuesday evening"
+  const _introNow = getDateService().now();
+  const _introHour = _introNow.getHours();
+  const _introWeekdays = [
+    'Sunday',
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+  ];
+  const introWeekday = _introWeekdays[_introNow.getDay()];
+  const introDaypart = _introHour < 12 ? 'morning' : _introHour < 18 ? 'afternoon' : 'evening';
+  const introWhenLine = `${introWeekday} ${introDaypart}`;
+
+  // Scene: mound + mascot + sparkles (shared between empty and normal states)
+  const introScene = (
+    <View style={styles.introScene}>
+      <View style={styles.introMound} />
+      <View style={styles.introSparkle1}>
+        <Sparkles size={15} color={BRAND.colors.goldenPear} />
+      </View>
+      <View style={styles.introSparkle2}>
+        <Sparkles size={9} color={BRAND.colors.goldenPear} />
+      </View>
+      <View style={styles.introSparkle3}>
+        <Sparkles size={7} color={BRAND.colors.goldenPear} />
+      </View>
+      <Pressable
+        onPress={onHelpPress}
+        style={styles.introMascotPressable}
+        accessibilityRole="button"
+        accessibilityLabel="Get help"
+      >
+        <Image source={GREMLY_SWEEP_INTRO} style={styles.introMascotImage} resizeMode="contain" />
+      </Pressable>
+    </View>
+  );
+
   // Edge case: nothing to sweep
   if (totalCount === 0 && !isLoading) {
     return (
       <View style={styles.introContainer}>
-        <Pressable onPress={onHelpPress} style={styles.introMascotContainerNew}>
-          <Image source={GREMLY_SWEEP_INTRO} style={styles.introMascotNew} resizeMode="contain" />
-        </Pressable>
-
-        <Text style={styles.introCelebrationTitle}>All clear! 🎉</Text>
-        <Text style={styles.introCelebrationSubtitle}>
-          Nothing to sweep — you're caught up.{'\n'}Enjoy the mental clarity.
-        </Text>
-
+        {introScene}
+        <View style={styles.introBubbleWrap}>
+          <View style={styles.introBubble}>
+            <View style={styles.introBubbleTail} />
+            <Text style={styles.introBubbleText}>All clear. Nothing's piled up, enjoy it.</Text>
+          </View>
+        </View>
+        <Text style={styles.introTitle}>All clear!</Text>
+        <Text style={styles.introWhenLine}>{introWhenLine}</Text>
+        <View style={{ flex: 1 }} />
         <TouchableOpacity style={styles.secondaryButton} onPress={onClose}>
           <Text style={styles.secondaryButtonText}>Back to Today</Text>
         </TouchableOpacity>
@@ -306,64 +395,208 @@ function SweepIntroStep({
     );
   }
 
+  // Build bubble text with bold counts
+  const buildBubbleText = (): React.ReactNode => {
+    if (isFirstTime) {
+      return <Text style={styles.introBubbleText}>{"Let's clear the path for tomorrow."}</Text>;
+    }
+    const parts: string[] = [];
+    if (todoCount > 0) parts.push(`${todoCount} ${todoCount === 1 ? 'todo' : 'todos'}`);
+    if (eventCount > 0) parts.push(`${eventCount} ${eventCount === 1 ? 'event' : 'events'}`);
+    if (noteCount > 0) parts.push(`${noteCount} ${noteCount === 1 ? 'idea' : 'ideas'}`);
+    if (habitCount > 0) parts.push(`${habitCount} ${habitCount === 1 ? 'habit' : 'habits'}`);
+    const joinParts = (p: string[]): string => {
+      if (p.length === 0) return '';
+      if (p.length === 1) return p[0];
+      if (p.length === 2) return `${p[0]} and ${p[1]}`;
+      return `${p.slice(0, -1).join(', ')}, and ${p[p.length - 1]}`;
+    };
+    const countStr = joinParts(parts);
+    if (missedYesterday) {
+      return (
+        <Text style={styles.introBubbleText}>
+          Yesterday got away from us. No big deal, let's set up today instead.
+        </Text>
+      );
+    }
+    if (isEvening) {
+      const verb = totalCount === 1 ? 'has' : 'have';
+      return (
+        <Text style={styles.introBubbleText}>
+          <Text style={styles.introBubbleTextBold}>{countStr}</Text>
+          {` ${verb} piled up. Let's line things up for tomorrow.`}
+        </Text>
+      );
+    }
+    const timeEst = getTimeEstimate().replace(/~/g, '').trim();
+    return (
+      <Text style={styles.introBubbleText}>
+        <Text style={styles.introBubbleTextBold}>{countStr}</Text>
+        {` waiting. Clear your mind in about ${timeEst}.`}
+      </Text>
+    );
+  };
+
+  // Sorted intents: primary first, week last
+  const sortedIntents = (
+    [
+      {
+        intent: 'today' as SweepIntent,
+        Icon: Sun,
+        title: isEvening
+          ? primary === 'today'
+            ? 'Wrap up today'
+            : 'Anything for today?'
+          : primary === 'today'
+            ? 'Plan today'
+            : 'Anything for today?',
+        subtitle: isEvening
+          ? primary === 'today'
+            ? 'What still matters before bed'
+            : "Wrap up what's left"
+          : primary === 'today'
+            ? "Decide what's for today"
+            : "Wrap up what's left",
+      },
+      {
+        intent: 'tomorrow' as SweepIntent,
+        Icon: Moon,
+        title: primary === 'tomorrow' ? 'Close out today' : 'Set up tomorrow instead',
+        subtitle:
+          primary === 'tomorrow' ? 'Decide what carries to tomorrow' : 'Skip today, plan tomorrow',
+      },
+      {
+        intent: 'week' as SweepIntent,
+        Icon: CalendarDays,
+        title: 'Plan my week',
+        subtitle: 'Spread things across the days',
+      },
+    ] as {
+      intent: SweepIntent;
+      Icon: React.ComponentType<any>;
+      title: string;
+      subtitle: string;
+    }[]
+  ).sort((a, b) => {
+    if (a.intent === 'week') return 1;
+    if (b.intent === 'week') return -1;
+    if (a.intent === primary) return -1;
+    if (b.intent === primary) return 1;
+    return 0;
+  });
+
   return (
     <View style={styles.introContainer}>
-      {/* Gremly - tappable for help */}
-      <Pressable onPress={onHelpPress} style={styles.introMascotContainerNew}>
-        <Image source={GREMLY_SWEEP_INTRO} style={styles.introMascotNew} resizeMode="contain" />
-      </Pressable>
+      {introScene}
 
-      {/* Main title - simple and direct */}
-      <Text style={styles.introPhrase}>{isFirstTime ? 'Welcome to Sweep!' : 'A quick sweep'}</Text>
-
-      {/* Subtitle with time estimate */}
-      <Text style={styles.introSubtitle}>
-        {isFirstTime
-          ? "Let's clear the path for tomorrow"
-          : `Clear your mind in ${getTimeEstimate().replace(/~/g, '').trim()}`}
-      </Text>
-
-      {/* Breakdown Card */}
-      {totalCount > 0 && (
-        <View style={styles.breakdownCard}>
-          {todoCount > 0 && (
-            <View style={styles.breakdownColumn}>
-              <Check size={22} color={BRAND.colors.mossGreen} strokeWidth={2} />
-              <Text style={styles.breakdownNumber}>{todoCount}</Text>
-              <Text style={styles.breakdownLabel}>{todoCount === 1 ? 'todo' : 'todos'}</Text>
-            </View>
-          )}
-          {eventCount > 0 && (
-            <View style={styles.breakdownColumn}>
-              <Calendar size={22} color={BRAND.colors.mossGreen} strokeWidth={2} />
-              <Text style={styles.breakdownNumber}>{eventCount}</Text>
-              <Text style={styles.breakdownLabel}>{eventCount === 1 ? 'event' : 'events'}</Text>
-            </View>
-          )}
-          {noteCount > 0 && (
-            <View style={styles.breakdownColumn}>
-              <Lightbulb size={22} color={BRAND.colors.mossGreen} strokeWidth={2} />
-              <Text style={styles.breakdownNumber}>{noteCount}</Text>
-              <Text style={styles.breakdownLabel}>{noteCount === 1 ? 'idea' : 'ideas'}</Text>
-            </View>
-          )}
-          {habitCount > 0 && (
-            <View style={styles.breakdownColumn}>
-              <Repeat size={22} color={BRAND.colors.mossGreen} strokeWidth={2} />
-              <Text style={styles.breakdownNumber}>{habitCount}</Text>
-              <Text style={styles.breakdownLabel}>{habitCount === 1 ? 'habit' : 'habits'}</Text>
-            </View>
-          )}
+      {/* Speech bubble */}
+      <View style={styles.introBubbleWrap}>
+        <View style={styles.introBubble}>
+          <View style={styles.introBubbleTail} />
+          {buildBubbleText()}
         </View>
-      )}
+      </View>
 
-      {/* CTA */}
-      <TouchableOpacity style={styles.primaryButton} onPress={onStart} activeOpacity={0.8}>
-        <Text style={styles.primaryButtonText}>Let's do this</Text>
-        <ArrowRight size={18} color="white" style={{ marginLeft: 8 }} />
-      </TouchableOpacity>
+      {/* Title */}
+      <Text style={styles.introTitle}>{isFirstTime ? 'Welcome to Sweep!' : 'A quick sweep'}</Text>
 
-      {/* Last sweep footer */}
+      {/* When-line */}
+      <Text style={styles.introWhenLine}>{introWhenLine}</Text>
+
+      {/* Grouped intent card */}
+      <View style={styles.intentsGroup}>
+        {sortedIntents.map(({ intent, Icon, title, subtitle }, idx) => {
+          const isPrimary = intent === primary;
+          const isWeek = intent === 'week';
+          const isLastRow = idx === sortedIntents.length - 1;
+          const chipBg = isPrimary ? INTRO_GOLD_CHIP : isWeek ? INTRO_TINT_PERI : INTRO_TINT_SAGE;
+          const iconColor = isPrimary
+            ? INTRO_GOLD_DEEP
+            : isWeek
+              ? INTRO_PERI_DEEP
+              : BRAND.colors.mossGreen;
+          return (
+            <TouchableOpacity
+              key={intent}
+              style={[
+                styles.intentRow,
+                isPrimary && styles.intentRowHighlight,
+                isLastRow && styles.intentRowLast,
+              ]}
+              activeOpacity={0.8}
+              onPress={() => {
+                triggerLight();
+                onStart(intent);
+              }}
+            >
+              {isPrimary && <View style={styles.intentAccent} />}
+              <View style={[styles.intentChip, { backgroundColor: chipBg }]}>
+                <Icon size={19} strokeWidth={2} color={iconColor} />
+              </View>
+              <View style={styles.intentTextWrap}>
+                {isPrimary && (
+                  <Text style={styles.intentPickTag}>
+                    {isEvening ? "Tonight's pick" : "Today's pick"}
+                  </Text>
+                )}
+                <Text
+                  style={[styles.intentTitle, isPrimary && styles.intentTitleHighlight]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.85}
+                >
+                  {title}
+                </Text>
+                <Text style={styles.intentSubtitle}>{subtitle}</Text>
+              </View>
+              {isPrimary ? (
+                <ArrowRight size={16} color={INTRO_GOLD_DEEP} />
+              ) : (
+                <ChevronRight size={16} color={BRAND.colors.inkMuted} />
+              )}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* Footer - pushed to bottom with flex spacer */}
+      <View style={{ flex: 1, maxHeight: 24 }} />
+      <View style={styles.bulkSkipDivider} />
+      <Pressable
+        onPress={() => {
+          if (canSkip) {
+            triggerLight();
+            onStart('skip');
+          }
+        }}
+        style={({ pressed }) => [
+          styles.bulkSkipRow,
+          pressed && canSkip && styles.bulkSkipRowPressed,
+          !canSkip && styles.bulkSkipRowLocked,
+        ]}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: !canSkip }}
+        accessibilityLabel={
+          canSkip
+            ? `Skip today and move everything forward. ${remaining} of ${total} weekly skips left.`
+            : 'No weekly skips left this week.'
+        }
+      >
+        <View style={styles.bulkSkipTextWrap}>
+          <RNText
+            style={[styles.bulkSkipTitle, !canSkip && styles.bulkSkipTitleLocked]}
+            numberOfLines={1}
+          >
+            {canSkip ? 'Tired? Skip today' : 'No skips left this week'}
+          </RNText>
+          <RNText style={styles.bulkSkipSub} numberOfLines={1}>
+            {canSkip
+              ? `Move it all forward · ${remaining} left`
+              : 'Refills as the week rolls forward'}
+          </RNText>
+        </View>
+        {canSkip && <ChevronRight size={17} color="#B5B2A8" />}
+      </Pressable>
       <Text style={styles.lastSweepText}>{getLastSweepText()}</Text>
     </View>
   );
@@ -1427,6 +1660,7 @@ function SweepHabitsStep({ onContinue }: StepProps) {
 interface DecisionStepProps {
   onFinished: (summary: SweepSummary) => void;
   onClose?: () => void;
+  sweepIntent?: Exclude<SweepIntent, 'skip'>;
   /** DEV ONLY: Jump to specific card index for testing */
   initialCardIndex?: number;
 }
@@ -1463,7 +1697,12 @@ function useSweepSnapshot(
   };
 }
 
-function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionStepProps) {
+function SweepDecisionStep({
+  onFinished,
+  onClose,
+  sweepIntent = 'tomorrow',
+  initialCardIndex,
+}: DecisionStepProps) {
   // Get candidates from unified store selector (single source of truth)
   const allCandidates = useSweepCandidatesUnified();
   const storeIsLoading = useIsLoading();
@@ -1494,6 +1733,8 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   const _updateHabit = useGremlyStore((state) => state.updateHabit);
   const archiveHabit = useGremlyStore((state) => state.archiveHabit);
   const resolveEntityClarification = useGremlyStore((state) => state.resolveEntityClarification);
+
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   // Use store data for overlay lookups
   const todos = useGremlyStore((state) => state.todos);
@@ -1536,6 +1777,24 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   // Use both state (for UI re-renders) and ref (for immediate access in async operations)
   const [decisions, setDecisions] = useState<Map<string, SweepDecision>>(new Map());
   const decisionsRef = useRef<Map<string, SweepDecision>>(new Map());
+
+  // Week grid commitment counts — reactive over store slices + in-session decisions.
+  // decisions Map is SweepDecision (superset of sessionDecisions contract).
+  const weekDays = useWeekDays(decisions as Map<string, { dueDateStr?: string; action: string }>);
+
+  // Week board overlay state
+  const [showWeekBoard, setShowWeekBoard] = useState(false);
+  const reopenWeekBoardRef = useRef(false);
+
+  // Reopen the board when returning from the Calendar screen
+  useFocusEffect(
+    useCallback(() => {
+      if (reopenWeekBoardRef.current) {
+        reopenWeekBoardRef.current = false;
+        setShowWeekBoard(true);
+      }
+    }, []),
+  );
 
   // Entity chat state (for chat button on sweep cards)
   const [showEntityChat, setShowEntityChat] = useState(false);
@@ -2681,7 +2940,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
    * Handle confirmed todo action (due date + optional reminder in a single decision)
    */
   const handleConfirmTodoAction = useCallback(
-    (action: { dueDateStr: string; reminderDateStr?: string; reminderTime?: string }) => {
+    (action: { dueDateStr?: string; reminderDateStr?: string; reminderTime?: string }) => {
       useGremlyStore
         .getState()
         .incrementSweepCount()
@@ -3209,6 +3468,9 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
               onConvertToType={handleConvertToType}
               onUpdateEventDate={handleUpdateEventDate}
               onRequestPhotoPreview={setPhotoPreviewUrl}
+              sweepIntent={sweepIntent}
+              weekDays={sweepIntent === 'week' ? weekDays : undefined}
+              onSeeMyWeek={sweepIntent === 'week' ? () => setShowWeekBoard(true) : undefined}
             />
 
             {/* Clarification Popup - shown when current card needs clarification */}
@@ -3245,6 +3507,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           itemCount={currentTransition?.count || 0}
           onContinue={handleTransitionContinue}
           onClose={onClose}
+          sweepIntent={sweepIntent}
         />
       </Modal>
 
@@ -3267,6 +3530,26 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           onClose={() => setShowEntityChat(false)}
         />
       </Modal>
+
+      {/* Week board overlay */}
+      <WeekBoardOverlay
+        visible={showWeekBoard}
+        days={weekDays}
+        onClose={() => setShowWeekBoard(false)}
+        onOpenCalendarForDay={(date) => {
+          reopenWeekBoardRef.current = true;
+          setShowWeekBoard(false);
+          navigation.navigate('CalendarScreen', { initialDate: date });
+        }}
+        onConfirmMove={(itemId, targetDay) => {
+          recordDecision({
+            candidateId: itemId,
+            candidateKind: 'todo',
+            action: 'keep',
+            dueDateStr: targetDay,
+          });
+        }}
+      />
 
       {/* Photo Preview Modal */}
       <Modal
@@ -3840,6 +4123,8 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   const route = useRoute<RouteProp<RootStackParamList, 'Sweep'>>();
   const initialStep = __DEV__ ? (route.params?.initialStep ?? 0) : 0;
   const initialCardIndex = __DEV__ ? route.params?.initialCardIndex : undefined;
+  const initialIntent = __DEV__ ? route.params?.initialIntent : undefined;
+  const initialHub = __DEV__ ? route.params?.initialHub : undefined;
   const demoMode = route.params?.demoMode === true;
 
   // Debug logging for DEV mode step jumping
@@ -3854,6 +4139,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   const { user } = useAuth();
   const demoSweepCompletedAt = useGremlyStore((s) => s.demoSweepCompletedAt);
   const canCreate = useCanCreate();
+  const bulkSkipSweep = useGremlyStore((state) => state.bulkSkipSweep);
 
   // Suppress the global age-up modal while sweep screen is active.
   // The sweep has its own local AgeUpCelebrationModal shown post-summary.
@@ -3863,6 +4149,23 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   }, []);
 
   const [step, setStep] = useState<number>(initialStep);
+  // sweepIntent: captured from the intro screen; consumed in Phase 2 (SweepDecisionStep default date).
+  // In __DEV__, initialIntent from route params can seed this directly (for test-mode step jumping).
+  const [sweepIntent, setSweepIntent] = useState<SweepIntent>(
+    __DEV__ && initialIntent ? initialIntent : 'tomorrow',
+  );
+  const [bulkSkipPickerVisible, setBulkSkipPickerVisible] = useState(false);
+  const [bulkSkipPickerDate, setBulkSkipPickerDate] = useState<Date>(() => getDateService().now());
+
+  // ── Week-mode hub state ──────────────────────────────────────────────────
+  // Sentinel step value for the hub chooser screen. Must not collide with
+  // existing steps (0, 0.25, 0.5, 0.75, 1, 2, 3, 4).
+  const HUB = 0.1;
+  const EVENTS = 0.2; // Events spoke sentinel
+  const [hubMode, setHubMode] = useState(false);
+  const [completedSections, setCompletedSections] = useState<Set<string>>(new Set());
+  const [guidedAll, setGuidedAll] = useState(false);
+  const [activeSection, setActiveSection] = useState<HubSectionKey | null>(null);
 
   // Check if user has locked items for lock-in checkpoint (including completed ones for celebration)
   const lockedItems = useGremlyStore(selectTodayLockedItems);
@@ -4078,6 +4381,25 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     }
   }, [route.params?.initialStep]);
 
+  // DEV MODE: Sync sweepIntent from route params when they change (for test mode intent jumping)
+  useEffect(() => {
+    if (__DEV__ && route.params?.initialIntent) {
+      setSweepIntent(route.params.initialIntent);
+    }
+  }, [route.params?.initialIntent]);
+
+  // DEV MODE: Activate hub when initialHub param is set (bypasses handleIntroStart)
+  useEffect(() => {
+    if (__DEV__ && route.params?.initialHub && route.params?.initialIntent === 'week') {
+      setHubMode(true);
+      setGuidedAll(false);
+      setCompletedSections(new Set());
+      setActiveSection(null);
+      setStep(HUB);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route.params?.initialHub, route.params?.initialIntent]);
+
   // Debug: log step changes
   useEffect(() => {
     if (__DEV__) {
@@ -4136,13 +4458,28 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     [overlayClose],
   );
 
-  const handleIntroStart = () => {
+  const handleIntroStart = (intent: SweepIntent) => {
+    setSweepIntent(intent);
     sweepLog.debug('[SweepFlowScreen] handleIntroStart:', {
       hasUnresolvedMultiDrops,
       unresolvedMultiDropsCount: unresolvedMultiDrops.length,
       hasLockedItems,
       lockInCheckpointComplete,
     });
+    if (intent === 'skip') {
+      setBulkSkipPickerDate(getDateService().now());
+      setBulkSkipPickerVisible(true);
+      return;
+    }
+    // Week mode opens the hub chooser instead of linear decisions
+    if (intent === 'week') {
+      setHubMode(true);
+      setGuidedAll(false);
+      setCompletedSections(new Set());
+      setActiveSection(null);
+      setStep(HUB);
+      return;
+    }
     // Check for unresolved multi-drops first
     if (hasUnresolvedMultiDrops) {
       setStep(0.25); // Go to multi-split step
@@ -4152,6 +4489,46 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
       setStep(1); // Go to decision cards
     }
   };
+
+  // ── Hub helpers ──────────────────────────────────────────────────────────
+  const backToHub = useCallback(() => {
+    setActiveSection(null);
+    setStep(HUB);
+  }, [HUB]);
+
+  const addCompletedSection = useCallback((key: HubSectionKey) => {
+    setCompletedSections((prev) => new Set(prev).add(key));
+  }, []);
+
+  const handleHubPickSection = useCallback(
+    (key: HubSectionKey) => {
+      setActiveSection(key);
+      if (key === 'todos') setStep(1);
+      else if (key === 'intention') setStep(3);
+      else if (key === 'habits') setStep(2);
+      else if (key === 'events') setStep(EVENTS);
+    },
+    [EVENTS],
+  );
+
+  const handleHubLeadThroughAll = useCallback(() => {
+    setGuidedAll(true);
+    setActiveSection(null);
+    setStep(1); // Start linear chain: decisions → intention → summary
+  }, []);
+
+  const handleHubFinish = useCallback(() => {
+    setStep(4); // Jump to summary
+  }, []);
+
+  const handleEventsFinish = useCallback(() => {
+    if (hubMode && !guidedAll) {
+      addCompletedSection('events');
+      backToHub();
+      return;
+    }
+    setStep(3); // Events → Intention in guided chain
+  }, [hubMode, guidedAll, addCompletedSection, backToHub]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Multi-Split Step Handlers
@@ -4497,14 +4874,26 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     if (data?.journalWritten !== undefined) {
       setJournalWritten(data.journalWritten);
     }
-    setStep(4); // Mood → Summary
+    // In hub a-la-carte mode the intention slide is the 'intention' spoke
+    if (hubMode && !guidedAll) {
+      addCompletedSection('intention');
+      backToHub();
+      return;
+    }
+    setStep(4); // Mood/Intention → Summary
   };
 
   const handleWrapUpContinue = (data?: { habitsChecked?: number; journalWritten?: boolean }) => {
     if (data?.habitsChecked !== undefined) {
       setHabitsCheckedCount(data.habitsChecked);
     }
-    setStep(3); // Habits → Mood
+    // In hub a-la-carte mode the habits deck is the 'habits' spoke
+    if (hubMode && !guidedAll) {
+      addCompletedSection('habits');
+      backToHub();
+      return;
+    }
+    setStep(EVENTS); // Habits → Events → Intention in guided chain
   };
 
   const handleDecisionFinished = useCallback(
@@ -4540,10 +4929,50 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
         }
       }
 
+      // In hub a-la-carte mode, return to hub after decisions
+      if (hubMode && !guidedAll) {
+        addCompletedSection('todos');
+        backToHub();
+        return;
+      }
       // Advance to Habits step
       setStep(2); // Decision → Habits
     },
-    [user],
+    [user, hubMode, guidedAll, addCompletedSection, backToHub],
+  );
+
+  const handleBulkSkipConfirm = useCallback(
+    async (pickedDate: Date) => {
+      try {
+        const ds = getDateService();
+        const targetDateStr = ds.toLocalDate(pickedDate);
+        const { movedCount } = await bulkSkipSweep(targetDateStr);
+
+        if (user?.id) {
+          const result = await markSweepCompleted(user.id, supabase, {
+            kept: 0,
+            cleared: movedCount,
+          });
+          const { setSweepPreferences, totalSweepCount } = useGremlyStore.getState();
+          setSweepPreferences({
+            lastSweepCompletedAt: getDateService().nowTimestamp(),
+            sweepStreak: result.streak,
+            totalSweepCount: totalSweepCount + 1,
+          });
+        }
+
+        triggerLight();
+        setBulkSkipPickerVisible(false);
+        setKeptCount(0);
+        setClearedCount(movedCount);
+        setSummaryItems({ todos: [], thoughts: [], habits: [] });
+        setStep(4);
+      } catch (err) {
+        sweepLog.error('[SweepFlowScreen] Failed to bulk skip from intro:', err);
+        setBulkSkipPickerVisible(false);
+      }
+    },
+    [bulkSkipSweep, user],
   );
 
   const handleSummaryDone = () => {
@@ -4566,19 +4995,42 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     navigation.goBack();
   };
 
-  // Handler for X close button
+  // Handler for X close button.
+  // In à-la-carte hub mode: X inside a spoke returns to the hub chooser.
+  // From the hub itself, guided mode, or non-hub mode: X exits the sweep.
   const handleClose = useCallback(() => {
+    if (hubMode && !guidedAll && step !== HUB && step > 0) {
+      backToHub();
+      return;
+    }
     navigation.goBack();
-  }, [navigation]);
+  }, [hubMode, guidedAll, step, HUB, backToHub, navigation]);
+
+  // Intercept gesture/hardware back in à-la-carte hub mode so the user
+  // returns to the hub chooser instead of leaving the sweep entirely.
+  useEffect(() => {
+    return navigation.addListener('beforeRemove', (e) => {
+      if (hubMode && !guidedAll && step !== HUB && step > 0) {
+        e.preventDefault();
+        backToHub();
+      }
+    });
+  }, [navigation, hubMode, guidedAll, step, HUB, backToHub]);
 
   // Handler for back chevron - goes to previous step or closes if on first step
   const handleGoBack = useCallback(() => {
-    if (step > 0) {
-      setStep(step - 1);
-    } else {
-      navigation.goBack();
+    // From a spoke in a-la-carte hub mode, go back to the hub
+    if (hubMode && !guidedAll && step !== HUB && step > 0) {
+      backToHub();
+      return;
     }
-  }, [step, navigation]);
+    // From the hub (or guided mode), exit or go to previous step
+    if (step === HUB || step <= 0) {
+      navigation.goBack();
+      return;
+    }
+    setStep(step - 1);
+  }, [step, hubMode, guidedAll, HUB, backToHub, navigation]);
 
   // ── Demo: show for ANY user who hasn't completed the demo yet ──
   if (!demoSweepCompletedAt) {
@@ -4657,7 +5109,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
           style={
             step === 1
               ? styles.contentDecision
-              : step === 0.5
+              : step === 0.5 || step === HUB
                 ? styles.contentLockIn
                 : styles.content
           }
@@ -4681,12 +5133,64 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
               />
             </>
           )}
+          {step === HUB && sweepIntent === 'week' && (
+            <SweepHubChooser
+              completed={completedSections}
+              onPickSection={handleHubPickSection}
+              onLeadThroughAll={handleHubLeadThroughAll}
+              onFinish={handleHubFinish}
+              onExit={handleClose}
+              weekLabel={(() => {
+                const _ds = getDateService();
+                const MONTHS = [
+                  'January',
+                  'February',
+                  'March',
+                  'April',
+                  'May',
+                  'June',
+                  'July',
+                  'August',
+                  'September',
+                  'October',
+                  'November',
+                  'December',
+                ];
+                const start = _ds.getStartOfWeek();
+                const end = _ds.addDays(start, 6);
+                const s = _ds.fromLocalDate(start);
+                const e = _ds.fromLocalDate(end);
+                if (!s || !e) return '';
+                const sLabel = `${MONTHS[s.getMonth()]} ${s.getDate()}`;
+                const eLabel =
+                  e.getMonth() === s.getMonth()
+                    ? `${e.getDate()}`
+                    : `${MONTHS[e.getMonth()]} ${e.getDate()}`;
+                return `${sLabel} to ${eLabel}`;
+              })()}
+            />
+          )}
           {step === 0.25 && (
             <SweepMultiSplitStep
               multiDrops={unresolvedMultiDropsForStep}
               onSplit={handleMultiSplit}
               onKeepAsOne={handleMultiKeepAsOne}
               onComplete={handleMultiSplitComplete}
+            />
+          )}
+          {step === 0.75 && sweepIntent === 'week' && (
+            <SweepIntentionStep
+              weekStartDate={getDateService().getStartOfWeek()}
+              onContinue={() => {
+                if (hasUnresolvedMultiDrops) setStep(0.25);
+                else if (hasLockedItems && !lockInCheckpointComplete) setStep(0.5);
+                else setStep(1);
+              }}
+              onSkip={() => {
+                if (hasUnresolvedMultiDrops) setStep(0.25);
+                else if (hasLockedItems && !lockInCheckpointComplete) setStep(0.5);
+                else setStep(1);
+              }}
             />
           )}
           {step === 0.5 && (
@@ -4696,11 +5200,29 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
             <SweepDecisionStep
               onFinished={handleDecisionFinished}
               onClose={handleClose}
+              sweepIntent={sweepIntent === 'skip' ? 'tomorrow' : sweepIntent}
               initialCardIndex={initialCardIndex}
             />
           )}
-          {step === 2 && <SweepHabitsStep onContinue={handleWrapUpContinue} />}
-          {step === 3 && <SweepMoodStep onContinue={handleMoodContinue} />}
+          {step === 2 && sweepIntent === 'week' && (
+            <SweepHabitsCheckInStep onFinish={handleWrapUpContinue} />
+          )}
+          {step === 2 && sweepIntent !== 'week' && (
+            <SweepHabitsStep onContinue={handleWrapUpContinue} />
+          )}
+          {step === EVENTS && sweepIntent === 'week' && (
+            <SweepEventsStep onFinish={handleEventsFinish} />
+          )}
+          {step === 3 && sweepIntent === 'week' && (
+            <SweepIntentionStep
+              weekStartDate={getDateService().getStartOfWeek()}
+              onContinue={handleMoodContinue}
+              onSkip={handleMoodContinue}
+            />
+          )}
+          {step === 3 && sweepIntent !== 'week' && (
+            <SweepMoodStep onContinue={handleMoodContinue} />
+          )}
           {step === 4 &&
             (sweepLog.debug(
               '[SweepFlowScreen] Rendering SweepSummaryStep with kept:',
@@ -4775,6 +5297,70 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
         </View>
       ) : null}
 
+      {/* Bulk skip date picker (same native picker used by sweep card quick-date flows) */}
+      <Modal
+        visible={bulkSkipPickerVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setBulkSkipPickerVisible(false)}
+      >
+        <View style={styles.bulkSkipPickerModalRoot}>
+          <Pressable
+            style={styles.bulkSkipPickerBackdrop}
+            onPress={() => setBulkSkipPickerVisible(false)}
+          />
+          <View style={styles.bulkSkipPickerSheet}>
+            <Text style={styles.bulkSkipPickerTitle}>Pick a day to move everything</Text>
+            {Platform.OS === 'ios' ? (
+              <>
+                <DateTimePicker
+                  value={bulkSkipPickerDate}
+                  mode="date"
+                  display="inline"
+                  onChange={(_, date) => {
+                    if (date) setBulkSkipPickerDate(date);
+                  }}
+                />
+                <View style={styles.bulkSkipPickerActions}>
+                  <TouchableOpacity
+                    style={styles.bulkSkipPickerCancelButton}
+                    onPress={() => setBulkSkipPickerVisible(false)}
+                  >
+                    <Text style={styles.bulkSkipPickerCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.bulkSkipPickerConfirmButton}
+                    onPress={() => {
+                      void handleBulkSkipConfirm(bulkSkipPickerDate);
+                    }}
+                  >
+                    <Text style={styles.bulkSkipPickerConfirmText}>Move all</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              <DateTimePicker
+                value={bulkSkipPickerDate}
+                mode="date"
+                display="default"
+                onChange={(event, date) => {
+                  if (event.type === 'dismissed') {
+                    setBulkSkipPickerVisible(false);
+                    return;
+                  }
+                  if (!date) {
+                    setBulkSkipPickerVisible(false);
+                    return;
+                  }
+                  setBulkSkipPickerDate(date);
+                  void handleBulkSkipConfirm(date);
+                }}
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
+
       {/* Age-Up Celebration Modal */}
       <AgeUpCelebrationModal
         visible={showAgeUpModal}
@@ -4807,7 +5393,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 4,
     backgroundColor: BRAND.colors.linenCream,
     // No shadow, no border - pure Linen Cream
   },
@@ -4883,104 +5469,286 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   // ─────────────────────────────────────────────────────────────────────────
-  // SweepIntroStep styles - New Design
+  // SweepIntroStep styles
   // ─────────────────────────────────────────────────────────────────────────
   introContainer: {
     flex: 1,
     backgroundColor: BRAND.colors.linenCream,
     alignItems: 'center',
-    justifyContent: 'flex-start',
     paddingHorizontal: 24,
-    paddingTop: 60,
-  },
-  introMascotContainerNew: {
-    marginBottom: 24,
-  },
-  introMascotNew: {
-    width: 110,
-    height: 110,
-  },
-  introPhrase: {
-    fontSize: 26,
-    fontWeight: '700',
-    color: BRAND.colors.charcoalInk,
-    textAlign: 'center',
-    marginBottom: 12,
-    lineHeight: 34,
     paddingTop: 4,
-    includeFontPadding: true,
+    paddingBottom: 16,
   },
-  introSubtitle: {
-    fontSize: 17,
-    color: BRAND.colors.inkMuted,
-    textAlign: 'center',
-    marginTop: 8,
-    marginBottom: 24,
+  // Scene: mound + mascot + sparkles
+  introScene: {
+    width: 230,
+    height: 178,
+    marginTop: 14,
   },
-  breakdownCard: {
-    flexDirection: 'row',
-    backgroundColor: 'white',
-    borderRadius: 16,
-    paddingVertical: 20,
-    paddingHorizontal: 24,
-    marginTop: 24,
-    marginBottom: 32,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-    gap: 32,
+  introMound: {
+    position: 'absolute',
+    bottom: 6,
+    left: 10,
+    width: 210,
+    height: 56,
+    backgroundColor: INTRO_TINT_MOUND,
+    borderRadius: 999,
   },
-  breakdownColumn: {
-    alignItems: 'center',
+  introMascotPressable: {
+    position: 'absolute',
+    bottom: 18,
+    left: 51,
+  },
+  introMascotImage: {
+    width: 128,
+    height: 128,
+  },
+  introSparkle1: {
+    position: 'absolute',
+    right: 30,
+    top: 54,
+  },
+  bulkSkipPickerModalRoot: {
     flex: 1,
+    justifyContent: 'flex-end',
   },
-  breakdownNumber: {
-    fontSize: 28,
-    fontWeight: '700',
+  bulkSkipPickerBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  bulkSkipPickerSheet: {
+    backgroundColor: '#F9F6F1',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 18,
+  },
+  bulkSkipPickerTitle: {
+    fontSize: 16,
     color: BRAND.colors.charcoalInk,
-    marginTop: 8,
-    marginBottom: 2,
-    lineHeight: 36,
-    includeFontPadding: false,
-    textAlignVertical: 'center',
+    textAlign: 'center',
+    marginBottom: 8,
+    fontFamily: 'Inter-SemiBold',
   },
-  breakdownLabel: {
-    fontSize: 13,
-    color: BRAND.colors.inkMuted,
-  },
-  primaryButton: {
+  bulkSkipPickerActions: {
     flexDirection: 'row',
-    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 8,
+  },
+  bulkSkipPickerCancelButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: '#ECE7DD',
+  },
+  bulkSkipPickerCancelText: {
+    color: BRAND.colors.charcoalInk,
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+  },
+  bulkSkipPickerConfirmButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
     backgroundColor: BRAND.colors.mossGreen,
-    paddingVertical: 16,
-    paddingHorizontal: 32,
-    borderRadius: 14,
-    marginBottom: 24,
   },
-  primaryButtonText: {
-    color: 'white',
-    fontSize: 18,
-    fontWeight: '600',
+  bulkSkipPickerConfirmText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontFamily: 'Inter-SemiBold',
   },
-  lastSweepText: {
-    fontSize: 13,
+  introSparkle2: {
+    position: 'absolute',
+    right: 52,
+    top: 96,
+  },
+  introSparkle3: {
+    position: 'absolute',
+    left: 34,
+    top: 74,
+  },
+  // Speech bubble
+  introBubbleWrap: {
+    maxWidth: 300,
+    width: '100%',
+    marginTop: 6,
+  },
+  introBubble: {
+    backgroundColor: BRAND.colors.surface,
+    borderRadius: 18,
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+    ...INTRO_SOFT_SHADOW,
+  },
+  introBubbleTail: {
+    position: 'absolute',
+    top: -7,
+    left: '50%',
+    marginLeft: -7,
+    width: 14,
+    height: 14,
+    backgroundColor: BRAND.colors.surface,
+    borderRadius: 3,
+    transform: [{ rotate: '45deg' }],
+  },
+  introBubbleText: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontFamily: BRAND.typography.body.fontFamily,
     color: BRAND.colors.inkSubtle,
     textAlign: 'center',
-    marginTop: 8,
   },
-  introButton: {
-    backgroundColor: BRAND.colors.sageMist,
-    paddingVertical: 18,
-    paddingHorizontal: 48,
-    borderRadius: 14,
-    marginBottom: 24,
+  introBubbleTextBold: {
+    fontFamily: BRAND.typography.bodyMedium.fontFamily,
+    color: BRAND.colors.charcoalInk,
   },
-  introButtonText: {
+  // Title + when-line
+  introTitle: {
+    fontSize: 28,
+    lineHeight: 38,
+    fontFamily: BRAND.typography.header.fontFamily,
     color: BRAND.colors.mossGreen,
-    fontSize: 18,
-    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: 18,
+    paddingTop: 2,
+    includeFontPadding: true,
+  },
+  introWhenLine: {
+    fontSize: 13.5,
+    fontFamily: BRAND.typography.bodyMedium.fontFamily,
+    color: BRAND.colors.inkMuted,
+    textAlign: 'center',
+    marginTop: 3,
+  },
+  // Grouped intent card
+  intentsGroup: {
+    width: '100%',
+    marginTop: 22,
+    backgroundColor: INTRO_CARD_BG,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
+    ...INTRO_SOFT_SHADOW,
+    overflow: 'hidden',
+  },
+  intentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 13,
+    paddingVertical: 15,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(34,34,34,0.07)',
+  },
+  intentRowLast: {
+    borderBottomWidth: 0,
+  },
+  intentRowHighlight: {
+    backgroundColor: INTRO_TINT_GOLD,
+    borderBottomColor: 'rgba(224,196,122,0.35)',
+    paddingVertical: 17,
+  },
+  intentAccent: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 4,
+    backgroundColor: BRAND.colors.goldenPear,
+  },
+  intentChip: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  intentTextWrap: {
+    flex: 1,
+  },
+  intentPickTag: {
+    fontSize: 9.5,
+    fontFamily: BRAND.typography.bodyMedium.fontFamily,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    color: INTRO_GOLD_DEEP,
+    marginBottom: 3,
+  },
+  intentTitle: {
+    fontSize: 16.5,
+    fontFamily: BRAND.typography.header.fontFamily,
+    color: BRAND.colors.charcoalInk,
+  },
+  intentTitleHighlight: {
+    fontSize: 17.5,
+  },
+  intentSubtitle: {
+    fontSize: 12,
+    fontFamily: BRAND.typography.bodyMedium.fontFamily,
+    color: BRAND.colors.inkMuted,
+    marginTop: 1,
+  },
+  // Footer
+  bulkSkipDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#E2DDD0',
+    marginHorizontal: 20,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  bulkSkipRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 0,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+  },
+  bulkSkipRowPressed: {
+    opacity: 0.6,
+  },
+  bulkSkipRowLocked: {
+    opacity: 0.55,
+  },
+  bulkSkipChip: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#EDE9DD',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bulkSkipChipLocked: {
+    backgroundColor: '#ECE9E1',
+  },
+  bulkSkipTextWrap: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  bulkSkipTitle: {
+    fontSize: 15,
+    fontFamily: 'PlusJakartaSans-Bold',
+    fontWeight: '500',
+    color: '#5A564E',
+    marginBottom: 2,
+  },
+  bulkSkipTitleLocked: {
+    color: '#9C9A92',
+  },
+  bulkSkipSub: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    fontWeight: '400',
+    color: '#9C9A92',
+  },
+  lastSweepText: {
+    fontSize: 11.5,
+    fontFamily: BRAND.typography.bodyMedium.fontFamily,
+    color: BRAND.colors.inkMuted,
+    textAlign: 'center',
+    marginBottom: 20,
+    paddingBottom: 4,
   },
   secondaryButton: {
     paddingVertical: 12,
@@ -4989,138 +5757,7 @@ const styles = StyleSheet.create({
   secondaryButtonText: {
     color: BRAND.colors.mossGreen,
     fontSize: 15,
-    fontWeight: '500',
-  },
-  introFooter: {
-    fontSize: 13,
-    color: BRAND.colors.inkMuted,
-    position: 'absolute',
-    bottom: 24,
-  },
-  introCelebrationTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: BRAND.colors.charcoalInk,
-    marginBottom: 8,
-  },
-  introCelebrationSubtitle: {
-    fontSize: 15,
-    color: BRAND.colors.inkMuted,
-    textAlign: 'center',
-    lineHeight: 22,
-    marginBottom: 24,
-  },
-  // ─────────────────────────────────────────────────────────────────────────
-  // SweepIntroStep styles - Legacy (kept for reference)
-  // ─────────────────────────────────────────────────────────────────────────
-  introScrollContent: {
-    flexGrow: 1,
-    paddingTop: 32,
-    paddingHorizontal: 24,
-  },
-  introWelcomeTitle: {
-    fontSize: 26,
-    fontWeight: '700',
-    color: BRAND.colors.charcoalInk,
-    marginBottom: 16,
-  },
-  introWelcomeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 20,
-    marginTop: 8,
-  },
-  introWelcomeMascot: {
-    width: 130,
-    height: 130,
-  },
-  introWelcomeSubcopy: {
-    flex: 1,
-    fontSize: 16,
-    color: BRAND.colors.inkSubtle,
-    lineHeight: 23,
-  },
-  streakBadgeContainer: {
-    marginVertical: 16,
-  },
-  streakDivider: {
-    height: 1,
-    backgroundColor: BRAND.colors.inkSubtle,
-    opacity: 0.2,
-    marginHorizontal: 40,
-  },
-  streakBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    paddingVertical: 20,
-  },
-  streakBadgeText: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: BRAND.colors.goldenPear,
-  },
-  streakBadgeTextWelcome: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: BRAND.colors.mossGreen,
-  },
-  introSpacer: {
-    flex: 0.4,
-    minHeight: 20,
-  },
-  introStatsSection: {
-    marginHorizontal: -24,
-    marginBottom: 0,
-  },
-  achievementLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: BRAND.colors.inkSubtle,
-    marginHorizontal: 24,
-    marginBottom: 8,
-    textAlign: 'left',
-  },
-  // Legacy intro styles (kept for reference)
-  introMascotContainer: {
-    alignItems: 'center',
-    marginBottom: 0,
-  },
-  introMascotImage: {
-    width: 140,
-    height: 140,
-  },
-  introTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: BRAND.colors.charcoalInk,
-    textAlign: 'center',
-    marginHorizontal: 24,
-  },
-  introTitleUnderline: {
-    width: '40%',
-    height: 2,
-    backgroundColor: BRAND.colors.borderSubtle,
-    alignSelf: 'center',
-    marginTop: 8,
-    marginBottom: 16,
-  },
-  introSubcopy: {
-    fontSize: 15,
-    color: BRAND.colors.inkSubtle,
-    textAlign: 'center',
-    marginHorizontal: 32,
-    lineHeight: 22,
-    marginBottom: 24,
-  },
-  introHeaderSection: {
-    alignItems: 'center',
-    paddingHorizontal: 24,
-  },
-  introStatsContainer: {
-    marginTop: 24,
-    paddingHorizontal: 16,
+    fontFamily: BRAND.typography.bodyMedium.fontFamily,
   },
   // ─────────────────────────────────────────────────────────────────────────
   // SweepMoodStep styles - Journal-First Redesign

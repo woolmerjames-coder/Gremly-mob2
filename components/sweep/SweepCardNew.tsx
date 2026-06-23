@@ -31,8 +31,10 @@ import { IdeaActionZone } from './IdeaActionZone';
 import { GeneralNoteActionZone } from './GeneralNoteActionZone';
 import { EventActionZone } from './EventActionZone';
 import { WrongTypePicker } from './WrongTypePicker';
+import { WorldPickerSheet } from './WorldPickerSheet';
 import { SweepConversionToast } from './SweepConversionToast';
 import type { SweepCandidate, SweepCardMeta } from '../../lib/sweep/types';
+import type { WeekDay } from '../../lib/store/weekGridSelectors';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -75,7 +77,7 @@ type SweepCardNewProps = {
   onUpdateEventDate?: (date: Date) => void;
   onRequestPhotoPreview?: (url: string) => void;
   onConfirmTodoAction?: (action: {
-    dueDateStr: string;
+    dueDateStr?: string;
     reminderDateStr?: string;
     reminderTime?: string;
   }) => void;
@@ -95,6 +97,9 @@ type SweepCardNewProps = {
     eventReminder?: 'daybefore' | 'weekbefore' | 'custom';
   }) => void;
   hideGremlyMenu?: boolean;
+  sweepIntent?: 'today' | 'tomorrow' | 'week';
+  weekDays?: WeekDay[];
+  onSeeMyWeek?: () => void;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -124,12 +129,16 @@ export function SweepCardNew({
   onConfirmEventAction,
   onConfirmNoteAction,
   hideGremlyMenu,
+  sweepIntent = 'tomorrow',
+  weekDays,
+  onSeeMyWeek,
 }: SweepCardNewProps) {
   const spaces = useActiveSpaces();
   // ── Action zone state ──
-  const [selectedAction, setSelectedAction] = useState<'tomorrow' | 'nextweek' | 'pickdate'>(
-    'tomorrow',
-  );
+  const [selectedAction, setSelectedAction] = useState<
+    'today' | 'tomorrow' | 'nextweek' | 'pickdate'
+  >(sweepIntent === 'today' ? 'today' : 'tomorrow');
+  const [selectedWeekDate, setSelectedWeekDate] = useState<string | null>(null);
   const [reminderEnabled, setReminderEnabled] = useState(false);
   const [selectedReminder, setSelectedReminder] = useState<
     'daybefore' | 'morning' | 'custom' | null
@@ -174,11 +183,13 @@ export function SweepCardNew({
   const [showSpacePicker, setShowSpacePicker] = useState(false);
   const [showPrepTodoInput, setShowPrepTodoInput] = useState(false);
   const [prepTodoText, setPrepTodoText] = useState('');
+  const [showWorldPicker, setShowWorldPicker] = useState(false);
 
   // ── Reset on candidate change + restore previousDecision ──
   useEffect(() => {
     // Reset all state
-    setSelectedAction('tomorrow');
+    setSelectedAction(sweepIntent === 'today' ? 'today' : 'tomorrow');
+    setSelectedWeekDate(null);
     setReminderEnabled(false);
     setSelectedReminder(null);
     setConfirmedCustomDate(null);
@@ -198,6 +209,7 @@ export function SweepCardNew({
     setShowSpacePicker(false);
     setShowPrepTodoInput(false);
     setPrepTodoText('');
+    setShowWorldPicker(false);
 
     // Restore from previousDecision
     if (previousDecision?.dueDate) {
@@ -289,13 +301,27 @@ export function SweepCardNew({
     [candidate.kind, onOpenChat, onOpenEdit, onShowHelp, onConvertToType],
   );
 
+  // ── Week grid day-pick handler (week intent only) ──
+  // Tapping a day STAGES the selection only. Keep / swipe-right commits.
+  const handleSelectWeekDay = useCallback((date: string) => {
+    setSelectedWeekDate(date);
+  }, []);
+
   // ── Swipe handlers ──
   const handleSwipeRight = useCallback(() => {
     if (candidate.kind === 'todo') {
+      // Week mode: commit the staged day (or bare keep if nothing staged)
+      if (sweepIntent === 'week') {
+        onConfirmTodoAction?.(selectedWeekDate ? { dueDateStr: selectedWeekDate } : {});
+        return;
+      }
+
       // Compute due date string
       const ds = getDateService();
       let dueDateStr: string | null = null;
-      if (selectedAction === 'tomorrow') {
+      if (selectedAction === 'today') {
+        dueDateStr = ds.today();
+      } else if (selectedAction === 'tomorrow') {
         dueDateStr = ds.tomorrow();
       } else if (selectedAction === 'nextweek') {
         dueDateStr = ds.toLocalDate(ds.getNextWeekday(1));
@@ -396,6 +422,8 @@ export function SweepCardNew({
     candidate.kind,
     meta.noteCardType,
     meta.eventDate,
+    sweepIntent,
+    selectedWeekDate,
     selectedAction,
     confirmedCustomDate,
     reminderEnabled,
@@ -468,6 +496,7 @@ export function SweepCardNew({
           isClarified={isClarified}
           onRequestPhotoPreview={onRequestPhotoPreview}
           hideGremlyMenu={hideGremlyMenu}
+          onWorldPress={() => setShowWorldPicker(true)}
         >
           {candidate.kind === 'todo' && (
             <TodoActionZone
@@ -490,6 +519,11 @@ export function SweepCardNew({
                 setDatePickerMode('remind');
                 setShowDatePicker(true);
               }}
+              sweepIntent={sweepIntent}
+              weekDays={weekDays}
+              selectedWeekDate={selectedWeekDate}
+              onSelectWeekDay={handleSelectWeekDay}
+              onSeeMyWeek={onSeeMyWeek}
             />
           )}
           {candidate.kind === 'note' && meta.noteCardType === 'idea' && (
@@ -644,6 +678,14 @@ export function SweepCardNew({
           />
         </View>
       )}
+
+      {/* World picker sheet */}
+      <WorldPickerSheet
+        visible={showWorldPicker}
+        dropId={candidate.id}
+        dropType={candidate.kind as 'todo' | 'habit' | 'note'}
+        onClose={() => setShowWorldPicker(false)}
+      />
 
       {/* Date picker modal */}
       <Modal visible={showDatePicker} transparent animationType="fade">

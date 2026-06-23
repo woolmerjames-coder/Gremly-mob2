@@ -41,6 +41,7 @@ jest.mock('../../../lib/store/selectors', () => ({
   useSweepIntroStats: () => ({ stats: { urgentCount: 0, pendingCount: 0 }, isLoading: false }),
   useIsLoading: () => false,
   useActiveSpaces: () => [],
+  useSkipBudget: () => ({ used: 0, remaining: 3, total: 3, canSkip: true }),
   selectTodayLockedItems: () => [], // No locked items in tests
   selectTodayLockedItemsIncludingCompleted: () => [], // No locked items in tests
 }));
@@ -52,7 +53,12 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
       todos: [],
       notes: [],
       habits: [],
+      worlds: [],
+      dropWorldLinks: [],
+      chapters: [],
+      chapterWorldLinks: [],
       habitProgress: [],
+      userCalendarEvents: [],
       isLoading: false,
       gremlyAge: 5,
       feedingGaugeValue: 0,
@@ -60,6 +66,7 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
       fedDaysCount: 0,
       feedingHistory: [],
       fetchFeedingHistory: () => Promise.resolve(undefined),
+      refreshSkipBudget: () => Promise.resolve(undefined),
       totalSweepCount: 10,
       demoSweepCompletedAt: '2025-01-01T00:00:00Z',
       updateTodo: () => Promise.resolve(undefined),
@@ -90,8 +97,14 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
     totalSweepCount: 10,
     demoSweepCompletedAt: '2025-01-01T00:00:00Z',
     calendarEvents: {},
+    userCalendarEvents: [],
     currentDate: '2025-01-01',
     notes: [],
+    worlds: [],
+    dropWorldLinks: [],
+    chapters: [],
+    chapterWorldLinks: [],
+    refreshSkipBudget: () => Promise.resolve(undefined),
     incrementSweepCount: () => Promise.resolve({ didAgeUp: false, newAge: 5 }),
     setSweepPreferences: () => {},
     updateTodo: () => Promise.resolve(undefined),
@@ -199,6 +212,9 @@ jest.mock('@react-navigation/native', () => {
       setOptions: jest.fn(),
       goBack: mockGoBack,
     }),
+    useFocusEffect: (effect: () => void | (() => void)) => {
+      effect();
+    },
     useRoute: () => ({
       params: {},
     }),
@@ -297,6 +313,14 @@ const mockNoteCandidate: SweepCandidate = {
   } as any,
 };
 
+const INTRO_DECISION_LABEL =
+  /Close out today|Wrap up today|Plan today|Anything for today\?|Set up tomorrow instead/;
+
+function pressIntroDecisionIntent(result: ReturnType<typeof render>) {
+  const button = result.getAllByText(INTRO_DECISION_LABEL)[0];
+  fireEvent.press(button);
+}
+
 /**
  * Helper to render and navigate to decision step (step 1)
  * Flow: Intro (0) → Decision (1)
@@ -304,12 +328,11 @@ const mockNoteCandidate: SweepCandidate = {
 async function renderAtDecisionStep() {
   const result = render(<SweepFlowScreen navigation={mockNavigation} />);
 
-  // Step 0: Intro - tap "Let's do this" to go to Decision
-  // Intro shows "Welcome to Sweep!" for first-time users or random encouraging phrase
+  // Step 0: Intro - tap a non-week intent row to go to Decision
   await waitFor(() => {
-    result.getByText(/Let's do this/);
+    expect(result.getAllByText(INTRO_DECISION_LABEL).length).toBeGreaterThan(0);
   });
-  fireEvent.press(result.getByText(/Let's do this/));
+  pressIntroDecisionIntent(result);
 
   return result;
 }
@@ -335,14 +358,14 @@ describe('SweepFlowScreen - Decision Step', () => {
 
       // First-time users see "Welcome to Sweep!", otherwise "A quick sweep"
       expect(result.getByText(/Welcome to Sweep|A quick sweep/)).toBeTruthy();
-      expect(result.getByText(/Let's do this/)).toBeTruthy();
+      expect(result.getAllByText(INTRO_DECISION_LABEL).length).toBeGreaterThan(0);
     });
 
     it('advances to decision step when button is pressed', async () => {
       const result = render(<SweepFlowScreen navigation={mockNavigation} />);
 
-      // Tap Let's do this
-      fireEvent.press(result.getByText(/Let's do this/));
+      // Tap a non-week intent to enter decision flow
+      pressIntroDecisionIntent(result);
 
       // Should now be on decision step (shows card or loading)
       await waitFor(() => {
@@ -359,8 +382,8 @@ describe('SweepFlowScreen - Decision Step', () => {
 
       const result = render(<SweepFlowScreen navigation={mockNavigation} />);
 
-      expect(result.getByText('All clear! 🎉')).toBeTruthy();
-      expect(result.getByText(/Nothing to sweep/)).toBeTruthy();
+      expect(result.getByText('All clear!')).toBeTruthy();
+      expect(result.getByText('Back to Today')).toBeTruthy();
     });
   });
 
@@ -370,7 +393,7 @@ describe('SweepFlowScreen - Decision Step', () => {
 
       const result = render(<SweepFlowScreen navigation={mockNavigation} />);
 
-      expect(result.getByText('All clear! 🎉')).toBeTruthy();
+      expect(result.getByText('All clear!')).toBeTruthy();
     });
 
     it('shows Back to Today button in empty state', () => {
@@ -560,7 +583,7 @@ describe('SweepFlowScreen - Decision Step', () => {
       });
 
       // Intro content should no longer be visible
-      expect(result.queryByText(/Let's do this/)).toBeNull();
+      expect(result.queryAllByText(INTRO_DECISION_LABEL)).toHaveLength(0);
     });
   });
 

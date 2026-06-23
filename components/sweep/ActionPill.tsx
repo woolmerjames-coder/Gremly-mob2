@@ -10,7 +10,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 type ActionPillProps = {
-  icon: React.ReactNode;
+  icon?: React.ReactNode;
   label: string;
   active: boolean;
   onPress: () => void;
@@ -61,9 +61,11 @@ export function ActionPill({
           />
         ) : null}
         <View style={styles.row}>
-          <View style={[styles.iconBox, active ? styles.iconBoxActive : styles.iconBoxInactive]}>
-            {icon}
-          </View>
+          {icon !== undefined ? (
+            <View style={[styles.iconBox, active ? styles.iconBoxActive : styles.iconBoxInactive]}>
+              {icon}
+            </View>
+          ) : null}
           <Text
             style={[styles.label, active ? styles.labelActive : styles.labelInactive]}
             numberOfLines={1}
