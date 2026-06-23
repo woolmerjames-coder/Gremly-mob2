@@ -16,6 +16,7 @@ const HEAT = lightTokens.colors.sweepHeat;
 type WeekGridSchedulerProps = {
   days: WeekDay[];
   selectedDate: string | null;
+  pickedDateLabel?: string | null;
   onSelectDay: (date: string) => void;
   onRequestDatePicker: () => void;
 };
@@ -38,6 +39,7 @@ function heatTint(count: number): string {
 export function WeekGridScheduler({
   days,
   selectedDate,
+  pickedDateLabel,
   onSelectDay,
   onRequestDatePicker,
 }: WeekGridSchedulerProps) {
@@ -148,13 +150,18 @@ export function WeekGridScheduler({
 
       {/* 8th cell — Pick a date */}
       <Pressable
-        style={({ pressed }) => [styles.cell, styles.cellPick, pressed && styles.cellPressed]}
+        style={({ pressed }) => [
+          styles.cell,
+          styles.cellPick,
+          pickedDateLabel ? styles.cellSelected : null,
+          pressed && styles.cellPressed,
+        ]}
         onPress={onRequestDatePicker}
         accessibilityRole="button"
         accessibilityLabel="Pick a date"
       >
         <CalendarDays size={16} strokeWidth={1.8} color={BRAND.colors.mossGreen} />
-        <Text style={styles.pickLabel}>Pick a date</Text>
+        <Text style={styles.pickLabel}>{pickedDateLabel ?? 'Pick a date'}</Text>
       </Pressable>
     </View>
   );

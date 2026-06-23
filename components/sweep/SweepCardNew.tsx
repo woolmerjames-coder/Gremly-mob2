@@ -312,7 +312,11 @@ export function SweepCardNew({
     if (candidate.kind === 'todo') {
       // Week mode: commit the staged day (or bare keep if nothing staged)
       if (sweepIntent === 'week') {
-        onConfirmTodoAction?.(selectedWeekDate ? { dueDateStr: selectedWeekDate } : {});
+        const ds = getDateService();
+        const weekDue = confirmedCustomDate
+          ? ds.toLocalDate(confirmedCustomDate)
+          : selectedWeekDate;
+        onConfirmTodoAction?.(weekDue ? { dueDateStr: weekDue } : {});
         return;
       }
 
