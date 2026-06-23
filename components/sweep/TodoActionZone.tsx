@@ -103,6 +103,7 @@ export function TodoActionZone({
         <WeekGridScheduler
           days={weekDays}
           selectedDate={selectedWeekDate ?? null}
+          pickedDateLabel={confirmedCustomDate}
           onSelectDay={onSelectWeekDay ?? (() => {})}
           onRequestDatePicker={onRequestDatePicker}
         />

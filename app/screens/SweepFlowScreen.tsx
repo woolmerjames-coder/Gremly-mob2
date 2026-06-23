@@ -4893,7 +4893,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
       backToHub();
       return;
     }
-    setStep(EVENTS); // Habits → Events → Intention in guided chain
+    setStep(sweepIntent === 'week' ? EVENTS : 3); // Week: Habits → Events; Evening: Habits → step 3
   };
 
   const handleDecisionFinished = useCallback(

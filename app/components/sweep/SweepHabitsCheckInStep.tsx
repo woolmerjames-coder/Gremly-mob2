@@ -55,10 +55,10 @@ import {
 const SERIF = Platform.select({ ios: 'Georgia', default: 'serif' });
 // Habit-read preview (Phase 3c): dev builds only. Floor suggestions keep
 // running in parallel until Phase 5 cutover.
-const HABIT_READS_PREVIEW = __DEV__;
+const HABIT_READS_PREVIEW = true;
 // Card C (Phase 4): full redesigned card behind its own flag so old and new
 // can be compared by flipping one constant. Cutover removes both in Phase 5.
-const USE_CARD_C = __DEV__;
+const USE_CARD_C = true;
 
 // Dot size for the trend row
 const DOT_SIZE = 10;
