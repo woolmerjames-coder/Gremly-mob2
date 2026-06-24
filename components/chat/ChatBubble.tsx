@@ -212,7 +212,7 @@ function ChatBubbleInner({
                 <Text
                   style={{ marginLeft: 8, color: '#6B7280', fontSize: 14, fontStyle: 'italic' }}
                 >
-                  Searching: {searchQuery}
+                  {searchQuery}
                 </Text>
               </View>
             ) : isFetching ? (

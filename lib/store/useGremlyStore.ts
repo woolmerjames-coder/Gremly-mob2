@@ -3298,7 +3298,8 @@ export const useGremlyStore = create<GremlyState>()(
 
           try {
             const todayDay = getDateService().today();
-            const sweepEligibleTodos = get().todos.map(
+            const openTodos = get().todos.filter((t) => !t.archived && t.completed_at == null);
+            const sweepEligibleTodos = openTodos.map(
               (t) =>
                 ({
                   ...(t as unknown as SweepEligibleTodo),
@@ -3306,10 +3307,11 @@ export const useGremlyStore = create<GremlyState>()(
                 }) as SweepEligibleTodo,
             );
             const candidateTodos = selectSweepCandidates(sweepEligibleTodos, todayDay);
-            const todosById = new Map(get().todos.map((t) => [t.id, t]));
+            const openCandidateTodos = candidateTodos.filter((t) => t.completed_at == null);
+            const todosById = new Map(openTodos.map((t) => [t.id, t]));
 
             await Promise.all(
-              candidateTodos.map(async (candidate) => {
+              openCandidateTodos.map(async (candidate) => {
                 const currentTodo = todosById.get(candidate.id);
                 const currentCount = currentTodo?.sweep_reschedule_count ?? 0;
                 await get().updateTodo(candidate.id, {
@@ -3322,7 +3324,7 @@ export const useGremlyStore = create<GremlyState>()(
               }),
             );
 
-            const movedCount = candidateTodos.length;
+            const movedCount = openCandidateTodos.length;
 
             const { error: insertError } = await supabase.from('sweep_skip_events').insert({
               owner_id: userId,

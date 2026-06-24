@@ -37,7 +37,6 @@ import {
   Wrench,
   Clock,
   TrendingUp,
-  CalendarDays,
   ChevronLeft,
 } from 'lucide-react-native';
 
@@ -94,7 +93,6 @@ import {
   usePopularTags,
   useAllActiveItemsHub,
   filterUnsortedForReview,
-  usePastSummaries,
 } from '../../lib/store/selectors';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 
@@ -115,7 +113,7 @@ const HUB_V1 = true;
 type HubV1TypeFilter = 'todo' | 'habit' | 'note' | 'space';
 type HubV1TimeRange = 'week' | 'month' | '3months' | 'all';
 type HubV1StatusFilter = 'active' | 'completed' | 'all';
-type HubV1View = 'timeline' | 'journals' | 'people' | 'weekly';
+type HubV1View = 'timeline' | 'journals' | 'people';
 
 const TIME_RANGE_LABELS: Record<HubV1TimeRange, string> = {
   week: 'This Week',
@@ -169,136 +167,6 @@ export function suggestShortTitle(text: string, maxWords = 5): string {
   const words = cleaned.split(' ');
   return words.slice(0, maxWords).join(' ');
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Weekly Summary List View (Hub "Weekly" tab)
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface WeeklySummaryListViewProps {
-  onSummaryPress: (weekStartDate: string) => void;
-}
-
-function formatSummaryDateRange(startDate: string, endDate: string): string {
-  try {
-    const [sy, sm, sd] = startDate.split('-').map(Number);
-    const [ey, em, ed] = endDate.split('-').map(Number);
-    const start = new Date(sy, sm - 1, sd);
-    const end = new Date(ey, em - 1, ed);
-    const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
-    const startStr = format(start, 'MMM d');
-    const endStr = format(end, 'MMM d, yyyy');
-    return `${startStr} – ${endStr}`;
-  } catch {
-    return `${startDate} – ${endDate}`;
-  }
-}
-
-function WeeklySummaryListView({ onSummaryPress }: WeeklySummaryListViewProps) {
-  const summaries = usePastSummaries();
-
-  if (summaries.length === 0) {
-    return (
-      <View style={hubV1Styles.journalViewEmpty} testID="weekly-view-empty">
-        <View style={hubV1Styles.journalViewEmptyHeader}>
-          <CalendarDays size={18} color={colors.gray400} style={{ marginRight: spacing.xs }} />
-          <Text style={hubV1Styles.journalViewEmptyTitle}>No weekly summaries yet</Text>
-        </View>
-        <Text style={hubV1Styles.journalViewEmptyHint}>
-          Your first summary will appear here on Sunday evening.
-        </Text>
-      </View>
-    );
-  }
-
-  return (
-    <View style={{ marginTop: spacing.md }}>
-      {summaries.map((summary) => {
-        const todosCompleted = (summary.stats_snapshot?.todosCompleted as number) ?? 0;
-        const insightCount = (summary.content?.insights ?? []).length;
-        const commentary = summary.content?.weeklyCommentary ?? '';
-        const firstSentence = commentary.split('.')[0];
-
-        return (
-          <TouchableOpacity
-            key={summary.id}
-            onPress={() => onSummaryPress(summary.week_start_date)}
-            style={weeklySummaryListStyles.row}
-            activeOpacity={0.6}
-          >
-            {/* Unviewed indicator */}
-            {!summary.viewed ? (
-              <View style={weeklySummaryListStyles.unviewedDot} />
-            ) : (
-              <View style={weeklySummaryListStyles.dotSpacer} />
-            )}
-
-            {/* Content */}
-            <View style={{ flex: 1 }}>
-              <View style={weeklySummaryListStyles.dateRow}>
-                <Text style={weeklySummaryListStyles.dateRange}>
-                  {formatSummaryDateRange(summary.week_start_date, summary.week_end_date)}
-                </Text>
-                <Text style={weeklySummaryListStyles.statBadge}>
-                  {todosCompleted} tasks · {insightCount} insights
-                </Text>
-              </View>
-              {firstSentence ? (
-                <Text style={weeklySummaryListStyles.commentary} numberOfLines={1}>
-                  {firstSentence}
-                </Text>
-              ) : null}
-            </View>
-          </TouchableOpacity>
-        );
-      })}
-    </View>
-  );
-}
-
-const weeklySummaryListStyles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.gray200,
-  },
-  unviewedDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#BFD8C0',
-    marginRight: 10,
-  },
-  dotSpacer: {
-    width: 8,
-    marginRight: 10,
-  },
-  dateRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  dateRange: {
-    fontSize: 15,
-    fontFamily: 'PlusJakartaSans-Bold',
-    color: colors.ink,
-    flexShrink: 1,
-  },
-  statBadge: {
-    fontSize: 12,
-    fontFamily: 'Inter-Regular',
-    color: colors.gray400,
-    marginLeft: 8,
-  },
-  commentary: {
-    fontSize: 13,
-    fontFamily: 'Inter-Regular',
-    color: colors.gray600,
-    marginTop: 2,
-  },
-});
 
 export default function HubScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -1084,24 +952,12 @@ export default function HubScreen() {
             ]}
             testID="hub-view-toggle"
           >
-            {(['timeline', 'journals', 'people', 'weekly'] as const).map((mode) => {
+            {(['timeline', 'journals', 'people'] as const).map((mode) => {
               const isActive = hubView === mode;
               const label =
-                mode === 'timeline'
-                  ? 'Timeline'
-                  : mode === 'journals'
-                    ? 'Journals'
-                    : mode === 'people'
-                      ? 'People'
-                      : 'Weekly';
+                mode === 'timeline' ? 'Timeline' : mode === 'journals' ? 'Journals' : 'People';
               const IconComponent =
-                mode === 'timeline'
-                  ? LayoutGrid
-                  : mode === 'journals'
-                    ? BookOpen
-                    : mode === 'people'
-                      ? Users
-                      : CalendarDays;
+                mode === 'timeline' ? LayoutGrid : mode === 'journals' ? BookOpen : Users;
               return (
                 <Pressable
                   key={mode}
@@ -1111,11 +967,6 @@ export default function HubScreen() {
                       // Switching to Journal View: save current type selections
                       savedTypesRef.current = new Set(hubV1Types);
                       setHubV1Types(new Set(['note'])); // Lock to notes only
-                    } else if (mode === 'weekly') {
-                      // Switching to Weekly View: save current type selections
-                      if (!savedTypesRef.current) {
-                        savedTypesRef.current = new Set(hubV1Types);
-                      }
                     } else {
                       // Switching to Timeline or People: restore saved type selections
                       if (savedTypesRef.current) {
@@ -1188,7 +1039,7 @@ export default function HubScreen() {
                         gap: 4,
                       }}
                       onPress={() => toggleTypeFilter(f.key)}
-                      disabled={hubView === 'journals' || hubView === 'weekly'}
+                      disabled={hubView === 'journals'}
                       testID={`filter-type-${f.key}`}
                     >
                       <Text
@@ -1388,16 +1239,7 @@ export default function HubScreen() {
             // HUB MODE (idle state)
             // =================================================================
             <View style={hubV1Styles.hubModeContainer}>
-              {hubView === 'weekly' ? (
-                // ===============================================================
-                // WEEKLY SUMMARY LIST VIEW
-                // ===============================================================
-                <WeeklySummaryListView
-                  onSummaryPress={(weekStartDate: string) => {
-                    navigation.navigate('WeeklySummary', { weekStartDate });
-                  }}
-                />
-              ) : hubView === 'people' ? (
+              {hubView === 'people' ? (
                 // ===============================================================
                 // PEOPLE VIEW: Browse by person
                 // ===============================================================
