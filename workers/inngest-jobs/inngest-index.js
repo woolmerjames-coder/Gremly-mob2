@@ -6501,7 +6501,7 @@ function bucketTodayFacts(gathered) {
       provider: e.provider || null,
     }));
 
-  const calendarComingUp = dedupedSyncedEvents
+  const calendarComingUpRaw = dedupedSyncedEvents
     .filter((e) => {
       const day = e?.start_at ? String(e.start_at).slice(0, 10) : null;
       return day !== null && day > targetDate && day <= plus3DateStr;
@@ -6513,6 +6513,50 @@ function bucketTodayFacts(gathered) {
       is_all_day: !!e.is_all_day,
       location: e.location || null,
     }));
+
+  const calendarByTitle = new Map();
+  for (const entry of calendarComingUpRaw) {
+    const titleKey = String(entry?.title || '')
+      .trim()
+      .toLowerCase();
+    if (!calendarByTitle.has(titleKey)) {
+      calendarByTitle.set(titleKey, []);
+    }
+    calendarByTitle.get(titleKey).push(entry);
+  }
+
+  const calendarComingUpMixed = [];
+  for (const entries of calendarByTitle.values()) {
+    const days = [...new Set(entries.map((e) => e?.date).filter(Boolean))].sort();
+    if (days.length <= 1) {
+      calendarComingUpMixed.push(...entries);
+      continue;
+    }
+
+    const sortedEntries = [...entries].sort((a, b) => {
+      const aStart = String(a?.start_at || '');
+      const bStart = String(b?.start_at || '');
+      return aStart.localeCompare(bStart);
+    });
+    const first = sortedEntries[0] || entries[0];
+    calendarComingUpMixed.push({
+      title: first?.title || null,
+      recurring: true,
+      days,
+      first_start_at: first?.start_at || null,
+      location: first?.location || null,
+    });
+  }
+
+  const calendarComingUp = calendarComingUpMixed.sort((a, b) => {
+    const aDay = a?.recurring ? String(a?.days?.[0] || '') : String(a?.date || '');
+    const bDay = b?.recurring ? String(b?.days?.[0] || '') : String(b?.date || '');
+    if (aDay !== bDay) return aDay.localeCompare(bDay);
+
+    const aStart = a?.recurring ? String(a?.first_start_at || '') : String(a?.start_at || '');
+    const bStart = b?.recurring ? String(b?.first_start_at || '') : String(b?.start_at || '');
+    return aStart.localeCompare(bStart);
+  });
 
   const anchorsActive = anchorsArr.map((a) => ({
     title: a.title,
@@ -6787,15 +6831,22 @@ function renderTodayFactsText(bucketed) {
     parts.push('(none)');
   } else {
     for (const e of calendarComingUp) {
-      const date = e?.date || 'unknown';
       const title = e?.title || 'Untitled';
+      const locationPart = e?.location ? `, at ${e.location}` : '';
+      if (e?.recurring === true) {
+        const days = Array.isArray(e?.days) ? e.days.join(', ') : 'unknown';
+        parts.push(`- "${title}" (recurring: ${days})${locationPart}`);
+        continue;
+      }
+
+      const date = e?.date || 'unknown';
       const startVal = e?.is_all_day
         ? 'all day'
         : e?.start_at && String(e.start_at).length >= 16
           ? String(e.start_at).slice(11, 16)
           : '??:??';
-      const locationPart = e?.location ? ` | at ${e.location}` : '';
-      parts.push(`- ${date}: "${title}" ${startVal}${locationPart}`);
+      const normalLocationPart = e?.location ? ` | at ${e.location}` : '';
+      parts.push(`- ${date}: "${title}" ${startVal}${normalLocationPart}`);
     }
   }
 
