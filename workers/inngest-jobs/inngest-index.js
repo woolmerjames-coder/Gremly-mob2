@@ -678,6 +678,29 @@ const testVerifyForUser = inngest.createFunction(
   },
 );
 
+const testAssembleForUser = inngest.createFunction(
+  { id: 'test-assemble-for-user', name: 'TEST Assemble DCO' },
+  { event: 'app/test.assemble' },
+  async ({ event, env }) => {
+    const userId = event.data.user_id;
+    const timezone = event.data.timezone || 'America/Los_Angeles';
+    const snapshot = await fetchUserSnapshot(userId, timezone, 7, env);
+    if (!snapshot.today) {
+      return { user_id: userId, error: 'no today facts' };
+    }
+
+    const picture = await synthesizeDailyPicture(snapshot, env);
+    const verified = await verifyDailyPicture(picture, snapshot.today.text, env);
+    const dco = assembleDcoFromPicture(verified.verified_picture, snapshot, verified.review_flags);
+    console.log('[TEST Assemble]', userId.slice(0, 8), 'keys:', Object.keys(dco).join(','));
+
+    return {
+      user_id: userId,
+      dco,
+    };
+  },
+);
+
 const testWeeklySummaryV2 = inngest.createFunction(
   {
     id: 'test-weekly-summary-v2',
@@ -9915,6 +9938,89 @@ function assembleDcoFromFocus(dailyFocus, headline, snapshot, flashResult) {
   };
 }
 
+function buildRecentContext(bucketed) {
+  const b = bucketed || {};
+  return {
+    bulk_skips: (b.deliberate?.skipEvents || []).map((s) => ({
+      target_date: s.target_date,
+      todo_count: s.todo_count,
+    })),
+    recent_mood: (b.recentMood || []).slice(0, 3),
+    active_milestones: (b.deliberate?.milestones || []).map((m) => ({
+      title: m.title,
+      date: m.date,
+    })),
+    intention: b.weeklyIntention || null,
+    daily_brief_set: !!b.deliberate?.dailyBrief,
+  };
+}
+
+function assembleDcoFromPicture(verifiedPicture, snapshot, reviewFlags) {
+  const b = snapshot.today?.bucketed || {};
+  const p = verifiedPicture || {};
+
+  const activeToday = {
+    calendar_events: (b.calendarToday || []).map((e) => e.title),
+    todos_due_today: (b.todos?.dueToday || []).length,
+    overdue_todos: (b.todos?.overdue || []).length,
+    habit_streak_risk: [],
+    upcoming_in_7d: (b.calendarComingUp || []).slice(0, 5).map((e) => ({
+      date: e.date || (e.days && e.days[0]) || null,
+      title: e.title,
+    })),
+  };
+
+  const leadStory = p.lead
+    ? {
+        what: p.lead.what,
+        why_today: p.lead.why_today,
+      }
+    : null;
+
+  return {
+    day_type: p.day_type || null,
+    tone: p.tone || null,
+    life_moment: p.life_moment || null,
+    life_moment_confidence: p.life_moment ? 'high' : 'low',
+    brief_headline: p.headline || null,
+    today_focus: Array.isArray(p.today_focus) ? p.today_focus.slice(0, 3) : [],
+    lead_story: leadStory,
+    voice_note: p.voice_note || null,
+    also_matters: Array.isArray(p.also_matters) ? p.also_matters : [],
+
+    named_anchors: (b.anchorsActive || []).map((a) => ({
+      title: a.title,
+      date: a.resolved_date || a.date_text || null,
+      confidence: a.date_confidence || null,
+    })),
+    active_today: activeToday,
+    weekly_intention: b.weeklyIntention || null,
+
+    daily_focus: {
+      day_type: p.day_type || null,
+      tone: p.tone || null,
+      life_moment: p.life_moment || null,
+      today_focus: Array.isArray(p.today_focus) ? p.today_focus.slice(0, 3) : [],
+      lead_story: leadStory,
+      secondary:
+        Array.isArray(p.also_matters) && p.also_matters.length > 0 ? p.also_matters[0] : null,
+      named_anchors: (b.anchorsActive || []).map((a) => a.title),
+    },
+
+    week_recap: [],
+    recent_context: buildRecentContext(b),
+
+    review_flags: Array.isArray(reviewFlags) ? reviewFlags : [],
+
+    user_id: snapshot.userId,
+    date: snapshot.targetDate,
+    generated_at: new Date().toISOString(),
+    ttl_days: 7,
+    model_used: 'gemini-3-flash-preview',
+    pipeline: 'dco-v3',
+  };
+}
+
 async function generateHeadlineFromFocus(dailyFocus, snapshot, env) {
   const t0 = Date.now();
 
@@ -10234,6 +10340,7 @@ const inngestHandler = serve({
     testGatherForUser,
     testSynthesizeForUser,
     testVerifyForUser,
+    testAssembleForUser,
     testWeeklySummaryV2,
     testAnalystDualRun,
     testWorldsBundleEquivalence,
