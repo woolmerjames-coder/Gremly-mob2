@@ -654,6 +654,30 @@ const testSynthesizeForUser = inngest.createFunction(
   },
 );
 
+const testVerifyForUser = inngest.createFunction(
+  { id: 'test-verify-for-user', name: 'TEST Verify Daily Picture' },
+  { event: 'app/test.verify' },
+  async ({ event, env }) => {
+    const userId = event.data.user_id;
+    const timezone = event.data.timezone || 'America/Los_Angeles';
+    const snapshot = await fetchUserSnapshot(userId, timezone, 7, env);
+    if (!snapshot.today) {
+      return { user_id: userId, error: 'no today facts (gather failed)' };
+    }
+    const picture = await synthesizeDailyPicture(snapshot, env);
+    const verified = await verifyDailyPicture(picture, snapshot.today.text, env);
+    console.log('[TEST Verify]', userId.slice(0, 8), JSON.stringify(verified, null, 2));
+    return {
+      user_id: userId,
+      targetDate: snapshot.targetDate,
+      picture_before: picture,
+      verified_picture: verified.verified_picture,
+      review_flags: verified.review_flags,
+      facts_text: snapshot.today.text,
+    };
+  },
+);
+
 const testWeeklySummaryV2 = inngest.createFunction(
   {
     id: 'test-weekly-summary-v2',
@@ -9132,6 +9156,152 @@ Decide interpretive text fields first. Then assign tone and day_type labels that
   return parsed;
 }
 
+async function verifyDailyPicture(picture, factsText, env) {
+  const t0 = Date.now();
+
+  const systemPrompt = `You are a grounding verifier for a daily picture produced by another AI for a Gremly user.
+
+Your task is to ensure concrete claims are grounded in today's facts while preserving warmth and personal context.
+
+You receive two inputs:
+1. A structured picture.
+2. TODAY'S FACTS, which are the only ground truth for concrete claims.
+
+Evaluate each claim in the picture and classify:
+
+GROUNDED:
+If concrete content appears in today's facts, leave it unchanged.
+
+UNGROUNDABLE HARD FACT:
+If a specific concrete claim about today's reality is not supported by facts, strip it.
+If it is in a list item, remove that item.
+If it is in prose, rewrite only enough to remove unsupported specificity.
+
+UNGROUNDABLE SOFT INTERPRETATION:
+If warmth, emotional interpretation, or a person or relationship reference is plausible context but is stated as a definite present-tense fact about today without factual support, downgrade it rather than deleting.
+Keep the person or relationship context present.
+Soften unsupported present-tense specificity.
+
+Critical distinction:
+A named person or relationship from broader context is not automatically false and should not be removed by default.
+Only unsupported present-tense concrete assertions should be softened.
+
+Preserve voice:
+Keep ADHD-informed, shame-free warmth.
+Use the lightest edit needed.
+Prefer downgrade over strip for soft interpretation.
+Prefer unchanged when grounded.
+
+Output:
+Return corrected picture with the same structure, plus review_flags.
+Each review_flag must capture one actual change with field, action, and note.
+If nothing changed, return an empty review_flags array.`;
+
+  const userMessage =
+    '=== THE PICTURE TO VERIFY ===\n' +
+    JSON.stringify(picture, null, 2) +
+    "\n\n=== TODAY'S FACTS (the only ground truth for concrete claims) ===\n" +
+    (factsText || '(no facts)');
+
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${env.GEMINI_API_KEY}`;
+
+  const response = await fetch(geminiUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+      generationConfig: {
+        temperature: 0.2,
+        maxOutputTokens: 4096,
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: 'object',
+          properties: {
+            verified_picture: {
+              type: 'object',
+              properties: {
+                life_moment: { type: 'string', nullable: true },
+                tone: { type: 'string' },
+                day_type: { type: 'string' },
+                headline: { type: 'string' },
+                lead: {
+                  type: 'object',
+                  properties: {
+                    what: { type: 'string' },
+                    why_today: { type: 'string' },
+                  },
+                  required: ['what', 'why_today'],
+                },
+                also_matters: { type: 'array', items: { type: 'string' } },
+                today_focus: { type: 'array', items: { type: 'string' } },
+                voice_note: { type: 'string' },
+              },
+              required: ['tone', 'day_type', 'headline', 'lead', 'today_focus', 'voice_note'],
+            },
+            review_flags: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  field: { type: 'string' },
+                  action: { type: 'string', enum: ['strip', 'downgrade'] },
+                  note: { type: 'string' },
+                },
+                required: ['field', 'action', 'note'],
+              },
+            },
+          },
+          required: ['verified_picture', 'review_flags'],
+        },
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const errBody = await response.text().catch(() => '');
+    throw new Error(`Verify daily picture failed: ${response.status} ${errBody.slice(0, 300)}`);
+  }
+
+  const data = await response.json();
+
+  const candidate = data.candidates?.[0];
+  let content = '{}';
+  if (candidate?.content?.parts) {
+    for (const part of candidate.content.parts) {
+      if (part.text && !part.thought) {
+        content = part.text;
+        break;
+      }
+    }
+  }
+
+  let jsonStr = content.trim();
+  if (jsonStr.startsWith('```')) {
+    jsonStr = jsonStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonStr);
+  } catch (parseErr) {
+    console.error('[Verify] JSON parse failed despite schema. Full raw:', content);
+    throw new Error(`Verify parse error: ${parseErr.message}`);
+  }
+
+  const latency = Date.now() - t0;
+  const usage = data.usageMetadata;
+  console.log(`[Verify] Complete in ${latency}ms`, {
+    input_tokens: usage?.promptTokenCount,
+    output_tokens: usage?.candidatesTokenCount,
+    thinking_tokens: usage?.thoughtsTokenCount || 0,
+    model: 'gemini-3-flash-preview',
+    review_flags: Array.isArray(parsed?.review_flags) ? parsed.review_flags.length : 0,
+  });
+
+  return parsed;
+}
+
 async function updateLifeMapAndFocus(lifeMap, worldPictureText, env, context = {}) {
   const { activeWorlds = [], activeChapters = [] } = context;
   const t0 = Date.now();
@@ -10046,6 +10216,7 @@ const inngestHandler = serve({
     testLifeMapRebuild,
     testGatherForUser,
     testSynthesizeForUser,
+    testVerifyForUser,
     testWeeklySummaryV2,
     testAnalystDualRun,
     testWorldsBundleEquivalence,
