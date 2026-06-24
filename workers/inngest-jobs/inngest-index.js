@@ -139,6 +139,60 @@ function getUserLocalDate(timezone) {
   return parts; // en-CA gives YYYY-MM-DD format
 }
 
+// ── Timezone day-boundary helpers ──────────────────────────────────────────────
+// CANONICAL SOURCE: app DateService.ts (startOfDayUtc / endOfDayUtc).
+// Mirrored here because the inngest worker is a separate bundle and cannot import
+// the app TypeScript. If the worker later imports DateService directly, DELETE these
+// and call dateService.startOfDayUtc / endOfDayUtc instead. Keep in sync with the service.
+function startOfDayUtc(localDay, timezone) {
+  const parts = localDay.split('-').map(Number);
+  const localMidnight = new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0, 0);
+  const utcMs = localMidnight.getTime();
+  const localStr = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(new Date(utcMs));
+  const m = localStr.match(/(\d+)\/(\d+)\/(\d+),?\s+(\d+):(\d+):(\d+)/);
+  if (!m) return new Date(`${localDay}T00:00:00Z`).toISOString();
+  const formatted = new Date(+m[3], +m[1] - 1, +m[2], +m[4] === 24 ? 0 : +m[4], +m[5], +m[6]);
+  const offsetMs = formatted.getTime() - utcMs;
+  return new Date(localMidnight.getTime() - offsetMs).toISOString();
+}
+
+function endOfDayUtc(localDay, timezone) {
+  const parts = localDay.split('-').map(Number);
+  const localEnd = new Date(parts[0], parts[1] - 1, parts[2], 23, 59, 59, 999);
+  const utcMs = localEnd.getTime();
+  const localStr = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(new Date(utcMs));
+  const m = localStr.match(/(\d+)\/(\d+)\/(\d+),?\s+(\d+):(\d+):(\d+)/);
+  if (!m) return new Date(`${localDay}T23:59:59.999Z`).toISOString();
+  const formatted = new Date(+m[3], +m[1] - 1, +m[2], +m[4] === 24 ? 0 : +m[4], +m[5], +m[6]);
+  const offsetMs = formatted.getTime() - utcMs;
+  return new Date(localEnd.getTime() - offsetMs).toISOString();
+}
+
+function addLocalDays(localDay, n) {
+  const [y, mo, d] = localDay.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + n);
+  return dt.toISOString().slice(0, 10);
+}
+
 // Dispatcher: hourly check for users in their 5 AM window, fan out DCO generation
 const dcoDispatcher = inngest.createFunction(
   {
@@ -6287,15 +6341,22 @@ async function gatherTodayFacts(userId, timezone, env) {
 
   const targetDate = getUserLocalDate(timezone);
   const nowIso = new Date().toISOString();
-  const startOfTodayIso = new Date(targetDate + 'T00:00:00Z').toISOString();
-  const endOf3DaysIso = new Date(
-    new Date(targetDate + 'T00:00:00Z').getTime() + 4 * 86400000,
-  ).toISOString();
+  const startOfTodayIso = startOfDayUtc(targetDate, timezone);
+  const endOfTodayIso = endOfDayUtc(targetDate, timezone);
+  // forward window end = end of the 3rd day after today, local
+  const endOf3DaysIso = endOfDayUtc(addLocalDays(targetDate, 3), timezone);
   const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
 
   const queries = [
     fetch(
       `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&completed_at=is.null&archived=eq.false&select=id,title,name,scheduled_date,due_day,due_date,due_time,target_date,time_window,time_estimate_minutes,duration_minutes,priority_kind,daily_block,scheduled_start_iso,locked_in,space_id,created_at,completed_at&limit=1000`,
+      { headers },
+    )
+      .then((r) => r.json())
+      .catch(() => []),
+
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&completed_at=gte.${startOfTodayIso}&completed_at=lte.${endOfTodayIso}&select=id,title,name,space_id,completed_at&order=completed_at.desc&limit=200`,
       { headers },
     )
       .then((r) => r.json())
@@ -6408,24 +6469,26 @@ async function gatherTodayFacts(userId, timezone, env) {
   const safeArr = (v) => (Array.isArray(v) ? v : []);
 
   const todos = safeArr(results[0]);
-  const habits = safeArr(results[1]);
-  const habitProgressToday = safeArr(results[2]);
-  const syncedEvents = safeArr(results[3]);
-  const anchors = safeArr(results[4]);
-  const intentionNotes = safeArr(results[5]);
-  const habitAdaptations = safeArr(results[6]);
-  const habitPlans = safeArr(results[7]);
-  const skipEvents = safeArr(results[8]);
-  const dailyBriefRows = safeArr(results[9]);
+  const completedToday = safeArr(results[1]);
+  const habits = safeArr(results[2]);
+  const habitProgressToday = safeArr(results[3]);
+  const syncedEvents = safeArr(results[4]);
+  const anchors = safeArr(results[5]);
+  const intentionNotes = safeArr(results[6]);
+  const habitAdaptations = safeArr(results[7]);
+  const habitPlans = safeArr(results[8]);
+  const skipEvents = safeArr(results[9]);
+  const dailyBriefRows = safeArr(results[10]);
   const dailyBrief = dailyBriefRows[0] || null;
-  const floorSuggestions = safeArr(results[10]);
-  const milestones = safeArr(results[11]);
-  const moodNotes = safeArr(results[12]);
+  const floorSuggestions = safeArr(results[11]);
+  const milestones = safeArr(results[12]);
+  const moodNotes = safeArr(results[13]);
 
   console.log(`[Gather] Built for ${userId.slice(0, 8)} (${targetDate}):`, {
     nowIso,
     weekAgo,
     todos: todos.length,
+    completedToday: completedToday.length,
     habits: habits.length,
     habitProgressToday: habitProgressToday.length,
     syncedEvents: syncedEvents.length,
@@ -6443,6 +6506,7 @@ async function gatherTodayFacts(userId, timezone, env) {
   return {
     targetDate,
     todos,
+    completedToday,
     habits,
     habitProgressToday,
     syncedEvents,
@@ -6462,6 +6526,7 @@ function bucketTodayFacts(gathered) {
   const {
     targetDate,
     todos,
+    completedToday,
     habits,
     habitProgressToday,
     syncedEvents,
@@ -6478,6 +6543,7 @@ function bucketTodayFacts(gathered) {
 
   const safeArr = (v) => (Array.isArray(v) ? v : []);
   const todosArr = safeArr(todos);
+  const completedTodayRaw = safeArr(completedToday);
   const habitsArr = safeArr(habits);
   const habitProgressArr = safeArr(habitProgressToday);
   const syncedEventsArr = safeArr(syncedEvents);
@@ -6729,6 +6795,12 @@ function bucketTodayFacts(gathered) {
       until: h.commitment_until || null,
     }));
 
+  const completedTodayProjected = completedTodayRaw.map((t) => ({
+    title: t.title || t.name,
+    completed_at: t.completed_at,
+    space_id: t.space_id || null,
+  }));
+
   return {
     targetDate,
     weeklyIntention,
@@ -6749,6 +6821,7 @@ function bucketTodayFacts(gathered) {
     calendarToday,
     calendarComingUp,
     anchorsActive,
+    completedToday: completedTodayProjected,
     recentMood,
     deliberate: {
       skipEvents: projectedSkipEvents,
@@ -6769,6 +6842,7 @@ function renderTodayFactsText(bucketed) {
   const todosDueToday = safeArr(bucketed?.todos?.dueToday);
   const todosOverdue = safeArr(bucketed?.todos?.overdue);
   const todosLockedIn = safeArr(bucketed?.todos?.lockedIn);
+  const completedToday = safeArr(bucketed?.completedToday);
   const untimedCount = Number.isFinite(bucketed?.todos?.untimedCount)
     ? bucketed.todos.untimedCount
     : 0;
@@ -6855,6 +6929,20 @@ function renderTodayFactsText(bucketed) {
   parts.push('');
   parts.push('=== TODOS (other) ===');
   parts.push(`${untimedCount} untimed, ${totalActive} active total`);
+
+  parts.push('');
+  parts.push('=== COMPLETED TODAY ===');
+  if (completedToday.length === 0) {
+    parts.push('(none)');
+  } else {
+    for (const t of completedToday) {
+      const title = t?.title || 'Untitled';
+      parts.push(`- "${title}"`);
+    }
+  }
+  parts.push(
+    'These were completed today and are evidence of momentum. Use them when judging thread state changes.',
+  );
 
   parts.push('');
   parts.push('=== HABITS SCHEDULED TODAY ===');
@@ -7036,8 +7124,8 @@ async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
 
   // --- Date math ---
   const targetDate = opts.targetDate || getUserLocalDate(timezone);
-  const target = new Date(targetDate + 'T00:00:00Z');
-  const targetEndOfDay = new Date(targetDate + 'T23:59:59.999Z');
+  const target = new Date(startOfDayUtc(targetDate, timezone));
+  const targetEndOfDay = new Date(endOfDayUtc(targetDate, timezone));
 
   const windowStart = new Date(target);
   windowStart.setUTCDate(windowStart.getUTCDate() - windowDays);
