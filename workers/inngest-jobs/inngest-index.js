@@ -590,16 +590,11 @@ async function generateSingleUserDcoV3(userId, timezone, env, shadowMode = true)
 
   const writeShadowOnly = async (dcoValue) => {
     const res = await fetch(
-      `${env.SUPABASE_URL}/rest/v1/user_daily_state?on_conflict=user_id,date`,
+      `${env.SUPABASE_URL}/rest/v1/user_daily_state?user_id=eq.${userId}&date=eq.${snapshot.targetDate}`,
       {
-        method: 'POST',
-        headers: { ...supaHeaders, Prefer: 'resolution=merge-duplicates' },
-        body: JSON.stringify({
-          user_id: userId,
-          date: snapshot.targetDate,
-          dco_shadow: dcoValue,
-          updated_at: now.toISOString(),
-        }),
+        method: 'PATCH',
+        headers: { ...supaHeaders, Prefer: 'return=minimal' },
+        body: JSON.stringify({ dco_shadow: dcoValue, updated_at: now.toISOString() }),
       },
     );
     if (!res.ok) {
