@@ -10920,6 +10920,7 @@ function assembleDcoFromPicture(verifiedPicture, snapshot, reviewFlags) {
     ? {
         what: p.lead.what,
         why_today: p.lead.why_today,
+        detail: p.lead.what,
       }
     : null;
 
@@ -10935,7 +10936,9 @@ function assembleDcoFromPicture(verifiedPicture, snapshot, reviewFlags) {
     also_matters: Array.isArray(p.also_matters) ? p.also_matters : [],
 
     named_anchors: (b.anchorsActive || []).map((a) => ({
+      label: a.title,
       title: a.title,
+      type: a.category || null,
       date: a.resolved_date || a.date_text || null,
       confidence: a.date_confidence || null,
     })),
