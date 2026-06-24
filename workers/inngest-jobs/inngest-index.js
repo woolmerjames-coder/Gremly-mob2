@@ -633,6 +633,27 @@ const testGatherForUser = inngest.createFunction(
   },
 );
 
+const testSynthesizeForUser = inngest.createFunction(
+  { id: 'test-synthesize-for-user', name: 'TEST Synthesize Daily Picture' },
+  { event: 'app/test.synthesize' },
+  async ({ event, env }) => {
+    const userId = event.data.user_id;
+    const timezone = event.data.timezone || 'America/Los_Angeles';
+    const snapshot = await fetchUserSnapshot(userId, timezone, 7, env);
+    if (!snapshot.today) {
+      return { user_id: userId, error: 'no today facts (gather failed)' };
+    }
+    const picture = await synthesizeDailyPicture(snapshot, env);
+    console.log('[TEST Synthesize]', userId.slice(0, 8), JSON.stringify(picture, null, 2));
+    return {
+      user_id: userId,
+      targetDate: snapshot.targetDate,
+      picture,
+      facts_text: snapshot.today.text,
+    };
+  },
+);
+
 const testWeeklySummaryV2 = inngest.createFunction(
   {
     id: 'test-weekly-summary-v2',
@@ -8854,6 +8875,237 @@ function buildWorldPicture(snapshot) {
   return { text, lifeMap };
 }
 
+function renderSoftContextForSynthesis(snapshot) {
+  const raw = snapshot?.raw || {};
+  const lifeMap = raw.currentLifeMap?.life_map || null;
+
+  if (!lifeMap?.domains || lifeMap.domains.length === 0) {
+    return '(no life map yet)';
+  }
+
+  const truncate = (value, max) => {
+    const str = String(value || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!str) return '';
+    if (str.length <= max) return str;
+    return `${str.slice(0, max)}...`;
+  };
+
+  const parts = [];
+
+  for (const domain of lifeMap.domains) {
+    parts.push(`DOMAIN: ${domain?.name || 'Unknown'}`);
+    const threads = Array.isArray(domain?.threads) ? domain.threads : [];
+    for (const thread of threads) {
+      parts.push(
+        `THREAD: ${thread?.name || 'Unknown'} | status: ${thread?.status || 'unknown'} | momentum: ${thread?.momentum || 'unknown'} | importance: ${thread?.importance || 'unknown'} | attention: ${thread?.attention || 'unknown'} | last_activity: ${thread?.last_activity || 'unknown'}`,
+      );
+      parts.push(`recent_update: ${truncate(thread?.recent_update || '(none)', 240)}`);
+      const summary = truncate(thread?.summary || '', 240);
+      if (summary) {
+        parts.push(`summary: ${summary}...`);
+      }
+    }
+    parts.push('');
+  }
+
+  const weeklySummaries = Array.isArray(raw.weeklySummaries) ? raw.weeklySummaries : [];
+  if (weeklySummaries.length > 0) {
+    const latestWeekly = [...weeklySummaries]
+      .sort((a, b) => {
+        const aDate = String(a?.week_end || a?.date || a?.created_at || '');
+        const bDate = String(b?.week_end || b?.date || b?.created_at || '');
+        return bDate.localeCompare(aDate);
+      })
+      .at(0);
+
+    parts.push('=== MOST RECENT WEEKLY SUMMARY ===');
+
+    const keyThemes = Array.isArray(latestWeekly?.key_themes) ? latestWeekly.key_themes : [];
+    if (keyThemes.length > 0) {
+      parts.push(`key_themes: ${keyThemes.join(', ')}`);
+    }
+
+    const contentCandidate =
+      latestWeekly?.narrative ||
+      latestWeekly?.content ||
+      latestWeekly?.summary ||
+      latestWeekly?.brief ||
+      latestWeekly?.body ||
+      latestWeekly?.week_summary ||
+      '';
+    const excerpt = truncate(contentCandidate, 240);
+    if (excerpt) {
+      parts.push(`excerpt: ${excerpt}`);
+    }
+
+    parts.push('');
+  }
+
+  const spaceChats = Array.isArray(raw.spaceChatSummaries) ? raw.spaceChatSummaries : [];
+  const entityChats = Array.isArray(raw.entityChatSummaries) ? raw.entityChatSummaries : [];
+
+  const recentChatRows = [];
+  for (const c of spaceChats) {
+    recentChatRows.push({
+      title: c?.title || c?.scope || c?.space_name || c?.space_id || 'Space chat',
+      summary: c?.running_summary || c?.summary || '',
+      updatedAt: c?.updated_at || c?.created_at || '',
+    });
+  }
+  for (const c of entityChats) {
+    recentChatRows.push({
+      title: c?.title || c?.scope || c?.entity_title || c?.entity_type || 'Entity chat',
+      summary: c?.running_summary || c?.chat_summary || c?.summary || '',
+      updatedAt: c?.updated_at || c?.chat_summary_at || c?.created_at || '',
+    });
+  }
+
+  const recentChats = recentChatRows
+    .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))
+    .slice(0, 5);
+
+  if (recentChats.length > 0) {
+    parts.push('=== RECENT CHAT GISTS ===');
+    for (const chat of recentChats) {
+      const title = chat?.title || 'Chat';
+      const summary = truncate(chat?.summary || '', 200);
+      if (!summary) continue;
+      parts.push(`- ${title}: ${summary}`);
+    }
+  }
+
+  return parts.join('\n').trim();
+}
+
+async function synthesizeDailyPicture(snapshot, env) {
+  const t0 = Date.now();
+
+  const todayFactsText = snapshot?.today?.text || '(no today facts)';
+  const softContextText = renderSoftContextForSynthesis(snapshot);
+  const targetDate = snapshot?.targetDate || 'unknown';
+
+  const systemPrompt = `You produce the forward-looking daily picture for a person using Gremly, an ADHD-informed, shame-free companion app. This runs at the start of their day.
+
+You have two layers of input.
+
+Layer 1 is TODAY'S FACTS, a hard-record block. It contains concrete truths such as todos due today, scheduled habits, calendar entries, the weekly intention set in Sweep, deliberate adaptations, mood, and milestones. Treat these records as true. Only make concrete claims from this layer.
+
+Layer 2 is CONTEXT, including Life Map interpretive fields and recent summaries. Use this to understand state and voice. Do not invent concrete facts from context.
+
+Your core job is to decide what genuinely matters today and frame it forward. Weigh concrete obligations and timing against emotional state and momentum. Some days lead with the tangible list. Some days lead with the person's state. Choose based on the data.
+
+The weekly intention is a strong lens but not an override. If today's facts or the person's state indicate a different lead, choose that lead and keep the intention as context.
+
+Voice requirements:
+Warm, encouraging, and forward-looking by default.
+Never shame, pressure, use streak language, or use the word should.
+Encouragement must be credible and matched to real state from context such as momentum, recent_update, mood, and status.
+If state is hard, keep voice gentle and permission-giving. Acknowledge reality lightly and honestly, then point forward.
+Do not use relentless cheerleading when signals indicate strain or stall.
+
+Forward-only requirement:
+Frame what is ahead today. Do not recap what already happened. Do not narrate the past week.
+
+Fact honesty requirement:
+Every concrete claim about tasks, meetings, times, names, or dates must come from TODAY'S FACTS.
+If it is not in TODAY'S FACTS, do not assert it.
+
+Output requirement:
+Return only JSON with this exact shape and keys:
+{
+  "life_moment": "<short phrase capturing where this person is today, or null>",
+  "tone": "<one of: relaxed | focused | stretched | recovering | celebratory>",
+  "day_type": "<one of: event_day | work_day | milestone_day | routine_day | quiet_day | transition_day>",
+  "headline": "<one warm forward-looking sentence, max 120 chars, no em or en dashes>",
+  "lead": {
+    "what": "<the single most important thing to orient around today, drawn from the facts>",
+    "why_today": "<one sentence on why this is the lead, grounded in the facts or the person's state>"
+  },
+  "also_matters": [
+    "<a concrete secondary item that matters today, grounded in facts>",
+    "<another, optional>"
+  ],
+  "today_focus": [
+    "<1 to 3 specific items from TODAY'S FACTS that deserve attention, each a real task/habit/event>"
+  ],
+  "voice_note": "<one or two sentences of warm, credible framing for the person, in second person, matching their real state>"
+}
+
+Reasoning order requirement:
+Decide interpretive text fields first. Then assign tone and day_type labels that best fit that interpretation, rather than deciding labels first.`;
+
+  const userMessage = [
+    `TODAY IS: ${targetDate}`,
+    '',
+    "=== TODAY'S FACTS ===",
+    todayFactsText,
+    '',
+    '=== CONTEXT ===',
+    softContextText,
+  ].join('\n');
+
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${env.GEMINI_API_KEY}`;
+
+  const response = await fetch(geminiUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+      generationConfig: {
+        temperature: 0.5,
+        maxOutputTokens: 2048,
+        responseMimeType: 'application/json',
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const errBody = await response.text().catch(() => '');
+    throw new Error(`Synthesize daily picture failed: ${response.status} ${errBody.slice(0, 300)}`);
+  }
+
+  const data = await response.json();
+
+  const candidate = data.candidates?.[0];
+  let content = '{}';
+  if (candidate?.content?.parts) {
+    for (const part of candidate.content.parts) {
+      if (part.text && !part.thought) {
+        content = part.text;
+        break;
+      }
+    }
+  }
+
+  let jsonStr = content.trim();
+  if (jsonStr.startsWith('```')) {
+    jsonStr = jsonStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonStr);
+  } catch (parseErr) {
+    console.error('[Synthesize] JSON parse failed. Raw:', content.slice(0, 500));
+    throw new Error(`Synthesize parse error: ${parseErr.message}`);
+  }
+
+  const latency = Date.now() - t0;
+  const usage = data.usageMetadata;
+  console.log(`[Synthesize] Complete in ${latency}ms`, {
+    input_tokens: usage?.promptTokenCount,
+    output_tokens: usage?.candidatesTokenCount,
+    thinking_tokens: usage?.thoughtsTokenCount || 0,
+    model: 'gemini-3-flash-preview',
+    target_date: targetDate,
+  });
+
+  return parsed;
+}
+
 async function updateLifeMapAndFocus(lifeMap, worldPictureText, env, context = {}) {
   const { activeWorlds = [], activeChapters = [] } = context;
   const t0 = Date.now();
@@ -9767,6 +10019,7 @@ const inngestHandler = serve({
     testUnifiedAnalyst,
     testLifeMapRebuild,
     testGatherForUser,
+    testSynthesizeForUser,
     testWeeklySummaryV2,
     testAnalystDualRun,
     testWorldsBundleEquivalence,
