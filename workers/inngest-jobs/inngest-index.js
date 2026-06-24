@@ -9076,97 +9076,87 @@ Decide interpretive text fields first. Then assign tone and day_type labels that
   ].join('\n');
 
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${env.GEMINI_API_KEY}`;
-  let parsed;
-  let data;
-  let content = '{}';
+  const requestBody = {
+    systemInstruction: { parts: [{ text: systemPrompt }] },
+    contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+    generationConfig: {
+      temperature: 0.5,
+      maxOutputTokens: 4096,
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: 'object',
+        properties: {
+          life_moment: { type: 'string', nullable: true },
+          tone: {
+            type: 'string',
+            enum: ['relaxed', 'focused', 'stretched', 'recovering', 'celebratory'],
+          },
+          day_type: {
+            type: 'string',
+            enum: [
+              'event_day',
+              'work_day',
+              'milestone_day',
+              'routine_day',
+              'quiet_day',
+              'transition_day',
+            ],
+          },
+          headline: { type: 'string' },
+          lead: {
+            type: 'object',
+            properties: {
+              what: { type: 'string' },
+              why_today: { type: 'string' },
+            },
+            required: ['what', 'why_today'],
+          },
+          also_matters: { type: 'array', items: { type: 'string' } },
+          today_focus: { type: 'array', items: { type: 'string' } },
+          voice_note: { type: 'string' },
+        },
+        required: ['tone', 'day_type', 'headline', 'lead', 'today_focus', 'voice_note'],
+        propertyOrdering: [
+          'life_moment',
+          'headline',
+          'lead',
+          'voice_note',
+          'also_matters',
+          'today_focus',
+          'tone',
+          'day_type',
+        ],
+      },
+    },
+  };
+  let content = '';
+  let lastErr = null;
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const response = await fetch(geminiUrl, {
+      const resp = await fetch(geminiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: systemPrompt }] },
-          contents: [{ role: 'user', parts: [{ text: userMessage }] }],
-          generationConfig: {
-            temperature: 0.5,
-            maxOutputTokens: 4096,
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: 'object',
-              properties: {
-                life_moment: { type: 'string', nullable: true },
-                tone: {
-                  type: 'string',
-                  enum: ['relaxed', 'focused', 'stretched', 'recovering', 'celebratory'],
-                },
-                day_type: {
-                  type: 'string',
-                  enum: [
-                    'event_day',
-                    'work_day',
-                    'milestone_day',
-                    'routine_day',
-                    'quiet_day',
-                    'transition_day',
-                  ],
-                },
-                headline: { type: 'string' },
-                lead: {
-                  type: 'object',
-                  properties: {
-                    what: { type: 'string' },
-                    why_today: { type: 'string' },
-                  },
-                  required: ['what', 'why_today'],
-                },
-                also_matters: { type: 'array', items: { type: 'string' } },
-                today_focus: { type: 'array', items: { type: 'string' } },
-                voice_note: { type: 'string' },
-              },
-              required: ['tone', 'day_type', 'headline', 'lead', 'today_focus', 'voice_note'],
-              propertyOrdering: [
-                'life_moment',
-                'headline',
-                'lead',
-                'voice_note',
-                'also_matters',
-                'today_focus',
-                'tone',
-                'day_type',
-              ],
-            },
-          },
-        }),
+        body: JSON.stringify(requestBody),
       });
 
-      if (!response.ok) {
-        const errBody = await response.text().catch(() => '');
-        throw new Error(
-          `Synthesize daily picture failed: ${response.status} ${errBody.slice(0, 300)}`,
-        );
+      if (!resp.ok) {
+        const errBody = await resp.text().catch(() => '');
+        throw new Error(`Synthesize daily picture failed: ${resp.status} ${errBody.slice(0, 300)}`);
       }
 
-      data = await response.json();
-
-      const candidate = data.candidates?.[0];
-      content = '{}';
-      if (candidate?.content?.parts) {
-        for (const part of candidate.content.parts) {
-          if (part.text && !part.thought) {
-            content = part.text;
-            break;
-          }
-        }
-      }
+      const data = await resp.json();
+      content = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
       let jsonStr = content.trim();
       if (jsonStr.startsWith('```')) {
         jsonStr = jsonStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
       }
 
-      parsed = JSON.parse(jsonStr);
-      break;
+      const parsed = JSON.parse(jsonStr);
+      console.log('[Synthesize] ok attempt', attempt, 'target_date:', targetDate);
+      return parsed;
     } catch (err) {
+      lastErr = err;
       console.warn(`[Synthesize] attempt ${attempt} failed: ${err.message}`);
       if (attempt === 2) {
         console.error('[Synthesize] both attempts failed. Full raw:', content);
@@ -9174,18 +9164,7 @@ Decide interpretive text fields first. Then assign tone and day_type labels that
       }
     }
   }
-
-  const latency = Date.now() - t0;
-  const usage = data.usageMetadata;
-  console.log(`[Synthesize] Complete in ${latency}ms`, {
-    input_tokens: usage?.promptTokenCount,
-    output_tokens: usage?.candidatesTokenCount,
-    thinking_tokens: usage?.thoughtsTokenCount || 0,
-    model: 'gemini-3-flash-preview',
-    target_date: targetDate,
-  });
-
-  return parsed;
+  throw new Error(`Synthesize parse error: ${lastErr?.message || 'unknown error'}`);
 }
 
 async function verifyDailyPicture(picture, factsText, env) {
@@ -9237,90 +9216,82 @@ All string values in your output must be a single line. Never include a raw line
     (factsText || '(no facts)');
 
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${env.GEMINI_API_KEY}`;
-  let parsed;
-  let data;
-  let content = '{}';
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      const response = await fetch(geminiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: systemPrompt }] },
-          contents: [{ role: 'user', parts: [{ text: userMessage }] }],
-          generationConfig: {
-            temperature: 0.2,
-            maxOutputTokens: 4096,
-            responseMimeType: 'application/json',
-            responseSchema: {
+  const requestBody = {
+    systemInstruction: { parts: [{ text: systemPrompt }] },
+    contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+    generationConfig: {
+      temperature: 0.2,
+      maxOutputTokens: 4096,
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: 'object',
+        properties: {
+          verified_picture: {
+            type: 'object',
+            properties: {
+              life_moment: { type: 'string', nullable: true },
+              tone: { type: 'string' },
+              day_type: { type: 'string' },
+              headline: { type: 'string' },
+              lead: {
+                type: 'object',
+                properties: {
+                  what: { type: 'string' },
+                  why_today: { type: 'string' },
+                },
+                required: ['what', 'why_today'],
+              },
+              also_matters: { type: 'array', items: { type: 'string' } },
+              today_focus: { type: 'array', items: { type: 'string' } },
+              voice_note: { type: 'string' },
+            },
+            required: ['tone', 'day_type', 'headline', 'lead', 'today_focus', 'voice_note'],
+          },
+          review_flags: {
+            type: 'array',
+            items: {
               type: 'object',
               properties: {
-                verified_picture: {
-                  type: 'object',
-                  properties: {
-                    life_moment: { type: 'string', nullable: true },
-                    tone: { type: 'string' },
-                    day_type: { type: 'string' },
-                    headline: { type: 'string' },
-                    lead: {
-                      type: 'object',
-                      properties: {
-                        what: { type: 'string' },
-                        why_today: { type: 'string' },
-                      },
-                      required: ['what', 'why_today'],
-                    },
-                    also_matters: { type: 'array', items: { type: 'string' } },
-                    today_focus: { type: 'array', items: { type: 'string' } },
-                    voice_note: { type: 'string' },
-                  },
-                  required: ['tone', 'day_type', 'headline', 'lead', 'today_focus', 'voice_note'],
-                },
-                review_flags: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      field: { type: 'string' },
-                      action: { type: 'string', enum: ['strip', 'downgrade'] },
-                      note: { type: 'string' },
-                    },
-                    required: ['field', 'action', 'note'],
-                  },
-                },
+                field: { type: 'string' },
+                action: { type: 'string', enum: ['strip', 'downgrade'] },
+                note: { type: 'string' },
               },
-              required: ['verified_picture', 'review_flags'],
+              required: ['field', 'action', 'note'],
             },
           },
-        }),
+        },
+        required: ['verified_picture', 'review_flags'],
+      },
+    },
+  };
+  let content = '';
+  let lastErr = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const resp = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
       });
 
-      if (!response.ok) {
-        const errBody = await response.text().catch(() => '');
-        throw new Error(`Verify daily picture failed: ${response.status} ${errBody.slice(0, 300)}`);
+      if (!resp.ok) {
+        const errBody = await resp.text().catch(() => '');
+        throw new Error(`Verify daily picture failed: ${resp.status} ${errBody.slice(0, 300)}`);
       }
 
-      data = await response.json();
-
-      const candidate = data.candidates?.[0];
-      content = '{}';
-      if (candidate?.content?.parts) {
-        for (const part of candidate.content.parts) {
-          if (part.text && !part.thought) {
-            content = part.text;
-            break;
-          }
-        }
-      }
+      const data = await resp.json();
+      content = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
       let jsonStr = content.trim();
       if (jsonStr.startsWith('```')) {
         jsonStr = jsonStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
       }
 
-      parsed = JSON.parse(jsonStr);
-      break;
+      const parsed = JSON.parse(jsonStr);
+      console.log('[Verify] ok attempt', attempt, 'flags:', parsed.review_flags?.length || 0);
+      return parsed;
     } catch (err) {
+      lastErr = err;
       console.warn(`[Verify] attempt ${attempt} failed: ${err.message}`);
       if (attempt === 2) {
         console.error('[Verify] both attempts failed. Full raw:', content);
@@ -9328,18 +9299,7 @@ All string values in your output must be a single line. Never include a raw line
       }
     }
   }
-
-  const latency = Date.now() - t0;
-  const usage = data.usageMetadata;
-  console.log(`[Verify] Complete in ${latency}ms`, {
-    input_tokens: usage?.promptTokenCount,
-    output_tokens: usage?.candidatesTokenCount,
-    thinking_tokens: usage?.thoughtsTokenCount || 0,
-    model: 'gemini-3-flash-preview',
-    review_flags: Array.isArray(parsed?.review_flags) ? parsed.review_flags.length : 0,
-  });
-
-  return parsed;
+  throw new Error(`Verify parse error: ${lastErr?.message || 'unknown error'}`);
 }
 
 async function updateLifeMapAndFocus(lifeMap, worldPictureText, env, context = {}) {
