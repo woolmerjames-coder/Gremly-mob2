@@ -412,13 +412,45 @@ const generateSingleUserDco = inngest.createFunction(
         return generateHeadlineFromFocus(flashResult.daily_focus, snapshot, env);
       });
 
+      // Step 5b: Read existing today's DCO so worlds_summary is preserved unless refreshed.
+      const existingTodayDco = await step.run('read-existing-dco-today', async () => {
+        const headers = {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+        };
+        const todayLocal = getUserLocalDate(timezone);
+        const res = await fetch(
+          `${env.SUPABASE_URL}/rest/v1/user_daily_state?user_id=eq.${userId}&date=eq.${todayLocal}&select=dco&limit=1`,
+          { headers },
+        );
+        if (!res.ok) return null;
+        const rows = await res.json().catch(() => []);
+        return rows?.[0]?.dco || null;
+      });
+
       // Step 6: Assemble backward-compatible DCO
       const dco = assembleDcoFromFocus(flashResult.daily_focus, headline, snapshot, flashResult);
 
+      dco.worlds_summary = resolveDailyWorldsSummary(
+        existingTodayDco?.worlds_summary || null,
+        flashResult?.worlds_summary || null,
+      );
+
+      const verifiedWorldOverrides = gateOverridesByReason(
+        flashResult.world_overrides,
+        'world_id',
+        'world',
+      );
+      const verifiedChapterOverrides = gateOverridesByReason(
+        flashResult.chapter_overrides,
+        'chapter_id',
+        'chapter',
+      );
+
       // Step 6b: Apply per-world DCO overrides (before final upsert)
-      await step.run('apply-world-overrides', async () => {
+      const worldOverrideResult = await step.run('apply-world-overrides', async () => {
         return applyWorldOverrides(
-          flashResult.world_overrides,
+          verifiedWorldOverrides,
           worldsAndChapters.activeWorlds,
           userId,
           env,
@@ -426,9 +458,9 @@ const generateSingleUserDco = inngest.createFunction(
       });
 
       // Step 6c: Apply per-chapter DCO overrides (before final upsert)
-      await step.run('apply-chapter-overrides', async () => {
+      const chapterOverrideResult = await step.run('apply-chapter-overrides', async () => {
         return applyChapterOverrides(
-          flashResult.chapter_overrides,
+          verifiedChapterOverrides,
           worldsAndChapters.activeChapters,
           userId,
           env,
@@ -479,6 +511,20 @@ const generateSingleUserDco = inngest.createFunction(
                 world_picture_length: worldPicture.text.length,
                 thread_updates_count: flashResult.thread_updates?.length || 0,
                 lead_story: flashResult.daily_focus?.lead_story || null,
+                world_overrides_applied: {
+                  proposed: Array.isArray(flashResult.world_overrides)
+                    ? flashResult.world_overrides.length
+                    : 0,
+                  gated: verifiedWorldOverrides.length,
+                  result: worldOverrideResult,
+                },
+                chapter_overrides_applied: {
+                  proposed: Array.isArray(flashResult.chapter_overrides)
+                    ? flashResult.chapter_overrides.length
+                    : 0,
+                  gated: verifiedChapterOverrides.length,
+                  result: chapterOverrideResult,
+                },
               },
               upcoming_dates: extractUpcomingDates(dco),
               created_at: now.toISOString(),
@@ -504,6 +550,10 @@ const generateSingleUserDco = inngest.createFunction(
         tone: dco.tone,
         day_type: dco.day_type,
         week_recap_count: dco.week_recap?.length || 0,
+        override_apply_results: {
+          world: worldOverrideResult,
+          chapter: chapterOverrideResult,
+        },
       };
     } catch (error) {
       console.error(`[DCO] Failed for user ${userId}:`, error);
@@ -694,6 +744,9 @@ const testSynthesizeForUser = inngest.createFunction(
     const userId = event.data.user_id;
     const timezone = event.data.timezone || 'America/Los_Angeles';
     const snapshot = await fetchUserSnapshot(userId, timezone, 7, env);
+    const worldsAndChapters = await fetchActiveWorldsAndChapters(userId, env);
+    snapshot.activeWorlds = worldsAndChapters.activeWorlds;
+    snapshot.activeChapters = worldsAndChapters.activeChapters;
     if (!snapshot.today) {
       return { user_id: userId, error: 'no today facts (gather failed)' };
     }
@@ -715,6 +768,9 @@ const testVerifyForUser = inngest.createFunction(
     const userId = event.data.user_id;
     const timezone = event.data.timezone || 'America/Los_Angeles';
     const snapshot = await fetchUserSnapshot(userId, timezone, 7, env);
+    const worldsAndChapters = await fetchActiveWorldsAndChapters(userId, env);
+    snapshot.activeWorlds = worldsAndChapters.activeWorlds;
+    snapshot.activeChapters = worldsAndChapters.activeChapters;
     if (!snapshot.today) {
       return { user_id: userId, error: 'no today facts (gather failed)' };
     }
@@ -739,6 +795,9 @@ const testAssembleForUser = inngest.createFunction(
     const userId = event.data.user_id;
     const timezone = event.data.timezone || 'America/Los_Angeles';
     const snapshot = await fetchUserSnapshot(userId, timezone, 7, env);
+    const worldsAndChapters = await fetchActiveWorldsAndChapters(userId, env);
+    snapshot.activeWorlds = worldsAndChapters.activeWorlds;
+    snapshot.activeChapters = worldsAndChapters.activeChapters;
     if (!snapshot.today) {
       return { user_id: userId, error: 'no today facts' };
     }
@@ -762,6 +821,9 @@ const testWriteAuthorityForUser = inngest.createFunction(
     const userId = event.data.user_id;
     const timezone = event.data.timezone || 'America/Los_Angeles';
     const snapshot = await fetchUserSnapshot(userId, timezone, 7, env);
+    const worldsAndChapters = await fetchActiveWorldsAndChapters(userId, env);
+    snapshot.activeWorlds = worldsAndChapters.activeWorlds;
+    snapshot.activeChapters = worldsAndChapters.activeChapters;
     if (!snapshot.today) return { user_id: userId, error: 'no today facts' };
 
     const picture = await synthesizeDailyPicture(snapshot, env);
@@ -9051,6 +9113,8 @@ function buildWorldPicture(snapshot) {
 
 function renderSoftContextForSynthesis(snapshot) {
   const raw = snapshot?.raw || {};
+  const activeWorlds = Array.isArray(snapshot?.activeWorlds) ? snapshot.activeWorlds : [];
+  const activeChapters = Array.isArray(snapshot?.activeChapters) ? snapshot.activeChapters : [];
   const lifeMap = raw.currentLifeMap?.life_map || null;
 
   if (!lifeMap?.domains || lifeMap.domains.length === 0) {
@@ -9150,6 +9214,56 @@ function renderSoftContextForSynthesis(snapshot) {
     }
   }
 
+  const formatPriorities = (kp) => {
+    if (!Array.isArray(kp) || kp.length === 0) return '(none)';
+    return kp
+      .slice(0, 5)
+      .map((p) => {
+        const date = p?.due_date ? ` due ${p.due_date}` : '';
+        const ref = p?.entity_ref ? ` ref:${p.entity_ref}` : '';
+        return `#${p?.rank ?? '?'} [${p?.kind ?? '?'}] ${p?.text || ''}${date}${ref}`;
+      })
+      .join(' ; ');
+  };
+
+  if (activeWorlds.length > 0) {
+    parts.push('=== ACTIVE WORLDS (CURRENT AUTHORED STATE) ===');
+    for (const w of activeWorlds) {
+      parts.push(
+        `- id: ${w?.id || 'unknown'} | name: ${w?.display_name || w?.name || 'Unknown'} | phase: ${w?.phase || 'unknown'}`,
+      );
+      parts.push(`  card_subtitle: ${w?.card_subtitle || '(none)'}`);
+      parts.push(`  card_subtitle_source: ${w?.card_subtitle_source || '(unset)'}`);
+      parts.push(`  summary: ${truncate(w?.summary || '(none)', 220)}`);
+      parts.push(`  summary_source: ${w?.summary_source || '(unset)'}`);
+      parts.push(`  key_priorities: ${formatPriorities(w?.key_priorities)}`);
+    }
+    parts.push('');
+  }
+
+  if (activeChapters.length > 0) {
+    parts.push('=== ACTIVE CHAPTERS (CURRENT AUTHORED STATE) ===');
+    for (const c of activeChapters) {
+      const phaseLadder =
+        Array.isArray(c?.phase_labels) && c.phase_labels.length > 0
+          ? c.phase_labels.join(' -> ')
+          : '(none)';
+      parts.push(
+        `- id: ${c?.id || 'unknown'} | title: ${c?.title || 'Unknown'} | phase: ${c?.phase || 'unknown'}`,
+      );
+      parts.push(`  card_subtitle: ${c?.card_subtitle || '(none)'}`);
+      parts.push(`  card_subtitle_source: ${c?.card_subtitle_source || '(unset)'}`);
+      parts.push(`  target: ${c?.target_summary || '(none)'}`);
+      parts.push(
+        `  phase_info: ${phaseLadder}${c?.current_phase_key ? ` (current: ${c.current_phase_key})` : ''}`,
+      );
+      parts.push(`  summary: ${truncate(c?.summary || '(none)', 220)}`);
+      parts.push(`  summary_source: ${c?.summary_source || '(unset)'}`);
+      parts.push(`  key_priorities: ${formatPriorities(c?.key_priorities)}`);
+    }
+    parts.push('');
+  }
+
   return parts.join('\n').trim();
 }
 
@@ -9201,7 +9315,20 @@ For each such thread:
 - When state_change is true, state_change_reason must name the specific today's-facts item that creates the contradiction, so the change is auditable against today's records.
 - Match domain and thread names exactly to those in the provided Life Map context. If you cannot match a thread by name, do not invent one. Skip it.
 
-Be conservative. Most days have no state change. Evidence and recent_update are the normal outputs. Momentum and status changes are rare and must be earned by a real contradiction in today's facts.`;
+Be conservative. Most days have no state change. Evidence and recent_update are the normal outputs. Momentum and status changes are rare and must be earned by a real contradiction in today's facts.
+
+Worlds and chapters override rules:
+Default is NOT to override. Weekly classifier card_subtitle and key_priorities are authored from the full multi-week window and assumed correct.
+Override card_subtitle ONLY when today's facts add a grounded trigger the classifier could not have known: completion, passed or changed deadline, phase transition, or new event.
+Cosmetic rewrites are NOT overrides. If no concrete trigger, return null for that field.
+Never strip a valid temporal anchor without replacing it with an equally or more specific one.
+If today contradicts a prior anchor (deadline moved, event passed), update to the new reality.
+key_priorities override only to rerank or when a new priority genuinely outranks an existing one. Do not invent priorities. If existing ranking still holds, return null.
+For each override you make, change_reason must reference the specific today's-facts item that justifies it.
+For worlds_summary: if a classifier worlds_summary exists this week, you may refresh headline and featured but keep spirit and named anchors unless today materially shifted the picture.
+Set refreshed=true only when you actually changed it based on today's facts. If today does not move it, omit worlds_summary entirely.
+Match world_id and chapter_id exactly to provided ACTIVE lists. Do not invent ids.
+Be conservative. Most days produce no overrides.`;
 
   const userMessage = [
     `TODAY IS: ${targetDate}`,
@@ -9280,6 +9407,87 @@ Be conservative. Most days have no state change. Evidence and recent_update are 
               required: ['domain', 'thread', 'state_change'],
             },
           },
+          worlds_summary: {
+            type: 'object',
+            nullable: true,
+            properties: {
+              headline: { type: 'string' },
+              featured: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    world_id: { type: 'string', nullable: true },
+                    reason: { type: 'string' },
+                  },
+                  required: ['reason'],
+                },
+              },
+              refreshed: { type: 'boolean' },
+            },
+          },
+          world_overrides: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                world_id: { type: 'string' },
+                card_subtitle: { type: 'string', nullable: true },
+                key_priorities: {
+                  type: 'array',
+                  nullable: true,
+                  items: {
+                    type: 'object',
+                    properties: {
+                      rank: { type: 'integer' },
+                      text: { type: 'string' },
+                      kind: {
+                        type: 'string',
+                        enum: ['action', 'date', 'blocker', 'momentum', 'decision'],
+                      },
+                      entity_ref: { type: 'string', nullable: true },
+                      due_date: { type: 'string', nullable: true },
+                      confidence: { type: 'number' },
+                    },
+                    required: ['rank', 'text', 'kind'],
+                  },
+                },
+                change_reason: { type: 'string', nullable: true },
+              },
+              required: ['world_id'],
+            },
+          },
+          chapter_overrides: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                chapter_id: { type: 'string' },
+                card_subtitle: { type: 'string', nullable: true },
+                key_priorities: {
+                  type: 'array',
+                  nullable: true,
+                  items: {
+                    type: 'object',
+                    properties: {
+                      rank: { type: 'integer' },
+                      text: { type: 'string' },
+                      kind: {
+                        type: 'string',
+                        enum: ['action', 'date', 'blocker', 'momentum', 'decision'],
+                      },
+                      entity_ref: { type: 'string', nullable: true },
+                      due_date: { type: 'string', nullable: true },
+                      confidence: { type: 'number' },
+                    },
+                    required: ['rank', 'text', 'kind'],
+                  },
+                },
+                change_reason: { type: 'string', nullable: true },
+              },
+              required: ['chapter_id'],
+            },
+          },
         },
         required: ['tone', 'day_type', 'headline', 'lead', 'today_focus', 'voice_note'],
         propertyOrdering: [
@@ -9290,6 +9498,9 @@ Be conservative. Most days have no state change. Evidence and recent_update are 
           'also_matters',
           'today_focus',
           'thread_updates',
+          'worlds_summary',
+          'world_overrides',
+          'chapter_overrides',
           'tone',
           'day_type',
         ],
@@ -9375,7 +9586,14 @@ Return corrected picture with the same structure, plus review_flags.
 Each review_flag must capture one actual change with field, action, and note.
 Keep each review_flags note under 15 words. State only what was unsupported, not lengthy justification.
 If nothing changed, return an empty review_flags array.
-All string values in your output must be a single line. Never include a raw line break inside any string value. If you need a pause, use a sentence break, not a newline.`;
+All string values in your output must be a single line. Never include a raw line break inside any string value. If you need a pause, use a sentence break, not a newline.
+
+Also verify worlds and chapters overrides:
+- world_overrides and chapter_overrides asserting a concrete change must be grounded in today's facts.
+- worlds_summary refresh must be grounded in today's facts when refreshed=true.
+- change_reason must reference a today's-facts item. If it only restates prior prose, treat as ungrounded.
+- For ungrounded overrides, strip that override entry and add a review_flag.
+- Pass through grounded overrides unchanged.`;
 
   const userMessage =
     '=== THE PICTURE TO VERIFY ===\n' +
@@ -9412,6 +9630,115 @@ All string values in your output must be a single line. Never include a raw line
               also_matters: { type: 'array', items: { type: 'string' } },
               today_focus: { type: 'array', items: { type: 'string' } },
               voice_note: { type: 'string' },
+              thread_updates: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    domain: { type: 'string' },
+                    thread: { type: 'string' },
+                    new_evidence: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          date: { type: 'string' },
+                          signal: { type: 'string' },
+                          salience: { type: 'string', enum: ['low', 'medium', 'high'] },
+                        },
+                        required: ['date', 'signal'],
+                      },
+                    },
+                    recent_update: { type: 'string', nullable: true },
+                    state_change: { type: 'boolean' },
+                    state_change_reason: { type: 'string', nullable: true },
+                    new_momentum: { type: 'string', nullable: true },
+                    new_status: { type: 'string', nullable: true },
+                  },
+                  required: ['domain', 'thread', 'state_change'],
+                },
+              },
+              worlds_summary: {
+                type: 'object',
+                nullable: true,
+                properties: {
+                  headline: { type: 'string' },
+                  featured: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        world_id: { type: 'string', nullable: true },
+                        reason: { type: 'string' },
+                      },
+                      required: ['reason'],
+                    },
+                  },
+                  refreshed: { type: 'boolean' },
+                },
+              },
+              world_overrides: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    world_id: { type: 'string' },
+                    card_subtitle: { type: 'string', nullable: true },
+                    key_priorities: {
+                      type: 'array',
+                      nullable: true,
+                      items: {
+                        type: 'object',
+                        properties: {
+                          rank: { type: 'integer' },
+                          text: { type: 'string' },
+                          kind: {
+                            type: 'string',
+                            enum: ['action', 'date', 'blocker', 'momentum', 'decision'],
+                          },
+                          entity_ref: { type: 'string', nullable: true },
+                          due_date: { type: 'string', nullable: true },
+                          confidence: { type: 'number' },
+                        },
+                        required: ['rank', 'text', 'kind'],
+                      },
+                    },
+                    change_reason: { type: 'string', nullable: true },
+                  },
+                  required: ['world_id'],
+                },
+              },
+              chapter_overrides: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    chapter_id: { type: 'string' },
+                    card_subtitle: { type: 'string', nullable: true },
+                    key_priorities: {
+                      type: 'array',
+                      nullable: true,
+                      items: {
+                        type: 'object',
+                        properties: {
+                          rank: { type: 'integer' },
+                          text: { type: 'string' },
+                          kind: {
+                            type: 'string',
+                            enum: ['action', 'date', 'blocker', 'momentum', 'decision'],
+                          },
+                          entity_ref: { type: 'string', nullable: true },
+                          due_date: { type: 'string', nullable: true },
+                          confidence: { type: 'number' },
+                        },
+                        required: ['rank', 'text', 'kind'],
+                      },
+                    },
+                    change_reason: { type: 'string', nullable: true },
+                  },
+                  required: ['chapter_id'],
+                },
+              },
             },
             required: ['tone', 'day_type', 'headline', 'lead', 'today_focus', 'voice_note'],
           },
@@ -9604,7 +9931,7 @@ Pick the MOST MEANINGFUL entries, not an exhaustive list. Cap at 8-10 entries fo
 Also produce a week_mood_arc: a single sentence describing how the user's emotional state shifted across the week, based on journal moods, chat emotional signals, and any other sentiment data. If insufficient emotional data exists, return null.
 
 JOB 4 - WORLDS SUMMARY
-Produce a worlds_summary block with two fields: headline and featured.
+Produce a worlds_summary block with three fields: headline, featured, and refreshed.
 
 headline is a single line, maximum 120 characters, written in Gremly's voice. Gremly is a sharp, warm companion who observes the user's life matter-of-factly without performing emotion. The headline is Gremly noticing the dominant force in play across the user's worlds today, not announcing a theme, not summarizing categories. Third-person observational stance. Never use "you", "your", "we", or "our".
 
@@ -9618,7 +9945,7 @@ Forbidden tone: exclamatory punctuation, celebratory adjectives, dramatic adject
 
 Structure preference: one main clause naming the dominant force today, optionally followed by a short second clause naming what's meeting it. Avoid chaining three or more ideas with "and" or "as" or "while".
 
-featured is 2 to 3 worlds to spotlight with a one-clause reason each, maximum 60 characters per reason, following the same voice rules. Use world ids from the ACTIVE WORLDS list where available; otherwise use the Life Map domain name. If the world picture contains a classifier worlds_summary seeded this week, you may refresh the headline but keep its spirit and its named anchors intact unless today's data has materially shifted the picture.
+featured is 2 to 3 worlds to spotlight with a one-clause reason each, maximum 60 characters per reason, following the same voice rules. Use world ids from the ACTIVE WORLDS list where available; otherwise use the Life Map domain name. If the world picture contains a classifier worlds_summary seeded this week, you may refresh the headline but keep its spirit and its named anchors intact unless today's data has materially shifted the picture. Set refreshed=true only when you materially changed worlds_summary based on today's facts.
 Style rules for worlds_summary text. Maximum 120 characters for headline. Never use em dashes, en dashes, or double hyphens. Never use ampersands except inside literal proper nouns.
 
 JOB 5 - PER-WORLD AND CHAPTER OVERRIDES
@@ -9640,9 +9967,11 @@ When deciding to override, consult the authored context shown for each world and
 
 A key_priorities override requires that today's activity changed the correct ranking order of existing priorities, or a new priority became genuinely more important than an existing one. Only rerank; do not invent new priorities. If the existing ranking still reflects reality, return null.
 
-Emit a world_overrides array with entries containing world_id (from ACTIVE WORLDS), card_subtitle (new subtitle string or null), and key_priorities (reranked array or null). Omit entries where both fields are null.
+Every world/chapter override you emit must include change_reason with a concrete today's-facts item that justifies the override.
 
-For each chapter in ACTIVE CHAPTERS, apply the same strict evaluation. Emit a chapter_overrides array with entries containing chapter_id, card_subtitle (nullable), and key_priorities (nullable). Omit entries where both fields are null.
+Emit a world_overrides array with entries containing world_id (from ACTIVE WORLDS), card_subtitle (new subtitle string or null), key_priorities (reranked array or null), and change_reason (nullable string). Omit entries where both fields are null.
+
+For each chapter in ACTIVE CHAPTERS, apply the same strict evaluation. Emit a chapter_overrides array with entries containing chapter_id, card_subtitle (nullable), key_priorities (nullable), and change_reason (nullable string). Omit entries where both fields are null.
 
 key_priorities items each have rank (integer 1-5), text (up to 100 characters), kind (one of: action, date, blocker, momentum, decision), optional entity_ref string, optional due_date ISO date string, and confidence (0-1 number).
 
@@ -9711,20 +10040,23 @@ OUTPUT — return ONLY this JSON:
   "week_mood_arc": "single sentence about emotional trajectory this week, or null",
   "worlds_summary": {
     "headline": "single sentence up to 120 characters",
-    "featured": [{"world_id": "world id from ACTIVE WORLDS or Life Map domain name", "reason": "one-clause reason"}]
+    "featured": [{"world_id": "world id from ACTIVE WORLDS or Life Map domain name", "reason": "one-clause reason"}],
+    "refreshed": true
   },
   "world_overrides": [
     {
       "world_id": "id from ACTIVE WORLDS",
       "card_subtitle": "new subtitle or null",
-      "key_priorities": null
+      "key_priorities": null,
+      "change_reason": "specific today's-facts trigger"
     }
   ],
   "chapter_overrides": [
     {
       "chapter_id": "id from ACTIVE CHAPTERS",
       "card_subtitle": "new subtitle or null",
-      "key_priorities": null
+      "key_priorities": null,
+      "change_reason": "specific today's-facts trigger"
     }
   ]
 }`;
@@ -10098,6 +10430,62 @@ async function applyChapterOverrides(overrides, activeChapters, userId, env) {
   return { updated, skipped, errors };
 }
 
+function hasGroundedReason(text) {
+  return typeof text === 'string' && text.trim().length >= 20;
+}
+
+function gateOverridesByReason(overrides, idField, label) {
+  if (!Array.isArray(overrides) || overrides.length === 0) {
+    return [];
+  }
+  const kept = [];
+  for (const override of overrides) {
+    const hasChangePayload = override?.card_subtitle != null || override?.key_priorities != null;
+    if (!hasChangePayload) continue;
+    if (!hasGroundedReason(override?.change_reason)) {
+      console.log(
+        `[DCO:Override] skipped ${label} ${override?.[idField] || 'unknown'} - no grounded reason`,
+      );
+      continue;
+    }
+    kept.push(override);
+  }
+  return kept;
+}
+
+function resolveDailyWorldsSummary(existingWorldsSummary, proposedWorldsSummary) {
+  const hasExisting =
+    existingWorldsSummary &&
+    typeof existingWorldsSummary === 'object' &&
+    !!existingWorldsSummary.headline;
+  const hasProposed =
+    proposedWorldsSummary &&
+    typeof proposedWorldsSummary === 'object' &&
+    !!proposedWorldsSummary.headline;
+
+  if (hasProposed && proposedWorldsSummary.refreshed === true) {
+    return {
+      ...proposedWorldsSummary,
+      updated_at: new Date().toISOString(),
+      source: 'dco',
+    };
+  }
+
+  if (hasExisting) {
+    return existingWorldsSummary;
+  }
+
+  if (hasProposed) {
+    return {
+      ...proposedWorldsSummary,
+      updated_at: new Date().toISOString(),
+      source: 'dco',
+    };
+  }
+
+  return null;
+}
+
 // ============================================================================
 // Phase 2: Backward-compatible DCO assembly + simplified headline
 // ============================================================================
@@ -10265,6 +10653,9 @@ function assembleDcoFromPicture(verifiedPicture, snapshot, reviewFlags) {
 
     week_recap: [],
     recent_context: buildRecentContext(b),
+    worlds_summary: p.worlds_summary
+      ? { ...p.worlds_summary, updated_at: new Date().toISOString(), source: 'dco' }
+      : null,
 
     review_flags: Array.isArray(reviewFlags) ? reviewFlags : [],
 
@@ -10734,21 +11125,46 @@ export default {
               flashResult,
             );
 
-            await applyWorldOverrides(
+            const now = new Date();
+            const todayLocal = getUserLocalDate(u.timezone);
+            const existingTodayRes = await fetch(
+              `${env.SUPABASE_URL}/rest/v1/user_daily_state?user_id=eq.${u.user_id}&date=eq.${todayLocal}&select=dco&limit=1`,
+              { headers: supaHeaders },
+            );
+            const existingTodayRows = existingTodayRes.ok
+              ? await existingTodayRes.json().catch(() => [])
+              : [];
+            const existingTodayDco = existingTodayRows?.[0]?.dco || null;
+
+            dco.worlds_summary = resolveDailyWorldsSummary(
+              existingTodayDco?.worlds_summary || null,
+              flashResult?.worlds_summary || null,
+            );
+
+            const verifiedWorldOverrides = gateOverridesByReason(
               flashResult.world_overrides,
+              'world_id',
+              'world',
+            );
+            const verifiedChapterOverrides = gateOverridesByReason(
+              flashResult.chapter_overrides,
+              'chapter_id',
+              'chapter',
+            );
+
+            const worldOverrideResult = await applyWorldOverrides(
+              verifiedWorldOverrides,
               worldsAndChapters.activeWorlds,
               u.user_id,
               env,
             );
-            await applyChapterOverrides(
-              flashResult.chapter_overrides,
+            const chapterOverrideResult = await applyChapterOverrides(
+              verifiedChapterOverrides,
               worldsAndChapters.activeChapters,
               u.user_id,
               env,
             );
 
-            const now = new Date();
-            const todayLocal = getUserLocalDate(u.timezone);
             const expiresAt = new Date(now.getTime() + 7 * 86400000);
 
             await fetch(`${env.SUPABASE_URL}/rest/v1/user_life_map?on_conflict=user_id`, {
@@ -10773,6 +11189,20 @@ export default {
                 extraction_raw: {
                   world_picture_length: worldPicture.text.length,
                   lead_story: flashResult.daily_focus?.lead_story || null,
+                  world_overrides_applied: {
+                    proposed: Array.isArray(flashResult.world_overrides)
+                      ? flashResult.world_overrides.length
+                      : 0,
+                    gated: verifiedWorldOverrides.length,
+                    result: worldOverrideResult,
+                  },
+                  chapter_overrides_applied: {
+                    proposed: Array.isArray(flashResult.chapter_overrides)
+                      ? flashResult.chapter_overrides.length
+                      : 0,
+                    gated: verifiedChapterOverrides.length,
+                    result: chapterOverrideResult,
+                  },
                 },
                 upcoming_dates: extractUpcomingDates(dco),
                 created_at: now.toISOString(),
@@ -10793,6 +11223,10 @@ export default {
               lead_story: flashResult.daily_focus?.lead_story || null,
               tone: dco.tone,
               day_type: dco.day_type,
+              override_apply_results: {
+                world: worldOverrideResult,
+                chapter: chapterOverrideResult,
+              },
             });
           } catch (userErr) {
             console.error(`[API] DCO failed for ${u.user_id}:`, userErr);
