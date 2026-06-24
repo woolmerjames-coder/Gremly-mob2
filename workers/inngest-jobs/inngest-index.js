@@ -9013,25 +9013,7 @@ Every concrete claim about tasks, meetings, times, names, or dates must come fro
 If it is not in TODAY'S FACTS, do not assert it.
 
 Output requirement:
-Return only JSON with this exact shape and keys:
-{
-  "life_moment": "<short phrase capturing where this person is today, or null>",
-  "tone": "<one of: relaxed | focused | stretched | recovering | celebratory>",
-  "day_type": "<one of: event_day | work_day | milestone_day | routine_day | quiet_day | transition_day>",
-  "headline": "<one warm forward-looking sentence, max 120 chars, no em or en dashes>",
-  "lead": {
-    "what": "<the single most important thing to orient around today, drawn from the facts>",
-    "why_today": "<one sentence on why this is the lead, grounded in the facts or the person's state>"
-  },
-  "also_matters": [
-    "<a concrete secondary item that matters today, grounded in facts>",
-    "<another, optional>"
-  ],
-  "today_focus": [
-    "<1 to 3 specific items from TODAY'S FACTS that deserve attention, each a real task/habit/event>"
-  ],
-  "voice_note": "<one or two sentences of warm, credible framing for the person, in second person, matching their real state>"
-}
+Return the daily picture. The required structure is enforced by the response schema.
 
 Reasoning order requirement:
 Decide interpretive text fields first. Then assign tone and day_type labels that best fit that interpretation, rather than deciding labels first.`;
@@ -9058,6 +9040,50 @@ Decide interpretive text fields first. Then assign tone and day_type labels that
         temperature: 0.5,
         maxOutputTokens: 4096,
         responseMimeType: 'application/json',
+        responseSchema: {
+          type: 'object',
+          properties: {
+            life_moment: { type: 'string', nullable: true },
+            tone: {
+              type: 'string',
+              enum: ['relaxed', 'focused', 'stretched', 'recovering', 'celebratory'],
+            },
+            day_type: {
+              type: 'string',
+              enum: [
+                'event_day',
+                'work_day',
+                'milestone_day',
+                'routine_day',
+                'quiet_day',
+                'transition_day',
+              ],
+            },
+            headline: { type: 'string' },
+            lead: {
+              type: 'object',
+              properties: {
+                what: { type: 'string' },
+                why_today: { type: 'string' },
+              },
+              required: ['what', 'why_today'],
+            },
+            also_matters: { type: 'array', items: { type: 'string' } },
+            today_focus: { type: 'array', items: { type: 'string' } },
+            voice_note: { type: 'string' },
+          },
+          required: ['tone', 'day_type', 'headline', 'lead', 'today_focus', 'voice_note'],
+          propertyOrdering: [
+            'life_moment',
+            'headline',
+            'lead',
+            'voice_note',
+            'also_matters',
+            'today_focus',
+            'tone',
+            'day_type',
+          ],
+        },
       },
     }),
   });
@@ -9085,38 +9111,12 @@ Decide interpretive text fields first. Then assign tone and day_type labels that
     jsonStr = jsonStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
   }
 
-  // Repair: escape stray control characters (raw newlines/tabs) that Gemini
-  // sometimes emits INSIDE JSON string values, which is invalid JSON.
-  // Only escape control chars that are not already part of valid JSON structure.
-  // eslint-disable-next-line no-control-regex -- intentional control char sanitisation
-  jsonStr = jsonStr.replace(/[\u0000-\u001F]/g, (ch) => {
-    if (ch === '\n') return '\\n';
-    if (ch === '\r') return '\\r';
-    if (ch === '\t') return '\\t';
-    return '';
-  });
-
   let parsed;
   try {
     parsed = JSON.parse(jsonStr);
-  } catch (firstErr) {
-    const start = jsonStr.indexOf('{');
-    const end = jsonStr.lastIndexOf('}');
-    if (start !== -1 && end !== -1 && end > start) {
-      try {
-        parsed = JSON.parse(jsonStr.slice(start, end + 1));
-      } catch (secondErr) {
-        console.error('[Synthesize] JSON parse failed after repair. Full raw:', content);
-        console.error('[Synthesize] raw length:', content.length);
-        console.error('[Synthesize] raw around fault:', content.slice(180, 320));
-        throw new Error(`Synthesize parse error: ${secondErr.message}`);
-      }
-    } else {
-      console.error('[Synthesize] JSON parse failed, no object found. Full raw:', content);
-      console.error('[Synthesize] raw length:', content.length);
-      console.error('[Synthesize] raw around fault:', content.slice(180, 320));
-      throw new Error(`Synthesize parse error: ${firstErr.message}`);
-    }
+  } catch (parseErr) {
+    console.error('[Synthesize] JSON parse failed despite schema. Full raw:', content);
+    throw new Error(`Synthesize parse error: ${parseErr.message}`);
   }
 
   const latency = Date.now() - t0;
