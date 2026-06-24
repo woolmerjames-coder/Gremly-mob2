@@ -9056,7 +9056,7 @@ Decide interpretive text fields first. Then assign tone and day_type labels that
       contents: [{ role: 'user', parts: [{ text: userMessage }] }],
       generationConfig: {
         temperature: 0.5,
-        maxOutputTokens: 2048,
+        maxOutputTokens: 4096,
         responseMimeType: 'application/json',
       },
     }),
@@ -9085,12 +9085,38 @@ Decide interpretive text fields first. Then assign tone and day_type labels that
     jsonStr = jsonStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
   }
 
+  // Repair: escape stray control characters (raw newlines/tabs) that Gemini
+  // sometimes emits INSIDE JSON string values, which is invalid JSON.
+  // Only escape control chars that are not already part of valid JSON structure.
+  // eslint-disable-next-line no-control-regex -- intentional control char sanitisation
+  jsonStr = jsonStr.replace(/[\u0000-\u001F]/g, (ch) => {
+    if (ch === '\n') return '\\n';
+    if (ch === '\r') return '\\r';
+    if (ch === '\t') return '\\t';
+    return '';
+  });
+
   let parsed;
   try {
     parsed = JSON.parse(jsonStr);
-  } catch (parseErr) {
-    console.error('[Synthesize] JSON parse failed. Raw:', content.slice(0, 500));
-    throw new Error(`Synthesize parse error: ${parseErr.message}`);
+  } catch (firstErr) {
+    const start = jsonStr.indexOf('{');
+    const end = jsonStr.lastIndexOf('}');
+    if (start !== -1 && end !== -1 && end > start) {
+      try {
+        parsed = JSON.parse(jsonStr.slice(start, end + 1));
+      } catch (secondErr) {
+        console.error('[Synthesize] JSON parse failed after repair. Full raw:', content);
+        console.error('[Synthesize] raw length:', content.length);
+        console.error('[Synthesize] raw around fault:', content.slice(180, 320));
+        throw new Error(`Synthesize parse error: ${secondErr.message}`);
+      }
+    } else {
+      console.error('[Synthesize] JSON parse failed, no object found. Full raw:', content);
+      console.error('[Synthesize] raw length:', content.length);
+      console.error('[Synthesize] raw around fault:', content.slice(180, 320));
+      throw new Error(`Synthesize parse error: ${firstErr.message}`);
+    }
   }
 
   const latency = Date.now() - t0;
