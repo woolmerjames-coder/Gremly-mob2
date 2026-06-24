@@ -9109,7 +9109,8 @@ You may optionally report updates to the person's Life Map threads, but only for
 For each such thread:
 - You may append new_evidence: a dated observation grounded in today's facts (a completed habit, a due item, a calendar event that bears on this thread). Evidence is always welcome and low-stakes.
 - You may refresh recent_update: a single current line for the thread.
-- You may change the thread's momentum or status only if today's facts genuinely contradict what the Life Map currently says about that thread. If you do, set state_change to true and give a state_change_reason that points to the specific facts that justify the change, plus new_momentum and or new_status. If today is consistent with the standing interpretation (even if quiet), set state_change to false and do not propose a momentum or status change. A single ordinary day is not a state change. Only a genuine contradiction is.
+- You may change a thread's momentum or status only when something in today's facts (a completed habit, a due or completed item, a calendar event, a logged mood, the week's intention) directly contradicts what the Life Map currently says about that thread. The justification must point to a specific item in today's facts, not to the Life Map's own existing description. Restating or re-interpreting what the Life Map already says is not a state change. If today's facts do not contain a concrete item that contradicts the standing momentum or status, set state_change to false and leave momentum and status alone, even if the thread feels like it is shifting. A feeling of shift sourced from prior context is not a state change. Only a contradiction grounded in a today's-facts item is.
+- When state_change is true, state_change_reason must name the specific today's-facts item that creates the contradiction, so the change is auditable against today's records.
 - Match domain and thread names exactly to those in the provided Life Map context. If you cannot match a thread by name, do not invent one. Skip it.
 
 Be conservative. Most days have no state change. Evidence and recent_update are the normal outputs. Momentum and status changes are rare and must be earned by a real contradiction in today's facts.`;
@@ -9799,6 +9800,19 @@ function mergeLifeMapUpdatesGated(lifeMap, threadUpdates) {
     }
 
     if (update.state_change === true) {
+      const stateChangeReason =
+        typeof update.state_change_reason === 'string' ? update.state_change_reason.trim() : '';
+      if (stateChangeReason.length < 20) {
+        console.warn(
+          `[LifeMap:Gated] state_change with no/weak reason, skipping slow-field write for "${update.domain}/${update.thread}"`,
+        );
+        console.log(
+          `[LifeMap:MergeGated] ${update.domain} -> ${update.thread}: no state change, refreshed evidence/recent_update only`,
+          { evidence_added: evidenceAdded, refreshed_recent_update: refreshedRecentUpdate },
+        );
+        continue;
+      }
+
       const fieldChanges = {};
 
       const nextMomentum =
@@ -9820,7 +9834,7 @@ function mergeLifeMapUpdatesGated(lifeMap, threadUpdates) {
         domain: update.domain,
         thread: update.thread,
         field_changes: fieldChanges,
-        reason: update.state_change_reason || null,
+        reason: stateChangeReason,
       });
     } else {
       console.log(
