@@ -701,6 +701,45 @@ const testAssembleForUser = inngest.createFunction(
   },
 );
 
+const testWriteAuthorityForUser = inngest.createFunction(
+  { id: 'test-write-authority-for-user', name: 'TEST Write Authority (dry run)' },
+  { event: 'app/test.writeauth' },
+  async ({ event, env }) => {
+    const userId = event.data.user_id;
+    const timezone = event.data.timezone || 'America/Los_Angeles';
+    const snapshot = await fetchUserSnapshot(userId, timezone, 7, env);
+    if (!snapshot.today) return { user_id: userId, error: 'no today facts' };
+
+    const picture = await synthesizeDailyPicture(snapshot, env);
+    await verifyDailyPicture(picture, snapshot.today.text, env);
+
+    const liveMap = snapshot.raw.currentLifeMap?.life_map || null;
+    const mapCopy = liveMap ? JSON.parse(JSON.stringify(liveMap)) : null;
+
+    let mergeResult = { changeLog: [], applied: false };
+    if (mapCopy && Array.isArray(picture.thread_updates) && picture.thread_updates.length > 0) {
+      const { lifeMap: merged, changeLog } = mergeLifeMapUpdatesGated(
+        mapCopy,
+        picture.thread_updates,
+      );
+      void merged;
+      mergeResult = {
+        changeLog,
+        applied: true,
+        thread_update_count: picture.thread_updates.length,
+      };
+    }
+
+    return {
+      user_id: userId,
+      targetDate: snapshot.targetDate,
+      thread_updates_proposed: picture.thread_updates || [],
+      slow_field_changes: mergeResult.changeLog,
+      note: 'DRY RUN: life map copy mutated in memory only, nothing written to DB',
+    };
+  },
+);
+
 const testWeeklySummaryV2 = inngest.createFunction(
   {
     id: 'test-weekly-summary-v2',
@@ -9063,7 +9102,17 @@ Output requirement:
 Return the daily picture. The required structure is enforced by the response schema.
 
 Reasoning order requirement:
-Decide interpretive text fields first. Then assign tone and day_type labels that best fit that interpretation, rather than deciding labels first.`;
+Decide interpretive text fields first. Then assign tone and day_type labels that best fit that interpretation, rather than deciding labels first.
+
+Optional thread update requirement:
+You may optionally report updates to the person's Life Map threads, but only for threads that today's facts genuinely touch.
+For each such thread:
+- You may append new_evidence: a dated observation grounded in today's facts (a completed habit, a due item, a calendar event that bears on this thread). Evidence is always welcome and low-stakes.
+- You may refresh recent_update: a single current line for the thread.
+- You may change the thread's momentum or status only if today's facts genuinely contradict what the Life Map currently says about that thread. If you do, set state_change to true and give a state_change_reason that points to the specific facts that justify the change, plus new_momentum and or new_status. If today is consistent with the standing interpretation (even if quiet), set state_change to false and do not propose a momentum or status change. A single ordinary day is not a state change. Only a genuine contradiction is.
+- Match domain and thread names exactly to those in the provided Life Map context. If you cannot match a thread by name, do not invent one. Skip it.
+
+Be conservative. Most days have no state change. Evidence and recent_update are the normal outputs. Momentum and status changes are rare and must be earned by a real contradiction in today's facts.`;
 
   const userMessage = [
     `TODAY IS: ${targetDate}`,
@@ -9114,6 +9163,34 @@ Decide interpretive text fields first. Then assign tone and day_type labels that
           also_matters: { type: 'array', items: { type: 'string' } },
           today_focus: { type: 'array', items: { type: 'string' } },
           voice_note: { type: 'string' },
+          thread_updates: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                domain: { type: 'string' },
+                thread: { type: 'string' },
+                new_evidence: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      date: { type: 'string' },
+                      signal: { type: 'string' },
+                      salience: { type: 'string', enum: ['low', 'medium', 'high'] },
+                    },
+                    required: ['date', 'signal'],
+                  },
+                },
+                recent_update: { type: 'string', nullable: true },
+                state_change: { type: 'boolean' },
+                state_change_reason: { type: 'string', nullable: true },
+                new_momentum: { type: 'string', nullable: true },
+                new_status: { type: 'string', nullable: true },
+              },
+              required: ['domain', 'thread', 'state_change'],
+            },
+          },
         },
         required: ['tone', 'day_type', 'headline', 'lead', 'today_focus', 'voice_note'],
         propertyOrdering: [
@@ -9123,6 +9200,7 @@ Decide interpretive text fields first. Then assign tone and day_type labels that
           'voice_note',
           'also_matters',
           'today_focus',
+          'thread_updates',
           'tone',
           'day_type',
         ],
@@ -9206,6 +9284,7 @@ Prefer unchanged when grounded.
 Output:
 Return corrected picture with the same structure, plus review_flags.
 Each review_flag must capture one actual change with field, action, and note.
+Keep each review_flags note under 15 words. State only what was unsupported, not lengthy justification.
 If nothing changed, return an empty review_flags array.
 All string values in your output must be a single line. Never include a raw line break inside any string value. If you need a pause, use a sentence break, not a newline.`;
 
@@ -9221,7 +9300,7 @@ All string values in your output must be a single line. Never include a raw line
     contents: [{ role: 'user', parts: [{ text: userMessage }] }],
     generationConfig: {
       temperature: 0.2,
-      maxOutputTokens: 4096,
+      maxOutputTokens: 8192,
       responseMimeType: 'application/json',
       responseSchema: {
         type: 'object',
@@ -9662,6 +9741,100 @@ function mergeLifeMapUpdates(lifeMap, threadUpdates) {
   lifeMap.updated_at = new Date().toISOString();
 
   return lifeMap;
+}
+
+function mergeLifeMapUpdatesGated(lifeMap, threadUpdates) {
+  if (!lifeMap?.domains || !Array.isArray(threadUpdates)) {
+    return { lifeMap, changeLog: [] };
+  }
+
+  let anyChanged = false;
+  const changeLog = [];
+
+  for (const update of threadUpdates) {
+    const domain = lifeMap.domains.find((d) => d.name === update.domain);
+    if (!domain) {
+      console.warn(`[LifeMap:MergeGated] Domain not found: "${update.domain}"`);
+      continue;
+    }
+
+    const thread = (domain.threads || []).find((t) => t.name === update.thread);
+    if (!thread) {
+      console.warn(
+        `[LifeMap:MergeGated] Thread not found: "${update.domain}" -> "${update.thread}"`,
+      );
+      continue;
+    }
+
+    let evidenceAdded = 0;
+    if (Array.isArray(update.new_evidence)) {
+      if (!thread.evidence) thread.evidence = [];
+      for (const e of update.new_evidence) {
+        const isDuplicate = thread.evidence.some(
+          (existing) => existing.date === e.date && existing.signal === e.signal,
+        );
+        if (!isDuplicate) {
+          thread.evidence.push({
+            type: e.type || 'drop',
+            source: e.source || null,
+            date: e.date,
+            signal: e.signal,
+            salience: e.salience || 'medium',
+          });
+          evidenceAdded++;
+          anyChanged = true;
+        }
+      }
+    }
+
+    const nextRecentUpdate =
+      typeof update.recent_update === 'string' ? update.recent_update.trim() : '';
+    let refreshedRecentUpdate = false;
+    if (nextRecentUpdate) {
+      if (thread.recent_update !== nextRecentUpdate) {
+        thread.recent_update = nextRecentUpdate;
+        anyChanged = true;
+      }
+      refreshedRecentUpdate = true;
+    }
+
+    if (update.state_change === true) {
+      const fieldChanges = {};
+
+      const nextMomentum =
+        typeof update.new_momentum === 'string' ? update.new_momentum.trim() : '';
+      if (nextMomentum && thread.momentum !== nextMomentum) {
+        thread.momentum = nextMomentum;
+        fieldChanges.momentum = nextMomentum;
+        anyChanged = true;
+      }
+
+      const nextStatus = typeof update.new_status === 'string' ? update.new_status.trim() : '';
+      if (nextStatus && thread.status !== nextStatus) {
+        thread.status = nextStatus;
+        fieldChanges.status = nextStatus;
+        anyChanged = true;
+      }
+
+      changeLog.push({
+        domain: update.domain,
+        thread: update.thread,
+        field_changes: fieldChanges,
+        reason: update.state_change_reason || null,
+      });
+    } else {
+      console.log(
+        `[LifeMap:MergeGated] ${update.domain} -> ${update.thread}: no state change, refreshed evidence/recent_update only`,
+        { evidence_added: evidenceAdded, refreshed_recent_update: refreshedRecentUpdate },
+      );
+    }
+  }
+
+  if (anyChanged) {
+    lifeMap.updated_at = new Date().toISOString();
+  }
+
+  return { lifeMap, changeLog };
 }
 
 // ── DCO helper: fetch active worlds and open chapters for a user ───────────────────
@@ -10301,6 +10474,7 @@ const inngestHandler = serve({
     testSynthesizeForUser,
     testVerifyForUser,
     testAssembleForUser,
+    testWriteAuthorityForUser,
     testWeeklySummaryV2,
     testAnalystDualRun,
     testWorldsBundleEquivalence,
