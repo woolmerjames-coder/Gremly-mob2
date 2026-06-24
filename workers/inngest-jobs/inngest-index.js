@@ -6188,7 +6188,7 @@ async function gatherTodayFacts(userId, timezone, env) {
 
   const queries = [
     fetch(
-      `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&status=eq.active&archived=eq.false&select=id,title,name,scheduled_date,due_day,due_date,due_time,target_date,time_window,time_estimate_minutes,duration_minutes,priority_kind,daily_block,scheduled_start_iso,locked_in,space_id,created_at&limit=1000`,
+      `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&completed_at=is.null&archived=eq.false&select=id,title,name,scheduled_date,due_day,due_date,due_time,target_date,time_window,time_estimate_minutes,duration_minutes,priority_kind,daily_block,scheduled_start_iso,locked_in,space_id,created_at,completed_at&limit=1000`,
       { headers },
     )
       .then((r) => r.json())
@@ -6396,16 +6396,19 @@ function bucketTodayFacts(gathered) {
     locked_in: !!t.locked_in,
   });
 
-  const dueToday = todosArr.filter((t) => todoDay(t) === targetDate).map(projectTodo);
-  const overdue = todosArr
+  // completed_at is the source of truth for done-state in this DB.
+  const openTodosArr = todosArr.filter((t) => t?.completed_at == null);
+
+  const dueToday = openTodosArr.filter((t) => todoDay(t) === targetDate).map(projectTodo);
+  const overdue = openTodosArr
     .filter((t) => {
       const day = todoDay(t);
       return day !== null && day < targetDate;
     })
     .map(projectTodo);
-  const lockedIn = todosArr.filter((t) => t.locked_in === true).map(projectTodo);
-  const untimedCount = todosArr.filter((t) => todoDay(t) === null).length;
-  const totalActive = todosArr.length;
+  const lockedIn = openTodosArr.filter((t) => t.locked_in === true).map(projectTodo);
+  const untimedCount = openTodosArr.filter((t) => todoDay(t) === null).length;
+  const totalActive = openTodosArr.length;
 
   const doneSet = new Set(habitProgressArr.map((hp) => hp?.habit_id).filter(Boolean));
 
