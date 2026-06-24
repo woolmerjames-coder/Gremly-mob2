@@ -851,7 +851,11 @@ const testWriteAuthorityForUser = inngest.createFunction(
       targetDate: snapshot.targetDate,
       thread_updates_proposed: picture.thread_updates || [],
       slow_field_changes: mergeResult.changeLog,
-      note: 'DRY RUN: life map copy mutated in memory only, nothing written to DB',
+      // Phase 5b: worlds/chapters freshening (dry run - what WOULD be written)
+      world_overrides: picture.world_overrides || [],
+      chapter_overrides: picture.chapter_overrides || [],
+      worlds_summary_proposed: picture.worlds_summary || null,
+      note: 'DRY RUN: nothing written to DB',
     };
   },
 );
