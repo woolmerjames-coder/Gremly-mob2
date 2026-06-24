@@ -9131,7 +9131,7 @@ Be conservative. Most days have no state change. Evidence and recent_update are 
     contents: [{ role: 'user', parts: [{ text: userMessage }] }],
     generationConfig: {
       temperature: 0.5,
-      maxOutputTokens: 4096,
+      maxOutputTokens: 16384,
       responseMimeType: 'application/json',
       responseSchema: {
         type: 'object',
@@ -9301,7 +9301,7 @@ All string values in your output must be a single line. Never include a raw line
     contents: [{ role: 'user', parts: [{ text: userMessage }] }],
     generationConfig: {
       temperature: 0.2,
-      maxOutputTokens: 8192,
+      maxOutputTokens: 16384,
       responseMimeType: 'application/json',
       responseSchema: {
         type: 'object',
@@ -9360,7 +9360,28 @@ All string values in your output must be a single line. Never include a raw line
       }
 
       const data = await resp.json();
-      content = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const cand = data?.candidates?.[0];
+      const finishReason = cand?.finishReason || 'none';
+      content = cand?.content?.parts?.[0]?.text || '';
+      if (!content) {
+        console.error(
+          '[Verify] EMPTY response. finishReason:',
+          finishReason,
+          '| promptFeedback:',
+          JSON.stringify(data?.promptFeedback || {}),
+          '| full data:',
+          JSON.stringify(data).slice(0, 1000),
+        );
+      }
+
+      if (finishReason === 'MAX_TOKENS' || !content) {
+        if (attempt === 2) {
+          throw new Error(`Verify empty response (finishReason: ${finishReason})`);
+        }
+        throw new Error(
+          `Verify retryable empty/truncated response (finishReason: ${finishReason})`,
+        );
+      }
 
       let jsonStr = content.trim();
       if (jsonStr.startsWith('```')) {
