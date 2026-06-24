@@ -193,7 +193,7 @@ function addLocalDays(localDay, n) {
   return dt.toISOString().slice(0, 10);
 }
 
-// Dispatcher: hourly check for users in their 5 AM window, fan out DCO generation
+// Dispatcher: hourly check for users in their 4 AM window, fan out DCO generation
 const dcoDispatcher = inngest.createFunction(
   {
     id: 'dco-dispatcher',
@@ -291,7 +291,7 @@ const dcoDispatcher = inngest.createFunction(
       return res.json(); // [{ user_id, timezone }]
     });
 
-    // Step 3: Filter to users whose local time is in the 5:xx AM window
+    // Step 3: Filter to users whose local time is in the 4:xx AM window
     const readyUsers = await step.run('filter-by-timezone-window', async () => {
       const now = new Date();
       return allUsers.filter((u) => {
@@ -310,7 +310,7 @@ const dcoDispatcher = inngest.createFunction(
     });
 
     console.log(
-      `[DCO Dispatcher] ${allUsers.length} active users, ${readyUsers.length} in 5 AM window`,
+      `[DCO Dispatcher] ${allUsers.length} active users, ${readyUsers.length} in 4 AM window`,
     );
 
     // Step 4: Fan out DCO generation for each ready user
@@ -540,6 +540,12 @@ const generateSingleUserDco = inngest.createFunction(
         console.log(`[DCO] Stored Life Map + DCO for user ${userId} (${todayLocal})`);
       });
 
+      try {
+        await generateSingleUserDcoV3(userId, timezone, env, true);
+      } catch (e) {
+        console.error('[DCO Shadow] V3 failed (non-fatal):', e?.message || e);
+      }
+
       return {
         user_id: userId,
         success: true,
@@ -557,7 +563,257 @@ const generateSingleUserDco = inngest.createFunction(
       };
     } catch (error) {
       console.error(`[DCO] Failed for user ${userId}:`, error);
-      return { user_id: userId, success: false, error: String(error) };
+      throw error;
+    }
+  },
+);
+
+// V3 runner used by both the event worker and old-path shadow fan-out.
+async function generateSingleUserDcoV3(userId, timezone, env, shadowMode = true) {
+  const snapshot = await fetchUserSnapshot(userId, timezone, 7, env);
+
+  const supaHeaders = {
+    apikey: env.SUPABASE_SERVICE_KEY,
+    Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+    'Content-Type': 'application/json',
+  };
+
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 7 * 86400000);
+
+  const existingRes = await fetch(
+    `${env.SUPABASE_URL}/rest/v1/user_daily_state?user_id=eq.${userId}&date=eq.${snapshot.targetDate}&select=dco`,
+    { headers: supaHeaders },
+  );
+  const existingRows = existingRes.ok ? await existingRes.json() : [];
+  const existingWorldsSummary = existingRows?.[0]?.dco?.worlds_summary || null;
+
+  const writeShadowOnly = async (dcoValue) => {
+    const res = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/user_daily_state?on_conflict=user_id,date`,
+      {
+        method: 'POST',
+        headers: { ...supaHeaders, Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify({
+          user_id: userId,
+          date: snapshot.targetDate,
+          dco_shadow: dcoValue,
+          updated_at: now.toISOString(),
+        }),
+      },
+    );
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Failed to store dco_shadow: ${res.status} ${errText.slice(0, 200)}`);
+    }
+  };
+
+  if (!snapshot.raw.currentLifeMap || !snapshot.today) {
+    const minimalDco = {
+      day_type: 'quiet_day',
+      tone: 'relaxed',
+      life_moment: null,
+      brief_headline: null,
+      today_focus: [],
+      lead_story: null,
+      named_anchors: [],
+      active_today: {
+        calendar_events: [],
+        todos_due_today: 0,
+        overdue_todos: 0,
+        habit_streak_risk: [],
+        upcoming_in_7d: [],
+      },
+      week_recap: [],
+      recent_context: {},
+      worlds_summary: existingWorldsSummary,
+      review_flags: [],
+      user_id: userId,
+      date: snapshot.targetDate,
+      generated_at: now.toISOString(),
+      ttl_days: 7,
+      model_used: 'none',
+      pipeline: 'dco-v3-minimal',
+    };
+
+    if (shadowMode) {
+      await writeShadowOnly(minimalDco);
+    } else {
+      const dcoRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/user_daily_state?on_conflict=user_id,date`,
+        {
+          method: 'POST',
+          headers: { ...supaHeaders, Prefer: 'resolution=merge-duplicates' },
+          body: JSON.stringify({
+            user_id: userId,
+            date: snapshot.targetDate,
+            dco: minimalDco,
+            extraction_raw: {},
+            upcoming_dates: extractUpcomingDates(minimalDco),
+            expires_at: expiresAt.toISOString(),
+            created_at: now.toISOString(),
+            updated_at: now.toISOString(),
+          }),
+        },
+      );
+      if (!dcoRes.ok) {
+        const errText = await dcoRes.text().catch(() => '');
+        throw new Error(`Failed to upsert minimal dco: ${dcoRes.status} ${errText.slice(0, 200)}`);
+      }
+    }
+
+    return {
+      user_id: userId,
+      success: true,
+      pipeline: 'dco-v3-minimal',
+      shadowMode,
+      targetDate: snapshot.targetDate,
+    };
+  }
+
+  const worldsAndChapters = await fetchActiveWorldsAndChapters(userId, env);
+  snapshot.activeWorlds = worldsAndChapters.activeWorlds;
+  snapshot.activeChapters = worldsAndChapters.activeChapters;
+
+  const picture = await synthesizeDailyPicture(snapshot, env);
+  const verified = await verifyDailyPicture(picture, snapshot.today.text, env);
+
+  const verifiedPicture = verified?.verified_picture || {};
+  const dco = assembleDcoFromPicture(verifiedPicture, snapshot, verified.review_flags);
+
+  const mapCopy = JSON.parse(JSON.stringify(snapshot.raw.currentLifeMap.life_map));
+  const mergeResult = mergeLifeMapUpdatesGated(mapCopy, verifiedPicture.thread_updates || []);
+  const updatedLifeMap = mergeResult.lifeMap;
+
+  const resolvedWorldsSummary =
+    verifiedPicture.worlds_summary && verifiedPicture.worlds_summary.refreshed
+      ? verifiedPicture.worlds_summary
+      : existingWorldsSummary;
+  dco.worlds_summary = resolvedWorldsSummary;
+
+  const verifiedWorldOverrides = gateOverridesByReason(
+    verifiedPicture.world_overrides,
+    'world_id',
+    'world',
+  );
+  const verifiedChapterOverrides = gateOverridesByReason(
+    verifiedPicture.chapter_overrides,
+    'chapter_id',
+    'chapter',
+  );
+
+  let worldOverrideResult = null;
+  let chapterOverrideResult = null;
+
+  if (shadowMode) {
+    worldOverrideResult = buildOverrideDryRun(
+      verifiedWorldOverrides,
+      worldsAndChapters.activeWorlds,
+      'world_id',
+      'world',
+      'card_subtitle_source',
+      'summary_source',
+    );
+    chapterOverrideResult = buildOverrideDryRun(
+      verifiedChapterOverrides,
+      worldsAndChapters.activeChapters,
+      'chapter_id',
+      'chapter',
+      'card_subtitle_source',
+      'summary_source',
+    );
+
+    await writeShadowOnly(dco);
+  } else {
+    worldOverrideResult = await applyWorldOverrides(
+      verifiedWorldOverrides,
+      worldsAndChapters.activeWorlds,
+      userId,
+      env,
+    );
+
+    chapterOverrideResult = await applyChapterOverrides(
+      verifiedChapterOverrides,
+      worldsAndChapters.activeChapters,
+      userId,
+      env,
+    );
+
+    const lifeMapRes = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/user_life_map?user_id=eq.${userId}`,
+      {
+        method: 'PATCH',
+        headers: { ...supaHeaders, Prefer: 'return=minimal' },
+        body: JSON.stringify({
+          life_map: updatedLifeMap,
+          version: snapshot.raw.currentLifeMap.version || 1,
+          updated_at: now.toISOString(),
+          last_evidence_date: extractLastEvidenceDate(updatedLifeMap),
+        }),
+      },
+    );
+    if (!lifeMapRes.ok) {
+      const errText = await lifeMapRes.text().catch(() => '');
+      throw new Error(
+        `Failed to patch user_life_map: ${lifeMapRes.status} ${errText.slice(0, 200)}`,
+      );
+    }
+
+    const dcoRes = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/user_daily_state?on_conflict=user_id,date`,
+      {
+        method: 'POST',
+        headers: { ...supaHeaders, Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify({
+          user_id: userId,
+          date: snapshot.targetDate,
+          dco,
+          extraction_raw: {},
+          upcoming_dates: extractUpcomingDates(dco),
+          expires_at: expiresAt.toISOString(),
+          created_at: now.toISOString(),
+          updated_at: now.toISOString(),
+        }),
+      },
+    );
+    if (!dcoRes.ok) {
+      const errText = await dcoRes.text().catch(() => '');
+      throw new Error(`Failed to upsert dco: ${dcoRes.status} ${errText.slice(0, 200)}`);
+    }
+  }
+
+  return {
+    user_id: userId,
+    success: true,
+    pipeline: 'dco-v3',
+    shadowMode,
+    targetDate: snapshot.targetDate,
+    review_flags: verified.review_flags || [],
+    resolvedWorldsSummary,
+    override_apply_results: {
+      world: worldOverrideResult,
+      chapter: chapterOverrideResult,
+    },
+  };
+}
+
+// Per-user V3 worker event wrapper.
+const generateSingleUserDcoV3Worker = inngest.createFunction(
+  {
+    id: 'generate-single-user-dco-v3',
+    name: 'Generate Single User DCO V3',
+    concurrency: { limit: 5 },
+  },
+  { event: 'app/dco.generate-user-v3' },
+  async ({ event, env }) => {
+    const userId = event.data.user_id;
+    const timezone = event.data.timezone || 'UTC';
+    const shadowMode = event.data.shadowMode !== false;
+    try {
+      return await generateSingleUserDcoV3(userId, timezone, env, shadowMode);
+    } catch (error) {
+      console.error(`[DCO V3] Failed for user ${userId}:`, error);
+      throw error;
     }
   },
 );
@@ -10490,6 +10746,53 @@ function resolveDailyWorldsSummary(existingWorldsSummary, proposedWorldsSummary)
   return null;
 }
 
+function buildOverrideDryRun(
+  overrides,
+  activeEntities,
+  idField,
+  label,
+  subtitleSourceField,
+  summarySourceField,
+) {
+  const result = {
+    proposed: Array.isArray(overrides) ? overrides.length : 0,
+    would_update: 0,
+    skipped: 0,
+    would_patch: [],
+  };
+
+  if (!Array.isArray(overrides) || overrides.length === 0) {
+    return result;
+  }
+
+  for (const override of overrides) {
+    const id = override?.[idField];
+    const entity = Array.isArray(activeEntities) ? activeEntities.find((e) => e?.id === id) : null;
+    if (!entity) {
+      result.skipped++;
+      continue;
+    }
+
+    const patch = { id, label, fields: [] };
+    if (override.card_subtitle != null && entity?.[subtitleSourceField] !== 'user') {
+      patch.fields.push('card_subtitle');
+    }
+    if (override.key_priorities != null && entity?.[summarySourceField] !== 'user') {
+      patch.fields.push('key_priorities');
+    }
+
+    if (patch.fields.length === 0) {
+      result.skipped++;
+      continue;
+    }
+
+    result.would_update++;
+    result.would_patch.push(patch);
+  }
+
+  return result;
+}
+
 // ============================================================================
 // Phase 2: Backward-compatible DCO assembly + simplified headline
 // ============================================================================
@@ -10983,6 +11286,7 @@ const inngestHandler = serve({
     synthesizeSingleUser,
     dcoDispatcher,
     generateSingleUserDco,
+    generateSingleUserDcoV3Worker,
     bootstrapSingleUserLifeMap,
     handleChallengeCompletion,
     detectChallengeCompletion,
