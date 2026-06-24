@@ -6180,8 +6180,10 @@ async function gatherTodayFacts(userId, timezone, env) {
 
   const targetDate = getUserLocalDate(timezone);
   const nowIso = new Date().toISOString();
-  const in72hIso = new Date(Date.now() + 72 * 3600 * 1000).toISOString();
   const startOfTodayIso = new Date(targetDate + 'T00:00:00Z').toISOString();
+  const endOf3DaysIso = new Date(
+    new Date(targetDate + 'T00:00:00Z').getTime() + 4 * 86400000,
+  ).toISOString();
   const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
 
   const queries = [
@@ -6207,7 +6209,7 @@ async function gatherTodayFacts(userId, timezone, env) {
       .catch(() => []),
 
     fetch(
-      `${env.SUPABASE_URL}/rest/v1/synced_calendar_events?owner_id=eq.${userId}&archived=eq.false&start_at=gte.${startOfTodayIso}&start_at=lte.${in72hIso}&select=id,title,start_at,end_at,is_all_day,location,provider&order=start_at.asc&limit=200`,
+      `${env.SUPABASE_URL}/rest/v1/synced_calendar_events?owner_id=eq.${userId}&archived=eq.false&start_at=gte.${startOfTodayIso}&start_at=lte.${endOf3DaysIso}&select=id,title,start_at,end_at,is_all_day,location,provider&order=start_at.asc&limit=200`,
       { headers },
     )
       .then((r) => r.json())
@@ -6462,14 +6464,55 @@ function bucketTodayFacts(gathered) {
       .map((a) => a.habit_id),
   );
 
-  const calendarToday = syncedEventsArr.map((e) => ({
-    title: e.title || null,
-    start_at: e.start_at,
-    end_at: e.end_at || null,
-    is_all_day: !!e.is_all_day,
-    location: e.location || null,
-    provider: e.provider || null,
-  }));
+  const targetStart = new Date(targetDate + 'T00:00:00Z');
+  const plus3Date = new Date(targetStart);
+  plus3Date.setUTCDate(plus3Date.getUTCDate() + 3);
+  const plus3DateStr = plus3Date.toISOString().slice(0, 10);
+
+  const filteredSyncedEvents = syncedEventsArr.filter((e) => {
+    const title = String(e?.title || '')
+      .trim()
+      .toLowerCase();
+    return !(title.startsWith('canceled:') || title.startsWith('cancelled:'));
+  });
+
+  const seenEventKeys = new Set();
+  const dedupedSyncedEvents = [];
+  for (const e of filteredSyncedEvents) {
+    const key = `${String(e?.title || '')
+      .trim()
+      .toLowerCase()}|${e?.start_at || ''}`;
+    if (seenEventKeys.has(key)) continue;
+    seenEventKeys.add(key);
+    dedupedSyncedEvents.push(e);
+  }
+
+  const calendarToday = dedupedSyncedEvents
+    .filter((e) => {
+      const day = e?.start_at ? String(e.start_at).slice(0, 10) : null;
+      return day === targetDate;
+    })
+    .map((e) => ({
+      title: e.title || null,
+      start_at: e.start_at,
+      end_at: e.end_at || null,
+      is_all_day: !!e.is_all_day,
+      location: e.location || null,
+      provider: e.provider || null,
+    }));
+
+  const calendarComingUp = dedupedSyncedEvents
+    .filter((e) => {
+      const day = e?.start_at ? String(e.start_at).slice(0, 10) : null;
+      return day !== null && day > targetDate && day <= plus3DateStr;
+    })
+    .map((e) => ({
+      title: e.title || null,
+      date: String(e.start_at).slice(0, 10),
+      start_at: e.start_at,
+      is_all_day: !!e.is_all_day,
+      location: e.location || null,
+    }));
 
   const anchorsActive = anchorsArr.map((a) => ({
     title: a.title,
@@ -6488,11 +6531,13 @@ function bucketTodayFacts(gathered) {
       }
     : null;
 
-  const projectedSkipEvents = skipEventsArr.map((s) => ({
-    target_date: s.target_date,
-    todo_count: s.todo_count,
-    created_at: s.created_at,
-  }));
+  const projectedSkipEvents = skipEventsArr
+    .filter((s) => Number(s?.todo_count) > 0)
+    .map((s) => ({
+      target_date: s.target_date,
+      todo_count: s.todo_count,
+      created_at: s.created_at,
+    }));
 
   const projectedDailyBrief = dailyBrief
     ? {
@@ -6548,6 +6593,7 @@ function bucketTodayFacts(gathered) {
       commitments: commitmentHabits,
     },
     calendarToday,
+    calendarComingUp,
     anchorsActive,
     recentMood,
     deliberate: {
@@ -6581,6 +6627,7 @@ function renderTodayFactsText(bucketed) {
   const allHabits = [...habitsScheduled, ...habitsOther];
   const adaptedHabits = allHabits.filter((h) => h?.adaptation?.mode);
   const calendarToday = safeArr(bucketed?.calendarToday);
+  const calendarComingUp = safeArr(bucketed?.calendarComingUp);
   const anchorsActive = safeArr(bucketed?.anchorsActive);
   const milestones = safeArr(bucketed?.deliberate?.milestones);
   const recentMood = safeArr(bucketed?.recentMood);
@@ -6640,8 +6687,14 @@ function renderTodayFactsText(bucketed) {
   } else {
     for (const t of todosLockedIn) {
       const title = t?.title || 'Untitled';
-      const dayPart = t?.day ? `, due ${t.day}` : '';
-      parts.push(`- "${title}"${dayPart}`);
+      const day = t?.day || null;
+      let label = '(no date)';
+      if (day === targetDate) {
+        label = '(today)';
+      } else if (day && day > targetDate) {
+        label = `(locked for ${day})`;
+      }
+      parts.push(`- "${title}" ${label}`);
     }
   }
 
@@ -6656,11 +6709,21 @@ function renderTodayFactsText(bucketed) {
   } else {
     for (const h of habitsScheduled) {
       const name = h?.name || 'Untitled habit';
-      const windowVal = h?.time_window || 'any';
-      const startVal = h?.scheduled_start_iso || 'none';
+      const startIso = h?.scheduled_start_iso || null;
+      const startTime =
+        startIso && String(startIso).length >= 16 ? String(startIso).slice(11, 16) : null;
+      const dailyBlock = h?.daily_block || null;
+      const timeWindow = h?.time_window || null;
+      const resolvedTime = startTime
+        ? `at ${startTime}`
+        : dailyBlock
+          ? String(dailyBlock)
+          : timeWindow && String(timeWindow).toLowerCase() !== 'any'
+            ? String(timeWindow)
+            : 'anytime';
       const done = h?.done_today ? 'yes' : 'no';
       const planned = h?.planned_today || 'none';
-      let line = `- "${name}" [window: ${windowVal}, start: ${startVal}, done_today: ${done}, planned: ${planned}]`;
+      let line = `- "${name}" [${resolvedTime}, done_today: ${done}, planned: ${planned}]`;
       if (h?.adaptation?.mode) {
         const floorNote = h?.adaptation?.floor_note ? `, floor: ${h.adaptation.floor_note}` : '';
         line += ` | ADAPTED: ${h.adaptation.mode}${floorNote}`;
@@ -6702,17 +6765,37 @@ function renderTodayFactsText(bucketed) {
   }
 
   parts.push('');
-  parts.push('=== CALENDAR TODAY (today + next 72h) ===');
+  parts.push(`=== CALENDAR TODAY (${targetDate}) ===`);
   if (calendarToday.length === 0) {
     parts.push('(none)');
   } else {
     for (const e of calendarToday) {
       const title = e?.title || 'Untitled';
-      const startAt = e?.start_at || 'unknown';
-      const endAt = e?.end_at || 'open';
+      const startAt =
+        e?.start_at && String(e.start_at).length >= 16 ? String(e.start_at).slice(11, 16) : '??:??';
+      const endAt =
+        e?.end_at && String(e.end_at).length >= 16 ? String(e.end_at).slice(11, 16) : 'open';
       const timing = e?.is_all_day ? 'all day' : 'timed';
       const locationPart = e?.location ? `, at ${e.location}` : '';
       parts.push(`- "${title}" ${startAt} to ${endAt} [${timing}]${locationPart}`);
+    }
+  }
+
+  parts.push('');
+  parts.push('=== COMING UP (next 3 days) ===');
+  if (calendarComingUp.length === 0) {
+    parts.push('(none)');
+  } else {
+    for (const e of calendarComingUp) {
+      const date = e?.date || 'unknown';
+      const title = e?.title || 'Untitled';
+      const startVal = e?.is_all_day
+        ? 'all day'
+        : e?.start_at && String(e.start_at).length >= 16
+          ? String(e.start_at).slice(11, 16)
+          : '??:??';
+      const locationPart = e?.location ? ` | at ${e.location}` : '';
+      parts.push(`- ${date}: "${title}" ${startVal}${locationPart}`);
     }
   }
 
@@ -6747,7 +6830,13 @@ function renderTodayFactsText(bucketed) {
   const briefState = dailyBrief ? 'set today' : 'not set today';
   const oneThingPart = dailyBrief?.one_thing_id ? ', one_thing present' : '';
   parts.push(`Daily Brief: ${briefState}${oneThingPart}`);
-  parts.push(`Sweep skips last 7d: ${skipEvents.length > 0 ? skipEvents.length : '(none)'}`);
+  if (skipEvents.length > 0) {
+    for (const s of skipEvents) {
+      parts.push(`Bulk-skipped ${s.todo_count} todos to ${s.target_date}`);
+    }
+  } else {
+    parts.push('Sweep skips last 7d: (none)');
+  }
   parts.push(`Floor suggestions active: ${floorCount}`);
 
   parts.push('');
