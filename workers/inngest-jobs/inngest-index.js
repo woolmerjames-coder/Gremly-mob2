@@ -9053,94 +9053,103 @@ Decide interpretive text fields first. Then assign tone and day_type labels that
   ].join('\n');
 
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${env.GEMINI_API_KEY}`;
-
-  const response = await fetch(geminiUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: systemPrompt }] },
-      contents: [{ role: 'user', parts: [{ text: userMessage }] }],
-      generationConfig: {
-        temperature: 0.5,
-        maxOutputTokens: 4096,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: 'object',
-          properties: {
-            life_moment: { type: 'string', nullable: true },
-            tone: {
-              type: 'string',
-              enum: ['relaxed', 'focused', 'stretched', 'recovering', 'celebratory'],
-            },
-            day_type: {
-              type: 'string',
-              enum: [
-                'event_day',
-                'work_day',
-                'milestone_day',
-                'routine_day',
-                'quiet_day',
-                'transition_day',
-              ],
-            },
-            headline: { type: 'string' },
-            lead: {
+  let parsed;
+  let data;
+  let content = '{}';
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const response = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+          generationConfig: {
+            temperature: 0.5,
+            maxOutputTokens: 4096,
+            responseMimeType: 'application/json',
+            responseSchema: {
               type: 'object',
               properties: {
-                what: { type: 'string' },
-                why_today: { type: 'string' },
+                life_moment: { type: 'string', nullable: true },
+                tone: {
+                  type: 'string',
+                  enum: ['relaxed', 'focused', 'stretched', 'recovering', 'celebratory'],
+                },
+                day_type: {
+                  type: 'string',
+                  enum: [
+                    'event_day',
+                    'work_day',
+                    'milestone_day',
+                    'routine_day',
+                    'quiet_day',
+                    'transition_day',
+                  ],
+                },
+                headline: { type: 'string' },
+                lead: {
+                  type: 'object',
+                  properties: {
+                    what: { type: 'string' },
+                    why_today: { type: 'string' },
+                  },
+                  required: ['what', 'why_today'],
+                },
+                also_matters: { type: 'array', items: { type: 'string' } },
+                today_focus: { type: 'array', items: { type: 'string' } },
+                voice_note: { type: 'string' },
               },
-              required: ['what', 'why_today'],
+              required: ['tone', 'day_type', 'headline', 'lead', 'today_focus', 'voice_note'],
+              propertyOrdering: [
+                'life_moment',
+                'headline',
+                'lead',
+                'voice_note',
+                'also_matters',
+                'today_focus',
+                'tone',
+                'day_type',
+              ],
             },
-            also_matters: { type: 'array', items: { type: 'string' } },
-            today_focus: { type: 'array', items: { type: 'string' } },
-            voice_note: { type: 'string' },
           },
-          required: ['tone', 'day_type', 'headline', 'lead', 'today_focus', 'voice_note'],
-          propertyOrdering: [
-            'life_moment',
-            'headline',
-            'lead',
-            'voice_note',
-            'also_matters',
-            'today_focus',
-            'tone',
-            'day_type',
-          ],
-        },
-      },
-    }),
-  });
+        }),
+      });
 
-  if (!response.ok) {
-    const errBody = await response.text().catch(() => '');
-    throw new Error(`Synthesize daily picture failed: ${response.status} ${errBody.slice(0, 300)}`);
-  }
+      if (!response.ok) {
+        const errBody = await response.text().catch(() => '');
+        throw new Error(
+          `Synthesize daily picture failed: ${response.status} ${errBody.slice(0, 300)}`,
+        );
+      }
 
-  const data = await response.json();
+      data = await response.json();
 
-  const candidate = data.candidates?.[0];
-  let content = '{}';
-  if (candidate?.content?.parts) {
-    for (const part of candidate.content.parts) {
-      if (part.text && !part.thought) {
-        content = part.text;
-        break;
+      const candidate = data.candidates?.[0];
+      content = '{}';
+      if (candidate?.content?.parts) {
+        for (const part of candidate.content.parts) {
+          if (part.text && !part.thought) {
+            content = part.text;
+            break;
+          }
+        }
+      }
+
+      let jsonStr = content.trim();
+      if (jsonStr.startsWith('```')) {
+        jsonStr = jsonStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+      }
+
+      parsed = JSON.parse(jsonStr);
+      break;
+    } catch (err) {
+      console.warn(`[Synthesize] attempt ${attempt} failed: ${err.message}`);
+      if (attempt === 2) {
+        console.error('[Synthesize] both attempts failed. Full raw:', content);
+        throw new Error(`Synthesize parse error: ${err.message}`);
       }
     }
-  }
-
-  let jsonStr = content.trim();
-  if (jsonStr.startsWith('```')) {
-    jsonStr = jsonStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
-  }
-
-  let parsed;
-  try {
-    parsed = JSON.parse(jsonStr);
-  } catch (parseErr) {
-    console.error('[Synthesize] JSON parse failed despite schema. Full raw:', content);
-    throw new Error(`Synthesize parse error: ${parseErr.message}`);
   }
 
   const latency = Date.now() - t0;
@@ -9205,89 +9214,96 @@ All string values in your output must be a single line. Never include a raw line
     (factsText || '(no facts)');
 
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${env.GEMINI_API_KEY}`;
-
-  const response = await fetch(geminiUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: systemPrompt }] },
-      contents: [{ role: 'user', parts: [{ text: userMessage }] }],
-      generationConfig: {
-        temperature: 0.2,
-        maxOutputTokens: 4096,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: 'object',
-          properties: {
-            verified_picture: {
+  let parsed;
+  let data;
+  let content = '{}';
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const response = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+          generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens: 4096,
+            responseMimeType: 'application/json',
+            responseSchema: {
               type: 'object',
               properties: {
-                life_moment: { type: 'string', nullable: true },
-                tone: { type: 'string' },
-                day_type: { type: 'string' },
-                headline: { type: 'string' },
-                lead: {
+                verified_picture: {
                   type: 'object',
                   properties: {
-                    what: { type: 'string' },
-                    why_today: { type: 'string' },
+                    life_moment: { type: 'string', nullable: true },
+                    tone: { type: 'string' },
+                    day_type: { type: 'string' },
+                    headline: { type: 'string' },
+                    lead: {
+                      type: 'object',
+                      properties: {
+                        what: { type: 'string' },
+                        why_today: { type: 'string' },
+                      },
+                      required: ['what', 'why_today'],
+                    },
+                    also_matters: { type: 'array', items: { type: 'string' } },
+                    today_focus: { type: 'array', items: { type: 'string' } },
+                    voice_note: { type: 'string' },
                   },
-                  required: ['what', 'why_today'],
+                  required: ['tone', 'day_type', 'headline', 'lead', 'today_focus', 'voice_note'],
                 },
-                also_matters: { type: 'array', items: { type: 'string' } },
-                today_focus: { type: 'array', items: { type: 'string' } },
-                voice_note: { type: 'string' },
-              },
-              required: ['tone', 'day_type', 'headline', 'lead', 'today_focus', 'voice_note'],
-            },
-            review_flags: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  field: { type: 'string' },
-                  action: { type: 'string', enum: ['strip', 'downgrade'] },
-                  note: { type: 'string' },
+                review_flags: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      field: { type: 'string' },
+                      action: { type: 'string', enum: ['strip', 'downgrade'] },
+                      note: { type: 'string' },
+                    },
+                    required: ['field', 'action', 'note'],
+                  },
                 },
-                required: ['field', 'action', 'note'],
               },
+              required: ['verified_picture', 'review_flags'],
             },
           },
-          required: ['verified_picture', 'review_flags'],
-        },
-      },
-    }),
-  });
+        }),
+      });
 
-  if (!response.ok) {
-    const errBody = await response.text().catch(() => '');
-    throw new Error(`Verify daily picture failed: ${response.status} ${errBody.slice(0, 300)}`);
-  }
+      if (!response.ok) {
+        const errBody = await response.text().catch(() => '');
+        throw new Error(`Verify daily picture failed: ${response.status} ${errBody.slice(0, 300)}`);
+      }
 
-  const data = await response.json();
+      data = await response.json();
 
-  const candidate = data.candidates?.[0];
-  let content = '{}';
-  if (candidate?.content?.parts) {
-    for (const part of candidate.content.parts) {
-      if (part.text && !part.thought) {
-        content = part.text;
-        break;
+      const candidate = data.candidates?.[0];
+      content = '{}';
+      if (candidate?.content?.parts) {
+        for (const part of candidate.content.parts) {
+          if (part.text && !part.thought) {
+            content = part.text;
+            break;
+          }
+        }
+      }
+
+      let jsonStr = content.trim();
+      if (jsonStr.startsWith('```')) {
+        jsonStr = jsonStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+      }
+
+      parsed = JSON.parse(jsonStr);
+      break;
+    } catch (err) {
+      console.warn(`[Verify] attempt ${attempt} failed: ${err.message}`);
+      if (attempt === 2) {
+        console.error('[Verify] both attempts failed. Full raw:', content);
+        throw new Error(`Verify parse error: ${err.message}`);
       }
     }
-  }
-
-  let jsonStr = content.trim();
-  if (jsonStr.startsWith('```')) {
-    jsonStr = jsonStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
-  }
-
-  let parsed;
-  try {
-    parsed = JSON.parse(jsonStr);
-  } catch (parseErr) {
-    console.error('[Verify] JSON parse failed despite schema. Full raw:', content);
-    throw new Error(`Verify parse error: ${parseErr.message}`);
   }
 
   const latency = Date.now() - t0;
