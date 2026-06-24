@@ -9195,7 +9195,8 @@ Prefer unchanged when grounded.
 Output:
 Return corrected picture with the same structure, plus review_flags.
 Each review_flag must capture one actual change with field, action, and note.
-If nothing changed, return an empty review_flags array.`;
+If nothing changed, return an empty review_flags array.
+All string values in your output must be a single line. Never include a raw line break inside any string value. If you need a pause, use a sentence break, not a newline.`;
 
   const userMessage =
     '=== THE PICTURE TO VERIFY ===\n' +
