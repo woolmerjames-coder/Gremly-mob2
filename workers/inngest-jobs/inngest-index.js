@@ -341,226 +341,7 @@ const generateSingleUserDco = inngest.createFunction(
     const timezone = event.data.timezone;
 
     try {
-      // Step 1: Fetch today's data + Life Map from Supabase
-      const snapshot = await step.run('fetch-snapshot', async () => {
-        return fetchUserSnapshot(userId, timezone, 7, env);
-      });
-
-      // If no Life Map exists, store a minimal DCO and exit
-      if (!snapshot.raw.currentLifeMap) {
-        console.log(`[DCO] No Life Map for user ${userId} — storing minimal DCO`);
-        await step.run('store-minimal-dco', async () => {
-          const headers = {
-            apikey: env.SUPABASE_SERVICE_KEY,
-            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-            'Content-Type': 'application/json',
-            Prefer: 'resolution=merge-duplicates',
-          };
-          const todayLocal = getUserLocalDate(timezone);
-          const now = new Date();
-          await fetch(`${env.SUPABASE_URL}/rest/v1/user_daily_state?on_conflict=user_id,date`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-              user_id: userId,
-              date: todayLocal,
-              dco: {
-                day_type: 'routine_day',
-                life_moment: null,
-                tone: 'relaxed',
-                brief_headline: null,
-                pipeline: 'no-life-map-fallback',
-                generated_at: now.toISOString(),
-              },
-              created_at: now.toISOString(),
-              updated_at: now.toISOString(),
-              expires_at: new Date(now.getTime() + 7 * 86400000).toISOString(),
-            }),
-          });
-        });
-        return { user_id: userId, success: true, pipeline: 'no-life-map-fallback' };
-      }
-
-      // Step 2: Build the world picture (formatter — no AI, no opinions)
-      const worldPicture = await step.run('build-world-picture', async () => {
-        return buildWorldPicture(snapshot);
-      });
-
-      // Step 2b: Fetch active worlds and open chapters for DCO override evaluation
-      const worldsAndChapters = await step.run('fetch-worlds-and-chapters', async () => {
-        return fetchActiveWorldsAndChapters(userId, env);
-      });
-
-      // Step 3: Flash reads the world picture, updates threads, picks daily focus
-      const flashResult = await step.run('flash-daily-update', async () => {
-        return updateLifeMapAndFocus(
-          worldPicture.lifeMap,
-          worldPicture.text,
-          env,
-          worldsAndChapters,
-        );
-      });
-
-      // Step 4: Merge Flash's thread updates back into the Life Map
-      const updatedLifeMap = await step.run('merge-updates', async () => {
-        const mapCopy = JSON.parse(JSON.stringify(worldPicture.lifeMap));
-        return mergeLifeMapUpdates(mapCopy, flashResult.thread_updates);
-      });
-
-      // Step 5: Haiku writes the headline from the lead story
-      const headline = await step.run('generate-headline', async () => {
-        return generateHeadlineFromFocus(flashResult.daily_focus, snapshot, env);
-      });
-
-      // Step 5b: Read existing today's DCO so worlds_summary is preserved unless refreshed.
-      const existingTodayDco = await step.run('read-existing-dco-today', async () => {
-        const headers = {
-          apikey: env.SUPABASE_SERVICE_KEY,
-          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-        };
-        const todayLocal = getUserLocalDate(timezone);
-        const res = await fetch(
-          `${env.SUPABASE_URL}/rest/v1/user_daily_state?user_id=eq.${userId}&date=eq.${todayLocal}&select=dco&limit=1`,
-          { headers },
-        );
-        if (!res.ok) return null;
-        const rows = await res.json().catch(() => []);
-        return rows?.[0]?.dco || null;
-      });
-
-      // Step 6: Assemble backward-compatible DCO
-      const dco = assembleDcoFromFocus(flashResult.daily_focus, headline, snapshot, flashResult);
-
-      dco.worlds_summary = resolveDailyWorldsSummary(
-        existingTodayDco?.worlds_summary || null,
-        flashResult?.worlds_summary || null,
-      );
-
-      const verifiedWorldOverrides = gateOverridesByReason(
-        flashResult.world_overrides,
-        'world_id',
-        'world',
-      );
-      const verifiedChapterOverrides = gateOverridesByReason(
-        flashResult.chapter_overrides,
-        'chapter_id',
-        'chapter',
-      );
-
-      // Step 6b: Apply per-world DCO overrides (before final upsert)
-      const worldOverrideResult = await step.run('apply-world-overrides', async () => {
-        return applyWorldOverrides(
-          verifiedWorldOverrides,
-          worldsAndChapters.activeWorlds,
-          userId,
-          env,
-        );
-      });
-
-      // Step 6c: Apply per-chapter DCO overrides (before final upsert)
-      const chapterOverrideResult = await step.run('apply-chapter-overrides', async () => {
-        return applyChapterOverrides(
-          verifiedChapterOverrides,
-          worldsAndChapters.activeChapters,
-          userId,
-          env,
-        );
-      });
-
-      // Step 7: Store updated Life Map + DCO to Supabase
-      await step.run('store-results', async () => {
-        const headers = {
-          apikey: env.SUPABASE_SERVICE_KEY,
-          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-          'Content-Type': 'application/json',
-          Prefer: 'resolution=merge-duplicates',
-        };
-
-        const todayLocal = getUserLocalDate(timezone);
-        const now = new Date();
-        const expiresAt = new Date(now.getTime() + 7 * 86400000);
-
-        const mapRes = await fetch(
-          `${env.SUPABASE_URL}/rest/v1/user_life_map?on_conflict=user_id`,
-          {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-              user_id: userId,
-              life_map: updatedLifeMap,
-              version: snapshot.raw.currentLifeMap.version || 1,
-              updated_at: now.toISOString(),
-              last_evidence_date: extractLastEvidenceDate(updatedLifeMap),
-            }),
-          },
-        );
-        if (!mapRes.ok) {
-          console.error(`[DCO] Failed to store Life Map: ${mapRes.statusText}`);
-        }
-
-        const dcoRes = await fetch(
-          `${env.SUPABASE_URL}/rest/v1/user_daily_state?on_conflict=user_id,date`,
-          {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-              user_id: userId,
-              date: todayLocal,
-              dco,
-              extraction_raw: {
-                world_picture_length: worldPicture.text.length,
-                thread_updates_count: flashResult.thread_updates?.length || 0,
-                lead_story: flashResult.daily_focus?.lead_story || null,
-                world_overrides_applied: {
-                  proposed: Array.isArray(flashResult.world_overrides)
-                    ? flashResult.world_overrides.length
-                    : 0,
-                  gated: verifiedWorldOverrides.length,
-                  result: worldOverrideResult,
-                },
-                chapter_overrides_applied: {
-                  proposed: Array.isArray(flashResult.chapter_overrides)
-                    ? flashResult.chapter_overrides.length
-                    : 0,
-                  gated: verifiedChapterOverrides.length,
-                  result: chapterOverrideResult,
-                },
-              },
-              upcoming_dates: extractUpcomingDates(dco),
-              created_at: now.toISOString(),
-              updated_at: now.toISOString(),
-              expires_at: expiresAt.toISOString(),
-            }),
-          },
-        );
-        if (!dcoRes.ok) {
-          console.error(`[DCO] Failed to store DCO: ${dcoRes.statusText}`);
-        }
-
-        console.log(`[DCO] Stored Life Map + DCO for user ${userId} (${todayLocal})`);
-      });
-
-      try {
-        await generateSingleUserDcoV3(userId, timezone, env, true);
-      } catch (e) {
-        console.error('[DCO Shadow] V3 failed (non-fatal):', e?.message || e);
-      }
-
-      return {
-        user_id: userId,
-        success: true,
-        pipeline: 'life-map-v2',
-        headline: dco.brief_headline,
-        lead_story: flashResult.daily_focus?.lead_story?.thread || null,
-        life_moment: dco.life_moment,
-        tone: dco.tone,
-        day_type: dco.day_type,
-        week_recap_count: dco.week_recap?.length || 0,
-        override_apply_results: {
-          world: worldOverrideResult,
-          chapter: chapterOverrideResult,
-        },
-      };
+      return await generateSingleUserDcoV3(userId, timezone, env, false);
     } catch (error) {
       console.error(`[DCO] Failed for user ${userId}:`, error);
       throw error;
@@ -643,7 +424,11 @@ async function generateSingleUserDcoV3(userId, timezone, env, shadowMode = true)
             user_id: userId,
             date: snapshot.targetDate,
             dco: minimalDco,
-            extraction_raw: {},
+            extraction_raw: {
+              pipeline: 'dco-v3-minimal',
+              has_life_map: !!snapshot.raw.currentLifeMap,
+              has_today_facts: !!snapshot.today,
+            },
             upcoming_dates: extractUpcomingDates(minimalDco),
             expires_at: expiresAt.toISOString(),
             created_at: now.toISOString(),
@@ -763,7 +548,31 @@ async function generateSingleUserDcoV3(userId, timezone, env, shadowMode = true)
           user_id: userId,
           date: snapshot.targetDate,
           dco,
-          extraction_raw: {},
+          extraction_raw: {
+            pipeline: 'dco-v3',
+            today_facts_length: snapshot.today?.text?.length || 0,
+            thread_updates_count: Array.isArray(verifiedPicture.thread_updates)
+              ? verifiedPicture.thread_updates.length
+              : 0,
+            lead_story: verifiedPicture.lead?.what || null,
+            review_flags_count: Array.isArray(verified.review_flags)
+              ? verified.review_flags.length
+              : 0,
+            world_overrides_applied: {
+              proposed: Array.isArray(verifiedPicture.world_overrides)
+                ? verifiedPicture.world_overrides.length
+                : 0,
+              gated: verifiedWorldOverrides.length,
+              result: worldOverrideResult,
+            },
+            chapter_overrides_applied: {
+              proposed: Array.isArray(verifiedPicture.chapter_overrides)
+                ? verifiedPicture.chapter_overrides.length
+                : 0,
+              gated: verifiedChapterOverrides.length,
+              result: chapterOverrideResult,
+            },
+          },
           upcoming_dates: extractUpcomingDates(dco),
           expires_at: expiresAt.toISOString(),
           created_at: now.toISOString(),
