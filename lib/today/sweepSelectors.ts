@@ -31,7 +31,7 @@
  *
  * 1. **Type**: Only `todo` items (habits are not swept - they reset daily)
  *
- * 2. **Status**: Must be `status === 'active'` (not completed, not archived)
+ * 2. **Open only**: Must have `completed_at == null` (status is not reliable)
  *
  * 3. **Needs Attention**: One of:
  *    - Do date reached or passed (`scheduled_date <= today` OR `due_day <= today`)
@@ -39,7 +39,7 @@
  *    - Carry forward flag set
  *    - Recently created with no dates (last 3 days)
  *
- * 4. **Not Completed Today**: `completed_at` is null or not today's date
+ * 4. **Not Completed**: `completed_at` must be null
  *
  * 5. **Not Archived**: `archived !== true`
  */
@@ -166,22 +166,14 @@ export function isSweepEligible(todo: SweepEligibleTodo, todayDay: string): bool
     return false;
   }
 
-  // Must be active status
-  if (todo.status && todo.status !== 'active') {
-    return false;
-  }
-
   // Must not be archived
   if (todo.archived === true) {
     return false;
   }
 
-  // Must not be completed today
-  if (todo.completed_at) {
-    const completedDay = getDateService().extractLocalDate(todo.completed_at);
-    if (completedDay === todayDay) {
-      return false;
-    }
+  // Completion is tracked via completed_at, not status.
+  if (todo.completed_at != null) {
+    return false;
   }
 
   // Check: carry forward always eligible
