@@ -33,6 +33,10 @@ yarn-error.*
 # local env files
 .env*.local
 
+# API keys for the audit scripts in scripts/*-audit. The name must not start
+# with ".env", or Expo's Metro env context pulls it into the app bundle.
+.audit-keys.local
+
 # typescript
 *.tsbuildinfo
 

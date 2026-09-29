@@ -6,7 +6,7 @@ Tests designs (not just models) for classifying Mind Drops, on 1,000 new random 
 
 ## Setup
 
-Same as round 1: Node 22 or later, keys in `.env.audit.local` at the repo root. Run from this folder:
+Same as round 1: Node 22 or later, keys in `.audit-keys.local` at the repo root. Run from this folder:
 
 ```
 cd scripts/minddrop-audit/round2

@@ -1,9 +1,12 @@
-// API keys come from .env.audit.local at the repo root (gitignored), or from
+// API keys come from .audit-keys.local at the repo root (gitignored), or from
 // environment variables of the same names. Never commit keys.
+// Do not rename this to ".env.*": Expo's Metro env context bundles every root
+// file starting with ".env" and only parses its own fixed list as env files,
+// so any other ".env.*" name breaks `expo start` with a syntax error.
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { ROOT } from './paths.mjs';
-const file = join(ROOT, '.env.audit.local');
+const file = join(ROOT, '.audit-keys.local');
 const fromFile = {};
 if (existsSync(file)) {
   for (const line of readFileSync(file, 'utf8').split('\n')) {

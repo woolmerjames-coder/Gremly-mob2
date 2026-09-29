@@ -6,7 +6,7 @@ Tests how well a model classifies Mind Drops, using the real Worker prompt and c
 
 ## Setup
 
-Node 22 or later. Put API keys in `.env.audit.local` at the repo root (it is gitignored):
+Node 22 or later. Put API keys in `.audit-keys.local` at the repo root (it is gitignored):
 
 ```
 OPENAI_API_KEY=...
