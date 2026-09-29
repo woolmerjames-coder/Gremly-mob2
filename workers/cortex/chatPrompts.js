@@ -43,7 +43,7 @@ export function evidenceGrounded(evidence, userMessages) {
 // The extraction's second job (ENTITY_CARDS=on with CHAT_EXTRACTION_V2=on): when the
 // user says an item they already track has changed, record an edit to it, not a
 // new item. The ids come from the ITEMS ALREADY TRACKED list, which then carries them.
-export const EXTRACTION_EDITS_RULE = `EDITS: When the user's own words say that one of the items already tracked above has changed (moved to another day or time, renamed, given a different frequency) or is done, record that as an edit to that item using its id from the list, instead of extracting a new item. When the user's own words add details to something one of the notes above already covers (plans, names, places, decisions about that same thing), record an edit to that note with field body_add, whose value is the new details in the user's words, kept to a line or two, instead of a new item. Fields: due_day (YYYY-MM-DD, resolved from today's date; todos and notes), due_time (HH:MM, 24 hour; todos and notes), name, frequency (habits), completed (value "done", todos), body_add (notes). The evidence rule applies to edits too. Never edit an item the user did not clearly refer to, and never resolve a date the user did not give.`;
+export const EXTRACTION_EDITS_RULE = `EDITS: An item already tracked above, or the same thing in other words, is never extracted again as new. When the user's own words say that one of the items already tracked above has changed (moved to another day or time, renamed, given a different frequency) or is done, record that as an edit to that item using its id from the list, instead of extracting a new item. When the user's own words add details to something one of the notes above already covers (plans, names, places, decisions about that same thing), record an edit to that note with field body_add, whose value is the new details in the user's words, kept to a line or two, instead of a new item. Fields: due_day (YYYY-MM-DD, resolved from today's date; todos and notes), due_time (HH:MM, 24 hour; todos and notes), name, frequency (habits), completed (value "done", todos), body_add (notes). The evidence rule applies to edits too. Never edit an item the user did not clearly refer to, and never resolve a date the user did not give.`;
 
 /** Add the edits job to an extraction prompt that already has the evidence rule. */
 export function withEditsRule(prompt) {
@@ -105,6 +105,32 @@ export function editsToPillItems(edits, tracked, userTexts) {
     });
   }
   return out;
+}
+
+/**
+ * The change the matcher heard in passing, as a Save items pill item, so the
+ * offer is there even when the extractor misses it. Same shape as
+ * editsToPillItems.
+ */
+export function mentionEditItem(mention) {
+  const e = mention?.entity;
+  const c = mention?.change;
+  if (!e || !c || !c.field || !c.to) return null;
+  if (!EDIT_FIELDS[e.type]?.includes(c.field)) return null;
+  return {
+    id: Math.random().toString(36).slice(2, 10),
+    type: 'edit',
+    entity_id: e.id,
+    entity_type: e.type,
+    entity_title: e.title,
+    field: c.field,
+    from: c.from ?? null,
+    to: c.to,
+    title: c.field === 'body_add' ? `Add to ${e.title}` : `Update ${e.title}`,
+    body: null,
+    evidence: '',
+    confidence: 90,
+  };
 }
 
 // Turns whose reply mode should never show the Save items pill: extraction is

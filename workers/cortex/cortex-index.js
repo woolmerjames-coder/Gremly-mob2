@@ -207,9 +207,12 @@ import {
   entityCardPromptSection,
   applyEntityCardToTriage,
   recentCardPromptSection,
+  relatedItemsPromptSection,
+  todayIsoIn,
   noteDay,
 } from './entityMatch.js';
 import {
+  mentionEditItem,
   buildChatExtractionPrompt,
   withEvidenceRule,
   withEditsRule,
@@ -11686,7 +11689,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             });
             const triageMs = Date.now() - tLane;
             // the card (started alongside triage) decides the reply shape, so it is awaited here
-            const entityCard = await entityCardPromise;
+            const entityMatch = await entityCardPromise;
+            const entityCard = entityMatch?.card || null;
             const cardMs = Date.now() - tLane;
             const triage = applyEntityCardToTriage(triageFromClassifier, entityCard);
 
@@ -11727,6 +11731,10 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
 
             if (entityCard) genConfig.systemPrompt += entityCardPromptSection(entityCard);
             genConfig.systemPrompt += recentCardPromptSection(body.recentEntity);
+            genConfig.systemPrompt += relatedItemsPromptSection(
+              entityMatch?.related,
+              todayIsoIn(userTimezone),
+            );
 
             const spaceChatMessages = [
               { role: 'system', content: genConfig.systemPrompt },
@@ -12518,7 +12526,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             });
             const triageMs = Date.now() - tLane;
             // the card (started alongside triage) decides the reply shape, so it is awaited here
-            const entityCard = await entityCardPromise;
+            const entityMatch = await entityCardPromise;
+            const entityCard = entityMatch?.card || null;
             const cardMs = Date.now() - tLane;
             const triage = applyEntityCardToTriage(triageFromClassifier, entityCard);
 
@@ -12552,6 +12561,10 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
 
             if (entityCard) genConfig.systemPrompt += entityCardPromptSection(entityCard);
             genConfig.systemPrompt += recentCardPromptSection(body.recentEntity);
+            genConfig.systemPrompt += relatedItemsPromptSection(
+              entityMatch?.related,
+              todayIsoIn(userTimezone),
+            );
 
             const chatMessages = [
               { role: 'system', content: genConfig.systemPrompt },
@@ -12941,7 +12954,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                         { headers: supaHeaders },
                       ),
                       fetch(
-                        `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${authenticatedUserId}&completed_at=is.null&select=id,title,name,due_day,due_time&limit=50`,
+                        `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${authenticatedUserId}&completed_at=is.null&archived=not.is.true&select=id,title,name,due_day,due_time&order=updated_at.desc&limit=80`,
                         { headers: supaHeaders },
                       ),
                       fetch(
@@ -13081,6 +13094,16 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                           ).filter(
                             (e) => !entityCard?.entity || e.entity_id !== entityCard.entity.id,
                           );
+                          // what the matcher heard in passing is offered even if the extractor missed it
+                          const heard = mentionEditItem(entityMatch?.mention);
+                          if (
+                            heard &&
+                            !editItems.some(
+                              (e) => e.entity_id === heard.entity_id && e.field === heard.field,
+                            )
+                          ) {
+                            editItems.push(heard);
+                          }
                           if (editItems.length > 0) {
                             extractResult.extractions = [
                               ...(extractResult.extractions || []),
@@ -14448,7 +14471,8 @@ function runScopedChatStream(
       });
       const triageMs = Date.now() - tLane;
       // the card (started alongside triage) decides the reply shape, so it is awaited here
-      const entityCard = await entityCardPromise;
+      const entityMatch = await entityCardPromise;
+      const entityCard = entityMatch?.card || null;
       const cardMs = Date.now() - tLane;
       const triage = applyEntityCardToTriage(triageFromClassifier, entityCard);
 
@@ -14506,6 +14530,10 @@ function runScopedChatStream(
 
       if (entityCard) genConfig.systemPrompt += entityCardPromptSection(entityCard);
       genConfig.systemPrompt += recentCardPromptSection(body.recentEntity);
+      genConfig.systemPrompt += relatedItemsPromptSection(
+        entityMatch?.related,
+        todayIsoIn(userTimezone),
+      );
       const chatMessages = [
         { role: 'system', content: genConfig.systemPrompt },
         ...processedMessages.filter((m) => m.role !== 'system'),

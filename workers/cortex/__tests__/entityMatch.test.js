@@ -12,6 +12,8 @@ import {
   entityCardPromptSection,
   applyEntityCardToTriage,
   recentCardPromptSection,
+  relatedItemsPromptSection,
+  todayIsoIn,
   noteDay,
   matchEntity,
   CONFIDENCE_FLOOR,
@@ -19,6 +21,7 @@ import {
 } from '../entityMatch.js';
 import {
   editsToPillItems,
+  mentionEditItem,
   withEditsRule,
   withEvidenceRule,
   buildChatExtractionPrompt,
@@ -193,14 +196,16 @@ test('matchEntity is off unless ENTITY_CARDS=on, and never throws', async () => 
       }),
       { status: 200 },
     );
-  const card = await matchEntity({
+  const match = await matchEntity({
     env: {},
     userId: 'u',
     message: 'move my dentist to thursday',
     todayStr: 'Tuesday, September 29, 2026',
     items,
   });
-  expect(card.kind).toBe('edit');
+  expect(match.card.kind).toBe('edit');
+  expect(match.mention).toBeNull();
+  expect(match.related.map((c) => c.id)).toContain('aaaa1111-0000');
   globalThis.fetch = async () => {
     throw new Error('network');
   };
@@ -310,7 +315,7 @@ test('withEditsRule adds the rule and the edits field to the JSON shape', () => 
     }),
   );
   const p = withEditsRule(base);
-  expect(p).toContain("EDITS: When the user's own words say");
+  expect(p).toContain('EDITS: An item already tracked above');
   expect(p).toContain('"edits":[{"entity_id":"<id from the list>"');
   expect(p.indexOf('EVIDENCE:')).toBeLessThan(p.indexOf('EDITS:'));
 });
@@ -554,4 +559,98 @@ test('details shared about a note become an add to the note in the pill, never a
       }),
     ),
   ).toContain('body_add');
+});
+
+test('said in passing: no card, the change goes to the pill, and the reply hears about the item', async () => {
+  const cands = rankCandidates('I should probably call Kim and Andrew by the end of the week', [
+    { id: 'kkkk0000-0000', type: 'todo', title: 'Call Kim and Andrew', due_day: '2026-07-16' },
+    { id: 'jjjj0000-0000', type: 'todo', title: 'Meet Kim and Andrew', due_day: null },
+  ]);
+  const heard = decideCard(
+    {
+      refers: true,
+      entity_id: 'kkkk0000-0000',
+      intent: 'mention',
+      change: { field: 'due_day', value: '2026-10-02' },
+      confidence: 92,
+    },
+    cands,
+  );
+  expect(heard).toEqual({
+    kind: 'mention',
+    entity: cands.find((c) => c.id === 'kkkk0000-0000'),
+    change: { field: 'due_day', from: '2026-07-16', to: '2026-10-02' },
+    confidence: 92,
+  });
+  // the same value as today is not a change; an unusable one is dropped, the mention kept
+  expect(
+    decideCard(
+      {
+        refers: true,
+        entity_id: 'kkkk0000-0000',
+        intent: 'mention',
+        change: { field: 'due_day', value: 'Friday' },
+        confidence: 92,
+      },
+      cands,
+    ).change,
+  ).toBeNull();
+  // the pill item the matcher seeds
+  const item = mentionEditItem(heard);
+  expect(item).toMatchObject({
+    type: 'edit',
+    entity_id: 'kkkk0000-0000',
+    entity_type: 'todo',
+    field: 'due_day',
+    from: '2026-07-16',
+    to: '2026-10-02',
+    title: 'Update Call Kim and Andrew',
+  });
+  expect(mentionEditItem({ ...heard, change: null })).toBeNull();
+  expect(mentionEditItem(null)).toBeNull();
+  // the reply prompt hears the item, marked overdue, and is told not to offer anything
+  const sec = relatedItemsPromptSection(cands, '2026-09-29');
+  expect(sec).toContain('=== THEIR RELATED ITEMS ===');
+  expect(sec).toContain('todo "Call Kim and Andrew", was due 2026-07-16 (overdue)');
+  expect(sec).toContain('todo "Meet Kin'.slice(0, 0) + 'todo "Meet Kim and Andrew", no day set');
+  expect(sec).toContain('Do not offer to change, save or track anything');
+  expect(relatedItemsPromptSection([], '2026-09-29')).toBe('');
+  // a weak wording match is left out
+  expect(
+    relatedItemsPromptSection(
+      [{ id: 'x', type: 'todo', title: 'Buy milk', score: 0.2 }],
+      '2026-09-29',
+    ),
+  ).toBe('');
+  expect(todayIsoIn('America/Los_Angeles')).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+  // matchEntity carries all three out
+  configureModels({ ENTITY_CARDS: 'on', OPENAI_API_KEY: 'k' });
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content:
+                '{"refers":true,"entity_id":"kkkk0000-0000","intent":"mention","change":{"field":"due_day","value":"2026-10-02"},"confidence":92,"ask":false}',
+            },
+          },
+        ],
+      }),
+      { status: 200 },
+    );
+  const match = await matchEntity({
+    env: {},
+    userId: 'u',
+    message: 'I should probably call Kim and Andrew by the end of the week',
+    todayStr: 'Tuesday, September 29, 2026',
+    items: [
+      { id: 'kkkk0000-0000', type: 'todo', title: 'Call Kim and Andrew', due_day: '2026-07-16' },
+    ],
+  });
+  expect(match.card).toBeNull();
+  expect(match.mention.change.to).toBe('2026-10-02');
+  expect(match.related).toHaveLength(1);
+  delete globalThis.fetch;
 });

@@ -37,10 +37,16 @@ CLASSIFY_FALLBACK_MODEL = "gpt-6-luna"
 
 # The split from docs/2026-09-29-chat-helper-model-audit.md, live since 29 Sep 2026.
 # James judges the chat tone in the app rather than by a replay (his call).
-CHAT_MODEL = "gemini-3.8-flash"
+# The reply path (chat model and triage) is back on the models it ran on before
+# 29 Sep: the live test found the tone had changed, and that change was never
+# put through the corpus gate. Helpers that do not shape the reply stay on Luna.
+CHAT_MODEL = "gemini-3-flash-preview"
 HELPER_MODEL = "gpt-6-luna"
 HELPER_FALLBACK_MODEL = "gemini-3.8-flash"
-TRIAGE_ONE_CALL = "on"
+MODEL_TRIAGE_MODE = "gpt-4.1-mini"
+MODEL_TRIAGE_SIGNALS = "gpt-4.1-mini"
+MODEL_LOADING_MESSAGE = "gpt-4.1-mini"
+TRIAGE_ONE_CALL = "off"
 CHAT_EXTRACTION_V2 = "on"
 SEARCH_REQUIRED_FORCES = "off"
 ENTITY_CARDS = "on"

@@ -233,19 +233,19 @@ export const ENTITY_MATCH_SYSTEM_PROMPT = `You decide whether a chat message in 
 
 You are given today's date, the message, the previous exchange when there is one, and a short list of candidate items the user already has (todos and notes, some with a day and time; habits with a frequency). The candidates were chosen by wording; most messages refer to none of them. A candidate marked as shown on the card in the last reply is the item the app has just shown the user: in a short follow up, words like it, that, this one, or the appointment mean that item unless the message clearly names something else.
 
-This is a conversation first. A card interrupts it, so the bar is high: the user has to be asking for something to happen to a specific item they already have, or asking to see it. Talking about the same topic, sharing plans or details, thinking out loud, or asking about their day are conversation, and get refers false.
+This is a conversation first. Two different things can follow from your answer, so tell them apart: a card in the reply, which interrupts the conversation and is only for an explicit ask; and a quiet offer later, which is for things said in passing.
 
 Decide:
-- refers: true only when the message clearly names or points at one specific existing item. A message that merely shares words with an item does not refer to it. A message that describes something new does not refer to an existing item.
+- refers: true when the message is about one specific existing item: it names it, points at it, or describes the same thing in other words (calling someone is the same thing as a todo to call them). A message that merely shares a word or a topic with an item does not refer to it. A message that describes something new does not refer to an existing item.
 - entity_id: the id of that item, or null.
-- intent: "edit" when the user asks for, or states, a change to when the item is (its day or time), what it is called, or how often it repeats, including when they say it needs to move but have not said where to; "complete" when they say it is done; "view" only when they ask to see the item or ask what or when it is; "none" for everything else, including details they share about the topic, which are not an edit.
-- change: for an edit, the single field to change and the new value. Fields: due_day (YYYY-MM-DD, resolved from today's date; todos and notes), due_time (HH:MM, 24 hour; todos and notes), name (the new title), frequency (plain words; habits). Null when the user wants a change but has not said what to, or the change is unclear; intent stays edit.
+- intent: "edit" when the user asks for a change to the item here and now: to move it, reschedule it, rename it, change its time or how often it repeats, including when they say it needs to move but have not said where to. "complete" when they say it is done. "view" when they ask to see the item or ask what or when it is. "mention" when the item comes up in passing without asking for anything to happen to it in this reply: saying when they now plan to do it, that it got moved, that they should get to it, or sharing details about it. "none" when the message only shares a topic with it.
+- change: for edit and mention, the single field the user's words give a new value for, else null. Fields: due_day (YYYY-MM-DD, resolved from today's date; the end of a week is its Friday), due_time (HH:MM, 24 hour), name (the new title), frequency (plain words; habits). Null when they want a change but have not said what to, or the change is unclear.
 - confidence: 0 to 100, how sure you are that entity_id is the item the user means.
 - ask: true when two or more candidates fit about equally, or when the user's wording is too vague to pick one. Then list their ids in candidates.
 
 A wrong match is worse than no match: when in doubt, refers false or ask true. Never invent an item or an id that is not in the list. Never resolve a date the user did not give.
 
-Return ONLY JSON: {"refers":true|false,"entity_id":"..."|null,"intent":"edit"|"view"|"complete"|"none","change":{"field":"...","value":"..."}|null,"confidence":0-100,"ask":true|false,"candidates":["..."]}`;
+Return ONLY JSON: {"refers":true|false,"entity_id":"..."|null,"intent":"edit"|"mention"|"view"|"complete"|"none","change":{"field":"...","value":"..."}|null,"confidence":0-100,"ask":true|false,"candidates":["..."]}`;
 
 export function buildEntityMatchInput({ todayStr, message, previousExchange, candidates }) {
   const lines = [`Today is ${todayStr}.`];
@@ -339,11 +339,74 @@ export function decideCard(answer, candidates) {
   if (intent === 'edit') return { kind: 'view', entity, intent: 'edit' };
   if (intent === 'view' && confidence >= VIEW_FLOOR)
     return { kind: 'view', entity, intent: 'view' };
+  if (intent === 'mention') {
+    // no card: the reply hears about the item, and any change the words carry
+    // becomes an offer in the Save items pill
+    const f = answer.change?.field;
+    const value = String(answer.change?.value ?? '').trim();
+    const usable =
+      f &&
+      value &&
+      FIELDS[entity.type]?.includes(f) &&
+      (f !== 'due_day' || /^\d{4}-\d{2}-\d{2}$/.test(value)) &&
+      (f !== 'due_time' || /^\d{2}:\d{2}$/.test(value));
+    const from = usable ? (entity[f === 'name' ? 'title' : f] ?? null) : null;
+    return {
+      kind: 'mention',
+      entity,
+      change: usable && String(from ?? '') !== value ? { field: f, from, to: value } : null,
+      confidence,
+    };
+  }
   return null;
 }
 
+const RELATED_MIN_SCORE = 0.5;
+const RELATED_MAX = 4;
+
+/** Today as YYYY-MM-DD in the user's time zone. */
+export function todayIsoIn(timeZone) {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      timeZone: timeZone || 'UTC',
+    }).format(new Date());
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
 /**
- * The explicit path: run for a chat turn. Returns a card or null. Never throws.
+ * The items whose wording matches what the user just said, for the reply
+ * prompt, so Gremly can speak about them (that one exists, that it is
+ * overdue) without a card. Nothing here is an offer; the pill does that.
+ */
+export function relatedItemsPromptSection(related, todayIso) {
+  const rows = (related || [])
+    .filter((c) => c && c.title && (c.shown || (c.score ?? 0) >= RELATED_MIN_SCORE))
+    .slice(0, RELATED_MAX);
+  if (rows.length === 0) return '';
+  const lines = rows.map((c) => {
+    let when = '';
+    if (c.type === 'habit') when = c.frequency ? `, ${c.frequency}` : '';
+    else if (c.due_day) {
+      const overdue = todayIso && c.due_day < todayIso;
+      when = `, ${overdue ? 'was due' : 'due'} ${c.due_day}${c.due_time ? ` ${c.due_time}` : ''}${overdue ? ' (overdue)' : ''}`;
+    } else when = c.type === 'todo' ? ', no day set' : '';
+    return `- ${c.type} "${c.title}"${when}`;
+  });
+  return `\n\n=== THEIR RELATED ITEMS ===\nThings of theirs whose wording matches what they just said. Use them only where they bear on the reply: that it already exists, when it is, that it is overdue. One in passing at most, never a list, never a card. Do not offer to change, save or track anything; the app handles that.\n${lines.join('\n')}`;
+}
+
+/**
+ * The explicit path: run for a chat turn. Never throws. Returns null when
+ * nothing of theirs matches, else { card, mention, related }:
+ *   card: an edit, view or choose card for the reply, or null
+ *   mention: the item the message is about in passing, with the change its
+ *            words carry (for the Save items pill), or null
+ *   related: the wording candidates, for the reply prompt
  * @param {{env: object, userId: string, message: string, previousExchange?: object, todayStr: string, items?: Array, recent?: object|null}} p
  *   recent: the item on the last card the app showed in this chat, if any
  */
@@ -361,6 +424,7 @@ export async function matchEntity({
     const all = items || (await fetchEntities(env, userId));
     const candidates = candidatesFor(message, all, recent || null);
     if (candidates.length === 0) return null;
+    const result = { card: null, mention: null, related: candidates };
     const res = await helperFetch('entity_match', {
       messages: [
         { role: 'system', content: ENTITY_MATCH_SYSTEM_PROMPT },
@@ -373,19 +437,22 @@ export async function matchEntity({
       temperature: 0.1,
       response_format: { type: 'json_object' },
     });
-    if (!res.ok) return null;
+    if (!res.ok) return result;
     const json = await res.json();
     const answer = parseJson(json.choices?.[0]?.message?.content || '');
-    const card = decideCard(answer, candidates);
+    const decision = decideCard(answer, candidates);
+    if (decision?.kind === 'mention') result.mention = decision;
+    else if (decision) result.card = decision;
     console.log('[EntityMatch]', {
       candidates: candidates.length,
       recent: !!recent,
-      kind: card?.kind || 'none',
-      type: card?.entity?.type || null,
-      intent: card?.intent || null,
-      confidence: card?.confidence ?? null,
+      kind: decision?.kind || 'none',
+      type: decision?.entity?.type || null,
+      intent: decision?.intent || null,
+      change: decision?.change?.field || null,
+      confidence: decision?.confidence ?? null,
     });
-    return card;
+    return result;
   } catch (err) {
     console.error('[EntityMatch] failed', String(err).slice(0, 200));
     return null;
