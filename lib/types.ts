@@ -693,9 +693,19 @@ export interface EntityCardChange {
 }
 export type EntityCard =
   | { kind: 'edit'; entity: EntityCardEntity; change: EntityCardChange; confidence?: number }
-  | { kind: 'view'; entity: EntityCardEntity }
+  /** intent 'edit': the user wants to change it but has not said what to; Gremly asks. */
+  | { kind: 'view'; entity: EntityCardEntity; intent?: 'edit' | 'view' }
   | { kind: 'choose'; candidates: EntityCardEntity[] };
 export type EntityCardStatus = 'pending' | 'applied' | 'declined' | 'undone';
+/** Where a chat turn's time went; shown under the reply in dev builds only. */
+export interface ChatTurnTiming {
+  /** From send to the first word on screen, on the phone. */
+  first_ms: number;
+  /** From send to the done event, on the phone. */
+  total_ms: number;
+  /** The Worker's own clock for the same turn, when it sent one. */
+  server?: { triage_ms: number; card_ms: number; pre_ms: number; reply_ms: number } | null;
+}
 
 export interface SpaceChatMessage {
   id: ID;

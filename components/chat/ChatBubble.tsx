@@ -21,6 +21,28 @@ import { renderFormattedContent } from '../../lib/markdown/renderFormattedConten
 import SaveButton from './SaveButton';
 import { InlineStreamingCursor } from './StreamingCursor';
 import type { SaveableType } from '../../lib/chat/saveableTypes';
+import { EntityCardBubble } from './EntityCardMessage';
+import type { ChatTurnTiming, EntityCardEntity, EntityCardStatus } from '../../lib/types';
+
+/** The entity card that belongs inside this reply (lib/chat/entityCards foldEntityCards). */
+export interface ChatBubbleEntityCard {
+  message: SpaceChatMessage;
+  onStatus: (status: EntityCardStatus, summary?: string) => void;
+  onPick?: (entity: EntityCardEntity) => void;
+  onOpen?: (entity: EntityCardEntity) => void;
+}
+
+/** "3.1s to first word · 6.0s total · worker: triage 0.9s, card 1.2s, reply 4.6s" */
+export function timingLine(t: ChatTurnTiming): string {
+  const s = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
+  const parts = [`${s(t.first_ms)} to first word`, `${s(t.total_ms)} total`];
+  if (t.server) {
+    parts.push(
+      `worker: triage ${s(t.server.triage_ms)}, card ${s(t.server.card_ms)}, before reply ${s(t.server.pre_ms)}, reply ${s(t.server.reply_ms)}`,
+    );
+  }
+  return parts.join(' · ');
+}
 
 interface ChatBubbleProps {
   message: SpaceChatMessage;
@@ -35,6 +57,8 @@ interface ChatBubbleProps {
   onRetryStream?: (messageId: string) => void;
   /** Called when user changes the suggested type on the save card */
   onTypeChange?: (messageId: string, newType: 'todo' | 'habit' | 'note') => void;
+  /** The entity card shown inside this reply, when the turn produced one */
+  entityCard?: ChatBubbleEntityCard | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -120,9 +144,11 @@ function ChatBubbleInner({
   onDismissSaveable,
   onRetryStream,
   onTypeChange,
+  entityCard,
 }: ChatBubbleProps) {
   const isUser = message.role === 'user';
   const isAssistant = message.role === 'assistant';
+  const timing = (message as any).timing as ChatTurnTiming | undefined;
 
   // Streaming state
   const isStreaming = (message as any).isStreaming === true;
@@ -360,6 +386,23 @@ function ChatBubbleInner({
             </View>
           );
         })()}
+
+      {/* Entity card: lives inside the reply it came with, as the mock shows */}
+      {isAssistant && entityCard && !isStreaming ? (
+        <EntityCardBubble
+          message={entityCard.message}
+          onStatus={entityCard.onStatus}
+          onPick={entityCard.onPick}
+          onOpen={entityCard.onOpen}
+        />
+      ) : null}
+
+      {/* Dev builds only: where this turn's time went */}
+      {isAssistant && timing && __DEV__ ? (
+        <Text style={styles.timing} testID={`chat-timing-${message.id}`}>
+          {timingLine(timing)}
+        </Text>
+      ) : null}
     </ViewComponent>
   );
 }
@@ -429,6 +472,11 @@ const styles = StyleSheet.create({
     marginTop: 16, // More space between message and save card
     marginLeft: 0, // Align with message content
     width: '100%',
+  },
+  timing: {
+    marginTop: 6,
+    fontSize: 11,
+    color: '#9CA3AF',
   },
   text: {
     fontSize: lightTokens.chat.bodyFontSize,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -14,7 +14,13 @@ import { AppFlatList } from '../../components/common/AppFlatList';
 import { useChatMessages } from '../../hooks/useChatMessages';
 import { ChatBubble } from '../../components/chat/ChatBubble';
 import { EntityCardBubble } from '../../components/chat/EntityCardMessage';
-import { applyEntityChange } from '../../lib/chat/entityCards';
+import {
+  applyEntityChange,
+  foldEntityCards,
+  isEntityCardMessage,
+  recentEntityFor,
+} from '../../lib/chat/entityCards';
+import { useOpenEntity } from '../../hooks/useOpenEntity';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { SaveIndicatorPill } from '../../components/chat/SaveIndicatorPill';
 import { SaveSheet } from '../../components/chat/SaveSheet';
@@ -29,7 +35,7 @@ import {
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useAuth } from '../../providers/AuthProvider';
 import { supabase } from '../../lib/supabase/client';
-import { nowTimestamp } from '../../lib/date/DateService';
+import { nowTimestamp, getDateService } from '../../lib/date/DateService';
 import MascotLottie from '../components/MascotLottie';
 import * as Haptics from 'expo-haptics';
 import {
@@ -44,7 +50,12 @@ import {
 } from 'lucide-react-native';
 import { useRoute } from '@react-navigation/native';
 import { useNavigation } from '@react-navigation/native';
-import type { SpaceChat, SpaceChatMessage } from '../../lib/types';
+import type {
+  EntityCardEntity,
+  EntityCardStatus,
+  SpaceChat,
+  SpaceChatMessage,
+} from '../../lib/types';
 import { useCanChat, useCanCreate } from '../../lib/store/lifecycleSelectors';
 import { useWakeOnInput } from '../../hooks/useWakeOnInput';
 import { useMascotActions } from '../../hooks/useMascotActions';
@@ -109,6 +120,9 @@ export default function AskGremlyScreen() {
     appendEntityCard,
     setEntityCardStatus,
   } = useChatMessages(activeChat?.id, null);
+  const openEntity = useOpenEntity();
+  // entity cards live inside the reply they came with (one list row for the two)
+  const { rows, cardFor } = useMemo(() => foldEntityCards(messages), [messages]);
 
   // Word buffer flush (batches words at 50ms intervals, 3 at a time)
   const flushWordBuffer = useCallback(() => {
@@ -181,6 +195,8 @@ export default function AskGremlyScreen() {
       conversationHistory.push({ role: 'user', content: text });
 
       let receivedChunks = false;
+      const sentAt = getDateService().now().getTime();
+      let firstChunkAt: number | null = null;
       if (streamTimeoutRef.current) clearTimeout(streamTimeoutRef.current);
 
       const handleStreamTimeout = () => {
@@ -197,10 +213,11 @@ export default function AskGremlyScreen() {
 
       streamingControllerRef.current = callGeneralChatStreaming(
         conversationHistory,
-        { chatId: chat.id, userId: userId ?? undefined },
+        { chatId: chat.id, userId: userId ?? undefined, recentEntity: recentEntityFor(messages) },
         {
           onChunk: (delta: string) => {
             receivedChunks = true;
+            if (firstChunkAt === null) firstChunkAt = getDateService().now().getTime();
             if (streamTimeoutRef.current) clearTimeout(streamTimeoutRef.current);
             streamTimeoutRef.current = setTimeout(handleStreamTimeout, 15000);
 
@@ -235,6 +252,16 @@ export default function AskGremlyScreen() {
               await finalizeStreamingMessage(msgId, content);
               if (richResult?.sources) {
                 updateMessage(msgId, { sources: richResult.sources } as any);
+              }
+              if (__DEV__) {
+                const now = getDateService().now().getTime();
+                updateMessage(msgId, {
+                  timing: {
+                    first_ms: (firstChunkAt ?? now) - sentAt,
+                    total_ms: now - sentAt,
+                    server: richResult?.timing ?? null,
+                  },
+                } as any);
               }
             }
             if (richResult?.entity_card) {
@@ -337,27 +364,38 @@ export default function AskGremlyScreen() {
 
   const keyExtractor = useCallback((item: SpaceChatMessage) => item.id, []);
 
+  const entityCardHandlers = useCallback(
+    (cardMessage: SpaceChatMessage) => ({
+      message: cardMessage,
+      onStatus: (status: EntityCardStatus, summary?: string) =>
+        setEntityCardStatus(cardMessage.id, status, summary),
+      onPick: (entity: EntityCardEntity) => {
+        setEntityCardStatus(cardMessage.id, 'declined');
+        if (activeChat) sendToChat(activeChat, `I mean ${entity.title}`);
+      },
+      onOpen: openEntity,
+    }),
+    [activeChat, sendToChat, setEntityCardStatus, openEntity],
+  );
+
   const renderMessage = useCallback(
     ({ item }: { item: SpaceChatMessage }) => {
-      if (item.role === 'system' && item.metadata_json?.type === 'entity-card') {
-        return (
-          <EntityCardBubble
-            message={item}
-            onStatus={(status, summary) => setEntityCardStatus(item.id, status, summary)}
-            onPick={(entity) => {
-              setEntityCardStatus(item.id, 'declined');
-              if (activeChat) sendToChat(activeChat, `I mean ${entity.title}`);
-            }}
-          />
-        );
+      if (isEntityCardMessage(item)) {
+        // a card with no reply before it (should not happen, but never lose one)
+        return <EntityCardBubble standalone {...entityCardHandlers(item)} />;
       }
+      const cardMessage = item.role === 'assistant' ? cardFor.get(item.id) : undefined;
       return (
         <View style={styles.messageContainer}>
-          <ChatBubble message={item} testID={`chat-bubble-${item.id}`} />
+          <ChatBubble
+            message={item}
+            testID={`chat-bubble-${item.id}`}
+            entityCard={cardMessage ? entityCardHandlers(cardMessage) : null}
+          />
         </View>
       );
     },
-    [activeChat, sendToChat, setEntityCardStatus],
+    [cardFor, entityCardHandlers],
   );
 
   const inConversation = activeChat !== null;
@@ -430,7 +468,7 @@ export default function AskGremlyScreen() {
           {inConversation ? (
             <AppFlatList
               ref={flatListRef}
-              data={messages}
+              data={rows}
               keyExtractor={keyExtractor}
               renderItem={renderMessage}
               style={styles.messages}

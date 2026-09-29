@@ -14,6 +14,9 @@
 // no match, so anything below the confidence floor becomes a question, never a
 // change. Nothing here changes data; the app applies a change only after the
 // user taps.
+//
+// Follow ups: the app sends the item from the last card it showed (recent), and
+// that item is always a candidate, so "move it to Friday" can resolve "it".
 // ============================================================================
 
 import { helperFetch } from './helperClient.js';
@@ -112,6 +115,9 @@ export const toks = (s) =>
       .match(/[a-z0-9]+/g) || []
   ).filter((t) => t.length > 1 && !STOP.has(t));
 const stem = (t) => t.replace(/(ing|ed|es|s)$/, '');
+/** HH:MM from a Postgres time value such as 14:00:00. */
+const clockTime = (v) => (v ? String(v).slice(0, 5) : null);
+const ENTITY_TYPES = new Set(['todo', 'habit', 'note']);
 
 /** Fetch the user's live items with the fields the matcher and the card need. */
 export async function fetchEntities(env, userId) {
@@ -135,7 +141,7 @@ export async function fetchEntities(env, userId) {
       `habits?owner_id=eq.${userId}&archived_at=is.null&select=id,name,title,frequency,space_id,updated_at&order=updated_at.desc&limit=40`,
     ),
     get(
-      `notes?owner_id=eq.${userId}&archived=not.is.true&select=id,title,space_id,target_date,updated_at&order=updated_at.desc&limit=60`,
+      `notes?owner_id=eq.${userId}&archived=not.is.true&select=id,title,space_id,target_date,event_time,updated_at&order=updated_at.desc&limit=60`,
     ),
   ]);
   const items = [];
@@ -145,7 +151,7 @@ export async function fetchEntities(env, userId) {
       type: 'todo',
       title: t.name || t.title || '',
       due_day: t.due_day || null,
-      due_time: t.due_time || null,
+      due_time: clockTime(t.due_time),
       space_id: t.space_id || null,
     });
   for (const h of habits)
@@ -161,6 +167,9 @@ export async function fetchEntities(env, userId) {
       id: n.id,
       type: 'note',
       title: n.title || '',
+      // a note with a day and time (an appointment, an event) edits like a todo
+      due_day: n.target_date || null,
+      due_time: clockTime(n.event_time),
       target_date: n.target_date || null,
       space_id: n.space_id || null,
     });
@@ -186,17 +195,43 @@ export function rankCandidates(message, items, limit = CANDIDATE_LIMIT) {
   return scored.slice(0, limit);
 }
 
+/**
+ * The candidates for one turn: the wording ranking, plus the item from the last
+ * card the app showed (when it sent one), marked so the model knows the user
+ * has just been looking at it. That item always makes the list, so a short
+ * follow up like "move it to Friday" has something for "it" to mean.
+ */
+export function candidatesFor(message, items, recent, limit = CANDIDATE_LIMIT) {
+  const ranked = rankCandidates(message, items, limit);
+  if (!recent || !recent.id || !ENTITY_TYPES.has(recent.type)) return ranked;
+  const fresh = items.find((i) => i.id === recent.id);
+  const shown = fresh
+    ? { ...fresh, shown: true }
+    : {
+        id: String(recent.id),
+        type: recent.type,
+        title: String(recent.title || '').slice(0, 120),
+        due_day: recent.due_day || null,
+        due_time: recent.due_time || null,
+        frequency: recent.frequency || null,
+        space_id: recent.space_id || null,
+        shown: true,
+      };
+  if (!shown.title) return ranked;
+  return [shown, ...ranked.filter((c) => c.id !== shown.id)].slice(0, limit + 1);
+}
+
 // ── The matcher call ────────────────────────────────────────────────────────
 
 export const ENTITY_MATCH_SYSTEM_PROMPT = `You decide whether a chat message in a personal productivity app refers to one of the user's existing items, and what the user wants done with it.
 
-You are given today's date, the message, the previous exchange when there is one, and a short list of candidate items the user already has (todos with due days and times, habits with a frequency, notes). The candidates were chosen by wording; most messages refer to none of them.
+You are given today's date, the message, the previous exchange when there is one, and a short list of candidate items the user already has (todos and notes, some with a day and time; habits with a frequency). The candidates were chosen by wording; most messages refer to none of them. A candidate marked as shown on the card in the last reply is the item the app has just shown the user: in a short follow up, words like it, that, this one, or the appointment mean that item unless the message clearly names something else.
 
 Decide:
 - refers: true only when the message clearly names or points at one specific existing item. A message that merely shares words with an item does not refer to it. A message that describes something new does not refer to an existing item.
 - entity_id: the id of that item, or null.
 - intent: "edit" when the user wants the item changed (moved, renamed, its time or frequency altered, its details updated), "view" when they want to see or talk about it without changing it, "complete" when they say it is done, "none" otherwise.
-- change: for an edit, the single field to change and the new value. Fields: due_day (YYYY-MM-DD, resolved from today's date), due_time (HH:MM, 24 hour), name (the new title), frequency (plain words), body (new note text). Null when there is nothing to change or the change is unclear.
+- change: for an edit, the single field to change and the new value. Fields: due_day (YYYY-MM-DD, resolved from today's date; todos and notes), due_time (HH:MM, 24 hour; todos and notes), name (the new title), frequency (plain words; habits), body (new note text). Null when the user wants a change but has not said what to, or the change is unclear; intent stays edit.
 - confidence: 0 to 100, how sure you are that entity_id is the item the user means.
 - ask: true when two or more candidates fit about equally, or when the user's wording is too vague to pick one. Then list their ids in candidates.
 
@@ -219,10 +254,12 @@ export function buildEntityMatchInput({ todayStr, message, previousExchange, can
         ? `${c.due_day ? `due ${c.due_day}` : 'no due day'}${c.due_time ? ` at ${c.due_time}` : ''}`
         : c.type === 'habit'
           ? c.frequency || 'no frequency set'
-          : c.target_date
-            ? `dated ${c.target_date}`
-            : 'note';
-    lines.push(`- id ${c.id} [${c.type}] ${c.title} (${detail})`);
+          : c.due_day
+            ? `dated ${c.due_day}${c.due_time ? ` at ${c.due_time}` : ''}`
+            : 'note, no day set';
+    lines.push(
+      `- id ${c.id} [${c.type}] ${c.title} (${detail})${c.shown ? ' [shown on the card in the last reply]' : ''}`,
+    );
   }
   return lines.join('\n');
 }
@@ -239,7 +276,7 @@ function parseJson(raw) {
 const FIELDS = {
   todo: ['due_day', 'due_time', 'name'],
   habit: ['name', 'frequency'],
-  note: ['name', 'body'],
+  note: ['name', 'body', 'due_day', 'due_time'],
 };
 
 /**
@@ -266,11 +303,13 @@ export function decideCard(answer, candidates) {
   const intent = answer.intent;
   if (intent === 'edit' && answer.change && FIELDS[entity.type]?.includes(answer.change.field)) {
     const value = String(answer.change.value ?? '').trim();
-    if (!value) return { kind: 'view', entity };
+    // the user wants a change but the new value is missing or unusable: show the
+    // item and let Gremly ask what should change
+    if (!value) return { kind: 'view', entity, intent: 'edit' };
     if (answer.change.field === 'due_day' && !/^\d{4}-\d{2}-\d{2}$/.test(value))
-      return { kind: 'view', entity };
+      return { kind: 'view', entity, intent: 'edit' };
     if (answer.change.field === 'due_time' && !/^\d{2}:\d{2}$/.test(value))
-      return { kind: 'view', entity };
+      return { kind: 'view', entity, intent: 'edit' };
     const from = entity[answer.change.field === 'name' ? 'title' : answer.change.field] ?? null;
     return {
       kind: 'edit',
@@ -287,19 +326,29 @@ export function decideCard(answer, candidates) {
       confidence,
     };
   }
-  if (intent === 'view' || intent === 'edit') return { kind: 'view', entity };
+  if (intent === 'edit') return { kind: 'view', entity, intent: 'edit' };
+  if (intent === 'view') return { kind: 'view', entity, intent: 'view' };
   return null;
 }
 
 /**
  * The explicit path: run for a chat turn. Returns a card or null. Never throws.
- * @param {{env: object, userId: string, message: string, previousExchange?: object, todayStr: string, items?: Array}} p
+ * @param {{env: object, userId: string, message: string, previousExchange?: object, todayStr: string, items?: Array, recent?: object|null}} p
+ *   recent: the item on the last card the app showed in this chat, if any
  */
-export async function matchEntity({ env, userId, message, previousExchange, todayStr, items }) {
+export async function matchEntity({
+  env,
+  userId,
+  message,
+  previousExchange,
+  todayStr,
+  items,
+  recent,
+}) {
   try {
     if (!models().flags.entityCards) return null;
     const all = items || (await fetchEntities(env, userId));
-    const candidates = rankCandidates(message, all);
+    const candidates = candidatesFor(message, all, recent || null);
     if (candidates.length === 0) return null;
     const res = await helperFetch('entity_match', {
       messages: [
@@ -317,12 +366,14 @@ export async function matchEntity({ env, userId, message, previousExchange, toda
     const json = await res.json();
     const answer = parseJson(json.choices?.[0]?.message?.content || '');
     const card = decideCard(answer, candidates);
-    if (card)
-      console.log('[EntityMatch]', {
-        kind: card.kind,
-        type: card.entity?.type,
-        confidence: card.confidence ?? null,
-      });
+    console.log('[EntityMatch]', {
+      candidates: candidates.length,
+      recent: !!recent,
+      kind: card?.kind || 'none',
+      type: card?.entity?.type || null,
+      intent: card?.intent || null,
+      confidence: card?.confidence ?? null,
+    });
     return card;
   } catch (err) {
     console.error('[EntityMatch] failed', String(err).slice(0, 200));
@@ -330,21 +381,55 @@ export async function matchEntity({ env, userId, message, previousExchange, toda
   }
 }
 
-/** The line added to the reply prompt when a card is being shown. */
+/**
+ * The reply when a card is showing is one line above the card, in Gremly's
+ * voice; the card carries the details and the action. This swaps the triage
+ * mode for the entity card mode (gremlyPersona.js) so the reply template
+ * cannot turn into a plan or a list, and switches search off. A view card
+ * where the user only mentioned the item leaves triage alone.
+ */
+export function applyEntityCardToTriage(triage, card) {
+  if (!card || !triage) return triage;
+  const takesOver =
+    card.kind === 'edit' ||
+    card.kind === 'choose' ||
+    (card.kind === 'view' && card.intent === 'edit');
+  if (!takesOver) return triage;
+  return {
+    ...triage,
+    mode: 'entity_card',
+    modeBeforeCard: triage.mode,
+    depth: 'brief',
+    search: 'none',
+  };
+}
+
+function changeInWords(card) {
+  const f = card.change.field;
+  if (f === 'completed') return 'mark it done';
+  if (f === 'due_day') return `move it to ${card.change.to}`;
+  if (f === 'due_time') return `change its time to ${card.change.to}`;
+  if (f === 'name') return `rename it to ${card.change.to}`;
+  if (f === 'frequency') return `change its frequency to ${card.change.to}`;
+  return `update it to ${card.change.to}`;
+}
+
+/** The section added to the reply prompt when a card is being shown. */
 export function entityCardPromptSection(card) {
   if (!card) return '';
+  const never =
+    'Nothing has been changed; the user decides with one tap on the card. Never say you have changed, moved, updated or saved anything. Do not describe the card or repeat its details, do not give advice, and do not use a list or numbered steps.';
   if (card.kind === 'edit') {
-    const what =
-      card.change.field === 'completed'
-        ? 'mark it done'
-        : `change its ${card.change.field.replace('_', ' ')} to ${card.change.to}`;
-    return `\n\n=== ENTITY CARD ===\nThe app is showing the user a card for their ${card.entity.type} "${card.entity.title}" with a proposed change: ${what}. Nothing has been changed yet; the user decides with one tap on the card. Ask in one short, warm line whether that is the one, and stop. Do not describe the card, do not list its details, and never say you have changed, moved or updated anything.`;
+    return `\n\n=== ENTITY CARD ===\nThe app is showing the user a card for their ${card.entity.type} "${card.entity.title}" proposing to ${changeInWords(card)}. ${never} Reply with one short, warm line asking whether that is the one, and stop.`;
+  }
+  if (card.kind === 'view' && card.intent === 'edit') {
+    return `\n\n=== ENTITY CARD ===\nThe app is showing the user a card for their ${card.entity.type} "${card.entity.title}". They want to change it but have not said what to. ${never} Reply with one short line asking what should change, such as its day, its time or its name, and stop.`;
   }
   if (card.kind === 'view') {
-    return `\n\n=== ENTITY CARD ===\nThe app is showing the user a card for their ${card.entity.type} "${card.entity.title}". Refer to it naturally; do not repeat its details, and do not claim to have changed anything.`;
+    return `\n\n=== ENTITY CARD ===\nThe app is showing the user a card for their ${card.entity.type} "${card.entity.title}" under your reply. Refer to it naturally; do not repeat its details, and do not claim to have changed anything.`;
   }
   if (card.kind === 'choose') {
-    return `\n\n=== ENTITY CARD ===\nThe app is showing the user ${card.candidates.length} of their items that might be the one they mean, so they can pick. Ask in one short line which one they mean, without naming them, and stop. Do not claim to have changed anything.`;
+    return `\n\n=== ENTITY CARD ===\nThe app is showing the user ${card.candidates.length} of their items that might be the one they mean, so they can pick with a tap. ${never} Reply with one short line asking which one they mean, without naming them, and stop.`;
   }
   return '';
 }

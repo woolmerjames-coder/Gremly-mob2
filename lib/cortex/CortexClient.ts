@@ -47,6 +47,8 @@ export interface SpaceChatStreamingResult {
   content: string;
   save_suggestion?: any | null;
   entity_card?: import('../types').EntityCard | null;
+  /** The Worker's clock for this turn: triage, card, time before the reply, reply */
+  timing?: { triage_ms: number; card_ms: number; pre_ms: number; reply_ms: number } | null;
   saveable?: any | null;
   promotion?: any | null;
   latency_ms?: number;
@@ -384,7 +386,13 @@ export async function callSpaceChat(
  */
 export function callSpaceChatStreaming(
   messages: ChatMessage[],
-  opts: { spaceId: string; chatId: string; userId?: string; systemPrompt?: string },
+  opts: {
+    spaceId: string;
+    chatId: string;
+    userId?: string;
+    systemPrompt?: string;
+    recentEntity?: import('../types').EntityCardEntity | null;
+  },
   callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
 ): { close: () => void } {
   const baseUrl = readCortexUrl();
@@ -422,6 +430,8 @@ export function callSpaceChatStreaming(
       stream: true,
       spaceId: opts.spaceId,
       chatId: opts.chatId,
+      // the item on the last entity card in this chat, so "move it" can mean it
+      recentEntity: opts.recentEntity ?? null,
       userId: opts.userId,
       currentTime: nowTimestamp(),
       timezone: getDateService().getTimezone(),
@@ -465,6 +475,7 @@ export function callSpaceChatStreaming(
           content: finalContent,
           save_suggestion: data.save_suggestion ?? null,
           entity_card: data.entity_card ?? null,
+          timing: data.timing ?? null,
           saveable: data.saveable ?? null,
           promotion: data.promotion ?? null,
           latency_ms: data.latency_ms,
@@ -500,7 +511,12 @@ export function callSpaceChatStreaming(
  */
 export function callGeneralChatStreaming(
   messages: ChatMessage[],
-  opts: { chatId: string; userId?: string; systemPrompt?: string },
+  opts: {
+    chatId: string;
+    userId?: string;
+    systemPrompt?: string;
+    recentEntity?: import('../types').EntityCardEntity | null;
+  },
   callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
 ): { close: () => void } {
   const baseUrl = readCortexUrl();
@@ -537,6 +553,8 @@ export function callGeneralChatStreaming(
       lane: 'general_chat',
       stream: true,
       chatId: opts.chatId,
+      // the item on the last entity card in this chat, so "move it" can mean it
+      recentEntity: opts.recentEntity ?? null,
       userId: opts.userId,
       currentTime: nowTimestamp(),
       timezone: getDateService().getTimezone(),
@@ -575,6 +593,7 @@ export function callGeneralChatStreaming(
           content: finalContent,
           save_suggestion: data.save_suggestion ?? null,
           entity_card: data.entity_card ?? null,
+          timing: data.timing ?? null,
           saveable: data.saveable ?? null,
           promotion: data.promotion ?? null,
           latency_ms: data.latency_ms,
@@ -604,7 +623,13 @@ export function callGeneralChatStreaming(
  */
 export function callWorldChatStreaming(
   messages: ChatMessage[],
-  opts: { scopeId: string; scopeName: string; chatId: string; userId?: string },
+  opts: {
+    scopeId: string;
+    scopeName: string;
+    chatId: string;
+    userId?: string;
+    recentEntity?: import('../types').EntityCardEntity | null;
+  },
   callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
 ): { close: () => void } {
   const baseUrl = readCortexUrl();
@@ -636,6 +661,8 @@ export function callWorldChatStreaming(
       scopeId: opts.scopeId,
       scopeName: opts.scopeName,
       chatId: opts.chatId,
+      // the item on the last entity card in this chat, so "move it" can mean it
+      recentEntity: opts.recentEntity ?? null,
       userId: opts.userId,
       currentTime: nowTimestamp(),
       timezone: getDateService().getTimezone(),
@@ -674,6 +701,7 @@ export function callWorldChatStreaming(
           content: finalContent,
           save_suggestion: data.save_suggestion ?? null,
           entity_card: data.entity_card ?? null,
+          timing: data.timing ?? null,
           saveable: data.saveable ?? null,
           promotion: data.promotion ?? null,
           latency_ms: data.latency_ms,
@@ -703,7 +731,13 @@ export function callWorldChatStreaming(
  */
 export function callChapterChatStreaming(
   messages: ChatMessage[],
-  opts: { scopeId: string; scopeName: string; chatId: string; userId?: string },
+  opts: {
+    scopeId: string;
+    scopeName: string;
+    chatId: string;
+    userId?: string;
+    recentEntity?: import('../types').EntityCardEntity | null;
+  },
   callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
 ): { close: () => void } {
   const baseUrl = readCortexUrl();
@@ -735,6 +769,8 @@ export function callChapterChatStreaming(
       scopeId: opts.scopeId,
       scopeName: opts.scopeName,
       chatId: opts.chatId,
+      // the item on the last entity card in this chat, so "move it" can mean it
+      recentEntity: opts.recentEntity ?? null,
       userId: opts.userId,
       currentTime: nowTimestamp(),
       timezone: getDateService().getTimezone(),
@@ -773,6 +809,7 @@ export function callChapterChatStreaming(
           content: finalContent,
           save_suggestion: data.save_suggestion ?? null,
           entity_card: data.entity_card ?? null,
+          timing: data.timing ?? null,
           saveable: data.saveable ?? null,
           promotion: data.promotion ?? null,
           latency_ms: data.latency_ms,

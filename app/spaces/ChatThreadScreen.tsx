@@ -37,7 +37,12 @@ import { useNavigation } from '@react-navigation/native';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { SupabaseSpaceChatRepo } from '../../lib/repo/supabase';
 import { MemorySpaceChatRepo } from '../../lib/repo/memory';
-import type { SpaceChat, SpaceChatMessage } from '../../lib/types';
+import type {
+  EntityCardEntity,
+  EntityCardStatus,
+  SpaceChat,
+  SpaceChatMessage,
+} from '../../lib/types';
 import { lightTokens } from '../../design/tokens';
 import { useAuth } from '../../providers/AuthProvider';
 import {
@@ -52,6 +57,8 @@ import { Placeholder } from '../../components/common/Placeholder';
 import { useCanChat, useCanCreate } from '../../lib/store/lifecycleSelectors';
 import { useChatMessages } from '../../hooks/useChatMessages';
 import { EntityCardBubble } from '../../components/chat/EntityCardMessage';
+import { foldEntityCards, isEntityCardMessage, recentEntityFor } from '../../lib/chat/entityCards';
+import { useOpenEntity } from '../../hooks/useOpenEntity';
 import { ChatBubble } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { EntryCard } from '../../components/chat/EntryCard';
@@ -359,6 +366,9 @@ export default function ChatThreadScreen({ route }: Props) {
     appendEntityCard,
     setEntityCardStatus,
   } = useChatMessages(chatId, spaceId);
+  const openEntity = useOpenEntity();
+  // entity cards live inside the reply they came with (one list row for the two)
+  const { rows, cardFor } = useMemo(() => foldEntityCards(messages), [messages]);
 
   // Helper function to convert messages for resolution
   const getMessagesForResolution = useCallback((): ChatMessageForResolution[] => {
@@ -807,6 +817,8 @@ export default function ChatThreadScreen({ route }: Props) {
           const { messageId } = streamingResult;
           streamingMessageIdRef.current = messageId;
           startWordFlushInterval();
+          const sentAt = getDateService().now().getTime();
+          let firstChunkAt: number | null = null;
 
           // Call GPT via streaming Space Chat pipeline
           streamingControllerRef.current = callSpaceChatStreaming(
@@ -815,9 +827,11 @@ export default function ChatThreadScreen({ route }: Props) {
               spaceId: chat.scope_id || spaceId,
               chatId: activeChatId || chat.id,
               userId: userId ?? undefined,
+              recentEntity: recentEntityFor(messages),
             },
             {
               onChunk: (delta) => {
+                if (firstChunkAt === null) firstChunkAt = getDateService().now().getTime();
                 // Clear loading hint on first content
                 const chunkMsgId = streamingMessageIdRef.current;
                 if (chunkMsgId) {
@@ -851,6 +865,7 @@ export default function ChatThreadScreen({ route }: Props) {
                 richResult?: {
                   save_suggestion?: any;
                   entity_card?: import('../../lib/types').EntityCard | null;
+                  timing?: import('../../lib/types').ChatTurnTiming['server'];
                   sources?: Array<{ title: string; url: string }>;
                   search_query?: string | null;
                   fetchedUrl?: { url: string; title: string } | null;
@@ -866,6 +881,16 @@ export default function ChatThreadScreen({ route }: Props) {
                 const finalizedMessage = await finalizeStreamingMessage(messageId, finalText);
                 streamingMessageIdRef.current = null;
                 streamingControllerRef.current = null;
+                if (__DEV__ && finalizedMessage?.id) {
+                  const now = getDateService().now().getTime();
+                  updateMessage(finalizedMessage.id, {
+                    timing: {
+                      first_ms: (firstChunkAt ?? now) - sentAt,
+                      total_ms: now - sentAt,
+                      server: richResult?.timing ?? null,
+                    },
+                  } as any);
+                }
                 if (richResult?.entity_card) {
                   await appendEntityCard(richResult.entity_card);
                 }
@@ -1492,21 +1517,28 @@ export default function ChatThreadScreen({ route }: Props) {
     [],
   );
 
+  // Entity card in chat: the worker matched a mention to one of the user's items.
+  // The card renders inside the reply it came with (ChatBubble entityCard).
+  const entityCardHandlers = useCallback(
+    (cardMessage: SpaceChatMessage) => ({
+      message: cardMessage,
+      onStatus: (status: EntityCardStatus, summary?: string) =>
+        setEntityCardStatus(cardMessage.id, status, summary),
+      onPick: (entity: EntityCardEntity) => {
+        setEntityCardStatus(cardMessage.id, 'declined');
+        handleSend(`I mean ${entity.title}`);
+      },
+      onOpen: openEntity,
+    }),
+    [setEntityCardStatus, handleSend, openEntity],
+  );
+
   // Memoized renderItem callback for FlatList performance
   const renderMessage = useCallback(
     ({ item: message }: { item: SpaceChatMessage }) => {
-      // Entity card in chat: the worker matched a mention to one of the user's items
-      if (message.role === 'system' && message.metadata_json?.type === 'entity-card') {
-        return (
-          <EntityCardBubble
-            message={message}
-            onStatus={(status, summary) => setEntityCardStatus(message.id, status, summary)}
-            onPick={(entity) => {
-              setEntityCardStatus(message.id, 'declined');
-              handleSend(`I mean ${entity.title}`);
-            }}
-          />
-        );
+      if (isEntityCardMessage(message)) {
+        // a card with no reply before it (should not happen, but never lose one)
+        return <EntityCardBubble standalone {...entityCardHandlers(message)} />;
       }
       // Unified renderer for all locked confirmation types
       if (
@@ -1592,6 +1624,7 @@ export default function ChatThreadScreen({ route }: Props) {
         );
       }
 
+      const cardMessage = message.role === 'assistant' ? cardFor.get(message.id) : undefined;
       return (
         <View style={styles.messageContainer}>
           <ChatBubble
@@ -1602,6 +1635,7 @@ export default function ChatThreadScreen({ route }: Props) {
             onDismissSaveable={handleDismissSaveable}
             onRetryStream={handleRetryStream}
             onTypeChange={handleTypeChange}
+            entityCard={cardMessage ? entityCardHandlers(cardMessage) : null}
           />
         </View>
       );
@@ -1614,8 +1648,8 @@ export default function ChatThreadScreen({ route }: Props) {
       handleDismissSaveable,
       handleRetryStream,
       handleTypeChange,
-      setEntityCardStatus,
-      handleSend,
+      cardFor,
+      entityCardHandlers,
     ],
   );
 
@@ -1683,7 +1717,7 @@ export default function ChatThreadScreen({ route }: Props) {
           {/* Messages FlatList */}
           <AppFlatList
             ref={flatListRef}
-            data={messages}
+            data={rows}
             keyExtractor={keyExtractor}
             renderItem={renderMessage}
             style={styles.messages}

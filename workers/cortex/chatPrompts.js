@@ -43,7 +43,7 @@ export function evidenceGrounded(evidence, userMessages) {
 // The extraction's second job (ENTITY_CARDS=on with CHAT_EXTRACTION_V2=on): when the
 // user says an item they already track has changed, record an edit to it, not a
 // new item. The ids come from the ITEMS ALREADY TRACKED list, which then carries them.
-export const EXTRACTION_EDITS_RULE = `EDITS: When the user's own words say that one of the items already tracked above has changed (moved to another day or time, renamed, given a different frequency) or is done, record that as an edit to that item using its id from the list, instead of extracting a new item. Fields: due_day (YYYY-MM-DD, resolved from today's date), due_time (HH:MM, 24 hour), name, frequency, completed (value "done"). The evidence rule applies to edits too. Never edit an item the user did not clearly refer to, and never resolve a date the user did not give.`;
+export const EXTRACTION_EDITS_RULE = `EDITS: When the user's own words say that one of the items already tracked above has changed (moved to another day or time, renamed, given a different frequency) or is done, record that as an edit to that item using its id from the list, instead of extracting a new item. Fields: due_day (YYYY-MM-DD, resolved from today's date; todos and notes), due_time (HH:MM, 24 hour; todos and notes), name, frequency (habits), completed (value "done", todos). The evidence rule applies to edits too. Never edit an item the user did not clearly refer to, and never resolve a date the user did not give.`;
 
 /** Add the edits job to an extraction prompt that already has the evidence rule. */
 export function withEditsRule(prompt) {
@@ -60,7 +60,7 @@ export function withEditsRule(prompt) {
 const EDIT_FIELDS = {
   todo: ['due_day', 'due_time', 'name', 'completed'],
   habit: ['name', 'frequency'],
-  note: ['name', 'body'],
+  note: ['name', 'body', 'due_day', 'due_time'],
 };
 
 /**

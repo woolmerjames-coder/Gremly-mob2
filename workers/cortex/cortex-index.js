@@ -202,7 +202,7 @@ import {
 import { handleHabitRead } from './habitRead.js';
 import { configureModels, models, helperModel } from './models.js';
 import { helperFetch } from './helperClient.js';
-import { matchEntity, entityCardPromptSection } from './entityMatch.js';
+import { matchEntity, entityCardPromptSection, applyEntityCardToTriage } from './entityMatch.js';
 import {
   buildChatExtractionPrompt,
   withEvidenceRule,
@@ -11648,6 +11648,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             }
 
             // === TRIAGE: Classify message before generation (entity matcher alongside) ===
+            const tLane = Date.now();
             const previousExchange = extractPreviousExchange(messages);
             const entityCardPromise = authenticatedUserId
               ? matchEntity({
@@ -11655,6 +11656,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   userId: authenticatedUserId,
                   message: lastUserMsgSpace,
                   previousExchange,
+                  recent: body.recentEntity || null,
                   todayStr: new Intl.DateTimeFormat('en-US', {
                     weekday: 'long',
                     year: 'numeric',
@@ -11665,7 +11667,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 })
               : Promise.resolve(null);
 
-            const triage = await triageMessage({
+            const triageFromClassifier = await triageMessage({
               userMessage: lastUserMsgSpace,
               previousExchange,
               spaceName: body.spaceName || undefined,
@@ -11676,6 +11678,11 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               profileSnippet: spaceUserProfile?.profileText?.slice(0, 150) || '',
               messageCount: messages.length,
             });
+            const triageMs = Date.now() - tLane;
+            // the card (started alongside triage) decides the reply shape, so it is awaited here
+            const entityCard = await entityCardPromise;
+            const cardMs = Date.now() - tLane;
+            const triage = applyEntityCardToTriage(triageFromClassifier, entityCard);
 
             console.log('[SpaceChat:Streaming:Triage]', {
               mode: triage.mode,
@@ -11712,7 +11719,6 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               return msg;
             });
 
-            const entityCard = await entityCardPromise;
             if (entityCard) genConfig.systemPrompt += entityCardPromptSection(entityCard);
 
             const spaceChatMessages = [
@@ -12150,6 +12156,12 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 full_content: fullContent,
                 save_suggestion,
                 entity_card: entityCard || null,
+                timing: {
+                  triage_ms: triageMs,
+                  card_ms: cardMs,
+                  pre_ms: t0 - tLane,
+                  reply_ms: latency,
+                },
                 sources,
                 search_query: searchQuery,
                 latency_ms: latency,
@@ -12467,6 +12479,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             }
 
             // Triage, with the entity matcher running alongside it
+            const tLane = Date.now();
             const previousExchange = extractPreviousExchange(messages);
             const entityCardPromise = authenticatedUserId
               ? matchEntity({
@@ -12474,6 +12487,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   userId: authenticatedUserId,
                   message: lastUserMsg,
                   previousExchange,
+                  recent: body.recentEntity || null,
                   todayStr: new Intl.DateTimeFormat('en-US', {
                     weekday: 'long',
                     year: 'numeric',
@@ -12484,7 +12498,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 })
               : Promise.resolve(null);
 
-            const triage = await triageMessage({
+            const triageFromClassifier = await triageMessage({
               userMessage: lastUserMsg,
               previousExchange,
               spaceName: undefined,
@@ -12495,6 +12509,11 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               profileSnippet: userProfile?.profileText?.slice(0, 150) || '',
               messageCount: messages.length,
             });
+            const triageMs = Date.now() - tLane;
+            // the card (started alongside triage) decides the reply shape, so it is awaited here
+            const entityCard = await entityCardPromise;
+            const cardMs = Date.now() - tLane;
+            const triage = applyEntityCardToTriage(triageFromClassifier, entityCard);
 
             console.log('[GeneralChat:Triage]', {
               mode: triage.mode,
@@ -12524,7 +12543,6 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               return msg;
             });
 
-            const entityCard = await entityCardPromise;
             if (entityCard) genConfig.systemPrompt += entityCardPromptSection(entityCard);
 
             const chatMessages = [
@@ -12827,6 +12845,12 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     full_content: fullContent,
                     save_suggestion,
                     entity_card: entityCard || null,
+                    timing: {
+                      triage_ms: triageMs,
+                      card_ms: cardMs,
+                      pre_ms: t0 - tLane,
+                      reply_ms: latency,
+                    },
                     sources,
                     search_query: searchQuery,
                     latency_ms: latency,
@@ -12903,7 +12927,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       apikey: env.SUPABASE_SERVICE_KEY,
                       Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
                     };
-                    const [summaryRes, todosRes, habitsRes] = await Promise.all([
+                    const [summaryRes, todosRes, habitsRes, notesRes] = await Promise.all([
                       fetch(
                         `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=running_summary`,
                         { headers: supaHeaders },
@@ -12916,6 +12940,11 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                         `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${authenticatedUserId}&archived_at=is.null&select=id,title,name,frequency&limit=30`,
                         { headers: supaHeaders },
                       ),
+                      // notes with a day, or made recently: appointments and events live here
+                      fetch(
+                        `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${authenticatedUserId}&archived=not.is.true&select=id,title,target_date,event_time&order=updated_at.desc&limit=20`,
+                        { headers: supaHeaders },
+                      ),
                     ]);
                     const summaryData = summaryRes.ok
                       ? await summaryRes.json().catch(() => [])
@@ -12923,6 +12952,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     const runningSummary = summaryData?.[0]?.running_summary || null;
                     const todosData = todosRes.ok ? await todosRes.json().catch(() => []) : [];
                     const habitsData = habitsRes.ok ? await habitsRes.json().catch(() => []) : [];
+                    const notesData = notesRes.ok ? await notesRes.json().catch(() => []) : [];
 
                     // With entity cards on, the list carries ids so the extractor can
                     // record edits to tracked items (chatPrompts.js, EXTRACTION_EDITS_RULE)
@@ -12935,8 +12965,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                         id: row.id,
                         type,
                         title: row.name || row.title || '',
-                        due_day: row.due_day || null,
-                        due_time: row.due_time || null,
+                        due_day: row.due_day || row.target_date || null,
+                        due_time: row.due_time || row.event_time || null,
                         frequency: row.frequency || null,
                       });
                       return `[${type} id:${short}]`;
@@ -12954,6 +12984,16 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                         (h) =>
                           `- ${trackedTag(h, 'habit')} ${h.name || h.title}${h.frequency ? ` (${h.frequency})` : ''}`,
                       ),
+                      ...notesData
+                        .filter((n) => n.title)
+                        .map(
+                          (n) =>
+                            `- ${trackedTag(n, 'note')} ${n.title}${
+                              editsOn && n.target_date
+                                ? ` (dated ${n.target_date}${n.event_time ? ` ${String(n.event_time).slice(0, 5)}` : ''})`
+                                : ''
+                            }`,
+                        ),
                     ];
                     const existingItemsBlock =
                       existingLines.length > 0
@@ -13030,6 +13070,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                             extractResult.edits,
                             tracked,
                             userTexts,
+                          ).filter(
+                            (e) => !entityCard?.entity || e.entity_id !== entityCard.entity.id,
                           );
                           if (editItems.length > 0) {
                             extractResult.extractions = [
@@ -14367,6 +14409,7 @@ function runScopedChatStream(
       }
 
       // Triage
+      const tLane = Date.now();
       const previousExchange = extractPreviousExchange(messages);
       const entityCardPromise = authenticatedUserId
         ? matchEntity({
@@ -14374,6 +14417,7 @@ function runScopedChatStream(
             userId: authenticatedUserId,
             message: lastUserMsg,
             previousExchange,
+            recent: body.recentEntity || null,
             todayStr: new Intl.DateTimeFormat('en-US', {
               weekday: 'long',
               year: 'numeric',
@@ -14383,7 +14427,7 @@ function runScopedChatStream(
             }).format(new Date()),
           })
         : Promise.resolve(null);
-      const triage = await triageMessage({
+      const triageFromClassifier = await triageMessage({
         userMessage: lastUserMsg,
         previousExchange,
         spaceName: body.scopeName || undefined,
@@ -14394,6 +14438,11 @@ function runScopedChatStream(
         profileSnippet: scopeUserProfile?.profileText?.slice(0, 150) || '',
         messageCount: messages.length,
       });
+      const triageMs = Date.now() - tLane;
+      // the card (started alongside triage) decides the reply shape, so it is awaited here
+      const entityCard = await entityCardPromise;
+      const cardMs = Date.now() - tLane;
+      const triage = applyEntityCardToTriage(triageFromClassifier, entityCard);
 
       console.log(`[${tag}:Triage]`, {
         mode: triage.mode,
@@ -14447,7 +14496,6 @@ function runScopedChatStream(
         return msg;
       });
 
-      const entityCard = await entityCardPromise;
       if (entityCard) genConfig.systemPrompt += entityCardPromptSection(entityCard);
       const chatMessages = [
         { role: 'system', content: genConfig.systemPrompt },
@@ -14739,6 +14787,12 @@ function runScopedChatStream(
               full_content: fullContent,
               save_suggestion,
               entity_card: entityCard || null,
+              timing: {
+                triage_ms: triageMs,
+                card_ms: cardMs,
+                pre_ms: t0 - tLane,
+                reply_ms: latency,
+              },
               sources,
               search_query: searchQuery,
               latency_ms: latency,

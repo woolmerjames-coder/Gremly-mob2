@@ -1,16 +1,19 @@
 /**
  * EntityCardMessage
  *
- * The card Gremly shows when the user refers to one of their items in chat.
- * Mockup is spec (Entity Card in Chat canvas, September 2026): title and type,
- * the change laid out as now and change to, one tap either way. Nothing is
- * changed until Yes is tapped; Undo reverts for a short while afterwards.
- * Choose cards list the nearest candidates when there was no clear match.
+ * The card Gremly shows, inside its own reply, when the user refers to one of
+ * their items in chat. Mockup is spec (Entity Card in Chat canvas, September
+ * 2026): the item with its kind and Space, the change laid out as now and
+ * change to, one tap either way. Nothing is changed until Yes is tapped; the
+ * closing line carries an Undo for a short while afterwards. A view card opens
+ * the item. Choose cards list the nearest candidates when there was no clear
+ * match, with "None of these" under them.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import {
   ArrowRight,
+  Calendar,
   CalendarCheck,
   Check,
   ChevronRight,
@@ -18,6 +21,7 @@ import {
   StickyNote,
 } from 'lucide-react-native';
 import { lightTokens } from '../../design/tokens';
+import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import type {
   EntityCard,
   EntityCardEntity,
@@ -27,8 +31,11 @@ import type {
 import {
   applyEntityChange,
   describeChange,
+  entityAfterChange,
   entitySubtitle,
+  entityWhen,
   isEditCard,
+  primaryLabel,
 } from '../../lib/chat/entityCards';
 
 const UNDO_WINDOW_MS = 8000;
@@ -36,10 +43,14 @@ const UNDO_WINDOW_MS = 8000;
 export interface EntityCardMessageProps {
   card: EntityCard;
   status: EntityCardStatus;
-  /** Called after the user taps; the screen persists the new status and adds Gremly's line. */
+  /** The closing line saved with the card once the user acted. */
+  summary?: string | null;
+  /** Called after the user taps; the screen persists the new status and the closing line. */
   onStatus: (status: EntityCardStatus, summary?: string) => void;
   /** Choose cards: the user picked one of the candidates. */
   onPick?: (entity: EntityCardEntity) => void;
+  /** View cards, and the item on an edit card: open it in the app. */
+  onOpen?: (entity: EntityCardEntity) => void;
   testID?: string;
 }
 
@@ -50,7 +61,22 @@ function TypeIcon({ type }: { type: EntityCardEntity['type'] }) {
   return <CalendarCheck size={18} color={color} />;
 }
 
-function EntityHeader({ entity, right }: { entity: EntityCardEntity; right?: React.ReactNode }) {
+function useSpaceName(spaceId?: string | null): string | null {
+  const spaces = useGremlyStore((s) => s.spaces);
+  if (!spaceId) return null;
+  return spaces.find((s) => s.id === spaceId)?.name ?? null;
+}
+
+function EntityHeader({
+  entity,
+  withWhen,
+  right,
+}: {
+  entity: EntityCardEntity;
+  withWhen: boolean;
+  right?: React.ReactNode;
+}) {
+  const spaceName = useSpaceName(entity.space_id);
   return (
     <View style={styles.header}>
       <View style={styles.iconWrap}>
@@ -61,7 +87,7 @@ function EntityHeader({ entity, right }: { entity: EntityCardEntity; right?: Rea
           {entity.title}
         </Text>
         <Text style={styles.subtitle} numberOfLines={1}>
-          {entitySubtitle(entity)}
+          {entitySubtitle(entity, { spaceName, withWhen })}
         </Text>
       </View>
       {right}
@@ -72,13 +98,16 @@ function EntityHeader({ entity, right }: { entity: EntityCardEntity; right?: Rea
 export function EntityCardMessage({
   card,
   status,
+  summary,
   onStatus,
   onPick,
+  onOpen,
   testID,
 }: EntityCardMessageProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [undoOpen, setUndoOpen] = useState(false);
+  const [after, setAfter] = useState<EntityCardEntity | null>(null);
   const revertRef = useRef<null | (() => Promise<void>)>(null);
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -96,9 +125,10 @@ export function EntityCardMessage({
     try {
       const applied = await applyEntityChange(card.entity, card.change);
       revertRef.current = applied.revert;
+      setAfter(applied.entity);
       setUndoOpen(true);
       undoTimer.current = setTimeout(() => setUndoOpen(false), UNDO_WINDOW_MS);
-      onStatus('applied', applied.summary);
+      onStatus('applied', `Done. ${applied.summary}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'That change did not go through.');
     } finally {
@@ -114,6 +144,7 @@ export function EntityCardMessage({
       await revert();
       revertRef.current = null;
       setUndoOpen(false);
+      setAfter(null);
       onStatus('undone', 'Put back the way it was.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not undo that.');
@@ -136,6 +167,7 @@ export function EntityCardMessage({
           >
             <EntityHeader
               entity={c}
+              withWhen
               right={<ChevronRight size={20} color={lightTokens.colors.subtle} />}
             />
           </Pressable>
@@ -148,40 +180,50 @@ export function EntityCardMessage({
           >
             <Text style={styles.secondaryText}>None of these</Text>
           </Pressable>
-        ) : null}
+        ) : (
+          <Text style={styles.muted}>{status === 'declined' ? 'None of these' : ''}</Text>
+        )}
       </View>
     );
   }
 
-  const entity = card.entity;
-  const words = isEditCard(card) ? describeChange(entity, card.change) : null;
+  const edit = isEditCard(card);
   const applied = status === 'applied';
+  const pending = status === 'pending';
+  // once applied the card reads as the item now is, including after a restart
+  const entity =
+    after ?? (applied && edit ? entityAfterChange(card.entity, card.change) : card.entity);
+  const words = edit ? describeChange(card.entity, card.change) : null;
 
-  return (
-    <View style={styles.card} testID={testID}>
-      <EntityHeader
-        entity={
-          applied && isEditCard(card)
-            ? {
-                ...entity,
-                title: card.change.field === 'name' ? card.change.to : entity.title,
-                due_day: card.change.field === 'due_day' ? card.change.to : entity.due_day,
-                due_time: card.change.field === 'due_time' ? card.change.to : entity.due_time,
-                frequency: card.change.field === 'frequency' ? card.change.to : entity.frequency,
-              }
-            : entity
-        }
-        right={
-          applied ? (
-            <View style={styles.chip}>
-              <Check size={14} color={lightTokens.colors.deepForest} strokeWidth={2.5} />
-              <Text style={styles.chipText}>Updated</Text>
-            </View>
-          ) : null
-        }
-      />
+  // A view card is one tap to open the item; on an edit card the header opens it too.
+  const open = onOpen ? () => onOpen(entity) : undefined;
 
-      {words && status === 'pending' ? (
+  const body = (
+    <>
+      <Pressable
+        onPress={open}
+        disabled={!open}
+        accessibilityRole={open ? 'button' : undefined}
+        accessibilityLabel={open ? `Open ${entity.title}` : undefined}
+        style={({ pressed }) => [pressed && open && styles.pressed]}
+      >
+        <EntityHeader
+          entity={entity}
+          withWhen={!edit}
+          right={
+            applied ? (
+              <View style={styles.chip}>
+                <Check size={14} color={lightTokens.colors.deepForest} strokeWidth={2.5} />
+                <Text style={styles.chipText}>Updated</Text>
+              </View>
+            ) : !edit && open ? (
+              <ChevronRight size={20} color={lightTokens.colors.subtle} />
+            ) : null
+          }
+        />
+      </Pressable>
+
+      {words && pending ? (
         <View style={styles.changeRow}>
           <View style={styles.changeCol}>
             <Text style={styles.changeLabel}>Now</Text>
@@ -195,9 +237,16 @@ export function EntityCardMessage({
         </View>
       ) : null}
 
+      {words && applied && entityWhen(entity) ? (
+        <View style={styles.valueRow}>
+          <Calendar size={18} color={lightTokens.colors.mossGreen} />
+          <Text style={styles.valueText}>{entityWhen(entity)}</Text>
+        </View>
+      ) : null}
+
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
-      {isEditCard(card) && status === 'pending' ? (
+      {edit && pending ? (
         <View style={styles.buttons}>
           <Pressable
             accessibilityRole="button"
@@ -209,9 +258,7 @@ export function EntityCardMessage({
               busy && styles.disabled,
             ]}
           >
-            <Text style={styles.primaryText}>
-              {card.change.field === 'completed' ? 'Yes, mark it done' : 'Yes, change it'}
-            </Text>
+            <Text style={styles.primaryText}>{primaryLabel(card.change)}</Text>
           </Pressable>
           <Pressable
             accessibilityRole="button"
@@ -227,36 +274,51 @@ export function EntityCardMessage({
           </Pressable>
         </View>
       ) : null}
-
-      {applied && undoOpen ? (
-        <Pressable
-          accessibilityRole="button"
-          onPress={handleUndo}
-          disabled={busy}
-          style={styles.undo}
-        >
-          <Text style={styles.undoText}>Undo</Text>
-        </Pressable>
-      ) : null}
       {status === 'declined' ? <Text style={styles.muted}>Not this one</Text> : null}
-      {status === 'undone' ? <Text style={styles.muted}>Put back</Text> : null}
+    </>
+  );
+
+  return (
+    <View testID={testID}>
+      <View style={styles.card}>{body}</View>
+      {summary && (status === 'applied' || status === 'undone') ? (
+        <Text style={styles.closing}>
+          {summary}
+          {applied && undoOpen ? (
+            <Text
+              style={styles.undoText}
+              onPress={handleUndo}
+              accessibilityRole="button"
+              accessibilityLabel="Undo"
+            >
+              {' '}
+              Undo
+            </Text>
+          ) : null}
+        </Text>
+      ) : null}
     </View>
   );
 }
 
 /**
- * EntityCardBubble: the chat row for a persisted entity card message
- * (metadata_json.type === 'entity-card'). Renders the card and, once the user
- * has acted, Gremly's closing line under it.
+ * EntityCardBubble: the persisted entity card message (metadata_json.type ===
+ * 'entity-card') rendered inside Gremly's reply, or on its own when a chat
+ * has a card with no reply before it.
  */
 export function EntityCardBubble({
   message,
   onStatus,
   onPick,
+  onOpen,
+  standalone = false,
 }: {
   message: SpaceChatMessage;
   onStatus: (status: EntityCardStatus, summary?: string) => void;
   onPick?: (entity: EntityCardEntity) => void;
+  onOpen?: (entity: EntityCardEntity) => void;
+  /** True when this is its own chat row rather than part of a reply. */
+  standalone?: boolean;
 }) {
   const meta = (message.metadata_json || {}) as {
     card?: EntityCard;
@@ -266,18 +328,24 @@ export function EntityCardBubble({
   if (!meta.card) return null;
   const status = meta.status || 'pending';
   return (
-    <View style={styles.row} testID={`entity-card-${message.id}`}>
-      <EntityCardMessage card={meta.card} status={status} onStatus={onStatus} onPick={onPick} />
-      {meta.summary && (status === 'applied' || status === 'undone') ? (
-        <Text style={styles.closing}>{meta.summary}</Text>
-      ) : null}
+    <View style={standalone ? styles.row : styles.inReply} testID={`entity-card-${message.id}`}>
+      <EntityCardMessage
+        card={meta.card}
+        status={status}
+        summary={meta.summary}
+        onStatus={onStatus}
+        onPick={onPick}
+        onOpen={onOpen}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  row: { paddingHorizontal: 16, paddingVertical: 6, gap: 10 },
+  row: { paddingHorizontal: 16, paddingVertical: 6 },
+  inReply: { marginTop: 10, width: '100%' },
   closing: {
+    marginTop: 10,
     fontSize: lightTokens.chat.bodyFontSize,
     lineHeight: lightTokens.chat.bodyLineHeight,
     color: lightTokens.chat.assistantText,
@@ -343,6 +411,16 @@ const styles = StyleSheet.create({
   changeLabelTo: { color: lightTokens.colors.mossGreen },
   changeValue: { fontSize: 15, fontWeight: '500', color: lightTokens.colors.text },
   changeValueTo: { fontWeight: '600', color: lightTokens.colors.mossGreen },
+  valueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: lightTokens.colors.linenCreamLight,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  valueText: { fontSize: 15, fontWeight: '500', color: lightTokens.colors.text },
   buttons: { flexDirection: 'row', gap: 10 },
   primaryButton: {
     flex: 1,
@@ -363,11 +441,9 @@ const styles = StyleSheet.create({
   },
   buttonHalf: { flex: 1 },
   secondaryText: { color: lightTokens.colors.mossGreen, fontWeight: '600', fontSize: 15 },
-  undo: { alignSelf: 'flex-start', paddingVertical: 4 },
   undoText: {
     color: lightTokens.colors.mossGreen,
     fontWeight: '600',
-    fontSize: 15,
     textDecorationLine: 'underline',
   },
   muted: { fontSize: 13, color: lightTokens.colors.subtle },

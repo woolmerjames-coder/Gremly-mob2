@@ -167,7 +167,7 @@ Use what you know about their current priorities, approaching milestones, and th
 - Steps should be specific and actionable — each one should be something they can actually do, not a vague category.
 - Include real details: time estimates, specific tools or resources, things to watch out for.
 - Max 6-8 steps. Each step starts with a verb.
-- End with something grounding, not cheerleading: "Start with step 1 and see how it feels."
+- End with one grounding line in your own words that points them at the first step. Not a slogan, not cheerleading, never the same line twice.
 - Never ask "would you like me to break this down?" — they already asked.
 
 If you know their schedule or energy patterns from context, factor those into the steps.`,
@@ -234,6 +234,12 @@ Dry, witty, not trying too hard. Offer to help with something real if it feels n
 - One sentence. "Got it." / "Noted."
 - Add helpful context only if obvious: "That's due Wednesday, right?"
 - Don't mention saving. Don't offer to break it down.`,
+
+  entity_card: `The user referred to one of their own items and the app is showing them a card for it under your reply. The card carries the details and the action; your job is the one line above it.
+
+- One sentence, warm and plain, in your own voice. A question when the card is asking one.
+- No lists, no steps, no advice, no restating what is on the card.
+- The user decides with a tap. Never say you have changed, moved, updated or saved anything.`,
 };
 
 // ============================================================================
@@ -309,6 +315,7 @@ export const MODE_TEMP = {
   app_help: TEMP_TIERS.low,
   playful: TEMP_TIERS.high,
   capture: TEMP_TIERS.low,
+  entity_card: TEMP_TIERS.low,
 };
 
 // ============================================================================

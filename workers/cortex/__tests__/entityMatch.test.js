@@ -6,9 +6,11 @@
  */
 import {
   rankCandidates,
+  candidatesFor,
   decideCard,
   buildEntityMatchInput,
   entityCardPromptSection,
+  applyEntityCardToTriage,
   matchEntity,
   CONFIDENCE_FLOOR,
 } from '../entityMatch.js';
@@ -102,6 +104,7 @@ test('decideCard: below the floor it asks, an unknown id or refers false is noth
     cands,
   );
   expect(bad.kind).toBe('view');
+  expect(bad.intent).toBe('edit');
   const wrongField = decideCard(
     {
       refers: true,
@@ -160,7 +163,7 @@ test('the prompt section never lets the reply claim a change', () => {
   };
   const sec = entityCardPromptSection(card);
   expect(sec).toContain('=== ENTITY CARD ===');
-  expect(sec).toContain('never say you have changed');
+  expect(sec.toLowerCase()).toContain('never say you have changed');
   expect(entityCardPromptSection(null)).toBe('');
   expect(entityCardPromptSection({ kind: 'choose', candidates: [{}, {}] })).toContain(
     '2 of their items',
@@ -307,4 +310,143 @@ test('withEditsRule adds the rule and the edits field to the JSON shape', () => 
   expect(p).toContain("EDITS: When the user's own words say");
   expect(p).toContain('"edits":[{"entity_id":"<id from the list>"');
   expect(p.indexOf('EVIDENCE:')).toBeLessThan(p.indexOf('EDITS:'));
+});
+
+test('the item on the last card is always a candidate, so "move it" has something to mean', () => {
+  const recent = { id: 'aaaa1111-0000', type: 'todo', title: 'Dentist' };
+  expect(candidatesFor("Let's move it to Friday", items, null)).toHaveLength(0);
+  const withRecent = candidatesFor("Let's move it to Friday", items, recent);
+  expect(withRecent).toHaveLength(1);
+  expect(withRecent[0].id).toBe('aaaa1111-0000');
+  expect(withRecent[0].shown).toBe(true);
+  expect(withRecent[0].due_time).toBe('14:00'); // the live item, not the app's copy
+  // a recent item the app knows but the fetch did not return still counts
+  const gone = candidatesFor('rename it to teeth', items, {
+    id: 'zzzz9999-0000',
+    type: 'todo',
+    title: 'Old dentist',
+  });
+  expect(gone[0].title).toBe('Old dentist');
+  // the ranking still comes first when the message names something else
+  const named = candidatesFor('move my morning run to weekends', items, recent);
+  expect(named[0].id).toBe('aaaa1111-0000');
+  expect(named.map((c) => c.id)).toContain('cccc3333-0000');
+  expect(candidatesFor('move it', items, { id: 'x', type: 'space', title: 'Nope' })).toHaveLength(
+    0,
+  );
+  const s = buildEntityMatchInput({
+    todayStr: 'Tuesday, September 29, 2026',
+    message: "Let's move it to Friday",
+    previousExchange: null,
+    candidates: withRecent,
+  });
+  expect(s).toContain('[shown on the card in the last reply]');
+});
+
+test('decideCard: a change with no value is a view card that asks; dated notes edit like todos', () => {
+  const cands = rankCandidates('change the dentist', items);
+  const asks = decideCard(
+    { refers: true, entity_id: 'aaaa1111-0000', intent: 'edit', change: null, confidence: 90 },
+    cands,
+  );
+  expect(asks).toEqual({ kind: 'view', entity: cands[0], intent: 'edit' });
+  const mention = decideCard(
+    { refers: true, entity_id: 'aaaa1111-0000', intent: 'view', change: null, confidence: 90 },
+    cands,
+  );
+  expect(mention.intent).toBe('view');
+  const note = [
+    {
+      id: 'nnnn0000-0000',
+      type: 'note',
+      title: 'Bella vet appointment',
+      due_day: null,
+      due_time: null,
+    },
+  ];
+  const moved = decideCard(
+    {
+      refers: true,
+      entity_id: 'nnnn0000-0000',
+      intent: 'edit',
+      change: { field: 'due_day', value: '2026-10-02' },
+      confidence: 92,
+    },
+    note,
+  );
+  expect(moved.kind).toBe('edit');
+  expect(moved.change).toEqual({ field: 'due_day', from: null, to: '2026-10-02' });
+  const line = buildEntityMatchInput({ todayStr: 'x', message: 'm', candidates: note });
+  expect(line).toContain('[note] Bella vet appointment (note, no day set)');
+});
+
+test('a card that asks something takes over the reply mode; a plain mention leaves triage alone', () => {
+  const triage = { mode: 'action_ready', depth: 'standard', search: 'maybe', personal: 'light' };
+  const entity = { id: 'a', type: 'todo', title: 'Dentist' };
+  const edit = applyEntityCardToTriage(triage, {
+    kind: 'edit',
+    entity,
+    change: { field: 'due_day', from: null, to: '2026-10-02' },
+  });
+  expect(edit).toMatchObject({
+    mode: 'entity_card',
+    modeBeforeCard: 'action_ready',
+    depth: 'brief',
+    search: 'none',
+    personal: 'light',
+  });
+  expect(applyEntityCardToTriage(triage, { kind: 'view', entity, intent: 'edit' }).mode).toBe(
+    'entity_card',
+  );
+  expect(applyEntityCardToTriage(triage, { kind: 'choose', candidates: [entity] }).mode).toBe(
+    'entity_card',
+  );
+  expect(applyEntityCardToTriage(triage, { kind: 'view', entity, intent: 'view' })).toBe(triage);
+  expect(applyEntityCardToTriage(triage, null)).toBe(triage);
+  const sec = entityCardPromptSection({ kind: 'view', entity, intent: 'edit' });
+  expect(sec).toContain('have not said what to');
+  expect(sec).toContain('asking what should change');
+  expect(sec).not.toContain('Refer to it naturally');
+  const editSec = entityCardPromptSection({
+    kind: 'edit',
+    entity,
+    change: { field: 'due_day', from: null, to: '2026-10-02' },
+  });
+  expect(editSec).toContain('move it to 2026-10-02');
+  expect(editSec).toContain('do not use a list');
+});
+
+test('the pill can move a dated note, and skips fields a note does not have', () => {
+  const tracked = new Map([
+    [
+      'nnnn0000',
+      {
+        id: 'nnnn0000-0000',
+        type: 'note',
+        title: 'Bella vet appointment',
+        due_day: null,
+        due_time: null,
+      },
+    ],
+  ]);
+  const items = editsToPillItems(
+    [
+      {
+        entity_id: 'nnnn0000',
+        field: 'due_day',
+        value: '2026-10-02',
+        evidence: "let's move it to friday",
+      },
+      {
+        entity_id: 'nnnn0000',
+        field: 'frequency',
+        value: 'weekly',
+        evidence: "let's move it to friday",
+      },
+    ],
+    tracked,
+    ["Let's move it to Friday"],
+  );
+  expect(items).toHaveLength(1);
+  expect(items[0]).toMatchObject({ entity_type: 'note', field: 'due_day', to: '2026-10-02' });
 });

@@ -11,13 +11,15 @@
 //   - For chapter chats, also inserts drop_world_links for the chapter's parent world
 //   - Polls extracted_items from the scope_chat after each turn
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { View, StyleSheet, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppFlatList } from '../../components/common/AppFlatList';
 import { useChatMessages } from '../../hooks/useChatMessages';
 import { ChatBubble } from '../../components/chat/ChatBubble';
 import { EntityCardBubble } from '../../components/chat/EntityCardMessage';
+import { foldEntityCards, isEntityCardMessage, recentEntityFor } from '../../lib/chat/entityCards';
+import { useOpenEntity } from '../../hooks/useOpenEntity';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { SaveIndicatorPill } from '../../components/chat/SaveIndicatorPill';
 import { SaveSheet } from '../../components/chat/SaveSheet';
@@ -31,14 +33,19 @@ import {
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useAuth } from '../../providers/AuthProvider';
 import { supabase } from '../../lib/supabase/client';
-import { nowTimestamp } from '../../lib/date/DateService';
+import { nowTimestamp, getDateService } from '../../lib/date/DateService';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
 import { ChevronLeft } from 'lucide-react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { SpaceChat } from '../../lib/types';
+import type {
+  EntityCardEntity,
+  EntityCardStatus,
+  SpaceChat,
+  SpaceChatMessage,
+} from '../../lib/types';
 import { useCanChat, useCanCreate } from '../../lib/store/lifecycleSelectors';
 import { useWakeOnInput } from '../../hooks/useWakeOnInput';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -137,6 +144,9 @@ export default function ScopedChatScreen() {
     appendEntityCard,
     setEntityCardStatus,
   } = useChatMessages(activeChat?.id ?? undefined, null);
+  const openEntity = useOpenEntity();
+  // entity cards live inside the reply they came with (one list row for the two)
+  const { rows, cardFor } = useMemo(() => foldEntityCards(messages), [messages]);
 
   // ── Word-flush timer ────────────────────────────────────────────────────────
 
@@ -198,6 +208,8 @@ export default function ScopedChatScreen() {
       conversationHistory.push({ role: 'user', content: text });
 
       let receivedChunks = false;
+      const sentAt = getDateService().now().getTime();
+      let firstChunkAt: number | null = null;
       if (streamTimeoutRef.current) clearTimeout(streamTimeoutRef.current);
 
       const handleStreamTimeout = () => {
@@ -217,6 +229,7 @@ export default function ScopedChatScreen() {
         scopeName,
         chatId: chat.id,
         userId: userId ?? undefined,
+        recentEntity: recentEntityFor(messages),
       };
 
       const streamFn = scopeType === 'world' ? callWorldChatStreaming : callChapterChatStreaming;
@@ -224,6 +237,7 @@ export default function ScopedChatScreen() {
       streamingControllerRef.current = streamFn(conversationHistory, streamOpts, {
         onChunk: (delta: string) => {
           receivedChunks = true;
+          if (firstChunkAt === null) firstChunkAt = getDateService().now().getTime();
           if (streamTimeoutRef.current) clearTimeout(streamTimeoutRef.current);
           streamTimeoutRef.current = setTimeout(handleStreamTimeout, 15000);
 
@@ -258,6 +272,16 @@ export default function ScopedChatScreen() {
             await finalizeStreamingMessage(msgId, content);
             if (richResult?.sources) {
               updateMessage(msgId, { sources: richResult.sources } as any);
+            }
+            if (__DEV__) {
+              const now = getDateService().now().getTime();
+              updateMessage(msgId, {
+                timing: {
+                  first_ms: (firstChunkAt ?? now) - sentAt,
+                  total_ms: now - sentAt,
+                  server: richResult?.timing ?? null,
+                },
+              } as any);
             }
           }
           if (richResult?.entity_card) {
@@ -398,23 +422,34 @@ export default function ScopedChatScreen() {
 
   const keyExtractor = useCallback((item: any) => item.id, []);
 
+  const entityCardHandlers = useCallback(
+    (cardMessage: SpaceChatMessage) => ({
+      message: cardMessage,
+      onStatus: (status: EntityCardStatus, summary?: string) =>
+        setEntityCardStatus(cardMessage.id, status, summary),
+      onPick: (entity: EntityCardEntity) => {
+        setEntityCardStatus(cardMessage.id, 'declined');
+        if (activeChat) sendToChat(activeChat, `I mean ${entity.title}`);
+      },
+      onOpen: openEntity,
+    }),
+    [activeChat, sendToChat, setEntityCardStatus, openEntity],
+  );
+
   const renderMessage = useCallback(
-    ({ item }: { item: any }) => {
-      if (item.role === 'system' && item.metadata_json?.type === 'entity-card') {
-        return (
-          <EntityCardBubble
-            message={item}
-            onStatus={(status, summary) => setEntityCardStatus(item.id, status, summary)}
-            onPick={(entity) => {
-              setEntityCardStatus(item.id, 'declined');
-              if (activeChat) sendToChat(activeChat, `I mean ${entity.title}`);
-            }}
-          />
-        );
+    ({ item }: { item: SpaceChatMessage }) => {
+      if (isEntityCardMessage(item)) {
+        return <EntityCardBubble standalone {...entityCardHandlers(item)} />;
       }
-      return <ChatBubble message={item} />;
+      const cardMessage = item.role === 'assistant' ? cardFor.get(item.id) : undefined;
+      return (
+        <ChatBubble
+          message={item}
+          entityCard={cardMessage ? entityCardHandlers(cardMessage) : null}
+        />
+      );
     },
-    [activeChat, sendToChat, setEntityCardStatus],
+    [cardFor, entityCardHandlers],
   );
 
   // ── Save sheet handler ──────────────────────────────────────────────────────
@@ -569,7 +604,7 @@ export default function ScopedChatScreen() {
       >
         <AppFlatList
           ref={flatListRef}
-          data={messages}
+          data={rows}
           keyExtractor={keyExtractor}
           renderItem={renderMessage}
           style={styles.messages}
