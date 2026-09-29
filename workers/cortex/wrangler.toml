@@ -15,9 +15,8 @@ CLASSIFY_THINKING_LEVEL = "low"
 CLASSIFY_FALLBACK_PROVIDER = "openai"
 CLASSIFY_FALLBACK_MODEL = "gpt-6-luna"
 
-# Every other model the Worker calls is chosen in models.js. Nothing is set here
-# yet, so the defaults apply (what production ran before models.js existed).
-# To move a model, set the var and deploy; the corpus gate comes first.
+# Every other model the Worker calls is chosen in models.js; a var here overrides
+# its default. To move a model, set the var and deploy; the corpus gate comes first.
 #   CHAT_MODEL                the Gemini model behind every chat surface (default gemini-3-flash-preview)
 #   HELPER_MODEL              the small model behind triage, loading message, summaries,
 #                             extraction, habit pre parse and so on (default gpt-4.1-mini)
@@ -33,15 +32,18 @@ CLASSIFY_FALLBACK_MODEL = "gpt-6-luna"
 #                             celebration turns (default off)
 #   SEARCH_REQUIRED_FORCES    off: a required search attaches the tool and lets the
 #                             reply model decide (default on, forces a search)
-#
-# The split proposed by docs/2026-09-29-chat-helper-model-audit.md, to be set
-# together after the chat corpus gate (all still off):
-#   CHAT_MODEL = "gemini-3.8-flash"
-#   HELPER_MODEL = "gpt-6-luna"
-#   HELPER_FALLBACK_MODEL = "gemini-3.8-flash"
-#   TRIAGE_ONE_CALL = "on"
-#   CHAT_EXTRACTION_V2 = "on"
-#   SEARCH_REQUIRED_FORCES = "off"
+#   ENTITY_CARDS              on: match a mention to one of the user's items and show
+#                             its card with a proposed change to confirm (default off)
+
+# The split from docs/2026-09-29-chat-helper-model-audit.md, live since 29 Sep 2026.
+# James judges the chat tone in the app rather than by a replay (his call).
+CHAT_MODEL = "gemini-3.8-flash"
+HELPER_MODEL = "gpt-6-luna"
+HELPER_FALLBACK_MODEL = "gemini-3.8-flash"
+TRIAGE_ONE_CALL = "on"
+CHAT_EXTRACTION_V2 = "on"
+SEARCH_REQUIRED_FORCES = "off"
+ENTITY_CARDS = "on"
 
 [observability]
 enabled = true

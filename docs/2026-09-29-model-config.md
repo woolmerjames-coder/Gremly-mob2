@@ -42,3 +42,7 @@ Corpus test of the helper jobs (triage mode and depth, extraction, summaries) on
 - `workers/cortex/helperClient.js`: every helper job goes through `helperFetch(job, body)`. An OpenAI model is sent exactly as before; a reasoning model gets `max_completion_tokens`, its lowest reasoning effort and no temperature; a Gemini model is translated to generateContent and answered in the OpenAI reply shape. `HELPER_FALLBACK_MODEL` retries a failed call once on another model.
 - `[USAGE]` log lines from `geminiClient.js` on every Gemini call: input, cached, output and thinking tokens, time, and the lane (`label`).
 - Flags, all default to today's behaviour: `TRIAGE_ONE_CALL`, `CHAT_EXTRACTION_V2`, `SEARCH_REQUIRED_FORCES`. What each does is in `models.js` and `wrangler.toml`. The proposed production setting is listed, commented out, in `wrangler.toml`; it goes live together after the chat corpus gate.
+
+## Live setting (29 Sep 2026)
+
+`wrangler.toml` now sets the split: `CHAT_MODEL=gemini-3.8-flash`, `HELPER_MODEL=gpt-6-luna`, `HELPER_FALLBACK_MODEL=gemini-3.8-flash`, `TRIAGE_ONE_CALL=on`, `CHAT_EXTRACTION_V2=on`, `SEARCH_REQUIRED_FORCES=off`, and `ENTITY_CARDS=on` for the entity card in chat (`workers/cortex/entityMatch.js`; the app side is `components/chat/EntityCardMessage.tsx` and `lib/chat/entityCards.ts`). James chose to judge the chat tone in the app rather than by a replay. To go back to the previous behaviour, comment those lines out and deploy.
