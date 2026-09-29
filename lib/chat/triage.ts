@@ -218,7 +218,7 @@ async function callNano(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4.1-nano',
+        model: 'gpt-4.1-mini', // gpt-4.1-nano is removed from the OpenAI API on 2026-10-23
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userInput },

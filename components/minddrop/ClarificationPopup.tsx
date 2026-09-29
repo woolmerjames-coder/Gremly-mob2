@@ -191,16 +191,36 @@ export function ClarificationPopup({
     );
   }
 
-  // Options loading state - Phase 1.5 hasn't completed yet
+  // Options loading state - Phase 1.5 hasn't completed yet.
+  // Options arrive within the clarification timeout (worker or fixed fallback),
+  // but the user must never be trapped here: tapping outside, the hardware back
+  // button and "Close" all dismiss without resolving the item.
   if (visible && isOptionsLoading) {
     return (
-      <Modal visible={visible} transparent animationType="fade" statusBarTranslucent>
-        <View style={styles.backdrop}>
+      <Modal
+        visible={visible}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={closePopup}
+      >
+        <Pressable
+          style={styles.backdrop}
+          onPress={closePopup}
+          testID="clarification-loading-backdrop"
+        >
           <Animated.View style={[styles.card, styles.loadingCard, animatedCardStyle]}>
             <ActivityIndicator size="small" color="#4A7C59" />
             <Text style={styles.loadingText}>Thinking...</Text>
+            <Pressable
+              style={({ pressed }) => [styles.skipButton, pressed && styles.skipButtonPressed]}
+              onPress={closePopup}
+              testID="clarification-loading-close"
+            >
+              <Text style={styles.skipText}>Close</Text>
+            </Pressable>
           </Animated.View>
-        </View>
+        </Pressable>
       </Modal>
     );
   }

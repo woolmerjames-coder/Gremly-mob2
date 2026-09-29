@@ -325,6 +325,12 @@ export interface QueuedDrop {
   /** Reason for ambiguity (passed to Phase 1.5 for question generation) */
   ambiguityReason?: string | null;
 
+  /** Ambiguity type from Phase 1 (bucket, date_type, habit_or_todo, ...). Defaults to 'bucket'. */
+  ambiguityType?: string | null;
+
+  /** Which classifier handled this drop: 'v3' (single call) or 'v2' (legacy chain) */
+  classifyEngine?: 'v2' | 'v3';
+
   /** Plausible interpretations from Phase 1 ambiguity detection */
   plausibleInterpretations?: Array<{
     bucket: string | null;
@@ -482,13 +488,13 @@ export async function enqueue(
 /**
  * Internal update — caller must hold the queue lock.
  */
-async function _updateDropUnsafe(localId: string, updates: Partial<QueuedDrop>): Promise<void> {
+async function _updateDropUnsafe(localId: string, updates: Partial<QueuedDrop>): Promise<boolean> {
   const queue = await getQueue();
   const index = queue.findIndex((d) => d.localId === localId);
 
   if (index === -1) {
     console.log(`[DropQueue] Drop ${localId} not found for update`);
-    return;
+    return false;
   }
 
   queue[index] = { ...queue[index], ...updates };
@@ -496,12 +502,16 @@ async function _updateDropUnsafe(localId: string, updates: Partial<QueuedDrop>):
   syncQueueToZustand(queue);
 
   console.log(`[DropQueue] Updated drop ${localId} with:`, Object.keys(updates).join(', '));
+  return true;
 }
 
 /**
  * Update a drop in the queue by localId.
+ * Resolves to false when the drop is no longer in the queue (already synced
+ * and dequeued). It does NOT throw in that case, so callers that need a
+ * fallback must check the return value rather than rely on .catch().
  */
-export async function updateDrop(localId: string, updates: Partial<QueuedDrop>): Promise<void> {
+export async function updateDrop(localId: string, updates: Partial<QueuedDrop>): Promise<boolean> {
   return withQueueLock(() => _updateDropUnsafe(localId, updates));
 }
 

@@ -68,6 +68,8 @@ function buildRequestBody(systemPrompt, contents, config) {
   if (level !== 'none') {
     generationConfig.thinkingConfig = { thinkingLevel: level };
   }
+  // JSON mode: the model must return a single JSON object.
+  if (config.responseMimeType) generationConfig.responseMimeType = config.responseMimeType;
   const body = {
     systemInstruction: { parts: [{ text: systemPrompt }] },
     contents,

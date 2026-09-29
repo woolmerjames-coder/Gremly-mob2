@@ -185,7 +185,21 @@ import {
   getSearchPolicy,
   MODE_TEMP,
 } from './gremlyPersona';
-import { aiClassify, aiGenerate, aiStream, getProviders } from './aiProvider.js';
+import { aiClassify, aiGenerate, aiStream, getProviders, resolveModel } from './aiProvider.js';
+import {
+  buildClassifyV3Prompt,
+  buildSecondOpinionPrompt,
+  buildClarifyPrompt,
+  buildClarification,
+  formatDropMessage,
+  normalizeClassifyV3,
+  parseModelJson,
+  AMBIGUITY_TYPES,
+} from './classifyV3.js';
+
+// gpt-4.1-nano is removed from the OpenAI API on 2026-10-23. Direct OpenAI
+// calls that used it now use this model (same request shape, still live).
+const NANO_REPLACEMENT_MODEL = 'gpt-4.1-mini';
 import { handleHabitRead } from './habitRead.js';
 
 async function getCachedDomainNames(userId, env) {
@@ -1767,22 +1781,14 @@ Rules:
   confidence = Math.max(0, Math.min(1, confidence));
 
   const isAmbiguous = parsed.bucket === 'ambiguous' || confidence < 0.7;
-  const ambiguityType =
-    isAmbiguous &&
-    [
-      'bucket',
-      'date_type',
-      'vague_aspiration',
-      'habit_or_todo',
-      'action_or_memory',
-      'commitment_level',
-      'emotional_or_action',
-      'social_plan',
-      'scope',
-      'idea_or_commitment',
-    ].includes(parsed.ambiguity_type)
+  // An ambiguous result must always carry a type. Low confidence alone (or a
+  // missing/invalid type from the model) used to return is_ambiguous: true
+  // with ambiguity_type: null, and the client then never asked the question.
+  const ambiguityType = isAmbiguous
+    ? AMBIGUITY_TYPES.includes(parsed.ambiguity_type)
       ? parsed.ambiguity_type
-      : null;
+      : 'bucket'
+    : null;
   const ambiguityReason =
     isAmbiguous && typeof parsed.ambiguity_reason === 'string'
       ? parsed.ambiguity_reason.trim().substring(0, 200)
@@ -2376,7 +2382,7 @@ SUMMARY:`;
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4.1-nano',
+        model: NANO_REPLACEMENT_MODEL,
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 350,
         temperature: 0.3,
@@ -2483,7 +2489,7 @@ SUMMARY:`;
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4.1-nano',
+        model: NANO_REPLACEMENT_MODEL,
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 150,
         temperature: 0.3,
@@ -2808,7 +2814,7 @@ function getModelAndTokens({ preset, userMessage, messageCount, entityType }) {
 
   if (canUseMini) {
     return {
-      model: 'gpt-4.1-nano',
+      model: NANO_REPLACEMENT_MODEL,
       maxTokens: 400,
       reason: 'simple_short_query',
     };
@@ -4321,7 +4327,7 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4.1-nano',
+              model: NANO_REPLACEMENT_MODEL,
               messages: [
                 { role: 'system', content: prompt },
                 { role: 'user', content: 'Generate greeting.' },
@@ -6370,7 +6376,7 @@ Return ONLY valid JSON:
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4.1-nano',
+              model: NANO_REPLACEMENT_MODEL,
               messages: [
                 { role: 'system', content: prompt },
                 { role: 'user', content: userMessage },
@@ -8087,7 +8093,7 @@ Completed: ${todosCompleted || 0} todos, ${habitsCompleted || 0} habits, ${event
               Authorization: `Bearer ${key}`,
             },
             body: JSON.stringify({
-              model: 'gpt-4.1-nano',
+              model: NANO_REPLACEMENT_MODEL,
               temperature: 0.6,
               max_tokens: 30,
               messages: [
@@ -8175,18 +8181,9 @@ Completed: ${todosCompleted || 0} todos, ${habitsCompleted || 0} habits, ${event
             preparse_latency_ms: preparseLatency,
           });
 
-          // Call Phase 1 directly by continuing to the classify-phase1 handler logic below
-          // We'll inline a simplified Phase 1 call here
-          const phase1Response = await fetch(
-            new Request(request.url, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ type: 'classify-phase1', text, hasAttachments }),
-            }),
-          );
-
-          // This won't work - we need to call the internal logic, not make a network request
-          // Instead, we'll return a fallback and let the caller retry with classify-phase1
+          // (A self-fetch to classify-phase1 used to run here and its result was
+          // thrown away: a full extra classification on every preparse failure,
+          // added to the user's wait. Removed; return the fallback directly.)
           return j({
             bucket: 'log',
             subtype: 'general',
@@ -8560,311 +8557,283 @@ Segment rules:
       }
 
       // =========================
+      // === CLASSIFY v3: SINGLE CALL (classification + multi + clarification) ===
+      // Replaces detect-multi + preparse (8 calls) + Phase 1 + clarify-ambiguity
+      // for a drop with one structured call. Response is a superset of the
+      // classify-phase1-v2 shape. Off unless the Worker var
+      // CLASSIFY_V3_ENABLED = "true"; clients fall back to the v2 path.
+      // Corpus results: docs/minddrop-classify-v3.md
+      // =========================
+      if (type === 'classify-v3') {
+        const rl = await checkIpRateLimit(request, env, 'classify', 60);
+        if (!rl.allowed) return rateLimitResponse('classify', rl.count, rl.limit);
+
+        // OFF unless explicitly enabled. Which model it runs on is decided by
+        // the model audit (docs/), not by default.
+        if (String(env.CLASSIFY_V3_ENABLED || '').toLowerCase() !== 'true') {
+          return j({ error: 'classify_v3_disabled' }, 503);
+        }
+
+        const text = String(body.text || '').trim();
+        if (!text) {
+          return j({ error: 'missing_text', detail: 'text field is required' }, 400);
+        }
+
+        const t0 = Date.now();
+        const promptVersion = env.CLASSIFY_PROMPT || 'v3.5';
+        const systemPrompt = buildClassifyV3Prompt({ version: promptVersion });
+
+        let result;
+        try {
+          result = await aiClassify({
+            mode: 'realtime',
+            ...getProviders('classify', env),
+            env,
+            systemPrompt,
+            messages: [
+              {
+                role: 'user',
+                content: formatDropMessage(text, {
+                  currentDate: typeof body.currentDate === 'string' ? body.currentDate : null,
+                  dayOfWeek: typeof body.dayOfWeek === 'string' ? body.dayOfWeek : null,
+                  hasUserSelectedDate: body.hasUserSelectedDate === true,
+                }),
+              },
+            ],
+            endpoint: 'classify-v3',
+            // Worst case 5s + 4s stays inside the app's 10s budget for this
+            // call. Every shortlisted model's p99 on the audit corpus was under
+            // 5s (docs/2026-09-29-minddrop-model-audit.md).
+            primaryTimeoutMs: 5000,
+            fallbackTimeoutMs: 4000,
+            // A slow primary (about 1 in 20 calls on the audit corpus) races
+            // the fallback from this point instead of holding the user for 5s.
+            hedgeAfterMs: Number(env.CLASSIFY_HEDGE_MS) || 3000,
+            validate: (parsed) =>
+              normalizeClassifyV3(parsed, text)
+                ? { valid: true }
+                : { valid: false, reason: 'classify_v3_shape' },
+          });
+        } catch (err) {
+          console.error('[ClassifyV3] aiClassify threw', { error: String(err) });
+          result = { parsed: null };
+        }
+
+        let normalized = result?.parsed ? normalizeClassifyV3(result.parsed, text) : null;
+        const dropMessage = formatDropMessage(text, {
+          currentDate: typeof body.currentDate === 'string' ? body.currentDate : null,
+          dayOfWeek: typeof body.dayOfWeek === 'string' ? body.dayOfWeek : null,
+          hasUserSelectedDate: body.hasUserSelectedDate === true,
+        });
+        const steps = { second_opinion: null, writer: null };
+        // The app gives this call 10s. The optional second opinion and question
+        // writer only run if there is time left, and their deadlines are cut to
+        // fit, so every path (including both backups) ends within 9s.
+        const BUDGET_MS = 9000;
+        const timeLeft = () => BUDGET_MS - (Date.now() - t0);
+        const deadlines = (primaryMax, fallbackMax) => {
+          const primaryTimeoutMs = Math.min(primaryMax, timeLeft() - 500);
+          return {
+            primaryTimeoutMs,
+            fallbackTimeoutMs: Math.max(500, Math.min(fallbackMax, timeLeft() - primaryTimeoutMs)),
+          };
+        };
+
+        // Optional second opinion when the classifier wants to ask (used with
+        // a fast, cheap classifier): a stronger model decides whether a
+        // question is really needed. Off unless SECOND_OPINION_MODEL is set.
+        if (normalized?.is_ambiguous && env.SECOND_OPINION_MODEL && timeLeft() >= 2000) {
+          try {
+            const so = await aiClassify({
+              mode: 'realtime',
+              ...getProviders('second_opinion', env),
+              env,
+              systemPrompt: buildSecondOpinionPrompt(),
+              messages: [{ role: 'user', content: dropMessage }],
+              endpoint: 'classify-v3-second-opinion',
+              ...deadlines(3000, 2500),
+              validate: (parsed) =>
+                normalizeClassifyV3(parsed, text)
+                  ? { valid: true }
+                  : { valid: false, reason: 'shape' },
+            });
+            const n2 = so?.parsed ? normalizeClassifyV3(so.parsed, text) : null;
+            if (n2) {
+              normalized = n2;
+              steps.second_opinion = { model: so.model, asked: n2.is_ambiguous };
+            }
+          } catch (err) {
+            console.warn('[ClassifyV3] second opinion failed', { error: String(err) });
+          }
+        }
+
+        // The classifier chose that a question is needed and which kind; a
+        // dedicated writer (Sonnet by default) writes the words. If it is slow
+        // or its words fail the checks, the classifier's own words stay.
+        if (
+          normalized?.is_ambiguous &&
+          String(env.CLARIFY_WRITER_ENABLED || 'true') !== 'false' &&
+          timeLeft() >= 1500
+        ) {
+          try {
+            const w = await aiClassify({
+              mode: 'realtime',
+              ...getProviders('clarify_writer', env),
+              env,
+              systemPrompt: buildClarifyPrompt(
+                normalized.ambiguity_type,
+                normalized.ambiguity_reason,
+              ),
+              messages: [{ role: 'user', content: formatDropMessage(text) }],
+              endpoint: 'classify-v3-writer',
+              ...deadlines(2500, 1500),
+            });
+            const words = w?.parsed || parseModelJson(w?.content);
+            if (words) {
+              const clar = buildClarification(
+                normalized.ambiguity_type,
+                words.question,
+                words.labels,
+                words.habit_direction,
+                text,
+              );
+              if (clar.question_source === 'model' || clar.labels_source !== 'fallback') {
+                normalized = {
+                  ...normalized,
+                  clarification_question: clar.clarification_question,
+                  clarification_options: clar.clarification_options,
+                  clarification_source: {
+                    question: clar.question_source,
+                    labels: clar.labels_source,
+                    writer: w.model,
+                  },
+                  plausible_interpretations: clar.clarification_options.map((o) => ({
+                    bucket: o.bucket,
+                    subtype: o.subtype,
+                    habitSubtype: o.habitSubtype,
+                    dateField: o.dateField || null,
+                  })),
+                };
+                steps.writer = { model: w.model };
+              }
+            }
+          } catch (err) {
+            console.warn('[ClassifyV3] question writer failed', { error: String(err) });
+          }
+        }
+        const latency = Date.now() - t0;
+
+        if (!normalized) {
+          console.error('[ClassifyV3] unusable output', {
+            latency_ms: latency,
+            provider: result?.provider,
+            model: result?.model,
+            wasFallback: result?.wasFallback,
+          });
+          return j({ error: 'classify_v3_failed', latency_ms: latency }, 502);
+        }
+
+        console.log('[ClassifyV3]', {
+          bucket: normalized.bucket,
+          subtype: normalized.subtype,
+          habitSubtype: normalized.habitSubtype,
+          is_ambiguous: normalized.is_ambiguous,
+          ambiguity_type: normalized.ambiguity_type,
+          is_multi: normalized.is_multi,
+          segments: normalized.segments?.length || 0,
+          confidence: normalized.confidence,
+          provider: result.provider,
+          model: result.model,
+          wasFallback: result.wasFallback,
+          gate: normalized.gate || null,
+          second_opinion: steps.second_opinion,
+          writer: steps.writer,
+          cache_read_tokens: result.usage?.cache_read_input_tokens ?? null,
+          latency_ms: latency,
+        });
+
+        return j({
+          ...normalized,
+          prompt_version: promptVersion,
+          provider: result.provider,
+          model: result.model,
+          was_fallback: result.wasFallback === true,
+          latency_ms: latency,
+        });
+      }
+
+      // =========================
       // === PHASE 1.5: CLARIFY AMBIGUITY ===
+      // Writes the question + option labels for a drop already known to be
+      // ambiguous. Used when classify-v3 is off, and by the app to heal
+      // entities saved without options. Option ids/actions are fixed per type
+      // (CLARIFY_TYPE_CONFIGS in classifyV3.js); the model only writes words,
+      // and every question is now about the actual drop (the old fixed
+      // questions such as "Is this already in the diary?" are gone).
+      // Response shape is unchanged so older app builds keep working.
       // =========================
       if (type === 'clarify-ambiguity') {
         const rl = await checkIpRateLimit(request, env, 'classify', 60);
         if (!rl.allowed) return rateLimitResponse('classify', rl.count, rl.limit);
 
-        const text = body.text || '';
-        const ambiguityType = body.ambiguityType || 'bucket';
-        const ambiguityReason = body.ambiguityReason || '';
+        const text = String(body.text || '');
+        const ambiguityType = AMBIGUITY_TYPES.includes(body.ambiguityType)
+          ? body.ambiguityType
+          : 'bucket';
+        const ambiguityReason =
+          typeof body.ambiguityReason === 'string' ? body.ambiguityReason : '';
         const t0 = Date.now();
 
-        // --- Type configs ---
-        const TYPE_CONFIGS = {
-          bucket: {
-            question: null,
-            options: [
-              { id: 'opt_1', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
-              { id: 'opt_2', label: '', bucket: 'log', subtype: 'idea', habitSubtype: null },
-              { id: 'opt_3', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
-            ],
-          },
-          date_type: {
-            question: 'Is this already in the diary?',
-            options: [
-              {
-                id: 'opt_1',
-                label: '',
-                bucket: 'log',
-                subtype: 'event',
-                habitSubtype: null,
-                dateField: 'target_date',
-              },
-              {
-                id: 'opt_2',
-                label: '',
-                bucket: 'todo',
-                subtype: null,
-                habitSubtype: null,
-                dateField: 'target_date',
-              },
-              { id: 'opt_3', label: '', bucket: 'log', subtype: 'event', habitSubtype: null },
-            ],
-          },
-          vague_aspiration: {
-            question: 'What did you want to do with this?',
-            options: [
-              {
-                id: 'opt_1',
-                label: '',
-                bucket: 'habit',
-                subtype: null,
-                habitSubtype: 'start_habit',
-              },
-              { id: 'opt_2', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
-            ],
-          },
-          habit_or_todo: {
-            question: 'Is this a one-time thing or something you want to keep doing?',
-            options: [
-              { id: 'opt_1', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
-              {
-                id: 'opt_2',
-                label: '',
-                bucket: 'habit',
-                subtype: null,
-                habitSubtype: 'start_habit',
-              },
-            ],
-          },
-          action_or_memory: {
-            question: 'Do you need to do something for this?',
-            options: [
-              { id: 'opt_1', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
-              { id: 'opt_2', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
-            ],
-          },
-          commitment_level: {
-            question: 'Do you want to actually track this?',
-            options: [
-              {
-                id: 'opt_1',
-                label: '',
-                bucket: 'habit',
-                subtype: null,
-                habitSubtype: 'start_habit',
-              },
-              { id: 'opt_2', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
-            ],
-          },
-          emotional_or_action: {
-            question: 'Did you want to do something with this?',
-            options: [
-              { id: 'opt_1', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
-              { id: 'opt_2', label: '', bucket: 'log', subtype: 'journal', habitSubtype: null },
-            ],
-          },
-          social_plan: {
-            question: 'Is this happening or do you need to make it happen?',
-            options: [
-              { id: 'opt_1', label: '', bucket: 'log', subtype: 'event', habitSubtype: null },
-              { id: 'opt_2', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
-              { id: 'opt_3', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
-            ],
-          },
-          scope: {
-            question: 'How big is this?',
-            options: [
-              { id: 'opt_1', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
-              { id: 'opt_2', label: '', bucket: 'log', subtype: 'idea', habitSubtype: null },
-              { id: 'opt_3', label: '', bucket: 'log', subtype: 'idea', habitSubtype: null },
-            ],
-          },
-          idea_or_commitment: {
-            question: 'How real is this for you?',
-            options: [
-              { id: 'opt_1', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
-              {
-                id: 'opt_2',
-                label: '',
-                bucket: 'habit',
-                subtype: null,
-                habitSubtype: 'start_habit',
-              },
-              { id: 'opt_3', label: '', bucket: 'log', subtype: 'idea', habitSubtype: null },
-              { id: 'opt_4', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
-            ],
-          },
-        };
-
-        const FALLBACK_CONFIG = {
-          question: 'Quick check — what did you have in mind?',
-          options: [
-            {
-              id: 'opt_1',
-              label: 'Something to do',
-              bucket: 'todo',
-              subtype: null,
-              habitSubtype: null,
-            },
-            {
-              id: 'opt_2',
-              label: 'An idea to explore',
-              bucket: 'log',
-              subtype: 'idea',
-              habitSubtype: null,
-            },
-            {
-              id: 'opt_3',
-              label: 'Just a note',
-              bucket: 'log',
-              subtype: 'general',
-              habitSubtype: null,
-            },
-          ],
-        };
-
-        const FALLBACK_LABELS = {
-          bucket: ['Need to do something', 'Thinking about it', 'Just remembering'],
-          date_type: ["Yes, it's in the diary", 'No, need to sort it', 'Just the date'],
-          vague_aspiration: ['Make it a real goal', 'Just holding the thought'],
-          habit_or_todo: ['Do it once', 'Make it regular'],
-          action_or_memory: ['Need to act on this', "Just didn't want to forget"],
-          commitment_level: ['Hold me to it', 'Just noting it'],
-          emotional_or_action: ['Want to tackle it', 'Needed to say it'],
-          social_plan: ["It's already sorted", 'Need to make it happen', 'Just noting it'],
-          scope: ['One thing to finish', 'Bigger than that', 'Just an idea'],
-          idea_or_commitment: [
-            'Doing it — one-off',
-            'Doing it — ongoing',
-            'Still thinking',
-            'Just a thought',
-          ],
-        };
-
-        function getLabelRules(aType) {
-          switch (aType) {
-            case 'bucket':
-              return `The question already references what the user dropped — the labels must not repeat it. Write labels as if the noun was never mentioned. Generic is correct here. The user reads the question first, then the labels — the labels only need to describe the mode of intent, not the subject. For the todo option: something short that conveys there is an action to take. For the idea option: something short that conveys the user is considering something. For the general option: something short that conveys the user wants to remember something. Do not include the noun from the user's input in any label under any circumstances.`;
-            case 'date_type':
-              return `Labels must directly reflect the booking/scheduling status. First option conveys it is already arranged and in the calendar. Second option conveys the user still needs to book or sort it, and references the specific thing. Third option conveys they just want to hold the date mentally.`;
-            case 'vague_aspiration':
-              return `First option should convey making this into a real ongoing goal without projecting what the habit looks like. Second option conveys holding the intention loosely with no commitment.`;
-            case 'habit_or_todo':
-              return `First option conveys doing this as a one-time thing and completing it. Second option conveys doing this on an ongoing regular basis and making it part of their routine. Both should reference the specific activity from the input.`;
-            case 'action_or_memory':
-              return `First option conveys that yes, the user needs to take action on this — something needs to happen. Second option conveys they simply did not want to forget this fact or date.`;
-            case 'commitment_level':
-              return `First option conveys wanting to hold themselves accountable and track this properly. Second option conveys noting the intention without formal commitment. Reference the specific activity.`;
-            case 'emotional_or_action':
-              return `First option conveys wanting to do something about this situation. Second option conveys having needed to express or process this feeling. Tone must be warm — never clinical.`;
-            case 'social_plan':
-              return `First option conveys it is already arranged. Second option conveys the user needs to make it happen — generic, no assumption about specifics. Third option conveys they just want to remember it happened or will happen. Reference the person or occasion if named.`;
-            case 'scope':
-              return `First option conveys this is one discrete thing to complete. Second option conveys this is a bigger multi-part effort. Third option conveys it is an early-stage idea not yet committed to. Reference the specific thing from the input.`;
-            case 'idea_or_commitment':
-              return `First option conveys fully committing to do this as a one-time action. Second option conveys committing to this as an ongoing practice. Third option conveys still thinking it through. Fourth option conveys it was a passing thought with no real intent. Reference the specific activity.`;
-            default:
-              return `Labels should describe what the user might have meant in casual, natural language. Reference the specific content from the input.`;
+        let parsedWords = null;
+        let aiMeta = {};
+        if (text.trim()) {
+          try {
+            const result = await aiClassify({
+              mode: 'realtime',
+              ...getProviders('clarify_writer', env),
+              env,
+              systemPrompt: buildClarifyPrompt(ambiguityType, ambiguityReason),
+              messages: [{ role: 'user', content: formatDropMessage(text) }],
+              endpoint: 'clarify-ambiguity',
+              // App waits 8s for this call; 4s + 3.5s keeps us inside it.
+              primaryTimeoutMs: 4000,
+              fallbackTimeoutMs: 3500,
+            });
+            parsedWords = result.parsed || parseModelJson(result.content);
+            aiMeta = {
+              provider: result.provider,
+              model: result.model,
+              wasFallback: result.wasFallback,
+            };
+          } catch (err) {
+            console.warn('[Phase1.5] AI call failed', { error: String(err) });
           }
         }
 
-        // --- Resolve config ---
-        const config = TYPE_CONFIGS[ambiguityType] || FALLBACK_CONFIG;
-        const optionCount = config.options.length;
-
-        // --- Build system prompt ---
-        const questionInstruction =
-          ambiguityType === 'bucket'
-            ? `\nQUESTION RULES (return a "question" field in your JSON):\n- Under 8 words\n- Must reference the specific content of the user's input — use the actual noun, name, or subject they wrote\n- Neutral — does not assume any interpretation\n- Natural spoken language\n- Never use: track, log, note, habit, task, todo, capture, save, manage\n`
-            : '';
-
-        const jsonShape =
-          ambiguityType === 'bucket'
-            ? `{\n  "question": "...",\n  "labels": ["label for opt_1", "label for opt_2", ...]\n}`
-            : `{\n  "labels": ["label for opt_1", "label for opt_2", ...]\n}`;
-
-        const clarifySystemPrompt = `You are generating labels for a clarification popup in a productivity app. The user dropped an ambiguous input and we need to show them options.
-
-GENERAL LABEL RULES — apply to all types:
-- 4 words max, 35 characters max
-- Casual, natural fragments — no formal language, no periods
-- Never use app terminology: do not say todo, habit, log, note, track, capture, save, manage, record, add to, create
-- Labels must feel like something a person would say, not a UI category name
-- Do not invent specific details that are not in the user's input
-
-TYPE-SPECIFIC RULES:
-${getLabelRules(ambiguityType)}
-${questionInstruction}
-Return JSON only:
-${jsonShape}
-Labels array must have exactly ${optionCount} items.`;
-
-        const clarifyUserMessage = `INPUT: "${text.substring(0, 500)}"\nTYPE: ${ambiguityType}${ambiguityReason ? `\nCONTEXT: ${ambiguityReason}` : ''}`;
-
-        // --- Make AI call ---
-        let aiSuccess = false;
-        let finalOptions = config.options;
-        let finalQuestion = config.question || "What's going on here?";
-
-        try {
-          const result = await aiClassify({
-            mode: 'realtime',
-            ...getProviders('mini', env),
-            env,
-            systemPrompt: clarifySystemPrompt,
-            messages: [{ role: 'user', content: clarifyUserMessage }],
-            temperature: 0.3,
-            maxOutputTokens: 150,
-            endpoint: 'clarify-ambiguity',
-          });
-
-          if (result.parsed) {
-            const parsed = result.parsed;
-            const labels = Array.isArray(parsed.labels) ? parsed.labels : [];
-
-            if (
-              labels.length === optionCount &&
-              labels.every((l) => typeof l === 'string' && l.trim())
-            ) {
-              aiSuccess = true;
-              finalOptions = config.options.map((opt, i) => ({
-                ...opt,
-                label: labels[i].trim().substring(0, 60),
-              }));
-
-              if (
-                ambiguityType === 'bucket' &&
-                typeof parsed.question === 'string' &&
-                parsed.question.trim()
-              ) {
-                finalQuestion = parsed.question.trim().substring(0, 100);
-              }
-            }
-          }
-        } catch (err) {
-          console.warn('[Phase1.5] AI call failed', { error: String(err) });
-        }
-
-        // --- Fallback labels if AI failed ---
-        if (!aiSuccess) {
-          const fallbackLabels = FALLBACK_LABELS[ambiguityType];
-          if (fallbackLabels && fallbackLabels.length === optionCount) {
-            finalOptions = config.options.map((opt, i) => ({
-              ...opt,
-              label: fallbackLabels[i],
-            }));
-          } else {
-            // Unknown type — use full fallback config
-            finalOptions = FALLBACK_CONFIG.options;
-            finalQuestion = FALLBACK_CONFIG.question;
-          }
-        }
-
+        // buildClarification validates the words and falls back to the fixed
+        // copy for the type, so this always returns a usable popup.
+        const clar = buildClarification(
+          ambiguityType,
+          parsedWords?.question,
+          parsedWords?.labels,
+          parsedWords?.habit_direction,
+          text,
+        );
         const latency = Date.now() - t0;
         console.log('[Phase1.5]', {
-          ambiguityType,
-          options_count: finalOptions.length,
-          ai_success: aiSuccess,
+          ambiguityType: clar.ambiguity_type,
+          options_count: clar.clarification_options.length,
+          question_source: clar.question_source,
+          labels_source: clar.labels_source,
+          ...aiMeta,
           latency_ms: latency,
         });
 
         return j({
           success: true,
-          clarification_question: finalQuestion,
-          options: finalOptions,
+          ambiguity_type: clar.ambiguity_type,
+          clarification_question: clar.clarification_question,
+          options: clar.clarification_options,
           latency_ms: latency,
         });
       }
@@ -9617,23 +9586,13 @@ Rules:
           isAmbiguous && typeof parsed.ambiguity_reason === 'string'
             ? parsed.ambiguity_reason.trim().substring(0, 200)
             : null;
-        const ambiguityType =
-          isAmbiguous &&
-          typeof parsed.ambiguity_type === 'string' &&
-          [
-            'bucket',
-            'date_type',
-            'vague_aspiration',
-            'habit_or_todo',
-            'action_or_memory',
-            'commitment_level',
-            'emotional_or_action',
-            'social_plan',
-            'scope',
-            'idea_or_commitment',
-          ].includes(parsed.ambiguity_type)
+        // Ambiguous results always carry a type (defaults to 'bucket') so the
+        // client never flags a drop without being able to ask about it.
+        const ambiguityType = isAmbiguous
+          ? AMBIGUITY_TYPES.includes(parsed.ambiguity_type)
             ? parsed.ambiguity_type
-            : null;
+            : 'bucket'
+          : null;
 
         // Legacy clarification fields - always false/null in Phase 1
         // Actual clarification options are generated by Phase 1.5
@@ -11497,7 +11456,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
       }
 
       // --- EXISTING LOGIC BELOW (unchanged) ---
-      const baseModel = body.model || 'gpt-4.1-nano';
+      const baseModel = resolveModel(body.model || NANO_REPLACEMENT_MODEL, env);
 
       const baseTemperature = Number.isFinite(body.temperature)
         ? body.temperature

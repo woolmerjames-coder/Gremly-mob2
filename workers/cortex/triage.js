@@ -188,7 +188,7 @@ async function callNano(systemPrompt, userInput, apiKey) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4.1-nano',
+        model: 'gpt-4.1-mini', // was gpt-4.1-nano (removed from the OpenAI API 2026-10-23)
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userInput },
@@ -273,7 +273,7 @@ export async function generateLoadingMessage(userInput, spaceName, apiKey) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4.1-nano',
+        model: 'gpt-4.1-mini', // was gpt-4.1-nano (removed from the OpenAI API 2026-10-23)
         messages: [
           { role: 'system', content: LOADING_SYSTEM_PROMPT },
           { role: 'user', content: contextualInput },

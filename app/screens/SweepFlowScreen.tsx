@@ -1733,6 +1733,7 @@ function SweepDecisionStep({
   const _updateHabit = useGremlyStore((state) => state.updateHabit);
   const archiveHabit = useGremlyStore((state) => state.archiveHabit);
   const resolveEntityClarification = useGremlyStore((state) => state.resolveEntityClarification);
+  const ensureEntityClarification = useGremlyStore((state) => state.ensureEntityClarification);
 
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
@@ -2317,10 +2318,25 @@ function SweepDecisionStep({
     const storedQuestion = views?.clarification_question || rawAny?.clarification_question;
     const storedOptions = views?.clarification_options || rawAny?.clarification_options;
 
+    let cancelled = false;
     if (needsClarificationFlag && storedQuestion && storedOptions) {
       setClarificationQuestion(storedQuestion);
       setClarificationOptions(storedOptions);
       setShowClarification(true);
+    } else if (needsClarificationFlag && candidate?.id) {
+      // Saved without options (older drops): fetch them now so the question
+      // can be answered during Sweep instead of being silently skipped.
+      setShowClarification(false);
+      setClarificationQuestion(null);
+      setClarificationOptions(null);
+      ensureEntityClarification(candidate.id)
+        .then((res) => {
+          if (cancelled || !res) return;
+          setClarificationQuestion(res.question);
+          setClarificationOptions(res.options);
+          setShowClarification(true);
+        })
+        .catch(() => {});
     } else {
       setShowClarification(false);
       setClarificationQuestion(null);
@@ -2329,7 +2345,10 @@ function SweepDecisionStep({
 
     // Reset success state when moving to new card
     setClarificationSuccess(null);
-  }, [currentIndex, candidatesWithMeta]);
+    return () => {
+      cancelled = true;
+    };
+  }, [currentIndex, candidatesWithMeta, ensureEntityClarification]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Unified Outcome Handler

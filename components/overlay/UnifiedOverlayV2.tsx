@@ -861,10 +861,46 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       fullEntity?.clarification_needed === true) &&
     fullEntity?.views?.clarification_resolved !== true &&
     fullEntity?.clarification_resolved !== true;
+  // Options fetched on demand when the entity was saved without them (see
+  // ensureEntityClarification). The entity here is a one-shot snapshot, so the
+  // healed copy is held locally.
+  const [healedClarification, setHealedClarification] = useState<{
+    entityId: string;
+    question: string;
+    options: any[];
+  } | null>(null);
+  const healedForThisEntity =
+    healedClarification && healedClarification.entityId === fullEntity?.id
+      ? healedClarification
+      : null;
   const clarificationQuestion =
-    fullEntity?.views?.clarification_question ?? fullEntity?.clarification_question ?? null;
+    fullEntity?.views?.clarification_question ??
+    fullEntity?.clarification_question ??
+    healedForThisEntity?.question ??
+    null;
   const clarificationOptions =
-    fullEntity?.views?.clarification_options ?? fullEntity?.clarification_options ?? null;
+    fullEntity?.views?.clarification_options ??
+    fullEntity?.clarification_options ??
+    healedForThisEntity?.options ??
+    null;
+  const ensureEntityClarification = useGremlyStore((s) => s.ensureEntityClarification);
+  const clarificationEntityId: string | null = fullEntity?.id ?? null;
+  const clarificationMissing =
+    needsClarification && !(clarificationQuestion && clarificationOptions?.length >= 2);
+  useEffect(() => {
+    if (!visible || !clarificationMissing || !clarificationEntityId) return;
+    let cancelled = false;
+    ensureEntityClarification(clarificationEntityId)
+      .then((res) => {
+        if (!cancelled && res) {
+          setHealedClarification({ entityId: clarificationEntityId, ...res });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, clarificationMissing, clarificationEntityId, ensureEntityClarification]);
   const clarificationType =
     fullEntity?.views?.clarification_type ?? fullEntity?.clarification_type ?? null;
 

@@ -2,7 +2,7 @@
  * OverlayContext - Global overlay controller
  * Ensures only one overlay instance exists across all screens
  */
-import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import type { AppRecord, CanonicalType, LogSubtype } from '../lib/types';
 import { persistedNoteSubtypeToLogSubtype } from '../lib/logSubtypes';
 import { ClarificationPopup } from '../components/minddrop/ClarificationPopup';
@@ -124,6 +124,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
   // Get store actions for resolving clarification
   const resolveEntityClarification = useGremlyStore((s) => s.resolveEntityClarification);
   const resolveSkippedClarification = useGremlyStore((s) => s.resolveSkippedClarification);
+  const ensureEntityClarification = useGremlyStore((s) => s.ensureEntityClarification);
 
   // Subscribe to entities to get fresh clarification data when Phase 1.5 completes
   // This handles the race condition where popup opens before Phase 1.5 finishes
@@ -240,6 +241,38 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
     todos,
     habits,
   ]);
+
+  // Self-heal: if the popup is open but the entity has no usable options
+  // (saved before Phase 1.5 landed, or an older drop), fetch them now. The
+  // store call always resolves to options (worker or fixed fallback) within
+  // its timeout, so the popup can never sit on "Thinking..." indefinitely.
+  const popupEntityId = clarificationPopup.visible ? clarificationPopup.entityId : null;
+  const popupNeedsOptions =
+    !!popupEntityId &&
+    !(
+      effectiveClarificationData.question &&
+      Array.isArray(effectiveClarificationData.options) &&
+      effectiveClarificationData.options.length >= 2
+    );
+  useEffect(() => {
+    if (!popupEntityId || !popupNeedsOptions) return;
+    let cancelled = false;
+    ensureEntityClarification(popupEntityId)
+      .then((res) => {
+        if (cancelled || !res) return;
+        setClarificationPopup((prev) =>
+          prev.visible && prev.entityId === popupEntityId
+            ? { ...prev, question: res.question, options: res.options }
+            : prev,
+        );
+      })
+      .catch((err) => {
+        console.warn('[GlobalOverlay] ensureEntityClarification failed', err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [popupEntityId, popupNeedsOptions, ensureEntityClarification]);
 
   // Clarification popup methods
   const openClarificationPopup = useCallback(

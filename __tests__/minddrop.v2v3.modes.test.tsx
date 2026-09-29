@@ -59,6 +59,7 @@ const originalEnv = process.env;
 let mockRunPhase1: jest.Mock;
 jest.mock('../lib/minddrop/phase1', () => ({
   runPhase1: jest.fn(),
+  runClassifyV3: jest.fn().mockResolvedValue(null),
 }));
 
 // Mock runPhase2 - background enrichment

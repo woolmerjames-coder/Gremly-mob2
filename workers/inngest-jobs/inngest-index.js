@@ -2983,7 +2983,7 @@ Rules:
                 'Content-Type': 'application/json',
               },
               body: JSON.stringify({
-                model: 'gpt-4.1-nano',
+                model: 'gpt-4.1-mini', // was gpt-4.1-nano (removed from the OpenAI API 2026-10-23)
                 messages: [{ role: 'user', content: matchPrompt }],
                 max_tokens: 2048,
                 temperature: 0.2,

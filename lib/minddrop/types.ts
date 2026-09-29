@@ -223,8 +223,13 @@ export interface Phase1Result {
   /** Reason for ambiguity (passed to Phase 1.5 for question generation) */
   ambiguity_reason?: string | null;
 
-  /** Type of ambiguity: bucket, action, or date_type */
-  ambiguity_type?: 'bucket' | 'action' | 'date_type' | null;
+  /**
+   * Type of ambiguity. One of: bucket, date_type, vague_aspiration,
+   * habit_or_todo, action_or_memory, commitment_level, emotional_or_action,
+   * social_plan, scope, idea_or_commitment. The client defaults to 'bucket'
+   * when a drop is ambiguous without a type.
+   */
+  ambiguity_type?: string | null;
 
   /** Preparse-derived plausible interpretations (seeds Phase 1.5 options) */
   plausible_interpretations?: Array<{
@@ -254,6 +259,7 @@ export interface Phase1Result {
     action: {
       bucket?: 'todo' | 'habit' | 'log';
       subtype?: string | null;
+      habitSubtype?: string | null;
       target_date?: boolean;
       scheduled_date?: boolean;
     };
@@ -261,4 +267,7 @@ export interface Phase1Result {
 
   /** True if the user expressed intent to be reminded (from preparse) */
   reminder_intent?: boolean;
+
+  /** Which classifier produced this result ('v3' = single-call classify-v3) */
+  engine?: 'v2' | 'v3';
 }

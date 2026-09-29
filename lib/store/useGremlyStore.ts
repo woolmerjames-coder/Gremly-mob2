@@ -76,9 +76,21 @@ import {
 } from '../calendar/CalendarClient';
 import { DEFAULT_TIME_BLOCK_PREFERENCES, getTimeBlockBoundaries } from '../capacity';
 import { getRandomFallback } from '../minddrop/confirmationFallbacks';
+import {
+  fetchClarification,
+  hasUsableClarification,
+  normalizeAmbiguityType,
+  type ClarificationOption,
+} from '../minddrop/clarification';
 import { cancelAllItemReminders } from '../notifications/itemReminderService';
 import type { TimeBlockPreferences } from '../capacity';
 import { selectSweepCandidates, type SweepEligibleTodo } from '../today/sweepSelectors';
+
+// In-flight ensureEntityClarification calls, keyed by `${type}:${id}`
+const ensureClarificationInflight = new Map<
+  string,
+  Promise<{ question: string; options: ClarificationOption[] } | null>
+>();
 
 /**
  * DATE HANDLING CONVENTION
@@ -1030,6 +1042,15 @@ export interface GremlyState {
       options: Array<{ id: string; label: string; action: Record<string, unknown> }>;
     },
   ) => Promise<boolean>;
+  /**
+   * Make sure an entity that needs clarification has a question + options.
+   * Fetches from the worker (with timeout) and falls back to fixed copy, then
+   * persists to the entity. Returns the question/options, or null if the
+   * entity is not found or does not need clarification.
+   */
+  ensureEntityClarification: (
+    entityId: string,
+  ) => Promise<{ question: string; options: ClarificationOption[] } | null>;
   resolveEntityClarification: (
     localId: string,
     optionId: string,
@@ -8871,6 +8892,111 @@ export const useGremlyStore = create<GremlyState>()(
           });
 
           return true;
+        },
+
+        ensureEntityClarification: async (entityId: string) => {
+          const state = get();
+          const note = state.notes.find(
+            (n) => n.id === entityId || (n as any).drop_id === entityId,
+          );
+          const todo = note
+            ? undefined
+            : state.todos.find((t) => t.id === entityId || (t as any).drop_id === entityId);
+          const habit =
+            note || todo
+              ? undefined
+              : state.habits.find((h) => h.id === entityId || (h as any).drop_id === entityId);
+          const entity = (note || todo || habit) as any;
+          const entityType: 'note' | 'todo' | 'habit' | null = note
+            ? 'note'
+            : todo
+              ? 'todo'
+              : habit
+                ? 'habit'
+                : null;
+          if (!entity || !entityType) return null;
+
+          const views = (entity.views as Record<string, unknown>) || {};
+          const needs =
+            (entity.needs_clarification === true ||
+              entity.clarification_needed === true ||
+              views.needs_clarification === true) &&
+            entity.clarification_resolved !== true &&
+            views.clarification_resolved !== true;
+          if (!needs) return null;
+
+          const existingQuestion = entity.clarification_question || views.clarification_question;
+          const existingOptions = entity.clarification_options || views.clarification_options;
+          if (hasUsableClarification(existingQuestion, existingOptions)) {
+            return {
+              question: existingQuestion as string,
+              options: existingOptions as ClarificationOption[],
+            };
+          }
+
+          // De-dupe concurrent calls for the same entity (popup + card, etc.)
+          const inflightKey = `${entityType}:${entity.id}`;
+          const inflight = ensureClarificationInflight.get(inflightKey);
+          if (inflight) return inflight;
+
+          const run = (async () => {
+            const text = String(entity.body || entity.title || entity.name || '').trim();
+            const bucket: 'todo' | 'habit' | 'log' =
+              entityType === 'todo' ? 'todo' : entityType === 'habit' ? 'habit' : 'log';
+            const payload = await fetchClarification({
+              text,
+              ambiguityType: normalizeAmbiguityType(
+                (views.ambiguity_type as string) ||
+                  (views.clarification_type as string) ||
+                  (entity.clarification_type as string) ||
+                  null,
+              ),
+              bucket,
+            });
+
+            const latest =
+              entityType === 'note'
+                ? get().notes.find((n) => n.id === entity.id)
+                : entityType === 'todo'
+                  ? get().todos.find((t) => t.id === entity.id)
+                  : get().habits.find((h) => h.id === entity.id);
+            const latestViews = ((latest as any)?.views as Record<string, unknown>) || views;
+            const updatedViews = {
+              ...latestViews,
+              ambiguity_type: payload.ambiguityType,
+              clarification_question: payload.question,
+              clarification_options: payload.options,
+              clarification_source: payload.source,
+            };
+            try {
+              if (entityType === 'note') {
+                await get().updateNote(entity.id, { views: updatedViews } as any);
+              } else if (entityType === 'todo') {
+                await get().updateTodo(entity.id, { views: updatedViews } as any);
+              } else {
+                await get().updateHabit(entity.id, { views: updatedViews } as any);
+              }
+            } catch (err) {
+              // Persisting is best effort; the popup still gets the options below.
+              console.warn('[GremlyStore] ensureEntityClarification: persist failed', {
+                entityId: entity.id,
+                error: String(err),
+              });
+            }
+            console.log('[GremlyStore] ensureEntityClarification: ready', {
+              entityId: entity.id,
+              source: payload.source,
+              optionsCount: payload.options.length,
+            });
+            return { question: payload.question, options: payload.options };
+          })();
+
+          ensureClarificationInflight.set(inflightKey, run);
+          try {
+            return await run;
+          } finally {
+            ensureClarificationInflight.delete(inflightKey);
+          }
         },
 
         resolveEntityClarification: async (localId, optionId, isFreeText = false) => {

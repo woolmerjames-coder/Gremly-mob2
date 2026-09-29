@@ -17,7 +17,8 @@
       "env": {
         "EXPO_PUBLIC_FEATURE_OVERLAY_V2": "on",
         "EXPO_PUBLIC_FEATURE_COMMITMENTS": "on"
-      }
+      },
+      "channel": "preview"
     },
     "production": {
       "autoIncrement": true,
@@ -27,7 +28,8 @@
         "EXPO_PUBLIC_GOOGLE_CLIENT_ID": "81105861621-ombuvivk9f9kifkoji8pgvnfsvstovqi.apps.googleusercontent.com",
         "EXPO_PUBLIC_FEATURE_OVERLAY_V2": "on",
         "EXPO_PUBLIC_FEATURE_COMMITMENTS": "on"
-      }
+      },
+      "channel": "production"
     }
   },
   "submit": {
