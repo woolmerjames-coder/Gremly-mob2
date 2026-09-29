@@ -48,6 +48,8 @@ One flaw fixed: for vague wishes ("be less stressed"), the "just holding the tho
 
 Drops addressed to Gremly (a greeting, a test, "What should I do now?") and questions the user wants answered now get their own question. Its answers can open the chat: "Chat with Gremly", "Just testing, don't keep it" or "Keep it"; and for questions, "Ask Gremly now", "Look into it later" or "Keep it". Chat opens Ask Gremly and sends the drop so Gremly replies straight away. Tested on 1,420 drops nobody had seen, plus the 1,000 test drops: it fires on about 1 drop in 200, accuracy is unchanged, and fewer drops are filed wrong without asking. Details in section 12 of the audit.
 
+Appointments with no date ("Doctors appointment", "Blood test", "Hairdressers") now ask whether they are booked. After "It's booked", the popup asks when it is (today, tomorrow or any date, and an optional time) and saves it on the event, so it shows on Today. Section 13 of the audit.
+
 Your note in item 2 was cut off at "we should add a". Tell me what it was and I will add it.
 
 ## 4. Speed and accuracy

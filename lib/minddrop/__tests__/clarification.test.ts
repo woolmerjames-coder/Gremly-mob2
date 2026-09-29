@@ -21,6 +21,7 @@ import {
   hasUsableClarification,
   mapWorkerOptions,
   normalizeAmbiguityType,
+  optionFollowUp,
   optionKind,
 } from '../clarification';
 import { AMBIGUITY_TYPES, CLARIFY_TYPE_CONFIGS } from '../../../workers/cortex/classifyV3.js';
@@ -164,12 +165,20 @@ describe('parity with the Worker', () => {
       expect(app.map((o) => o.id)).toEqual(worker.map((o: any) => o.id));
       app.forEach((o, i) => {
         const w = worker[i];
-        expect([t, o.bucket, o.subtype ?? null, o.kind ?? null, o.dateField ?? null]).toEqual([
+        expect([
+          t,
+          o.bucket,
+          o.subtype ?? null,
+          o.kind ?? null,
+          o.dateField ?? null,
+          o.followUp ?? null,
+        ]).toEqual([
           t,
           w.bucket,
           w.subtype ?? null,
           w.kind ?? null,
           w.dateField ?? null,
+          w.followUp ?? null,
         ]);
         if (!w.habitFromDirection) expect(o.habitSubtype ?? null).toEqual(w.habitSubtype ?? null);
       });
@@ -201,5 +210,25 @@ describe('answers that do not file the drop', () => {
     expect(mapped?.map((o) => o.action.kind)).toEqual(['chat', null]);
     expect(optionKind(mapped?.[0])).toBe('chat');
     expect(optionKind({ id: 'x', label: 'y', kind: 'nonsense' })).toBeNull();
+  });
+});
+
+describe('appointments', () => {
+  it('asks when after "it is booked", and files it as an event', () => {
+    const c = buildFallbackClarification('booking');
+    expect(c.ambiguityType).toBe('booking');
+    expect(c.options.map((o) => [o.action.bucket, o.action.subtype, optionFollowUp(o)])).toEqual([
+      ['log', 'event', 'when'],
+      ['todo', null, null],
+      ['log', 'general', null],
+    ]);
+  });
+
+  it('carries the follow up through from the Worker shape', () => {
+    const mapped = mapWorkerOptions([
+      { id: 'opt_1', label: 'Already booked', bucket: 'log', subtype: 'event', followUp: 'when' },
+      { id: 'opt_2', label: 'Need to book', bucket: 'todo', subtype: null },
+    ]);
+    expect(mapped?.map((o) => o.action.followUp)).toEqual(['when', null]);
   });
 });

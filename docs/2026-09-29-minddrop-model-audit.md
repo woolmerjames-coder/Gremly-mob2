@@ -66,7 +66,7 @@ What this taught us:
 
 - **Your rules work best stated plainly in the prompt.** The code gates changed almost nothing, because the models follow the habit rule once it is written down.
   - The first gate was wrong for stop habits: "stop smoking" is ongoing by nature and doesn't need a stated frequency. The fixed gate is in the Worker, used only with the checklist version.
-- **Prompt tweaks that looked good on the design set did not carry over.** The extra decision steps and rules added about 1.5 points on the design set. On the new drops they cost Gemini 3.8 a point (p = 0.03) and gained Luna a point (not significant). The design set had shaped those tweaks, which is exactly why the locked test set exists. The Worker keeps the audited prompt as the default (now v3.6, which adds only the rule in section 12); the other versions can be switched on (`CLASSIFY_PROMPT`).
+- **Prompt tweaks that looked good on the design set did not carry over.** The extra decision steps and rules added about 1.5 points on the design set. On the new drops they cost Gemini 3.8 a point (p = 0.03) and gained Luna a point (not significant). The design set had shaped those tweaks, which is exactly why the locked test set exists. The Worker keeps the audited prompt as the default (now v3.7, which adds only the rules in sections 12 and 13); the other versions can be switched on (`CLASSIFY_PROMPT`).
 - **Sequential gates lose to one strong call.** A cheap first step decides most drops on its own, and its mistakes are silent. Every design that let Flash-Lite answer on its own filed more drops wrong without asking.
 - **Parallel opinions are accurate but slow.** Luna gets slow with longer prompts, and a referee adds a second hop.
 - **Luna's weakness is asking too often, and a second opinion only half fixes it.** On the new drops, the second opinion cut Luna's needless questions from 27 to 4, but the live run filed 40 drops wrong without asking, against 16 for the recommended setup. Two causes:
@@ -112,7 +112,7 @@ In the end to end run, Sonnet wrote the words for all 90 drops that got a questi
 ## 7. What changed in the code
 
 - `workers/cortex/classifyV3.js`:
-  - prompt versions v3.6 (default; v3.5 plus the rule in section 12), v4.1 and v4 (checklist), chosen with `CLASSIFY_PROMPT`
+  - prompt versions v3.7 (default; v3.5 plus the rules in sections 12 and 13), v4.1 and v4 (checklist), chosen with `CLASSIFY_PROMPT`
   - the fixed habit gate, applied only when the checklist version is used
   - the second opinion prompt
   - the journal fix for "holding the thought" answers
@@ -164,7 +164,7 @@ Round 1 (earlier today) screened 12 models on 200 practice drops and scored the 
 - The recommended setup ran twice on the new drops (harness and real Worker); the other setups ran once. On the design set, repeat runs changed only a handful of answers.
 - The drops lean towards your own writing (30% are yours).
 - Question ratings come from two models from different companies, not from users.
-- Audit spend: about $47 in logged model calls (including the section 12 checks), roughly $51 including runs that were stopped or redone, of the $60 cap.
+- Audit spend: about $48 in logged model calls (including the section 12 and 13 checks), roughly $52 including runs that were stopped or redone, of the $60 cap.
 
 ## 11. Before January
 
@@ -188,4 +188,13 @@ The answers are fixed copy, and only the question is written for the drop. Chat 
 - **Fresh drops:** it fired on 7 of 1,420. The good catches included "Good morning Gremly", "I can't wait for tomorrow but I am so tired. Help me" and "How do I make fix search console issues". Three were notes about building or fixing the app, and one more of those turned up in the test set.
 - **Fix:** a clause saying a note about building, changing or fixing the app is a note to self. Rerun on the 428 app, question and greeting drops from both sets, plus 250 random test drops: all four app notes now file normally, and every good catch stayed. On the 414 test drops in that run it got 404 right, against 403 for the audited prompt, with 6 filed wrong without asking against 9. The prompt in the Worker is the exact one tested.
 - **Left as is:** "Where has lock in option gone from overlay?" still gets the question. From a user who is not building the app, that is a question for Gremly.
+
+## 13. After the audit: appointments with no date
+
+"Doctors appointment" used to get the generic question, whose answers ("I need to book it", "Thinking about booking one", "Just noting it down") had no way to say it was already booked. Now an appointment, booking or reservation with no date asks whether it is booked (prompt v3.7, a line in principle 5): "It's booked", "I need to book it" or "Just a note", worded by the model for the drop. After "It's booked", the popup asks **When is it?**: today, tomorrow or any date, and an optional time. The date and time are saved on the event, so it shows on Today. "I'll add it later" files it without a date. A drop that already has a date keeps the existing "Is this booked already?" question.
+
+**How it was checked.** Every unused drop had already been used for section 12, so this reused the two sets: all 197 drops that mention an appointment, booking, a service or similar, from the test set and the fresh drops, plus the same 250 random test drops as before, run end to end through the Worker.
+- It asked the new question for "Blood test", "Hairdressers", "chiropractor" and "Nails appointment", which the labellers all marked as needing a question and which had all been getting the generic one. It also works for "Doctors appointment", "Dentist", "Haircut", "Vet appointment for Max" and "Dinner reservation"; "Book dentist" stays a to-do and "Doctors appointment Tuesday" keeps the date question.
+- On the 307 test drops in the run: 303 right against 300 before, 2 filed wrong without asking against 3, and 2 needless questions against 4. Nothing else changed beyond run to run noise.
+- The prompt in the Worker is the exact one tested.
 

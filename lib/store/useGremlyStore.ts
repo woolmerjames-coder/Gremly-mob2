@@ -82,6 +82,7 @@ import {
   normalizeAmbiguityType,
   optionKind,
   type ClarificationOption,
+  type ClarificationWhen,
 } from '../minddrop/clarification';
 import { cancelAllItemReminders } from '../notifications/itemReminderService';
 import type { TimeBlockPreferences } from '../capacity';
@@ -1056,6 +1057,7 @@ export interface GremlyState {
     localId: string,
     optionId: string,
     isFreeText?: boolean,
+    when?: ClarificationWhen | null,
   ) => Promise<void>;
   resolveSkippedClarification: (entityId: string) => Promise<void>;
 
@@ -9000,7 +9002,7 @@ export const useGremlyStore = create<GremlyState>()(
           }
         },
 
-        resolveEntityClarification: async (localId, optionId, isFreeText = false) => {
+        resolveEntityClarification: async (localId, optionId, isFreeText = false, when = null) => {
           const state = get();
 
           // ─────────────────────────────────────────────────────────────────────
@@ -9274,6 +9276,16 @@ export const useGremlyStore = create<GremlyState>()(
             }
           } catch (reclassifyError) {
             console.log('[GremlyStore] Reclassify failed:', reclassifyError);
+          }
+
+          // "When is it?" answered in the popup: the user's date and time win
+          // over anything the reclassify step read from the text.
+          if (when?.date) {
+            reclassifyResult = {
+              ...reclassifyResult,
+              target_date: when.date,
+              ...(when.time ? { event_time: when.time } : {}),
+            };
           }
 
           // Determine target bucket from reclassify result (fallback to current)

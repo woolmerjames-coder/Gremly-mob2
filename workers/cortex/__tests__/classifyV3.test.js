@@ -259,6 +259,49 @@ describe('drops addressed to Gremly and questions to answer', () => {
   });
 });
 
+describe('appointments with no date', () => {
+  it('ask whether it is booked, in every prompt version', () => {
+    for (const p of [
+      buildClassifyV3Prompt(),
+      buildClassifyV3Prompt({ version: 'v4.1' }),
+      buildClassifyV3Prompt({ version: 'v4' }),
+      buildSecondOpinionPrompt(),
+    ]) {
+      expect(p).toContain(
+        'the open question is whether it is already booked, so the type is booking',
+      );
+      expect(p).toContain('- booking: ');
+    }
+  });
+
+  it('keep the model words and ask when after "it is booked"', () => {
+    const c = buildClarification(
+      'booking',
+      'Is your doctor appointment booked yet?',
+      ['Yes, already booked', 'Still need to book', 'Just noting it'],
+      null,
+      'Doctors appointment',
+    );
+    expect(c.labels_source).toBe('model');
+    expect(c.clarification_options.map((o) => [o.bucket, o.subtype, o.followUp || null])).toEqual([
+      ['log', 'event', 'when'],
+      ['todo', null, null],
+      ['log', 'general', null],
+    ]);
+  });
+
+  it('only ask when after an answer that makes an event', () => {
+    for (const cfg of Object.values(CLARIFY_TYPE_CONFIGS)) {
+      for (const o of cfg.options) {
+        if (o.followUp) {
+          expect(o.followUp).toBe('when');
+          expect([o.bucket, o.subtype]).toEqual(['log', 'event']);
+        }
+      }
+    }
+  });
+});
+
 describe('fixed answers', () => {
   it('file a held intention as a journal entry, not a reference note', () => {
     for (const t of ['vague_aspiration', 'commitment_level']) {

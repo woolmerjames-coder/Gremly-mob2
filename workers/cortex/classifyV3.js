@@ -27,17 +27,18 @@
 // ============================================================================
 
 // Prompt versions (docs/2026-09-29-minddrop-model-audit.md):
-//   v3.6 (default): semantic rules. v3.5 (the audited prompt; on 1,000 new
+//   v3.7 (default): semantic rules. v3.5 (the audited prompt; on 1,000 new
 //                   random drops it scored the same as v4 with Gemini 3.8
-//                   Flash, faster and cheaper) plus principle 11: drops
-//                   addressed to Gremly and questions the user wants answered
-//                   get a question that can open the chat.
+//                   Flash, faster and cheaper) plus principle 11 (v3.6):
+//                   drops addressed to Gremly and questions the user wants
+//                   answered get a question that can open the chat; and an
+//                   appointment with no date asks whether it is booked (v3.7).
 //   v4.1: the default plus ordered decision steps and labeller rules.
 //   v4:   v4.1 plus a short reason and a checklist of facts, with the habit
 //         rule enforced in code from the facts.
-// Chosen with the Worker var CLASSIFY_PROMPT ("v3.5" is read as the default).
-export const PROMPT_VERSION = 'v3.6';
-export const PROMPT_VERSIONS = ['v3.6', 'v4.1', 'v4'];
+// Chosen with the Worker var CLASSIFY_PROMPT (older names run the default).
+export const PROMPT_VERSION = 'v3.7';
+export const PROMPT_VERSIONS = ['v3.7', 'v4.1', 'v4'];
 
 export const AMBIGUITY_TYPES = [
   'bucket',
@@ -52,6 +53,7 @@ export const AMBIGUITY_TYPES = [
   'idea_or_commitment',
   'conversation',
   'open_question',
+  'booking',
 ];
 
 // Semantic description of each ambiguity type (fed to both prompts).
@@ -80,6 +82,8 @@ const AMBIGUITY_DESCRIPTIONS = {
     'the drop is addressed to Gremly itself rather than capturing something, and it is unclear whether the user wants to talk now, was only testing, or wants it kept',
   open_question:
     'the drop is a question the user wants answered, about the world or about something practical, and it is unclear whether they want the answer now, want to look into it later, or only want to keep the question',
+  booking:
+    'the drop names an appointment, booking or reservation with no date or time, and it is unclear whether it is already booked, still needs booking, or is only being noted',
 };
 
 // Fixed option actions per ambiguity type, in the order the model must label
@@ -95,6 +99,8 @@ const AMBIGUITY_DESCRIPTIONS = {
 // "chat" opens the chat with Gremly and sends the drop, "discard" deletes it.
 // Their bucket and subtype are what an app that does not know the kind files
 // the drop as, so an older build still works.
+// `followUp: 'when'`: after this answer the app asks when it is (a date and an
+// optional time) and saves it on the item.
 export const CLARIFY_TYPE_CONFIGS = {
   bucket: {
     fallbackQuestion: 'What did you have in mind for this?',
@@ -424,6 +430,36 @@ export const CLARIFY_TYPE_CONFIGS = {
       },
     ],
   },
+  booking: {
+    fallbackQuestion: 'Is this booked yet?',
+    options: [
+      {
+        id: 'opt_1',
+        bucket: 'log',
+        subtype: 'event',
+        habitSubtype: null,
+        followUp: 'when',
+        meaning: 'it is already booked',
+        fallbackLabel: "Yes, it's booked",
+      },
+      {
+        id: 'opt_2',
+        bucket: 'todo',
+        subtype: null,
+        habitSubtype: null,
+        meaning: 'they still need to book it',
+        fallbackLabel: 'I need to book it',
+      },
+      {
+        id: 'opt_3',
+        bucket: 'log',
+        subtype: 'general',
+        habitSubtype: null,
+        meaning: 'they are only noting it',
+        fallbackLabel: 'Just a note',
+      },
+    ],
+  },
 };
 
 // OUTPUT GUARD ONLY (never sent to a model): model written questions and
@@ -480,7 +516,7 @@ PRINCIPLES
 2. The overall frame decides, not individual words inside it. A drop that directs the user to act stays a todo even when its wording is soft. A drop that explores a possibility stays an idea even when it contains words for actions. A drop that processes a feeling stays a journal even when it mentions the future.
 3. Choose start_habit or break_habit only when all of these hold: the user is the one who will repeat the behaviour; the behaviour is concrete enough that the user could log each occurrence as done or not done; and the drop itself makes the repetition clear, by saying how often or by tying the behaviour to a recurring part of the user's routine. When repetition is only implied, or the drop could as easily mean one occasion, it is not a habit. A single action tied to a single occasion or a bounded period is a todo, however often people repeat that kind of activity. A thought pattern, attitude or way of being with no concrete behaviour to log is not a habit; when the user is processing it, it is a journal.
 4. Wanting more or less of something with no concrete amount, threshold or timing is not yet a habit. It is ambiguous with type vague_aspiration.
-5. Short drops are not automatically unclear. A single expression of feeling is a complete journal entry and a bare instruction is a complete todo. A noun or noun phrase with no verb, no frame and no time anchor genuinely lacks signal and is ambiguous with type bucket, unless the thing named could only sensibly mean one outcome.
+5. Short drops are not automatically unclear. A single expression of feeling is a complete journal entry and a bare instruction is a complete todo. A noun or noun phrase with no verb, no frame and no time anchor genuinely lacks signal and is ambiguous with type bucket, unless the thing named could only sensibly mean one outcome. When it names an appointment, booking or reservation, the open question is whether it is already booked, so the type is booking.
 6. For a drop tied to a date or time: when the wording presents the occasion as already existing or arranged, it is an event. When it could equally be already arranged or something the user still has to arrange, it is ambiguous with type date_type. With no date or time at all, an activity worded as something the user will do, alone or with others, is a todo.
 7. General is the narrowest outcome and never a fallback. Anything carrying feeling, aspiration, possibility or intent to change is not general.
 8. Be decisive. Apart from the drops in principle 11, choose ambiguous only when you cannot point to wording in the drop that settles the outcome and a wrong guess would cost the user more than one quick question. When one reading is clearly the most natural, choose it with confidence of at least 0.75.
@@ -535,7 +571,7 @@ separate_items: the number of separate items that would each become their own en
 
 /**
  * System prompt for classify-v3. Semantic rules only.
- * @param {{version?: 'v3.6'|'v4.1'|'v4'}} [opts]
+ * @param {{version?: 'v3.7'|'v4.1'|'v4'}} [opts]
  */
 export function buildClassifyV3Prompt({ version = PROMPT_VERSION } = {}) {
   let p = buildBasePrompt();
@@ -691,6 +727,7 @@ export function buildClarification(ambiguityType, question, labels, habitDirecti
       : o.habitSubtype,
     ...(o.dateField ? { dateField: o.dateField } : {}),
     ...(o.kind ? { kind: o.kind } : {}),
+    ...(o.followUp ? { followUp: o.followUp } : {}),
   }));
 
   return {

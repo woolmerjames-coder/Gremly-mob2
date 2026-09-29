@@ -6,6 +6,7 @@ import React, { createContext, useContext, useState, useCallback, useRef, useEff
 import type { AppRecord, CanonicalType, LogSubtype } from '../lib/types';
 import { persistedNoteSubtypeToLogSubtype } from '../lib/logSubtypes';
 import { ClarificationPopup } from '../components/minddrop/ClarificationPopup';
+import type { ClarificationWhen } from '../lib/minddrop/clarification';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
 import * as Haptics from 'expo-haptics';
 
@@ -304,7 +305,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const handleClarificationSelect = useCallback(
-    (optionId: string) => {
+    (optionId: string, when?: ClarificationWhen) => {
       if (!clarificationPopup.entityId) return;
 
       // Check if this is free text input (prefixed with "freetext:")
@@ -320,11 +321,14 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       // Fire and forget - don't await
       // The popup shows instant success and dismisses itself
       // The card shows processing animation and updates progressively
-      resolveEntityClarification(clarificationPopup.entityId, selectionValue, isFreeText).catch(
-        (error) => {
-          console.error('[GlobalOverlay] Clarification resolution failed:', error);
-        },
-      );
+      resolveEntityClarification(
+        clarificationPopup.entityId,
+        selectionValue,
+        isFreeText,
+        when ?? null,
+      ).catch((error) => {
+        console.error('[GlobalOverlay] Clarification resolution failed:', error);
+      });
 
       // Note: Popup dismisses itself after showing "Great, on it"
       // We don't close it here anymore

@@ -88,6 +88,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { getDateService, getTodayDayString } from '../../lib/date';
 import { lightTokens, darkTokens, spacing as tokenSpacing } from '../../design/tokens';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import type { ClarificationWhen } from '../../lib/minddrop/clarification';
 import { selectItemById, useActiveSpaces, useSpaceHasEvents } from '../../lib/store/selectors';
 import { useChaptersForEntity } from '../../lib/store/chaptersSelectors';
 import { useWorldsForEntity } from '../../lib/store/worldsSelectors';
@@ -1050,7 +1051,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const resolveEntityClarification = useGremlyStore((s) => s.resolveEntityClarification);
   const resolveSkippedClarification = useGremlyStore((s) => s.resolveSkippedClarification);
   const handleClarificationSelect = useCallback(
-    async (optionId: string) => {
+    async (optionId: string, when?: ClarificationWhen) => {
       // Get the entity ID from fullEntity (which combines props.entity and initialEntity)
       const entityId = fullEntity?.id;
 
@@ -1064,7 +1065,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       setClarificationLoading(true);
 
       try {
-        await resolveEntityClarification(entityId, optionId);
+        await resolveEntityClarification(entityId, optionId, false, when ?? null);
 
         // Haptic feedback
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);

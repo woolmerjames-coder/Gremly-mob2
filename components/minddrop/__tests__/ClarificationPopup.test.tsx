@@ -7,6 +7,7 @@
 import React from 'react';
 import { fireEvent, render, waitFor, act } from '@testing-library/react-native';
 import { ClarificationPopup } from '../ClarificationPopup';
+import { getDateService } from '../../../lib/date/DateService';
 
 // Mock expo-haptics
 jest.mock('expo-haptics', () => ({
@@ -41,6 +42,16 @@ jest.mock('react-native-reanimated', () => {
 jest.mock('lucide-react-native', () => ({
   CheckCircle: () => null,
 }));
+
+// Mock DateTimePicker to avoid native component issues in tests
+jest.mock('@react-native-community/datetimepicker', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  return {
+    __esModule: true,
+    default: ({ testID }: { testID?: string }) => <View testID={testID || 'date-time-picker'} />,
+  };
+});
 
 const mockOptions = [
   {
@@ -378,6 +389,79 @@ describe('ClarificationPopup', () => {
       expect(queryByText('Go')).toBeNull();
       // onSelectOption should not have been called
       expect(onSelectOption).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('when is it? step', () => {
+    const bookingOptions = [
+      {
+        id: 'opt_1',
+        label: "Yes, it's booked",
+        action: { bucket: 'log' as const, subtype: 'event', followUp: 'when' as const },
+      },
+      { id: 'opt_2', label: 'I need to book it', action: { bucket: 'todo' as const } },
+      { id: 'opt_3', label: 'Just a note', action: { bucket: 'log' as const } },
+    ];
+    const renderBooking = (onSelectOption = jest.fn()) =>
+      render(
+        <ClarificationPopup
+          visible={true}
+          question="Is your doctor's appointment booked?"
+          options={bookingOptions}
+          onSelectOption={onSelectOption}
+          onSkip={jest.fn()}
+        />,
+      );
+
+    it('asks when it is instead of filing straight away', () => {
+      const onSelectOption = jest.fn();
+      const { getByText, getByTestId } = renderBooking(onSelectOption);
+      fireEvent.press(getByText("Yes, it's booked"));
+      expect(getByText('When is it?')).toBeTruthy();
+      expect(getByTestId('clarification-when-today')).toBeTruthy();
+      expect(onSelectOption).not.toHaveBeenCalled();
+    });
+
+    it('saves the day picked with the answer', () => {
+      const onSelectOption = jest.fn();
+      const { getByText, getByTestId } = renderBooking(onSelectOption);
+      fireEvent.press(getByText("Yes, it's booked"));
+      fireEvent.press(getByTestId('clarification-when-tomorrow'));
+      fireEvent.press(getByTestId('clarification-when-save'));
+      expect(onSelectOption).toHaveBeenCalledWith('opt_1', {
+        date: getDateService().tomorrow(),
+        time: null,
+      });
+    });
+
+    it('does not save until a day is picked', () => {
+      const onSelectOption = jest.fn();
+      const { getByText, getByTestId } = renderBooking(onSelectOption);
+      fireEvent.press(getByText("Yes, it's booked"));
+      fireEvent.press(getByTestId('clarification-when-save'));
+      expect(onSelectOption).not.toHaveBeenCalled();
+    });
+
+    it('files it without a date when the user will add it later', () => {
+      const onSelectOption = jest.fn();
+      const { getByText, getByTestId } = renderBooking(onSelectOption);
+      fireEvent.press(getByText("Yes, it's booked"));
+      fireEvent.press(getByTestId('clarification-when-later'));
+      expect(onSelectOption).toHaveBeenCalledWith('opt_1');
+    });
+
+    it('opens the picker for another day', () => {
+      const { getByText, getByTestId } = renderBooking();
+      fireEvent.press(getByText("Yes, it's booked"));
+      fireEvent.press(getByTestId('clarification-when-pick-date'));
+      expect(getByTestId('clarification-when-picker')).toBeTruthy();
+    });
+
+    it('files other answers straight away', () => {
+      const onSelectOption = jest.fn();
+      const { getByText } = renderBooking(onSelectOption);
+      fireEvent.press(getByText('I need to book it'));
+      expect(onSelectOption).toHaveBeenCalledWith('opt_2');
     });
   });
 });

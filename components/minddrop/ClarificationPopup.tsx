@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import {
   ActivityIndicator,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -9,6 +10,8 @@ import {
   View,
   Keyboard,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { format, parseISO } from 'date-fns';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -17,6 +20,8 @@ import Animated, {
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { CheckCircle } from 'lucide-react-native';
+import { getDateService } from '../../lib/date/DateService';
+import type { ClarificationWhen } from '../../lib/minddrop/clarification';
 
 interface ClarificationOption {
   id: string;
@@ -26,6 +31,9 @@ interface ClarificationOption {
     subtype?: string | null;
     target_date?: boolean;
     scheduled_date?: boolean;
+    kind?: string | null;
+    /** 'when': ask when it is before filing (date and optional time) */
+    followUp?: 'when' | null;
   };
 }
 
@@ -37,7 +45,8 @@ interface ClarificationPopupProps {
   options: ClarificationOption[] | null;
   /** Original text the user dropped - shown for context */
   originalText?: string | null;
-  onSelectOption: (optionId: string) => void | Promise<void>;
+  /** `when` is set when the user answered "When is it?" after the option */
+  onSelectOption: (optionId: string, when?: ClarificationWhen) => void | Promise<void>;
   onSkip: () => void;
   /** Just close the popup without triggering skip logic (used after selection) */
   onClose?: () => void;
@@ -74,6 +83,12 @@ export function ClarificationPopup({
   const [isTextInputFocused, setIsTextInputFocused] = React.useState(false);
   const [instantSuccess, setInstantSuccess] = React.useState(false);
 
+  // "When is it?" step, shown after an answer that asks when (a booked appointment)
+  const [whenOptionId, setWhenOptionId] = React.useState<string | null>(null);
+  const [whenDate, setWhenDate] = React.useState<string | null>(null);
+  const [whenTime, setWhenTime] = React.useState<string | null>(null);
+  const [whenPicker, setWhenPicker] = React.useState<'date' | 'time' | null>(null);
+
   // Auto-detect loading state when Phase 1.5 hasn't completed yet
   // Options loading: question or options not ready
   const isOptionsLoading = !question || !options || options.length < 2;
@@ -103,6 +118,10 @@ export function ClarificationPopup({
         setFreeText('');
         setIsTextInputFocused(false);
         setInstantSuccess(false);
+        setWhenOptionId(null);
+        setWhenDate(null);
+        setWhenTime(null);
+        setWhenPicker(null);
       });
     }
   }, [visible]);
@@ -112,21 +131,39 @@ export function ClarificationPopup({
     opacity: opacity.value,
   }));
 
-  const handleOptionPress = (optionId: string) => {
-    console.log('[ClarificationPopup] Option pressed:', { optionId });
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
+  const finishSelection = (optionId: string, when?: ClarificationWhen) => {
     // Show instant success feedback
     setInstantSuccess(true);
 
     // Fire off the selection (will process in background)
-    onSelectOption(optionId);
+    if (when) {
+      onSelectOption(optionId, when);
+    } else {
+      onSelectOption(optionId);
+    }
 
     // Dismiss popup after brief success display (just close, don't trigger skip logic)
     setTimeout(() => {
       setInstantSuccess(false);
       closePopup();
     }, 1000);
+  };
+
+  const handleOptionPress = (optionId: string) => {
+    console.log('[ClarificationPopup] Option pressed:', { optionId });
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    // An answer like "Yes, it's booked" asks when it is before filing
+    const option = options?.find((o) => o.id === optionId);
+    if (option?.action?.followUp === 'when') {
+      setWhenOptionId(optionId);
+      setWhenDate(null);
+      setWhenTime(null);
+      setWhenPicker(null);
+      return;
+    }
+
+    finishSelection(optionId);
   };
 
   const handleFreeTextSubmit = () => {
@@ -221,6 +258,150 @@ export function ClarificationPopup({
             </Pressable>
           </Animated.View>
         </Pressable>
+      </Modal>
+    );
+  }
+
+  // "When is it?" step: pick a day (today, tomorrow or any date) and
+  // optionally a time. Save files it with that date; the second link files it
+  // without one.
+  if (visible && whenOptionId) {
+    const dates = getDateService();
+    const today = dates.today();
+    const tomorrow = dates.tomorrow();
+    const pickedOther = !!whenDate && whenDate !== today && whenDate !== tomorrow;
+    const pickerValue =
+      whenPicker === 'time'
+        ? parseISO(`${whenDate || today}T${whenTime || '09:00'}`)
+        : parseISO(whenDate || today);
+    const renderChip = (label: string, selected: boolean, onPress: () => void, testID: string) => (
+      <Pressable
+        key={testID}
+        testID={testID}
+        style={({ pressed }) => [
+          styles.chip,
+          selected && styles.chipSelected,
+          pressed && styles.optionButtonPressed,
+        ]}
+        onPress={onPress}
+      >
+        <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{label}</Text>
+      </Pressable>
+    );
+
+    return (
+      <Modal
+        visible={visible}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setWhenOptionId(null)}
+      >
+        <View style={styles.backdrop}>
+          <Animated.View style={[styles.card, animatedCardStyle]} testID="clarification-when-step">
+            <Text style={styles.question}>When is it?</Text>
+
+            <View style={styles.chipRow}>
+              {renderChip(
+                'Today',
+                whenDate === today,
+                () => {
+                  setWhenDate(today);
+                  setWhenPicker(null);
+                },
+                'clarification-when-today',
+              )}
+              {renderChip(
+                'Tomorrow',
+                whenDate === tomorrow,
+                () => {
+                  setWhenDate(tomorrow);
+                  setWhenPicker(null);
+                },
+                'clarification-when-tomorrow',
+              )}
+              {renderChip(
+                pickedOther && whenDate ? format(parseISO(whenDate), 'EEE d MMM') : 'Pick a date',
+                pickedOther,
+                () => setWhenPicker('date'),
+                'clarification-when-pick-date',
+              )}
+            </View>
+
+            <View style={styles.chipRow}>
+              {renderChip(
+                whenTime
+                  ? format(parseISO(`${today}T${whenTime}`), 'h:mm a')
+                  : 'Add a time (optional)',
+                !!whenTime,
+                () => setWhenPicker('time'),
+                'clarification-when-pick-time',
+              )}
+            </View>
+
+            {whenPicker && (
+              <View style={styles.pickerContainer}>
+                <DateTimePicker
+                  testID="clarification-when-picker"
+                  value={pickerValue}
+                  mode={whenPicker}
+                  display={
+                    Platform.OS === 'ios'
+                      ? whenPicker === 'date'
+                        ? 'inline'
+                        : 'spinner'
+                      : 'default'
+                  }
+                  onChange={(event, picked) => {
+                    const kind = whenPicker;
+                    // Android shows a dialog that closes itself; the iOS
+                    // calendar closes once a day is picked.
+                    if (Platform.OS !== 'ios' || kind === 'date') setWhenPicker(null);
+                    if (event.type !== 'set' || !picked) return;
+                    if (kind === 'date') setWhenDate(format(picked, 'yyyy-MM-dd'));
+                    else setWhenTime(format(picked, 'HH:mm'));
+                  }}
+                />
+                {Platform.OS === 'ios' && whenPicker === 'time' && (
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.skipButton,
+                      pressed && styles.skipButtonPressed,
+                    ]}
+                    onPress={() => setWhenPicker(null)}
+                  >
+                    <Text style={styles.skipText}>Done</Text>
+                  </Pressable>
+                )}
+              </View>
+            )}
+
+            <Pressable
+              testID="clarification-when-save"
+              disabled={!whenDate}
+              style={({ pressed }) => [
+                styles.saveButton,
+                !whenDate && styles.saveButtonDisabled,
+                pressed && styles.optionButtonPressed,
+              ]}
+              onPress={() => {
+                if (!whenDate) return;
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                finishSelection(whenOptionId, { date: whenDate, time: whenTime });
+              }}
+            >
+              <Text style={styles.saveText}>Save</Text>
+            </Pressable>
+
+            <Pressable
+              testID="clarification-when-later"
+              style={({ pressed }) => [styles.skipButton, pressed && styles.skipButtonPressed]}
+              onPress={() => finishSelection(whenOptionId)}
+            >
+              <Text style={styles.skipText}>I'll add it later</Text>
+            </Pressable>
+          </Animated.View>
+        </View>
       </Modal>
     );
   }
@@ -451,6 +632,51 @@ const styles = StyleSheet.create({
   },
   freeTextSubmitText: {
     fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    fontFamily: 'Inter-SemiBold',
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  chip: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: 'rgba(191, 216, 192, 0.35)',
+  },
+  chipSelected: {
+    backgroundColor: '#4A7C59',
+  },
+  chipText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#2E5540',
+    fontFamily: 'Inter-Medium',
+  },
+  chipTextSelected: {
+    color: '#FFFFFF',
+  },
+  pickerContainer: {
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  saveButton: {
+    marginTop: 4,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: '#4A7C59',
+    alignItems: 'center',
+  },
+  saveButtonDisabled: {
+    opacity: 0.4,
+  },
+  saveText: {
+    fontSize: 15,
     fontWeight: '600',
     color: '#FFFFFF',
     fontFamily: 'Inter-SemiBold',

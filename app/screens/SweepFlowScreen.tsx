@@ -70,6 +70,7 @@ import { triggerLight } from '../../lib/haptics';
 import { getDateService } from '../../lib/date';
 // Zustand store - used for all Sweep data operations
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import type { ClarificationWhen } from '../../lib/minddrop/clarification';
 import { useWeekDays } from '../../lib/store/weekGridSelectors';
 import { useNeedsMindDropTutorial, useCanCreate } from '../../lib/store/lifecycleSelectors';
 import {
@@ -3189,14 +3190,14 @@ function SweepDecisionStep({
    * Clarification Selection Handler - User picks an option to clarify ambiguous item
    */
   const handleClarificationSelect = useCallback(
-    async (optionId: string) => {
+    async (optionId: string, when?: ClarificationWhen) => {
       const candidate = candidatesWithMeta[currentIndex]?.candidate;
       if (!candidate) return;
 
       setIsSubmittingClarification(true);
       try {
         // Call the store function to resolve clarification
-        await resolveEntityClarification(candidate.id, optionId);
+        await resolveEntityClarification(candidate.id, optionId, false, when ?? null);
 
         // Show success briefly
         setClarificationSuccess('Got it!');

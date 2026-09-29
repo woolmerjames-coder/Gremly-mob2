@@ -160,3 +160,46 @@ describe('resolveEntityClarification: answers that do not file the drop', () => 
     expect(useGremlyStore.getState().notes.find((n) => n.id === 'n4')).toBeDefined();
   });
 });
+
+describe('resolveEntityClarification: when is it?', () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({}) }) as any;
+    useGremlyStore.setState({ notes: [], todos: [], habits: [], userId: 'user-1' });
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('saves the date and time the user picked on the event', async () => {
+    useGremlyStore.setState({ notes: [makeDropNote('b1', 'Doctors appointment', 'booking')] });
+
+    await act(async () => {
+      await useGremlyStore
+        .getState()
+        .resolveEntityClarification('b1', 'opt_1', false, { date: '2026-10-02', time: '15:30' });
+    });
+
+    const note = useGremlyStore.getState().notes.find((n) => n.id === 'b1') as any;
+    expect(note).toBeDefined();
+    expect(note.views.target_date).toBe('2026-10-02');
+    expect(note.views.event_time).toBe('15:30');
+    expect(note.views.clarification_resolved).toBe(true);
+  });
+
+  it('saves a date without a time', async () => {
+    useGremlyStore.setState({ notes: [makeDropNote('b2', 'Dentist', 'booking')] });
+
+    await act(async () => {
+      await useGremlyStore
+        .getState()
+        .resolveEntityClarification('b2', 'opt_1', false, { date: '2026-10-03', time: null });
+    });
+
+    const note = useGremlyStore.getState().notes.find((n) => n.id === 'b2') as any;
+    expect(note.views.target_date).toBe('2026-10-03');
+    expect(note.views.event_time).toBeUndefined();
+  });
+});

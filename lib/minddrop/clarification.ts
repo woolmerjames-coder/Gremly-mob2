@@ -36,6 +36,15 @@ export type ClarifyBucket = 'todo' | 'habit' | 'log';
  */
 export type ClarifyOptionKind = 'chat' | 'discard';
 
+/** 'when': after this answer the popup asks when it is (date, optional time). */
+export type ClarifyFollowUp = 'when';
+
+/** The popup's "When is it?" answer: date as YYYY-MM-DD, time as HH:mm. */
+export interface ClarificationWhen {
+  date: string;
+  time: string | null;
+}
+
 export interface ClarificationOption {
   id: string;
   label: string;
@@ -46,6 +55,7 @@ export interface ClarificationOption {
     target_date: boolean;
     scheduled_date: boolean;
     kind?: ClarifyOptionKind | null;
+    followUp?: ClarifyFollowUp | null;
   };
   space_suggestion?: string | null;
 }
@@ -66,6 +76,7 @@ type FallbackOption = {
   habitSubtype?: string | null;
   dateField?: 'target_date' | 'scheduled_date';
   kind?: ClarifyOptionKind;
+  followUp?: ClarifyFollowUp;
 };
 
 export const CLARIFY_FALLBACKS: Record<string, { question: string; options: FallbackOption[] }> = {
@@ -203,6 +214,20 @@ export const CLARIFY_FALLBACKS: Record<string, { question: string; options: Fall
       { id: 'opt_3', label: 'Keep it', bucket: 'log', subtype: 'general' },
     ],
   },
+  booking: {
+    question: 'Is this booked yet?',
+    options: [
+      {
+        id: 'opt_1',
+        label: "Yes, it's booked",
+        bucket: 'log',
+        subtype: 'event',
+        followUp: 'when',
+      },
+      { id: 'opt_2', label: 'I need to book it', bucket: 'todo', subtype: null },
+      { id: 'opt_3', label: 'Just a note', bucket: 'log', subtype: 'general' },
+    ],
+  },
 };
 
 export const CLARIFY_TIMEOUT_MS = 8000;
@@ -222,9 +247,18 @@ function toClientOption(o: FallbackOption, label?: string): ClarificationOption 
       target_date: o.dateField === 'target_date',
       scheduled_date: o.dateField === 'scheduled_date',
       kind: o.kind ?? null,
+      followUp: o.followUp ?? null,
     },
     space_suggestion: null,
   };
+}
+
+/** Whether a stored option (client or worker shape) asks a follow up. */
+export function optionFollowUp(option: unknown): ClarifyFollowUp | null {
+  if (!option || typeof option !== 'object') return null;
+  const o = option as Record<string, any>;
+  const followUp = o.action && typeof o.action === 'object' ? o.action.followUp : o.followUp;
+  return followUp === 'when' ? 'when' : null;
 }
 
 /** The kind of a stored option (client or worker shape), or null when it files the drop. */
@@ -276,6 +310,7 @@ export function mapWorkerOptions(
           target_date: src.target_date === true || src.dateField === 'target_date',
           scheduled_date: src.scheduled_date === true || src.dateField === 'scheduled_date',
           kind: optionKind(o),
+          followUp: optionFollowUp(o),
         },
         space_suggestion: o.space_suggestion ?? null,
       } as ClarificationOption;
