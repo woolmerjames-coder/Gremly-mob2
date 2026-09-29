@@ -9,6 +9,7 @@
 // ============================================================================
 
 import { geminiGenerate, geminiStream, parseGeminiChunk } from './geminiClient.js';
+import { DEFAULTS, resolveModels } from './models.js';
 
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
@@ -28,9 +29,9 @@ const RETRY_DELAY_MS = 2500; // delay before same-provider retry in background m
 // so a model swap never needs a code change. Defaults are models that are
 // live and use the same request shape as before.
 export const RETIRED_MODEL_REPLACEMENTS = {
-  'gpt-4.1-nano': 'gpt-4.1-mini',
-  'gpt-4.1-nano-2025-04-14': 'gpt-4.1-mini',
-  'gemini-3.1-flash-lite-preview': 'gemini-3.1-flash-lite',
+  'gpt-4.1-nano': DEFAULTS.helper,
+  'gpt-4.1-nano-2025-04-14': DEFAULTS.helper,
+  'gemini-3.1-flash-lite-preview': DEFAULTS.geminiFlashLite,
 };
 
 /**
@@ -38,9 +39,9 @@ export const RETIRED_MODEL_REPLACEMENTS = {
  * arrive from app builds already in users' hands.
  */
 export function resolveModel(model, env) {
-  if (!model || typeof model !== 'string') return 'gpt-4.1-mini';
+  if (!model || typeof model !== 'string') return DEFAULTS.helper;
   if (model.startsWith('gpt-4.1-nano'))
-    return env?.NANO_MODEL || RETIRED_MODEL_REPLACEMENTS[model] || 'gpt-4.1-mini';
+    return env?.NANO_MODEL || RETIRED_MODEL_REPLACEMENTS[model] || DEFAULTS.helper;
   return RETIRED_MODEL_REPLACEMENTS[model] || model;
 }
 
@@ -1405,9 +1406,11 @@ export async function aiClassify(config) {
 
 export function getProviders(tier, env) {
   const googleKey = env.GOOGLE_API_KEY || env.GEMINI_API_KEY;
-  const geminiFlash = env.GEMINI_FLASH_MODEL || 'gemini-3-flash-preview';
-  const nanoModel = env.NANO_MODEL || 'gpt-4.1-mini'; // was gpt-4.1-nano (retired 2026-10-23)
-  const miniModel = env.MINI_MODEL || 'gpt-4.1-mini';
+  // Defaults and var names live in models.js.
+  const tiers = resolveModels(env).tiers;
+  const geminiFlash = tiers.geminiFlash;
+  const nanoModel = tiers.nano;
+  const miniModel = tiers.mini;
   switch (tier) {
     case 'nano':
       return {
@@ -1455,13 +1458,13 @@ export function getProviders(tier, env) {
       return {
         primary: {
           provider: 'anthropic',
-          model: env.HAIKU_MODEL || 'claude-haiku-4-5-20251001',
+          model: tiers.haiku,
           apiKey: env.ANTHROPIC_API_KEY,
         },
         fallback: {
           provider: 'gemini',
           // was gemini-3.1-flash-lite-preview (shut down 2026-05-25)
-          model: env.GEMINI_FLASH_LITE_MODEL || 'gemini-3.1-flash-lite',
+          model: tiers.geminiFlashLite,
           apiKey: googleKey,
           thinkingLevel: 'low',
         },
@@ -1470,7 +1473,7 @@ export function getProviders(tier, env) {
       return {
         primary: {
           provider: 'anthropic',
-          model: env.SONNET_MODEL || 'claude-sonnet-4-6',
+          model: tiers.sonnet,
           apiKey: env.ANTHROPIC_API_KEY,
         },
         fallback: {
@@ -1497,9 +1500,9 @@ export function getProviders(tier, env) {
         p === 'anthropic' ? env.ANTHROPIC_API_KEY : p === 'gemini' ? googleKey : env.OPENAI_API_KEY;
       const classifyProvider = env.CLASSIFY_PROVIDER || 'openai';
       const classifyDefaultModel = {
-        anthropic: env.HAIKU_MODEL || 'claude-haiku-4-5-20251001',
+        anthropic: tiers.haiku,
         openai: miniModel,
-        gemini: env.GEMINI_FLASH_LITE_MODEL || 'gemini-3.1-flash-lite',
+        gemini: tiers.geminiFlashLite,
       };
       const fallbackProvider = env.CLASSIFY_FALLBACK_PROVIDER || 'openai';
       const fallbackModel =

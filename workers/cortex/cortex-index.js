@@ -185,7 +185,7 @@ import {
   getSearchPolicy,
   MODE_TEMP,
 } from './gremlyPersona';
-import { aiClassify, aiGenerate, aiStream, getProviders, resolveModel } from './aiProvider.js';
+import { aiClassify, aiGenerate, aiStream, getProviders } from './aiProvider.js';
 import {
   buildClassifyV3Prompt,
   buildSecondOpinionPrompt,
@@ -199,10 +199,10 @@ import {
   PROMPT_VERSIONS,
 } from './classifyV3.js';
 
-// gpt-4.1-nano is removed from the OpenAI API on 2026-10-23. Direct OpenAI
-// calls that used it now use this model (same request shape, still live).
-const NANO_REPLACEMENT_MODEL = 'gpt-4.1-mini';
 import { handleHabitRead } from './habitRead.js';
+import { configureModels, models, helperModel } from './models.js';
+import { helperFetch } from './helperClient.js';
+import { buildChatExtractionPrompt } from './chatPrompts.js';
 
 async function getCachedDomainNames(userId, env) {
   if (!userId || !env.CONTEXT_CACHE) return [];
@@ -2377,18 +2377,10 @@ ${turns}
 SUMMARY:`;
 
   try {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: NANO_REPLACEMENT_MODEL,
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 350,
-        temperature: 0.3,
-      }),
+    const res = await helperFetch('running_summary', {
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 350,
+      temperature: 0.3,
     });
 
     if (!res.ok) {
@@ -2484,18 +2476,10 @@ ${turns}
 SUMMARY:`;
 
   try {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: NANO_REPLACEMENT_MODEL,
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 150,
-        temperature: 0.3,
-      }),
+    const res = await helperFetch('running_summary', {
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 150,
+      temperature: 0.3,
     });
 
     if (!res.ok) {
@@ -2816,7 +2800,7 @@ function getModelAndTokens({ preset, userMessage, messageCount, entityType }) {
 
   if (canUseMini) {
     return {
-      model: NANO_REPLACEMENT_MODEL,
+      model: helperModel('entity_chat_short'),
       maxTokens: 400,
       reason: 'simple_short_query',
     };
@@ -2824,7 +2808,7 @@ function getModelAndTokens({ preset, userMessage, messageCount, entityType }) {
 
   // Default: use the good model
   return {
-    model: 'gpt-4.1',
+    model: models().legacyOpenAIChat,
     maxTokens: needsMoreTokens ? 1000 : 800,
     reason: preset ? `preset:${preset}` : 'standard_query',
   };
@@ -3335,6 +3319,7 @@ function unauthorizedSSEResponse() {
 
 export default {
   async fetch(request, env, ctx) {
+    configureModels(env); // every model the Worker calls, resolved from env (models.js)
     // --- URL-based routing (Phase 4.7) ---
     const url = new URL(request.url);
 
@@ -4322,21 +4307,13 @@ Rules:
 
 Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
 
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: NANO_REPLACEMENT_MODEL,
-              messages: [
-                { role: 'system', content: prompt },
-                { role: 'user', content: 'Generate greeting.' },
-              ],
-              max_tokens: 60,
-              temperature: 0.7,
-            }),
+          const res = await helperFetch('general_greeting', {
+            messages: [
+              { role: 'system', content: prompt },
+              { role: 'user', content: 'Generate greeting.' },
+            ],
+            max_tokens: 60,
+            temperature: 0.7,
           });
 
           if (res.ok) {
@@ -4529,6 +4506,7 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
             openaiMessages,
             {
               temperature: 0.7,
+              label: 'habit_builder',
               maxOutputTokens: chatCfg.maxTokens,
               thinkingLevel: chatCfg.thinkingLevel,
               tools: [makeWebSearchTool(userTimezone)],
@@ -5382,6 +5360,7 @@ Almost never suggest creating a Space. Only if ALL true:
               }
 
               const streamConfig = {
+                label: 'entity_chat',
                 temperature: genConfig.temperature,
                 maxOutputTokens: genConfig.maxTokens,
                 thinkingLevel: genConfig.thinkingLevel,
@@ -6371,22 +6350,14 @@ Return ONLY valid JSON:
 {"mode":"...","secondary_mode":null,"is_restart":false,"search_query":null,"event_context":null,"capacity_signal":null,"nudge_toward_proposal":false,"extracted":{"behavior":null,"habit_type":null,"frequency":null,"start_date":null,"time_window":null,"end_date":null}}`;
 
         try {
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: NANO_REPLACEMENT_MODEL,
-              messages: [
-                { role: 'system', content: prompt },
-                { role: 'user', content: userMessage },
-              ],
-              temperature: 0.1,
-              max_tokens: 300,
-              response_format: { type: 'json_object' },
-            }),
+          const res = await helperFetch('habit_preparse', {
+            messages: [
+              { role: 'system', content: prompt },
+              { role: 'user', content: userMessage },
+            ],
+            temperature: 0.1,
+            max_tokens: 300,
+            response_format: { type: 'json_object' },
           });
 
           if (!res.ok) {
@@ -6656,27 +6627,19 @@ Return ONLY valid JSON:
         };
 
         try {
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4.1-mini',
-              messages: [
-                { role: 'system', content: extractionPrompt },
-                {
-                  role: 'user',
-                  content:
-                    'Here is the conversation:\n\n' +
-                    messages.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n'),
-                },
-              ],
-              temperature: 0.1,
-              max_tokens: 600,
-              response_format: { type: 'json_object' },
-            }),
+          const res = await helperFetch('habit_fields', {
+            messages: [
+              { role: 'system', content: extractionPrompt },
+              {
+                role: 'user',
+                content:
+                  'Here is the conversation:\n\n' +
+                  messages.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n'),
+              },
+            ],
+            temperature: 0.1,
+            max_tokens: 600,
+            response_format: { type: 'json_object' },
           });
 
           if (!res.ok) {
@@ -7392,7 +7355,7 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
             summary,
             latency_ms: latency,
             _debug: {
-              model: 'gemini-3-flash-preview',
+              model: models().chat,
               prompt_tokens: usage.promptTokenCount,
               completion_tokens: usage.candidatesTokenCount,
             },
@@ -7772,7 +7735,7 @@ ${assistantMessage.substring(0, 2000)}
               'anthropic-version': '2023-06-01',
             },
             body: JSON.stringify({
-              model: 'claude-sonnet-4-5-20250929',
+              model: models().weeklySummary,
               max_tokens: 2000,
               system: WEEKLY_SUMMARY_SYSTEM_PROMPT,
               messages: [{ role: 'user', content: userMessage }],
@@ -7904,18 +7867,10 @@ ${conversationText}
 
 SUMMARY:`;
 
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4.1-mini',
-              messages: [{ role: 'user', content: summaryPrompt }],
-              max_tokens: 400,
-              temperature: 0.3,
-            }),
+          const res = await helperFetch('chat_full_summary', {
+            messages: [{ role: 'user', content: summaryPrompt }],
+            max_tokens: 400,
+            temperature: 0.3,
           });
 
           if (!res.ok) {
@@ -8088,21 +8043,13 @@ Life context: ${lifeMoment || 'none'}
 Completed: ${todosCompleted || 0} todos, ${habitsCompleted || 0} habits, ${eventsCompleted || 0} events, ${dropsCaptured || 0} drops`;
 
         try {
-          const response = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${key}`,
-            },
-            body: JSON.stringify({
-              model: NANO_REPLACEMENT_MODEL,
-              temperature: 0.6,
-              max_tokens: 30,
-              messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: userContent },
-              ],
-            }),
+          const response = await helperFetch('sweep_headline', {
+            temperature: 0.6,
+            max_tokens: 30,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userContent },
+            ],
           });
 
           if (!response.ok) {
@@ -9478,19 +9425,11 @@ Rules:
 
         const t0 = Date.now();
         console.log('[Phase1:Timing] Pre-fetch', { t: Date.now() });
-        const res = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${key}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'gpt-4.1-mini',
-            messages: phase1Messages,
-            temperature: 0.1,
-            max_tokens: 500,
-            response_format: { type: 'json_object' },
-          }),
+        const res = await helperFetch('classify_phase1', {
+          messages: phase1Messages,
+          temperature: 0.1,
+          max_tokens: 500,
+          response_format: { type: 'json_object' },
         });
         console.log('[Phase1:Timing] Post-fetch', {
           t: Date.now(),
@@ -11412,22 +11351,14 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
         const t0 = Date.now();
 
         try {
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${key}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4.1-mini',
-              messages: [
-                { role: 'system', content: analyzeSystemPrompt },
-                { role: 'user', content: 'Here are my journal entries:\n\n' + journalBlock },
-              ],
-              temperature: 0.4,
-              max_tokens: 1200,
-              response_format: { type: 'json_object' },
-            }),
+          const res = await helperFetch('journal_analyze', {
+            messages: [
+              { role: 'system', content: analyzeSystemPrompt },
+              { role: 'user', content: 'Here are my journal entries:\n\n' + journalBlock },
+            ],
+            temperature: 0.4,
+            max_tokens: 1200,
+            response_format: { type: 'json_object' },
           });
 
           const oj = await res.json();
@@ -11467,7 +11398,16 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
       }
 
       // --- EXISTING LOGIC BELOW (unchanged) ---
-      const baseModel = resolveModel(body.model || NANO_REPLACEMENT_MODEL, env);
+      const baseModel = models().appHelper; // the Worker decides; app builds used to name the model (see models.js)
+      if (body.model && body.model !== baseModel) {
+        // App builds in users' hands still name a model. Logged so the switch to
+        // Worker side config can be checked in production, then ignored.
+        console.log('[MODEL] app named a model, Worker config wins', {
+          requested: body.model,
+          lane,
+          using: baseModel,
+        });
+      }
 
       const baseTemperature = Number.isFinite(body.temperature)
         ? body.temperature
@@ -11491,10 +11431,14 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
       const isChapterChatLane = lane === 'chapter_chat' && type !== 'classify';
       const isGeneralChatStreaming = isGeneralChatLane && wantsStreaming;
       const actualModel =
-        isSpaceChatLane || isWorldChatLane || isChapterChatLane ? 'gpt-4.1' : baseModel;
+        isSpaceChatLane || isWorldChatLane || isChapterChatLane
+          ? models().legacyOpenAIChat
+          : baseModel;
 
       const temperature =
-        actualModel === 'gpt-4.1' && !Number.isFinite(body.temperature) ? 0.7 : baseTemperature;
+        actualModel === models().legacyOpenAIChat && !Number.isFinite(body.temperature)
+          ? 0.7
+          : baseTemperature;
 
       // FIX 3: Increased token limit for Space Chat (was 400, now 800)
       const maxTokensValue =
@@ -11761,6 +11705,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             const searchPolicy = getSearchPolicy(triage.search);
 
             const streamConfig = {
+              label: 'space_chat',
               temperature: genConfig.temperature,
               maxOutputTokens: genConfig.maxTokens,
               thinkingLevel: genConfig.thinkingLevel,
@@ -12545,6 +12490,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             // Search policy
             const searchPolicy = getSearchPolicy(triage.search);
             const streamConfig = {
+              label: 'general_chat',
               temperature: genConfig.temperature,
               maxOutputTokens: genConfig.maxTokens,
               thinkingLevel: genConfig.thinkingLevel,
@@ -12952,56 +12898,23 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       day: 'numeric',
                       timeZone: userTimezone,
                     }).format(new Date());
-                    const extractionPromptText = `Today is ${todayStr}.
-
-You are analyzing a conversation to identify items worth saving in a productivity app.
-${runningSummary ? `\nCONVERSATION CONTEXT (summary of earlier messages not shown below):\n${runningSummary}\n` : ''}
-CONVERSATION:
-${conversationText}
-
-${handledIds.length > 0 ? 'ALREADY HANDLED (skip these): ' + handledIds.join(', ') : ''}
-${existingItemsBlock}
-Extract ONLY items where the user showed clear commitment or intent:
-TODO: Actions the user committed to (concrete verb + object). NOT AI suggestions the user didn't affirm.
-HABIT: Only with explicit frequency or stop/quit intent + trackable behavior.
-NOTE: Ideas the user was excited about, decisions reached, recommendations they engaged with.
-EVENT: Upcoming dates, deadlines, exams, appointments, trips, or time-bound milestones the user mentioned. Extract these even without exact dates. Capturing that something is coming up is valuable context for other conversations.
-DO NOT EXTRACT: explorations, emotional processing, unaffirmed AI suggestions, small talk, or items that match or closely paraphrase something already tracked in the system above.
-
-TEMPORAL METADATA (EVENT items only — set all to null for todo/habit/note):
-- date_text: The user's exact words about timing, preserved verbatim (e.g. "next Thursday", "sometime in June", "before the end of the semester")
-- resolved_date: Best estimate as YYYY-MM-DD. Today is ${todayStr}. For vague references, pick the midpoint of the likely range.
-- date_confidence: "exact" if user gave a specific date, "approximate" if they gave a rough timeframe, "unknown" if mentioned without any timing
-- date_range_start: Earliest plausible YYYY-MM-DD
-- date_range_end: Latest plausible YYYY-MM-DD
-
-WRITING STYLE for title and body fields:
-- Title should be a short action phrase: "Book restaurant for Saturday" not "Restaurant Booking Task"
-- Body should be a brief casual note, one sentence max
-- Never write "the user" or "user" — write as if jotting a note for them: "Getting up early for a 20-min run" not "User committed to getting up early"
-- If no meaningful body beyond the title, set body to null
-
-Also generate a chat title (3-6 words) and a one-sentence summary that covers the ENTIRE conversation — not just the most recent messages. Use the CONVERSATION CONTEXT above to include earlier topics. The summary should capture the full arc of what was discussed.
-Return ONLY valid JSON:
-{"extractions":[{"id":"<8chars>","type":"todo|habit|note|event","title":"...","body":"...","due_date":"YYYY-MM-DD or null","frequency":"string or null","confidence":0-100,"date_text":"string or null","resolved_date":"YYYY-MM-DD or null","date_confidence":"exact|approximate|unknown or null","date_range_start":"YYYY-MM-DD or null","date_range_end":"YYYY-MM-DD or null"}],"chat_summary":{"title":"...","summary":"..."}}`;
+                    const extractionPromptText = buildChatExtractionPrompt({
+                      todayStr,
+                      runningSummary,
+                      conversationText,
+                      handledIds,
+                      existingItemsBlock,
+                    });
 
                     let extractResult = null;
                     try {
-                      const extractRes = await fetch('https://api.openai.com/v1/chat/completions', {
-                        method: 'POST',
-                        headers: {
-                          Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-                          'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                          model: 'gpt-4.1-mini',
-                          messages: [
-                            { role: 'system', content: extractionPromptText },
-                            { role: 'user', content: 'Extract items from the conversation above.' },
-                          ],
-                          max_tokens: 500,
-                          temperature: 0.1,
-                        }),
+                      const extractRes = await helperFetch('chat_extraction', {
+                        messages: [
+                          { role: 'system', content: extractionPromptText },
+                          { role: 'user', content: 'Extract items from the conversation above.' },
+                        ],
+                        max_tokens: 500,
+                        temperature: 0.1,
                       });
                       if (extractRes.ok) {
                         const extractJson = await extractRes.json();
@@ -13418,7 +13331,7 @@ Return ONLY valid JSON:
 
         return j({
           content,
-          model: 'gemini-3-flash-preview',
+          model: models().chat,
           usage: geminiResult.usage || null,
           save_suggestion: save_suggestion || null,
           sources,
@@ -13619,7 +13532,7 @@ Return ONLY valid JSON:
 
         return j({
           content: worldContent,
-          model: 'gemini-3-flash-preview',
+          model: models().chat,
           usage: worldGeminiResult.usage || null,
           save_suggestion: worldSaveSuggestion || null,
           sources: worldSources,
@@ -13827,7 +13740,7 @@ Return ONLY valid JSON:
 
         return j({
           content: chapterContent,
-          model: 'gemini-3-flash-preview',
+          model: models().chat,
           usage: chapterGeminiResult.usage || null,
           save_suggestion: chapterSaveSuggestion || null,
           sources: chapterSources,
@@ -13848,7 +13761,7 @@ Return ONLY valid JSON:
 
       const openaiPayload = { model: nonStreamModel, messages, temperature, stream: false };
 
-      if (nonStreamModel === 'gpt-4.1' || nonStreamModel === 'gpt-4o') {
+      if (nonStreamModel === models().legacyOpenAIChat || nonStreamModel === 'gpt-4o') {
         openaiPayload.max_completion_tokens = nonStreamMaxTokens;
       } else {
         openaiPayload.max_tokens = nonStreamMaxTokens;
@@ -14020,15 +13933,9 @@ Return ONLY JSON:
 
           let res;
           try {
-            res = await fetch('https://api.openai.com/v1/chat/completions', {
-              method: 'POST',
-              signal: controller.signal,
-              headers: {
-                Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                model: 'gpt-4.1-mini',
+            res = await helperFetch(
+              'floor_suggest',
+              {
                 messages: [
                   { role: 'system', content: FLOOR_SUGGEST_SYSTEM },
                   { role: 'user', content: truncatedPayload },
@@ -14036,8 +13943,9 @@ Return ONLY JSON:
                 temperature: 0.4,
                 max_completion_tokens: 500,
                 response_format: { type: 'json_object' },
-              }),
-            });
+              },
+              { signal: controller.signal },
+            );
           } finally {
             clearTimeout(timeoutId);
           }
@@ -14411,6 +14319,7 @@ function runScopedChatStream(
       // Search policy
       const searchPolicy = getSearchPolicy(triage.search);
       const streamConfig = {
+        label: scopeType === 'world' ? 'world_chat' : 'chapter_chat',
         temperature: genConfig.temperature,
         maxOutputTokens: genConfig.maxTokens,
         thinkingLevel: genConfig.thinkingLevel,

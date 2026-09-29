@@ -15,6 +15,18 @@ CLASSIFY_THINKING_LEVEL = "low"
 CLASSIFY_FALLBACK_PROVIDER = "openai"
 CLASSIFY_FALLBACK_MODEL = "gpt-6-luna"
 
+# Every other model the Worker calls is chosen in models.js. Nothing is set here
+# yet, so the defaults apply (what production ran before models.js existed).
+# To move a model, set the var and deploy; the corpus gate comes first.
+#   CHAT_MODEL                the Gemini model behind every chat surface (default gemini-3-flash-preview)
+#   HELPER_MODEL              the small model behind triage, loading message, summaries,
+#                             extraction, habit pre parse and so on (default gpt-4.1-mini)
+#   MODEL_<JOB>               one helper job on its own, for example MODEL_TRIAGE_MODE or
+#                             MODEL_CHAT_EXTRACTION; the full list is HELPER_JOB_VARS in models.js
+#   APP_HELPER_MODEL          the generic non streaming path app builds call (default gpt-4o-mini)
+#   LEGACY_OPENAI_CHAT_MODEL  non streaming OpenAI fallback for Space, World, Chapter (default gpt-4.1)
+#   WEEKLY_SUMMARY_MODEL      weekly summary (default claude-sonnet-4-5-20250929)
+
 [observability]
 enabled = true
 

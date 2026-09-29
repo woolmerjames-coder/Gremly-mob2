@@ -1,8 +1,11 @@
+import { DEFAULTS, models } from './models.js';
 // ============================================================================
 // geminiClient.js — Native Gemini API client for Cortex Proxy Worker
 // ============================================================================
 
-export const GEMINI_MODEL = 'gemini-3-flash-preview';
+// The chat model is set in models.js (CHAT_MODEL var). GEMINI_MODEL stays as
+// the default for anything that imports it.
+export const GEMINI_MODEL = DEFAULTS.chat;
 export const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 // ── Thinking level mapping ──────────────────────────────────────────────────
@@ -70,11 +73,8 @@ function buildRequestBody(systemPrompt, contents, config) {
   }
   // JSON mode: the model must return a single JSON object.
   if (config.responseMimeType) generationConfig.responseMimeType = config.responseMimeType;
-  const body = {
-    systemInstruction: { parts: [{ text: systemPrompt }] },
-    contents,
-    generationConfig,
-  };
+  const body = { contents, generationConfig };
+  if (systemPrompt) body.systemInstruction = { parts: [{ text: systemPrompt }] };
   const nativeTools = convertTools(config.tools);
   if (nativeTools) body.tools = nativeTools;
   return body;
@@ -91,7 +91,8 @@ function buildRequestBody(systemPrompt, contents, config) {
  * @returns {Promise<{ok: boolean, content: string, functionCalls: Array, parts: Array, usage: object, error?: string, status?: number}>}
  */
 export async function geminiGenerate(systemPrompt, messages, config, apiKey) {
-  const model = config.model || GEMINI_MODEL;
+  const model = config.model || models().chat;
+  const t0 = Date.now();
   const url = `${GEMINI_API_BASE}/${model}:generateContent`;
   const contents = config.nativeContents || convertMessages(messages);
   const body = buildRequestBody(systemPrompt, contents, config);
@@ -139,6 +140,16 @@ export async function geminiGenerate(systemPrompt, messages, config, apiKey) {
 
   const groundingMetadata = json.candidates?.[0]?.groundingMetadata || null;
 
+  const u = json.usageMetadata || {};
+  console.log('[USAGE]', {
+    model,
+    label: config.label || null,
+    input: u.promptTokenCount ?? null,
+    cached: u.cachedContentTokenCount ?? 0,
+    output: u.candidatesTokenCount ?? null,
+    thinking: u.thoughtsTokenCount ?? 0,
+    ms: Date.now() - t0,
+  });
   return {
     ok: true,
     content,
@@ -159,7 +170,8 @@ export async function geminiGenerate(systemPrompt, messages, config, apiKey) {
  * @returns {Promise<Response|{ok: false, status: number, error: string}>}
  */
 export async function geminiStream(systemPrompt, messages, config, apiKey) {
-  const model = config.model || GEMINI_MODEL;
+  const model = config.model || models().chat;
+  const t0 = Date.now();
   const url = `${GEMINI_API_BASE}/${model}:streamGenerateContent?alt=sse`;
   const contents = config.nativeContents || convertMessages(messages);
   const body = buildRequestBody(systemPrompt, contents, config);
@@ -180,7 +192,62 @@ export async function geminiStream(systemPrompt, messages, config, apiKey) {
     return { ok: false, status: res.status, error: errText };
   }
 
-  return res;
+  // Pass the stream through untouched, and log its token usage when it ends.
+  if (!res.body) return res;
+  return new Response(tapGeminiUsage(res.body, { model, label: config.label || null, t0 }), {
+    status: res.status,
+    statusText: res.statusText,
+    headers: res.headers,
+  });
+}
+
+/**
+ * Wrap a Gemini SSE body so the bytes flow through unchanged while the
+ * usageMetadata Gemini sends on its chunks (cumulative; the last one is the
+ * total) is captured and logged as [USAGE] when the stream closes. This is how
+ * the real cost of a chat turn is measured from production logs.
+ * @param {ReadableStream<Uint8Array>} body
+ * @param {{model: string, label?: string|null, t0?: number}} meta
+ * @param {(line: string, data: object) => void} [log] defaults to console.log
+ */
+export function tapGeminiUsage(body, meta, log = (line, data) => console.log(line, data)) {
+  const decoder = new TextDecoder();
+  let text = '';
+  let usage = null;
+  const note = (chunkText) => {
+    text += chunkText;
+    const lines = text.split(/\r?\n/);
+    text = lines.pop() || '';
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      try {
+        const u = JSON.parse(line.slice(6)).usageMetadata;
+        if (u) usage = u;
+      } catch {
+        // partial or non JSON line; ignore
+      }
+    }
+  };
+  return body.pipeThrough(
+    new TransformStream({
+      transform(chunk, controller) {
+        controller.enqueue(chunk);
+        note(decoder.decode(chunk, { stream: true }));
+      },
+      flush() {
+        note(decoder.decode());
+        log('[USAGE]', {
+          model: meta.model,
+          label: meta.label || null,
+          input: usage?.promptTokenCount ?? null,
+          cached: usage?.cachedContentTokenCount ?? 0,
+          output: usage?.candidatesTokenCount ?? null,
+          thinking: usage?.thoughtsTokenCount ?? 0,
+          ms: meta.t0 ? Date.now() - meta.t0 : null,
+        });
+      },
+    }),
+  );
 }
 
 /**
