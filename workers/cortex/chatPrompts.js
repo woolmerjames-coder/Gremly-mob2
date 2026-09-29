@@ -40,6 +40,68 @@ export function evidenceGrounded(evidence, userMessages) {
   return false;
 }
 
+// The extraction's second job (ENTITY_CARDS=on with CHAT_EXTRACTION_V2=on): when the
+// user says an item they already track has changed, record an edit to it, not a
+// new item. The ids come from the ITEMS ALREADY TRACKED list, which then carries them.
+export const EXTRACTION_EDITS_RULE = `EDITS: When the user's own words say that one of the items already tracked above has changed (moved to another day or time, renamed, given a different frequency) or is done, record that as an edit to that item using its id from the list, instead of extracting a new item. Fields: due_day (YYYY-MM-DD, resolved from today's date), due_time (HH:MM, 24 hour), name, frequency, completed (value "done"). The evidence rule applies to edits too. Never edit an item the user did not clearly refer to, and never resolve a date the user did not give.`;
+
+/** Add the edits job to an extraction prompt that already has the evidence rule. */
+export function withEditsRule(prompt) {
+  const marker = 'WRITING STYLE for title and body fields:';
+  const i = prompt.indexOf(marker);
+  if (i < 0) return prompt;
+  const p = prompt.slice(0, i) + EXTRACTION_EDITS_RULE + '\n\n' + prompt.slice(i);
+  return p.replace(
+    '"chat_summary":{"title":"...","summary":"..."}}',
+    '"edits":[{"entity_id":"<id from the list>","type":"todo|habit|note","field":"due_day|due_time|name|frequency|completed","value":"...","evidence":"..."}],"chat_summary":{"title":"...","summary":"..."}}',
+  );
+}
+
+const EDIT_FIELDS = {
+  todo: ['due_day', 'due_time', 'name', 'completed'],
+  habit: ['name', 'frequency'],
+  note: ['name', 'body'],
+};
+
+/**
+ * Turn the model's edits into pill items the app can offer ("Update X to Y?").
+ * `tracked` maps the short id used in the prompt to the item; `userTexts` are the
+ * user messages the evidence must be grounded in. Pure.
+ */
+export function editsToPillItems(edits, tracked, userTexts) {
+  if (!Array.isArray(edits)) return [];
+  const out = [];
+  for (const e of edits) {
+    const item = tracked.get(String(e?.entity_id || ''));
+    if (!item) continue;
+    const field = String(e.field || '');
+    if (!EDIT_FIELDS[item.type]?.includes(field)) continue;
+    const value = String(e.value ?? '').trim();
+    if (!value) continue;
+    if (field === 'due_day' && !/^\d{4}-\d{2}-\d{2}$/.test(value)) continue;
+    if (field === 'due_time' && !/^\d{2}:\d{2}$/.test(value)) continue;
+    if (!evidenceGrounded(e.evidence, userTexts)) continue;
+    const from =
+      field === 'name' ? item.title : field === 'completed' ? null : (item[field] ?? null);
+    if (from !== null && String(from) === value) continue;
+    out.push({
+      id: Math.random().toString(36).slice(2, 10),
+      type: 'edit',
+      entity_id: item.id,
+      entity_type: item.type,
+      entity_title: item.title,
+      field,
+      from,
+      to: field === 'completed' ? 'done' : value,
+      title: `Update ${item.title}`,
+      body: null,
+      evidence: String(e.evidence || ''),
+      confidence: 90,
+    });
+  }
+  return out;
+}
+
 // Turns whose reply mode should never show the Save items pill: extraction is
 // skipped on them when CHAT_EXTRACTION_V2 is on.
 export const NO_EXTRACTION_MODES = [

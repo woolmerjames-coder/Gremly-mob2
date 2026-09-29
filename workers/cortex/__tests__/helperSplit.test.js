@@ -37,6 +37,7 @@ test('flags default to today', () => {
     triageOneCall: false,
     extractionV2: false,
     searchRequiredForces: true,
+    entityCards: false,
   });
   expect(m.helperFallback).toBe('');
 });

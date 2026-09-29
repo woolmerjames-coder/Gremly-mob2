@@ -46,6 +46,7 @@ export interface StreamingCallbacks {
 export interface SpaceChatStreamingResult {
   content: string;
   save_suggestion?: any | null;
+  entity_card?: import('../types').EntityCard | null;
   saveable?: any | null;
   promotion?: any | null;
   latency_ms?: number;
@@ -463,6 +464,7 @@ export function callSpaceChatStreaming(
         const richResult: SpaceChatStreamingResult = {
           content: finalContent,
           save_suggestion: data.save_suggestion ?? null,
+          entity_card: data.entity_card ?? null,
           saveable: data.saveable ?? null,
           promotion: data.promotion ?? null,
           latency_ms: data.latency_ms,
@@ -572,6 +574,7 @@ export function callGeneralChatStreaming(
         const richResult: SpaceChatStreamingResult = {
           content: finalContent,
           save_suggestion: data.save_suggestion ?? null,
+          entity_card: data.entity_card ?? null,
           saveable: data.saveable ?? null,
           promotion: data.promotion ?? null,
           latency_ms: data.latency_ms,
@@ -670,6 +673,7 @@ export function callWorldChatStreaming(
         const richResult: SpaceChatStreamingResult = {
           content: finalContent,
           save_suggestion: data.save_suggestion ?? null,
+          entity_card: data.entity_card ?? null,
           saveable: data.saveable ?? null,
           promotion: data.promotion ?? null,
           latency_ms: data.latency_ms,
@@ -768,6 +772,7 @@ export function callChapterChatStreaming(
         const richResult: SpaceChatStreamingResult = {
           content: finalContent,
           save_suggestion: data.save_suggestion ?? null,
+          entity_card: data.entity_card ?? null,
           saveable: data.saveable ?? null,
           promotion: data.promotion ?? null,
           latency_ms: data.latency_ms,

@@ -12,17 +12,12 @@
 //   - Polls extracted_items from the scope_chat after each turn
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import {
-  View,
-  StyleSheet,
-  Pressable,
-  KeyboardAvoidingView,
-  Platform,
-} from 'react-native';
+import { View, StyleSheet, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppFlatList } from '../../components/common/AppFlatList';
 import { useChatMessages } from '../../hooks/useChatMessages';
 import { ChatBubble } from '../../components/chat/ChatBubble';
+import { EntityCardBubble } from '../../components/chat/EntityCardMessage';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { SaveIndicatorPill } from '../../components/chat/SaveIndicatorPill';
 import { SaveSheet } from '../../components/chat/SaveSheet';
@@ -109,7 +104,9 @@ export default function ScopedChatScreen() {
   const pollExtractions = useCallback(async (chatId: string) => {
     const { data } = await supabase
       .from('scope_chats')
-      .select('extracted_items, dismissed_extractions, saved_extraction_ids, auto_title, running_summary')
+      .select(
+        'extracted_items, dismissed_extractions, saved_extraction_ids, auto_title, running_summary',
+      )
       .eq('id', chatId)
       .single();
     if (!data) return;
@@ -117,9 +114,7 @@ export default function ScopedChatScreen() {
       ...((data as any).dismissed_extractions || []),
       ...((data as any).saved_extraction_ids || []),
     ]);
-    setExtractions(
-      ((data as any).extracted_items || []).filter((e: any) => !exclude.has(e.id)),
-    );
+    setExtractions(((data as any).extracted_items || []).filter((e: any) => !exclude.has(e.id)));
     setAutoTitle((data as any).auto_title || null);
     setRunningSummary((data as any).running_summary || null);
   }, []);
@@ -139,6 +134,8 @@ export default function ScopedChatScreen() {
     finalizeStreamingMessage,
     cancelStreaming,
     updateMessage,
+    appendEntityCard,
+    setEntityCardStatus,
   } = useChatMessages(activeChat?.id ?? undefined, null);
 
   // ── Word-flush timer ────────────────────────────────────────────────────────
@@ -262,6 +259,9 @@ export default function ScopedChatScreen() {
             if (richResult?.sources) {
               updateMessage(msgId, { sources: richResult.sources } as any);
             }
+          }
+          if (richResult?.entity_card) {
+            await appendEntityCard(richResult.entity_card);
           }
 
           // Poll extractions shortly after turn completes
@@ -399,12 +399,22 @@ export default function ScopedChatScreen() {
   const keyExtractor = useCallback((item: any) => item.id, []);
 
   const renderMessage = useCallback(
-    ({ item }: { item: any }) => (
-      <ChatBubble
-        message={item}
-      />
-    ),
-    [],
+    ({ item }: { item: any }) => {
+      if (item.role === 'system' && item.metadata_json?.type === 'entity-card') {
+        return (
+          <EntityCardBubble
+            message={item}
+            onStatus={(status, summary) => setEntityCardStatus(item.id, status, summary)}
+            onPick={(entity) => {
+              setEntityCardStatus(item.id, 'declined');
+              if (activeChat) sendToChat(activeChat, `I mean ${entity.title}`);
+            }}
+          />
+        );
+      }
+      return <ChatBubble message={item} />;
+    },
+    [activeChat, sendToChat, setEntityCardStatus],
   );
 
   // ── Save sheet handler ──────────────────────────────────────────────────────
@@ -445,9 +455,7 @@ export default function ScopedChatScreen() {
           ]);
 
           const smartTitle =
-            (phase15.ok && phase15.smart_title) ||
-            (phase2.ok && phase2.smart_title) ||
-            item.title;
+            (phase15.ok && phase15.smart_title) || (phase2.ok && phase2.smart_title) || item.title;
 
           const tags = (phase2.ok && phase2.tags) || [];
           const timeEst = phase2.ok ? phase2.time_estimate_minutes : null;
@@ -534,21 +542,12 @@ export default function ScopedChatScreen() {
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     },
-    [
-      activeChat,
-      autoTitle,
-      runningSummary,
-      canCreate,
-      navigation,
-      autoLinkDrop,
-    ],
+    [activeChat, autoTitle, runningSummary, canCreate, navigation, autoLinkDrop],
   );
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
-  const title = scopeType === 'world'
-    ? `Chat about ${scopeName}`
-    : `Chat about ${scopeName}`;
+  const title = scopeType === 'world' ? `Chat about ${scopeName}` : `Chat about ${scopeName}`;
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -586,9 +585,7 @@ export default function ScopedChatScreen() {
           }}
           ListEmptyComponent={
             <View style={styles.emptyState}>
-              <Text style={styles.emptyText}>
-                Ask me anything about {scopeName}.
-              </Text>
+              <Text style={styles.emptyText}>Ask me anything about {scopeName}.</Text>
             </View>
           }
           ListFooterComponent={null}

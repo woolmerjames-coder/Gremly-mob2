@@ -202,9 +202,12 @@ import {
 import { handleHabitRead } from './habitRead.js';
 import { configureModels, models, helperModel } from './models.js';
 import { helperFetch } from './helperClient.js';
+import { matchEntity, entityCardPromptSection } from './entityMatch.js';
 import {
   buildChatExtractionPrompt,
   withEvidenceRule,
+  withEditsRule,
+  editsToPillItems,
   evidenceGrounded,
   NO_EXTRACTION_MODES,
 } from './chatPrompts.js';
@@ -11644,8 +11647,23 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               }
             }
 
-            // === TRIAGE: Classify message before generation ===
+            // === TRIAGE: Classify message before generation (entity matcher alongside) ===
             const previousExchange = extractPreviousExchange(messages);
+            const entityCardPromise = authenticatedUserId
+              ? matchEntity({
+                  env,
+                  userId: authenticatedUserId,
+                  message: lastUserMsgSpace,
+                  previousExchange,
+                  todayStr: new Intl.DateTimeFormat('en-US', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                    timeZone: userTimezone,
+                  }).format(new Date()),
+                })
+              : Promise.resolve(null);
 
             const triage = await triageMessage({
               userMessage: lastUserMsgSpace,
@@ -11693,6 +11711,9 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               }
               return msg;
             });
+
+            const entityCard = await entityCardPromise;
+            if (entityCard) genConfig.systemPrompt += entityCardPromptSection(entityCard);
 
             const spaceChatMessages = [
               { role: 'system', content: genConfig.systemPrompt },
@@ -12128,6 +12149,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 done: true,
                 full_content: fullContent,
                 save_suggestion,
+                entity_card: entityCard || null,
                 sources,
                 search_query: searchQuery,
                 latency_ms: latency,
@@ -12444,8 +12466,23 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               }
             }
 
-            // Triage
+            // Triage, with the entity matcher running alongside it
             const previousExchange = extractPreviousExchange(messages);
+            const entityCardPromise = authenticatedUserId
+              ? matchEntity({
+                  env,
+                  userId: authenticatedUserId,
+                  message: lastUserMsg,
+                  previousExchange,
+                  todayStr: new Intl.DateTimeFormat('en-US', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                    timeZone: userTimezone,
+                  }).format(new Date()),
+                })
+              : Promise.resolve(null);
 
             const triage = await triageMessage({
               userMessage: lastUserMsg,
@@ -12486,6 +12523,9 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               }
               return msg;
             });
+
+            const entityCard = await entityCardPromise;
+            if (entityCard) genConfig.systemPrompt += entityCardPromptSection(entityCard);
 
             const chatMessages = [
               { role: 'system', content: genConfig.systemPrompt },
@@ -12786,6 +12826,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     done: true,
                     full_content: fullContent,
                     save_suggestion,
+                    entity_card: entityCard || null,
                     sources,
                     search_query: searchQuery,
                     latency_ms: latency,
@@ -12868,11 +12909,11 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                         { headers: supaHeaders },
                       ),
                       fetch(
-                        `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${authenticatedUserId}&completed_at=is.null&select=title&limit=50`,
+                        `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${authenticatedUserId}&completed_at=is.null&select=id,title,name,due_day,due_time&limit=50`,
                         { headers: supaHeaders },
                       ),
                       fetch(
-                        `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${authenticatedUserId}&archived_at=is.null&select=title,frequency&limit=30`,
+                        `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${authenticatedUserId}&archived_at=is.null&select=id,title,name,frequency&limit=30`,
                         { headers: supaHeaders },
                       ),
                     ]);
@@ -12883,10 +12924,35 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     const todosData = todosRes.ok ? await todosRes.json().catch(() => []) : [];
                     const habitsData = habitsRes.ok ? await habitsRes.json().catch(() => []) : [];
 
+                    // With entity cards on, the list carries ids so the extractor can
+                    // record edits to tracked items (chatPrompts.js, EXTRACTION_EDITS_RULE)
+                    const editsOn = extractionV2 && models().flags.entityCards;
+                    const tracked = new Map();
+                    const trackedTag = (row, type) => {
+                      if (!editsOn) return `[${type}]`;
+                      const short = String(row.id || '').slice(0, 8);
+                      tracked.set(short, {
+                        id: row.id,
+                        type,
+                        title: row.name || row.title || '',
+                        due_day: row.due_day || null,
+                        due_time: row.due_time || null,
+                        frequency: row.frequency || null,
+                      });
+                      return `[${type} id:${short}]`;
+                    };
                     const existingLines = [
-                      ...todosData.map((t) => `- [todo] ${t.title}`),
+                      ...todosData.map(
+                        (t) =>
+                          `- ${trackedTag(t, 'todo')} ${t.name || t.title}${
+                            editsOn && t.due_day
+                              ? ` (due ${t.due_day}${t.due_time ? ` ${t.due_time}` : ''})`
+                              : ''
+                          }`,
+                      ),
                       ...habitsData.map(
-                        (h) => `- [habit] ${h.title}${h.frequency ? ` (${h.frequency})` : ''}`,
+                        (h) =>
+                          `- ${trackedTag(h, 'habit')} ${h.name || h.title}${h.frequency ? ` (${h.frequency})` : ''}`,
                       ),
                     ];
                     const existingItemsBlock =
@@ -12918,6 +12984,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       existingItemsBlock,
                     });
                     if (extractionV2) extractionPromptText = withEvidenceRule(extractionPromptText);
+                    if (editsOn) extractionPromptText = withEditsRule(extractionPromptText);
 
                     let extractResult = null;
                     try {
@@ -12952,6 +13019,25 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                           if (before !== extractResult.extractions.length) {
                             console.log('[GeneralChat] Extraction evidence check dropped', {
                               dropped: before - extractResult.extractions.length,
+                            });
+                          }
+                        }
+                        if (editsOn && extractResult) {
+                          const userTexts = recentMsgs
+                            .filter((m) => m.role === 'user')
+                            .map((m) => String(m.content || ''));
+                          const editItems = editsToPillItems(
+                            extractResult.edits,
+                            tracked,
+                            userTexts,
+                          );
+                          if (editItems.length > 0) {
+                            extractResult.extractions = [
+                              ...(extractResult.extractions || []),
+                              ...editItems,
+                            ];
+                            console.log('[GeneralChat] Extraction proposed edits', {
+                              edits: editItems.length,
                             });
                           }
                         }
@@ -14282,6 +14368,21 @@ function runScopedChatStream(
 
       // Triage
       const previousExchange = extractPreviousExchange(messages);
+      const entityCardPromise = authenticatedUserId
+        ? matchEntity({
+            env,
+            userId: authenticatedUserId,
+            message: lastUserMsg,
+            previousExchange,
+            todayStr: new Intl.DateTimeFormat('en-US', {
+              weekday: 'long',
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+              timeZone: userTimezone,
+            }).format(new Date()),
+          })
+        : Promise.resolve(null);
       const triage = await triageMessage({
         userMessage: lastUserMsg,
         previousExchange,
@@ -14346,6 +14447,8 @@ function runScopedChatStream(
         return msg;
       });
 
+      const entityCard = await entityCardPromise;
+      if (entityCard) genConfig.systemPrompt += entityCardPromptSection(entityCard);
       const chatMessages = [
         { role: 'system', content: genConfig.systemPrompt },
         ...processedMessages.filter((m) => m.role !== 'system'),
@@ -14635,6 +14738,7 @@ function runScopedChatStream(
               done: true,
               full_content: fullContent,
               save_suggestion,
+              entity_card: entityCard || null,
               sources,
               search_query: searchQuery,
               latency_ms: latency,

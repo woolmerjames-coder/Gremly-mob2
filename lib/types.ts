@@ -669,6 +669,34 @@ export type MessageRole =
   | 'action-confirmation'
   | 'entry-card';
 
+/**
+ * Entity card in chat. The worker matches a mention in the user's message to an
+ * item they already have and proposes what to do; nothing changes until the
+ * user taps. Mockup is spec: Gremly shows the card and asks "Is this the one?".
+ */
+export type EntityCardEntityType = 'todo' | 'habit' | 'note';
+export type EntityCardField = 'due_day' | 'due_time' | 'name' | 'frequency' | 'body' | 'completed';
+export interface EntityCardEntity {
+  id: ID;
+  type: EntityCardEntityType;
+  title: string;
+  due_day?: string | null;
+  due_time?: string | null;
+  frequency?: string | null;
+  target_date?: string | null;
+  space_id?: ID | null;
+}
+export interface EntityCardChange {
+  field: EntityCardField;
+  from: string | null;
+  to: string;
+}
+export type EntityCard =
+  | { kind: 'edit'; entity: EntityCardEntity; change: EntityCardChange; confidence?: number }
+  | { kind: 'view'; entity: EntityCardEntity }
+  | { kind: 'choose'; candidates: EntityCardEntity[] };
+export type EntityCardStatus = 'pending' | 'applied' | 'declined' | 'undone';
+
 export interface SpaceChatMessage {
   id: ID;
   chat_id: ID;
@@ -677,7 +705,7 @@ export interface SpaceChatMessage {
   role: MessageRole;
   content: string;
   metadata_json?: {
-    type?: 'action-confirmation' | 'entry-card' | 'multi-intent' | 'saved-item';
+    type?: 'action-confirmation' | 'entry-card' | 'multi-intent' | 'saved-item' | 'entity-card';
     actionType?: string;
     actionId?: string;
     entryId?: string;
@@ -740,7 +768,7 @@ export interface SpaceChatMessageInsert {
   role: MessageRole;
   content: string;
   metadata_json?: {
-    type?: 'action-confirmation' | 'entry-card' | 'multi-intent' | 'saved-item';
+    type?: 'action-confirmation' | 'entry-card' | 'multi-intent' | 'saved-item' | 'entity-card';
     actionType?: string;
     actionId?: string;
     entryId?: string;

@@ -13,6 +13,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppFlatList } from '../../components/common/AppFlatList';
 import { useChatMessages } from '../../hooks/useChatMessages';
 import { ChatBubble } from '../../components/chat/ChatBubble';
+import { EntityCardBubble } from '../../components/chat/EntityCardMessage';
+import { applyEntityChange } from '../../lib/chat/entityCards';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { SaveIndicatorPill } from '../../components/chat/SaveIndicatorPill';
 import { SaveSheet } from '../../components/chat/SaveSheet';
@@ -104,6 +106,8 @@ export default function AskGremlyScreen() {
     finalizeStreamingMessage,
     cancelStreaming,
     updateMessage,
+    appendEntityCard,
+    setEntityCardStatus,
   } = useChatMessages(activeChat?.id, null);
 
   // Word buffer flush (batches words at 50ms intervals, 3 at a time)
@@ -233,6 +237,9 @@ export default function AskGremlyScreen() {
                 updateMessage(msgId, { sources: richResult.sources } as any);
               }
             }
+            if (richResult?.entity_card) {
+              await appendEntityCard(richResult.entity_card);
+            }
 
             setTimeout(() => {
               useGremlyStore.getState().updateGeneralChatExtractions(chat.id);
@@ -278,6 +285,7 @@ export default function AskGremlyScreen() {
       updateMessage,
       finalizeStreamingMessage,
       cancelStreaming,
+      appendEntityCard,
     ],
   );
 
@@ -330,12 +338,26 @@ export default function AskGremlyScreen() {
   const keyExtractor = useCallback((item: SpaceChatMessage) => item.id, []);
 
   const renderMessage = useCallback(
-    ({ item }: { item: SpaceChatMessage }) => (
-      <View style={styles.messageContainer}>
-        <ChatBubble message={item} testID={`chat-bubble-${item.id}`} />
-      </View>
-    ),
-    [],
+    ({ item }: { item: SpaceChatMessage }) => {
+      if (item.role === 'system' && item.metadata_json?.type === 'entity-card') {
+        return (
+          <EntityCardBubble
+            message={item}
+            onStatus={(status, summary) => setEntityCardStatus(item.id, status, summary)}
+            onPick={(entity) => {
+              setEntityCardStatus(item.id, 'declined');
+              if (activeChat) sendToChat(activeChat, `I mean ${entity.title}`);
+            }}
+          />
+        );
+      }
+      return (
+        <View style={styles.messageContainer}>
+          <ChatBubble message={item} testID={`chat-bubble-${item.id}`} />
+        </View>
+      );
+    },
+    [activeChat, sendToChat, setEntityCardStatus],
   );
 
   const inConversation = activeChat !== null;
@@ -524,6 +546,16 @@ export default function AskGremlyScreen() {
 
           for (const item of items) {
             try {
+              if (item.type === 'edit') {
+                // The extraction's second job: a change to something already tracked.
+                // Applied only now, on the user's tap, through the store like any edit.
+                await applyEntityChange(
+                  { id: item.entity_id, type: item.entity_type, title: item.entity_title },
+                  { field: item.field, from: item.from ?? null, to: item.to },
+                );
+                savedIds.push(item.id);
+                continue;
+              }
               const bucket =
                 item.type === 'todo' ? 'todo' : item.type === 'habit' ? 'habit' : 'log';
               const subtype = item.type === 'note' ? item.subtype || 'general' : null;
@@ -607,12 +639,19 @@ export default function AskGremlyScreen() {
           if (activeChat?.id && savedIds.length > 0) {
             await store.markExtractionsSaved(activeChat.id, savedIds);
 
-            const savedNames = items.filter((i) => savedIds.includes(i.id)).map((i) => i.title);
-            const confirmText =
-              savedIds.length === 1
-                ? `Saved "${savedNames[0]}" to your list.`
-                : `Saved ${savedIds.length} items: ${savedNames.join(', ')}`;
-            await appendAssistantMessage(`✓ ${confirmText}`);
+            const done = items.filter((i) => savedIds.includes(i.id));
+            const created = done.filter((i) => i.type !== 'edit');
+            const edited = done.filter((i) => i.type === 'edit');
+            const parts: string[] = [];
+            if (created.length === 1) parts.push(`Saved "${created[0].title}" to your list.`);
+            else if (created.length > 1)
+              parts.push(
+                `Saved ${created.length} items: ${created.map((i) => i.title).join(', ')}`,
+              );
+            if (edited.length === 1) parts.push(`Updated ${edited[0].entity_title}.`);
+            else if (edited.length > 1)
+              parts.push(`Updated ${edited.map((i) => i.entity_title).join(', ')}.`);
+            await appendAssistantMessage(`✓ ${parts.join(' ')}`);
           }
 
           for (let i = 0; i < savedIds.length + (includeSummary ? 1 : 0); i++) {

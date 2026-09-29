@@ -51,6 +51,7 @@ import { getEnv } from '../../lib/env';
 import { Placeholder } from '../../components/common/Placeholder';
 import { useCanChat, useCanCreate } from '../../lib/store/lifecycleSelectors';
 import { useChatMessages } from '../../hooks/useChatMessages';
+import { EntityCardBubble } from '../../components/chat/EntityCardMessage';
 import { ChatBubble } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { EntryCard } from '../../components/chat/EntryCard';
@@ -355,6 +356,8 @@ export default function ChatThreadScreen({ route }: Props) {
     updateStreamingSearching,
     finalizeStreamingMessage,
     cancelStreaming,
+    appendEntityCard,
+    setEntityCardStatus,
   } = useChatMessages(chatId, spaceId);
 
   // Helper function to convert messages for resolution
@@ -847,6 +850,7 @@ export default function ChatThreadScreen({ route }: Props) {
                 finalText: string,
                 richResult?: {
                   save_suggestion?: any;
+                  entity_card?: import('../../lib/types').EntityCard | null;
                   sources?: Array<{ title: string; url: string }>;
                   search_query?: string | null;
                   fetchedUrl?: { url: string; title: string } | null;
@@ -862,6 +866,9 @@ export default function ChatThreadScreen({ route }: Props) {
                 const finalizedMessage = await finalizeStreamingMessage(messageId, finalText);
                 streamingMessageIdRef.current = null;
                 streamingControllerRef.current = null;
+                if (richResult?.entity_card) {
+                  await appendEntityCard(richResult.entity_card);
+                }
                 // Combine fetchedUrl with sources
                 let finalSources = richResult?.sources || [];
                 if (richResult?.fetchedUrl) {
@@ -1488,6 +1495,19 @@ export default function ChatThreadScreen({ route }: Props) {
   // Memoized renderItem callback for FlatList performance
   const renderMessage = useCallback(
     ({ item: message }: { item: SpaceChatMessage }) => {
+      // Entity card in chat: the worker matched a mention to one of the user's items
+      if (message.role === 'system' && message.metadata_json?.type === 'entity-card') {
+        return (
+          <EntityCardBubble
+            message={message}
+            onStatus={(status, summary) => setEntityCardStatus(message.id, status, summary)}
+            onPick={(entity) => {
+              setEntityCardStatus(message.id, 'declined');
+              handleSend(`I mean ${entity.title}`);
+            }}
+          />
+        );
+      }
       // Unified renderer for all locked confirmation types
       if (
         message.role === 'assistant' &&
@@ -1594,6 +1614,8 @@ export default function ChatThreadScreen({ route }: Props) {
       handleDismissSaveable,
       handleRetryStream,
       handleTypeChange,
+      setEntityCardStatus,
+      handleSend,
     ],
   );
 

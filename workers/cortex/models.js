@@ -61,6 +61,7 @@ export const HELPER_JOB_VARS = {
   journal_analyze: 'MODEL_JOURNAL_ANALYZE', // type journal-analyze
   sweep_headline: 'MODEL_SWEEP_HEADLINE', // type sweep-headline
   classify_phase1: 'MODEL_CLASSIFY_PHASE1', // Mind Drop v2 chain, only when CLASSIFY_V3_ENABLED is false
+  entity_match: 'MODEL_ENTITY_MATCH', // entityMatch.js: does the message refer to an existing item
 };
 
 /**
@@ -92,6 +93,9 @@ export function resolveModels(env = {}) {
       // A "required" search signal forces a web search (today). Off: the tool
       // is attached and the reply model decides.
       searchRequiredForces: env.SEARCH_REQUIRED_FORCES !== 'off',
+      // The entity card in chat: match a mention to an existing item and show
+      // its card with a proposed change for the user to confirm.
+      entityCards: env.ENTITY_CARDS === 'on',
     },
     // A helper call that fails on its model is retried once on this model, if set.
     helperFallback: env.HELPER_FALLBACK_MODEL || '',

@@ -71,6 +71,16 @@ export interface UseChatMessagesResult {
     entity: Record<string, any>,
     entityType: 'note' | 'todo' | 'habit' | 'person',
   ) => Promise<SpaceChatMessage | undefined>;
+  /** Entity card in chat: persist the card the worker proposed as a system message. */
+  appendEntityCard: (
+    card: import('../lib/types').EntityCard,
+  ) => Promise<SpaceChatMessage | undefined>;
+  /** Entity card in chat: persist what the user did with it, plus Gremly's closing line. */
+  setEntityCardStatus: (
+    messageId: string,
+    status: import('../lib/types').EntityCardStatus,
+    summary?: string,
+  ) => Promise<void>;
   removeMessage: (messageId: string) => void;
   updateMessage: (messageId: string, updates: Partial<SpaceChatMessage>) => void;
   // Streaming support
@@ -594,6 +604,59 @@ export function useChatMessages(
     [currentChatId, spaceId, user?.id, messageRepo],
   );
 
+  const appendEntityCard = useCallback(
+    async (card: import('../lib/types').EntityCard): Promise<SpaceChatMessage | undefined> => {
+      const targetChatId = currentChatIdRef.current || currentChatId;
+      if (!card || !targetChatId || !user?.id) return undefined;
+      try {
+        const title =
+          card.kind === 'choose' ? `${card.candidates.length} items` : card.entity.title;
+        const input: SpaceChatMessageInsert = {
+          chat_id: targetChatId,
+          scope_id: spaceId,
+          role: 'system',
+          content: `Entity card: ${title}`,
+          metadata_json: { type: 'entity-card', card, status: 'pending' },
+        };
+        const newMessage = await messageRepo.append(input);
+        setMessages((prev) => [...prev, newMessage]);
+        return newMessage;
+      } catch (err) {
+        console.error('Failed to append entity card:', err);
+        return undefined;
+      }
+    },
+    [currentChatId, spaceId, user?.id, messageRepo],
+  );
+
+  const setEntityCardStatus = useCallback(
+    async (
+      messageId: string,
+      status: import('../lib/types').EntityCardStatus,
+      summary?: string,
+    ): Promise<void> => {
+      let nextMeta: Record<string, unknown> | null = null;
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== messageId) return m;
+          nextMeta = {
+            ...(m.metadata_json || {}),
+            status,
+            summary: summary ?? m.metadata_json?.summary ?? null,
+          };
+          return { ...m, metadata_json: nextMeta as SpaceChatMessage['metadata_json'] };
+        }),
+      );
+      if (!nextMeta) return;
+      try {
+        await messageRepo.update(messageId, { metadata_json: nextMeta });
+      } catch (err) {
+        console.warn('[useChatMessages] Could not persist entity card status', err);
+      }
+    },
+    [messageRepo],
+  );
+
   // Load messages on mount and when currentChatId changes
   useEffect(() => {
     refresh();
@@ -722,6 +785,8 @@ export function useChatMessages(
     appendActionConfirmation,
     appendEntryCard,
     appendSavedItemCard,
+    appendEntityCard,
+    setEntityCardStatus,
     removeMessage,
     updateMessage,
     // Streaming support
