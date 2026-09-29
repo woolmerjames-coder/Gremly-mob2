@@ -1,0 +1,158 @@
+start 2026-09-29T18:03:26Z
+50/200 7s
+100/200 13s
+150/200 19s
+200/200 29s
+gpt-4.1-mini two-call dev: 200 turns, 400 calls, failed calls on 0 turns, fallback on 0 turns, p50 693ms p90 1009ms, $0.0866 total, 29s
+50/200 6s
+100/200 11s
+150/200 17s
+200/200 24s
+gpt-4.1-mini one-call dev: 200 turns, 200 calls, failed calls on 0 turns, fallback on 0 turns, p50 625ms p90 888ms, $0.0791 total, 24s
+25/30 12s
+gpt-4.1-mini dev: 30 chats, 55 items proposed, 0 failed calls, 3 unparseable, p50 2828ms p90 4694ms, $0.0291, 16s
+50/500 8s
+100/500 17s
+150/500 23s
+200/500 31s
+250/500 38s
+300/500 45s
+350/500 52s
+400/500 61s
+450/500 70s
+500/500 77s
+gpt-4.1-mini two-call test: 500 turns, 1000 calls, failed calls on 0 turns, fallback on 0 turns, p50 748ms p90 1277ms, $0.2178 total, 77s
+50/500 6s
+100/500 12s
+150/500 18s
+200/500 23s
+250/500 29s
+300/500 35s
+350/500 42s
+400/500 47s
+450/500 53s
+500/500 58s
+gpt-4.1-mini one-call test: 500 turns, 500 calls, failed calls on 0 turns, fallback on 0 turns, p50 644ms p90 846ms, $0.1984 total, 58s
+25/116 12s
+50/116 20s
+75/116 31s
+100/116 42s
+gpt-4.1-mini test: 116 chats, 173 items proposed, 0 failed calls, 12 unparseable, p50 2005ms p90 4100ms, $0.0994, 49s
+50/200 11s
+100/200 21s
+150/200 30s
+200/200 40s
+gpt-6-luna two-call dev: 200 turns, 400 calls, failed calls on 0 turns, fallback on 0 turns, p50 1090ms p90 1681ms, $0.0225 total, 40s
+50/200 10s
+100/200 18s
+150/200 27s
+200/200 35s
+gpt-6-luna one-call dev: 200 turns, 200 calls, failed calls on 0 turns, fallback on 0 turns, p50 950ms p90 1400ms, $0.0204 total, 35s
+25/30 10s
+gpt-6-luna dev: 30 chats, 26 items proposed, 0 failed calls, 0 unparseable, p50 2140ms p90 3543ms, $0.0062, 13s
+50/500 11s
+100/500 20s
+150/500 28s
+200/500 38s
+250/500 47s
+300/500 57s
+350/500 66s
+400/500 75s
+450/500 85s
+500/500 96s
+gpt-6-luna two-call test: 500 turns, 1000 calls, failed calls on 0 turns, fallback on 0 turns, p50 1015ms p90 1660ms, $0.0567 total, 96s
+50/500 10s
+100/500 20s
+150/500 29s
+200/500 37s
+250/500 45s
+300/500 53s
+350/500 61s
+400/500 68s
+450/500 76s
+500/500 85s
+gpt-6-luna one-call test: 500 turns, 500 calls, failed calls on 0 turns, fallback on 0 turns, p50 902ms p90 1368ms, $0.0512 total, 85s
+25/116 11s
+50/116 17s
+75/116 25s
+100/116 32s
+gpt-6-luna test: 116 chats, 77 items proposed, 0 failed calls, 0 unparseable, p50 1590ms p90 3073ms, $0.0207, 37s
+50/200 8s
+100/200 15s
+150/200 22s
+200/200 29s
+gpt-5-nano two-call dev: 200 turns, 400 calls, failed calls on 0 turns, fallback on 24 turns, p50 810ms p90 1124ms, $0.0133 total, 29s
+50/200 8s
+100/200 15s
+150/200 22s
+200/200 30s
+gpt-5-nano one-call dev: 200 turns, 200 calls, failed calls on 0 turns, fallback on 2 turns, p50 816ms p90 1085ms, $0.0113 total, 30s
+25/30 18s
+gpt-5-nano dev: 30 chats, 101 items proposed, 0 failed calls, 0 unparseable, p50 4210ms p90 5481ms, $0.0081, 23s
+50/500 8s
+100/500 16s
+150/500 23s
+200/500 30s
+250/500 38s
+300/500 46s
+350/500 53s
+400/500 61s
+450/500 69s
+500/500 78s
+gpt-5-nano two-call test: 500 turns, 1000 calls, failed calls on 0 turns, fallback on 68 turns, p50 842ms p90 1173ms, $0.0333 total, 78s
+50/500 8s
+100/500 14s
+150/500 21s
+200/500 29s
+250/500 36s
+300/500 43s
+350/500 50s
+400/500 57s
+450/500 64s
+500/500 71s
+gpt-5-nano one-call test: 500 turns, 500 calls, failed calls on 0 turns, fallback on 12 turns, p50 798ms p90 1004ms, $0.0284 total, 71s
+25/116 16s
+50/116 30s
+75/116 45s
+100/116 61s
+gpt-5-nano test: 116 chats, 373 items proposed, 0 failed calls, 0 unparseable, p50 3594ms p90 5235ms, $0.0290, 72s
+50/200 23s
+100/200 38s
+150/200 56s
+200/200 72s
+gemini-3.8-flash two-call dev: 200 turns, 400 calls, failed calls on 0 turns, fallback on 0 turns, p50 1647ms p90 3606ms, $0.2714 total, 72s
+50/200 17s
+100/200 32s
+150/200 46s
+200/200 61s
+gemini-3.8-flash one-call dev: 200 turns, 200 calls, failed calls on 0 turns, fallback on 0 turns, p50 1564ms p90 2777ms, $0.2369 total, 61s
+25/30 8s
+gemini-3.8-flash dev: 30 chats, 16 items proposed, 0 failed calls, 0 unparseable, p50 1634ms p90 2700ms, $0.0535, 11s
+50/500 17s
+100/500 33s
+150/500 52s
+200/500 70s
+250/500 87s
+300/500 103s
+350/500 123s
+400/500 141s
+450/500 158s
+500/500 177s
+gemini-3.8-flash two-call test: 500 turns, 1000 calls, failed calls on 0 turns, fallback on 0 turns, p50 1685ms p90 3563ms, $0.6866 total, 177s
+50/500 16s
+100/500 29s
+150/500 45s
+200/500 58s
+250/500 72s
+300/500 86s
+350/500 101s
+400/500 115s
+450/500 130s
+500/500 144s
+gemini-3.8-flash one-call test: 500 turns, 500 calls, failed calls on 0 turns, fallback on 0 turns, p50 1530ms p90 2633ms, $0.5781 total, 144s
+25/116 8s
+50/116 14s
+75/116 20s
+100/116 27s
+gemini-3.8-flash test: 116 chats, 40 items proposed, 0 failed calls, 0 unparseable, p50 1435ms p90 2259ms, $0.1775, 33s
+done 2026-09-29T18:26:09Z

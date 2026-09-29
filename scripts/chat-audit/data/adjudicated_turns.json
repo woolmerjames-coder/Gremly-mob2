@@ -1,0 +1,1153 @@
+[
+ {
+  "qid": "t_6c1042c4_mode",
+  "id": "6c1042c4",
+  "field": "mode",
+  "answer": "action_ready",
+  "ok": [
+   "action_ready"
+  ],
+  "reason": "Wants a packing list made; plan template skips permission questions, per the plan rule.",
+  "unsure": false
+ },
+ {
+  "qid": "t_57834537_mode",
+  "id": "57834537",
+  "field": "mode",
+  "answer": "action_ready",
+  "ok": [
+   "action_ready"
+  ],
+  "reason": "Answers Gremly's question with a choice; next reply should plan weights, not close the loop.",
+  "unsure": false
+ },
+ {
+  "qid": "t_57834537_depth",
+  "id": "57834537",
+  "field": "depth",
+  "answer": "standard",
+  "ok": [
+   "standard"
+  ],
+  "reason": "Stated goals plus a choice deserve a concrete starting plan, not another question.",
+  "unsure": false
+ },
+ {
+  "qid": "t_506a8ce8_mode",
+  "id": "506a8ce8",
+  "field": "mode",
+  "answer": "action_ready",
+  "ok": [
+   "action_ready"
+  ],
+  "reason": "Packing list for a known trip is a plan to produce, so action_ready.",
+  "unsure": false
+ },
+ {
+  "qid": "t_e8706f46_search",
+  "id": "e8706f46",
+  "field": "search",
+  "answer": "maybe",
+  "ok": [
+   "maybe",
+   "none"
+  ],
+  "reason": "General knowledge covers ADHD tactics; optional search harmless, blocking it also fine.",
+  "unsure": false
+ },
+ {
+  "qid": "t_03a4edd7_depth",
+  "id": "03a4edd7",
+  "field": "depth",
+  "answer": "standard",
+  "ok": [
+   "standard",
+   "brief"
+  ],
+  "reason": "Reassurance plus one tweak works at either length.",
+  "unsure": false
+ },
+ {
+  "qid": "t_dced8c8c_mode",
+  "id": "dced8c8c",
+  "field": "mode",
+  "answer": "app_help",
+  "ok": [
+   "app_help",
+   "update"
+  ],
+  "reason": "Complaint about what Gremly sees in key dates; app template explains, update also workable.",
+  "unsure": false
+ },
+ {
+  "qid": "t_ebcd1e2b_mode",
+  "id": "ebcd1e2b",
+  "field": "mode",
+  "answer": "prioritization",
+  "ok": [
+   "prioritization"
+  ],
+  "reason": "Wants a verdict on what matters before a deadline: triage, not more security facts.",
+  "unsure": false
+ },
+ {
+  "qid": "t_24e0146b_depth",
+  "id": "24e0146b",
+  "field": "depth",
+  "answer": "detailed",
+  "ok": [
+   "detailed",
+   "standard"
+  ],
+  "reason": "Explicit break down after a wrong answer; thinking helps accuracy, standard also covers counts.",
+  "unsure": false
+ },
+ {
+  "qid": "t_083cd25e_depth",
+  "id": "083cd25e",
+  "field": "depth",
+  "answer": "brief",
+  "ok": [
+   "brief",
+   "standard"
+  ],
+  "reason": "Short emotional disclosure mid conversation; brief warmth fits, fuller support also fine.",
+  "unsure": false
+ },
+ {
+  "qid": "t_34b6a4f0_mode",
+  "id": "34b6a4f0",
+  "field": "mode",
+  "answer": "app_help",
+  "ok": [
+   "app_help",
+   "quick_ask"
+  ],
+  "reason": "Asks what Gremly can see in the Space; a direct answer also fine.",
+  "unsure": false
+ },
+ {
+  "qid": "t_f9641093_mode",
+  "id": "f9641093",
+  "field": "mode",
+  "answer": "emotional",
+  "ok": [
+   "emotional",
+   "exploratory"
+  ],
+  "reason": "Names fear and self doubt; emotional avoids a save offer, exploratory also reasonable.",
+  "unsure": false
+ },
+ {
+  "qid": "t_13628fff_mode",
+  "id": "13628fff",
+  "field": "mode",
+  "answer": "app_help",
+  "ok": [
+   "app_help",
+   "quick_ask"
+  ],
+  "reason": "Asking what Gremly can see; app template can explain how to add the date.",
+  "unsure": false
+ },
+ {
+  "qid": "t_094ca2e8_mode",
+  "id": "094ca2e8",
+  "field": "mode",
+  "answer": "action_ready",
+  "ok": [
+   "action_ready"
+  ],
+  "reason": "Lists the activities they want; the next step is building the routine.",
+  "unsure": false
+ },
+ {
+  "qid": "t_3eb530d1_mode",
+  "id": "3eb530d1",
+  "field": "mode",
+  "answer": "action_ready",
+  "ok": [
+   "action_ready",
+   "research"
+  ],
+  "reason": "Wants help building a weekly routine; starting suggestions also fine.",
+  "unsure": false
+ },
+ {
+  "qid": "t_05777715_search",
+  "id": "05777715",
+  "field": "search",
+  "answer": "maybe",
+  "ok": [
+   "maybe"
+  ],
+  "reason": "Weekend outings with guests benefit from weather and opening checks; none blocks that.",
+  "unsure": false
+ },
+ {
+  "qid": "t_bfad332c_mode",
+  "id": "bfad332c",
+  "field": "mode",
+  "answer": "prioritization",
+  "ok": [
+   "prioritization",
+   "emotional"
+  ],
+  "reason": "Explicit list and where to start; triage serves best, but guide tie break says emotional.",
+  "unsure": true
+ },
+ {
+  "qid": "t_6624eaaa_mode",
+  "id": "6624eaaa",
+  "field": "mode",
+  "answer": "action_ready",
+  "ok": [
+   "action_ready",
+   "research"
+  ],
+  "reason": "Asks for a sample week within stated constraints; plan or information both fine.",
+  "unsure": false
+ },
+ {
+  "qid": "t_82a5e9a1_mode",
+  "id": "82a5e9a1",
+  "field": "mode",
+  "answer": "exploratory",
+  "ok": [
+   "exploratory"
+  ],
+  "reason": "Warming to Gremly's idea; keep building it together, update would close the thread.",
+  "unsure": false
+ },
+ {
+  "qid": "t_facd8fda_mode",
+  "id": "facd8fda",
+  "field": "mode",
+  "answer": "action_ready",
+  "ok": [
+   "action_ready"
+  ],
+  "reason": "A list of things to do before leaving is a plan to produce.",
+  "unsure": false
+ },
+ {
+  "qid": "t_66a37b2d_search",
+  "id": "66a37b2d",
+  "field": "search",
+  "answer": "maybe",
+  "ok": [
+   "maybe"
+  ],
+  "reason": "Vague stack question; forced search adds delay and odd results, tool still available.",
+  "unsure": false
+ },
+ {
+  "qid": "t_f644a9d7_depth",
+  "id": "f644a9d7",
+  "field": "depth",
+  "answer": "brief",
+  "ok": [
+   "brief",
+   "standard"
+  ],
+  "reason": "Content free ask; one question offering choices from the Space serves best.",
+  "unsure": false
+ },
+ {
+  "qid": "t_438e2cd0_search",
+  "id": "438e2cd0",
+  "field": "search",
+  "answer": "maybe",
+  "ok": [
+   "maybe",
+   "none"
+  ],
+  "reason": "Seasonal climate is general knowledge; an optional weather check is harmless.",
+  "unsure": false
+ },
+ {
+  "qid": "t_3bb398b3_mode",
+  "id": "3bb398b3",
+  "field": "mode",
+  "answer": "research",
+  "ok": [
+   "research",
+   "emotional"
+  ],
+  "reason": "Tiredness is context for an explicit ask for a suggestion; tie break scope unclear.",
+  "unsure": true
+ },
+ {
+  "qid": "t_74809314_depth",
+  "id": "74809314",
+  "field": "depth",
+  "answer": "standard",
+  "ok": [
+   "standard"
+  ],
+  "reason": "Broken reply left the half marathon goal unanswered; the reply should deliver it.",
+  "unsure": false
+ },
+ {
+  "qid": "t_f58b8aa3_depth",
+  "id": "f58b8aa3",
+  "field": "depth",
+  "answer": "brief",
+  "ok": [
+   "brief",
+   "standard"
+  ],
+  "reason": "Needs dates and places first; a short question or starter outline both work.",
+  "unsure": false
+ },
+ {
+  "qid": "t_9b03db5e_mode",
+  "id": "9b03db5e",
+  "field": "mode",
+  "answer": "research",
+  "ok": [
+   "research",
+   "exploratory"
+  ],
+  "reason": "Invites ideas for Dave's birthday; a brainstorming thinking partner also fits.",
+  "unsure": false
+ },
+ {
+  "qid": "t_7edab017_search",
+  "id": "7edab017",
+  "field": "search",
+  "answer": "required",
+  "ok": [
+   "required",
+   "maybe"
+  ],
+  "reason": "Adventure tours on the island benefit from verified current details.",
+  "unsure": false
+ },
+ {
+  "qid": "t_d98b96e9_search",
+  "id": "d98b96e9",
+  "field": "search",
+  "answer": "required",
+  "ok": [
+   "required"
+  ],
+  "reason": "User asked specifically about Ocean Beach; local fire rules must be current.",
+  "unsure": false
+ },
+ {
+  "qid": "t_6ab1f358_search",
+  "id": "6ab1f358",
+  "field": "search",
+  "answer": "maybe",
+  "ok": [
+   "maybe",
+   "required"
+  ],
+  "reason": "Destination towns are fairly stable knowledge; forcing a search also defensible.",
+  "unsure": false
+ },
+ {
+  "qid": "t_afe16dde_depth",
+  "id": "afe16dde",
+  "field": "depth",
+  "answer": "standard",
+  "ok": [
+   "standard"
+  ],
+  "reason": "Broken reply left the original request unanswered; deliver a real starting point.",
+  "unsure": false
+ },
+ {
+  "qid": "t_f0051e0d_mode",
+  "id": "f0051e0d",
+  "field": "mode",
+  "answer": "chit_chat",
+  "ok": [
+   "chit_chat",
+   "quick_ask"
+  ],
+  "reason": "Vague ask after a broken reply; warm short prompt, either template works.",
+  "unsure": false
+ },
+ {
+  "qid": "t_721c28c0_mode",
+  "id": "721c28c0",
+  "field": "mode",
+  "answer": "research",
+  "ok": [
+   "research",
+   "action_ready"
+  ],
+  "reason": "Redo of a tips list; suggestions fit research, a short plan also fine.",
+  "unsure": false
+ },
+ {
+  "qid": "t_a940d59d_mode",
+  "id": "a940d59d",
+  "field": "mode",
+  "answer": "research",
+  "ok": [
+   "research",
+   "emotional"
+  ],
+  "reason": "Anger is at Gremly's error and they still need open cafes; venting withholds them.",
+  "unsure": true
+ },
+ {
+  "qid": "t_a940d59d_depth",
+  "id": "a940d59d",
+  "field": "depth",
+  "answer": "standard",
+  "ok": [
+   "standard",
+   "brief"
+  ],
+  "reason": "Corrected options need a little room; two options in brief also acceptable.",
+  "unsure": false
+ },
+ {
+  "qid": "t_1d5290cd_search",
+  "id": "1d5290cd",
+  "field": "search",
+  "answer": "maybe",
+  "ok": [
+   "maybe",
+   "required"
+  ],
+  "reason": "More gift ideas are mostly general; search helps if naming specific products.",
+  "unsure": false
+ },
+ {
+  "qid": "t_4e20d964_mode",
+  "id": "4e20d964",
+  "field": "mode",
+  "answer": "capture",
+  "ok": [
+   "capture"
+  ],
+  "reason": "Approves the habit wording; capture keeps the save offer so the habit gets created.",
+  "unsure": false
+ },
+ {
+  "qid": "t_e7283749_mode",
+  "id": "e7283749",
+  "field": "mode",
+  "answer": "comparison",
+  "ok": [
+   "comparison",
+   "quick_ask"
+  ],
+  "reason": "Weighing run versus strength with weather deciding; a direct weather answer also serves.",
+  "unsure": false
+ },
+ {
+  "qid": "t_685c80c8_mode",
+  "id": "685c80c8",
+  "field": "mode",
+  "answer": "capture",
+  "ok": [
+   "capture",
+   "emotional"
+  ],
+  "reason": "Dropping a todo and an upcoming visit; mild frustration, tie break scope unclear.",
+  "unsure": true
+ },
+ {
+  "qid": "t_bc7d1e7f_mode",
+  "id": "bc7d1e7f",
+  "field": "mode",
+  "answer": "quick_ask",
+  "ok": [
+   "quick_ask",
+   "research"
+  ],
+  "reason": "Repeats an ignored question with a short factual core; research also fine.",
+  "unsure": false
+ },
+ {
+  "qid": "t_bc7d1e7f_depth",
+  "id": "bc7d1e7f",
+  "field": "depth",
+  "answer": "brief",
+  "ok": [
+   "brief",
+   "standard"
+  ],
+  "reason": "Core answer fits three sentences; standard room for nuance also fine.",
+  "unsure": false
+ },
+ {
+  "qid": "t_3442f538_search",
+  "id": "3442f538",
+  "field": "search",
+  "answer": "maybe",
+  "ok": [
+   "maybe",
+   "required"
+  ],
+  "reason": "Supplement effect on sleep is a health fact; none blocks any verification.",
+  "unsure": false
+ },
+ {
+  "qid": "t_73533281_depth",
+  "id": "73533281",
+  "field": "depth",
+  "answer": "brief",
+  "ok": [
+   "brief"
+  ],
+  "reason": "Thinking out loud; one reflective question, no pushing content.",
+  "unsure": false
+ },
+ {
+  "qid": "t_209212f8_search",
+  "id": "209212f8",
+  "field": "search",
+  "answer": "none",
+  "ok": [
+   "none",
+   "maybe"
+  ],
+  "reason": "Japanese etiquette is stable general knowledge; optional search harmless.",
+  "unsure": false
+ },
+ {
+  "qid": "t_c4a13597_depth",
+  "id": "c4a13597",
+  "field": "depth",
+  "answer": "brief",
+  "ok": [
+   "brief",
+   "standard"
+  ],
+  "reason": "Short guilt and FOMO follow up; brief warmth fits, standard also fine.",
+  "unsure": false
+ },
+ {
+  "qid": "t_2b47ff6f_mode",
+  "id": "2b47ff6f",
+  "field": "mode",
+  "answer": "capture",
+  "ok": [
+   "capture"
+  ],
+  "reason": "Committed goals and habits dropped in; capture keeps the save offer, update loses it.",
+  "unsure": false
+ },
+ {
+  "qid": "t_1c80e8e5_search",
+  "id": "1c80e8e5",
+  "field": "search",
+  "answer": "none",
+  "ok": [
+   "none",
+   "maybe"
+  ],
+  "reason": "Simple timing confirmation from the previous answer; optional search harmless.",
+  "unsure": false
+ },
+ {
+  "qid": "t_fb8237e7_depth",
+  "id": "fb8237e7",
+  "field": "depth",
+  "answer": "brief",
+  "ok": [
+   "brief",
+   "standard"
+  ],
+  "reason": "Reflecting on what they admire; a short or fuller reflection both fine.",
+  "unsure": false
+ },
+ {
+  "qid": "t_02ead4e0_mode",
+  "id": "02ead4e0",
+  "field": "mode",
+  "answer": "action_ready",
+  "ok": [
+   "action_ready"
+  ],
+  "reason": "A list of things to do before flying is a plan to produce.",
+  "unsure": false
+ },
+ {
+  "qid": "t_f1bd33eb_mode",
+  "id": "f1bd33eb",
+  "field": "mode",
+  "answer": "research",
+  "ok": [
+   "research",
+   "action_ready"
+  ],
+  "reason": "Asks how to practise a value; practical ideas fit, a gentle plan also fine.",
+  "unsure": false
+ },
+ {
+  "qid": "t_11c7919c_depth",
+  "id": "11c7919c",
+  "field": "depth",
+  "answer": "standard",
+  "ok": [
+   "standard"
+  ],
+  "reason": "Interaction question across several supplements needs room to be complete and safe.",
+  "unsure": false
+ },
+ {
+  "qid": "t_72d7ca99_mode",
+  "id": "72d7ca99",
+  "field": "mode",
+  "answer": "prioritization",
+  "ok": [
+   "prioritization",
+   "research"
+  ],
+  "reason": "Wants to know which themes to tackle: triage, finding themes also fine.",
+  "unsure": false
+ },
+ {
+  "qid": "t_1e756474_search",
+  "id": "1e756474",
+  "field": "search",
+  "answer": "maybe",
+  "ok": [
+   "maybe"
+  ],
+  "reason": "Calories for a named restaurant dish are verifiable; none blocks the lookup.",
+  "unsure": false
+ },
+ {
+  "qid": "t_74407f46_depth",
+  "id": "74407f46",
+  "field": "depth",
+  "answer": "brief",
+  "ok": [
+   "brief",
+   "standard"
+  ],
+  "reason": "Content free ask; short question with Space based choices, starter outline also fine.",
+  "unsure": false
+ },
+ {
+  "qid": "t_34c904ae_mode",
+  "id": "34c904ae",
+  "field": "mode",
+  "answer": "update",
+  "ok": [
+   "update"
+  ],
+  "reason": "Correcting Gremly's wrong step claim, not sharing a win; neutral close fits.",
+  "unsure": false
+ },
+ {
+  "qid": "t_b47646d9_depth",
+  "id": "b47646d9",
+  "field": "depth",
+  "answer": "standard",
+  "ok": [
+   "standard",
+   "brief"
+  ],
+  "reason": "Self criticism in a shame free app deserves a reframe and one small step.",
+  "unsure": false
+ },
+ {
+  "qid": "t_a0b11d1f_search",
+  "id": "a0b11d1f",
+  "field": "search",
+  "answer": "required",
+  "ok": [
+   "required",
+   "maybe"
+  ],
+  "reason": "Asks about the dining scene, but the reply will likely name restaurants.",
+  "unsure": false
+ },
+ {
+  "qid": "t_e68646eb_mode",
+  "id": "e68646eb",
+  "field": "mode",
+  "answer": "quick_ask",
+  "ok": [
+   "quick_ask",
+   "research"
+  ],
+  "reason": "Direct yes or no check on the plan; research also fine.",
+  "unsure": false
+ },
+ {
+  "qid": "t_e68646eb_depth",
+  "id": "e68646eb",
+  "field": "depth",
+  "answer": "brief",
+  "ok": [
+   "brief",
+   "standard"
+  ],
+  "reason": "Direct answer plus one tweak fits brief; standard also fine.",
+  "unsure": false
+ },
+ {
+  "qid": "t_0319a2da_search",
+  "id": "0319a2da",
+  "field": "search",
+  "answer": "none",
+  "ok": [
+   "none",
+   "maybe"
+  ],
+  "reason": "Daily targets for an active man are stable knowledge; optional search harmless.",
+  "unsure": false
+ },
+ {
+  "qid": "t_ff841694_mode",
+  "id": "ff841694",
+  "field": "mode",
+  "answer": "action_ready",
+  "ok": [
+   "action_ready"
+  ],
+  "reason": "Says just give me a list after a permission question; plan it, do not ask.",
+  "unsure": false
+ },
+ {
+  "qid": "t_9d051e1a_search",
+  "id": "9d051e1a",
+  "field": "search",
+  "answer": "required",
+  "ok": [
+   "required",
+   "maybe"
+  ],
+  "reason": "Sport clubs in SF are local businesses; optional search also workable for how to.",
+  "unsure": false
+ },
+ {
+  "qid": "t_15693141_depth",
+  "id": "15693141",
+  "field": "depth",
+  "answer": "standard",
+  "ok": [
+   "standard",
+   "detailed"
+  ],
+  "reason": "Seasons by weather and crowds fit a compact list; detailed also defensible.",
+  "unsure": false
+ },
+ {
+  "qid": "t_cb04a0b5_depth",
+  "id": "cb04a0b5",
+  "field": "depth",
+  "answer": "brief",
+  "ok": [
+   "brief",
+   "standard"
+  ],
+  "reason": "Thinking aloud; brief reflection or offer, a fuller competitor view also fine.",
+  "unsure": false
+ },
+ {
+  "qid": "t_cb04a0b5_search",
+  "id": "cb04a0b5",
+  "field": "search",
+  "answer": "maybe",
+  "ok": [
+   "maybe",
+   "none"
+  ],
+  "reason": "Mentions checking competitors; tool should be available if Gremly names any.",
+  "unsure": false
+ },
+ {
+  "qid": "t_ba1f00ea_mode",
+  "id": "ba1f00ea",
+  "field": "mode",
+  "answer": "research",
+  "ok": [
+   "research",
+   "quick_ask"
+  ],
+  "reason": "Wants evidence on the best tactic; a direct answer also fine.",
+  "unsure": false
+ },
+ {
+  "qid": "t_ba1f00ea_depth",
+  "id": "ba1f00ea",
+  "field": "depth",
+  "answer": "standard",
+  "ok": [
+   "standard",
+   "brief"
+  ],
+  "reason": "Mental health evidence benefits from some room; a tight brief also acceptable.",
+  "unsure": false
+ },
+ {
+  "qid": "t_ba1f00ea_search",
+  "id": "ba1f00ea",
+  "field": "search",
+  "answer": "required",
+  "ok": [
+   "required",
+   "maybe"
+  ],
+  "reason": "Treatment evidence is a health fact; verified sources build trust.",
+  "unsure": false
+ },
+ {
+  "qid": "t_bf099179_search",
+  "id": "bf099179",
+  "field": "search",
+  "answer": "none",
+  "ok": [
+   "none",
+   "maybe"
+  ],
+  "reason": "Ingredient nutrition values are stable knowledge; optional verification harmless.",
+  "unsure": false
+ },
+ {
+  "qid": "t_b4ebc15f_depth",
+  "id": "b4ebc15f",
+  "field": "depth",
+  "answer": "standard",
+  "ok": [
+   "standard"
+  ],
+  "reason": "Asked for main things only; standard covers a checklist, detail not requested.",
+  "unsure": false
+ },
+ {
+  "qid": "t_5bd58547_mode",
+  "id": "5bd58547",
+  "field": "mode",
+  "answer": "exploratory",
+  "ok": [
+   "exploratory",
+   "emotional"
+  ],
+  "reason": "Forward looking reaction with no named self doubt; emotional also reasonable.",
+  "unsure": false
+ },
+ {
+  "qid": "t_fb2813be_mode",
+  "id": "fb2813be",
+  "field": "mode",
+  "answer": "research",
+  "ok": [
+   "research",
+   "quick_ask"
+  ],
+  "reason": "Asks for a progress review from their data; a direct summary also fine.",
+  "unsure": false
+ },
+ {
+  "qid": "t_34b6777d_mode",
+  "id": "34b6777d",
+  "field": "mode",
+  "answer": "app_help",
+  "ok": [
+   "app_help",
+   "venting"
+  ],
+  "reason": "Asks why Gremly resurfaces stale context; explain and offer a fix. Complaint policy unclear.",
+  "unsure": true
+ },
+ {
+  "qid": "t_fb35ff66_mode",
+  "id": "fb35ff66",
+  "field": "mode",
+  "answer": "research",
+  "ok": [
+   "research",
+   "quick_ask"
+  ],
+  "reason": "Asks for a summary of their week; a short direct answer also fine.",
+  "unsure": false
+ },
+ {
+  "qid": "t_586b7bd4_mode",
+  "id": "586b7bd4",
+  "field": "mode",
+  "answer": "action_ready",
+  "ok": [
+   "action_ready"
+  ],
+  "reason": "A packing list for three places is a plan to produce.",
+  "unsure": false
+ },
+ {
+  "qid": "t_1a6a6fa7_depth",
+  "id": "1a6a6fa7",
+  "field": "depth",
+  "answer": "brief",
+  "ok": [
+   "brief",
+   "standard"
+  ],
+  "reason": "Stated intention; a short reply offering a habit, or a starter plan, both fine.",
+  "unsure": false
+ },
+ {
+  "qid": "t_ba36d5d7_mode",
+  "id": "ba36d5d7",
+  "field": "mode",
+  "answer": "action_ready",
+  "ok": [
+   "action_ready",
+   "research"
+  ],
+  "reason": "Asks Gremly to make a recipe; plan or information template both fine.",
+  "unsure": false
+ },
+ {
+  "qid": "t_ba36d5d7_search",
+  "id": "ba36d5d7",
+  "field": "search",
+  "answer": "none",
+  "ok": [
+   "none",
+   "maybe"
+  ],
+  "reason": "A recovery smoothie recipe is general nutrition knowledge.",
+  "unsure": false
+ },
+ {
+  "qid": "t_f9c2cbcc_mode",
+  "id": "f9c2cbcc",
+  "field": "mode",
+  "answer": "research",
+  "ok": [
+   "research"
+  ],
+  "reason": "Correction, but they still need cafes open now; update would close the loop.",
+  "unsure": false
+ },
+ {
+  "qid": "t_f9c2cbcc_depth",
+  "id": "f9c2cbcc",
+  "field": "depth",
+  "answer": "standard",
+  "ok": [
+   "standard",
+   "brief"
+  ],
+  "reason": "Correct the time and give open options; brief with two options also fine.",
+  "unsure": false
+ },
+ {
+  "qid": "t_212f6b51_search",
+  "id": "212f6b51",
+  "field": "search",
+  "answer": "required",
+  "ok": [
+   "required",
+   "maybe"
+  ],
+  "reason": "Things to do near two SF parks means naming businesses; maybe also workable.",
+  "unsure": false
+ },
+ {
+  "qid": "t_8b2b0936_depth",
+  "id": "8b2b0936",
+  "field": "depth",
+  "answer": "standard",
+  "ok": [
+   "standard"
+  ],
+  "reason": "A checklist of must dos, not asked in detail; standard covers two cities.",
+  "unsure": false
+ },
+ {
+  "qid": "t_3b793565_depth",
+  "id": "3b793565",
+  "field": "depth",
+  "answer": "brief",
+  "ok": [
+   "brief",
+   "standard"
+  ],
+  "reason": "User asked for three short tips; brief fits, standard also fine.",
+  "unsure": false
+ },
+ {
+  "qid": "a_527b77ed",
+  "id": "527b77ed",
+  "kind": "agreed",
+  "mode": "research",
+  "depth": "standard",
+  "search": "required",
+  "changed": false
+ },
+ {
+  "qid": "a_63621989",
+  "id": "63621989",
+  "kind": "agreed",
+  "mode": "action_ready",
+  "depth": "standard",
+  "search": "required",
+  "changed": false
+ },
+ {
+  "qid": "a_8309988c",
+  "id": "8309988c",
+  "kind": "agreed",
+  "mode": "research",
+  "depth": "standard",
+  "search": "none",
+  "changed": false
+ },
+ {
+  "qid": "a_5c1727ef",
+  "id": "5c1727ef",
+  "kind": "agreed",
+  "mode": "quick_ask",
+  "depth": "brief",
+  "search": "none",
+  "changed": false
+ },
+ {
+  "qid": "a_dc5e35d5",
+  "id": "dc5e35d5",
+  "kind": "agreed",
+  "mode": "research",
+  "depth": "standard",
+  "search": "required",
+  "changed": false
+ },
+ {
+  "qid": "a_565a7a81",
+  "id": "565a7a81",
+  "kind": "agreed",
+  "mode": "capture",
+  "depth": "brief",
+  "search": "none",
+  "changed": false
+ },
+ {
+  "qid": "a_b1e9dd44",
+  "id": "b1e9dd44",
+  "kind": "agreed",
+  "mode": "capture",
+  "depth": "brief",
+  "search": "none",
+  "changed": false
+ },
+ {
+  "qid": "a_9472a58b",
+  "id": "9472a58b",
+  "kind": "agreed",
+  "mode": "research",
+  "depth": "standard",
+  "search": "none",
+  "changed": false
+ },
+ {
+  "qid": "a_f01bb9f3",
+  "id": "f01bb9f3",
+  "kind": "agreed",
+  "mode": "exploratory",
+  "depth": "standard",
+  "search": "none",
+  "changed": false
+ },
+ {
+  "qid": "a_5d58fb44",
+  "id": "5d58fb44",
+  "kind": "agreed",
+  "mode": "update",
+  "depth": "brief",
+  "search": "none",
+  "changed": false
+ },
+ {
+  "qid": "a_e43aa77b",
+  "id": "e43aa77b",
+  "kind": "agreed",
+  "mode": "update",
+  "depth": "brief",
+  "search": "none",
+  "changed": false
+ },
+ {
+  "qid": "a_30adaa33",
+  "id": "30adaa33",
+  "kind": "agreed",
+  "mode": "comparison",
+  "depth": "standard",
+  "search": "none",
+  "changed": false
+ },
+ {
+  "qid": "a_1c4d9c3e",
+  "id": "1c4d9c3e",
+  "kind": "agreed",
+  "mode": "research",
+  "depth": "standard",
+  "search": "required",
+  "changed": false
+ },
+ {
+  "qid": "a_632ddf6e",
+  "id": "632ddf6e",
+  "kind": "agreed",
+  "mode": "research",
+  "depth": "standard",
+  "search": "none",
+  "changed": false
+ },
+ {
+  "qid": "a_994a8afe",
+  "id": "994a8afe",
+  "kind": "agreed",
+  "mode": "capture",
+  "depth": "brief",
+  "search": "none",
+  "changed": false
+ },
+ {
+  "qid": "a_c501f433",
+  "id": "c501f433",
+  "kind": "agreed",
+  "mode": "capture",
+  "depth": "brief",
+  "search": "none",
+  "changed": false
+ },
+ {
+  "qid": "a_032b5b3d",
+  "id": "032b5b3d",
+  "kind": "agreed",
+  "mode": "research",
+  "depth": "standard",
+  "search": "required",
+  "changed": false
+ },
+ {
+  "qid": "a_a66bcbdc",
+  "id": "a66bcbdc",
+  "kind": "agreed",
+  "mode": "research",
+  "depth": "standard",
+  "search": "maybe",
+  "changed": false
+ },
+ {
+  "qid": "a_c839af99",
+  "id": "c839af99",
+  "kind": "agreed",
+  "mode": "research",
+  "depth": "standard",
+  "search": "required",
+  "changed": false
+ },
+ {
+  "qid": "a_e80282fe",
+  "id": "e80282fe",
+  "kind": "agreed",
+  "mode": "emotional",
+  "depth": "standard",
+  "search": "none",
+  "changed": false
+ }
+]
