@@ -69,12 +69,22 @@ const EDIT_FIELDS = {
  * `tracked` maps the short id used in the prompt to the item; `userTexts` are the
  * user messages the evidence must be grounded in. Pure.
  */
+/** The user's own words name the item: at least one of its content words is in what they said. */
+export function titleMentioned(title, userTexts) {
+  const t = keyToks(title);
+  if (t.length === 0) return false;
+  const said = new Set(keyToks((userTexts || []).join(' ')));
+  return t.some((w) => said.has(w));
+}
+
 export function editsToPillItems(edits, tracked, userTexts) {
   if (!Array.isArray(edits)) return [];
   const out = [];
   for (const e of edits) {
     const item = tracked.get(String(e?.entity_id || ''));
     if (!item) continue;
+    // an edit to something the user never spoke about is the extractor's idea, not theirs
+    if (!titleMentioned(item.title, userTexts)) continue;
     const field = String(e.field || '');
     if (!EDIT_FIELDS[item.type]?.includes(field)) continue;
     const value = String(e.value ?? '').trim();
@@ -131,6 +141,159 @@ export function mentionEditItem(mention) {
     evidence: '',
     confidence: 90,
   };
+}
+
+/**
+ * When this turn showed a card for one of the user's items, a "new" item the
+ * extractor pulled from the same message is that item again in other words.
+ * Drop new extractions that share wording with the card's item and rest on
+ * the message that produced the card; things said in earlier turns stay.
+ */
+export function withoutCardDuplicates(extractions, card, lastUserText) {
+  const title = card?.entity?.title;
+  if (!title || !Array.isArray(extractions)) return extractions || [];
+  const cardToks = new Set(keyToks(title));
+  if (cardToks.size === 0) return extractions;
+  return extractions.filter((e) => {
+    if (e?.type === 'edit') return true;
+    const t = keyToks(e?.title || '');
+    let hit = 0;
+    for (const w of t) if (cardToks.has(w)) hit++;
+    if (hit === 0) return true;
+    const fromThisTurn =
+      !e?.evidence || !lastUserText || evidenceGrounded(e.evidence, [lastUserText]);
+    return !fromThisTurn;
+  });
+}
+
+/**
+ * The pill reconciles against what the user already has before it offers
+ * anything new. A new extraction that shares two words with an existing item
+ * is that item in other words: for a note it becomes "add to" that note, for
+ * a todo or habit it is dropped (an edit, if any, is offered separately).
+ */
+export function reconcileWithExisting(extractions, tracked) {
+  if (!Array.isArray(extractions) || !tracked || tracked.size === 0) return extractions || [];
+  const existing = [...tracked.values()].map((it) => ({ it, toks: new Set(keyToks(it.title)) }));
+  const out = [];
+  for (const e of extractions) {
+    if (!e || e.type === 'edit') {
+      out.push(e);
+      continue;
+    }
+    const t = keyToks(e.title || '');
+    let best = null;
+    let bestHits = 0;
+    for (const x of existing) {
+      let hit = 0;
+      for (const w of t) if (x.toks.has(w)) hit++;
+      if (hit > bestHits) {
+        bestHits = hit;
+        best = x.it;
+      }
+    }
+    const same =
+      bestHits >= 2 ||
+      (t.length > 0 &&
+        bestHits === t.length &&
+        bestHits >= 1 &&
+        t.length <= 2 &&
+        best &&
+        new Set(keyToks(best.title)).size <= 2);
+    if (!same) {
+      out.push(e);
+      continue;
+    }
+    if (best.type === 'note') {
+      const text = [e.title, e.body].filter(Boolean).join(': ');
+      out.push({
+        id: Math.random().toString(36).slice(2, 10),
+        type: 'edit',
+        entity_id: best.id,
+        entity_type: 'note',
+        entity_title: best.title,
+        field: 'body_add',
+        from: null,
+        to: text,
+        title: `Add to ${best.title}`,
+        body: null,
+        evidence: String(e.evidence || ''),
+        confidence: 80,
+        reconciled_from: e.title,
+      });
+    }
+    // a todo or habit already covers it: nothing new to save
+  }
+  // one add-to per note: the extractor's own edit wins over a converted one
+  const own = new Set(
+    out
+      .filter((e) => e?.type === 'edit' && e.field === 'body_add' && !e.reconciled_from)
+      .map((e) => e.entity_id),
+  );
+  const seen = new Set();
+  return out.filter((e) => {
+    if (e?.type !== 'edit' || e.field !== 'body_add') return true;
+    if (e.reconciled_from && own.has(e.entity_id)) return false;
+    if (seen.has(e.entity_id)) return false;
+    seen.add(e.entity_id);
+    return true;
+  });
+}
+
+/**
+ * The pill's final list: new items and add-tos from reconciliation, plus the
+ * extractor's own edits, with one add-to per note (the extractor's own wins)
+ * and one edit per item and field.
+ */
+export function mergePillItems(extractions, editItems) {
+  const own = new Set(
+    (editItems || []).filter((e) => e.field === 'body_add').map((e) => e.entity_id),
+  );
+  const kept = (extractions || []).filter(
+    (e) =>
+      !(e?.type === 'edit' && e.field === 'body_add' && e.reconciled_from && own.has(e.entity_id)),
+  );
+  const seen = new Set();
+  return [...kept, ...(editItems || [])].filter((e) => {
+    if (e?.type !== 'edit') return true;
+    const key = `${e.entity_id}:${e.field}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+const KEY_STOP = new Set([
+  'the',
+  'a',
+  'an',
+  'to',
+  'for',
+  'of',
+  'in',
+  'on',
+  'and',
+  'with',
+  'my',
+  'me',
+  'up',
+  'do',
+  'get',
+  'finish',
+  'complete',
+  'build',
+  'make',
+  'start',
+]);
+function keyToks(s) {
+  return (
+    String(s || '')
+      .toLowerCase()
+      .replace(/[’']/g, '')
+      .match(/[a-z0-9]+/g) || []
+  )
+    .filter((t) => t.length > 2 && !KEY_STOP.has(t))
+    .map((t) => t.replace(/(ing|ed|es|s)$/, ''));
 }
 
 // Turns whose reply mode should never show the Save items pill: extraction is

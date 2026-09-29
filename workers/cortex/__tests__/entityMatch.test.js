@@ -13,6 +13,8 @@ import {
   applyEntityCardToTriage,
   recentCardPromptSection,
   relatedItemsPromptSection,
+  theirItemsPromptSection,
+  attentionItems,
   todayIsoIn,
   noteDay,
   matchEntity,
@@ -22,6 +24,9 @@ import {
 import {
   editsToPillItems,
   mentionEditItem,
+  withoutCardDuplicates,
+  reconcileWithExisting,
+  mergePillItems,
   withEditsRule,
   withEvidenceRule,
   buildChatExtractionPrompt,
@@ -453,10 +458,25 @@ test('the pill can move a dated note, and skips fields a note does not have', ()
       },
     ],
     tracked,
-    ["Let's move it to Friday"],
+    ['The vet appointment needs to move', "Let's move it to Friday"],
   );
   expect(items).toHaveLength(1);
   expect(items[0]).toMatchObject({ entity_type: 'note', field: 'due_day', to: '2026-10-02' });
+  // an edit to something the user never spoke about is not offered
+  expect(
+    editsToPillItems(
+      [
+        {
+          entity_id: 'nnnn0000',
+          field: 'due_day',
+          value: '2026-10-02',
+          evidence: "let's move it to friday",
+        },
+      ],
+      tracked,
+      ["Let's move it to Friday"],
+    ),
+  ).toHaveLength(0);
 });
 
 test('a mere mention gets no card: view needs a high confidence, and a note body is not a card field', () => {
@@ -504,9 +524,9 @@ test('the last card and what became of it reach the reply prompt', () => {
     summary: 'Done. Bella Vet Appointment is now Fri 2 Oct.',
   });
   expect(done).toContain('=== LAST CARD ===');
-  expect(done).toContain('confirmed the change');
+  expect(done).toContain('tapped Yes');
   expect(done).toContain('Fri 2 Oct');
-  expect(recentCardPromptSection({ ...base, status: 'pending' })).toContain('have not acted');
+  expect(recentCardPromptSection({ ...base, status: 'pending' })).toContain('have not tapped');
   expect(recentCardPromptSection({ ...base, status: 'undone' })).toContain('undid it');
   expect(recentCardPromptSection({ ...base, type: 'space', status: 'applied' })).toBe('');
 });
@@ -561,7 +581,7 @@ test('details shared about a note become an add to the note in the pill, never a
   ).toContain('body_add');
 });
 
-test('said in passing: no card, the change goes to the pill, and the reply hears about the item', async () => {
+test('said in passing: a concrete change is an edit card under a normal reply; a bare mention is context', async () => {
   const cands = rankCandidates('I should probably call Kim and Andrew by the end of the week', [
     { id: 'kkkk0000-0000', type: 'todo', title: 'Call Kim and Andrew', due_day: '2026-07-16' },
     { id: 'jjjj0000-0000', type: 'todo', title: 'Meet Kim and Andrew', due_day: null },
@@ -577,12 +597,13 @@ test('said in passing: no card, the change goes to the pill, and the reply hears
     cands,
   );
   expect(heard).toEqual({
-    kind: 'mention',
+    kind: 'edit',
     entity: cands.find((c) => c.id === 'kkkk0000-0000'),
     change: { field: 'due_day', from: '2026-07-16', to: '2026-10-02' },
     confidence: 92,
+    inPassing: true,
   });
-  // the same value as today is not a change; an unusable one is dropped, the mention kept
+  // the same value as today, or an unusable one, leaves a plain mention
   expect(
     decideCard(
       {
@@ -593,38 +614,28 @@ test('said in passing: no card, the change goes to the pill, and the reply hears
         confidence: 92,
       },
       cands,
-    ).change,
-  ).toBeNull();
-  // the pill item the matcher seeds
-  const item = mentionEditItem(heard);
+    ),
+  ).toMatchObject({ kind: 'mention', change: null });
+  // an in-passing card never takes over the reply; an asked-for one does
+  const triage = { mode: 'capture', depth: 'brief', search: 'none' };
+  expect(applyEntityCardToTriage(triage, heard)).toBe(triage);
+  expect(applyEntityCardToTriage(triage, { ...heard, inPassing: false }).mode).toBe('entity_card');
+  const sec = entityCardPromptSection(heard);
+  expect(sec).toContain('under your reply');
+  expect(sec).toContain('the way you normally would');
+  expect(sec).toContain('never say it is done');
+  // the pill item helper still works for a mention that carries a change
+  const item = mentionEditItem({ ...heard, kind: 'mention' });
   expect(item).toMatchObject({
     type: 'edit',
     entity_id: 'kkkk0000-0000',
-    entity_type: 'todo',
-    field: 'due_day',
-    from: '2026-07-16',
-    to: '2026-10-02',
     title: 'Update Call Kim and Andrew',
   });
-  expect(mentionEditItem({ ...heard, change: null })).toBeNull();
+  expect(mentionEditItem({ kind: 'mention', entity: heard.entity, change: null })).toBeNull();
   expect(mentionEditItem(null)).toBeNull();
-  // the reply prompt hears the item, marked overdue, and is told not to offer anything
-  const sec = relatedItemsPromptSection(cands, '2026-09-29');
-  expect(sec).toContain('=== THEIR RELATED ITEMS ===');
-  expect(sec).toContain('todo "Call Kim and Andrew", was due 2026-07-16 (overdue)');
-  expect(sec).toContain('todo "Meet Kin'.slice(0, 0) + 'todo "Meet Kim and Andrew", no day set');
-  expect(sec).toContain('Do not offer to change, save or track anything');
-  expect(relatedItemsPromptSection([], '2026-09-29')).toBe('');
-  // a weak wording match is left out
-  expect(
-    relatedItemsPromptSection(
-      [{ id: 'x', type: 'todo', title: 'Buy milk', score: 0.2 }],
-      '2026-09-29',
-    ),
-  ).toBe('');
   expect(todayIsoIn('America/Los_Angeles')).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 
-  // matchEntity carries all three out
+  // matchEntity carries the whole picture out, even with no wording match
   configureModels({ ENTITY_CARDS: 'on', OPENAI_API_KEY: 'k' });
   globalThis.fetch = async () =>
     new Response(
@@ -640,17 +651,208 @@ test('said in passing: no card, the change goes to the pill, and the reply hears
       }),
       { status: 200 },
     );
+  const list = [
+    { id: 'kkkk0000-0000', type: 'todo', title: 'Call Kim and Andrew', due_day: '2026-07-16' },
+    { id: 'pppp0000-0000', type: 'todo', title: 'Pay the plumber', due_day: '2026-10-01' },
+  ];
   const match = await matchEntity({
     env: {},
     userId: 'u',
     message: 'I should probably call Kim and Andrew by the end of the week',
     todayStr: 'Tuesday, September 29, 2026',
-    items: [
-      { id: 'kkkk0000-0000', type: 'todo', title: 'Call Kim and Andrew', due_day: '2026-07-16' },
-    ],
+    todayIso: '2026-09-29',
+    items: list,
   });
-  expect(match.card).toBeNull();
-  expect(match.mention.change.to).toBe('2026-10-02');
-  expect(match.related).toHaveLength(1);
+  expect(match.card).toMatchObject({ kind: 'edit', inPassing: true });
+  expect(match.mention).toBeNull();
+  expect(match.all).toBe(list);
+  expect(match.attention.map((c) => c.id)).toEqual(['pppp0000-0000']); // due this week; July's slip is too old to raise
+  const quiet = await matchEntity({
+    env: {},
+    userId: 'u',
+    message: 'how are you',
+    todayStr: 'x',
+    todayIso: '2026-09-29',
+    items: list,
+  });
+  expect(quiet.card).toBeNull();
+  expect(quiet.related).toHaveLength(0);
+  expect(quiet.attention).toHaveLength(1);
   delete globalThis.fetch;
+});
+
+test('what needs attention: due this week first, then the most recently overdue todos, no habits', () => {
+  const items = [
+    { id: 'a', type: 'todo', title: 'Old one', due_day: '2026-07-16' },
+    { id: 'b', type: 'todo', title: 'Older one', due_day: '2026-06-01' },
+    { id: 'c', type: 'todo', title: 'Tomorrow', due_day: '2026-09-30' },
+    { id: 'd', type: 'todo', title: 'Next month', due_day: '2026-10-20' },
+    { id: 'e', type: 'note', title: 'Bella vet', due_day: '2026-10-02' },
+    { id: 'f', type: 'note', title: 'Old event', due_day: '2026-09-01' },
+    { id: 'g', type: 'habit', title: 'Run', frequency: 'daily', due_day: '2026-09-29' },
+    { id: 'h', type: 'todo', title: 'No day' },
+  ];
+  // July's backlog is the sweep's business; only what slipped in the last month is raised
+  expect(attentionItems(items, '2026-09-29').map((c) => c.id)).toEqual(['c', 'e']);
+  expect(
+    attentionItems(
+      [{ id: 'r', type: 'todo', title: 'Recent slip', due_day: '2026-09-20' }],
+      '2026-09-29',
+    ).map((c) => c.id),
+  ).toEqual(['r']);
+  // an emotional turn hears only what the user named
+  const quietSec = theirItemsPromptSection(
+    { related: [], attention: attentionItems(items, '2026-09-29') },
+    '2026-09-29',
+    { mode: 'emotional' },
+  );
+  expect(quietSec).toBe('');
+  expect(attentionItems(items, null)).toEqual([]);
+  const sec = theirItemsPromptSection(
+    {
+      related: [
+        {
+          id: 'a',
+          type: 'todo',
+          title: 'Old one',
+          due_day: '2026-07-16',
+          score: 1.3,
+          hits: 2,
+          share: 1,
+        },
+      ],
+      attention: attentionItems(items, '2026-09-29'),
+    },
+    '2026-09-29',
+  );
+  expect(sec).toContain('=== WHAT THEY HAVE ON ===');
+  expect(sec).toContain('You may offer the natural next step');
+  expect(sec).toContain('never say a change has been made');
+  expect(sec).toContain(
+    'Matching what they just said:\n- todo "Old one", was due 2026-07-16 (overdue)',
+  );
+  expect(sec).toContain('Overdue or coming up this week:');
+  expect(sec).not.toMatch(/Overdue or coming up this week:[\s\S]*"Old one"/); // not listed twice
+  expect(sec).toContain('- note "Bella vet", 2026-10-02');
+  expect(theirItemsPromptSection({ related: [], attention: [] }, '2026-09-29')).toBe('');
+  expect(theirItemsPromptSection(null, '2026-09-29')).toBe('');
+});
+
+test('a short yes points at what Gremly named in its last reply', () => {
+  const items = [
+    { id: 'kkkk0000-0000', type: 'todo', title: 'Call Kim and Andrew', due_day: '2026-07-16' },
+    { id: 'zzzz0000-0000', type: 'todo', title: 'Buy milk' },
+  ];
+  const prev = {
+    userMsg: 'I need to call Kim and Andrew this week',
+    assistantMsg:
+      'That call to Kim and Andrew has been on your list since July. Want it moved to Friday?',
+  };
+  const cands = candidatesFor('yes please', items, null, 6, prev);
+  expect(cands.map((c) => c.id)).toEqual(['kkkk0000-0000']);
+  expect(cands[0].named).toBe(true);
+  expect(
+    buildEntityMatchInput({
+      todayStr: 'x',
+      message: 'yes please',
+      previousExchange: prev,
+      candidates: cands,
+    }),
+  ).toContain('[named in your last reply]');
+  // a message with words of its own is ranked on those words
+  expect(candidatesFor('buy milk tonight', items, null, 6, prev)[0].id).toBe('zzzz0000-0000');
+});
+
+test('asking for what it already is: a view card that says so, not an edit', () => {
+  const cands = rankCandidates('move the dentist to wednesday', items);
+  const same = decideCard(
+    {
+      refers: true,
+      entity_id: 'aaaa1111-0000',
+      intent: 'edit',
+      change: { field: 'due_day', value: '2026-09-30' },
+      confidence: 95,
+    },
+    cands,
+  );
+  expect(same).toMatchObject({ kind: 'view', intent: 'view', already: true });
+  expect(entityCardPromptSection(same)).toContain('already set the way they asked');
+});
+
+test('the reply only hears items that really match the wording, not one shared word', () => {
+  const list = [
+    { id: 'v', type: 'note', title: 'Bella Vet Appointment', due_day: '2026-09-30' },
+    { id: 'b', type: 'todo', title: 'Book Appointment', due_day: '2026-07-17' },
+    { id: 'w', type: 'todo', title: 'Walk with Bella' },
+  ];
+  const related = rankCandidates("I don't have time for Bellas appointment tomorrow", list);
+  const sec = theirItemsPromptSection({ related, attention: [] }, '2026-09-29');
+  expect(sec).toContain('"Bella Vet Appointment"');
+  expect(sec).not.toContain('"Book Appointment"');
+  expect(sec).not.toContain('"Walk with Bella"');
+  expect(sec).toContain('never offer to change several at once');
+});
+
+test('the pill reconciles against what they already have before offering anything new', () => {
+  const tracked = new Map([
+    ['mmmm0000', { id: 'mmmm0000-0000', type: 'note', title: 'Clarify Mexico trip plans' }],
+    ['wwww0000', { id: 'wwww0000-0000', type: 'todo', title: 'Build Mind Drop Widget' }],
+  ]);
+  const card = { entity: { id: 'wwww0000-0000', type: 'todo', title: 'Build Mind Drop Widget' } };
+  const last = 'Yeah I should probably get the widget done by eow too';
+  // the item on this turn's card is not a new item too
+  const afterCard = withoutCardDuplicates(
+    [
+      {
+        type: 'event',
+        title: 'Complete the Gremly widget',
+        evidence: 'get the widget done by eow',
+      },
+      {
+        type: 'event',
+        title: 'Finish Mind Drop and chat',
+        evidence: 'the mind drop and chat finished by end of week',
+      },
+      { type: 'todo', title: 'Buy milk', evidence: 'buy milk' },
+    ],
+    card,
+    last,
+  );
+  expect(afterCard.map((e) => e.title)).toEqual(['Finish Mind Drop and chat', 'Buy milk']);
+  // something a note already covers becomes an add-to; something a todo covers is dropped
+  const reconciled = reconcileWithExisting(
+    [
+      {
+        type: 'event',
+        title: 'Mexico trip for Thanksgiving',
+        body: 'late November',
+        evidence: 'x',
+      },
+      { type: 'event', title: 'Finish Mind Drop and chat', evidence: 'y' },
+      { type: 'todo', title: 'Buy milk', evidence: 'z' },
+    ],
+    tracked,
+  );
+  expect(reconciled.map((e) => `${e.type}:${e.title}`)).toEqual([
+    'edit:Add to Clarify Mexico trip plans',
+    'todo:Buy milk',
+  ]);
+  expect(reconciled[0]).toMatchObject({
+    field: 'body_add',
+    entity_id: 'mmmm0000-0000',
+    to: 'Mexico trip for Thanksgiving: late November',
+  });
+  // the extractor's own add-to wins over a converted one, and edits never repeat
+  const own = {
+    type: 'edit',
+    field: 'body_add',
+    entity_id: 'mmmm0000-0000',
+    title: 'Add to Clarify Mexico trip plans',
+    to: 'their words',
+  };
+  const merged = mergePillItems(reconciled, [own, { ...own }]);
+  expect(merged.filter((e) => e.type === 'edit')).toHaveLength(1);
+  expect(merged.find((e) => e.type === 'edit').to).toBe('their words');
+  expect(reconcileWithExisting([], tracked)).toEqual([]);
+  expect(reconcileWithExisting([{ type: 'todo', title: 'Buy milk' }], new Map())).toHaveLength(1);
 });

@@ -207,12 +207,15 @@ import {
   entityCardPromptSection,
   applyEntityCardToTriage,
   recentCardPromptSection,
-  relatedItemsPromptSection,
+  theirItemsPromptSection,
   todayIsoIn,
   noteDay,
 } from './entityMatch.js';
 import {
   mentionEditItem,
+  withoutCardDuplicates,
+  reconcileWithExisting,
+  mergePillItems,
   buildChatExtractionPrompt,
   withEvidenceRule,
   withEditsRule,
@@ -11666,6 +11669,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   message: lastUserMsgSpace,
                   previousExchange,
                   recent: body.recentEntity || null,
+                  todayIso: todayIsoIn(userTimezone),
                   todayStr: new Intl.DateTimeFormat('en-US', {
                     weekday: 'long',
                     year: 'numeric',
@@ -11731,9 +11735,10 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
 
             if (entityCard) genConfig.systemPrompt += entityCardPromptSection(entityCard);
             genConfig.systemPrompt += recentCardPromptSection(body.recentEntity);
-            genConfig.systemPrompt += relatedItemsPromptSection(
-              entityMatch?.related,
+            genConfig.systemPrompt += theirItemsPromptSection(
+              entityMatch,
               todayIsoIn(userTimezone),
+              { mode: triage.mode },
             );
 
             const spaceChatMessages = [
@@ -12503,6 +12508,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   message: lastUserMsg,
                   previousExchange,
                   recent: body.recentEntity || null,
+                  todayIso: todayIsoIn(userTimezone),
                   todayStr: new Intl.DateTimeFormat('en-US', {
                     weekday: 'long',
                     year: 'numeric',
@@ -12561,9 +12567,10 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
 
             if (entityCard) genConfig.systemPrompt += entityCardPromptSection(entityCard);
             genConfig.systemPrompt += recentCardPromptSection(body.recentEntity);
-            genConfig.systemPrompt += relatedItemsPromptSection(
-              entityMatch?.related,
+            genConfig.systemPrompt += theirItemsPromptSection(
+              entityMatch,
               todayIsoIn(userTimezone),
+              { mode: triage.mode },
             );
 
             const chatMessages = [
@@ -12948,32 +12955,66 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       apikey: env.SUPABASE_SERVICE_KEY,
                       Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
                     };
+                    // The turn's item list (entityMatch.all) is the one the reply and the
+                    // card used, so the pill reconciles against the same picture. The
+                    // fetches below run only when the matcher did not (flag off, or failed).
+                    const shared = Array.isArray(entityMatch?.all) ? entityMatch.all : null;
                     const [summaryRes, todosRes, habitsRes, notesRes] = await Promise.all([
                       fetch(
                         `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=running_summary`,
                         { headers: supaHeaders },
                       ),
-                      fetch(
-                        `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${authenticatedUserId}&completed_at=is.null&archived=not.is.true&select=id,title,name,due_day,due_time&order=updated_at.desc&limit=80`,
-                        { headers: supaHeaders },
-                      ),
-                      fetch(
-                        `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${authenticatedUserId}&archived_at=is.null&select=id,title,name,frequency&limit=30`,
-                        { headers: supaHeaders },
-                      ),
-                      // notes with a day, or made recently: appointments and events live here
-                      fetch(
-                        `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${authenticatedUserId}&archived=not.is.true&select=id,title,target_date,event_time,views&order=updated_at.desc&limit=20`,
-                        { headers: supaHeaders },
-                      ),
+                      shared
+                        ? null
+                        : fetch(
+                            `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${authenticatedUserId}&completed_at=is.null&archived=not.is.true&select=id,title,name,due_day,due_time&order=updated_at.desc&limit=80`,
+                            { headers: supaHeaders },
+                          ),
+                      shared
+                        ? null
+                        : fetch(
+                            `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${authenticatedUserId}&archived_at=is.null&select=id,title,name,frequency&limit=30`,
+                            { headers: supaHeaders },
+                          ),
+                      shared
+                        ? null
+                        : fetch(
+                            `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${authenticatedUserId}&archived=not.is.true&select=id,title,target_date,event_time,views&order=updated_at.desc&limit=20`,
+                            { headers: supaHeaders },
+                          ),
                     ]);
                     const summaryData = summaryRes.ok
                       ? await summaryRes.json().catch(() => [])
                       : [];
                     const runningSummary = summaryData?.[0]?.running_summary || null;
-                    const todosData = todosRes.ok ? await todosRes.json().catch(() => []) : [];
-                    const habitsData = habitsRes.ok ? await habitsRes.json().catch(() => []) : [];
-                    const notesData = notesRes.ok ? await notesRes.json().catch(() => []) : [];
+                    const fromShared = (type) =>
+                      shared
+                        .filter((i) => i.type === type)
+                        .map((i) => ({
+                          id: i.id,
+                          title: i.title,
+                          name: i.title,
+                          due_day: i.due_day || null,
+                          due_time: i.due_time || null,
+                          target_date: i.due_day || null,
+                          event_time: i.due_time || null,
+                          frequency: i.frequency || null,
+                        }));
+                    const todosData = shared
+                      ? fromShared('todo')
+                      : todosRes?.ok
+                        ? await todosRes.json().catch(() => [])
+                        : [];
+                    const habitsData = shared
+                      ? fromShared('habit')
+                      : habitsRes?.ok
+                        ? await habitsRes.json().catch(() => [])
+                        : [];
+                    const notesData = shared
+                      ? fromShared('note')
+                      : notesRes?.ok
+                        ? await notesRes.json().catch(() => [])
+                        : [];
 
                     // With entity cards on, the list carries ids so the extractor can
                     // record edits to tracked items (chatPrompts.js, EXTRACTION_EDITS_RULE)
@@ -13077,6 +13118,20 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                           extractResult.extractions = extractResult.extractions.filter((x) =>
                             evidenceGrounded(x.evidence, userTexts),
                           );
+                          // the item on this turn's card is not a new item as well
+                          extractResult.extractions = withoutCardDuplicates(
+                            extractResult.extractions,
+                            entityCard,
+                            userTexts[userTexts.length - 1] || '',
+                          );
+                          // and nothing they already have comes back as new: a note
+                          // gets "add to", a todo or habit is left to its edit
+                          if (editsOn) {
+                            extractResult.extractions = reconcileWithExisting(
+                              extractResult.extractions,
+                              tracked,
+                            );
+                          }
                           if (before !== extractResult.extractions.length) {
                             console.log('[GeneralChat] Extraction evidence check dropped', {
                               dropped: before - extractResult.extractions.length,
@@ -13105,10 +13160,10 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                             editItems.push(heard);
                           }
                           if (editItems.length > 0) {
-                            extractResult.extractions = [
-                              ...(extractResult.extractions || []),
-                              ...editItems,
-                            ];
+                            extractResult.extractions = mergePillItems(
+                              extractResult.extractions || [],
+                              editItems,
+                            );
                             console.log('[GeneralChat] Extraction proposed edits', {
                               edits: editItems.length,
                             });
@@ -14449,6 +14504,7 @@ function runScopedChatStream(
             message: lastUserMsg,
             previousExchange,
             recent: body.recentEntity || null,
+            todayIso: todayIsoIn(userTimezone),
             todayStr: new Intl.DateTimeFormat('en-US', {
               weekday: 'long',
               year: 'numeric',
@@ -14530,10 +14586,9 @@ function runScopedChatStream(
 
       if (entityCard) genConfig.systemPrompt += entityCardPromptSection(entityCard);
       genConfig.systemPrompt += recentCardPromptSection(body.recentEntity);
-      genConfig.systemPrompt += relatedItemsPromptSection(
-        entityMatch?.related,
-        todayIsoIn(userTimezone),
-      );
+      genConfig.systemPrompt += theirItemsPromptSection(entityMatch, todayIsoIn(userTimezone), {
+        mode: triage.mode,
+      });
       const chatMessages = [
         { role: 'system', content: genConfig.systemPrompt },
         ...processedMessages.filter((m) => m.role !== 'system'),
