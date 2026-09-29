@@ -1,0 +1,19 @@
+# Prompt hashes are md5 (first 12 hex) of each prompt's text and still match in this repo.
+# File hashes below are of the scripts as run in the audit workspace, before import paths were changed for this repo.
+FREEZE round2 2026-09-29T06:28:06.665Z
+v35 a3f5e8329acf 10482
+v4 8de6119be4de 12508
+v41 c07710eaede7 11641
+habit f3943a6b3c8b 11181
+multi f593a8d593ca 11310
+question b7dc94ccb6b8 11070
+clarify configs 6923cabf7aec
+565ec6bee181c33a3b85f06be6a542ee  designs/classifyV4.mjs
+39aec65a4f998b272995edec2bf2b8b2  designs/designs.mjs
+5d4048084b607861dee40eb9facd140f  designs/part-report.mjs
+a8c5df7853822c6e6d5a7fab1dda83b2  designs/rescore-gates.mjs
+f5599f2721f28f117dda04ff5c66d0ae  designs/run-design.mjs
+81c71013ec9035998a90e3ad39afd74f  designs/run-parts.mjs
+c46e5e2d47ecaa004a12a0b924ec8fde  designs/score2.mjs
+aa8a50984c8c2c568182e1f97152dae5  designs/specialists.mjs
+30054ceee52188e091472473deab1e26  worker/classifyV3.js

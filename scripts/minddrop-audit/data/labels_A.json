@@ -1,0 +1,4123 @@
+[
+ {
+  "id": "d000",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d001",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d002",
+  "primary": "multi",
+  "acceptable": [
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "two separate tasks"
+ },
+ {
+  "id": "d003",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d004",
+  "primary": "log/general",
+  "acceptable": [
+   "log/general"
+  ],
+  "question_ok": false,
+  "note": "factual seasonal reference, no stated intent to buy"
+ },
+ {
+  "id": "d005",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d006",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d007",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d008",
+  "primary": "log/idea",
+  "acceptable": [
+   "log/idea"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d009",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d010",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "no date or frequency; plain action"
+ },
+ {
+  "id": "d011",
+  "primary": "log/general",
+  "acceptable": [
+   "log/general"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d012",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d013",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "single morning, not recurring"
+ },
+ {
+  "id": "d014",
+  "primary": "multi",
+  "acceptable": [
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "idea plus todo"
+ },
+ {
+  "id": "d015",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": "frequency stated, commitment clear"
+ },
+ {
+  "id": "d016",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d017",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d018",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d019",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d020",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "vague but committed action"
+ },
+ {
+  "id": "d021",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d022",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d023",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous",
+   "todo"
+  ],
+  "question_ok": true,
+  "note": "no action or subject stated"
+ },
+ {
+  "id": "d024",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d025",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d026",
+  "primary": "log/event",
+  "acceptable": [
+   "log/event",
+   "log/general"
+  ],
+  "question_ok": false,
+  "note": "dated birthday; reference reading also fine"
+ },
+ {
+  "id": "d027",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": "reflective processing"
+ },
+ {
+  "id": "d028",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d029",
+  "primary": "multi",
+  "acceptable": [
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "feeling plus todo"
+ },
+ {
+  "id": "d030",
+  "primary": "multi",
+  "acceptable": [
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "feeling plus todo"
+ },
+ {
+  "id": "d031",
+  "primary": "habit/break_habit",
+  "acceptable": [
+   "habit/break_habit",
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "mental pattern to stop; checkability fuzzy"
+ },
+ {
+  "id": "d032",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d033",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d034",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d035",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d036",
+  "primary": "multi",
+  "acceptable": [
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "todo plus feeling"
+ },
+ {
+  "id": "d037",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d038",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d039",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous",
+   "todo"
+  ],
+  "question_ok": true,
+  "note": "bare noun: find, book, or contact note"
+ },
+ {
+  "id": "d040",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d041",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal",
+   "log/idea"
+  ],
+  "question_ok": false,
+  "note": "processing a floated possibility"
+ },
+ {
+  "id": "d042",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit",
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "routine phrasing; could be tonight only"
+ },
+ {
+  "id": "d043",
+  "primary": "multi",
+  "acceptable": [
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "todo plus habit"
+ },
+ {
+  "id": "d044",
+  "primary": "todo",
+  "acceptable": [
+   "todo",
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "related dev changes; could split"
+ },
+ {
+  "id": "d045",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d046",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous",
+   "log/idea"
+  ],
+  "question_ok": true,
+  "note": "maybe signals doubt about acting"
+ },
+ {
+  "id": "d047",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d048",
+  "primary": "log/idea",
+  "acceptable": [
+   "log/idea"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d049",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d050",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "no frequency"
+ },
+ {
+  "id": "d051",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d052",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d053",
+  "primary": "log/idea",
+  "acceptable": [
+   "log/idea"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d054",
+  "primary": "log/idea",
+  "acceptable": [
+   "log/idea",
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "feature idea or personal weekly habit, uncommitted"
+ },
+ {
+  "id": "d055",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d056",
+  "primary": "log/event",
+  "acceptable": [
+   "log/event"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d057",
+  "primary": "habit/break_habit",
+  "acceptable": [
+   "habit/break_habit"
+  ],
+  "question_ok": false,
+  "note": "clear behaviour to stop"
+ },
+ {
+  "id": "d058",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "no date, so not event"
+ },
+ {
+  "id": "d059",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d060",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d061",
+  "primary": "habit/break_habit",
+  "acceptable": [
+   "habit/break_habit"
+  ],
+  "question_ok": false,
+  "note": "standing rule"
+ },
+ {
+  "id": "d062",
+  "primary": "log/event",
+  "acceptable": [
+   "log/event"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d063",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "want less with no threshold"
+ },
+ {
+  "id": "d064",
+  "primary": "log/general",
+  "acceptable": [
+   "log/general"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d065",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d066",
+  "primary": "habit/break_habit",
+  "acceptable": [
+   "habit/break_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d067",
+  "primary": "log/event",
+  "acceptable": [
+   "log/event",
+   "log/general"
+  ],
+  "question_ok": false,
+  "note": "dated birthday; reference reading also fine"
+ },
+ {
+  "id": "d068",
+  "primary": "log/event",
+  "acceptable": [
+   "log/event"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d069",
+  "primary": "habit/break_habit",
+  "acceptable": [
+   "habit/break_habit"
+  ],
+  "question_ok": false,
+  "note": "trigger-based timing inherent"
+ },
+ {
+  "id": "d070",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "committed; details are criteria"
+ },
+ {
+  "id": "d071",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d072",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "one-off send"
+ },
+ {
+  "id": "d073",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d074",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d075",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d076",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d077",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d078",
+  "primary": "multi",
+  "acceptable": [
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "todo, habits and venting together"
+ },
+ {
+  "id": "d079",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d080",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d081",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d082",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d083",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d084",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d085",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d086",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d087",
+  "primary": "log/event",
+  "acceptable": [
+   "log/event"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d088",
+  "primary": "log/idea",
+  "acceptable": [
+   "log/idea"
+  ],
+  "question_ok": false,
+  "note": "consider signals uncommitted"
+ },
+ {
+  "id": "d089",
+  "primary": "habit/break_habit",
+  "acceptable": [
+   "habit/break_habit"
+  ],
+  "question_ok": false,
+  "note": "standing rule"
+ },
+ {
+  "id": "d090",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "want more with no amount or timing"
+ },
+ {
+  "id": "d091",
+  "primary": "habit/break_habit",
+  "acceptable": [
+   "habit/break_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d092",
+  "primary": "log/event",
+  "acceptable": [
+   "log/event"
+  ],
+  "question_ok": false,
+  "note": "worded as existing appointment"
+ },
+ {
+  "id": "d093",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "less with no amount; guide says ask"
+ },
+ {
+  "id": "d094",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d095",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous",
+   "habit/break_habit",
+   "todo"
+  ],
+  "question_ok": true,
+  "note": "one-day avoidance vs habit start"
+ },
+ {
+  "id": "d096",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d097",
+  "primary": "log/idea",
+  "acceptable": [
+   "log/idea"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d098",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": "frequency stated"
+ },
+ {
+  "id": "d099",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d100",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d101",
+  "primary": "log/idea",
+  "acceptable": [
+   "log/idea"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d102",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d103",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d104",
+  "primary": "habit/break_habit",
+  "acceptable": [
+   "habit/break_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d105",
+  "primary": "log/general",
+  "acceptable": [
+   "log/general"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d106",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d107",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous",
+   "log/general"
+  ],
+  "question_ok": true,
+  "note": "test drop"
+ },
+ {
+  "id": "d108",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d109",
+  "primary": "multi",
+  "acceptable": [
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "event plus habit"
+ },
+ {
+  "id": "d110",
+  "primary": "todo",
+  "acceptable": [
+   "todo",
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "shopping list; one list or per-item"
+ },
+ {
+  "id": "d111",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "committed learning goal, fuzzy"
+ },
+ {
+  "id": "d112",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous",
+   "todo",
+   "log/journal"
+  ],
+  "question_ok": true,
+  "note": "get relief vs describing state"
+ },
+ {
+  "id": "d113",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d114",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d115",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d116",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "build note for own app"
+ },
+ {
+  "id": "d117",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d118",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d119",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d120",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d121",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": "frequency explicit"
+ },
+ {
+  "id": "d122",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d123",
+  "primary": "todo",
+  "acceptable": [
+   "todo",
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "dev task or a test entry"
+ },
+ {
+  "id": "d124",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d125",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d126",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d127",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous",
+   "log/idea"
+  ],
+  "question_ok": true,
+  "note": "maybe signals doubt about acting"
+ },
+ {
+  "id": "d128",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit",
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "routine phrasing; could be tonight only"
+ },
+ {
+  "id": "d129",
+  "primary": "todo",
+  "acceptable": [
+   "todo",
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "one workout or two items"
+ },
+ {
+  "id": "d130",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": "truncated but daily stated"
+ },
+ {
+  "id": "d131",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d132",
+  "primary": "habit/break_habit",
+  "acceptable": [
+   "habit/break_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d133",
+  "primary": "log/event",
+  "acceptable": [
+   "log/event"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d134",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "bug note implies fix"
+ },
+ {
+  "id": "d135",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous",
+   "todo"
+  ],
+  "question_ok": true,
+  "note": "bare noun: go today vs habit"
+ },
+ {
+  "id": "d136",
+  "primary": "log/idea",
+  "acceptable": [
+   "log/idea"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d137",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d138",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous",
+   "todo"
+  ],
+  "question_ok": true,
+  "note": "single word: one session vs habit wish"
+ },
+ {
+  "id": "d139",
+  "primary": "todo",
+  "acceptable": [
+   "todo",
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "shopping list; one list or per-item"
+ },
+ {
+  "id": "d140",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d141",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "feature requirement to build"
+ },
+ {
+  "id": "d142",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d143",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d144",
+  "primary": "todo",
+  "acceptable": [
+   "todo",
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "two calls, one errand phrase"
+ },
+ {
+  "id": "d145",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d146",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d147",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d148",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d149",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d150",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d151",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit",
+   "habit/break_habit"
+  ],
+  "question_ok": false,
+  "note": "replacement habit, nightly inherent"
+ },
+ {
+  "id": "d152",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal",
+   "log/general"
+  ],
+  "question_ok": false,
+  "note": "past accomplishment with relief"
+ },
+ {
+  "id": "d153",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d154",
+  "primary": "log/general",
+  "acceptable": [
+   "log/general"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d155",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d156",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d157",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d158",
+  "primary": "habit/break_habit",
+  "acceptable": [
+   "habit/break_habit"
+  ],
+  "question_ok": false,
+  "note": "cut out, timing stated"
+ },
+ {
+  "id": "d159",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d160",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d161",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d162",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d163",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d164",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d165",
+  "primary": "todo",
+  "acceptable": [
+   "todo",
+   "log/idea"
+  ],
+  "question_ok": false,
+  "note": "place to visit; bucket-list idea also fine"
+ },
+ {
+  "id": "d166",
+  "primary": "log/idea",
+  "acceptable": [
+   "log/idea"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d167",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d168",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d169",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous",
+   "log/idea"
+  ],
+  "question_ok": true,
+  "note": "maybe signals doubt about acting"
+ },
+ {
+  "id": "d170",
+  "primary": "habit/break_habit",
+  "acceptable": [
+   "habit/break_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d171",
+  "primary": "multi",
+  "acceptable": [
+   "multi"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d172",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d173",
+  "primary": "habit/break_habit",
+  "acceptable": [
+   "habit/break_habit",
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "thinking pattern to stop; checkability fuzzy"
+ },
+ {
+  "id": "d174",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d175",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d176",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d177",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d178",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "work focus on a specific feature"
+ },
+ {
+  "id": "d179",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d180",
+  "primary": "multi",
+  "acceptable": [
+   "multi",
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "two distinct dev tasks"
+ },
+ {
+  "id": "d181",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "aspiration without behaviour or timing"
+ },
+ {
+  "id": "d182",
+  "primary": "todo",
+  "acceptable": [
+   "todo",
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "terse bug observation; fix implied"
+ },
+ {
+  "id": "d183",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d184",
+  "primary": "multi",
+  "acceptable": [
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "feeling plus two todos"
+ },
+ {
+  "id": "d185",
+  "primary": "log/idea",
+  "acceptable": [
+   "log/idea"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d186",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit",
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "ongoing tracking this month; frequency implicit"
+ },
+ {
+  "id": "d187",
+  "primary": "log/general",
+  "acceptable": [
+   "log/general"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d188",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d189",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d190",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d191",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d192",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d193",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d194",
+  "primary": "log/event",
+  "acceptable": [
+   "log/event"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d195",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "no frequency stated"
+ },
+ {
+  "id": "d196",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous",
+   "log/general"
+  ],
+  "question_ok": true,
+  "note": "question to the app"
+ },
+ {
+  "id": "d197",
+  "primary": "log/general",
+  "acceptable": [
+   "log/general"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d198",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d199",
+  "primary": "multi",
+  "acceptable": [
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "venting plus resume todo"
+ },
+ {
+  "id": "d200",
+  "primary": "log/idea",
+  "acceptable": [
+   "log/idea"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d201",
+  "primary": "todo",
+  "acceptable": [
+   "todo",
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "linked steps of one switch"
+ },
+ {
+  "id": "d202",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "single dated payment"
+ },
+ {
+  "id": "d203",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d204",
+  "primary": "multi",
+  "acceptable": [
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "todo plus break habit"
+ },
+ {
+  "id": "d205",
+  "primary": "todo",
+  "acceptable": [
+   "todo",
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "bare noun, renewal most likely"
+ },
+ {
+  "id": "d206",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d207",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d208",
+  "primary": "log/general",
+  "acceptable": [
+   "log/general"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d209",
+  "primary": "habit/break_habit",
+  "acceptable": [
+   "habit/break_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d210",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d211",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d212",
+  "primary": "multi",
+  "acceptable": [
+   "multi",
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "dated trip plus booking task"
+ },
+ {
+  "id": "d213",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d214",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit",
+   "habit/break_habit"
+  ],
+  "question_ok": false,
+  "note": "replacement habit, nightly inherent"
+ },
+ {
+  "id": "d215",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous",
+   "log/event"
+  ],
+  "question_ok": true,
+  "note": "birthday? thirty of something?"
+ },
+ {
+  "id": "d216",
+  "primary": "log/idea",
+  "acceptable": [
+   "log/idea"
+  ],
+  "question_ok": false,
+  "note": "one day we should"
+ },
+ {
+  "id": "d217",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d218",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d219",
+  "primary": "log/event",
+  "acceptable": [
+   "log/event"
+  ],
+  "question_ok": false,
+  "note": "reads as existing appointment"
+ },
+ {
+  "id": "d220",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d221",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d222",
+  "primary": "habit/break_habit",
+  "acceptable": [
+   "habit/break_habit",
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "timing given; reduce amount unstated"
+ },
+ {
+  "id": "d223",
+  "primary": "log/event",
+  "acceptable": [
+   "log/event"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d224",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d225",
+  "primary": "log/event",
+  "acceptable": [
+   "log/event"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d226",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d227",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d228",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d229",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "less with no amount; guide says ask"
+ },
+ {
+  "id": "d230",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d231",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d232",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d233",
+  "primary": "log/event",
+  "acceptable": [
+   "log/event"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d234",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d235",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d236",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d237",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d238",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d239",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "create is one-off setup"
+ },
+ {
+  "id": "d240",
+  "primary": "log/general",
+  "acceptable": [
+   "log/general"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d241",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d242",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d243",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d244",
+  "primary": "log/idea",
+  "acceptable": [
+   "log/idea"
+  ],
+  "question_ok": false,
+  "note": "maybe plus alternatives, uncommitted"
+ },
+ {
+  "id": "d245",
+  "primary": "todo",
+  "acceptable": [
+   "todo",
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "one shopping errand"
+ },
+ {
+  "id": "d246",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d247",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d248",
+  "primary": "log/idea",
+  "acceptable": [
+   "log/idea",
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": "wondering about product direction"
+ },
+ {
+  "id": "d249",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d250",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d251",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d252",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d253",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d254",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d255",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d256",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "more with no checkable behaviour"
+ },
+ {
+  "id": "d257",
+  "primary": "log/general",
+  "acceptable": [
+   "log/general"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d258",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "same item repeated, not multi"
+ },
+ {
+  "id": "d259",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d260",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d261",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d262",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d263",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d264",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d265",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d266",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d267",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d268",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d269",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d270",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "worded as action"
+ },
+ {
+  "id": "d271",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d272",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit",
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "commitment clear; schedule tentative"
+ },
+ {
+  "id": "d273",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "aspiration without behaviour"
+ },
+ {
+  "id": "d274",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d275",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d276",
+  "primary": "log/event",
+  "acceptable": [
+   "log/event"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d277",
+  "primary": "log/event",
+  "acceptable": [
+   "log/event"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d278",
+  "primary": "log/idea",
+  "acceptable": [
+   "log/idea"
+  ],
+  "question_ok": false,
+  "note": "what if I tried"
+ },
+ {
+  "id": "d279",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit",
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "wake-up anchor implies daily; could be tomorrow"
+ },
+ {
+  "id": "d280",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d281",
+  "primary": "todo",
+  "acceptable": [
+   "todo",
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "realisation implies reply"
+ },
+ {
+  "id": "d282",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d283",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal",
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "expressing uncertainty; very vague"
+ },
+ {
+  "id": "d284",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d285",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d286",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d287",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d288",
+  "primary": "multi",
+  "acceptable": [
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "reflection plus todo"
+ },
+ {
+  "id": "d289",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d290",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d291",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d292",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d293",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal",
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "processing; checklist tentative"
+ },
+ {
+  "id": "d294",
+  "primary": "multi",
+  "acceptable": [
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "event plus habit"
+ },
+ {
+  "id": "d295",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d296",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": "truncated but nightly stated"
+ },
+ {
+  "id": "d297",
+  "primary": "log/idea",
+  "acceptable": [
+   "log/idea",
+   "log/general"
+  ],
+  "question_ok": false,
+  "note": "tagline candidate"
+ },
+ {
+  "id": "d298",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d299",
+  "primary": "todo",
+  "acceptable": [
+   "todo",
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "unlabelled shopping list"
+ },
+ {
+  "id": "d300",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d301",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d302",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d303",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d304",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "aspiration without behaviour"
+ },
+ {
+  "id": "d305",
+  "primary": "todo",
+  "acceptable": [
+   "todo",
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "eat now vs buy vs diet habit"
+ },
+ {
+  "id": "d306",
+  "primary": "log/event",
+  "acceptable": [
+   "log/event"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d307",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d308",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "feature to build"
+ },
+ {
+  "id": "d309",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d310",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d311",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d312",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d313",
+  "primary": "multi",
+  "acceptable": [
+   "multi",
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": "venting plus tentative weekly block"
+ },
+ {
+  "id": "d314",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d315",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d316",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit",
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "routine anchor; could be one morning"
+ },
+ {
+  "id": "d317",
+  "primary": "habit/break_habit",
+  "acceptable": [
+   "habit/break_habit"
+  ],
+  "question_ok": false,
+  "note": "standing rule"
+ },
+ {
+  "id": "d318",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d319",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d320",
+  "primary": "log/event",
+  "acceptable": [
+   "log/event"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d321",
+  "primary": "multi",
+  "acceptable": [
+   "multi",
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": "feeling plus walk action"
+ },
+ {
+  "id": "d322",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "noun phrase, getting presents implied"
+ },
+ {
+  "id": "d323",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "more with no amount or timing"
+ },
+ {
+  "id": "d324",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d325",
+  "primary": "multi",
+  "acceptable": [
+   "multi",
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "two errands, possibly one outing"
+ },
+ {
+  "id": "d326",
+  "primary": "habit/break_habit",
+  "acceptable": [
+   "habit/break_habit",
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "pattern to stop; checkability fuzzy"
+ },
+ {
+  "id": "d327",
+  "primary": "habit/break_habit",
+  "acceptable": [
+   "habit/break_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d328",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d329",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d330",
+  "primary": "log/idea",
+  "acceptable": [
+   "log/idea"
+  ],
+  "question_ok": false,
+  "note": "possible purchase floated"
+ },
+ {
+  "id": "d331",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d332",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d333",
+  "primary": "log/event",
+  "acceptable": [
+   "log/event"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d334",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d335",
+  "primary": "habit/break_habit",
+  "acceptable": [
+   "habit/break_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d336",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d337",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d338",
+  "primary": "multi",
+  "acceptable": [
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "todo plus habit"
+ },
+ {
+  "id": "d339",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d340",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "single morning, not recurring"
+ },
+ {
+  "id": "d341",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d342",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d343",
+  "primary": "multi",
+  "acceptable": [
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "todo plus break habit"
+ },
+ {
+  "id": "d344",
+  "primary": "log/general",
+  "acceptable": [
+   "log/general"
+  ],
+  "question_ok": false,
+  "note": "saved link as reference"
+ },
+ {
+  "id": "d345",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d346",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d347",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": "reflection on pattern"
+ },
+ {
+  "id": "d348",
+  "primary": "multi",
+  "acceptable": [
+   "multi"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d349",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d350",
+  "primary": "log/event",
+  "acceptable": [
+   "log/event"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d351",
+  "primary": "multi",
+  "acceptable": [
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "two habit wishes"
+ },
+ {
+  "id": "d352",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d353",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit",
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "supplements inherently daily"
+ },
+ {
+  "id": "d354",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d355",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d356",
+  "primary": "todo",
+  "acceptable": [
+   "todo",
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "bare noun, get haircut most likely"
+ },
+ {
+  "id": "d357",
+  "primary": "log/idea",
+  "acceptable": [
+   "log/idea"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d358",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d359",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d360",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d361",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": "timing stated"
+ },
+ {
+  "id": "d362",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d363",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d364",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "expletive or gibberish"
+ },
+ {
+  "id": "d365",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d366",
+  "primary": "multi",
+  "acceptable": [
+   "multi",
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "two errands on one trip"
+ },
+ {
+  "id": "d367",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "bare product name"
+ },
+ {
+  "id": "d368",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d369",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "unclear phrase"
+ },
+ {
+  "id": "d370",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d371",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d372",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d373",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d374",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d375",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous",
+   "todo",
+   "log/event"
+  ],
+  "question_ok": true,
+  "note": "vague date; booked or to book"
+ },
+ {
+  "id": "d376",
+  "primary": "multi",
+  "acceptable": [
+   "multi"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d377",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d378",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d379",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d380",
+  "primary": "log/idea",
+  "acceptable": [
+   "log/idea"
+  ],
+  "question_ok": false,
+  "note": "gift options floated"
+ },
+ {
+  "id": "d381",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d382",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d383",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d384",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d385",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": "reflecting on past behaviour"
+ },
+ {
+  "id": "d386",
+  "primary": "todo",
+  "acceptable": [
+   "todo",
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "partly done shopping checklist"
+ },
+ {
+  "id": "d387",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d388",
+  "primary": "log/event",
+  "acceptable": [
+   "log/event",
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "calendar-style; may still need arranging"
+ },
+ {
+  "id": "d389",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d390",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d391",
+  "primary": "log/event",
+  "acceptable": [
+   "log/event",
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "calendar-style; may still need arranging"
+ },
+ {
+  "id": "d392",
+  "primary": "multi",
+  "acceptable": [
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "reference fact plus feeling"
+ },
+ {
+  "id": "d393",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d394",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous",
+   "log/journal"
+  ],
+  "question_ok": true,
+  "note": "jokey self-note, no concrete action"
+ },
+ {
+  "id": "d395",
+  "primary": "multi",
+  "acceptable": [
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "also marks separate purchase"
+ },
+ {
+  "id": "d396",
+  "primary": "log/idea",
+  "acceptable": [
+   "log/idea"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d397",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d398",
+  "primary": "log/event",
+  "acceptable": [
+   "log/event"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d399",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d400",
+  "primary": "multi",
+  "acceptable": [
+   "multi",
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "packing todo plus flight time"
+ },
+ {
+  "id": "d401",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d402",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d403",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d404",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d405",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d406",
+  "primary": "log/idea",
+  "acceptable": [
+   "log/idea"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d407",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d408",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "aspiration without behaviour"
+ },
+ {
+  "id": "d409",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d410",
+  "primary": "log/idea",
+  "acceptable": [
+   "log/idea"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d411",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "need to build check"
+ },
+ {
+  "id": "d412",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "aspiration without behaviour"
+ },
+ {
+  "id": "d413",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "reduce with no amount; guide says ask"
+ },
+ {
+  "id": "d414",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d415",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d416",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "start with no frequency fails habit test"
+ },
+ {
+  "id": "d417",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d418",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d419",
+  "primary": "habit/break_habit",
+  "acceptable": [
+   "habit/break_habit",
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": "standing rule with daily replacement"
+ },
+ {
+  "id": "d420",
+  "primary": "habit/break_habit",
+  "acceptable": [
+   "habit/break_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d421",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "change to own app"
+ },
+ {
+  "id": "d422",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d423",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d424",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": "with meals is inherent timing"
+ },
+ {
+  "id": "d425",
+  "primary": "log/event",
+  "acceptable": [
+   "log/event"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d426",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d427",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d428",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": "describing past behaviour"
+ },
+ {
+  "id": "d429",
+  "primary": "todo",
+  "acceptable": [
+   "todo",
+   "ambiguous"
+  ],
+  "question_ok": true,
+  "note": "one weekend, fuzzy completion"
+ },
+ {
+  "id": "d430",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d431",
+  "primary": "log/general",
+  "acceptable": [
+   "log/general"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d432",
+  "primary": "log/idea",
+  "acceptable": [
+   "log/idea",
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "noun-phrase feature concept"
+ },
+ {
+  "id": "d433",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d434",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d435",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d436",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d437",
+  "primary": "log/event",
+  "acceptable": [
+   "log/event"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d438",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d439",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d440",
+  "primary": "log/idea",
+  "acceptable": [
+   "log/idea",
+   "todo"
+  ],
+  "question_ok": false,
+  "note": "product question floated"
+ },
+ {
+  "id": "d441",
+  "primary": "ambiguous",
+  "acceptable": [
+   "ambiguous",
+   "todo",
+   "log/event"
+  ],
+  "question_ok": true,
+  "note": "venue undecided; arranged or to arrange"
+ },
+ {
+  "id": "d442",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d443",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d444",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d445",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d446",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d447",
+  "primary": "todo",
+  "acceptable": [
+   "todo"
+  ],
+  "question_ok": false,
+  "note": ""
+ },
+ {
+  "id": "d448",
+  "primary": "habit/start_habit",
+  "acceptable": [
+   "habit/start_habit",
+   "multi"
+  ],
+  "question_ok": false,
+  "note": "observation motivates recurring block"
+ },
+ {
+  "id": "d449",
+  "primary": "log/journal",
+  "acceptable": [
+   "log/journal"
+  ],
+  "question_ok": false,
+  "note": ""
+ }
+]
