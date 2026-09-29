@@ -21,7 +21,7 @@ import WORLDS_ICON from '../assets/worldicon4.28.png';
 export type TabParamList = {
   Today: undefined;
   MindDrop: undefined;
-  AskGremly: { prefillPrompt?: string } | undefined;
+  AskGremly: { prefillPrompt?: string; autoSendKey?: string } | undefined;
   Spaces: undefined;
   Worlds: undefined;
 };

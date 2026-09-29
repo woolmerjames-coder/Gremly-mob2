@@ -66,7 +66,7 @@ What this taught us:
 
 - **Your rules work best stated plainly in the prompt.** The code gates changed almost nothing, because the models follow the habit rule once it is written down.
   - The first gate was wrong for stop habits: "stop smoking" is ongoing by nature and doesn't need a stated frequency. The fixed gate is in the Worker, used only with the checklist version.
-- **Prompt tweaks that looked good on the design set did not carry over.** The extra decision steps and rules added about 1.5 points on the design set. On the new drops they cost Gemini 3.8 a point (p = 0.03) and gained Luna a point (not significant). The design set had shaped those tweaks, which is exactly why the locked test set exists. The Worker keeps the current prompt as the default; the other versions can be switched on (`CLASSIFY_PROMPT`).
+- **Prompt tweaks that looked good on the design set did not carry over.** The extra decision steps and rules added about 1.5 points on the design set. On the new drops they cost Gemini 3.8 a point (p = 0.03) and gained Luna a point (not significant). The design set had shaped those tweaks, which is exactly why the locked test set exists. The Worker keeps the audited prompt as the default (now v3.6, which adds only the rule in section 12); the other versions can be switched on (`CLASSIFY_PROMPT`).
 - **Sequential gates lose to one strong call.** A cheap first step decides most drops on its own, and its mistakes are silent. Every design that let Flash-Lite answer on its own filed more drops wrong without asking.
 - **Parallel opinions are accurate but slow.** Luna gets slow with longer prompts, and a referee adds a second hop.
 - **Luna's weakness is asking too often, and a second opinion only half fixes it.** On the new drops, the second opinion cut Luna's needless questions from 27 to 4, but the live run filed 40 drops wrong without asking, against 16 for the recommended setup. Two causes:
@@ -112,7 +112,7 @@ In the end to end run, Sonnet wrote the words for all 90 drops that got a questi
 ## 7. What changed in the code
 
 - `workers/cortex/classifyV3.js`:
-  - prompt versions v3.5 (default), v4.1 and v4 (checklist), chosen with `CLASSIFY_PROMPT`
+  - prompt versions v3.6 (default; v3.5 plus the rule in section 12), v4.1 and v4 (checklist), chosen with `CLASSIFY_PROMPT`
   - the fixed habit gate, applied only when the checklist version is used
   - the second opinion prompt
   - the journal fix for "holding the thought" answers
@@ -164,15 +164,28 @@ Round 1 (earlier today) screened 12 models on 200 practice drops and scored the 
 - The recommended setup ran twice on the new drops (harness and real Worker); the other setups ran once. On the design set, repeat runs changed only a handful of answers.
 - The drops lean towards your own writing (30% are yours).
 - Question ratings come from two models from different companies, not from users.
-- Audit spend: about $39 in logged model calls, roughly $43 including runs that were stopped or redone, of the $60 cap.
+- Audit spend: about $47 in logged model calls (including the section 12 checks), roughly $51 including runs that were stopped or redone, of the $60 cap.
 
 ## 11. Before January
 
-Google's promotional price ends on 31 Dec, roughly doubling the cost per drop. In early December:
+Google's promotional price ends on 31 Dec, roughly doubling the cost per drop. Every eligible drop up to 29 Sep has now been used (the last 1,420 for the section 12 check, in `scripts/minddrop-audit/data/fresh.json`), so the December check needs drops made after that date. In early December:
 - Rerun `round2/run-design.mjs` on whatever cheaper models exist then, against the same 1,000 drops and a fresh batch of new ones.
-- Test a small prompt update on the fresh drops only:
-  - greetings, test messages and open questions ("What should I do now?") are not journal entries
-  - app feedback ("the app should...") is a to-do
+- Greetings, test messages and questions for Gremly are now handled (section 12). Still to test on fresh drops: app feedback ("the app should...") as a to-do.
 - Test a code rule that merges multi pieces when every piece is a journal entry.
 
 Of the 16 drops the recommended setup got wrong without asking, 4 look like prompt gaps, 5 are Gemini's own habits, 3 are harmless splits, 3 have debatable answers and 1 is run to run noise. Switching model is only a Worker var change, so no app build is needed.
+
+## 12. After the audit: questions that open the chat
+
+Gemini 3.8 filed greetings, test messages and questions for Gremly as journal entries. Now two kinds of drop always get a question whose answers can open the chat (prompt v3.6, principle 11):
+- **Addressed to Gremly** (it greets Gremly, checks the app works, or asks Gremly to talk or help now): "Chat with Gremly", "Just testing, don't keep it", "Keep it".
+- **A question the user wants answered:** "Ask Gremly now", "Look into it later", "Keep it".
+
+The answers are fixed copy, and only the question is written for the drop. Chat opens Ask Gremly and sends the drop so Gremly replies straight away; the drop leaves Mind Drop.
+
+**How it was checked.** The rule was written after reading the test set's mistakes, so the test set cannot prove it. It was run end to end through the Worker on the 1,420 eligible drops nobody had used (all that were left in Supabase), and on the 1,000 test drops for side effects.
+- **Test drops:** 97.2% against 97.5% for the audited prompt, which is within run to run noise (p = 0.66). 13 filed wrong without asking against 16; 15 needless questions against 9. It caught "Hi", "Hello", "Hello Gremly", "Is this working?", "What should I do now?" and "What are good supplements for focus?".
+- **Fresh drops:** it fired on 7 of 1,420. The good catches included "Good morning Gremly", "I can't wait for tomorrow but I am so tired. Help me" and "How do I make fix search console issues". Three were notes about building or fixing the app, and one more of those turned up in the test set.
+- **Fix:** a clause saying a note about building, changing or fixing the app is a note to self. Rerun on the 428 app, question and greeting drops from both sets, plus 250 random test drops: all four app notes now file normally, and every good catch stayed. On the 414 test drops in that run it got 404 right, against 403 for the audited prompt, with 6 filed wrong without asking against 9. The prompt in the Worker is the exact one tested.
+- **Left as is:** "Where has lock in option gone from overlay?" still gets the question. From a user who is not building the app, that is a question for Gremly.
+

@@ -195,6 +195,8 @@ import {
   normalizeClassifyV3,
   parseModelJson,
   AMBIGUITY_TYPES,
+  PROMPT_VERSION,
+  PROMPT_VERSIONS,
 } from './classifyV3.js';
 
 // gpt-4.1-nano is removed from the OpenAI API on 2026-10-23. Direct OpenAI
@@ -8580,7 +8582,11 @@ Segment rules:
         }
 
         const t0 = Date.now();
-        const promptVersion = env.CLASSIFY_PROMPT || 'v3.5';
+        // CLASSIFY_PROMPT picks a prompt version; anything else (including the
+        // older "v3.5") runs the default.
+        const promptVersion = PROMPT_VERSIONS.includes(env.CLASSIFY_PROMPT)
+          ? env.CLASSIFY_PROMPT
+          : PROMPT_VERSION;
         const systemPrompt = buildClassifyV3Prompt({ version: promptVersion });
 
         let result;
@@ -8697,7 +8703,12 @@ Segment rules:
                 words.habit_direction,
                 text,
               );
-              if (clar.question_source === 'model' || clar.labels_source !== 'fallback') {
+              // Fixed label types only take the writer's question.
+              if (
+                clar.question_source === 'model' ||
+                clar.labels_source === 'model' ||
+                clar.labels_source === 'mixed'
+              ) {
                 normalized = {
                   ...normalized,
                   clarification_question: clar.clarification_question,

@@ -315,6 +315,18 @@ export default function AskGremlyScreen() {
     [canChat, navigation, activeChat, sending, sendToChat],
   );
 
+  // Opened from a Mind Drop question ("Chat with Gremly" or "Ask Gremly now"):
+  // send the drop straight away so Gremly replies, once per request.
+  const autoSendKey: string | null = route.params?.autoSendKey || null;
+  const autoSentKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!autoSendKey || !prefillPrompt || !userId) return;
+    if (autoSentKeyRef.current === autoSendKey) return;
+    autoSentKeyRef.current = autoSendKey;
+    navigation.setParams({ prefillPrompt: undefined, autoSendKey: undefined });
+    handleSend(prefillPrompt);
+  }, [autoSendKey, prefillPrompt, userId, navigation, handleSend]);
+
   const keyExtractor = useCallback((item: SpaceChatMessage) => item.id, []);
 
   const renderMessage = useCallback(
@@ -469,7 +481,7 @@ export default function AskGremlyScreen() {
               onChangeText={() => wakeOnInput()}
               disabled={sending}
               placeholder={inConversation ? 'Type a message...' : 'Ask Gremly anything...'}
-              initialText={prefillPrompt || undefined}
+              initialText={autoSendKey ? undefined : prefillPrompt || undefined}
             />
           </View>
         </View>

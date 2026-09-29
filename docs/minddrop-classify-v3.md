@@ -17,15 +17,22 @@ Which model and design it runs on was decided by the audit in `docs/2026-09-29-m
 - Fully static, so providers can cache it across users. Today's date and whether the user picked a date go in the user message.
 - The model returns one outcome: todo, start_habit, break_habit, journal, idea, event, general or ambiguous.
 - Habits are a strict outcome: only a concrete behaviour the user could log in Gremly each time. A habit to start needs the drop itself to make the repetition clear; a habit to stop does not, because stopping is ongoing by nature.
-- When the outcome is ambiguous, the model picks one of ten kinds of question and writes the question and the answer labels. What each answer does is fixed in code for that kind of question; the model only writes the words, plus whether a habit option is one to build or to cut back.
+- When the outcome is ambiguous, the model picks one of twelve kinds of question and writes the question and the answer labels. What each answer does is fixed in code for that kind of question; the model only writes the words, plus whether a habit option is one to build or to cut back.
+- Two kinds of drop always get a question whose answers can open the chat (principle 11):
+  - `conversation`: the drop is addressed to Gremly rather than capturing something (it greets Gremly, checks the app works, or asks Gremly to talk or help now). Answers: "Chat with Gremly", "Just testing, don't keep it", "Keep it".
+  - `open_question`: a question the user wants answered. Answers: "Ask Gremly now", "Look into it later" (a todo), "Keep it".
+  - A note about something to build, change or fix in the app is a note to self like any other, not a drop addressed to Gremly.
+  - These answers are fixed copy (`fixedLabels`); only the question is written for the drop.
 
 Three versions, chosen with `CLASSIFY_PROMPT`:
 
 | Version | What it is | Use |
 |---|---|---|
-| `v3.5` | The round 1 prompt. | Default. Best on the 1,000 new drops. |
-| `v4.1` | v3.5 plus ordered decision steps and three more principles. | Better on the design set only; did not carry over to new drops. |
+| `v3.6` | The audited v3.5 prompt plus principle 11 above. | Default. |
+| `v4.1` | The default plus ordered decision steps and more principles. | Better on the design set only; did not carry over to new drops. |
 | `v4` | v4.1 plus a facts checklist the model fills before deciding (is a repetition stated, is there a concrete action, is it one occasion, and so on). | Same accuracy as v3.5 on new drops, slower and dearer. Turns on the habit gate below. |
+
+`v3.5` is read as the default, so an old value of the var still works.
 
 The second opinion uses its own prompt (`buildSecondOpinionPrompt`), built from v4, whose job is to decide whether a question is really needed.
 
@@ -37,6 +44,8 @@ The second opinion uses its own prompt (`buildSecondOpinionPrompt`), built from 
 - Each label must be short and free of app words. A label that fails is swapped for its fixed label on its own; if the count is wrong, the whole fixed set is used.
 - For vague wishes and "only noting the intention", the "just holding the thought" answer files the drop as a journal entry (it used to file it as a reference note, which is not what users meant).
 - Dashes are replaced.
+- Answers with a `kind` do not file the drop. In the app, `chat` opens Ask Gremly and sends the drop as the first message, then removes it from Mind Drop; `discard` deletes it (`resolveEntityClarification` in `lib/store/useGremlyStore.ts`, the `minddrop:open_chat` event in `App.tsx`). Each such answer still has a bucket, so anything that ignores the kind files the drop as a note.
+- The app's fixed copy (`lib/minddrop/clarification.ts`) must file every answer exactly as the Worker does; `lib/minddrop/__tests__/clarification.test.ts` checks this.
 
 ## After the classifier
 
@@ -55,7 +64,7 @@ The whole route stays within 9 seconds, inside the app's 10 second budget for th
 |---|---|
 | `CLASSIFY_V3_ENABLED` | `"true"` to serve the route. Anything else returns 503, and the app uses v2. |
 | `CLASSIFY_PROVIDER`, `CLASSIFY_MODEL` | Main model. Default until one is picked: OpenAI `gpt-4.1-mini`. |
-| `CLASSIFY_PROMPT` | `v3.5` (default), `v4.1` or `v4`. |
+| `CLASSIFY_PROMPT` | `v3.6` (default), `v4.1` or `v4`. |
 | `CLASSIFY_REASONING_EFFORT` | OpenAI reasoning models, for example `low` for GPT-6 Luna. |
 | `CLASSIFY_THINKING_LEVEL` | Gemini, for example `low` for Gemini 3.8 Flash (it rejects `minimal`). |
 | `CLASSIFY_FALLBACK_PROVIDER`, `CLASSIFY_FALLBACK_MODEL` | Backup model. Use a different provider from the main one. |

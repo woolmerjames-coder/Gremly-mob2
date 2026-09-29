@@ -21,7 +21,9 @@ import {
   hasUsableClarification,
   mapWorkerOptions,
   normalizeAmbiguityType,
+  optionKind,
 } from '../clarification';
+import { AMBIGUITY_TYPES, CLARIFY_TYPE_CONFIGS } from '../../../workers/cortex/classifyV3.js';
 
 const originalFetch = global.fetch;
 afterEach(() => {
@@ -147,5 +149,57 @@ describe('fetchClarification', () => {
     const res = await fetchClarification({ text: '   ' });
     expect(res.source).toBe('fallback');
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('parity with the Worker', () => {
+  it('has fixed copy for every Worker question type', () => {
+    for (const t of AMBIGUITY_TYPES) expect(CLARIFY_FALLBACKS[t]).toBeDefined();
+  });
+
+  it('files each fixed answer exactly as the Worker does', () => {
+    for (const t of AMBIGUITY_TYPES) {
+      const worker = (CLARIFY_TYPE_CONFIGS as Record<string, any>)[t].options;
+      const app = CLARIFY_FALLBACKS[t].options;
+      expect(app.map((o) => o.id)).toEqual(worker.map((o: any) => o.id));
+      app.forEach((o, i) => {
+        const w = worker[i];
+        expect([t, o.bucket, o.subtype ?? null, o.kind ?? null, o.dateField ?? null]).toEqual([
+          t,
+          w.bucket,
+          w.subtype ?? null,
+          w.kind ?? null,
+          w.dateField ?? null,
+        ]);
+        if (!w.habitFromDirection) expect(o.habitSubtype ?? null).toEqual(w.habitSubtype ?? null);
+      });
+    }
+  });
+});
+
+describe('answers that do not file the drop', () => {
+  it('offers chat and discard for a drop addressed to Gremly', () => {
+    const c = buildFallbackClarification('conversation');
+    expect(c.ambiguityType).toBe('conversation');
+    expect(c.options.map((o) => optionKind(o))).toEqual(['chat', 'discard', null]);
+  });
+
+  it('offers chat, later and keep for a question to answer', () => {
+    const c = buildFallbackClarification('open_question');
+    expect(c.options.map((o) => [optionKind(o), o.action.bucket])).toEqual([
+      ['chat', 'log'],
+      [null, 'todo'],
+      [null, 'log'],
+    ]);
+  });
+
+  it('carries the kind through from the Worker shape', () => {
+    const mapped = mapWorkerOptions([
+      { id: 'opt_1', label: 'Chat with Gremly', bucket: 'log', subtype: 'general', kind: 'chat' },
+      { id: 'opt_2', label: 'Keep it', bucket: 'log', subtype: 'general' },
+    ]);
+    expect(mapped?.map((o) => o.action.kind)).toEqual(['chat', null]);
+    expect(optionKind(mapped?.[0])).toBe('chat');
+    expect(optionKind({ id: 'x', label: 'y', kind: 'nonsense' })).toBeNull();
   });
 });

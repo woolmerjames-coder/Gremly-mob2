@@ -46,6 +46,8 @@ Round 2 split the job in two. The classifier decides whether to ask and which ki
 
 One flaw fixed: for vague wishes ("be less stressed"), the "just holding the thought" answer filed the drop as a reference note, when users mean a journal entry. It now files as a journal entry, and the answers offered now include what the user meant in about 9 of 10 questions, up from about half. Details in section 5 of the audit.
 
+Drops addressed to Gremly (a greeting, a test, "What should I do now?") and questions the user wants answered now get their own question. Its answers can open the chat: "Chat with Gremly", "Just testing, don't keep it" or "Keep it"; and for questions, "Ask Gremly now", "Look into it later" or "Keep it". Chat opens Ask Gremly and sends the drop so Gremly replies straight away. Tested on 1,420 drops nobody had seen, plus the 1,000 test drops: it fires on about 1 drop in 200, accuracy is unchanged, and fewer drops are filed wrong without asking. Details in section 12 of the audit.
+
 Your note in item 2 was cut off at "we should add a". Tell me what it was and I will add it.
 
 ## 4. Speed and accuracy

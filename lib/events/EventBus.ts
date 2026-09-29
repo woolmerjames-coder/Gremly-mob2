@@ -92,6 +92,8 @@ export type EventMap = {
     type: 'morning' | 'evening' | 'weekly_summary' | 'afternoon_checkin';
   };
   'notification:open_item': { itemId: string; itemType: string };
+  // Mind Drop clarification answer "Chat with Gremly": open Ask Gremly and send the drop
+  'minddrop:open_chat': { text: string };
   'notification:done_action': { entityId: string; entityType: string };
   'notification:snooze': { entityId: string; entityType: string; seconds: number; label: string };
   'notification:snooze_before_due': {

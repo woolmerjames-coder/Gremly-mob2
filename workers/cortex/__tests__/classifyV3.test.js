@@ -4,6 +4,8 @@
 import {
   AMBIGUITY_TYPES,
   CLARIFY_TYPE_CONFIGS,
+  PROMPT_VERSION,
+  PROMPT_VERSIONS,
   buildClassifyV3Prompt,
   buildSecondOpinionPrompt,
   gateHabit,
@@ -91,8 +93,11 @@ describe('prompts', () => {
 });
 
 describe('v4 checklist and habit gate', () => {
-  it('defaults to the v3.5 prompt, with no checklist', () => {
+  it('defaults to the base prompt, with no checklist', () => {
     const p = buildClassifyV3Prompt();
+    expect(PROMPT_VERSION).toBe(PROMPT_VERSIONS[0]);
+    // The older name runs the default rather than anything else.
+    expect(buildClassifyV3Prompt({ version: 'v3.5' })).toBe(p);
     expect(p).not.toContain('HOW TO DECIDE');
     expect(p).not.toContain('FACTS');
     expect(buildClassifyV3Prompt({ version: 'v4.1' })).toContain('HOW TO DECIDE');
@@ -172,6 +177,85 @@ describe('v4 checklist and habit gate', () => {
     expect(r.is_ambiguous).toBe(true);
     expect(r.ambiguity_type).toBe('vague_aspiration');
     expect(r.clarification_options.length).toBe(2);
+  });
+});
+
+describe('drops addressed to Gremly and questions to answer', () => {
+  const versions = () => [
+    buildClassifyV3Prompt(),
+    buildClassifyV3Prompt({ version: 'v4.1' }),
+    buildClassifyV3Prompt({ version: 'v4' }),
+    buildSecondOpinionPrompt(),
+  ];
+
+  it('always ask, in every prompt version, with principles numbered in order', () => {
+    for (const p of versions()) {
+      expect(p).toContain('ambiguous with type conversation, never a journal entry');
+      expect(p).toContain('fix in the app itself is a note to self like any other');
+      expect(p).toContain('ambiguous with type open_question');
+      expect(p).toContain('- conversation: ');
+      expect(p).toContain('- open_question: ');
+    }
+    const nums = (buildClassifyV3Prompt({ version: 'v4.1' }).match(/\n(\d+)\. /g) || []).map((m) =>
+      Number(m.trim().replace('.', '')),
+    );
+    const principles = nums.slice(nums.indexOf(1, 5));
+    expect(principles).toEqual(principles.map((_, i) => i + 1));
+  });
+
+  it('use fixed answers and keep only the question the model wrote', () => {
+    const c = buildClarification(
+      'conversation',
+      'Hi there, want to chat?',
+      ['Sure', 'Nah', 'Whatever'],
+      null,
+      'Hello',
+    );
+    expect(c.clarification_question).toBe('Hi there, want to chat?');
+    expect(c.labels_source).toBe('fixed');
+    expect(c.clarification_options.map((o) => o.label)).toEqual(
+      CLARIFY_TYPE_CONFIGS.conversation.options.map((o) => o.fallbackLabel),
+    );
+    expect(c.clarification_options.map((o) => o.kind || null)).toEqual(['chat', 'discard', null]);
+    const q = buildClarification(
+      'open_question',
+      'Want me to answer this now?',
+      [],
+      null,
+      'What helps focus?',
+    );
+    expect(q.clarification_options.map((o) => [o.kind || null, o.bucket])).toEqual([
+      ['chat', 'log'],
+      [null, 'todo'],
+      [null, 'log'],
+    ]);
+  });
+
+  it('give every option that does not file the drop a safe place to file it', () => {
+    for (const cfg of Object.values(CLARIFY_TYPE_CONFIGS)) {
+      for (const o of cfg.options) {
+        if (o.kind) {
+          expect(['chat', 'discard']).toContain(o.kind);
+          expect(['todo', 'habit', 'log']).toContain(o.bucket);
+        }
+      }
+    }
+  });
+
+  it('returns the kind with the options from the normaliser', () => {
+    const r = normalizeClassifyV3(
+      {
+        outcome: 'ambiguous',
+        ambiguity_type: 'conversation',
+        question: 'Want to chat?',
+        option_labels: [],
+      },
+      'Hello',
+    );
+    expect(r.is_ambiguous).toBe(true);
+    expect(r.ambiguity_type).toBe('conversation');
+    expect(r.clarification_options[0]).toMatchObject({ kind: 'chat', label: 'Chat with Gremly' });
+    expect(r.clarification_options[1]).toMatchObject({ kind: 'discard' });
   });
 });
 

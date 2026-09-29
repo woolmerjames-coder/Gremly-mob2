@@ -80,6 +80,7 @@ import {
   fetchClarification,
   hasUsableClarification,
   normalizeAmbiguityType,
+  optionKind,
   type ClarificationOption,
 } from '../minddrop/clarification';
 import { cancelAllItemReminders } from '../notifications/itemReminderService';
@@ -9076,6 +9077,42 @@ export const useGremlyStore = create<GremlyState>()(
               return;
             }
             selectedLabel = selectedOption.label;
+          }
+
+          // Answers that do not file the drop (drops addressed to Gremly, and
+          // questions the user wants answered): "chat" opens Ask Gremly with
+          // the drop as the first message and "discard" deletes it. Either way
+          // the drop leaves Mind Drop, so there is nothing to reclassify.
+          const selectedKind = isFreeText
+            ? null
+            : optionKind(clarificationOptions?.find((opt) => opt.id === optionId));
+          if (selectedKind) {
+            const dropText = String(
+              (entity as Note).body || (entity as Note).title || (entity as any).name || '',
+            ).trim();
+            if (selectedKind === 'chat' && dropText) {
+              eventBus.emit('minddrop:open_chat', { text: dropText });
+            }
+            try {
+              if (entityType === 'note') {
+                await get().deleteNote(entityId);
+              } else if (entityType === 'todo') {
+                await get().deleteTodo(entityId);
+              } else {
+                await get().deleteHabit(entityId);
+              }
+            } catch (err) {
+              console.warn('[GremlyStore] resolveEntityClarification: delete failed', {
+                entityId,
+                kind: selectedKind,
+                error: String(err),
+              });
+            }
+            console.log('[GremlyStore] Clarification answered without filing', {
+              entityId,
+              kind: selectedKind,
+            });
+            return;
           }
 
           // Get original text for reclassification

@@ -27,14 +27,17 @@
 // ============================================================================
 
 // Prompt versions (docs/2026-09-29-minddrop-model-audit.md):
-//   v3.5 (default): semantic rules. On 1,000 new random drops it scored the
-//                   same as v4 with Gemini 3.8 Flash, faster and cheaper.
-//   v4.1: v3.5 plus ordered decision steps and three labeller rules.
+//   v3.6 (default): semantic rules. v3.5 (the audited prompt; on 1,000 new
+//                   random drops it scored the same as v4 with Gemini 3.8
+//                   Flash, faster and cheaper) plus principle 11: drops
+//                   addressed to Gremly and questions the user wants answered
+//                   get a question that can open the chat.
+//   v4.1: the default plus ordered decision steps and labeller rules.
 //   v4:   v4.1 plus a short reason and a checklist of facts, with the habit
 //         rule enforced in code from the facts.
-// Chosen with the Worker var CLASSIFY_PROMPT.
-export const PROMPT_VERSION = 'v3.5';
-export const PROMPT_VERSIONS = ['v3.5', 'v4.1', 'v4'];
+// Chosen with the Worker var CLASSIFY_PROMPT ("v3.5" is read as the default).
+export const PROMPT_VERSION = 'v3.6';
+export const PROMPT_VERSIONS = ['v3.6', 'v4.1', 'v4'];
 
 export const AMBIGUITY_TYPES = [
   'bucket',
@@ -47,6 +50,8 @@ export const AMBIGUITY_TYPES = [
   'social_plan',
   'scope',
   'idea_or_commitment',
+  'conversation',
+  'open_question',
 ];
 
 // Semantic description of each ambiguity type (fed to both prompts).
@@ -71,6 +76,10 @@ const AMBIGUITY_DESCRIPTIONS = {
     'the drop could be one completable action or a larger multi part effort, and the intended scale is unclear',
   idea_or_commitment:
     'the drop is framed as exploring and it is unclear whether the user is committing or floating a possibility',
+  conversation:
+    'the drop is addressed to Gremly itself rather than capturing something, and it is unclear whether the user wants to talk now, was only testing, or wants it kept',
+  open_question:
+    'the drop is a question the user wants answered, about the world or about something practical, and it is unclear whether they want the answer now, want to look into it later, or only want to keep the question',
 };
 
 // Fixed option actions per ambiguity type, in the order the model must label
@@ -80,6 +89,12 @@ const AMBIGUITY_DESCRIPTIONS = {
 // goal to cut back on something does not become a build habit.
 // `fallbackQuestion` / `fallbackLabel` are NEVER sent to a model; they are used
 // only when the model's words fail validation, so the popup always works.
+// `fixedLabels`: the labels are always the fixed copy (the answers talk about
+// the app itself, which model written labels may not); only the question is
+// written for the drop. `kind` marks an option that does not file the drop:
+// "chat" opens the chat with Gremly and sends the drop, "discard" deletes it.
+// Their bucket and subtype are what an app that does not know the kind files
+// the drop as, so an older build still works.
 export const CLARIFY_TYPE_CONFIGS = {
   bucket: {
     fallbackQuestion: 'What did you have in mind for this?',
@@ -346,6 +361,69 @@ export const CLARIFY_TYPE_CONFIGS = {
       },
     ],
   },
+  conversation: {
+    fallbackQuestion: 'What would you like to do with this?',
+    fixedLabels: true,
+    options: [
+      {
+        id: 'opt_1',
+        bucket: 'log',
+        subtype: 'general',
+        habitSubtype: null,
+        kind: 'chat',
+        meaning: 'they want to talk with Gremly now',
+        fallbackLabel: 'Chat with Gremly',
+      },
+      {
+        id: 'opt_2',
+        bucket: 'log',
+        subtype: 'general',
+        habitSubtype: null,
+        kind: 'discard',
+        meaning: 'they were only testing and do not want it kept',
+        fallbackLabel: "Just testing, don't keep it",
+      },
+      {
+        id: 'opt_3',
+        bucket: 'log',
+        subtype: 'general',
+        habitSubtype: null,
+        meaning: 'they want it kept',
+        fallbackLabel: 'Keep it',
+      },
+    ],
+  },
+  open_question: {
+    fallbackQuestion: 'Want an answer to this now?',
+    fixedLabels: true,
+    options: [
+      {
+        id: 'opt_1',
+        bucket: 'log',
+        subtype: 'general',
+        habitSubtype: null,
+        kind: 'chat',
+        meaning: 'they want Gremly to answer it now',
+        fallbackLabel: 'Ask Gremly now',
+      },
+      {
+        id: 'opt_2',
+        bucket: 'todo',
+        subtype: null,
+        habitSubtype: null,
+        meaning: 'they want to look into it later',
+        fallbackLabel: 'Look into it later',
+      },
+      {
+        id: 'opt_3',
+        bucket: 'log',
+        subtype: 'general',
+        habitSubtype: null,
+        meaning: 'they only want to keep the question',
+        fallbackLabel: 'Keep it',
+      },
+    ],
+  },
 };
 
 // OUTPUT GUARD ONLY (never sent to a model): model written questions and
@@ -370,7 +448,7 @@ function describeAllTypes() {
 }
 
 const LABEL_RULES = `Each label is a short first person reply in the user's own voice, at most five words, specific to the drop where that helps, and clearly leading to its option, so that no two labels could be taken as the same answer. Write the labels fresh; never copy the descriptions above. Do not invent details the drop does not contain.
-The question and labels talk only about the thing in the drop and what the user means to do, in everyday words. They never refer to the app, to how it will handle the item, or to what kind of item it becomes, so none of the outcome names above appear in them. They never use dashes, and labels have no full stop.`;
+The question and labels talk only about the thing in the drop and what the user means to do, in everyday words. They never refer to the app, to how it will handle the item, or to what kind of item it becomes, so none of the outcome names above appear in them. The one exception is a drop addressed to Gremly or a question the user wants answered, where the question may offer to talk it over with Gremly now. They never use dashes, and labels have no full stop.`;
 
 const QUESTION_RULES = `question: a short spoken question of at most nine words. It names what the drop is about in the user's own terms, so it could not be asked of any other drop. The labels must read as natural, direct replies to it, so it asks the choice the labels offer rather than an open question. It does not lean towards any option and adds nothing the drop does not say. It should sound like a warm, curious friend checking in, not a form.`;
 
@@ -405,9 +483,10 @@ PRINCIPLES
 5. Short drops are not automatically unclear. A single expression of feeling is a complete journal entry and a bare instruction is a complete todo. A noun or noun phrase with no verb, no frame and no time anchor genuinely lacks signal and is ambiguous with type bucket, unless the thing named could only sensibly mean one outcome.
 6. For a drop tied to a date or time: when the wording presents the occasion as already existing or arranged, it is an event. When it could equally be already arranged or something the user still has to arrange, it is ambiguous with type date_type. With no date or time at all, an activity worded as something the user will do, alone or with others, is a todo.
 7. General is the narrowest outcome and never a fallback. Anything carrying feeling, aspiration, possibility or intent to change is not general.
-8. Be decisive. Choose ambiguous only when you cannot point to wording in the drop that settles the outcome and a wrong guess would cost the user more than one quick question. When one reading is clearly the most natural, choose it with confidence of at least 0.75.
+8. Be decisive. Apart from the drops in principle 11, choose ambiguous only when you cannot point to wording in the drop that settles the outcome and a wrong guess would cost the user more than one quick question. When one reading is clearly the most natural, choose it with confidence of at least 0.75.
 9. When the drop contains two or more separate items that would each become their own entry, set is_multi to true and split it into segments, each classified on its own. One item with several details, one action applied to several things, or one thought that mentions a related plan, is not multi. A feeling alongside a separate, clearly stated action is multi, not ambiguous.
 10. reminder_intent is true only when the user explicitly asks to be reminded or alerted.
+11. Two kinds of drop always get a question. A drop addressed to Gremly itself rather than capturing something for the user, whether it greets Gremly, checks that the app is working, or asks Gremly to talk or to help right now, is ambiguous with type conversation, never a journal entry. A note about something to build, change or fix in the app itself is a note to self like any other, not a drop addressed to Gremly. A question the user wants answered, about the world or about something practical, is ambiguous with type open_question. A question that floats a possibility is still an idea, and one that weighs a decision about the user's own life or reflects on their feelings is still an idea or a journal, as the frame decides.
 
 AMBIGUITY TYPES (only when the outcome is ambiguous), each with the meaning of its option labels in order
 ${describeAllTypes()}
@@ -430,16 +509,16 @@ outcome (exactly one of "todo", "start_habit", "break_habit", "journal", "idea",
 // in code from those facts (gateHabit). Semantic rules only.
 const DECISION_STEPS = `HOW TO DECIDE (work through these in order)
 1. Count the separate items. If two or more would each become their own entry, the drop is multi: classify each item on its own and stop.
-2. Work out what the user is doing with the drop: committing to an action, repeating a behaviour, processing a feeling, floating a possibility, noting an occasion, or keeping a fact. The overall frame decides.
+2. Work out what the user is doing with the drop: committing to an action, repeating a behaviour, processing a feeling, floating a possibility, noting an occasion, keeping a fact, talking to Gremly, or asking something they want answered. The overall frame decides, and the last two follow principle 11.
 3. If it looks like a repeated behaviour, apply the habit test in principle 3. If it fails, the drop is a todo when it names a concrete action, a journal when the user is processing it, and otherwise ambiguous.
 4. If it is tied to a date or time, apply the date test in principle 6.
-5. Only if two readings are still about equally natural, choose ambiguous with the ambiguity type whose question would settle it.
+5. Apart from principle 11, only if two readings are still about equally natural, choose ambiguous with the ambiguity type whose question would settle it.
 
 `;
 
-const EXTRA_PRINCIPLES = `11. A note to self about fixing, building or changing something the user is responsible for is a todo, even when it is worded as an observation of a problem.
-12. A missing time, place, person or other detail never makes a drop ambiguous on its own.
-13. Test drops, gibberish and questions to the app are still drops; give them the most natural outcome.
+const EXTRA_PRINCIPLES = `12. A note to self about fixing, building or changing something the user is responsible for is a todo, even when it is worded as an observation of a problem.
+13. A missing time, place, person or other detail never makes a drop ambiguous on its own.
+14. Gibberish is still a drop; give it the most natural outcome.
 `;
 
 const FACTS = `FACTS (fill these in about the drop before deciding; true or false unless stated)
@@ -456,11 +535,11 @@ separate_items: the number of separate items that would each become their own en
 
 /**
  * System prompt for classify-v3. Semantic rules only.
- * @param {{version?: 'v3.5'|'v4.1'|'v4'}} [opts]
+ * @param {{version?: 'v3.6'|'v4.1'|'v4'}} [opts]
  */
 export function buildClassifyV3Prompt({ version = PROMPT_VERSION } = {}) {
   let p = buildBasePrompt();
-  if (version === 'v3.5' || !PROMPT_VERSIONS.includes(version)) return p;
+  if (version === PROMPT_VERSION || !PROMPT_VERSIONS.includes(version)) return p;
   const principles = p.indexOf('PRINCIPLES\n');
   p = p.slice(0, principles) + DECISION_STEPS + p.slice(principles);
   const types = p.indexOf('\nAMBIGUITY TYPES');
@@ -588,8 +667,8 @@ export function buildClarification(ambiguityType, question, labels, habitDirecti
     l.split(' ').length <= 7 &&
     !usesAppVocabulary(l);
   let finalLabels = cfg.options.map((o) => o.fallbackLabel);
-  let labelsSource = 'fallback';
-  if (cleanedLabels.length === cfg.options.length) {
+  let labelsSource = cfg.fixedLabels ? 'fixed' : 'fallback';
+  if (!cfg.fixedLabels && cleanedLabels.length === cfg.options.length) {
     const merged = cleanedLabels.map((l, i) => (labelOk(l) ? l : cfg.options[i].fallbackLabel));
     const kept = cleanedLabels.filter(labelOk).length;
     if (kept > 0 && new Set(merged.map((l) => l.toLowerCase())).size === merged.length) {
@@ -611,6 +690,7 @@ export function buildClarification(ambiguityType, question, labels, habitDirecti
         : 'start_habit'
       : o.habitSubtype,
     ...(o.dateField ? { dateField: o.dateField } : {}),
+    ...(o.kind ? { kind: o.kind } : {}),
   }));
 
   return {

@@ -606,10 +606,24 @@ function App() {
       }
     });
 
+    // Mind Drop question answered with "Chat with Gremly": open Ask Gremly and
+    // send the drop so Gremly replies straight away.
+    let openChatRequests = 0;
+    const unsubOpenChat = eventBus.on('minddrop:open_chat', ({ text }) => {
+      const nav = navigationRef.current;
+      if (!nav || !text) return;
+      openChatRequests += 1;
+      nav.navigate('Tabs', {
+        screen: 'AskGremly',
+        params: { prefillPrompt: text, autoSendKey: `minddrop-${openChatRequests}` },
+      });
+    });
+
     return () => {
       unsubFlow();
       unsubItem();
       unsubReadOnly();
+      unsubOpenChat();
     };
   }, []);
 

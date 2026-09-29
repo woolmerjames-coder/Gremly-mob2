@@ -29,6 +29,13 @@ import { getSessionToken } from '../cortex/getSessionToken';
 
 export type ClarifyBucket = 'todo' | 'habit' | 'log';
 
+/**
+ * An answer that does not file the drop: 'chat' opens Ask Gremly and sends the
+ * drop as a message, 'discard' deletes it. The option still carries a bucket
+ * so anything that ignores the kind files it safely.
+ */
+export type ClarifyOptionKind = 'chat' | 'discard';
+
 export interface ClarificationOption {
   id: string;
   label: string;
@@ -38,6 +45,7 @@ export interface ClarificationOption {
     habitSubtype?: string | null;
     target_date: boolean;
     scheduled_date: boolean;
+    kind?: ClarifyOptionKind | null;
   };
   space_suggestion?: string | null;
 }
@@ -57,13 +65,14 @@ type FallbackOption = {
   subtype: string | null;
   habitSubtype?: string | null;
   dateField?: 'target_date' | 'scheduled_date';
+  kind?: ClarifyOptionKind;
 };
 
 export const CLARIFY_FALLBACKS: Record<string, { question: string; options: FallbackOption[] }> = {
   bucket: {
     question: 'What did you have in mind for this?',
     options: [
-      { id: 'opt_1', label: 'Something to do', bucket: 'todo', subtype: null },
+      { id: 'opt_1', label: 'I need to do it', bucket: 'todo', subtype: null },
       { id: 'opt_2', label: 'Still thinking about it', bucket: 'log', subtype: 'idea' },
       { id: 'opt_3', label: 'Just remembering it', bucket: 'log', subtype: 'general' },
     ],
@@ -98,7 +107,7 @@ export const CLARIFY_FALLBACKS: Record<string, { question: string; options: Fall
         subtype: null,
         habitSubtype: 'start_habit',
       },
-      { id: 'opt_2', label: 'Just a thought for now', bucket: 'log', subtype: 'general' },
+      { id: 'opt_2', label: 'Just a thought for now', bucket: 'log', subtype: 'journal' },
     ],
   },
   habit_or_todo: {
@@ -131,7 +140,7 @@ export const CLARIFY_FALLBACKS: Record<string, { question: string; options: Fall
         subtype: null,
         habitSubtype: 'start_habit',
       },
-      { id: 'opt_2', label: 'Just noting it', bucket: 'log', subtype: 'general' },
+      { id: 'opt_2', label: 'Just noting it', bucket: 'log', subtype: 'journal' },
     ],
   },
   emotional_or_action: {
@@ -172,6 +181,28 @@ export const CLARIFY_FALLBACKS: Record<string, { question: string; options: Fall
       { id: 'opt_4', label: 'Just a passing thought', bucket: 'log', subtype: 'general' },
     ],
   },
+  conversation: {
+    question: 'What would you like to do with this?',
+    options: [
+      { id: 'opt_1', label: 'Chat with Gremly', bucket: 'log', subtype: 'general', kind: 'chat' },
+      {
+        id: 'opt_2',
+        label: "Just testing, don't keep it",
+        bucket: 'log',
+        subtype: 'general',
+        kind: 'discard',
+      },
+      { id: 'opt_3', label: 'Keep it', bucket: 'log', subtype: 'general' },
+    ],
+  },
+  open_question: {
+    question: 'Want an answer to this now?',
+    options: [
+      { id: 'opt_1', label: 'Ask Gremly now', bucket: 'log', subtype: 'general', kind: 'chat' },
+      { id: 'opt_2', label: 'Look into it later', bucket: 'todo', subtype: null },
+      { id: 'opt_3', label: 'Keep it', bucket: 'log', subtype: 'general' },
+    ],
+  },
 };
 
 export const CLARIFY_TIMEOUT_MS = 8000;
@@ -190,9 +221,18 @@ function toClientOption(o: FallbackOption, label?: string): ClarificationOption 
       habitSubtype: o.habitSubtype ?? null,
       target_date: o.dateField === 'target_date',
       scheduled_date: o.dateField === 'scheduled_date',
+      kind: o.kind ?? null,
     },
     space_suggestion: null,
   };
+}
+
+/** The kind of a stored option (client or worker shape), or null when it files the drop. */
+export function optionKind(option: unknown): ClarifyOptionKind | null {
+  if (!option || typeof option !== 'object') return null;
+  const o = option as Record<string, any>;
+  const kind = o.action && typeof o.action === 'object' ? o.action.kind : o.kind;
+  return kind === 'chat' || kind === 'discard' ? kind : null;
 }
 
 /** Fixed, always-valid clarification for an ambiguity type. */
@@ -235,6 +275,7 @@ export function mapWorkerOptions(
           habitSubtype: src.habitSubtype ?? src.habit_subtype ?? null,
           target_date: src.target_date === true || src.dateField === 'target_date',
           scheduled_date: src.scheduled_date === true || src.dateField === 'scheduled_date',
+          kind: optionKind(o),
         },
         space_suggestion: o.space_suggestion ?? null,
       } as ClarificationOption;

@@ -30,6 +30,7 @@ Results are written to `results/` (gitignored).
 
 - `data/dev.json`: 200 practice drops. Read the misses here when changing the prompt.
 - `data/holdout.json`: 250 locked test drops. Only run these once a prompt is frozen, and never read them for prompt ideas, or the scores stop meaning anything.
+- `data/fresh.json`: the last 1,420 eligible drops up to 29 Sep, used once to check prompt v3.6 (section 12 of the audit). Not labelled.
 - `data/test2.json`: 1,000 new random drops from round 2. Gold and designs are in `round2/` (see `round2/README.md`); `run-v2.mjs` and `run-v3-worker.mjs` accept `test2` and leave scoring to `round2/test-report.mjs`.
 
 Correct answers come from `data/labels_A.json` and `data/labels_B.json` (two blind labellers, using `data/LABEL_GUIDE.md`), with `data/review.json` (James's answers) overriding both wherever it has an entry.
