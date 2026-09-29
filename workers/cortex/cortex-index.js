@@ -202,7 +202,12 @@ import {
 import { handleHabitRead } from './habitRead.js';
 import { configureModels, models, helperModel } from './models.js';
 import { helperFetch } from './helperClient.js';
-import { buildChatExtractionPrompt } from './chatPrompts.js';
+import {
+  buildChatExtractionPrompt,
+  withEvidenceRule,
+  evidenceGrounded,
+  NO_EXTRACTION_MODES,
+} from './chatPrompts.js';
 
 async function getCachedDomainNames(userId, env) {
   if (!userId || !env.CONTEXT_CACHE) return [];
@@ -12827,8 +12832,15 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 ctx.waitUntil(summaryPromise);
 
                 // Background extraction (fire-and-forget)
+                const extractionV2 = models().flags.extractionV2;
                 const extractionPromise = (async () => {
                   try {
+                    if (extractionV2 && NO_EXTRACTION_MODES.includes(triage.mode)) {
+                      console.log('[GeneralChat] Extraction skipped for mode', {
+                        mode: triage.mode,
+                      });
+                      return;
+                    }
                     const chatRes = await fetch(
                       `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=saved_extraction_ids,dismissed_extractions`,
                       {
@@ -12898,28 +12910,51 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       day: 'numeric',
                       timeZone: userTimezone,
                     }).format(new Date());
-                    const extractionPromptText = buildChatExtractionPrompt({
+                    let extractionPromptText = buildChatExtractionPrompt({
                       todayStr,
                       runningSummary,
                       conversationText,
                       handledIds,
                       existingItemsBlock,
                     });
+                    if (extractionV2) extractionPromptText = withEvidenceRule(extractionPromptText);
 
                     let extractResult = null;
                     try {
-                      const extractRes = await helperFetch('chat_extraction', {
+                      const extractReq = {
                         messages: [
                           { role: 'system', content: extractionPromptText },
                           { role: 'user', content: 'Extract items from the conversation above.' },
                         ],
-                        max_tokens: 500,
+                        // 500 cut long chats off mid JSON (12 of 116 in the audit); v2 gives room
+                        max_tokens: extractionV2 ? 2000 : 500,
                         temperature: 0.1,
-                      });
+                      };
+                      if (extractionV2) extractReq.response_format = { type: 'json_object' };
+                      const extractRes = await helperFetch('chat_extraction', extractReq);
                       if (extractRes.ok) {
                         const extractJson = await extractRes.json();
                         const rawContent = extractJson.choices?.[0]?.message?.content || '';
                         extractResult = safeParseJson(rawContent);
+                        if (
+                          extractionV2 &&
+                          extractResult &&
+                          Array.isArray(extractResult.extractions)
+                        ) {
+                          // Evidence rule: drop anything not grounded in the user's own words
+                          const userTexts = recentMsgs
+                            .filter((m) => m.role === 'user')
+                            .map((m) => String(m.content || ''));
+                          const before = extractResult.extractions.length;
+                          extractResult.extractions = extractResult.extractions.filter((x) =>
+                            evidenceGrounded(x.evidence, userTexts),
+                          );
+                          if (before !== extractResult.extractions.length) {
+                            console.log('[GeneralChat] Extraction evidence check dropped', {
+                              dropped: before - extractResult.extractions.length,
+                            });
+                          }
+                        }
                       }
                     } catch (parseErr) {
                       console.warn('[GeneralChat] Extraction parse error:', parseErr.message);

@@ -1,4 +1,5 @@
 import { helperFetch } from './helperClient.js';
+import { models } from './models.js';
 
 /**
  * Chat Triage Classifier (Worker JS version)
@@ -348,6 +349,60 @@ async function classifyWithMini(userInput, domainNames, profileSnippet, messageC
 // EXPORTED FUNCTION
 // ============================================================================
 
+// One call variant (TRIAGE_ONE_CALL=on): the two prompts joined, asking for one
+// JSON object. Built from the same prompt text so the definitions cannot drift;
+// only the framing and return lines are new. Tested in the chat helper model
+// audit; identical to scripts/chat-audit/triage-jobs.mjs buildOneCallSystemPrompt.
+export function buildOneCallSystemPrompt(domainNames, profileSnippet, messageCount) {
+  const mode = MODE_SYSTEM_PROMPT.replace(/Return ONLY JSON:[\s\S]*$/, '').trim();
+  const signals = buildSignalsSystemPrompt(domainNames, profileSnippet, messageCount)
+    .replace(/Return ONLY JSON:[\s\S]*$/, '')
+    .trim();
+  const modeBody = mode.replace(
+    /^Classify a chat message in a productivity companion app into exactly one response mode\.\s*/,
+    '',
+  );
+  const signalsBody = signals.replace(
+    /^Classify three signals for a chat message in a productivity companion app\. The AI has personal context about this user\.\s*/,
+    '',
+  );
+  return `Classify a chat message in a productivity companion app: one response mode and three signals. The AI has personal context about this user.
+
+${modeBody}
+
+${signalsBody}
+
+Return ONLY JSON: {"mode":"...","personal":"...","depth":"...","search":"..."}`;
+}
+
+async function classifyOneCall(userInput, domainNames, profileSnippet, messageCount) {
+  const res = await helperFetch('triage_mode', {
+    messages: [
+      {
+        role: 'system',
+        content: buildOneCallSystemPrompt(domainNames, profileSnippet, messageCount),
+      },
+      { role: 'user', content: userInput },
+    ],
+    max_tokens: 80,
+    temperature: 0.1,
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    console.error('[Triage] one call failed', res.status, errText.slice(0, 200));
+    return null;
+  }
+  const json = await res.json();
+  const result = safeParseJsonTriage(json.choices?.[0]?.message?.content || '');
+  return {
+    mode: result?.mode && VALID_MODES.includes(result.mode) ? result.mode : FALLBACK_MODE,
+    personal:
+      result?.personal && VALID_PERSONAL.includes(result.personal) ? result.personal : 'light',
+    depth: result?.depth && VALID_DEPTH.includes(result.depth) ? result.depth : 'standard',
+    search: result?.search && VALID_SEARCH.includes(result.search) ? result.search : 'none',
+  };
+}
+
 export async function triageMessage(options) {
   const {
     userMessage,
@@ -374,6 +429,17 @@ export async function triageMessage(options) {
       spaceName,
       runningSummary,
     );
+
+    if (models().flags.triageOneCall) {
+      const one = await classifyOneCall(
+        classifierInput,
+        domainNames || [],
+        profileSnippet || '',
+        messageCount || 0,
+      );
+      if (one) return { ...one, source: 'classifier' };
+      return FALLBACK_TRIAGE;
+    }
 
     const [mode, miniSignals] = await Promise.all([
       classifyMode(classifierInput, env.OPENAI_API_KEY),

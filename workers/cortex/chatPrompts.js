@@ -8,6 +8,49 @@
  * Ask Gremly background extraction (the Save items pill).
  * @param {{todayStr: string, runningSummary: string|null, conversationText: string, handledIds: string[], existingItemsBlock: string}} p
  */
+// The evidence rule tested in the chat helper model audit (round 2). Text is
+// identical to scripts/chat-audit/prompts/variants.mjs, where it was frozen.
+export const EXTRACTION_EVIDENCE_RULE = `EVIDENCE: For every item, include "evidence": the user's own words, copied exactly from a User line, that show the commitment, decision or upcoming event. Something Gremly proposed counts only if the user then took it up in their own words, and the evidence must be those words. If the only support for an item is something Gremly said, do not extract it.
+Do not extract plans for later the same day that this conversation is itself arranging, and do not extract anything that restates an item already tracked or already extracted in this conversation.`;
+
+/** Add the evidence rule to a built extraction prompt (the audit's applyExtractionV2). */
+export function withEvidenceRule(prompt) {
+  const marker = 'WRITING STYLE for title and body fields:';
+  const i = prompt.indexOf(marker);
+  if (i < 0) return prompt;
+  const p = prompt.slice(0, i) + EXTRACTION_EVIDENCE_RULE + '\n\n' + prompt.slice(i);
+  return p.replace('"body":"...","due_date"', '"body":"...","evidence":"...","due_date"');
+}
+
+// Code side check for the evidence rule: most of the evidence words must occur
+// together in one user message, or the item is dropped.
+const toks = (s) =>
+  String(s || '')
+    .toLowerCase()
+    .replace(/[\u2019']/g, '')
+    .match(/[a-z0-9]+/g) || [];
+export function evidenceGrounded(evidence, userMessages) {
+  const e = toks(evidence);
+  if (e.length < 2) return false;
+  for (const m of userMessages) {
+    const set = new Set(toks(m));
+    const hit = e.filter((t) => set.has(t)).length;
+    if (hit / e.length >= 0.7) return true;
+  }
+  return false;
+}
+
+// Turns whose reply mode should never show the Save items pill: extraction is
+// skipped on them when CHAT_EXTRACTION_V2 is on.
+export const NO_EXTRACTION_MODES = [
+  'chit_chat',
+  'playful',
+  'app_help',
+  'venting',
+  'emotional',
+  'celebration',
+];
+
 export function buildChatExtractionPrompt({
   todayStr,
   runningSummary,

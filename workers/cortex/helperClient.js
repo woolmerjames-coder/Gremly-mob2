@@ -43,7 +43,33 @@ function capWithHeadroom(body) {
  * @returns {Promise<Response>} a Response whose JSON is OpenAI shaped
  */
 export async function helperFetch(job, body, opts = {}) {
-  const model = helperModel(job);
+  const primary = helperModel(job);
+  const fallback = models().helperFallback;
+  let res;
+  try {
+    res = await sendTo(primary, job, body, opts);
+  } catch (err) {
+    if (!fallback || fallback === primary) throw err;
+    res = null;
+    console.log('[helper] primary threw, trying fallback', {
+      job,
+      primary,
+      fallback,
+      error: String(err).slice(0, 120),
+    });
+  }
+  if (res && (res.ok || !fallback || fallback === primary)) return res;
+  if (res)
+    console.log('[helper] primary failed, trying fallback', {
+      job,
+      primary,
+      fallback,
+      status: res.status,
+    });
+  return sendTo(fallback, job, body, opts);
+}
+
+async function sendTo(model, job, body, opts) {
   const keys = models().keys || {};
   const provider = providerFor(model);
 

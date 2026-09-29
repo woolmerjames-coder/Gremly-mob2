@@ -16,6 +16,9 @@
 //   LEGACY_OPENAI_CHAT_MODEL  the non streaming OpenAI fallback for Space,
 //                  World and Chapter chat.
 //   WEEKLY_SUMMARY_MODEL  the Anthropic model behind the weekly summary.
+//   HELPER_FALLBACK_MODEL  retry a failed helper call once on this model.
+//   TRIAGE_ONE_CALL, CHAT_EXTRACTION_V2, SEARCH_REQUIRED_FORCES  behaviour
+//                  switches for the chat helper split; see flags below.
 //   APP_HELPER_MODEL  the model for the generic non streaming path that app
 //                  builds call for saveable detection, summary generation, list
 //                  item enrichment and the catch all notepad. The Worker used to
@@ -78,6 +81,20 @@ export function resolveModels(env = {}) {
     legacyOpenAIChat: env.LEGACY_OPENAI_CHAT_MODEL || DEFAULTS.legacyOpenAIChat,
     appHelper: env.APP_HELPER_MODEL || DEFAULTS.appHelper,
     weeklySummary: env.WEEKLY_SUMMARY_MODEL || DEFAULTS.weeklySummary,
+    // Behaviour switches for the chat helper split (docs/2026-09-29-chat-helper-model-audit.md).
+    // Every default is today's behaviour; the corpus gate applies before any is flipped.
+    flags: {
+      // One triage call returning mode and signals instead of two parallel calls.
+      triageOneCall: env.TRIAGE_ONE_CALL === 'on',
+      // Extraction: evidence rule, 2,000 token cap, JSON mode, and skipped on
+      // turns whose mode should never show the Save items pill.
+      extractionV2: env.CHAT_EXTRACTION_V2 === 'on',
+      // A "required" search signal forces a web search (today). Off: the tool
+      // is attached and the reply model decides.
+      searchRequiredForces: env.SEARCH_REQUIRED_FORCES !== 'off',
+    },
+    // A helper call that fails on its model is retried once on this model, if set.
+    helperFallback: env.HELPER_FALLBACK_MODEL || '',
     keys: {
       openai: env.OPENAI_API_KEY || '',
       google: env.GOOGLE_API_KEY || env.GEMINI_API_KEY || '',

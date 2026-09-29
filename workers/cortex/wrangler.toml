@@ -26,6 +26,22 @@ CLASSIFY_FALLBACK_MODEL = "gpt-6-luna"
 #   APP_HELPER_MODEL          the generic non streaming path app builds call (default gpt-4o-mini)
 #   LEGACY_OPENAI_CHAT_MODEL  non streaming OpenAI fallback for Space, World, Chapter (default gpt-4.1)
 #   WEEKLY_SUMMARY_MODEL      weekly summary (default claude-sonnet-4-5-20250929)
+#   HELPER_FALLBACK_MODEL     retry a failed helper call once on this model (default none)
+#   TRIAGE_ONE_CALL           on: one triage call instead of two (default off)
+#   CHAT_EXTRACTION_V2        on: evidence rule, 2,000 cap, JSON mode, skipped on
+#                             chit chat, playful, app help, venting, emotional,
+#                             celebration turns (default off)
+#   SEARCH_REQUIRED_FORCES    off: a required search attaches the tool and lets the
+#                             reply model decide (default on, forces a search)
+#
+# The split proposed by docs/2026-09-29-chat-helper-model-audit.md, to be set
+# together after the chat corpus gate (all still off):
+#   CHAT_MODEL = "gemini-3.8-flash"
+#   HELPER_MODEL = "gpt-6-luna"
+#   HELPER_FALLBACK_MODEL = "gemini-3.8-flash"
+#   TRIAGE_ONE_CALL = "on"
+#   CHAT_EXTRACTION_V2 = "on"
+#   SEARCH_REQUIRED_FORCES = "off"
 
 [observability]
 enabled = true

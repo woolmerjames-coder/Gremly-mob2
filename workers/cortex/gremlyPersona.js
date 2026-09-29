@@ -1,3 +1,5 @@
+import { models } from './models.js';
+
 /**
  * Gremly Persona — Mode-Based Chat System (Worker JS version)
  *
@@ -316,7 +318,11 @@ export const MODE_TEMP = {
 export function getSearchPolicy(searchSignal) {
   switch (searchSignal) {
     case 'required':
-      return { attachTool: true, toolChoice: 'required' };
+      // SEARCH_REQUIRED_FORCES=off: attach the tool and let the reply model decide
+      return {
+        attachTool: true,
+        toolChoice: models().flags.searchRequiredForces ? 'required' : 'auto',
+      };
     case 'maybe':
       return { attachTool: true, toolChoice: 'auto' };
     case 'none':
