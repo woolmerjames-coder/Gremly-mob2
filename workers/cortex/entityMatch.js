@@ -24,6 +24,9 @@ import { models } from './models.js';
 
 export const CANDIDATE_LIMIT = 6;
 export const CONFIDENCE_FLOOR = 70;
+// A card that only shows an item (no change proposed) must earn its place: the
+// chat is a conversation first, so a mere mention gets no card.
+export const VIEW_FLOOR = 80;
 
 // ── Candidate lookup ────────────────────────────────────────────────────────
 
@@ -117,6 +120,8 @@ export const toks = (s) =>
 const stem = (t) => t.replace(/(ing|ed|es|s)$/, '');
 /** HH:MM from a Postgres time value such as 14:00:00. */
 const clockTime = (v) => (v ? String(v).slice(0, 5) : null);
+/** The day a note is for: the column, or the copy MindDrop keeps in views. */
+export const noteDay = (n) => n?.target_date || n?.views?.target_date || null;
 const ENTITY_TYPES = new Set(['todo', 'habit', 'note']);
 
 /** Fetch the user's live items with the fields the matcher and the card need. */
@@ -140,8 +145,9 @@ export async function fetchEntities(env, userId) {
     get(
       `habits?owner_id=eq.${userId}&archived_at=is.null&select=id,name,title,frequency,space_id,updated_at&order=updated_at.desc&limit=40`,
     ),
+    // a note's day can live in the column or, for MindDrop captures, in views
     get(
-      `notes?owner_id=eq.${userId}&archived=not.is.true&select=id,title,space_id,target_date,event_time,updated_at&order=updated_at.desc&limit=60`,
+      `notes?owner_id=eq.${userId}&archived=not.is.true&select=id,title,space_id,target_date,event_time,views,updated_at&order=updated_at.desc&limit=60`,
     ),
   ]);
   const items = [];
@@ -168,9 +174,9 @@ export async function fetchEntities(env, userId) {
       type: 'note',
       title: n.title || '',
       // a note with a day and time (an appointment, an event) edits like a todo
-      due_day: n.target_date || null,
-      due_time: clockTime(n.event_time),
-      target_date: n.target_date || null,
+      due_day: noteDay(n),
+      due_time: clockTime(n.event_time || n.views?.event_time),
+      target_date: noteDay(n),
       space_id: n.space_id || null,
     });
   return items.filter((i) => i.title);
@@ -227,11 +233,13 @@ export const ENTITY_MATCH_SYSTEM_PROMPT = `You decide whether a chat message in 
 
 You are given today's date, the message, the previous exchange when there is one, and a short list of candidate items the user already has (todos and notes, some with a day and time; habits with a frequency). The candidates were chosen by wording; most messages refer to none of them. A candidate marked as shown on the card in the last reply is the item the app has just shown the user: in a short follow up, words like it, that, this one, or the appointment mean that item unless the message clearly names something else.
 
+This is a conversation first. A card interrupts it, so the bar is high: the user has to be asking for something to happen to a specific item they already have, or asking to see it. Talking about the same topic, sharing plans or details, thinking out loud, or asking about their day are conversation, and get refers false.
+
 Decide:
 - refers: true only when the message clearly names or points at one specific existing item. A message that merely shares words with an item does not refer to it. A message that describes something new does not refer to an existing item.
 - entity_id: the id of that item, or null.
-- intent: "edit" when the user wants the item changed (moved, renamed, its time or frequency altered, its details updated), "view" when they want to see or talk about it without changing it, "complete" when they say it is done, "none" otherwise.
-- change: for an edit, the single field to change and the new value. Fields: due_day (YYYY-MM-DD, resolved from today's date; todos and notes), due_time (HH:MM, 24 hour; todos and notes), name (the new title), frequency (plain words; habits), body (new note text). Null when the user wants a change but has not said what to, or the change is unclear; intent stays edit.
+- intent: "edit" when the user asks for, or states, a change to when the item is (its day or time), what it is called, or how often it repeats, including when they say it needs to move but have not said where to; "complete" when they say it is done; "view" only when they ask to see the item or ask what or when it is; "none" for everything else, including details they share about the topic, which are not an edit.
+- change: for an edit, the single field to change and the new value. Fields: due_day (YYYY-MM-DD, resolved from today's date; todos and notes), due_time (HH:MM, 24 hour; todos and notes), name (the new title), frequency (plain words; habits). Null when the user wants a change but has not said what to, or the change is unclear; intent stays edit.
 - confidence: 0 to 100, how sure you are that entity_id is the item the user means.
 - ask: true when two or more candidates fit about equally, or when the user's wording is too vague to pick one. Then list their ids in candidates.
 
@@ -273,10 +281,12 @@ function parseJson(raw) {
   }
 }
 
+// What a card in the conversation may change. A note's text is not on the list:
+// adding to a note is an offer in the Save items pill, not an interruption.
 const FIELDS = {
   todo: ['due_day', 'due_time', 'name'],
   habit: ['name', 'frequency'],
-  note: ['name', 'body', 'due_day', 'due_time'],
+  note: ['name', 'due_day', 'due_time'],
 };
 
 /**
@@ -327,7 +337,8 @@ export function decideCard(answer, candidates) {
     };
   }
   if (intent === 'edit') return { kind: 'view', entity, intent: 'edit' };
-  if (intent === 'view') return { kind: 'view', entity, intent: 'view' };
+  if (intent === 'view' && confidence >= VIEW_FLOOR)
+    return { kind: 'view', entity, intent: 'view' };
   return null;
 }
 
@@ -412,6 +423,26 @@ function changeInWords(card) {
   if (f === 'name') return `rename it to ${card.change.to}`;
   if (f === 'frequency') return `change its frequency to ${card.change.to}`;
   return `update it to ${card.change.to}`;
+}
+
+/**
+ * What became of the last card in this chat, so a follow up such as "did you
+ * change it?" gets a truthful answer. The app sends the item with its status.
+ */
+export function recentCardPromptSection(recent) {
+  if (!recent || !recent.id || !recent.title || !ENTITY_TYPES.has(recent.type)) return '';
+  const item = `their ${recent.type} "${String(recent.title).slice(0, 120)}"`;
+  if (recent.status === 'applied') {
+    const what = recent.summary ? ` ${String(recent.summary).slice(0, 160)}` : '';
+    return `\n\n=== LAST CARD ===\nEarlier in this chat the app showed the user a card for ${item} and they confirmed the change.${what} That change is done; if they ask, say so plainly.`;
+  }
+  if (recent.status === 'undone') {
+    return `\n\n=== LAST CARD ===\nEarlier in this chat the app showed the user a card for ${item}; they confirmed a change and then undid it, so the item is as it was.`;
+  }
+  if (recent.status === 'pending') {
+    return `\n\n=== LAST CARD ===\nEarlier in this chat the app showed the user a card for ${item} and they have not acted on it. Nothing about it has changed.`;
+  }
+  return '';
 }
 
 /** The section added to the reply prompt when a card is being shown. */

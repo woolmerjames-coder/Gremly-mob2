@@ -110,6 +110,21 @@ describe('entity card wording', () => {
     expect(primaryLabel({ field: 'frequency', from: null, to: 'daily' })).toBe('Yes, change it');
   });
 
+  test('adding to a note reads as an addition, on the card and in the pill', () => {
+    expect(
+      describeChange(vet, { field: 'body_add', from: null, to: 'Bring the stool sample' }),
+    ).toEqual({ from: 'Current note', to: 'Bring the stool sample', label: 'Add to note' });
+    expect(primaryLabel({ field: 'body_add', from: null, to: 'x' })).toBe('Yes, add it');
+    expect(
+      editPillTitle({
+        entity_title: 'Clarify Mexico trip plans',
+        entity_type: 'note',
+        field: 'body_add',
+        to: 'x',
+      }),
+    ).toBe('Add to Clarify Mexico trip plans');
+  });
+
   test('the pill wording for an edit, notes included', () => {
     expect(editPillTitle({ entity_title: 'Dentist', field: 'due_day', to: '2031-10-02' })).toBe(
       'Update Dentist to Thu 2 Oct',
@@ -175,8 +190,13 @@ describe('cards in the chat list', () => {
       due_time: '14:00',
       frequency: null,
       space_id: null,
+      status: 'pending',
+      summary: null,
     });
-    expect(recentEntityFor([msg('a1', 'assistant'), card('c1', 'applied')])?.id).toBe('t1');
+    expect(recentEntityFor([msg('a1', 'assistant'), card('c1', 'applied')])).toMatchObject({
+      id: 't1',
+      status: 'applied',
+    });
     expect(recentEntityFor([msg('a1', 'assistant'), card('c1', 'pending', 'view')])?.id).toBe('n1');
     // turned down, or a list not yet picked from: nothing carries over
     expect(recentEntityFor([msg('a1', 'assistant'), card('c1', 'declined')])).toBeNull();

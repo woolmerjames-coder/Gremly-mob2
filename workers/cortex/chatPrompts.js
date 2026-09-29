@@ -43,7 +43,7 @@ export function evidenceGrounded(evidence, userMessages) {
 // The extraction's second job (ENTITY_CARDS=on with CHAT_EXTRACTION_V2=on): when the
 // user says an item they already track has changed, record an edit to it, not a
 // new item. The ids come from the ITEMS ALREADY TRACKED list, which then carries them.
-export const EXTRACTION_EDITS_RULE = `EDITS: When the user's own words say that one of the items already tracked above has changed (moved to another day or time, renamed, given a different frequency) or is done, record that as an edit to that item using its id from the list, instead of extracting a new item. Fields: due_day (YYYY-MM-DD, resolved from today's date; todos and notes), due_time (HH:MM, 24 hour; todos and notes), name, frequency (habits), completed (value "done", todos). The evidence rule applies to edits too. Never edit an item the user did not clearly refer to, and never resolve a date the user did not give.`;
+export const EXTRACTION_EDITS_RULE = `EDITS: When the user's own words say that one of the items already tracked above has changed (moved to another day or time, renamed, given a different frequency) or is done, record that as an edit to that item using its id from the list, instead of extracting a new item. When the user's own words add details to something one of the notes above already covers (plans, names, places, decisions about that same thing), record an edit to that note with field body_add, whose value is the new details in the user's words, kept to a line or two, instead of a new item. Fields: due_day (YYYY-MM-DD, resolved from today's date; todos and notes), due_time (HH:MM, 24 hour; todos and notes), name, frequency (habits), completed (value "done", todos), body_add (notes). The evidence rule applies to edits too. Never edit an item the user did not clearly refer to, and never resolve a date the user did not give.`;
 
 /** Add the edits job to an extraction prompt that already has the evidence rule. */
 export function withEditsRule(prompt) {
@@ -53,14 +53,15 @@ export function withEditsRule(prompt) {
   const p = prompt.slice(0, i) + EXTRACTION_EDITS_RULE + '\n\n' + prompt.slice(i);
   return p.replace(
     '"chat_summary":{"title":"...","summary":"..."}}',
-    '"edits":[{"entity_id":"<id from the list>","type":"todo|habit|note","field":"due_day|due_time|name|frequency|completed","value":"...","evidence":"..."}],"chat_summary":{"title":"...","summary":"..."}}',
+    '"edits":[{"entity_id":"<id from the list>","type":"todo|habit|note","field":"due_day|due_time|name|frequency|completed|body_add","value":"...","evidence":"..."}],"chat_summary":{"title":"...","summary":"..."}}',
   );
 }
 
+// body_add appends to a note; a note's text is never replaced from chat.
 const EDIT_FIELDS = {
   todo: ['due_day', 'due_time', 'name', 'completed'],
   habit: ['name', 'frequency'],
-  note: ['name', 'body', 'due_day', 'due_time'],
+  note: ['name', 'body_add', 'due_day', 'due_time'],
 };
 
 /**
@@ -82,7 +83,11 @@ export function editsToPillItems(edits, tracked, userTexts) {
     if (field === 'due_time' && !/^\d{2}:\d{2}$/.test(value)) continue;
     if (!evidenceGrounded(e.evidence, userTexts)) continue;
     const from =
-      field === 'name' ? item.title : field === 'completed' ? null : (item[field] ?? null);
+      field === 'name'
+        ? item.title
+        : field === 'completed' || field === 'body_add'
+          ? null
+          : (item[field] ?? null);
     if (from !== null && String(from) === value) continue;
     out.push({
       id: Math.random().toString(36).slice(2, 10),
@@ -93,7 +98,7 @@ export function editsToPillItems(edits, tracked, userTexts) {
       field,
       from,
       to: field === 'completed' ? 'done' : value,
-      title: `Update ${item.title}`,
+      title: field === 'body_add' ? `Add to ${item.title}` : `Update ${item.title}`,
       body: null,
       evidence: String(e.evidence || ''),
       confidence: 90,

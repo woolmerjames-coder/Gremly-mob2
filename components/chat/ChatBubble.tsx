@@ -32,7 +32,10 @@ export interface ChatBubbleEntityCard {
   onOpen?: (entity: EntityCardEntity) => void;
 }
 
-/** "3.1s to first word · 6.0s total · worker: triage 0.9s, card 1.2s, reply 4.6s" */
+/**
+ * "3.1s to first word · 6.0s total · worker: triage 0.9s, card 1.2s, reply 4.6s"
+ * Logged to the Metro console in dev builds; never shown in the app.
+ */
 export function timingLine(t: ChatTurnTiming): string {
   const s = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
   const parts = [`${s(t.first_ms)} to first word`, `${s(t.total_ms)} total`];
@@ -148,7 +151,6 @@ function ChatBubbleInner({
 }: ChatBubbleProps) {
   const isUser = message.role === 'user';
   const isAssistant = message.role === 'assistant';
-  const timing = (message as any).timing as ChatTurnTiming | undefined;
 
   // Streaming state
   const isStreaming = (message as any).isStreaming === true;
@@ -396,13 +398,6 @@ function ChatBubbleInner({
           onOpen={entityCard.onOpen}
         />
       ) : null}
-
-      {/* Dev builds only: where this turn's time went */}
-      {isAssistant && timing && __DEV__ ? (
-        <Text style={styles.timing} testID={`chat-timing-${message.id}`}>
-          {timingLine(timing)}
-        </Text>
-      ) : null}
     </ViewComponent>
   );
 }
@@ -472,11 +467,6 @@ const styles = StyleSheet.create({
     marginTop: 16, // More space between message and save card
     marginLeft: 0, // Align with message content
     width: '100%',
-  },
-  timing: {
-    marginTop: 6,
-    fontSize: 11,
-    color: '#9CA3AF',
   },
   text: {
     fontSize: lightTokens.chat.bodyFontSize,

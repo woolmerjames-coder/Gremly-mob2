@@ -675,7 +675,14 @@ export type MessageRole =
  * user taps. Mockup is spec: Gremly shows the card and asks "Is this the one?".
  */
 export type EntityCardEntityType = 'todo' | 'habit' | 'note';
-export type EntityCardField = 'due_day' | 'due_time' | 'name' | 'frequency' | 'body' | 'completed';
+export type EntityCardField =
+  | 'due_day'
+  | 'due_time'
+  | 'name'
+  | 'frequency'
+  | 'body'
+  | 'body_add'
+  | 'completed';
 export interface EntityCardEntity {
   id: ID;
   type: EntityCardEntityType;
@@ -697,6 +704,11 @@ export type EntityCard =
   | { kind: 'view'; entity: EntityCardEntity; intent?: 'edit' | 'view' }
   | { kind: 'choose'; candidates: EntityCardEntity[] };
 export type EntityCardStatus = 'pending' | 'applied' | 'declined' | 'undone';
+/** The item on the last card in a chat, with what became of it, sent with the next turn. */
+export interface RecentEntity extends EntityCardEntity {
+  status: EntityCardStatus;
+  summary?: string | null;
+}
 /** Where a chat turn's time went; shown under the reply in dev builds only. */
 export interface ChatTurnTiming {
   /** From send to the first word on screen, on the phone. */

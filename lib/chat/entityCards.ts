@@ -17,6 +17,7 @@ import type {
   EntityCardChange,
   EntityCardEntity,
   EntityCardStatus,
+  RecentEntity,
   SpaceChatMessage,
 } from '../types';
 
@@ -110,6 +111,8 @@ export function describeChange(
         to: change.to,
         label: 'Update note to',
       };
+    case 'body_add':
+      return { from: 'Current note', to: change.to, label: 'Add to note' };
     case 'completed':
       return { from: 'Open', to: 'Done', label: 'Mark as' };
     default:
@@ -128,6 +131,8 @@ export function primaryLabel(change: EntityCardChange): string {
       return 'Yes, rename it';
     case 'completed':
       return 'Yes, mark it done';
+    case 'body_add':
+      return 'Yes, add it';
     default:
       return 'Yes, change it';
   }
@@ -141,6 +146,7 @@ export function editPillTitle(item: {
   to: string;
 }): string {
   const type = (item.entity_type as EntityCardEntity['type']) || 'todo';
+  if (item.field === 'body_add') return `Add to ${item.entity_title}`;
   const c = describeChange(
     { id: '', type, title: item.entity_title },
     { field: item.field as EntityCardChange['field'], from: null, to: item.to },
@@ -256,21 +262,30 @@ export async function applyEntityChange(
   // notes: a title, a body, and for appointments and events a day and a time
   const note = store.notes.find((n) => n.id === entity.id);
   if (!note) throw new Error('That note is no longer here.');
+  const views = (note.views as Record<string, unknown> | undefined) ?? undefined;
   const before = {
     title: note.title ?? null,
     body: note.body ?? null,
     target_date: note.target_date ?? null,
     event_time: note.event_time ?? null,
+    views,
   };
+  // MindDrop keeps a copy of a note's day and time in views; keep it in step
+  const withViews = (patch: Record<string, unknown>) =>
+    views && ('target_date' in views || 'event_time' in views)
+      ? { ...patch, views: { ...views, ...patch } }
+      : patch;
   const updates =
     change.field === 'body'
       ? { body: change.to }
-      : change.field === 'due_day'
-        ? { target_date: change.to }
-        : change.field === 'due_time'
-          ? { event_time: change.to }
-          : { title: change.to };
-  await store.updateNote(note.id, updates);
+      : change.field === 'body_add'
+        ? { body: note.body?.trim() ? `${note.body.trimEnd()}\n\n${change.to}` : change.to }
+        : change.field === 'due_day'
+          ? withViews({ target_date: change.to })
+          : change.field === 'due_time'
+            ? withViews({ event_time: change.to })
+            : { title: change.to };
+  await store.updateNote(note.id, updates as Partial<typeof note>);
   const title = note.title || entity.title;
   return {
     revert: () =>
@@ -278,20 +293,22 @@ export async function applyEntityChange(
         .getState()
         .updateNote(
           note.id,
-          change.field === 'body'
+          (change.field === 'body' || change.field === 'body_add'
             ? { body: before.body }
             : change.field === 'due_day'
-              ? { target_date: before.target_date }
+              ? { target_date: before.target_date, ...(views ? { views } : {}) }
               : change.field === 'due_time'
-                ? { event_time: before.event_time }
-                : { title: before.title },
+                ? { event_time: before.event_time, ...(views ? { views } : {}) }
+                : { title: before.title }) as Partial<typeof note>,
         ),
     summary:
       change.field === 'body'
         ? 'Note updated.'
-        : change.field === 'name'
-          ? `Renamed to ${words.to}.`
-          : `${title} is now ${words.to}.`,
+        : change.field === 'body_add'
+          ? `Added to ${title}.`
+          : change.field === 'name'
+            ? `Renamed to ${words.to}.`
+            : `${title} is now ${words.to}.`,
     entity: after,
   };
 }
@@ -334,11 +351,15 @@ export function foldEntityCards(messages: SpaceChatMessage[]): {
  * message so a follow up like "move it to Friday" can mean it. A card the user
  * turned down, or a list they have not picked from, gives nothing.
  */
-export function recentEntityFor(messages: SpaceChatMessage[]): EntityCardEntity | null {
+export function recentEntityFor(messages: SpaceChatMessage[]): RecentEntity | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
     if (!isEntityCardMessage(m)) continue;
-    const meta = m.metadata_json as { card: EntityCard; status?: EntityCardStatus };
+    const meta = m.metadata_json as {
+      card: EntityCard;
+      status?: EntityCardStatus;
+      summary?: string | null;
+    };
     if (meta.status === 'declined') return null;
     if (meta.card.kind === 'choose') return null;
     const e = meta.card.entity;
@@ -350,6 +371,8 @@ export function recentEntityFor(messages: SpaceChatMessage[]): EntityCardEntity 
       due_time: e.due_time ?? null,
       frequency: e.frequency ?? null,
       space_id: e.space_id ?? null,
+      status: meta.status || 'pending',
+      summary: meta.summary ?? null,
     };
   }
   return null;

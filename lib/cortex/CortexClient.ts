@@ -391,7 +391,7 @@ export function callSpaceChatStreaming(
     chatId: string;
     userId?: string;
     systemPrompt?: string;
-    recentEntity?: import('../types').EntityCardEntity | null;
+    recentEntity?: import('../types').RecentEntity | null;
   },
   callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
 ): { close: () => void } {
@@ -515,7 +515,7 @@ export function callGeneralChatStreaming(
     chatId: string;
     userId?: string;
     systemPrompt?: string;
-    recentEntity?: import('../types').EntityCardEntity | null;
+    recentEntity?: import('../types').RecentEntity | null;
   },
   callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
 ): { close: () => void } {
@@ -628,7 +628,7 @@ export function callWorldChatStreaming(
     scopeName: string;
     chatId: string;
     userId?: string;
-    recentEntity?: import('../types').EntityCardEntity | null;
+    recentEntity?: import('../types').RecentEntity | null;
   },
   callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
 ): { close: () => void } {
@@ -736,7 +736,7 @@ export function callChapterChatStreaming(
     scopeName: string;
     chatId: string;
     userId?: string;
-    recentEntity?: import('../types').EntityCardEntity | null;
+    recentEntity?: import('../types').RecentEntity | null;
   },
   callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
 ): { close: () => void } {

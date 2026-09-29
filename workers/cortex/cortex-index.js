@@ -202,7 +202,13 @@ import {
 import { handleHabitRead } from './habitRead.js';
 import { configureModels, models, helperModel } from './models.js';
 import { helperFetch } from './helperClient.js';
-import { matchEntity, entityCardPromptSection, applyEntityCardToTriage } from './entityMatch.js';
+import {
+  matchEntity,
+  entityCardPromptSection,
+  applyEntityCardToTriage,
+  recentCardPromptSection,
+  noteDay,
+} from './entityMatch.js';
 import {
   buildChatExtractionPrompt,
   withEvidenceRule,
@@ -11720,6 +11726,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             });
 
             if (entityCard) genConfig.systemPrompt += entityCardPromptSection(entityCard);
+            genConfig.systemPrompt += recentCardPromptSection(body.recentEntity);
 
             const spaceChatMessages = [
               { role: 'system', content: genConfig.systemPrompt },
@@ -12544,6 +12551,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             });
 
             if (entityCard) genConfig.systemPrompt += entityCardPromptSection(entityCard);
+            genConfig.systemPrompt += recentCardPromptSection(body.recentEntity);
 
             const chatMessages = [
               { role: 'system', content: genConfig.systemPrompt },
@@ -12942,7 +12950,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       ),
                       // notes with a day, or made recently: appointments and events live here
                       fetch(
-                        `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${authenticatedUserId}&archived=not.is.true&select=id,title,target_date,event_time&order=updated_at.desc&limit=20`,
+                        `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${authenticatedUserId}&archived=not.is.true&select=id,title,target_date,event_time,views&order=updated_at.desc&limit=20`,
                         { headers: supaHeaders },
                       ),
                     ]);
@@ -12965,8 +12973,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                         id: row.id,
                         type,
                         title: row.name || row.title || '',
-                        due_day: row.due_day || row.target_date || null,
-                        due_time: row.due_time || row.event_time || null,
+                        due_day: row.due_day || noteDay(row),
+                        due_time: row.due_time || row.event_time || row.views?.event_time || null,
                         frequency: row.frequency || null,
                       });
                       return `[${type} id:${short}]`;
@@ -12989,8 +12997,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                         .map(
                           (n) =>
                             `- ${trackedTag(n, 'note')} ${n.title}${
-                              editsOn && n.target_date
-                                ? ` (dated ${n.target_date}${n.event_time ? ` ${String(n.event_time).slice(0, 5)}` : ''})`
+                              editsOn && noteDay(n)
+                                ? ` (dated ${noteDay(n)}${n.event_time ? ` ${String(n.event_time).slice(0, 5)}` : ''})`
                                 : ''
                             }`,
                         ),
@@ -14497,6 +14505,7 @@ function runScopedChatStream(
       });
 
       if (entityCard) genConfig.systemPrompt += entityCardPromptSection(entityCard);
+      genConfig.systemPrompt += recentCardPromptSection(body.recentEntity);
       const chatMessages = [
         { role: 'system', content: genConfig.systemPrompt },
         ...processedMessages.filter((m) => m.role !== 'system'),

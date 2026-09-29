@@ -9347,8 +9347,19 @@ export const useGremlyStore = create<GremlyState>()(
               views: updatedViews,
               needs_clarification: false,
               clarification_resolved: true,
-              // Only include date fields for todos/habits - notes don't have due_date/due_day columns
-              ...(entityType !== 'note' ? dateUpdate : {}),
+              // Todos and habits take due_day, due_date and start_date; a note has
+              // target_date and event_time columns of its own (the calendar, the
+              // editor and chat read those), with the copy in views kept above.
+              ...(entityType !== 'note'
+                ? dateUpdate
+                : {
+                    ...(reclassifyResult.target_date
+                      ? { target_date: reclassifyResult.target_date }
+                      : {}),
+                    ...(reclassifyResult.event_time
+                      ? { event_time: reclassifyResult.event_time }
+                      : {}),
+                  }),
             };
 
             // Set title/name and time estimate based on entity type

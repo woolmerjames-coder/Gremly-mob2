@@ -12,7 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppFlatList } from '../../components/common/AppFlatList';
 import { useChatMessages } from '../../hooks/useChatMessages';
-import { ChatBubble } from '../../components/chat/ChatBubble';
+import { ChatBubble, timingLine } from '../../components/chat/ChatBubble';
 import { EntityCardBubble } from '../../components/chat/EntityCardMessage';
 import {
   applyEntityChange,
@@ -255,13 +255,14 @@ export default function AskGremlyScreen() {
               }
               if (__DEV__) {
                 const now = getDateService().now().getTime();
-                updateMessage(msgId, {
-                  timing: {
+                console.log(
+                  '[chat timing]',
+                  timingLine({
                     first_ms: (firstChunkAt ?? now) - sentAt,
                     total_ms: now - sentAt,
                     server: richResult?.timing ?? null,
-                  },
-                } as any);
+                  }),
+                );
               }
             }
             if (richResult?.entity_card) {

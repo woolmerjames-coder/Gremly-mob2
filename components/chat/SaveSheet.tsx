@@ -101,7 +101,7 @@ export function SaveSheet({
                   <View style={styles.itemContent}>
                     <Text style={[styles.typeLabel, { color: config.color }]}>
                       {item.type === 'edit'
-                        ? `UPDATE ${String(item.entity_type || '').toUpperCase()}`
+                        ? `${item.field === 'body_add' ? 'ADD TO' : 'UPDATE'} ${String(item.entity_type || '').toUpperCase()}`
                         : item.type.toUpperCase()}
                     </Text>
                     <Text style={styles.itemTitle}>

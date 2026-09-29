@@ -59,7 +59,7 @@ import { useChatMessages } from '../../hooks/useChatMessages';
 import { EntityCardBubble } from '../../components/chat/EntityCardMessage';
 import { foldEntityCards, isEntityCardMessage, recentEntityFor } from '../../lib/chat/entityCards';
 import { useOpenEntity } from '../../hooks/useOpenEntity';
-import { ChatBubble } from '../../components/chat/ChatBubble';
+import { ChatBubble, timingLine } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { EntryCard } from '../../components/chat/EntryCard';
 import { SavedItemCard } from '../../src/components/chat/SavedItemCard';
@@ -881,15 +881,16 @@ export default function ChatThreadScreen({ route }: Props) {
                 const finalizedMessage = await finalizeStreamingMessage(messageId, finalText);
                 streamingMessageIdRef.current = null;
                 streamingControllerRef.current = null;
-                if (__DEV__ && finalizedMessage?.id) {
+                if (__DEV__) {
                   const now = getDateService().now().getTime();
-                  updateMessage(finalizedMessage.id, {
-                    timing: {
+                  console.log(
+                    '[chat timing]',
+                    timingLine({
                       first_ms: (firstChunkAt ?? now) - sentAt,
                       total_ms: now - sentAt,
                       server: richResult?.timing ?? null,
-                    },
-                  } as any);
+                    }),
+                  );
                 }
                 if (richResult?.entity_card) {
                   await appendEntityCard(richResult.entity_card);

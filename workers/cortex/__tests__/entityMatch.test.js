@@ -11,8 +11,11 @@ import {
   buildEntityMatchInput,
   entityCardPromptSection,
   applyEntityCardToTriage,
+  recentCardPromptSection,
+  noteDay,
   matchEntity,
   CONFIDENCE_FLOOR,
+  VIEW_FLOOR,
 } from '../entityMatch.js';
 import {
   editsToPillItems,
@@ -449,4 +452,106 @@ test('the pill can move a dated note, and skips fields a note does not have', ()
   );
   expect(items).toHaveLength(1);
   expect(items[0]).toMatchObject({ entity_type: 'note', field: 'due_day', to: '2026-10-02' });
+});
+
+test('a mere mention gets no card: view needs a high confidence, and a note body is not a card field', () => {
+  const cands = rankCandidates('thinking about the mexico trip', [
+    { id: 'mmmm0000-0000', type: 'note', title: 'Clarify Mexico trip plans' },
+  ]);
+  const low = decideCard(
+    {
+      refers: true,
+      entity_id: 'mmmm0000-0000',
+      intent: 'view',
+      change: null,
+      confidence: VIEW_FLOOR - 1,
+    },
+    cands,
+  );
+  expect(low).toBeNull();
+  const none = decideCard(
+    { refers: true, entity_id: 'mmmm0000-0000', intent: 'none', change: null, confidence: 95 },
+    cands,
+  );
+  expect(none).toBeNull();
+  // details for a note are the pill's job (body_add), never a card that interrupts the chat
+  const body = decideCard(
+    {
+      refers: true,
+      entity_id: 'mmmm0000-0000',
+      intent: 'edit',
+      change: { field: 'body', value: 'Mexico City then Zipolite' },
+      confidence: 95,
+    },
+    cands,
+  );
+  expect(body.kind).toBe('view');
+  expect(body.intent).toBe('edit');
+});
+
+test('the last card and what became of it reach the reply prompt', () => {
+  const base = { id: 'n1', type: 'note', title: 'Bella Vet Appointment' };
+  expect(recentCardPromptSection(null)).toBe('');
+  expect(recentCardPromptSection({ ...base, status: 'declined' })).toBe('');
+  const done = recentCardPromptSection({
+    ...base,
+    status: 'applied',
+    summary: 'Done. Bella Vet Appointment is now Fri 2 Oct.',
+  });
+  expect(done).toContain('=== LAST CARD ===');
+  expect(done).toContain('confirmed the change');
+  expect(done).toContain('Fri 2 Oct');
+  expect(recentCardPromptSection({ ...base, status: 'pending' })).toContain('have not acted');
+  expect(recentCardPromptSection({ ...base, status: 'undone' })).toContain('undid it');
+  expect(recentCardPromptSection({ ...base, type: 'space', status: 'applied' })).toBe('');
+});
+
+test("a note's day comes from its column or from the copy MindDrop keeps in views", () => {
+  expect(noteDay({ target_date: '2026-10-02', views: { target_date: '2026-09-30' } })).toBe(
+    '2026-10-02',
+  );
+  expect(noteDay({ target_date: null, views: { target_date: '2026-09-30' } })).toBe('2026-09-30');
+  expect(noteDay({ target_date: null, views: null })).toBeNull();
+  expect(noteDay(undefined)).toBeNull();
+});
+
+test('details shared about a note become an add to the note in the pill, never a replacement', () => {
+  const tracked = new Map([
+    ['mmmm0000', { id: 'mmmm0000-0000', type: 'note', title: 'Clarify Mexico trip plans' }],
+  ]);
+  const items = editsToPillItems(
+    [
+      {
+        entity_id: 'mmmm0000',
+        field: 'body_add',
+        value: 'Mexico City, Puerto Escondido and Zipolite, with Dave',
+        evidence: 'mexico city, puerto escondido and then zipolite. i will be with dave',
+      },
+      {
+        entity_id: 'mmmm0000',
+        field: 'body',
+        value: 'replace everything',
+        evidence: 'mexico city',
+      },
+    ],
+    tracked,
+    ['Yes I was thinking Mexico City, Puerto Escondido and then Zipolite. I will be with Dave'],
+  );
+  expect(items).toHaveLength(1);
+  expect(items[0]).toMatchObject({
+    field: 'body_add',
+    from: null,
+    title: 'Add to Clarify Mexico trip plans',
+  });
+  expect(
+    withEditsRule(
+      buildChatExtractionPrompt({
+        todayStr: 'x',
+        runningSummary: null,
+        conversationText: '',
+        handledIds: [],
+        existingItemsBlock: '',
+      }),
+    ),
+  ).toContain('body_add');
 });
