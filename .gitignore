@@ -56,6 +56,11 @@ _archive/
 # Mind Drop log analysis
 minddrop-test.log
 
+# Generated analysis artifacts (HTML reports and vector dumps)
+Claude outputs/
+vectors.jsonl
+vectors.c2.derived.jsonl
+
 # Supabase
 supabase/.temp/
 supabase/.branches/
