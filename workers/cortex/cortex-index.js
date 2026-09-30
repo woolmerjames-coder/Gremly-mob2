@@ -217,7 +217,8 @@ import {
   cardTrackedNote,
   aboutTrackedNote,
   reconcileSameAs,
-  mergePillItems,
+  lateCardFrom,
+  newItemsOnly,
   buildChatExtractionPrompt,
   buildPillPrompt,
   buildSummaryPrompt,
@@ -12957,7 +12958,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       return;
                     }
                     const chatRes = await fetch(
-                      `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=saved_extraction_ids,dismissed_extractions`,
+                      `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=saved_extraction_ids,dismissed_extractions,metadata_json`,
                       {
                         headers: {
                           apikey: env.SUPABASE_SERVICE_KEY,
@@ -13021,6 +13022,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                           target_date: i.due_day || null,
                           event_time: i.due_time || null,
                           frequency: i.frequency || null,
+                          logged_days: i.logged_days || [],
                         }));
                     const todosData = shared
                       ? fromShared('todo')
@@ -13052,6 +13054,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                         due_day: row.due_day || noteDay(row),
                         due_time: row.due_time || row.event_time || row.views?.event_time || null,
                         frequency: row.frequency || null,
+                        logged_days: row.logged_days || [],
                       });
                       return `[${type} id:${short}]`;
                     };
@@ -13119,6 +13122,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     // run together. Off: the single four-job call as before.
                     const pillSplit = models().flags.pillSplit && extractionV2 && editsOn;
                     let extractResult = null;
+                    let lateCard = null;
                     try {
                       const extractReq = {
                         messages: [
@@ -13199,17 +13203,21 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                           }
                         }
                         if (editsOn && extractResult) {
+                          // Existing means card, new means pill: the pill keeps only new
+                          // things; every change to an existing item the extraction found
+                          // (its own edits, add-tos from reconciliation, what the matcher
+                          // heard in passing) is a card candidate, and one becomes a card
+                          // under the reply, picked up by the app's poll.
                           const userTexts = recentMsgs
                             .filter((m) => m.role === 'user')
                             .map((m) => String(m.content || ''));
-                          const editItems = editsToPillItems(
-                            extractResult.edits,
-                            tracked,
-                            userTexts,
-                          ).filter(
-                            (e) => !entityCard?.entity || e.entity_id !== entityCard.entity.id,
+                          const converted = (extractResult.extractions || []).filter(
+                            (e) => e && e.type === 'edit',
                           );
-                          // what the matcher heard in passing is offered even if the extractor missed it
+                          const editItems = [
+                            ...editsToPillItems(extractResult.edits, tracked, userTexts),
+                            ...converted,
+                          ];
                           const heard = mentionEditItem(entityMatch?.mention);
                           if (
                             heard &&
@@ -13219,14 +13227,23 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                           ) {
                             editItems.push(heard);
                           }
+                          extractResult.extractions = newItemsOnly(extractResult.extractions);
+                          lateCard = lateCardFrom(editItems, tracked, {
+                            cardEntityId: entityCard?.entity?.id || null,
+                            declinedId:
+                              body.recentEntity?.status === 'declined'
+                                ? body.recentEntity.id
+                                : null,
+                            aboutIds: (entityMatch?.related || []).map((c) => c.id),
+                          });
                           if (editItems.length > 0) {
-                            extractResult.extractions = mergePillItems(
-                              extractResult.extractions || [],
-                              editItems,
+                            console.log(
+                              '[GeneralChat] Extraction found changes to existing items',
+                              {
+                                edits: editItems.length,
+                                lateCard: lateCard ? lateCard.entity.title : null,
+                              },
                             );
-                            console.log('[GeneralChat] Extraction proposed edits', {
-                              edits: editItems.length,
-                            });
                           }
                         }
                       }
@@ -13245,6 +13262,13 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                         body: JSON.stringify({
                           extracted_items: extractResult.extractions || [],
                           auto_title: extractResult.chat_summary?.title || null,
+                          // the late card for this turn, or none; the app polls for it
+                          metadata_json: {
+                            ...((existing && existing.metadata_json) || {}),
+                            late_card: lateCard
+                              ? { card: lateCard, at: new Date().toISOString() }
+                              : null,
+                          },
                         }),
                       });
                       console.log('[GeneralChat] Extraction complete', {

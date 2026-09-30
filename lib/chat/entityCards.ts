@@ -117,6 +117,8 @@ export function describeChange(
         : { from: 'Current note', to: change.to, label: 'Add to note' };
     case 'completed':
       return { from: 'Open', to: 'Done', label: 'Mark as' };
+    case 'logged':
+      return { from: 'Not logged', to: formatDay(change.to), label: 'Log for' };
     default:
       return { from: change.from || '', to: change.to, label: 'Change to' };
   }
@@ -135,6 +137,8 @@ export function primaryLabel(change: EntityCardChange): string {
       return 'Yes, mark it done';
     case 'body_add':
       return 'Yes, add it';
+    case 'logged':
+      return 'Yes, log it';
     default:
       return 'Yes, change it';
   }
@@ -252,6 +256,15 @@ export async function applyEntityChange(
   if (entity.type === 'habit') {
     const habit = store.habits.find((h) => h.id === entity.id);
     if (!habit) throw new Error('That habit is no longer here.');
+    if (change.field === 'logged') {
+      // a check-in for the day they said; the store ignores a day already logged
+      await store.logHabitCompletionForDate(habit.id, change.to);
+      return {
+        revert: () => useGremlyStore.getState().removeHabitCompletionForDate(habit.id, change.to),
+        summary: `Logged ${habit.name} for ${formatDay(change.to)}.`,
+        entity: after,
+      };
+    }
     const before = { name: habit.name, frequency: habit.frequency };
     const updates = change.field === 'frequency' ? { frequency: change.to } : { name: change.to };
     await store.updateHabit(habit.id, updates);
@@ -409,6 +422,27 @@ export function pendingTwinOf(
     return same ? m : null;
   }
   return null;
+}
+
+/**
+ * A card found after the reply (late) repeats too easily, because the
+ * extraction reads the whole conversation each turn: an add-to or a check-in
+ * for an item that already had one in this chat, whatever became of it, is
+ * not shown again. Only an explicit ask (a matcher card) can repeat those.
+ */
+export function lateCardAlreadyShown(messages: SpaceChatMessage[], card: EntityCard): boolean {
+  if (card.kind !== 'edit' || !card.late) return false;
+  if (card.change.field !== 'body_add' && card.change.field !== 'logged') return false;
+  return messages.some((m) => {
+    if (!isEntityCardMessage(m)) return false;
+    const c = (m.metadata_json as { card: EntityCard }).card;
+    return (
+      c.kind === 'edit' &&
+      c.entity.id === card.entity.id &&
+      c.change.field === card.change.field &&
+      (card.change.field === 'body_add' || String(c.change.to) === String(card.change.to))
+    );
+  });
 }
 
 /** A RecentEntity for a card the user has just acted on, before the message state catches up. */

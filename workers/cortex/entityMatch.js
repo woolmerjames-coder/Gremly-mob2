@@ -43,7 +43,7 @@ export const noteDay = (n) => n?.target_date || n?.views?.target_date || null;
 const ENTITY_TYPES = new Set(['todo', 'habit', 'note']);
 
 /** Fetch the user's live items with the fields the matcher and the card need. */
-export async function fetchEntities(env, userId) {
+export async function fetchEntities(env, userId, todayIso = null) {
   const headers = {
     apikey: env.SUPABASE_SERVICE_KEY,
     Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
@@ -56,18 +56,32 @@ export async function fetchEntities(env, userId) {
       return [];
     }
   };
-  const [todos, habits, notes] = await Promise.all([
+  const since = todayIso ? addDays(todayIso, -LOG_WINDOW_DAYS) : null;
+  const [todos, habits, notes, logs] = await Promise.all([
     get(
       `todos?owner_id=eq.${userId}&completed_at=is.null&archived=not.is.true&select=id,name,title,due_day,due_time,space_id,updated_at&order=updated_at.desc&limit=300`,
     ),
     get(
-      `habits?owner_id=eq.${userId}&archived_at=is.null&select=id,name,title,frequency,space_id,updated_at&order=updated_at.desc&limit=100`,
+      `habits?owner_id=eq.${userId}&archived_at=is.null&select=id,name,title,frequency,cadence,target_per_period,period_unit,space_id,updated_at&order=updated_at.desc&limit=100`,
     ),
     // a note's day can live in the column or, for MindDrop captures, in views
     get(
       `notes?owner_id=eq.${userId}&archived=not.is.true&select=id,title,space_id,subtype,target_date,event_time,views,updated_at&order=updated_at.desc&limit=300`,
     ),
+    // the last two weeks of habit check-ins, so a check-in said in chat is not
+    // counted twice and the reply can speak to how a habit is going
+    since
+      ? get(
+          `habit_progress?owner_id=eq.${userId}&occurred_day=gte.${since}&select=habit_id,occurred_day&order=occurred_day.desc&limit=1000`,
+        )
+      : Promise.resolve([]),
   ]);
+  const loggedByHabit = new Map();
+  for (const l of logs || []) {
+    if (!l?.habit_id || !l?.occurred_day) continue;
+    if (!loggedByHabit.has(l.habit_id)) loggedByHabit.set(l.habit_id, []);
+    loggedByHabit.get(l.habit_id).push(String(l.occurred_day).slice(0, 10));
+  }
   const items = [];
   for (const t of todos)
     items.push({
@@ -84,6 +98,10 @@ export async function fetchEntities(env, userId) {
       type: 'habit',
       title: h.name || h.title || '',
       frequency: h.frequency || null,
+      cadence: h.cadence || null,
+      target_per_period: h.target_per_period ?? null,
+      period_unit: h.period_unit || null,
+      logged_days: [...new Set(loggedByHabit.get(h.id) || [])].sort().reverse(),
       space_id: h.space_id || null,
     });
   for (const n of notes)
@@ -151,7 +169,7 @@ function withKeys(list) {
 
 export const ENTITY_MATCH_SYSTEM_PROMPT = `You decide whether a chat message in a personal productivity app is about something the user already has, and what they want done with it.
 
-You are given today's date, the message, the last few exchanges when there are any, and the user's items: their todos and notes, some with a day and time, and their habits with how often they repeat. The list is everything they have, so most of it has nothing to do with the message. Read the whole list before deciding; an item near the end counts as much as one near the top. An item marked as shown on the card in the last reply is the one the app has just shown them; one marked as not the one they meant was on the last card and they turned it down, so it is never the answer and they are now describing something else or one of the others. A short follow up takes its meaning from the exchanges before it: a pronoun or a bare yes means the item those exchanges were about unless the message plainly names something else, and a yes to an offer Gremly made is an edit with the change that offer named.
+You are given today's date, the message, the last few exchanges when there are any, and the user's items: their todos and notes, some with a day and time, and their habits with how often they repeat. The list is everything they have, so most of it has nothing to do with the message. Read the whole list before deciding; an item near the end counts as much as one near the top. An item marked as shown on the card in the last reply is the one the app has just shown them; one marked as not the one they meant was on the last card and they turned it down, so it is never the answer. When the message only turns that card down, what they want is still what they asked for in the exchange before it: find the other items that fit that request among everything they have, and ask which of them they mean (ask true, with their ids in candidates), or take the one that plainly fits. A short follow up takes its meaning from the exchanges before it: a pronoun or a bare yes means the item those exchanges were about unless the message plainly names something else, and a yes to an offer Gremly made is an edit with the change that offer named.
 
 This is a conversation first. Two different things can follow from your answer, so tell them apart: a card in the reply, which interrupts the conversation and is only for an explicit ask; and a quiet offer later, which is for things said in passing.
 
@@ -159,8 +177,8 @@ Decide, in this order:
 - considered: first, the ids of every item that could be the one the message is about, up to five, found by reading the whole list; empty when none could be.
 - refers: true when the message is about one specific item on the list, whether it names the item, points at it, or describes the same thing in different words. What they call it is their word for it, not a filter: when what they describe matches an item of another kind, a todo they call a note or a note they call a reminder, that item is the one they mean, and refers is true. Sharing a word or a topic with an item is not referring to it, describing something new is not referring to an existing item, and when their words cover an area of work, a project or several items at once, no single item is meant: refers is false and the items concerned go in about.
 - entity_id: the id of that item, or null.
-- intent: "edit" when the message is a request or an instruction about the item: to move it, reschedule it, rename it, give it another time or another frequency, add something to a note or to a todo, or a statement, in whatever words, that the item as it is set has to change, even without saying what to. "complete" when their words say the item is done, whether they announce it as news or ask for it to be marked. "view" only when they ask for the item itself: to see it, open it, read it back, or be told what it says or when it is. Asking for help, options, ideas or information about the subject an item is about is not a request to see the item; that is mention, or none. "mention" when they are telling you about the item rather than asking for anything: what they plan to do, when they now expect to do it, what has happened with it, or details about it. A plan or an intention is news, not an instruction, even when it names a day. Details about a note's subject that come up in passing are also mention, with change null: the app offers to add them to the note afterwards, and a note's title does not change because its subject grew. "none" when the message only shares a topic with it.
-- change: for edit and mention, the single field their words give a new value for, else null. Fields: due_day (YYYY-MM-DD), due_time (HH:MM, 24 hour), name (the new title), frequency (plain words; habits only), body_add (text to add to a note or to a todo's notes, in their words, only when they ask for it to be added). A due_day is the one calendar day their words point to, counted from today's date. Words point to one day when they name a day or a date, count days or weeks from today, give a deadline as the end of a period (its last day; whether a week ends on Friday or Sunday follows from what the item is), or give a short span of two or three days (its first day). A day of the month with no month named is the next such day after today. Words point to no single day when they give a month, a season, a vague time, or a different week or month without saying which day in it; then the value is null and the card asks which day. A day mentioned for some other reason, such as being busy on it, is not the new value. Null when they want a change but have not said what to, or the change is unclear.
+- intent: "edit" when the message is a request or an instruction about the item: to move it, reschedule it, rename it, give it another time or another frequency, add something to a note or to a todo, or a statement, in whatever words, that the item as it is set has to change, even without saying what to. "complete" when their words say a todo is done, whether they announce it as news or ask for it to be marked. "logged" when they say they did a habit: change is field logged with the day they did it as YYYY-MM-DD, today unless they name another day, whether or not that day is already logged. "view" only when they ask for the item itself: to see it, open it, read it back, or be told what it says or when it is. Asking for help, options, ideas or information about the subject an item is about is not a request to see the item; that is mention, or none. "mention" when they are telling you about the item rather than asking for anything: what they plan to do, when they now expect to do it, what has happened with it, or details about it. A plan or an intention is news, not an instruction, even when it names a day. Details about a note's subject that come up in passing are also mention, with change null: the app offers to add them to the note afterwards, and a note's title does not change because its subject grew. "none" when the message only shares a topic with it.
+- change: for edit and mention, the single field their words give a new value for, else null. Fields: due_day (YYYY-MM-DD), due_time (HH:MM, 24 hour), name (the new title), frequency (plain words; habits only), logged (YYYY-MM-DD; habits only, the day they did it), body_add (text to add to a note or to a todo's notes, in their words, only when they ask for it to be added). A due_day is the one calendar day their words point to, counted from today's date. Words point to one day when they name a day or a date, count days or weeks from today, give a deadline as the end of a period (its last day; whether a week ends on Friday or Sunday follows from what the item is), or give a short span of two or three days (its first day). A day of the month with no month named is the next such day after today. Words point to no single day when they give a month, a season, a vague time, or a different week or month without saying which day in it; then the value is null and the card asks which day. A day mentioned for some other reason, such as being busy on it, is not the new value. Null when they want a change but have not said what to, or the change is unclear.
 - about: the ids of the items the message is about, whether or not refers is true: the item they are discussing, or the very piece of work they are talking about. Empty when it is about none of them. An item that is only on the same subject, one that merely shares a word with the message, or a note that records a past day does not belong here; a reply that name-drops such an item feels like being watched, so leave them out.
 - confidence: 0 to 100, how sure you are that entity_id is the item they mean.
 - ask: true only when they are asking for something to happen to one item (an edit, a completion, or to see it) and two or more items fit about equally; then list those ids in candidates. A loose description still refers to one of their items when any fit it: pick the one that fits best when one clearly does, ask when several fit, and answer refers false only when none of their items could be the one they mean. Never ask about a topic they are merely talking about.
@@ -198,7 +216,11 @@ export function buildEntityMatchInput({
       c.type === 'todo'
         ? `${c.due_day ? `due ${c.due_day}` : 'no due day'}${c.due_time ? ` at ${c.due_time}` : ''}`
         : c.type === 'habit'
-          ? c.frequency || 'no frequency set'
+          ? `${c.frequency || 'no frequency set'}${
+              c.logged_days?.length
+                ? `; logged ${c.logged_days.slice(0, 7).join(', ')}`
+                : '; nothing logged lately'
+            }`
           : c.due_day
             ? `dated ${c.due_day}${c.due_time ? ` at ${c.due_time}` : ''}`
             : 'note, no day set';
@@ -225,7 +247,7 @@ function parseJson(raw) {
 // only when they ask for it; said in passing it is an offer in the Save items pill.
 const FIELDS = {
   todo: ['due_day', 'due_time', 'name', 'body_add'],
-  habit: ['name', 'frequency'],
+  habit: ['name', 'frequency', 'logged'],
   note: ['name', 'due_day', 'due_time', 'body_add'],
 };
 
@@ -287,6 +309,22 @@ export function decideCard(answer, candidates) {
       entity,
       change: { field: answer.change.field, from, to: value },
       confidence,
+    };
+  }
+  if (intent === 'logged' && entity.type === 'habit') {
+    const day = String(answer.change?.value ?? '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day))
+      return { kind: 'mention', entity, change: null, confidence };
+    // already counted for that day: no card, the reply says so
+    if ((entity.logged_days || []).includes(day))
+      return { kind: 'mention', entity, change: null, confidence, loggedAlready: day };
+    // a check-in never interrupts: the card sits under a normal reply
+    return {
+      kind: 'edit',
+      entity,
+      change: { field: 'logged', from: null, to: day },
+      confidence,
+      inPassing: true,
     };
   }
   if (intent === 'complete' && entity.type === 'todo') {
@@ -380,6 +418,48 @@ const NO_ATTENTION_MODES = new Set([
   'app_help',
 ]);
 
+// how far back habit check-ins are read
+const LOG_WINDOW_DAYS = 14;
+
+/** YYYY-MM-DD plus n days. */
+export function addDays(day, n) {
+  const [y, m, d] = String(day).split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+
+/** The Monday that starts the week holding this day. */
+export function weekStartOf(day) {
+  const [y, m, d] = String(day).split('-').map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0 Sunday
+  return addDays(day, -((dow + 6) % 7));
+}
+
+/**
+ * How a habit is going, in words for the reply: what was logged this week
+ * against its target, or over the last seven days for a daily one.
+ */
+export function habitProgressWords(h, todayIso) {
+  if (!todayIso) return '';
+  const logged = (h.logged_days || []).filter((d) => d <= todayIso);
+  // cadence says how the target is counted (his data keeps period_unit as
+  // "day" even for a weekly target, so cadence is what decides)
+  const daily = h.cadence === 'daily' || (!h.cadence && /daily/i.test(h.frequency || ''));
+  if (daily) {
+    const from = addDays(todayIso, -6);
+    const n = logged.filter((d) => d >= from).length;
+    return `logged ${n} of the last 7 days${n ? `, last ${dayInWords(logged[0], todayIso)}` : ''}`;
+  }
+  const start = weekStartOf(todayIso);
+  const week = logged.filter((d) => d >= start);
+  const target = h.cadence === 'weekly' || !h.cadence ? h.target_per_period : null;
+  const days = week.map((d) => dayInWords(d, todayIso).replace(/ \(.*\)$/, '')).join(', ');
+  const base = week.length
+    ? `logged this week: ${days}${target ? ` (${week.length} of ${target})` : ''}`
+    : `nothing logged this week${target ? ` (target ${target})` : ''}`;
+  const last = !week.length && logged[0] ? `, last ${dayInWords(logged[0], todayIso)}` : '';
+  return base + last;
+}
+
 /** Days from a to b, both YYYY-MM-DD; positive when b is later. */
 function daysBetween(a, b) {
   const [ay, am, ad] = a.split('-').map(Number);
@@ -440,8 +520,10 @@ export function dayInWords(day, todayIso) {
 
 function itemLine(c, todayIso) {
   let when = '';
-  if (c.type === 'habit') when = c.frequency ? `, ${c.frequency}` : '';
-  else if (c.due_day && c.type === 'note') {
+  if (c.type === 'habit') {
+    const progress = habitProgressWords(c, todayIso);
+    when = `${c.frequency ? `, ${c.frequency}` : ''}${progress ? `, ${progress}` : ''}`;
+  } else if (c.due_day && c.type === 'note') {
     when = `, ${dayInWords(c.due_day, todayIso)}${c.due_time ? ` ${c.due_time}` : ''}`;
   } else if (c.due_day) {
     const overdue = todayIso && c.due_day < todayIso;
@@ -469,7 +551,7 @@ export function theirItemsPromptSection(match, todayIso, opts = {}) {
   if (related.length === 0 && attention.length === 0) return '';
   const parts = [
     '=== WHAT THEY HAVE ON ===',
-    "Their own items, as they stand right now. You know these exist. When one bears on what they said, say so plainly and in passing, in your own words: that it is already on their list, when it is, that it is overdue. You may offer the natural next step for the item they are talking about (moving it, marking it done) as a plain question in your own words; the app handles the confirmation, so never mention a card, a button or tapping, never say you will set anything up or get anything ready, never say a change has been made, and never offer to change several at once: one item per offer. Never offer to move something else to make room. Never say something is on their list unless it is listed here; if they ask for something to be done to an item you cannot see here, ask which one they mean. Never read the list out, never mention more than one or two, and leave them alone when the conversation is elsewhere. An overdue item is not on any particular day, so never present it as part of a day's plan.",
+    "Their own items, as they stand right now. You know these exist. When one bears on what they said, say so plainly and in passing, in your own words: that it is already on their list, when it is, that it is overdue. You may offer the natural next step for the item they are talking about (moving it, marking it done) as a plain question in your own words; the app handles the confirmation, so never mention a card, a button or tapping, never say you will set anything up or get anything ready, never say a change has been made, and never offer to change several at once: one item per offer. Never offer to move something else to make room. Never say something is on their list unless it is listed here; if they ask for something to be done to an item you cannot see here, ask which one they mean. Never read the list out, never mention more than one or two, and leave them alone when the conversation is elsewhere. An overdue item is not on any particular day, so never present it as part of a day's plan. A habit line shows what has been logged; when they say they did a habit on a day that is already logged, say it is already counted, and you may speak to how the habit is going from what is logged.",
   ];
   if (related.length) {
     parts.push('What they are talking about:');
@@ -515,7 +597,7 @@ export async function matchEntity({
 }) {
   try {
     if (!models().flags.entityCards) return null;
-    const all = items || (await fetchEntities(env, userId));
+    const all = items || (await fetchEntities(env, userId, todayIso || null));
     const candidates = candidatesFor(message, all, recent || null, MATCH_ITEMS_MAX);
     const result = {
       all,
@@ -661,6 +743,7 @@ function changeInWords(card) {
   if (f === 'name') return `rename it to ${card.change.to}`;
   if (f === 'frequency') return `change its frequency to ${card.change.to}`;
   if (f === 'body_add') return `add to it: ${card.change.to}`;
+  if (f === 'logged') return `log it for ${card.change.to}`;
   return `update it to ${card.change.to}`;
 }
 

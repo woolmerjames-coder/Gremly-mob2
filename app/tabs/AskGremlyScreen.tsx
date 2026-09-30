@@ -107,6 +107,7 @@ export default function AskGremlyScreen() {
   const autoTitle = useGremlyStore((s) => s.generalChatAutoTitle);
   const extractions = useGremlyStore((s) => s.generalChatExtractions);
   const runningSummary = useGremlyStore((s) => s.generalChatRunningSummary);
+  const lateCard = useGremlyStore((s) => s.generalChatLateCard);
 
   const {
     messages,
@@ -125,6 +126,16 @@ export default function AskGremlyScreen() {
   const openEntity = useOpenEntity();
   // entity cards live inside the reply they came with (one list row for the two)
   const { rows, cardFor } = useMemo(() => foldEntityCards(messages), [messages]);
+
+  // A change to an existing item that the Worker found after the reply arrives
+  // through the same poll as the pill; it is shown once, under the last reply.
+  const shownLateCardRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!lateCard?.card || !activeChat) return;
+    if (shownLateCardRef.current === lateCard.at) return;
+    shownLateCardRef.current = lateCard.at;
+    appendEntityCard(lateCard.card);
+  }, [lateCard, activeChat, appendEntityCard]);
 
   // Word buffer flush (batches words at 50ms intervals, 3 at a time)
   const flushWordBuffer = useCallback(() => {

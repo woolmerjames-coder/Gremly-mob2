@@ -22,6 +22,9 @@ import {
   matchEntity,
   CONFIDENCE_FLOOR,
   RECENT_CARD_TURNS,
+  habitProgressWords,
+  weekStartOf,
+  addDays,
 } from '../entityMatch.js';
 import {
   editsToPillItems,
@@ -31,6 +34,8 @@ import {
   mergePillItems,
   buildPillPrompt,
   buildSummaryPrompt,
+  lateCardFrom,
+  newItemsOnly,
   withEditsRule,
   withEvidenceRule,
   buildChatExtractionPrompt,
@@ -225,7 +230,9 @@ test('the model sees every live item, the last card first, journal entries left 
   );
   expect(
     buildEntityMatchInput({ todayStr: 'x', message: 'move it', candidates: withRecent }),
-  ).toContain('- id cccc3333 [habit] Morning run (weekdays) [shown on the card in the last reply]');
+  ).toContain(
+    '- id cccc3333 [habit] Morning run (weekdays; nothing logged lately) [shown on the card in the last reply]',
+  );
 });
 
 test('the reply hears the items the model says the message is about, the referred one first', () => {
@@ -431,7 +438,7 @@ test('the matcher input lists candidates with their details and the date', () =>
   expect(s).toContain('Today is Tuesday, September 29, 2026.');
   expect(s).toContain('THEIR ITEMS (everything they have):');
   expect(s).toContain('- id aaaa1111 [todo] Dentist (due 2026-09-30 at 14:00)');
-  expect(s).toContain('- id cccc3333 [habit] Morning run (weekdays)');
+  expect(s).toContain('- id cccc3333 [habit] Morning run (weekdays; nothing logged lately)');
   expect(s).not.toContain('LAST EXCHANGES');
   const withHistory = buildEntityMatchInput({
     todayStr: 'x',
@@ -1023,4 +1030,129 @@ test("when unsure, the which-one card is the model's own considered set, and a t
       mode: 'entity_card',
     }),
   ).toBe('');
+});
+
+test('a habit check-in is a card under a normal reply, unless that day is already logged', () => {
+  const run = {
+    id: 'h1000000-0000',
+    type: 'habit',
+    title: '10k training run',
+    frequency: '3 times a week',
+    target_per_period: 3,
+    period_unit: 'week',
+    logged_days: ['2026-09-28', '2026-09-26'],
+  };
+  const cands = candidatesFor('did my run', [run], null);
+  const fresh = decideCard(
+    {
+      refers: true,
+      entity_id: 'h1000000',
+      intent: 'logged',
+      change: { field: 'logged', value: '2026-09-29' },
+      confidence: 95,
+    },
+    cands,
+  );
+  expect(fresh).toMatchObject({
+    kind: 'edit',
+    inPassing: true,
+    change: { field: 'logged', from: null, to: '2026-09-29' },
+  });
+  expect(entityCardPromptSection(fresh)).toContain('log it for 2026-09-29');
+  expect(applyEntityCardToTriage({ mode: 'celebration' }, fresh).mode).toBe('celebration');
+  const counted = decideCard(
+    {
+      refers: true,
+      entity_id: 'h1000000',
+      intent: 'logged',
+      change: { field: 'logged', value: '2026-09-28' },
+      confidence: 95,
+    },
+    cands,
+  );
+  expect(counted).toMatchObject({ kind: 'mention', change: null, loggedAlready: '2026-09-28' });
+  expect(
+    decideCard(
+      {
+        refers: true,
+        entity_id: 'h1000000',
+        intent: 'logged',
+        change: { field: 'logged', value: 'Monday' },
+        confidence: 95,
+      },
+      cands,
+    ),
+  ).toMatchObject({ kind: 'mention', change: null });
+  // what the model and the reply are told about the habit
+  expect(buildEntityMatchInput({ todayStr: 'x', message: 'm', candidates: cands })).toContain(
+    '[habit] 10k training run (3 times a week; logged 2026-09-28, 2026-09-26)',
+  );
+  expect(habitProgressWords(run, '2026-09-29')).toBe('logged this week: yesterday (1 of 3)');
+  expect(habitProgressWords({ ...run, logged_days: ['2026-09-20'] }, '2026-09-29')).toBe(
+    'nothing logged this week (target 3), last 2026-09-20',
+  );
+  expect(
+    habitProgressWords(
+      { ...run, cadence: 'daily', logged_days: ['2026-09-29', '2026-09-27', '2026-09-20'] },
+      '2026-09-29',
+    ),
+  ).toBe('logged 2 of the last 7 days, last today (2026-09-29)');
+  expect(
+    theirItemsPromptSection({ related: [{ ...run, referred: true }], attention: [] }, '2026-09-29'),
+  ).toContain('- habit "10k training run", 3 times a week, logged this week: yesterday (1 of 3)');
+  expect(weekStartOf('2026-09-29')).toBe('2026-09-28');
+  expect(weekStartOf('2026-09-27')).toBe('2026-09-21');
+  expect(addDays('2026-09-29', -14)).toBe('2026-09-15');
+});
+
+test('existing means card, new means pill: one late card from the changes the extraction found', () => {
+  const tracked = new Map([
+    ['mmmm0000', { id: 'mmmm0000-0000', type: 'note', title: 'Clarify Mexico trip plans' }],
+    [
+      'wwww0000',
+      { id: 'wwww0000-0000', type: 'todo', title: 'Build Mind Drop Widget', due_day: '2026-07-27' },
+    ],
+  ]);
+  const edits = [
+    {
+      entity_id: 'wwww0000-0000',
+      entity_type: 'todo',
+      entity_title: 'Build Mind Drop Widget',
+      field: 'due_day',
+      from: '2026-07-27',
+      to: '2026-10-02',
+    },
+    {
+      entity_id: 'mmmm0000-0000',
+      entity_type: 'note',
+      entity_title: 'Clarify Mexico trip plans',
+      field: 'body_add',
+      from: null,
+      to: 'Puerto Escondido',
+    },
+  ];
+  // the one about what the message was about wins; else the first
+  expect(lateCardFrom(edits, tracked, { aboutIds: ['mmmm0000-0000'] })).toMatchObject({
+    kind: 'edit',
+    late: true,
+    entity: { id: 'mmmm0000-0000', type: 'note', title: 'Clarify Mexico trip plans' },
+    change: { field: 'body_add', to: 'Puerto Escondido' },
+  });
+  expect(lateCardFrom(edits, tracked, {})).toMatchObject({
+    entity: { id: 'wwww0000-0000', due_day: '2026-07-27' },
+    change: { field: 'due_day', from: '2026-07-27', to: '2026-10-02' },
+  });
+  // never this turn's card item, never the one just turned down
+  expect(
+    lateCardFrom(edits, tracked, { cardEntityId: 'wwww0000-0000', declinedId: 'mmmm0000-0000' }),
+  ).toBeNull();
+  expect(lateCardFrom([], tracked, {})).toBeNull();
+  // the pill keeps only the new things
+  expect(
+    newItemsOnly([
+      { type: 'todo', title: 'Buy milk' },
+      { type: 'edit', field: 'body_add', title: 'Add to X' },
+      { type: 'event', title: 'Trip' },
+    ]).map((e) => e.title),
+  ).toEqual(['Buy milk', 'Trip']);
 });

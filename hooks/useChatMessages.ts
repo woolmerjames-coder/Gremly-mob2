@@ -13,7 +13,7 @@ import { formatFrequencyLabel, formatDueDateLabel } from '../src/lib/formatters/
 import { useAuth } from '../providers/AuthProvider';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
 import { nowTimestamp } from '../lib/date/DateService';
-import { applyEntityChange, pendingTwinOf } from '../lib/chat/entityCards';
+import { applyEntityChange, lateCardAlreadyShown, pendingTwinOf } from '../lib/chat/entityCards';
 
 /**
  * Generate a chat title from the first user message.
@@ -628,6 +628,7 @@ export function useChatMessages(
       // The same change offered again while its card is still waiting: the
       // user has said yes in words, so that card is tapped for them instead of
       // a second copy appearing.
+      if (lateCardAlreadyShown(messagesRef.current, card)) return undefined;
       const twin = pendingTwinOf(messagesRef.current, card);
       if (twin && card.kind === 'edit') {
         try {

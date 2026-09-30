@@ -682,7 +682,9 @@ export type EntityCardField =
   | 'frequency'
   | 'body'
   | 'body_add'
-  | 'completed';
+  | 'completed'
+  /** habits: log a day they did it (the day as YYYY-MM-DD) */
+  | 'logged';
 export interface EntityCardEntity {
   id: ID;
   type: EntityCardEntityType;
@@ -699,7 +701,16 @@ export interface EntityCardChange {
   to: string;
 }
 export type EntityCard =
-  | { kind: 'edit'; entity: EntityCardEntity; change: EntityCardChange; confidence?: number }
+  | {
+      kind: 'edit';
+      entity: EntityCardEntity;
+      change: EntityCardChange;
+      confidence?: number;
+      /** found by the extraction after the reply, shown once under it */
+      late?: boolean;
+      /** offered under a normal reply rather than taking it over */
+      inPassing?: boolean;
+    }
   /** intent 'edit': the user wants to change it but has not said what to; Gremly asks. 'confirm': it may be the one they mean; Gremly checks. */
   | { kind: 'view'; entity: EntityCardEntity; intent?: 'edit' | 'view' | 'confirm' }
   | { kind: 'choose'; candidates: EntityCardEntity[] };

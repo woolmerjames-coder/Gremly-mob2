@@ -31,9 +31,9 @@ const ICON_CONFIG: Record<string, { icon: typeof CheckSquare; bg: string; color:
 };
 
 function getTitle(count: number): string {
-  if (count >= 3) return `Gremly found ${count} things worth keeping`;
-  if (count === 2) return 'Gremly found a couple things worth keeping';
-  if (count === 1) return 'Gremly found something worth keeping';
+  if (count >= 3) return `Gremly found ${count} new things worth keeping`;
+  if (count === 2) return 'Gremly found a couple of new things worth keeping';
+  if (count === 1) return 'Gremly found something new worth keeping';
   return 'Save a summary of this conversation';
 }
 

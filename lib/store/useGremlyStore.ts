@@ -37,6 +37,7 @@ import type {
   WeeklySummary,
   WeeklySummaryCleanupAction,
   DailyContextObject,
+  EntityCard,
 } from '../types';
 import type { FeedingContribution, AIMode } from '../types/soulDocument';
 import type { UserTrainingData } from '../training/trainingReadiness';
@@ -533,6 +534,8 @@ export interface GremlyState {
   generalChatDismissals: string[];
   generalChatAutoTitle: string | null;
   generalChatRunningSummary: string | null;
+  /** A card the Worker found after the reply (a change to an existing item), for the chat to show once. */
+  generalChatLateCard: { card: EntityCard; at: string } | null;
   milestones: Milestone[];
   queueItems: QueuedDrop[];
 
@@ -1281,6 +1284,7 @@ const initialState = {
   generalChatDismissals: [] as string[],
   generalChatAutoTitle: null as string | null,
   generalChatRunningSummary: null as string | null,
+  generalChatLateCard: null as { card: EntityCard; at: string } | null,
   milestones: [] as Milestone[],
   // Worlds & Chapters graph
   worlds: [] as World[],
@@ -5423,6 +5427,7 @@ export const useGremlyStore = create<GremlyState>()(
             generalChatDismissals: [],
             generalChatAutoTitle: null,
             generalChatRunningSummary: null,
+            generalChatLateCard: null,
           });
         },
 
@@ -5444,7 +5449,7 @@ export const useGremlyStore = create<GremlyState>()(
           const { data } = await supabase
             .from('scope_chats')
             .select(
-              'extracted_items, dismissed_extractions, saved_extraction_ids, auto_title, running_summary',
+              'extracted_items, dismissed_extractions, saved_extraction_ids, auto_title, running_summary, metadata_json',
             )
             .eq('id', chatId)
             .single();
@@ -5460,6 +5465,7 @@ export const useGremlyStore = create<GremlyState>()(
             generalChatDismissals: (data as any).dismissed_extractions || [],
             generalChatAutoTitle: (data as any).auto_title || null,
             generalChatRunningSummary: (data as any).running_summary || null,
+            generalChatLateCard: (data as any).metadata_json?.late_card || null,
           });
         },
 

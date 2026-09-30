@@ -65,7 +65,7 @@ export function withEditsRule(prompt) {
 // body_add appends to a note; a note's text is never replaced from chat.
 const EDIT_FIELDS = {
   todo: ['due_day', 'due_time', 'name', 'completed', 'body_add'],
-  habit: ['name', 'frequency'],
+  habit: ['name', 'frequency', 'logged'],
   note: ['name', 'body_add', 'due_day', 'due_time'],
 };
 
@@ -90,7 +90,7 @@ export function editsToPillItems(edits, tracked, userTexts) {
     const from =
       field === 'name'
         ? item.title
-        : field === 'completed' || field === 'body_add'
+        : field === 'completed' || field === 'body_add' || field === 'logged'
           ? null
           : (item[field] ?? null);
     if (from !== null && String(from) === value) continue;
@@ -209,9 +209,55 @@ export function reconcileSameAs(extractions, tracked) {
 }
 
 /**
+ * Existing means card, new means pill. Of the changes to existing items the
+ * extraction found after the reply (its own edits, add-tos from reconciliation,
+ * what the matcher heard in passing), one becomes a card under the reply: the
+ * one about an item the matcher said the message was about, else the first.
+ * Never the item this turn's card already covers, never one the user has just
+ * turned down. `tracked` maps short ids to items and gives the card its details.
+ */
+export function lateCardFrom(editItems, tracked, opts = {}) {
+  const skip = new Set([opts.cardEntityId, opts.declinedId].filter(Boolean));
+  const about = new Set(opts.aboutIds || []);
+  const items = [...(tracked?.values?.() || [])];
+  const itemOf = (id) => items.find((t) => t.id === id) || {};
+  const list = (editItems || []).filter(
+    (e) =>
+      e &&
+      e.entity_id &&
+      !skip.has(e.entity_id) &&
+      // a check-in for a day already logged is nothing to offer
+      !(e.field === 'logged' && (itemOf(e.entity_id).logged_days || []).includes(String(e.to))),
+  );
+  if (list.length === 0) return null;
+  const pick = list.find((e) => about.has(e.entity_id)) || list[0];
+  const item = itemOf(pick.entity_id);
+  return {
+    kind: 'edit',
+    entity: {
+      id: pick.entity_id,
+      type: pick.entity_type || item.type || 'todo',
+      title: pick.entity_title || item.title || '',
+      due_day: item.due_day ?? null,
+      due_time: item.due_time ?? null,
+      frequency: item.frequency ?? null,
+      space_id: item.space_id ?? null,
+    },
+    change: { field: pick.field, from: pick.from ?? null, to: pick.to },
+    confidence: pick.confidence ?? 85,
+    late: true,
+  };
+}
+
+/** What stays in the pill once existing items go to a card: the new things. */
+export function newItemsOnly(extractions) {
+  return (extractions || []).filter((e) => e && e.type !== 'edit');
+}
+
+/**
  * The pill's final list: new items and add-tos from reconciliation, plus the
  * extractor's own edits, with one add-to per note (the extractor's own wins)
- * and one edit per item and field.
+ * and one edit per item and field. Kept for callers that still mix the two.
  */
 export function mergePillItems(extractions, editItems) {
   const own = new Set(
@@ -308,7 +354,7 @@ NEW ITEMS
 Something is new when the user's own words commit to it, decide it, ask Gremly to keep or remind them of it, or say it may be coming up, and it is not on the list above in any words. An intention they state for themselves counts as a commitment however hedged it is. Kinds: todo, an action they have committed to or asked to be reminded of; habit, a behaviour they mean to repeat, with how often, or to stop; note, an idea, a decision or a recommendation they took up; event, something that may happen on or around a time they mention, whether decided or still being considered, with or without an exact date. Not new: feelings, questions and thinking out loud with nothing to keep, what Gremly suggested and they did not take up, small talk, plans for later the same day that this conversation is itself arranging, and anything that is a listed item in other words. Sharing a subject with a listed item does not make something that item; it is the same only when doing, keeping or noting one would make the other redundant, and if they would still need to do or keep the proposed thing after the listed item was done, it is new. Each thing once: when a sentence gives both something to do and the occasion it is for, that is one item. When you are unsure whether something is a listed item in other words, list it and put that item's id in its same_as field, and it will be checked; otherwise leave same_as out.
 
 CHANGES
-When the user's own words say a listed item has changed, moved, been renamed, repeats differently, or is done, record a change to it by its id from the list. Progress on something is not completion. A plan for when they will now do a listed item is a change to its day. Details about the subject a listed note already covers are an addition to that note, field body_add, the details in their words, a line or two; details they ask to have kept with a todo are an addition to that todo the same way. Never change an item the user did not clearly refer to, and never resolve a date they did not give. Fields: due_day (YYYY-MM-DD, todos and notes), due_time (HH:MM, 24 hour, todos and notes), name, frequency (habits), completed (value "done", todos), body_add (notes and todos).
+When the user's own words say a listed item has changed, moved, been renamed, repeats differently, or is done, record a change to it by its id from the list; when they say they did a listed habit, record a change with field logged and the day they did it. Progress on something is not completion. A plan for when they will now do a listed item is a change to its day. Details about the subject a listed note already covers are an addition to that note, field body_add, the details in their words, a line or two; details they ask to have kept with a todo are an addition to that todo the same way. Never change an item the user did not clearly refer to, and never resolve a date they did not give. Fields: due_day (YYYY-MM-DD, todos and notes), due_time (HH:MM, 24 hour, todos and notes), name, frequency (habits), logged (YYYY-MM-DD, habits, the day they did it), completed (value "done", todos), body_add (notes and todos).
 
 EVIDENCE
 For every new item and every change, evidence is the user's own words, copied exactly from one User line, that show it. Words Gremly said do not count unless the user took them up in their own words, and then the evidence is the user's words.
@@ -319,7 +365,7 @@ WRITING
 A title is a short phrase in the user's own terms, an action for a todo. A body is one casual sentence, or null when the title says it all. Write as a note for them, never about "the user".
 
 Return ONLY valid JSON:
-{"extractions":[{"id":"<8 random characters>","type":"todo|habit|note|event","title":"...","body":"...","evidence":"...","same_as":"<id from the list, only when it is that item>","due_date":"YYYY-MM-DD or null","frequency":"string or null","confidence":0-100,"date_text":"string or null","resolved_date":"YYYY-MM-DD or null","date_confidence":"exact|approximate|unknown or null","date_range_start":"YYYY-MM-DD or null","date_range_end":"YYYY-MM-DD or null"}],"edits":[{"entity_id":"<id from the list>","type":"todo|habit|note","field":"due_day|due_time|name|frequency|completed|body_add","value":"...","evidence":"..."}]}`;
+{"extractions":[{"id":"<8 random characters>","type":"todo|habit|note|event","title":"...","body":"...","evidence":"...","same_as":"<id from the list, only when it is that item>","due_date":"YYYY-MM-DD or null","frequency":"string or null","confidence":0-100,"date_text":"string or null","resolved_date":"YYYY-MM-DD or null","date_confidence":"exact|approximate|unknown or null","date_range_start":"YYYY-MM-DD or null","date_range_end":"YYYY-MM-DD or null"}],"edits":[{"entity_id":"<id from the list>","type":"todo|habit|note","field":"due_day|due_time|name|frequency|logged|completed|body_add","value":"...","evidence":"..."}]}`;
 }
 
 /** The chat's title and running summary, on their own. */

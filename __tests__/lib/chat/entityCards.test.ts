@@ -14,6 +14,7 @@ import {
   foldEntityCards,
   recentEntityFor,
   pendingTwinOf,
+  lateCardAlreadyShown,
 } from '../../../lib/chat/entityCards';
 import type { EntityCard, SpaceChatMessage } from '../../../lib/types';
 
@@ -234,5 +235,48 @@ describe('cards in the chat list', () => {
     expect(pendingTwinOf([card('c1', 'applied')], same)).toBeNull();
     expect(pendingTwinOf([edit, card('c2', 'pending', 'view')], same)).toBeNull();
     expect(pendingTwinOf([], same)).toBeNull();
+  });
+
+  test('a late add-to or check-in shows once per item in a chat; an asked-for one always shows', () => {
+    const meta = card('c1').metadata_json as { card: EntityCard };
+    const dentist = (meta.card as Extract<EntityCard, { kind: 'edit' }>).entity;
+    const addTo = (late: boolean, to = 'Porto') =>
+      ({
+        kind: 'edit',
+        entity: dentist,
+        change: { field: 'body_add', from: null, to },
+        late,
+      }) as EntityCard;
+    const shown = [
+      msg('a1', 'assistant'),
+      msg('c9', 'system', { type: 'entity-card', status: 'declined', card: addTo(true) }),
+    ];
+    expect(lateCardAlreadyShown(shown, addTo(true, 'Lisbon'))).toBe(true);
+    expect(lateCardAlreadyShown(shown, addTo(false, 'Lisbon'))).toBe(false);
+    expect(lateCardAlreadyShown([], addTo(true))).toBe(false);
+    const log = (late: boolean, to: string) =>
+      ({
+        kind: 'edit',
+        entity: { ...dentist, type: 'habit' },
+        change: { field: 'logged', from: null, to },
+        late,
+      }) as EntityCard;
+    const logged = [
+      msg('c8', 'system', {
+        type: 'entity-card',
+        status: 'applied',
+        card: log(true, '2031-10-01'),
+      }),
+    ];
+    expect(lateCardAlreadyShown(logged, log(true, '2031-10-01'))).toBe(true);
+    expect(lateCardAlreadyShown(logged, log(true, '2031-10-02'))).toBe(false);
+    // the check-in card's words
+    const words = describeChange(
+      { ...dentist, type: 'habit' },
+      { field: 'logged', from: null, to: '2031-10-01' },
+    );
+    expect(words).toMatchObject({ from: 'Not logged', label: 'Log for' });
+    expect(words.to).toMatch(/1 Oct|Today|Tomorrow/);
+    expect(primaryLabel({ field: 'logged', from: null, to: '2031-10-01' })).toBe('Yes, log it');
   });
 });
