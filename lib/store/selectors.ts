@@ -16,6 +16,7 @@ import { computeWorldsForEntity } from './worldsSelectors';
 import type { NowWeeklyHabitSummary, HabitWeeklyStatus } from '../now/nowTypes';
 import { getDateService } from '../date';
 import { isRelationPending } from '../minddrop/dropRelation';
+import { sweepCardAsks } from '../sweep/sweepOrder';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // DATE HELPERS
@@ -907,11 +908,22 @@ export const selectSweepCandidatesUnified = createSelector(
       ),
     }));
 
-    // Sort: overdue → due today → other todos → notes
+    // Sort: questions → overdue → due today → other todos → notes
     // Within each group, sort by createdAt ascending (oldest first)
     withMeta.sort((a, b) => {
       const aKind = a.candidate.kind;
       const bKind = b.candidate.kind;
+
+      // 0. Cards with a question first: the answers can change other cards
+      //    (lib/sweep/sweepOrder.ts)
+      const asks = { relation: 0, clarify: 1 } as const;
+      const aAsks = sweepCardAsks(a.candidate);
+      const bAsks = sweepCardAsks(b.candidate);
+      if (aAsks || bAsks) {
+        if (!bAsks) return -1;
+        if (!aAsks) return 1;
+        if (aAsks !== bAsks) return asks[aAsks] - asks[bAsks];
+      }
 
       // 1. Locked-in items surface first (within their type)
       if (a.meta.isLockedIn && !b.meta.isLockedIn) return -1;

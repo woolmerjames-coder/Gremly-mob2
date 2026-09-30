@@ -2674,4 +2674,26 @@ describe('selectSweepCandidatesUnified: held drops', () => {
     expect(ids).not.toContain('plain-journal');
     expect(ids).not.toContain('answered');
   });
+
+  it('puts cards with a question ahead of everything, even an overdue todo', () => {
+    const state = makeState({
+      todos: [makeTodo({ id: 'overdue', due_day: '2025-12-01' } as any)],
+      notes: [
+        makeNote({
+          id: 'unclear',
+          subtype: 'catchall',
+          created_at: '2025-12-15T09:00:00Z',
+          views: { needs_clarification: true },
+        } as any),
+        makeNote({
+          id: 'held',
+          subtype: 'catchall',
+          created_at: '2025-12-15T10:00:00Z',
+          views: { relation: relation('pending') },
+        } as any),
+      ],
+    });
+    const ids = selectSweepCandidatesUnified(state as any).map((i) => i.candidate.id);
+    expect(ids.slice(0, 3)).toEqual(['held', 'unclear', 'overdue']);
+  });
 });

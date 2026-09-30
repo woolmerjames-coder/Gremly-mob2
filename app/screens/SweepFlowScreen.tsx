@@ -85,6 +85,12 @@ import { env, getEnv } from '../../lib/env';
 import { getSessionToken } from '../../lib/cortex/getSessionToken';
 import { markSweepCompleted } from '../../lib/sweep/engine';
 import { computeSweepCardMeta } from '../../lib/sweep/computeSweepCardMeta';
+import {
+  entityNow,
+  goneSinceStart,
+  orderSweepCards,
+  sweepCardNow,
+} from '../../lib/sweep/sweepOrder';
 import type {
   SweepCandidate,
   SweepCandidateTodo,
@@ -1716,17 +1722,12 @@ function SweepDecisionStep({
     storeIsLoading,
   );
 
-  // Sort candidates: todos first, then events, then notes
-  const candidatesWithMeta = useMemo(() => {
-    const todos = unsortedCandidatesWithMeta.filter((c) => c.candidate.kind === 'todo');
-    const events = unsortedCandidatesWithMeta.filter(
-      (c) => c.candidate.kind === 'note' && c.meta.noteCardType === 'event',
-    );
-    const notes = unsortedCandidatesWithMeta.filter(
-      (c) => c.candidate.kind === 'note' && c.meta.noteCardType !== 'event',
-    );
-    return [...todos, ...events, ...notes];
-  }, [unsortedCandidatesWithMeta]);
+  // Cards with a question first (their answers can change other cards), then
+  // todos, events and notes (lib/sweep/sweepOrder.ts)
+  const candidatesWithMeta = useMemo(
+    () => orderSweepCards(unsortedCandidatesWithMeta),
+    [unsortedCandidatesWithMeta],
+  );
 
   // Store mutations for sweep actions
   const updateTodo = useGremlyStore((state) => state.updateTodo);
@@ -3284,6 +3285,18 @@ function SweepDecisionStep({
     [markRelationHandled, relationNoteId, relationHeld, handleOutcome],
   );
 
+  // A card whose item an earlier answer cleared (removed, merged away, ticked
+  // off) is passed over, in the direction the user was going
+  const lastIndexRef = useRef(currentIndex);
+  useEffect(() => {
+    const step = Math.sign(currentIndex - lastIndexRef.current);
+    lastIndexRef.current = currentIndex;
+    if (isLoading || step === 0) return;
+    const card = candidatesWithMeta[currentIndex]?.candidate;
+    if (!card || !goneSinceStart(card, { todos, notes, habits })) return;
+    setCurrentIndex(currentIndex + step < 0 ? currentIndex + 1 : currentIndex + step);
+  }, [currentIndex, isLoading, candidatesWithMeta, todos, notes, habits]);
+
   // Auto-advance to summary when all cards are processed (fallback)
   useEffect(() => {
     if (!isLoading && candidatesWithMeta.length > 0 && currentIndex >= candidatesWithMeta.length) {
@@ -3301,7 +3314,15 @@ function SweepDecisionStep({
       return null;
     }
 
-    const base = candidatesWithMeta[currentIndex];
+    // The card as its item is now: an answer earlier in this Sweep may have
+    // moved or renamed it since the snapshot was taken
+    const snap = candidatesWithMeta[currentIndex];
+    const base = sweepCardNow(
+      snap,
+      allCandidates,
+      entityNow(snap.candidate, { todos, notes, habits }),
+      spaces,
+    );
 
     // Check if this candidate was just converted (e.g., note -> todo, note -> habit)
     if (convertedCandidate && base.candidate.id === convertedCandidate.originalId) {
@@ -3381,7 +3402,16 @@ function SweepDecisionStep({
     }
 
     return base;
-  }, [currentIndex, candidatesWithMeta, convertedCandidate, todos, habits, notes, spaces]);
+  }, [
+    currentIndex,
+    candidatesWithMeta,
+    convertedCandidate,
+    todos,
+    habits,
+    notes,
+    spaces,
+    allCandidates,
+  ]);
 
   // Loading state
   if (isLoading) {
