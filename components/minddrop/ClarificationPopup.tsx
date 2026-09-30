@@ -22,6 +22,7 @@ import * as Haptics from 'expo-haptics';
 import { CheckCircle } from 'lucide-react-native';
 import { getDateService } from '../../lib/date/DateService';
 import type { ClarificationWhen } from '../../lib/minddrop/clarification';
+import { CLARIFY_CONFIRM_MS } from '../../lib/minddrop/popupTiming';
 
 interface ClarificationOption {
   id: string;
@@ -146,7 +147,7 @@ export function ClarificationPopup({
     setTimeout(() => {
       setInstantSuccess(false);
       closePopup();
-    }, 1000);
+    }, CLARIFY_CONFIRM_MS);
   };
 
   const handleOptionPress = (optionId: string) => {
@@ -184,7 +185,7 @@ export function ClarificationPopup({
     setTimeout(() => {
       setInstantSuccess(false);
       closePopup();
-    }, 1000);
+    }, CLARIFY_CONFIRM_MS);
   };
 
   const handleSkipPress = () => {

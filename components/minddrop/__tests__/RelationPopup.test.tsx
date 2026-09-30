@@ -5,6 +5,7 @@
 import React from 'react';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import { RelationPopup, CONFIRM_MS } from '../RelationPopup';
+import { POPUP_FADE_MS, TOAST_AFTER_CARDS_MS } from '../../../lib/minddrop/popupTiming';
 import { applyDropRelation, keepDropAsNew } from '../../../lib/minddrop/relationActions';
 import { eventBus } from '../../../lib/events/EventBus';
 
@@ -110,23 +111,36 @@ describe('RelationPopup', () => {
       targetType: 'todo',
       undo,
     });
+    const order: string[] = [];
     const leaving = jest.fn();
-    const toasts = jest.fn();
+    const go = jest.fn(() => order.push('cards'));
+    const toasts = jest.fn(() => order.push('toast'));
     const offLeaving = eventBus.on('minddrop:cards_leaving', leaving);
+    const offGo = eventBus.on('minddrop:cards_go', go);
     const offToast = eventBus.on('minddrop:relation_done', toasts);
-    const onClose = jest.fn();
+    const onClose = jest.fn(() => order.push('popup closes'));
     const onResolved = jest.fn();
     const { findByText } = render(
       <RelationPopup visible noteId="note-1" onClose={onClose} onResolved={onResolved} />,
     );
     fireEvent.press(await findByText('Yes, mark it done'));
-    expect(leaving).toHaveBeenCalledWith({ ids: ['note-1', 't1'], delayMs: CONFIRM_MS });
+    // the cards are held in place while the popup shows its tick
+    expect(leaving).toHaveBeenCalledWith({ ids: ['note-1', 't1'], hold: true });
     await findByText('Done');
     expect(applyDropRelation).toHaveBeenCalledWith('note-1', undefined);
     await waitFor(() => expect(onClose).toHaveBeenCalled(), { timeout: CONFIRM_MS + 1000 });
-    expect(toasts).toHaveBeenCalledWith({ ...toast, undo, target: { id: 't1', type: 'todo' } });
     expect(onResolved).toHaveBeenCalledWith('applied', 't1');
+    expect(go).not.toHaveBeenCalled();
+    expect(toasts).not.toHaveBeenCalled();
+    // once it has faded: the cards go, then the toast
+    await waitFor(() => expect(toasts).toHaveBeenCalled(), {
+      timeout: POPUP_FADE_MS + TOAST_AFTER_CARDS_MS + 1000,
+    });
+    expect(go).toHaveBeenCalledWith({ ids: ['note-1', 't1'] });
+    expect(toasts).toHaveBeenCalledWith({ ...toast, undo, target: { id: 't1', type: 'todo' } });
+    expect(order).toEqual(['popup closes', 'cards', 'toast']);
     offLeaving();
+    offGo();
     offToast();
   });
 

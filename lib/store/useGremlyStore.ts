@@ -77,6 +77,7 @@ import {
 } from '../calendar/CalendarClient';
 import { DEFAULT_TIME_BLOCK_PREFERENCES, getTimeBlockBoundaries } from '../capacity';
 import { getRandomFallback } from '../minddrop/confirmationFallbacks';
+import { CLARIFY_CONFIRM_MS, POPUP_FADE_MS } from '../minddrop/popupTiming';
 import {
   fetchClarification,
   hasUsableClarification,
@@ -9120,9 +9121,13 @@ export const useGremlyStore = create<GremlyState>()(
             if (selectedKind === 'chat' && dropText) {
               eventBus.emit('minddrop:open_chat', { text: dropText });
             }
-            // Not kept: its card slides away once the popup's "Great, on it" has shown
+            // Not kept: its card slides away once the popup's "Great, on it"
+            // has shown and the popup has faded, so the slide is seen on its own
             if (selectedKind === 'discard') {
-              eventBus.emit('minddrop:cards_leaving', { ids: [entityId], delayMs: 1000 });
+              eventBus.emit('minddrop:cards_leaving', {
+                ids: [entityId],
+                delayMs: CLARIFY_CONFIRM_MS + POPUP_FADE_MS,
+              });
             }
             try {
               if (entityType === 'note') {

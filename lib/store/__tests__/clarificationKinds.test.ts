@@ -10,6 +10,7 @@ import { useGremlyStore } from '../useGremlyStore';
 import { eventBus } from '../../events';
 import { buildFallbackClarification } from '../../minddrop/clarification';
 import type { Note } from '../../types';
+import { CLARIFY_CONFIRM_MS, POPUP_FADE_MS } from '../../minddrop/popupTiming';
 
 jest.mock('../../supabase/client', () => {
   const makeQueryChain = (): any => {
@@ -134,7 +135,7 @@ describe('resolveEntityClarification: answers that do not file the drop', () => 
   it('deletes a test drop without opening the chat', async () => {
     const heard: string[] = [];
     const unsub = eventBus.on('minddrop:open_chat', ({ text }) => heard.push(text));
-    const leaving: Array<{ ids: string[]; delayMs: number }> = [];
+    const leaving: Array<{ ids: string[]; delayMs?: number; hold?: boolean }> = [];
     const unsubLeaving = eventBus.on('minddrop:cards_leaving', (e) => leaving.push(e));
     useGremlyStore.setState({ notes: [makeDropNote('n3', 'Is this working?', 'conversation')] });
 
@@ -146,7 +147,8 @@ describe('resolveEntityClarification: answers that do not file the drop', () => 
     unsubLeaving();
     expect(heard).toEqual([]);
     // its card slides away once the popup's confirmation has shown
-    expect(leaving).toEqual([{ ids: ['n3'], delayMs: 1000 }]);
+    // after "Great, on it" and the popup's fade, so the slide is seen on its own
+    expect(leaving).toEqual([{ ids: ['n3'], delayMs: CLARIFY_CONFIRM_MS + POPUP_FADE_MS }]);
     expect(useGremlyStore.getState().notes).toHaveLength(0);
     expect(fetchMock).not.toHaveBeenCalled();
   });

@@ -2560,16 +2560,19 @@ const RecentDrops: React.FC<{
 
   // Cards that are going (a yes cleared them, or they were ticked off, archived
   // or deleted): they slide away, then leave the list. A popup that is still
-  // showing its confirmation asks for a delay, so the slide is seen. What they
-  // looked like is kept so an Undo can slide them back in.
+  // showing its confirmation holds them until it has gone (or asks for a
+  // delay), so the slide is seen on its own. What they looked like is kept so
+  // an Undo can slide them back in.
   const leavingRef = React.useRef<Set<string>>(new Set());
   const [leavingIds, setLeavingIds] = React.useState<Set<string>>(() => new Set());
   const [returningIds, setReturningIds] = React.useState<Set<string>>(() => new Set());
   const leftSnapshots = React.useRef<Map<string, UnifiedDrop>>(new Map());
   const leaveTimers = React.useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  const startLeaving = React.useCallback((ids: string[], delayMs = 0) => {
+  const startLeaving = React.useCallback((ids: string[], delayMs = 0, hold = false) => {
     ids.forEach((id) => leavingRef.current.add(id));
+    // held: marked as going, so nothing else moves them, until told to go
+    if (hold) return;
     const show = () =>
       setLeavingIds((prev) => {
         const next = new Set(prev);
@@ -2582,8 +2585,12 @@ const RecentDrops: React.FC<{
 
   useEffect(() => {
     const timers = leaveTimers.current;
-    const unsubLeaving = eventBus.on('minddrop:cards_leaving', ({ ids, delayMs }) => {
-      startLeaving(ids, delayMs);
+    const unsubLeaving = eventBus.on('minddrop:cards_leaving', ({ ids, delayMs, hold }) => {
+      startLeaving(ids, delayMs, hold);
+    });
+    const unsubGo = eventBus.on('minddrop:cards_go', ({ ids }) => {
+      const still = ids.filter((id) => leavingRef.current.has(id));
+      if (still.length) startLeaving(still);
     });
     const unsubStay = eventBus.on('minddrop:cards_stay', ({ ids }) => {
       ids.forEach((id) => leavingRef.current.delete(id));
@@ -2595,6 +2602,7 @@ const RecentDrops: React.FC<{
     });
     return () => {
       unsubLeaving();
+      unsubGo();
       unsubStay();
       timers.forEach(clearTimeout);
     };

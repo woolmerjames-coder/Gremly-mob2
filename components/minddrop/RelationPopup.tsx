@@ -50,6 +50,7 @@ import {
   leavingCardIds,
   type RelationOutcome,
 } from '../../lib/minddrop/relationActions';
+import { POPUP_FADE_MS, TOAST_AFTER_CARDS_MS } from '../../lib/minddrop/popupTiming';
 
 /** How long the tick shows after a yes before the popup gets out of the way. */
 export const CONFIRM_MS = 900;
@@ -230,6 +231,8 @@ export function RelationPopup({
   const [done, setDone] = useState<RelationOutcome | null>(null);
   const finished = useRef(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // the cards a yes will clear, held in place until the popup has gone
+  const leavingIds = useRef<string[]>([]);
   // Guards that hold within a frame, where state would be stale
   const busyRef = useRef(false);
   const mounted = useRef(true);
@@ -300,15 +303,17 @@ export function RelationPopup({
     latest.current = { onClose, onResolved, done };
   });
 
-  // After the tick: the toast takes over (with Undo), and the popup closes.
-  // Runs once, from the timer or from a tap outside.
+  // After the tick the popup closes. Once it has faded, the cards slide away
+  // and then the toast (with Undo) comes in: one thing at a time, so each is
+  // seen. Runs once, from the timer or from a tap outside.
   const finishApplied = useCallback(() => {
     if (closeTimer.current) clearTimeout(closeTimer.current);
     closeTimer.current = null;
     const { onClose: close, onResolved: resolved, done: outcome } = latest.current;
     if (finished.current || !outcome) return;
     finished.current = true;
-    eventBus.emit('minddrop:relation_done', {
+    const ids = leavingIds.current;
+    const toast = {
       ...outcome.toast,
       undo: outcome.undo,
       // a removed item has nothing to open
@@ -316,9 +321,14 @@ export function RelationPopup({
         outcome.toast.icon === 'removed'
           ? null
           : { id: outcome.targetId, type: outcome.targetType },
-    });
+    };
     resolved?.('applied', outcome.targetId);
     close();
+    // not tied to this popup: it is closing, and the screen behind carries on
+    setTimeout(() => {
+      if (ids.length) eventBus.emit('minddrop:cards_go', { ids });
+      setTimeout(() => eventBus.emit('minddrop:relation_done', toast), TOAST_AFTER_CARDS_MS);
+    }, POPUP_FADE_MS);
   }, []);
 
   const keep = useCallback(async () => {
@@ -342,11 +352,11 @@ export function RelationPopup({
       if (!noteId || !startBusy()) return;
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       setError(null);
-      // The cards that will go, so Recent Drops slides them out once the
-      // popup has closed rather than dropping them behind it
+      // The cards that will go: Recent Drops holds them in place, and slides
+      // them out once the popup has gone rather than dropping them behind it
       const leaving = leavingCardIds(noteId, picked);
-      if (leaving.length)
-        eventBus.emit('minddrop:cards_leaving', { ids: leaving, delayMs: CONFIRM_MS });
+      leavingIds.current = leaving;
+      if (leaving.length) eventBus.emit('minddrop:cards_leaving', { ids: leaving, hold: true });
       try {
         const outcome = await applyDropRelation(noteId, picked);
         latest.current = { ...latest.current, done: outcome };
@@ -357,6 +367,7 @@ export function RelationPopup({
         setDone(outcome);
         setView('done');
       } catch (err) {
+        leavingIds.current = [];
         if (leaving.length) eventBus.emit('minddrop:cards_stay', { ids: leaving });
         if (mounted.current) {
           setError(err instanceof Error ? err.message : 'That change did not go through.');

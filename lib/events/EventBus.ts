@@ -97,7 +97,10 @@ export type EventMap = {
   // Mind Drop "is this one you already have?" after a yes (lib/minddrop/relationActions.ts):
   // the cards that will slide out of Recent Drops, a change of plan when it did not go
   // through, and the toast that says what happened, with its Undo
-  'minddrop:cards_leaving': { ids: string[]; delayMs: number };
+  /** Cards that will go. With hold they wait, in place, for cards_go. */
+  'minddrop:cards_leaving': { ids: string[]; delayMs?: number; hold?: boolean };
+  /** The held cards slide away now. */
+  'minddrop:cards_go': { ids: string[] };
   'minddrop:cards_stay': { ids: string[] };
   'minddrop:relation_done': {
     icon: 'moved' | 'renamed' | 'repeat' | 'added' | 'done' | 'logged' | 'kept' | 'removed';
