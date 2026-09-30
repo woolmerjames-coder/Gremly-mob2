@@ -16,9 +16,10 @@ CLASSIFY_FALLBACK_PROVIDER = "openai"
 CLASSIFY_FALLBACK_MODEL = "gpt-6-luna"
 # Mind Drop: after a drop is classified, ask whether it is about something the user
 # already has (a repeat, a change, a done todo, a habit they did). It runs on the chat
-# matcher's model (MODEL_ENTITY_MATCH). Off until James has reviewed the replay of
-# real drops in docs/minddrop-relate.md; the app files drops as before while off.
-MINDDROP_RELATE_ENABLED = "false"
+# matcher's model (MODEL_ENTITY_MATCH). On for James's hands-on test (30 Sep 2026),
+# after the replay in docs/minddrop-relate.md. "false" turns it off with no app build;
+# the app then files drops as before.
+MINDDROP_RELATE_ENABLED = "true"
 
 # Every other model the Worker calls is chosen in models.js; a var here overrides
 # its default. To move a model, set the var and deploy; the corpus gate comes first.

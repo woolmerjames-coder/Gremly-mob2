@@ -2,7 +2,7 @@
 
 After a drop is classified, one more call checks whether it is about one of the user's existing items: the same thing captured again, a change to one (its day, time, name or how often a habit repeats), a detail to add to a note or a todo, a todo now done, a habit they did, or an item that is no longer happening. If it is, the drop's card shows one quiet line and a tap opens the question popup with the item in it. Nothing changes until the user taps, and a yes has an Undo.
 
-Design: the "drops about things you already have" canvas (September 2026), approved by James. It is off until he has reviewed the replay below: `MINDDROP_RELATE_ENABLED = "false"` in `workers/cortex/wrangler.toml`.
+Design: the "drops about things you already have" canvas (September 2026), approved by James. Switched on for his hands-on test on 30 Sep 2026 (`MINDDROP_RELATE_ENABLED = "true"` in `workers/cortex/wrangler.toml`, live once the Worker is deployed). Setting it to `"false"` turns it off with no app build.
 
 ## How it works
 
@@ -69,3 +69,7 @@ MINDDROP_RELATE_ENABLED = "true"
 ```
 
 then `cd workers/cortex && npx wrangler deploy`. The app side is in the build already and asks the Worker on every drop; while the switch is off the Worker answers straight away that it is off. Turning it off again needs no app build.
+
+## Banked for this branch, after the hands-on test
+
+**Undo puts reminders back.** Archiving or completing a todo, and archiving a habit, cancels its scheduled reminders (`archiveTodo`, `completeTodo`, `archiveHabit` in `lib/store/useGremlyStore.ts`). The matching `restoreTodo`, `uncompleteTodo` and `restoreHabit` do not schedule them again, so after an Undo the item is back but its reminders never fire. This affects the chat card's Undo ("Yes, mark it done", in `lib/chat/entityCards.ts`) and Mind Drop's Undo ("Yes, mark it done" and "Yes, remove it", in `lib/minddrop/relationActions.ts`). The fix belongs in the store's restore and uncomplete actions, so both surfaces get it: schedule each reminder again with `scheduleItemReminder` (`lib/notifications/itemReminderService.ts`) and save the new notification ids on the item. Check that a reminder whose time has passed is skipped, and that a restored item's reminders cancel correctly the next time it is completed or archived.
