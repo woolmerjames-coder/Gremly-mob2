@@ -114,7 +114,9 @@ function getCachedRecolor(source: object, key: string, paletteId: string): any {
 const EDGE_GAUGE_RANGE = 0.1;
 const EDGE_FILL_RANGE = 0.2;
 
-function gaugeToFill(gaugeValue: number): number {
+/** Gauge value (0 to 1) to the share of Gremly that shows colour. Also used
+ *  by the Gremly tab button so both fill the same way. */
+export function gaugeToFill(gaugeValue: number): number {
   const g = Math.min(Math.max(gaugeValue, 0), 1);
   if (g <= EDGE_GAUGE_RANGE) {
     return (g / EDGE_GAUGE_RANGE) * EDGE_FILL_RANGE;

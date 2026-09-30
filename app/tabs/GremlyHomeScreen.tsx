@@ -5,6 +5,10 @@
  * switch at the top and a sideways swipe both move between them, and the
  * switch follows the finger while swiping.
  *
+ * One input box sits under both pages and stays put while they slide (see
+ * components/home/GremlyHomeDock.tsx): the Drop page hands it over, and in
+ * Chat it sends to the Chat page.
+ *
  * Chat mounts the first time it is needed (a swipe starts, CHAT is tapped, or
  * another screen asks for it), so opening the app does not also ask the
  * Worker for a chat greeting.
@@ -18,9 +22,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Animated,
   Keyboard,
+  KeyboardAvoidingView,
   LayoutChangeEvent,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Platform,
   ScrollView,
   StyleSheet,
   View,
@@ -32,6 +38,13 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import CatchAllNotepad from '../screens/CatchAllNotepad';
 import AskGremlyScreen from './AskGremlyScreen';
 import GremlyModeSwitch, { type HomeMode } from '../../components/home/GremlyModeSwitch';
+import {
+  HomeDockContext,
+  HomeModeContext,
+  type HomeChatApi,
+  type HomeDockApi,
+  type HomeModeState,
+} from '../../components/home/GremlyHomeDock';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useNeedsMindDropTutorial } from '../../lib/store/lifecycleSelectors';
 import type { TabParamList } from '../../navigation/TabNavigator';
@@ -61,10 +74,40 @@ export default function GremlyHomeScreen() {
   );
 
   const [mode, setMode] = useState<HomeMode>('drop');
-  const [headerHeight, setHeaderHeight] = useState(0);
   const [pagerHeight, setPagerHeight] = useState(0);
   const [hintVisible, setHintVisible] = useState(false);
   const [chatMounted, setChatMounted] = useState(false);
+
+  // The shared input box (handed over by the Drop page) and the Chat page's
+  // send function. The API object never changes; see GremlyHomeDock.tsx.
+  const [dock, setDock] = useState<React.ReactNode>(null);
+  const [chatSending, setChatSending] = useState(false);
+  const chatApiRef = useRef<HomeChatApi | null>(null);
+  const draftSetterRef = useRef<((text: string) => void) | null>(null);
+  const pendingDraftRef = useRef<string | null>(null);
+  const dockApi = useMemo<HomeDockApi>(
+    () => ({
+      setDock,
+      registerChat: (api) => {
+        chatApiRef.current = api;
+      },
+      getChat: () => chatApiRef.current,
+      setChatSending,
+      prefillDraft: (text) => {
+        if (draftSetterRef.current) draftSetterRef.current(text);
+        else pendingDraftRef.current = text;
+      },
+      registerDraftSetter: (setter) => {
+        draftSetterRef.current = setter;
+        if (setter && pendingDraftRef.current !== null) {
+          setter(pendingDraftRef.current);
+          pendingDraftRef.current = null;
+        }
+      },
+    }),
+    [],
+  );
+  const modeState = useMemo<HomeModeState>(() => ({ mode, chatSending }), [mode, chatSending]);
   const pendingModeRef = useRef<HomeMode | null>(null);
 
   const hasOpenedHomeChat = useGremlyStore((s) => s.hasOpenedHomeChat);
@@ -161,8 +204,6 @@ export default function GremlyHomeScreen() {
     if (hintVisible) dismissHint();
   }, [hintVisible, dismissHint]);
 
-  const onHeaderLayout = (e: LayoutChangeEvent) => setHeaderHeight(e.nativeEvent.layout.height);
-
   const onPagerLayout = (e: LayoutChangeEvent) => {
     const h = e.nativeEvent.layout.height;
     setPagerHeight(h);
@@ -175,44 +216,72 @@ export default function GremlyHomeScreen() {
     }
   };
 
-  const pageStyle = { width, height: pagerHeight || undefined };
+  const pageStyle = useMemo(
+    () => ({ width, height: pagerHeight || undefined }),
+    [width, pagerHeight],
+  );
+
+  // The pages are kept as the same elements between renders, so handing the
+  // input box over (which re-renders this screen) does not re-render them
+  const dropPage = useMemo(
+    () => (
+      <View style={pageStyle}>
+        <CatchAllNotepad embedded active={mode === 'drop'} />
+      </View>
+    ),
+    [pageStyle, mode],
+  );
+  const chatPage = useMemo(
+    () => <View style={pageStyle}>{chatMounted ? <AskGremlyScreen embedded /> : null}</View>,
+    [pageStyle, chatMounted],
+  );
 
   return (
-    <View style={styles.root} testID="gremly-home">
-      <View style={[styles.header, { paddingTop: insets.top + 8 }]} onLayout={onHeaderLayout}>
-        <GremlyModeSwitch
-          progress={progress}
-          mode={mode}
-          onSelect={handleSelect}
-          showChatDot={!hasOpenedHomeChat}
-          hintVisible={hintVisible}
-        />
-      </View>
+    <HomeDockContext.Provider value={dockApi}>
+      <HomeModeContext.Provider value={modeState}>
+        <View style={styles.root} testID="gremly-home">
+          <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+            <GremlyModeSwitch
+              progress={progress}
+              mode={mode}
+              onSelect={handleSelect}
+              showChatDot={!hasOpenedHomeChat}
+              hintVisible={hintVisible}
+            />
+          </View>
 
-      <Animated.ScrollView
-        ref={pagerRef}
-        style={styles.pager}
-        horizontal
-        pagingEnabled
-        bounces={false}
-        overScrollMode="never"
-        showsHorizontalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        scrollEventThrottle={16}
-        onScroll={onScroll}
-        onScrollBeginDrag={onScrollBeginDrag}
-        onMomentumScrollEnd={onMomentumScrollEnd}
-        onLayout={onPagerLayout}
-        testID="gremly-home-pager"
-      >
-        <View style={pageStyle}>
-          <CatchAllNotepad embedded active={mode === 'drop'} keyboardOffset={headerHeight} />
+          <KeyboardAvoidingView
+            style={styles.body}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          >
+            <Animated.ScrollView
+              ref={pagerRef}
+              style={styles.pager}
+              horizontal
+              pagingEnabled
+              bounces={false}
+              overScrollMode="never"
+              showsHorizontalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              scrollEventThrottle={16}
+              onScroll={onScroll}
+              onScrollBeginDrag={onScrollBeginDrag}
+              onMomentumScrollEnd={onMomentumScrollEnd}
+              onLayout={onPagerLayout}
+              testID="gremly-home-pager"
+            >
+              {dropPage}
+              {chatPage}
+            </Animated.ScrollView>
+
+            {/* The one input box, fixed under both pages, with Gremly perched on it */}
+            <View style={styles.dock} testID="gremly-home-dock">
+              {dock}
+            </View>
+          </KeyboardAvoidingView>
         </View>
-        <View style={pageStyle}>
-          {chatMounted ? <AskGremlyScreen embedded keyboardOffset={headerHeight} /> : null}
-        </View>
-      </Animated.ScrollView>
-    </View>
+      </HomeModeContext.Provider>
+    </HomeDockContext.Provider>
   );
 }
 
@@ -226,7 +295,15 @@ const styles = StyleSheet.create({
     backgroundColor: LINEN,
     zIndex: 2,
   },
+  body: {
+    flex: 1,
+  },
   pager: {
     flex: 1,
+  },
+  // drawn after the pages, so Gremly and his speech can sit over them
+  dock: {
+    backgroundColor: LINEN,
+    zIndex: 1,
   },
 });

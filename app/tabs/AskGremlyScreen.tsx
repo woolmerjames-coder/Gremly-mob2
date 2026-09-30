@@ -62,6 +62,7 @@ import { useCanChat, useCanCreate } from '../../lib/store/lifecycleSelectors';
 import { useWakeOnInput } from '../../hooks/useWakeOnInput';
 import { useMascotActions } from '../../hooks/useMascotActions';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
+import { useHomeDock } from '../../components/home/GremlyHomeDock';
 
 const MOSS = '#2E5540';
 const LINEN = '#F9F6F1';
@@ -73,16 +74,13 @@ const STARTERS = [
 ];
 
 type AskGremlyScreenProps = {
-  /** Rendered as the Chat page inside the Gremly home, under the DROP | CHAT switch */
+  /** Rendered as the Chat page inside the Gremly home, under the DROP | CHAT
+   *  switch. The home's shared input box sends here; this page shows no
+   *  composer or mascot of its own. */
   embedded?: boolean;
-  /** Distance from the top of the window to this screen, for keyboard avoidance */
-  keyboardOffset?: number;
 };
 
-export default function AskGremlyScreen({
-  embedded = false,
-  keyboardOffset = 0,
-}: AskGremlyScreenProps = {}) {
+export default function AskGremlyScreen({ embedded = false }: AskGremlyScreenProps = {}) {
   const route = useRoute<any>();
   const prefillPrompt = route.params?.prefillPrompt || null;
   const { userId } = useAuth();
@@ -389,6 +387,27 @@ export default function AskGremlyScreen({
     [canChat, navigation, activeChat, sending, sendToChat],
   );
 
+  // Inside the Gremly home, the shared input box sends through handleSend.
+  // Refs keep the registration stable while handleSend and sending change.
+  const homeDock = useHomeDock();
+  const handleSendRef = useRef(handleSend);
+  handleSendRef.current = handleSend;
+  const sendingRef = useRef(sending);
+  sendingRef.current = sending;
+  useEffect(() => {
+    if (!embedded || !homeDock) return;
+    homeDock.registerChat({
+      send: (text) => {
+        void handleSendRef.current(text);
+      },
+      isSending: () => sendingRef.current,
+    });
+    return () => homeDock.registerChat(null);
+  }, [embedded, homeDock]);
+  useEffect(() => {
+    if (embedded && homeDock) homeDock.setChatSending(sending);
+  }, [embedded, homeDock, sending]);
+
   // Opened from a Mind Drop question ("Chat with Gremly" or "Ask Gremly now"):
   // send the drop straight away so Gremly replies, once per request.
   const autoSendKey: string | null = route.params?.autoSendKey || null;
@@ -400,6 +419,14 @@ export default function AskGremlyScreen({
     navigation.setParams({ prefillPrompt: undefined, autoSendKey: undefined });
     handleSend(prefillPrompt);
   }, [autoSendKey, prefillPrompt, userId, navigation, handleSend]);
+
+  // Opened with a prompt to edit rather than send (e.g. the weekly summary):
+  // inside the Gremly home it goes into the shared box
+  useEffect(() => {
+    if (!embedded || !homeDock || autoSendKey || !prefillPrompt) return;
+    homeDock.prefillDraft(prefillPrompt);
+    navigation.setParams({ prefillPrompt: undefined });
+  }, [embedded, homeDock, autoSendKey, prefillPrompt, navigation]);
 
   const keyExtractor = useCallback((item: SpaceChatMessage) => item.id, []);
 
@@ -459,7 +486,8 @@ export default function AskGremlyScreen({
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={keyboardOffset}
+        keyboardVerticalOffset={0}
+        enabled={!embedded}
       >
         {/* Header. Inside the Gremly home the switch above names the page, so
             this is a slim row: history on the left, the chat's title in the
@@ -570,6 +598,7 @@ export default function AskGremlyScreen({
               style={styles.messages}
               contentContainerStyle={[
                 styles.messagesContent,
+                embedded && styles.messagesContentEmbedded,
                 messages.length === 0 && styles.emptyListContent,
               ]}
               removeClippedSubviews={false}
@@ -623,28 +652,39 @@ export default function AskGremlyScreen({
         </View>
 
         {/* Bottom section — fixed height, always at bottom */}
-        <View style={[styles.bottomSection, embedded && styles.bottomSectionEmbedded]}>
-          <View style={styles.composerContainer}>
-            <SaveIndicatorPill
-              count={extractions.length}
-              visible={!!activeChat && extractions.length > 0}
-              onPress={() => setSaveSheetVisible(true)}
-              style={{ position: 'absolute', top: -30, right: 105, zIndex: 11 }}
-            />
-            {(inConversation || embedded) && (
-              <Pressable style={styles.mascot} onPress={() => setShowHelp(true)}>
-                <MascotLottie />
-              </Pressable>
-            )}
-            <ChatComposer
-              onSend={handleSend}
-              onChangeText={() => wakeOnInput()}
-              disabled={sending}
-              placeholder={inConversation ? 'Type a message...' : 'Ask Gremly anything...'}
-              initialText={autoSendKey ? undefined : prefillPrompt || undefined}
-            />
+        {embedded ? (
+          // The Gremly home's shared box (with Gremly on it) sits right below
+          // this page, so only the save pill is shown here
+          <SaveIndicatorPill
+            count={extractions.length}
+            visible={!!activeChat && extractions.length > 0}
+            onPress={() => setSaveSheetVisible(true)}
+            style={styles.savePillEmbedded}
+          />
+        ) : (
+          <View style={styles.bottomSection}>
+            <View style={styles.composerContainer}>
+              <SaveIndicatorPill
+                count={extractions.length}
+                visible={!!activeChat && extractions.length > 0}
+                onPress={() => setSaveSheetVisible(true)}
+                style={{ position: 'absolute', top: -30, right: 105, zIndex: 11 }}
+              />
+              {inConversation && (
+                <Pressable style={styles.mascot} onPress={() => setShowHelp(true)}>
+                  <MascotLottie />
+                </Pressable>
+              )}
+              <ChatComposer
+                onSend={handleSend}
+                onChangeText={() => wakeOnInput()}
+                disabled={sending}
+                placeholder={inConversation ? 'Type a message...' : 'Ask Gremly anything...'}
+                initialText={autoSendKey ? undefined : prefillPrompt || undefined}
+              />
+            </View>
           </View>
-        </View>
+        )}
       </KeyboardAvoidingView>
 
       <SaveSheet
@@ -1040,9 +1080,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 80,
   },
-  // a little more room above the raised Gremly button in the tab bar
-  bottomSectionEmbedded: {
-    paddingBottom: 92,
+  // Inside the Gremly home: the save pill sits just above the shared box,
+  // left of Gremly, and the list keeps clear of him
+  savePillEmbedded: {
+    position: 'absolute',
+    bottom: 10,
+    right: 110,
+    zIndex: 11,
+  },
+  messagesContentEmbedded: {
+    paddingBottom: 120,
   },
   composerContainer: { position: 'relative' as const },
   mascot: {

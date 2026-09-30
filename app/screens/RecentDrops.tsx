@@ -25,7 +25,11 @@ import { AppScrollView } from '../../components/common/AppScrollView';
 import * as Haptics from 'expo-haptics';
 import { Text } from '../../ui/Text';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
-import { useHasCompletedFirstDrop, useCanCreate } from '../../lib/store/lifecycleSelectors';
+import {
+  useHasCompletedFirstDrop,
+  useCanCreate,
+  useNeedsMindDropTutorial,
+} from '../../lib/store/lifecycleSelectors';
 import type { QueuedDrop } from '../../lib/minddrop/dropQueue';
 import type { UnifiedDrop } from '../../types/UnifiedDrop';
 import {
@@ -62,7 +66,16 @@ import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 import { eventBus } from '../../lib/events/EventBus';
 import { deriveCompactTitle } from '../../lib/text/compactTitle';
-import { Lock, Camera, Clock, User, ChevronDown, Calendar, Bell } from 'lucide-react-native';
+import {
+  Lock,
+  Camera,
+  Clock,
+  User,
+  ChevronDown,
+  ChevronRight,
+  Calendar,
+  Bell,
+} from 'lucide-react-native';
 import { getDateService, nowTimestamp } from '../../lib/date/DateService';
 import {
   truncateText,
@@ -680,6 +693,40 @@ const ASK_TEXT = {
   fontWeight: '600' as const,
 };
 const ASK_HELPER = { flex: 1, fontSize: 12, lineHeight: 15, color: '#657865', marginLeft: 30 };
+// "Talk it through with Gremly" on the newest drop, under a hairline
+const TALK_ROW = {
+  flexDirection: 'row' as const,
+  alignItems: 'center' as const,
+  marginTop: 10,
+  paddingTop: 9,
+  borderTopWidth: StyleSheet.hairlineWidth,
+  borderTopColor: 'rgba(46, 85, 64, 0.14)',
+};
+/** How long after a drop its "Talk it through" link stays on the card */
+export const TALK_WINDOW_MS = 10 * 60 * 1000;
+/** Drops whose "Talk it through" link has been used this session */
+const talkUsedIds = new Set<string>();
+
+/**
+ * Which drop, if any, offers "Talk it through with Gremly": only the newest
+ * one, only once it is sorted, only for TALK_WINDOW_MS after it was made, not
+ * during the first-week training, and not again once the link has been used.
+ * Card-level states (a question, a split, a held drop, a failed load) are
+ * checked on the card, where they already live.
+ */
+export function talkItemIdFor(
+  items: Array<{ id: string; drop_id?: string | null; created_at: string }>,
+  opts: { pendingIds: Set<string>; nowMs: number; inTraining: boolean; used: Set<string> },
+): string | null {
+  if (opts.inTraining) return null;
+  const top = items[0];
+  if (!top) return null;
+  if (opts.pendingIds.has(top.drop_id || top.id)) return null;
+  if (opts.used.has(top.id)) return null;
+  const age = opts.nowMs - new Date(top.created_at).getTime();
+  if (!(age >= 0 && age < TALK_WINDOW_MS)) return null;
+  return top.id;
+}
 const ASK_TIME = { lineHeight: 15 };
 
 /**
@@ -1797,6 +1844,8 @@ const AnimatedMindDropCard = React.memo<{
   }) => void;
   // "Is this one you already have?" for a held drop (lib/minddrop/dropRelation.ts)
   openRelationPopup?: (options: { entityId: string }) => void;
+  // Set only on the newest drop while it offers "Talk it through with Gremly"
+  onTalk?: (item: UnifiedDrop) => void;
 }>(
   ({
     item,
@@ -1816,6 +1865,7 @@ const AnimatedMindDropCard = React.memo<{
     onOpenModal,
     openClarificationPopup,
     openRelationPopup,
+    onTalk,
   }) => {
     console.log('[RENDER_CHECK] AnimatedMindDropCard COMPLETE rendered');
     // Capture render time in a ref (initialized once on mount)
@@ -2348,6 +2398,29 @@ const AnimatedMindDropCard = React.memo<{
               </Text>
             </View>
           </View>
+
+          {/* Row 4: "Talk it through with Gremly", newest drop only, once sorted
+              and when Gremly is not already asking something here */}
+          {onTalk &&
+          !isFailed &&
+          !isMulti &&
+          !needsClarification &&
+          !relationPending &&
+          item.views?.ai_pending !== true &&
+          item.views?.clarification_processing !== true ? (
+            <Pressable
+              onPress={() => onTalk(item)}
+              style={TALK_ROW}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel="Talk it through with Gremly"
+              testID={`minddrop-talk-${item.id}`}
+            >
+              <Animated.Image source={require('../../assets/buttonforHP.png')} style={ASK_AVATAR} />
+              <Text style={ASK_TEXT}>Talk it through with Gremly</Text>
+              <ChevronRight size={16} color="#4A7C59" strokeWidth={2} />
+            </Pressable>
+          ) : null}
         </Pressable>
       </Reanimated.View>
     );
@@ -2396,6 +2469,7 @@ const AnimatedMindDropCard = React.memo<{
     if (prevProps.item.cadence !== nextProps.item.cadence) return false; // Habit cadence
     if (prevProps.isPending !== nextProps.isPending) return false;
     if (prevProps.effectiveKind !== nextProps.effectiveKind) return false;
+    if (prevProps.onTalk !== nextProps.onTalk) return false;
     // Tags comparison (shallow array check)
     const prevTags = prevProps.item.tags || [];
     const nextTags = nextProps.item.tags || [];
@@ -2852,6 +2926,39 @@ const RecentDrops: React.FC<{
     });
     return { combinedItems: deduped, pendingIdSet: pending };
   }, [pendingItems, filteredItems]);
+
+  // "Talk it through with Gremly" on the newest drop (rules in talkItemIdFor)
+  const inTraining = useNeedsMindDropTutorial();
+  const [talkClock, setTalkClock] = React.useState(0);
+  const talkItemId = React.useMemo(
+    () =>
+      filter === 'today'
+        ? talkItemIdFor(combinedItems, {
+            pendingIds: pendingIdSet,
+            nowMs: getDateService().now().getTime(),
+            inTraining,
+            used: talkUsedIds,
+          })
+        : null,
+    // talkClock re-checks when the window ends or the link is used
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [combinedItems, pendingIdSet, filter, inTraining, talkClock],
+  );
+  const talkItemCreatedAt = talkItemId ? combinedItems[0]?.created_at : null;
+  React.useEffect(() => {
+    if (!talkItemCreatedAt) return;
+    const endsIn =
+      new Date(talkItemCreatedAt).getTime() + TALK_WINDOW_MS - getDateService().now().getTime();
+    const timer = setTimeout(() => setTalkClock((n) => n + 1), Math.max(endsIn, 0) + 250);
+    return () => clearTimeout(timer);
+  }, [talkItemCreatedAt]);
+  // Opens the Chat page and sends the drop, so Gremly replies about it
+  const handleTalk = React.useCallback((drop: UnifiedDrop) => {
+    talkUsedIds.add(drop.id);
+    setTalkClock((n) => n + 1);
+    const text = String(drop.text || drop.title || '').trim();
+    if (text) eventBus.emit('minddrop:open_chat', { text });
+  }, []);
 
   // Keep modal item synced with latest version from items/pendingItems
   // (in case Phase 1 updates segments while modal is open)
@@ -4746,6 +4853,7 @@ const RecentDrops: React.FC<{
                       onOpenModal={handleOpenModal}
                       openClarificationPopup={overlay.openClarificationPopup}
                       openRelationPopup={overlay.openRelationPopup}
+                      onTalk={item.id === talkItemId ? handleTalk : undefined}
                     />
                   </UnifiedCardWrapper>
                 );

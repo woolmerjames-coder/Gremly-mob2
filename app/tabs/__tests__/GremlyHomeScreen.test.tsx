@@ -19,16 +19,47 @@ jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }));
 
+// The Drop page hands a box to the home and sends through it in Chat, like
+// CatchAllNotepad does; the Chat page registers how to send, like AskGremlyScreen
+const mockChatSend = jest.fn();
+let mockChatPrefill: string | null = null;
 jest.mock('../../screens/CatchAllNotepad', () => {
-  const { Text: T } = require('react-native');
+  const React = require('react');
+  const { Text: T, Pressable: P } = require('react-native');
+  const { useHomeDock, useHomeMode } = require('../../../components/home/GremlyHomeDock');
   return function MockDrop(props: { embedded?: boolean; active?: boolean }) {
+    const dock = useHomeDock();
+    const homeMode = useHomeMode();
+    const [draft, setDraft] = React.useState('hello from the box');
+    const label = homeMode?.mode === 'chat' ? 'Send to Gremly' : 'Drop to Gremly';
+    const box = (
+      <P testID="shared-box" onPress={() => dock?.getChat()?.send(draft)}>
+        <T testID="shared-box-label">{label}</T>
+        <T testID="shared-box-draft">{draft}</T>
+      </P>
+    );
+    React.useLayoutEffect(() => {
+      dock?.setDock(box);
+    });
+    React.useEffect(() => {
+      dock?.registerDraftSetter(setDraft);
+      return () => dock?.registerDraftSetter(null);
+    }, [dock]);
     return <T testID="drop-page">{`drop embedded=${props.embedded} active=${props.active}`}</T>;
   };
 });
 
 jest.mock('../AskGremlyScreen', () => {
+  const React = require('react');
   const { Text: T } = require('react-native');
+  const { useHomeDock } = require('../../../components/home/GremlyHomeDock');
   return function MockChat(props: { embedded?: boolean }) {
+    const dock = useHomeDock();
+    React.useEffect(() => {
+      dock?.registerChat({ send: mockChatSend, isSending: () => false });
+      if (mockChatPrefill) dock?.prefillDraft(mockChatPrefill);
+      return () => dock?.registerChat(null);
+    }, [dock]);
     return <T testID="chat-page">{`chat embedded=${props.embedded}`}</T>;
   };
 });
@@ -48,6 +79,7 @@ import GremlyHomeScreen from '../GremlyHomeScreen';
 beforeEach(() => {
   jest.clearAllMocks();
   mockParams = undefined;
+  mockChatPrefill = null;
   mockState = {
     hasOpenedHomeChat: false,
     hasSeenHomeSwipeHint: true,
@@ -89,6 +121,28 @@ describe('GremlyHomeScreen', () => {
     const { getByTestId } = render(<GremlyHomeScreen />);
     expect(getByTestId('chat-page')).toBeTruthy();
     expect(mockSetParams).toHaveBeenCalledWith({ mode: undefined });
+  });
+
+  it("shows the Drop page's input box once, under both pages", () => {
+    const { getAllByTestId, getByTestId } = render(<GremlyHomeScreen />);
+    expect(getAllByTestId('shared-box')).toHaveLength(1);
+    expect(getByTestId('shared-box-label').props.children).toBe('Drop to Gremly');
+  });
+
+  it('in Chat, the same box relabels and sends to the Chat page', () => {
+    const { getByTestId } = render(<GremlyHomeScreen />);
+    fireEvent.press(getByTestId('home-switch-chat'));
+    expect(getByTestId('shared-box-label').props.children).toBe('Send to Gremly');
+    fireEvent.press(getByTestId('shared-box'));
+    expect(mockChatSend).toHaveBeenCalledWith('hello from the box');
+  });
+
+  it('puts a prompt from another screen into the shared box', () => {
+    // AskGremlyScreen calls prefillDraft for a prompt that should not auto-send
+    mockChatPrefill = 'Plan the week with me';
+    const { getByTestId } = render(<GremlyHomeScreen />);
+    fireEvent.press(getByTestId('home-switch-chat'));
+    expect(getByTestId('shared-box-draft').props.children).toBe('Plan the week with me');
   });
 
   it('shows the one-time hint on first visit and records it as seen', () => {
