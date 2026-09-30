@@ -9120,6 +9120,10 @@ export const useGremlyStore = create<GremlyState>()(
             if (selectedKind === 'chat' && dropText) {
               eventBus.emit('minddrop:open_chat', { text: dropText });
             }
+            // Not kept: its card slides away once the popup's "Great, on it" has shown
+            if (selectedKind === 'discard') {
+              eventBus.emit('minddrop:cards_leaving', { ids: [entityId], delayMs: 1000 });
+            }
             try {
               if (entityType === 'note') {
                 await get().deleteNote(entityId);

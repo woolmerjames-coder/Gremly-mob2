@@ -134,6 +134,8 @@ describe('resolveEntityClarification: answers that do not file the drop', () => 
   it('deletes a test drop without opening the chat', async () => {
     const heard: string[] = [];
     const unsub = eventBus.on('minddrop:open_chat', ({ text }) => heard.push(text));
+    const leaving: Array<{ ids: string[]; delayMs: number }> = [];
+    const unsubLeaving = eventBus.on('minddrop:cards_leaving', (e) => leaving.push(e));
     useGremlyStore.setState({ notes: [makeDropNote('n3', 'Is this working?', 'conversation')] });
 
     await act(async () => {
@@ -141,7 +143,10 @@ describe('resolveEntityClarification: answers that do not file the drop', () => 
     });
 
     unsub();
+    unsubLeaving();
     expect(heard).toEqual([]);
+    // its card slides away once the popup's confirmation has shown
+    expect(leaving).toEqual([{ ids: ['n3'], delayMs: 1000 }]);
     expect(useGremlyStore.getState().notes).toHaveLength(0);
     expect(fetchMock).not.toHaveBeenCalled();
   });

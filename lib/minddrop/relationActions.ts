@@ -62,6 +62,33 @@ export function shouldRelate(drop: QueuedDrop): boolean {
   return true;
 }
 
+/**
+ * The check only needs the drop's words, so it starts alongside
+ * classification and is usually back before the drop needs it. Kept in memory
+ * by the drop's local id; after an app restart the drop simply asks again.
+ */
+const early = new Map<string, Promise<DropRelation | null>>();
+
+/** Start the check as soon as a Mind Drop box drop is queued. */
+export function startDropRelation(drop: QueuedDrop): void {
+  if (drop.source !== 'minddrop' || drop.dueDayOverride || drop.prefillDate) return;
+  if (!drop.text?.trim() || early.has(drop.localId)) return;
+  if (early.size > 50) early.clear();
+  early.set(drop.localId, fetchDropRelation(drop.text));
+}
+
+/** The answer started early, or a fresh ask when there is none. */
+export function takeDropRelation(drop: QueuedDrop): Promise<DropRelation | null> {
+  const started = early.get(drop.localId);
+  early.delete(drop.localId);
+  return started ?? fetchDropRelation(drop.text);
+}
+
+/** The drop turned out not to need the check (several items, or addressed to Gremly). */
+export function forgetDropRelation(localId: string): void {
+  early.delete(localId);
+}
+
 function deviceTimezone(): string | undefined {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;

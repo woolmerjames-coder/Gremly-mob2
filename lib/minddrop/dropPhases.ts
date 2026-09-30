@@ -30,7 +30,13 @@ import {
   normalizeAmbiguityType,
   CLARIFY_TIMEOUT_MS,
 } from './clarification';
-import { fetchDropRelation, holdDropForRelation, shouldRelate } from './relationActions';
+import {
+  forgetDropRelation,
+  holdDropForRelation,
+  shouldRelate,
+  startDropRelation,
+  takeDropRelation,
+} from './relationActions';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // withTimeout helper
@@ -336,6 +342,10 @@ export async function handleQueued(drop: QueuedDrop): Promise<QueuedDrop> {
   let phase1Result: any = null;
   let engine: 'v2' | 'v3' = 'v2';
 
+  // "Is this one you already have?" only needs the words: start it now, beside
+  // classification, so it is back before the drop needs it (relationActions.ts)
+  if (FEATURE_FLAGS.CLASSIFY_V3_ENABLED) startDropRelation(drop);
+
   // v3: one call for classification + multi + clarification. Any failure
   // (null) drops through to the v2 path below for this drop.
   if (FEATURE_FLAGS.CLASSIFY_V3_ENABLED) {
@@ -373,6 +383,7 @@ export async function handleQueued(drop: QueuedDrop): Promise<QueuedDrop> {
 
   // Multi path
   if ((multiResult as any).is_multi && (multiResult as any).segments?.length > 1) {
+    forgetDropRelation(drop.localId);
     // Emit multi follow-up for speech bubble (no AI reaction for multi parent)
     console.log('[SpeechBubble] Emitting drop:reaction_ready for multi', { localId: drop.localId });
     eventBus.emit('drop:reaction_ready', {
@@ -460,7 +471,9 @@ export async function handleClassified(drop: QueuedDrop): Promise<QueuedDrop> {
 
   // Is this drop about something they already have? Runs alongside, never
   // rejects, and null (off, slow, unsure) files the drop exactly as before.
-  const relationPromise = shouldRelate(drop) ? fetchDropRelation(drop.text) : Promise.resolve(null);
+  const relates = shouldRelate(drop);
+  if (!relates) forgetDropRelation(drop.localId);
+  const relationPromise = relates ? takeDropRelation(drop) : Promise.resolve(null);
 
   // Phase 1.5a: get title + confirmation (soft timeout, fallback to raw text)
   const result = await withTimeout(

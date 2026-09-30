@@ -30,7 +30,8 @@ jest.mock('../../env', () => ({
   getEnv: (key: string) => (key === 'EXPO_PUBLIC_CORTEX_URL' ? 'https://test.cortex' : undefined),
 }));
 
-import { handleClassified } from '../dropPhases';
+import { handleClassified, handleQueued } from '../dropPhases';
+import { runClassifyV3 } from '../phase1';
 import { eventBus } from '../../events/EventBus';
 
 const complete = {
@@ -93,6 +94,23 @@ describe('handleClassified: drops about things they already have', () => {
       kind: 'edit',
       classified: { bucket: 'todo' },
     });
+  });
+
+  it('starts the check beside classification and uses that answer', async () => {
+    mockWorker({ enabled: true, relation: complete });
+    (runClassifyV3 as jest.Mock).mockResolvedValue({
+      multi: { is_multi: false },
+      phase1: { bucket: 'todo', subtype: null, confidence: 0.9, source: 'v3' },
+    });
+    const queued = await handleQueued(
+      drop({ localId: 'd-early', phase: 'queued', classifyEngine: undefined, bucket: undefined }),
+    );
+    // asked while the drop was being classified
+    expect(relateCalls()).toHaveLength(1);
+    const out = await handleClassified(queued);
+    // and not asked a second time
+    expect(relateCalls()).toHaveLength(1);
+    expect(out.relation).toMatchObject({ status: 'pending', kind: 'edit' });
   });
 
   it('files the drop as before when the switch is off', async () => {

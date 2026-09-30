@@ -21,6 +21,7 @@ import {
   UIManager,
 } from 'react-native';
 import { AppScrollView } from '../../components/common/AppScrollView';
+import * as Haptics from 'expo-haptics';
 import { Text } from '../../ui/Text';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useHasCompletedFirstDrop, useCanCreate } from '../../lib/store/lifecycleSelectors';
@@ -479,138 +480,190 @@ const UnifiedCardWrapper = React.memo<{
   dropId?: string | null;
   isPending: boolean;
   children: React.ReactNode;
-  /** a yes just cleared this card: it slides out to the right, then leaves */
+  /** the card is going (a yes cleared it, it was ticked off, archived or deleted):
+   * it slides away to the right, then leaves */
   leaving?: boolean;
   onLeft?: (itemId: string) => void;
-}>(({ itemId, dropId, isPending, children, leaving = false, onLeft }) => {
-  console.log('[RENDER_CHECK] UnifiedCardWrapper rendered');
-  // DEBUG: Track wrapper mount/unmount (disabled to reduce Metro noise)
-  // React.useEffect(() => {
-  //   console.log('[DEBUG:Wrapper] UnifiedCardWrapper MOUNTED:', { itemId, dropId, isPending });
-  //   return () => {
-  //     console.log('[DEBUG:Wrapper] UnifiedCardWrapper UNMOUNTED:', { itemId, dropId });
-  //   };
-  // }, []);
+  /** the card is coming back after an Undo: it slides back in from the right */
+  returning?: boolean;
+  onReturned?: (itemId: string) => void;
+}>(
+  ({
+    itemId,
+    dropId,
+    isPending,
+    children,
+    leaving = false,
+    onLeft,
+    returning = false,
+    onReturned,
+  }) => {
+    console.log('[RENDER_CHECK] UnifiedCardWrapper rendered');
+    // DEBUG: Track wrapper mount/unmount (disabled to reduce Metro noise)
+    // React.useEffect(() => {
+    //   console.log('[DEBUG:Wrapper] UnifiedCardWrapper MOUNTED:', { itemId, dropId, isPending });
+    //   return () => {
+    //     console.log('[DEBUG:Wrapper] UnifiedCardWrapper UNMOUNTED:', { itemId, dropId });
+    //   };
+    // }, []);
 
-  // DEBUG: Track isPending changes (disabled to reduce Metro noise)
-  // React.useEffect(() => {
-  //   console.log('[DEBUG:Wrapper] isPending changed:', { itemId, dropId, isPending });
-  // }, [isPending, itemId, dropId]);
+    // DEBUG: Track isPending changes (disabled to reduce Metro noise)
+    // React.useEffect(() => {
+    //   console.log('[DEBUG:Wrapper] isPending changed:', { itemId, dropId, isPending });
+    // }, [isPending, itemId, dropId]);
 
-  // Track animation state - starts true if was pending, then transitions
-  const [wasPending, setWasPending] = React.useState(isPending);
-  const [layoutEnabled, setLayoutEnabled] = React.useState(false);
+    // Track animation state - starts true if was pending, then transitions
+    const [wasPending, setWasPending] = React.useState(isPending);
+    const [layoutEnabled, setLayoutEnabled] = React.useState(false);
 
-  // Animation values for depth emergence (pending items)
-  const hasAnimated = animatedInItemIds.has(itemId);
-  const scale = React.useMemo(() => new Animated.Value(hasAnimated ? 1 : 0.65), []);
-  const opacity = React.useMemo(() => new Animated.Value(hasAnimated ? 1 : 0.2), []);
+    // Animation values for depth emergence (pending items)
+    const hasAnimated = animatedInItemIds.has(itemId);
+    const scale = React.useMemo(() => new Animated.Value(hasAnimated ? 1 : 0.65), []);
+    const opacity = React.useMemo(() => new Animated.Value(hasAnimated ? 1 : 0.2), []);
 
-  // Leaving after a yes to "is this one you already have?": slide out to the
-  // right and fade, then tell the list it can go
-  const leaveX = React.useMemo(() => new Animated.Value(0), []);
-  const leaveOpacity = React.useMemo(() => new Animated.Value(1), []);
-  React.useEffect(() => {
-    if (!leaving) {
-      leaveX.setValue(0);
-      leaveOpacity.setValue(1);
-      return;
-    }
-    const anim = Animated.parallel([
-      Animated.timing(leaveX, {
-        toValue: Dimensions.get('window').width,
-        duration: 320,
-        easing: Easing.in(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(leaveOpacity, {
-        toValue: 0,
-        duration: 320,
-        easing: Easing.in(Easing.quad),
-        useNativeDriver: true,
-      }),
-    ]);
-    anim.start(({ finished }) => {
-      if (finished) onLeft?.(itemId);
-    });
-    return () => anim.stop();
-  }, [leaving, itemId, onLeft, leaveX, leaveOpacity]);
-  const leaveStyle = { opacity: leaveOpacity, transform: [{ translateX: leaveX }] };
-
-  // Handle pending→real transition
-  React.useEffect(() => {
-    if (wasPending && !isPending) {
-      // Item just transitioned from pending to real
-      // Mark that transition happened so we can skip Layout animation
-      if (dropId) {
-        recentlyPromotedDropIds.add(dropId);
+    // Leaving: a small gather (the card draws back a touch and settles), then it
+    // glides away to the right, picking up speed with a slight tilt and fading at
+    // the end. The list closes the gap once it has gone (the Layout transition
+    // below). Coming back after an Undo runs the glide in reverse.
+    const leaveGather = React.useMemo(() => new Animated.Value(0), []);
+    const leaveGlide = React.useMemo(() => new Animated.Value(returning ? 1 : 0), []);
+    React.useEffect(() => {
+      if (!leaving) {
+        if (!returning) {
+          leaveGather.setValue(0);
+          leaveGlide.setValue(0);
+        }
+        return;
       }
-      setWasPending(false);
-    }
-  }, [isPending, wasPending, dropId]);
-
-  // Pending item animation (depth emergence)
-  React.useEffect(() => {
-    if (!isPending || hasAnimated) return;
-
-    animatedInItemIds.add(itemId);
-
-    const timeout = setTimeout(() => {
-      Animated.parallel([
-        Animated.timing(scale, {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      const anim = Animated.sequence([
+        Animated.timing(leaveGather, {
           toValue: 1,
-          duration: 750,
-          easing: Easing.out(Easing.cubic),
+          duration: 140,
+          easing: Easing.out(Easing.quad),
           useNativeDriver: true,
         }),
-        Animated.timing(opacity, {
+        Animated.timing(leaveGlide, {
           toValue: 1,
-          duration: 750,
-          easing: Easing.out(Easing.cubic),
+          duration: 420,
+          easing: Easing.bezier(0.45, 0, 0.7, 0.2),
           useNativeDriver: true,
         }),
-      ]).start();
-    }, 200);
+      ]);
+      anim.start(({ finished }) => {
+        if (finished) onLeft?.(itemId);
+      });
+      return () => anim.stop();
+    }, [leaving, returning, itemId, onLeft, leaveGather, leaveGlide]);
+    React.useEffect(() => {
+      if (!returning) return;
+      leaveGather.setValue(0);
+      const anim = Animated.timing(leaveGlide, {
+        toValue: 0,
+        duration: 420,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      });
+      anim.start(({ finished }) => {
+        if (finished) onReturned?.(itemId);
+      });
+      return () => anim.stop();
+    }, [returning, itemId, onReturned, leaveGather, leaveGlide]);
+    const glideWidth = Dimensions.get('window').width + 48;
+    const leaveStyle = {
+      opacity: leaveGlide.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 0.9, 0] }),
+      transform: [
+        {
+          translateX: Animated.add(
+            leaveGather.interpolate({ inputRange: [0, 1], outputRange: [0, -10] }),
+            leaveGlide.interpolate({ inputRange: [0, 1], outputRange: [0, glideWidth] }),
+          ),
+        },
+        {
+          scale: Animated.add(
+            leaveGather.interpolate({ inputRange: [0, 1], outputRange: [1, 0.975] }),
+            leaveGlide.interpolate({ inputRange: [0, 1], outputRange: [0, -0.03] }),
+          ),
+        },
+        { rotate: leaveGlide.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '4deg'] }) },
+      ],
+    };
 
-    return () => clearTimeout(timeout);
-  }, [itemId, isPending, hasAnimated, scale, opacity]);
+    // Handle pending→real transition
+    React.useEffect(() => {
+      if (wasPending && !isPending) {
+        // Item just transitioned from pending to real
+        // Mark that transition happened so we can skip Layout animation
+        if (dropId) {
+          recentlyPromotedDropIds.add(dropId);
+        }
+        setWasPending(false);
+      }
+    }, [isPending, wasPending, dropId]);
 
-  // Real item Layout animation (slide-down)
-  React.useEffect(() => {
-    if (isPending) return;
+    // Pending item animation (depth emergence)
+    React.useEffect(() => {
+      if (!isPending || hasAnimated) return;
 
-    const wasRecentlyPromoted = dropId && recentlyPromotedDropIds.has(dropId);
-    const delay = wasRecentlyPromoted ? 2000 : 500;
+      animatedInItemIds.add(itemId);
 
-    if (wasRecentlyPromoted && dropId) {
-      recentlyPromotedDropIds.delete(dropId);
+      const timeout = setTimeout(() => {
+        Animated.parallel([
+          Animated.timing(scale, {
+            toValue: 1,
+            duration: 750,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+          Animated.timing(opacity, {
+            toValue: 1,
+            duration: 750,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+        ]).start();
+      }, 200);
+
+      return () => clearTimeout(timeout);
+    }, [itemId, isPending, hasAnimated, scale, opacity]);
+
+    // Real item Layout animation (slide-down)
+    React.useEffect(() => {
+      if (isPending) return;
+
+      const wasRecentlyPromoted = dropId && recentlyPromotedDropIds.has(dropId);
+      const delay = wasRecentlyPromoted ? 2000 : 500;
+
+      if (wasRecentlyPromoted && dropId) {
+        recentlyPromotedDropIds.delete(dropId);
+      }
+
+      const timeout = setTimeout(() => {
+        setLayoutEnabled(true);
+      }, delay);
+      return () => clearTimeout(timeout);
+    }, [isPending, dropId]);
+
+    // Pending items: use Animated.View with scale/opacity
+    if (isPending && !hasAnimated) {
+      return <Animated.View style={{ opacity, transform: [{ scale }] }}>{children}</Animated.View>;
     }
 
-    const timeout = setTimeout(() => {
-      setLayoutEnabled(true);
-    }, delay);
-    return () => clearTimeout(timeout);
-  }, [isPending, dropId]);
+    // Real items with Layout enabled: use Reanimated.View
+    if (!isPending && layoutEnabled) {
+      return (
+        <Reanimated.View
+          layout={Layout.duration(450).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
+        >
+          <Animated.View style={leaveStyle}>{children}</Animated.View>
+        </Reanimated.View>
+      );
+    }
 
-  // Pending items: use Animated.View with scale/opacity
-  if (isPending && !hasAnimated) {
-    return <Animated.View style={{ opacity, transform: [{ scale }] }}>{children}</Animated.View>;
-  }
-
-  // Real items with Layout enabled: use Reanimated.View
-  if (!isPending && layoutEnabled) {
-    return (
-      <Reanimated.View
-        layout={Layout.duration(450).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
-      >
-        <Animated.View style={leaveStyle}>{children}</Animated.View>
-      </Reanimated.View>
-    );
-  }
-
-  // Default: plain View (pending after animation, or real before Layout enabled)
-  return <Animated.View style={leaveStyle}>{children}</Animated.View>;
-});
+    // Default: plain View (pending after animation, or real before Layout enabled)
+    return <Animated.View style={leaveStyle}>{children}</Animated.View>;
+  },
+);
 UnifiedCardWrapper.displayName = 'UnifiedCardWrapper';
 
 /**
@@ -2479,26 +2532,32 @@ const RecentDrops: React.FC<{
   const [loading, setLoading] = React.useState(false);
   const [items, setItems] = React.useState<UnifiedDrop[]>([]);
 
-  // Cards a yes to "is this one you already have?" just cleared: they slide out
-  // once the popup has closed, then leave the list. What they looked like is
-  // kept so an Undo can put them back.
+  // Cards that are going (a yes cleared them, or they were ticked off, archived
+  // or deleted): they slide away, then leave the list. A popup that is still
+  // showing its confirmation asks for a delay, so the slide is seen. What they
+  // looked like is kept so an Undo can slide them back in.
   const leavingRef = React.useRef<Set<string>>(new Set());
   const [leavingIds, setLeavingIds] = React.useState<Set<string>>(() => new Set());
+  const [returningIds, setReturningIds] = React.useState<Set<string>>(() => new Set());
   const leftSnapshots = React.useRef<Map<string, UnifiedDrop>>(new Map());
+  const leaveTimers = React.useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  const startLeaving = React.useCallback((ids: string[], delayMs = 0) => {
+    ids.forEach((id) => leavingRef.current.add(id));
+    const show = () =>
+      setLeavingIds((prev) => {
+        const next = new Set(prev);
+        ids.forEach((id) => leavingRef.current.has(id) && next.add(id));
+        return next;
+      });
+    if (delayMs > 0) leaveTimers.current.push(setTimeout(show, delayMs));
+    else show();
+  }, []);
 
   useEffect(() => {
-    const timers: ReturnType<typeof setTimeout>[] = [];
+    const timers = leaveTimers.current;
     const unsubLeaving = eventBus.on('minddrop:cards_leaving', ({ ids, delayMs }) => {
-      ids.forEach((id) => leavingRef.current.add(id));
-      timers.push(
-        setTimeout(() => {
-          setLeavingIds((prev) => {
-            const next = new Set(prev);
-            ids.forEach((id) => leavingRef.current.has(id) && next.add(id));
-            return next;
-          });
-        }, delayMs),
-      );
+      startLeaving(ids, delayMs);
     });
     const unsubStay = eventBus.on('minddrop:cards_stay', ({ ids }) => {
       ids.forEach((id) => leavingRef.current.delete(id));
@@ -2513,6 +2572,15 @@ const RecentDrops: React.FC<{
       unsubStay();
       timers.forEach(clearTimeout);
     };
+  }, [startLeaving]);
+
+  const handleCardReturned = React.useCallback((id: string) => {
+    setReturningIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
   }, []);
 
   const handleCardLeft = React.useCallback((id: string) => {
@@ -3351,6 +3419,13 @@ const RecentDrops: React.FC<{
         //   type: event.type,
         //   source: event.source,
         // });
+        // A card on screen slides away; a clarification that turns it into
+        // another kind replaces it in place, so that one goes at once
+        if (leavingRef.current.has(event.id)) return;
+        if (event.source !== 'clarification-bucket-change') {
+          startLeaving([event.id]);
+          return;
+        }
         // Remove the item immediately from local state
         setItems((prev) => {
           const filtered = prev.filter((item) => item.id !== event.id);
@@ -3365,6 +3440,20 @@ const RecentDrops: React.FC<{
       'entity:created',
       (payload: { entity: any; type: string; spaceId?: string | null; source?: string }) => {
         const dropId = payload.entity?.drop_id;
+        // A card still sliding away for this drop gives way to its replacement
+        if (dropId) {
+          setItems((prev) => {
+            const stale = prev.filter(
+              (item) =>
+                item.drop_id === dropId &&
+                item.id !== payload.entity?.id &&
+                leavingRef.current.has(item.id),
+            );
+            if (!stale.length) return prev;
+            stale.forEach((item) => leavingRef.current.delete(item.id));
+            return prev.filter((item) => !stale.includes(item));
+          });
+        }
         // console.log('[CatchAllNotepad] entity:created received', {
         //   dropId,
         //   type: payload.type,
@@ -3550,10 +3639,8 @@ const RecentDrops: React.FC<{
       'ItemCompleted',
       (payload: { id: string; type: 'habit' | 'todo' }) => {
         // console.debug('[RecentDrops] ItemCompleted event:', payload.id, payload.type);
-        // A card sliding out after a yes leaves when its slide ends
-        if (leavingRef.current.has(payload.id)) return;
-        // Remove the item immediately from local state
-        setItems((prev) => prev.filter((item) => item.id !== payload.id));
+        // Ticked off: the card slides away (and leaves when its slide ends)
+        if (!leavingRef.current.has(payload.id)) startLeaving([payload.id]);
         // Note: Pending items are managed by Zustand pendingDrops - no cleanup needed here
       },
     );
@@ -3588,9 +3675,7 @@ const RecentDrops: React.FC<{
           (entity as any).archived === true ||
           (entityType === 'todo' && !!(entity as any).completed_at);
         if (gone) {
-          if (!leavingRef.current.has(payload.id)) {
-            setItems((prev) => prev.filter((item) => item.id !== payload.id));
-          }
+          if (!leavingRef.current.has(payload.id)) startLeaving([payload.id]);
           return;
         }
 
@@ -3598,6 +3683,7 @@ const RecentDrops: React.FC<{
         const snapshot = leftSnapshots.current.get(payload.id);
         if (snapshot) {
           leftSnapshots.current.delete(payload.id);
+          setReturningIds((prev) => new Set(prev).add(payload.id));
           setItems((prev) =>
             prev.some((item) => item.id === payload.id)
               ? prev
@@ -3716,7 +3802,7 @@ const RecentDrops: React.FC<{
       unsubItemUpdated();
       clearInterval(stuckCardInterval);
     };
-  }, [load]);
+  }, [load, startLeaving]);
 
   // Listen for enrichment retry events from failed cards
   React.useEffect(() => {
@@ -4600,6 +4686,8 @@ const RecentDrops: React.FC<{
                     isPending={itemIsPending}
                     leaving={leavingIds.has(item.id)}
                     onLeft={handleCardLeft}
+                    returning={returningIds.has(item.id)}
+                    onReturned={handleCardReturned}
                   >
                     <AnimatedMindDropCard
                       item={item}
