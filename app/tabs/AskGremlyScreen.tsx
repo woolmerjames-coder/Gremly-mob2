@@ -50,8 +50,7 @@ import {
   ChevronRight,
   X,
 } from 'lucide-react-native';
-import { useRoute } from '@react-navigation/native';
-import { useNavigation } from '@react-navigation/native';
+import { NavigationRouteContext, useNavigation } from '@react-navigation/native';
 import type {
   EntityCardEntity,
   EntityCardStatus,
@@ -104,10 +103,11 @@ type AskGremlyScreenProps = {
 };
 
 export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScreenProps = {}) {
-  const route = useRoute<any>();
-  // an item's chat is opened by its item, not by a route, so the route's
-  // params (a Talk it through, a prompt to send) are not for it
-  const params = item ? undefined : route.params;
+  // The screen's route, when there is one. An item's chat opens in the item
+  // overlay, which sits above the screens, where useRoute would throw; and its
+  // params (a Talk it through, a prompt to send) are not for it anyway.
+  const route = React.useContext(NavigationRouteContext) as { params?: any } | undefined;
+  const params = item ? undefined : route?.params;
   const prefillPrompt = params?.prefillPrompt || null;
   const { userId } = useAuth();
   const navigation = useNavigation<any>();

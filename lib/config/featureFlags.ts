@@ -40,10 +40,10 @@ export const FEATURE_FLAGS = {
   /**
    * Item chat v2: chatting about a todo, habit or note opens the Ask Gremly
    * chat tied to that item (components/chat/ItemChatScreen.tsx) in place of
-   * the old entity chat. On in development builds only until James has tried
-   * it; false puts every entry point back on the old screen.
+   * the old entity chat. On everywhere, simulator and TestFlight alike (James,
+   * 30 Sep 2026); false puts every entry point back on the old screen.
    */
-  ITEM_CHAT_V2: isDev,
+  ITEM_CHAT_V2: true,
 
   /**
    * Enable Phase 2 AI enrichment
