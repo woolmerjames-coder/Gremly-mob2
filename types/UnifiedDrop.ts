@@ -14,6 +14,7 @@ export type UnifiedDrop = {
   due_time?: string | null; // HH:mm format for specific time
   // Date Intelligence fields (Phase C)
   target_date?: string | null; // When something IS or is DUE (external deadline/event) - YYYY-MM-DD
+  event_time?: string | null; // HH:mm, when an event starts (notes)
   scheduled_date?: string | null; // When user plans to DO the work - YYYY-MM-DD
   date_type_ambiguous?: boolean; // True if AI couldn't determine date meaning
   frequency?: string | null; // For habits: daily, weekly, monthly, custom

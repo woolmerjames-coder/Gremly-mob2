@@ -939,7 +939,7 @@ const AnimatedBadgeTransition: React.FC<{
  * 2. All chips get the SAME animation
  * 3. No flickering from partial data
  */
-const Row3Chips: React.FC<{
+export const Row3Chips: React.FC<{
   item: UnifiedDrop;
   effectiveKind: 'todo' | 'habit' | 'note';
   styles: any;
@@ -1029,6 +1029,25 @@ const Row3Chips: React.FC<{
     multiTypeLabel = labels.join(' + ') || 'Multiple Items';
   }
 
+  // Tags fill the third line of notes, ideas and journals without moods.
+  // @mentions are left out: the People chip shows those.
+  const renderTags = () => {
+    const displayTags = getDisplayTagsForRecentDrop(item).filter((t) => !t.startsWith('@'));
+    if (displayTags.length === 0) return null;
+    const visibleTags = displayTags.slice(0, 3);
+    const overflow = displayTags.length - visibleTags.length;
+    return (
+      <>
+        {visibleTags.map((tag) => (
+          <View key={tag} style={styles.recentContextPillContainer}>
+            <Text style={styles.recentContextPill}>#{tag}</Text>
+          </View>
+        ))}
+        {overflow > 0 && <Text style={styles.moodOverflow}>+{overflow}</Text>}
+      </>
+    );
+  };
+
   // Render context chip based on item type
   const renderContextChip = () => {
     // Multi-entity: show combined type label
@@ -1040,9 +1059,9 @@ const Row3Chips: React.FC<{
       );
     }
 
-    // Journal: show mood chips only (subtype now in badge)
+    // Journal: its moods; without any, its tags, so the line is never empty
     if (isJournal) {
-      if (!hasMoods) return null;
+      if (!hasMoods) return renderTags();
       return (
         <>
           {item.mood!.slice(0, 2).map((m: Mood, idx: number) => (
@@ -1060,35 +1079,11 @@ const Row3Chips: React.FC<{
       );
     }
 
-    // Event with target date: show date chip (subtype now in badge)
-    if (isEvent && contextMeta) {
-      return (
-        <View style={styles.recentContextPillContainer}>
-          <Text style={styles.recentContextPill}>{contextMeta}</Text>
-        </View>
-      );
-    }
-
     // Idea / General note: show tags to fill the otherwise-empty metadata line
-    if (isIdea || isGeneralNote) {
-      // Strip @mentions - they're already rendered by the People chip below
-      const displayTags = getDisplayTagsForRecentDrop(item).filter((t) => !t.startsWith('@'));
-      if (displayTags.length === 0) return null;
-      const visibleTags = displayTags.slice(0, 3);
-      const overflow = displayTags.length - visibleTags.length;
-      return (
-        <>
-          {visibleTags.map((tag) => (
-            <View key={tag} style={styles.recentContextPillContainer}>
-              <Text style={styles.recentContextPill}>#{tag}</Text>
-            </View>
-          ))}
-          {overflow > 0 && <Text style={styles.moodOverflow}>+{overflow}</Text>}
-        </>
-      );
-    }
+    if (isIdea || isGeneralNote) return renderTags();
 
-    // Event without target date: no chip needed (subtype shown in badge)
+    // Event: its day and time are the calendar chip alone (subtype in the badge),
+    // so the day is not shown twice
     if (isEvent) {
       return null;
     }
@@ -1112,6 +1107,8 @@ const Row3Chips: React.FC<{
     (effectiveKind === 'todo' || effectiveKind === 'note') &&
     (item.target_date || item.views?.target_date);
   const targetDateValue = item.target_date || item.views?.target_date;
+  // an event says when it starts beside its day: "Mon, 3PM"
+  const eventTime = isEvent ? (item.event_time ?? item.views?.event_time ?? null) : null;
 
   return (
     <AnimatedChipsTransition
@@ -1160,7 +1157,10 @@ const Row3Chips: React.FC<{
             {hasTargetDate && targetDateValue && (
               <View style={styles.targetDateChip}>
                 <Calendar size={10} color="#5d7a5d" strokeWidth={2} />
-                <Text style={styles.targetDateText}>{formatDateForChip(targetDateValue)}</Text>
+                <Text style={styles.targetDateText}>
+                  {formatDateForChip(targetDateValue)}
+                  {eventTime ? `, ${formatTime12h(eventTime)}` : ''}
+                </Text>
               </View>
             )}
 
@@ -3102,6 +3102,7 @@ const RecentDrops: React.FC<{
             reminders: noteAny?.reminders ?? null,
             // Date Intelligence fields (for notes with event dates)
             target_date: noteAny?.target_date ?? null,
+            event_time: noteAny?.event_time ?? noteAny?.views?.event_time ?? null,
             // Multi-entity support: extract from views to top level
             is_multi: noteAny?.views?.is_multi === true,
             multi_items: noteAny?.views?.multi_items ?? undefined,
@@ -3535,6 +3536,7 @@ const RecentDrops: React.FC<{
             due_date: entity.due_date ?? entity.due_at ?? null,
             due_day: entity.due_day ?? null,
             due_time: entity.due_time ?? null,
+            event_time: entity.event_time ?? entity.views?.event_time ?? null,
             noteSubtype: entityType === 'note' ? (entity.subtype ?? 'catchall') : undefined,
             mood: entityType === 'note' ? (entity.mood ?? null) : undefined,
             time_estimate_minutes: entity.time_estimate_minutes ?? null,
@@ -3774,6 +3776,8 @@ const RecentDrops: React.FC<{
               due_time: 'due_time' in (entity as any) ? (entity as any).due_time : item.due_time,
               target_date:
                 'target_date' in (entity as any) ? (entity as any).target_date : item.target_date,
+              event_time:
+                'event_time' in (entity as any) ? (entity as any).event_time : item.event_time,
               // Note subtype - CRITICAL for correct chip after clarification resolution
               noteSubtype:
                 entityType === 'note'
