@@ -9,7 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppFlatList } from '../../components/common/AppFlatList';
 import { useChatMessages } from '../../hooks/useChatMessages';
 import { ChatBubble, timingLine } from '../../components/chat/ChatBubble';
@@ -108,6 +108,10 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   // params (a Talk it through, a prompt to send) are not for it anyway.
   const route = React.useContext(NavigationRouteContext) as { params?: any } | undefined;
   const params = item ? undefined : route?.params;
+  // An item's chat opens in a full screen modal, where the SafeAreaView can
+  // measure no top inset while the modal slides in (and keep it), putting the
+  // header under the clock. The app's own insets are always right there.
+  const insets = useSafeAreaInsets();
   const prefillPrompt = params?.prefillPrompt || null;
   const { userId } = useAuth();
   const navigation = useNavigation<any>();
@@ -621,8 +625,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
 
   return (
     <SafeAreaView
-      style={styles.safe}
-      edges={embedded ? ['left', 'right'] : ['top', 'left', 'right']}
+      style={[styles.safe, item ? { paddingTop: insets.top } : null]}
+      edges={embedded || item ? ['left', 'right'] : ['top', 'left', 'right']}
     >
       <KeyboardAvoidingView
         style={styles.flex}
@@ -904,8 +908,14 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                 onPress={() => setSaveSheetVisible(true)}
                 style={{ position: 'absolute', top: -30, right: 105, zIndex: 11 }}
               />
-              {inConversation && (
-                <Pressable style={styles.mascot} onPress={() => setShowHelp(true)}>
+              {/* Gremly perches on the box in a conversation, and in an item's
+                  chat from the start, as on the Ask Gremly page */}
+              {(inConversation || item) && (
+                <Pressable
+                  style={styles.mascot}
+                  onPress={() => setShowHelp(true)}
+                  testID="chat-mascot"
+                >
                   <MascotLottie />
                 </Pressable>
               )}

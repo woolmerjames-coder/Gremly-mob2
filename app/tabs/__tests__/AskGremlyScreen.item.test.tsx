@@ -5,6 +5,7 @@
  * the item and the starters for its kind.
  */
 import React from 'react';
+import { StyleSheet } from 'react-native';
 import { render, waitFor, fireEvent } from '@testing-library/react-native';
 
 jest.mock('@react-navigation/native', () => {
@@ -18,6 +19,19 @@ jest.mock('@react-navigation/native', () => {
         "Couldn't find a route object. Is your component inside a screen in a navigator?",
       );
     },
+  };
+});
+
+// the app's insets, as the root SafeAreaProvider gives them on a phone with a notch
+jest.mock('react-native-safe-area-context', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  return {
+    __esModule: true,
+    SafeAreaProvider: (p: any) => React.createElement(View, p, p.children),
+    SafeAreaView: ({ children, edges, ...rest }: any) =>
+      React.createElement(View, { ...rest, testID: 'safe-area', edges }, children),
+    useSafeAreaInsets: () => ({ top: 47, bottom: 34, left: 0, right: 0 }),
   };
 });
 
@@ -125,6 +139,18 @@ describe('an item chat outside any screen', () => {
     expect(getByTestId('item-starter-break_down')).toBeTruthy();
     expect(mockFindItemChat).toHaveBeenCalledWith('u1', 't1');
     expect(opened.onClose).not.toHaveBeenCalled();
+  });
+
+  it('sits below the clock from the first open, with Gremly on the box from the start', async () => {
+    mockFindItemChat.mockResolvedValue(null);
+    const { getByTestId, findByTestId } = render(<AskGremlyScreen item={item()} />);
+    await findByTestId('chat-about-opener');
+    const safe = getByTestId('safe-area');
+    // the top comes from the app's insets, not from measuring inside the modal
+    expect(safe.props.edges).toEqual(['left', 'right']);
+    expect(StyleSheet.flatten(safe.props.style).paddingTop).toBe(47);
+    // no conversation yet, and Gremly is already there
+    expect(getByTestId('chat-mascot')).toBeTruthy();
   });
 
   it('carries on the chat the item already has', async () => {
