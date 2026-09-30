@@ -62,6 +62,7 @@ jest.mock('../lib/store/lifecycleSelectors', () => ({
   useCanCreate: () => true,
   useHasCompletedFirstDrop: () => true,
   useCanChat: () => true,
+  useNeedsMindDropTutorial: () => false,
 }));
 
 import { RecentDropsTestable as RecentDrops } from '../app/screens/CatchAllNotepad';

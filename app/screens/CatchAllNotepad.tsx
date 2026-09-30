@@ -3142,14 +3142,23 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   // being read or typed into, and hops back when it settles
   const gremlyTucked = chatMode && (keyboardVisible || !!homeMode?.chatScrolling);
   const tuckAnim = useRef(new Animated.Value(0)).current;
+  const tuckTarget = gremlyTucked ? 1 : 0;
+  const tuckAtRef = useRef(0);
   useEffect(() => {
+    // only when it changes; with reduced motion it simply moves
+    if (tuckAtRef.current === tuckTarget) return;
+    tuckAtRef.current = tuckTarget;
+    if (reduceMotion) {
+      tuckAnim.setValue(tuckTarget);
+      return;
+    }
     Animated.timing(tuckAnim, {
-      toValue: gremlyTucked ? 1 : 0,
-      duration: reduceMotion ? 0 : gremlyTucked ? 260 : 460,
-      easing: gremlyTucked ? Easing.out(Easing.cubic) : Easing.out(Easing.back(1.4)),
+      toValue: tuckTarget,
+      duration: tuckTarget ? 260 : 460,
+      easing: tuckTarget ? Easing.out(Easing.cubic) : Easing.out(Easing.back(1.4)),
       useNativeDriver: true,
     }).start();
-  }, [gremlyTucked, reduceMotion, tuckAnim]);
+  }, [tuckTarget, reduceMotion, tuckAnim]);
   const gremlyTuckStyle = {
     transform: [
       { translateX: tuckAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 58] }) },
