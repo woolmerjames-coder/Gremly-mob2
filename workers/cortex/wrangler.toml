@@ -54,6 +54,9 @@ CHAT_EXTRACTION_V2 = "on"
 SEARCH_REQUIRED_FORCES = "off"
 ENTITY_CARDS = "on"
 CHAT_PILL_SPLIT = "on"
+# The matcher reads the whole item list; on a 140 item list Gemini 3.8 Flash found the
+# item every time where Luna missed one in two, at the same speed (scenario gate, 30 Sep 2026).
+MODEL_ENTITY_MATCH = "gemini-3.8-flash"
 
 [observability]
 enabled = true
