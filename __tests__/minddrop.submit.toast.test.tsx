@@ -217,7 +217,7 @@ describe('Mind Drop submit -> toast + actions', () => {
     fireEvent.press(submit);
     // Wait for label to restore and toast to appear
     await waitFor(() => {
-      expect(screen.getByText('Drop to Gremly →')).toBeTruthy();
+      expect(screen.getByText('Drop to Gremly')).toBeTruthy();
     });
 
     const expectedToast = organizedToastContent('note', 1);
@@ -257,7 +257,7 @@ describe('Mind Drop submit -> toast + actions', () => {
     fireEvent.press(submit);
 
     await waitFor(() => {
-      expect(screen.getByText('Drop to Gremly →')).toBeTruthy();
+      expect(screen.getByText('Drop to Gremly')).toBeTruthy();
     });
     const expectedToast = organizedToastContent('note', 1);
     await screen.findByText(expectedToast);
@@ -301,7 +301,7 @@ describe('Mind Drop submit -> toast + actions', () => {
       fireEvent.press(submit);
 
       await waitFor(() => {
-        expect(screen.getByText('Drop to Gremly →')).toBeTruthy();
+        expect(screen.getByText('Drop to Gremly')).toBeTruthy();
       });
 
       const expectedToast = organizedToastContent('log', 1);

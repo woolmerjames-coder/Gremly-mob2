@@ -2952,12 +2952,19 @@ const RecentDrops: React.FC<{
     const timer = setTimeout(() => setTalkClock((n) => n + 1), Math.max(endsIn, 0) + 250);
     return () => clearTimeout(timer);
   }, [talkItemCreatedAt]);
-  // Opens the Chat page and sends the drop, so Gremly replies about it
+  // Opens the Chat page with this drop attached and Gremly's opener; nothing
+  // is sent (and nothing costs) until the user replies
   const handleTalk = React.useCallback((drop: UnifiedDrop) => {
     talkUsedIds.add(drop.id);
     setTalkClock((n) => n + 1);
-    const text = String(drop.text || drop.title || '').trim();
-    if (text) eventBus.emit('minddrop:open_chat', { text });
+    const title = String(drop.title || drop.text || '').trim();
+    if (!title) return;
+    eventBus.emit('minddrop:talk_about', {
+      id: drop.id,
+      type: drop.kind,
+      title,
+      label: getDisplayKindForChip(drop.kind, drop),
+    });
   }, []);
 
   // Keep modal item synced with latest version from items/pendingItems

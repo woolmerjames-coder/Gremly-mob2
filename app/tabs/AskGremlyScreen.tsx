@@ -48,6 +48,7 @@ import {
   Sparkles,
   CalendarDays,
   ChevronRight,
+  X,
 } from 'lucide-react-native';
 import { useRoute } from '@react-navigation/native';
 import { useNavigation } from '@react-navigation/native';
@@ -63,6 +64,7 @@ import { useWakeOnInput } from '../../hooks/useWakeOnInput';
 import { useMascotActions } from '../../hooks/useMascotActions';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import { useHomeDock } from '../../components/home/GremlyHomeDock';
+import { talkAboutOpener, type TalkAboutItem } from '../../lib/chat/talkAboutOpeners';
 
 const MOSS = '#2E5540';
 const LINEN = '#F9F6F1';
@@ -103,7 +105,15 @@ export default function AskGremlyScreen({ embedded = false }: AskGremlyScreenPro
   const [savingChat, setSavingChat] = useState(false);
   const [greeting, setGreeting] = useState<string>("What's on your mind?");
 
+  // Chat opened about a drop ("Talk it through"): Gremly's fixed opener shows
+  // instead of the greeting, and nothing is sent until the user replies
+  const [aboutItem, setAboutItem] = useState<TalkAboutItem | null>(null);
+  const [aboutOpener, setAboutOpener] = useState<string | null>(null);
+  const aboutRef = useRef<{ item: TalkAboutItem; opener: string } | null>(null);
+
   useEffect(() => {
+    // the greeting is a model call: skip it while a drop is attached
+    if (aboutRef.current || route.params?.talkAbout) return;
     if (!activeChat && userId) {
       callGeneralGreeting(userId).then((g) => {
         if (g) setGreeting(g);
@@ -195,11 +205,42 @@ export default function AskGremlyScreen({ embedded = false }: AskGremlyScreenPro
     useGremlyStore.getState().setActiveGeneralChat(null);
   }, []);
 
+  const clearAbout = useCallback(() => {
+    aboutRef.current = null;
+    setAboutItem(null);
+    setAboutOpener(null);
+  }, []);
+
+  // "Talk it through with Gremly" on a drop: start a fresh chat about it
+  const talkAbout: TalkAboutItem | null = route.params?.talkAbout ?? null;
+  const talkKey: string | null = route.params?.talkKey ?? null;
+  const talkKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!talkAbout || !talkKey || talkKeyRef.current === talkKey) return;
+    talkKeyRef.current = talkKey;
+    const opener = talkAboutOpener(talkAbout.title);
+    aboutRef.current = { item: talkAbout, opener };
+    setAboutItem(talkAbout);
+    setAboutOpener(opener);
+    if (activeChat) goToEmptyState();
+    navigation.setParams({ talkAbout: undefined, talkKey: undefined });
+  }, [talkAbout, talkKey, activeChat, goToEmptyState, navigation]);
+
+  // Opening another chat (or starting this one) lets go of the attached drop
+  useEffect(() => {
+    if (activeChat && aboutRef.current) clearAbout();
+  }, [activeChat, clearAbout]);
+
   const sendToChat = useCallback(
     async (
       chat: SpaceChat,
       text: string,
-      opts: { fresh?: boolean; recentEntity?: RecentEntity | null } = {},
+      opts: {
+        fresh?: boolean;
+        recentEntity?: RecentEntity | null;
+        /** Gremly's opener (already saved) that this new chat starts with */
+        lead?: string;
+      } = {},
     ) => {
       setSending(true);
 
@@ -220,6 +261,10 @@ export default function AskGremlyScreen({ embedded = false }: AskGremlyScreenPro
       const conversationHistory = prior
         .filter((m) => m.role === 'user' || m.role === 'assistant')
         .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+      // a chat about a drop starts with Gremly's opener, which names the item
+      if (opts.fresh && opts.lead) {
+        conversationHistory.unshift({ role: 'assistant', content: opts.lead });
+      }
       conversationHistory.push({ role: 'user', content: text });
 
       let receivedChunks = false;
@@ -368,9 +413,13 @@ export default function AskGremlyScreen({ embedded = false }: AskGremlyScreenPro
         return;
       }
 
-      // Empty state → create new chat
+      // Empty state → create new chat. About a drop: named after the drop, and
+      // Gremly's opener is saved first so the chat (and the model) starts there
+      const about = aboutRef.current;
       try {
-        const chat = await useGremlyStore.getState().createGeneralChat(trimmed.slice(0, 60));
+        const chat = await useGremlyStore
+          .getState()
+          .createGeneralChat((about ? about.item.title : trimmed).slice(0, 60));
         if (!chat) {
           Alert.alert('Error', 'Could not create chat');
           return;
@@ -379,12 +428,21 @@ export default function AskGremlyScreen({ embedded = false }: AskGremlyScreenPro
         setActiveChat(chat as SpaceChat);
 
         // Send the initial message after a tick so useChatMessages picks up the new chatId
-        setTimeout(() => sendToChat(chat as SpaceChat, trimmed, { fresh: true }), 200);
+        setTimeout(async () => {
+          if (about) {
+            try {
+              await appendAssistantMessage(about.opener, undefined, chat.id);
+            } catch {
+              // the reply still knows the item from the opener sent with it
+            }
+          }
+          sendToChat(chat as SpaceChat, trimmed, { fresh: true, lead: about?.opener });
+        }, 200);
       } catch {
         Alert.alert('Error', 'Could not create chat');
       }
     },
-    [canChat, navigation, activeChat, sending, sendToChat],
+    [canChat, navigation, activeChat, sending, sendToChat, appendAssistantMessage],
   );
 
   // Inside the Gremly home, the shared input box sends through handleSend.
@@ -613,6 +671,22 @@ export default function AskGremlyScreen({ embedded = false }: AskGremlyScreenPro
               ListEmptyComponent={<View style={styles.flex} />}
               ListFooterComponent={null}
             />
+          ) : aboutItem && aboutOpener ? (
+            <View style={styles.aboutOpener} testID="chat-about-opener">
+              <ChatBubble
+                message={
+                  {
+                    id: 'about-opener',
+                    chat_id: '',
+                    scope_id: null,
+                    user_id: '',
+                    role: 'assistant',
+                    content: aboutOpener,
+                    created_at: '',
+                  } as unknown as SpaceChatMessage
+                }
+              />
+            </View>
           ) : (
             <View style={embedded ? styles.emptyStateTop : styles.emptyState}>
               <Text style={[styles.greeting, embedded && styles.greetingTop]}>{greeting}</Text>
@@ -655,12 +729,32 @@ export default function AskGremlyScreen({ embedded = false }: AskGremlyScreenPro
         {embedded ? (
           // The Gremly home's shared box (with Gremly on it) sits right below
           // this page, so only the save pill is shown here
-          <SaveIndicatorPill
-            count={extractions.length}
-            visible={!!activeChat && extractions.length > 0}
-            onPress={() => setSaveSheetVisible(true)}
-            style={styles.savePillEmbedded}
-          />
+          <>
+            <SaveIndicatorPill
+              count={extractions.length}
+              visible={!!activeChat && extractions.length > 0}
+              onPress={() => setSaveSheetVisible(true)}
+              style={styles.savePillEmbedded}
+            />
+            {/* The drop this chat is about, attached to what you send next */}
+            {aboutItem && !activeChat ? (
+              <View style={styles.aboutChip} testID="chat-about-chip">
+                <Text style={styles.aboutChipLabel}>{aboutItem.label}</Text>
+                <Text style={styles.aboutChipTitle} numberOfLines={1}>
+                  {aboutItem.title}
+                </Text>
+                <TouchableOpacity
+                  onPress={clearAbout}
+                  hitSlop={12}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Stop talking about ${aboutItem.title}`}
+                  style={styles.aboutChipClose}
+                >
+                  <X size={14} color="rgba(26, 51, 40, 0.6)" strokeWidth={2.2} />
+                </TouchableOpacity>
+              </View>
+            ) : null}
+          </>
         ) : (
           <View style={styles.bottomSection}>
             <View style={styles.composerContainer}>
@@ -1090,6 +1184,49 @@ const styles = StyleSheet.create({
   },
   messagesContentEmbedded: {
     paddingBottom: 120,
+  },
+  // Chat opened about a drop: Gremly's opener at the top, the drop attached
+  // just above the shared box (left of Gremly)
+  aboutOpener: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+  },
+  aboutChip: {
+    position: 'absolute',
+    left: 16,
+    bottom: 10,
+    maxWidth: '62%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 7,
+    paddingLeft: 10,
+    paddingRight: 8,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(46, 85, 64, 0.14)',
+    zIndex: 11,
+  },
+  aboutChipLabel: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 11,
+    color: '#4A6490',
+    backgroundColor: '#E9EFF8',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  aboutChipTitle: {
+    flexShrink: 1,
+    fontFamily: 'Inter-Medium',
+    fontSize: 13.5,
+    color: '#1A3328',
+  },
+  aboutChipClose: {
+    padding: 2,
   },
   composerContainer: { position: 'relative' as const },
   mascot: {

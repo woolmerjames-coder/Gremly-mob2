@@ -623,11 +623,25 @@ function App() {
       });
     });
 
+    // "Talk it through with Gremly" on a new drop: open Chat with the item
+    // attached and Gremly's opener; nothing is sent until the user replies
+    let talkRequests = 0;
+    const unsubTalkAbout = eventBus.on('minddrop:talk_about', (item) => {
+      const nav = navigationRef.current;
+      if (!nav) return;
+      talkRequests += 1;
+      nav.navigate('Tabs', {
+        screen: 'Gremly',
+        params: { mode: 'chat', talkAbout: item, talkKey: `talk-${talkRequests}` },
+      });
+    });
+
     return () => {
       unsubFlow();
       unsubItem();
       unsubReadOnly();
       unsubOpenChat();
+      unsubTalkAbout();
     };
   }, []);
 

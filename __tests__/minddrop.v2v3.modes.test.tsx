@@ -191,7 +191,7 @@ describe.skip('Mind Drop V2 vs V3 Mode Tests (Original)', () => {
         <CatchAllNotepad overlayController={mockOverlayController} />,
       );
 
-      const input = getByPlaceholderText(/What's on your mind/i);
+      const input = getByPlaceholderText(/Jot it down, I'll sort it/i);
       const submitButton = getByTestId('minddrop-submit-button');
 
       // Type text
@@ -240,7 +240,7 @@ describe.skip('Mind Drop V2 vs V3 Mode Tests (Original)', () => {
         <CatchAllNotepad overlayController={mockOverlayController} />,
       );
 
-      const input = getByPlaceholderText(/What's on your mind/i);
+      const input = getByPlaceholderText(/Jot it down, I'll sort it/i);
       const submitButton = getByTestId('minddrop-submit-button');
 
       // Type same text
@@ -285,7 +285,7 @@ describe.skip('Mind Drop V2 vs V3 Mode Tests (Original)', () => {
         <CatchAllNotepad overlayController={mockOverlayController} />,
       );
 
-      const input = getByPlaceholderText(/What's on your mind/i);
+      const input = getByPlaceholderText(/Jot it down, I'll sort it/i);
       const submitButton = getByTestId('minddrop-submit-button');
 
       // Type text
@@ -339,7 +339,7 @@ describe.skip('Mind Drop V2 vs V3 Mode Tests (Original)', () => {
         <CatchAllNotepad overlayController={mockOverlayController} />,
       );
 
-      const input = getByPlaceholderText(/What's on your mind/i);
+      const input = getByPlaceholderText(/Jot it down, I'll sort it/i);
       const submitButton = getByTestId('minddrop-submit-button');
 
       // Type same text
@@ -370,7 +370,7 @@ describe.skip('Mind Drop V2 vs V3 Mode Tests (Original)', () => {
         <CatchAllNotepad overlayController={mockOverlayController} />,
       );
 
-      const input = getByPlaceholderText(/What's on your mind/i);
+      const input = getByPlaceholderText(/Jot it down, I'll sort it/i);
       const submitButton = getByTestId('minddrop-submit-button');
 
       // First submission
@@ -427,7 +427,7 @@ describe.skip('Mind Drop V2 vs V3 Mode Tests (Original)', () => {
       );
 
       // Verify V3 mode is now active
-      const input = getByPlaceholderText(/What's on your mind/i);
+      const input = getByPlaceholderText(/Jot it down, I'll sort it/i);
       expect(input).toBeDefined();
 
       // (Full V3 verification omitted - covered in V3 tests above)

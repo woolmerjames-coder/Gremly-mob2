@@ -1650,7 +1650,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const isProcessingRef = useRef(false);
   // Mind Drop: placeholder text and header focus target
   const headerTitleRef = useRef<any>(null);
-  const [placeholder] = useState("What's on your mind?");
+  // Says what Drop does (Gremly files it), so it does not read like a chat
+  const [placeholder] = useState("Jot it down, I'll sort it");
   const inputFocusRef = useRef(false);
   // Focused input mode: fade recent drops when keyboard is active
   const [isInputFocused, setIsInputFocused] = useState(false);
@@ -3325,12 +3326,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   buttonLooksDisabled ? styles.submitLabelDisabled : null,
                 ]}
               >
-                {chatMode
-                  ? 'Send to Gremly →'
-                  : isProcessing
-                    ? '✓ Organizing...'
-                    : 'Drop to Gremly →'}
+                {chatMode ? 'Send to Gremly' : isProcessing ? '✓ Organizing...' : 'Drop to Gremly'}
               </Text>
+              {/* Drop goes in (the MindDrop arrow); Chat is sent */}
+              {chatMode || !isProcessing ? (
+                <Icon
+                  name={chatMode ? 'Send' : 'ArrowDownToLine'}
+                  size="xs"
+                  color={buttonLooksDisabled ? 'rgba(46,85,64,0.85)' : '#F9F6F1'}
+                  strokeWidth={2.2}
+                />
+              ) : null}
             </View>
           </Animated.View>
         </Pressable>

@@ -17,6 +17,7 @@ import {
   gremlyButtonFillHeight,
 } from '../components/home/gremlyButtonFill';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
+import type { TalkAboutItem } from '../lib/chat/talkAboutOpeners';
 import { lightTokens } from '../design/tokens';
 
 // Tab bar icon images (v1.20 brand refresh)
@@ -33,7 +34,16 @@ export type TabParamList = {
   Today: undefined;
   /** Gremly home: Drop and Chat side by side. `mode` opens a page; the prefill
    *  params are read by the Chat page (AskGremlyScreen). */
-  Gremly: { mode?: 'drop' | 'chat'; prefillPrompt?: string; autoSendKey?: string } | undefined;
+  Gremly:
+    | {
+        mode?: 'drop' | 'chat';
+        prefillPrompt?: string;
+        autoSendKey?: string;
+        /** Chat opens about this drop ("Talk it through with Gremly") */
+        talkAbout?: TalkAboutItem;
+        talkKey?: string;
+      }
+    | undefined;
   Spaces: undefined;
   Worlds: undefined;
 };

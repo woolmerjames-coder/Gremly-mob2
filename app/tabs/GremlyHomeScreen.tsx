@@ -151,7 +151,7 @@ export default function GremlyHomeScreen() {
 
   // Another screen asked for a mode (e.g. "Chat with Gremly" on a drop)
   const requestedMode = route.params?.mode;
-  const requestKey = route.params?.autoSendKey;
+  const requestKey = route.params?.autoSendKey ?? route.params?.talkKey;
   useEffect(() => {
     if (requestedMode !== 'drop' && requestedMode !== 'chat') return;
     goTo(requestedMode);
