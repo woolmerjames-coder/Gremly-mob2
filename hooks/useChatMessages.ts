@@ -13,6 +13,7 @@ import { formatFrequencyLabel, formatDueDateLabel } from '../src/lib/formatters/
 import { useAuth } from '../providers/AuthProvider';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
 import { nowTimestamp } from '../lib/date/DateService';
+import { applyEntityChange, pendingTwinOf } from '../lib/chat/entityCards';
 
 /**
  * Generate a chat title from the first user message.
@@ -616,10 +617,27 @@ export function useChatMessages(
     [currentChatId, spaceId, user?.id, messageRepo],
   );
 
+  // the messages as of the last render, for callbacks that run between renders
+  const messagesRef = useRef<SpaceChatMessage[]>(messages);
+  messagesRef.current = messages;
+
   const appendEntityCard = useCallback(
     async (card: import('../lib/types').EntityCard): Promise<SpaceChatMessage | undefined> => {
       const targetChatId = currentChatIdRef.current || currentChatId;
       if (!card || !targetChatId || !user?.id) return undefined;
+      // The same change offered again while its card is still waiting: the
+      // user has said yes in words, so that card is tapped for them instead of
+      // a second copy appearing.
+      const twin = pendingTwinOf(messagesRef.current, card);
+      if (twin && card.kind === 'edit') {
+        try {
+          const applied = await applyEntityChange(card.entity, card.change);
+          await setEntityCardStatusRef.current?.(twin.id, 'applied', `Done. ${applied.summary}`);
+          return twin;
+        } catch (err) {
+          console.warn('[useChatMessages] Could not apply the waiting card', err);
+        }
+      }
       try {
         const title =
           card.kind === 'choose' ? `${card.candidates.length} items` : card.entity.title;
@@ -668,6 +686,8 @@ export function useChatMessages(
     },
     [messageRepo],
   );
+  const setEntityCardStatusRef = useRef(setEntityCardStatus);
+  setEntityCardStatusRef.current = setEntityCardStatus;
 
   // Load messages on mount and when currentChatId changes
   useEffect(() => {

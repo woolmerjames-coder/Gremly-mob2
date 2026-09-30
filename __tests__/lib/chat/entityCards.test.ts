@@ -13,8 +13,9 @@ import {
   entityAfterChange,
   foldEntityCards,
   recentEntityFor,
+  pendingTwinOf,
 } from '../../../lib/chat/entityCards';
-import type { SpaceChatMessage } from '../../../lib/types';
+import type { EntityCard, SpaceChatMessage } from '../../../lib/types';
 
 const dentist = {
   id: 't1',
@@ -192,15 +193,26 @@ describe('cards in the chat list', () => {
       space_id: null,
       status: 'pending',
       summary: null,
+      turns_ago: 1,
     });
     expect(recentEntityFor([msg('a1', 'assistant'), card('c1', 'applied')])).toMatchObject({
       id: 't1',
       status: 'applied',
+      turns_ago: 0,
     });
     expect(recentEntityFor([msg('a1', 'assistant'), card('c1', 'pending', 'view')])?.id).toBe('n1');
-    // turned down, or a list not yet picked from: nothing carries over
-    expect(recentEntityFor([msg('a1', 'assistant'), card('c1', 'declined')])).toBeNull();
+    // turned down carries over with its status, so the next turn excludes it;
+    // a list not yet picked from gives nothing
+    expect(recentEntityFor([msg('a1', 'assistant'), card('c1', 'declined')])).toMatchObject({
+      id: 't1',
+      status: 'declined',
+    });
     expect(recentEntityFor([msg('a1', 'assistant'), card('c1', 'pending', 'choose')])).toBeNull();
+    // how many messages ago the card was
+    expect(
+      recentEntityFor([card('c1'), msg('u2', 'user'), msg('a2', 'assistant'), msg('u3', 'user')])
+        ?.turns_ago,
+    ).toBe(2);
     // the newest card wins
     expect(
       recentEntityFor([
@@ -209,5 +221,18 @@ describe('cards in the chat list', () => {
         card('c2', 'pending', 'view'),
       ])?.id,
     ).toBe('n1');
+  });
+
+  test('the same change offered again means the card still waiting for a tap', () => {
+    const edit = card('c1');
+    const meta = edit.metadata_json as { card: EntityCard };
+    const same = meta.card as Extract<EntityCard, { kind: 'edit' }>;
+    expect(pendingTwinOf([msg('a1', 'assistant'), edit, msg('u2', 'user')], same)?.id).toBe('c1');
+    // a different change, an already tapped card, or a newer card in between: no twin
+    const other = { ...same, change: { ...same.change, to: '2031-10-03' } };
+    expect(pendingTwinOf([edit], other)).toBeNull();
+    expect(pendingTwinOf([card('c1', 'applied')], same)).toBeNull();
+    expect(pendingTwinOf([edit, card('c2', 'pending', 'view')], same)).toBeNull();
+    expect(pendingTwinOf([], same)).toBeNull();
   });
 });

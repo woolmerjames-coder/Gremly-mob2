@@ -360,32 +360,74 @@ export function foldEntityCards(messages: SpaceChatMessage[]): {
 
 /**
  * The item the user was last shown a card for in this chat, sent with the next
- * message so a follow up like "move it to Friday" can mean it. A card the user
- * turned down, or a list they have not picked from, gives nothing.
+ * message so a follow up like "move it to Friday" can mean it, with what became
+ * of it (tapped, undone, turned down, still waiting) and how many messages ago.
+ * A list they have not picked from gives nothing.
  */
 export function recentEntityFor(messages: SpaceChatMessage[]): RecentEntity | null {
+  let turnsAgo = 0;
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
+    if (m.role === 'user') turnsAgo++;
     if (!isEntityCardMessage(m)) continue;
     const meta = m.metadata_json as {
       card: EntityCard;
       status?: EntityCardStatus;
       summary?: string | null;
     };
-    if (meta.status === 'declined') return null;
     if (meta.card.kind === 'choose') return null;
-    const e = meta.card.entity;
-    return {
-      id: e.id,
-      type: e.type,
-      title: e.title,
-      due_day: e.due_day ?? null,
-      due_time: e.due_time ?? null,
-      frequency: e.frequency ?? null,
-      space_id: e.space_id ?? null,
-      status: meta.status || 'pending',
-      summary: meta.summary ?? null,
-    };
+    return declinedOrShown(
+      meta.card.entity,
+      meta.status || 'pending',
+      meta.summary ?? null,
+      turnsAgo,
+    );
   }
   return null;
+}
+
+/**
+ * The most recent card still waiting for a tap that proposes exactly this
+ * change to this item. Saying yes in words to an offer means that card, so the
+ * app taps it rather than showing the same card twice.
+ */
+export function pendingTwinOf(
+  messages: SpaceChatMessage[],
+  card: EntityCard,
+): SpaceChatMessage | null {
+  if (card.kind !== 'edit') return null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (!isEntityCardMessage(m)) continue;
+    const meta = m.metadata_json as { card: EntityCard; status?: EntityCardStatus };
+    if (meta.card.kind !== 'edit') return null;
+    if ((meta.status || 'pending') !== 'pending') return null;
+    const same =
+      meta.card.entity.id === card.entity.id &&
+      meta.card.change.field === card.change.field &&
+      String(meta.card.change.to) === String(card.change.to);
+    return same ? m : null;
+  }
+  return null;
+}
+
+/** A RecentEntity for a card the user has just acted on, before the message state catches up. */
+export function declinedOrShown(
+  e: EntityCardEntity,
+  status: EntityCardStatus,
+  summary: string | null = null,
+  turnsAgo = 0,
+): RecentEntity {
+  return {
+    id: e.id,
+    type: e.type,
+    title: e.title,
+    due_day: e.due_day ?? null,
+    due_time: e.due_time ?? null,
+    frequency: e.frequency ?? null,
+    space_id: e.space_id ?? null,
+    status,
+    summary,
+    turns_ago: turnsAgo,
+  };
 }

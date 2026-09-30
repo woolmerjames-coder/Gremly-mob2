@@ -31,6 +31,8 @@ export const CONFIDENCE_FLOOR = 70;
 export const VIEW_FLOOR = 80;
 // A bound on how many of the items the message is about reach the reply.
 const RELATED_MAX = 4;
+// How many exchanges after a card the same item is not shown again without a change.
+export const RECENT_CARD_TURNS = 3;
 
 // ── Item fetch ──────────────────────────────────────────────────────────────
 
@@ -113,8 +115,11 @@ export function candidatesFor(message, items, recent, limit = MATCH_ITEMS_MAX) {
   let list = live;
   if (recent && recent.id && ENTITY_TYPES.has(recent.type)) {
     const fresh = live.find((i) => i.id === recent.id);
+    // the item on the last card: shown, or declined when the user said it was
+    // not the one (then the model is told so and must not pick it again)
+    const flag = recent.status === 'declined' ? { declined: true } : { shown: true };
     const shown = fresh
-      ? { ...fresh, shown: true }
+      ? { ...fresh, ...flag }
       : {
           id: String(recent.id),
           type: recent.type,
@@ -123,7 +128,7 @@ export function candidatesFor(message, items, recent, limit = MATCH_ITEMS_MAX) {
           due_time: recent.due_time || null,
           frequency: recent.frequency || null,
           space_id: recent.space_id || null,
-          shown: true,
+          ...flag,
         };
     if (shown.title) list = [shown, ...live.filter((c) => c.id !== shown.id)];
   }
@@ -146,7 +151,7 @@ function withKeys(list) {
 
 export const ENTITY_MATCH_SYSTEM_PROMPT = `You decide whether a chat message in a personal productivity app is about something the user already has, and what they want done with it.
 
-You are given today's date, the message, the last few exchanges when there are any, and the user's items: their todos and notes, some with a day and time, and their habits with how often they repeat. The list is everything they have, so most of it has nothing to do with the message. Read the whole list before deciding; an item near the end counts as much as one near the top. An item marked as shown on the card in the last reply is the one the app has just shown them. A short follow up takes its meaning from the exchanges before it: a pronoun or a bare yes means the item those exchanges were about unless the message plainly names something else, and a yes to an offer Gremly made is an edit with the change that offer named.
+You are given today's date, the message, the last few exchanges when there are any, and the user's items: their todos and notes, some with a day and time, and their habits with how often they repeat. The list is everything they have, so most of it has nothing to do with the message. Read the whole list before deciding; an item near the end counts as much as one near the top. An item marked as shown on the card in the last reply is the one the app has just shown them; one marked as not the one they meant was on the last card and they turned it down, so it is never the answer and they are now describing something else or one of the others. A short follow up takes its meaning from the exchanges before it: a pronoun or a bare yes means the item those exchanges were about unless the message plainly names something else, and a yes to an offer Gremly made is an edit with the change that offer named.
 
 This is a conversation first. Two different things can follow from your answer, so tell them apart: a card in the reply, which interrupts the conversation and is only for an explicit ask; and a quiet offer later, which is for things said in passing.
 
@@ -197,7 +202,11 @@ export function buildEntityMatchInput({
           : c.due_day
             ? `dated ${c.due_day}${c.due_time ? ` at ${c.due_time}` : ''}`
             : 'note, no day set';
-    const tag = c.shown ? ' [shown on the card in the last reply]' : '';
+    const tag = c.shown
+      ? ' [shown on the card in the last reply]'
+      : c.declined
+        ? ' [on the last card; the user said this was not the one they meant]'
+        : '';
     lines.push(`- id ${c.key || c.id} [${c.type}] ${c.title} (${detail})${tag}`);
   }
   return lines.join('\n');
@@ -229,9 +238,11 @@ export function decideCard(answer, candidates) {
   if (!answer || typeof answer !== 'object') return null;
   const byId = itemIndex(candidates);
   const confidence = Number(answer.confidence) || 0;
-  const askIds = Array.isArray(answer.candidates)
-    ? [...new Set(answer.candidates.filter((id) => byId.has(id)).map((id) => byId.get(id).id))]
-    : [];
+  // an item the user has just said was not the one is never offered again
+  const usable = (id) => byId.has(id) && !byId.get(id).declined;
+  const knownIds = (list) =>
+    Array.isArray(list) ? [...new Set(list.filter(usable).map((id) => byId.get(id).id))] : [];
+  const askIds = knownIds(answer.candidates);
   // the model asks only when they want something to happen to one of these
   if (answer.ask && askIds.length >= 2) {
     return {
@@ -239,15 +250,19 @@ export function decideCard(answer, candidates) {
       candidates: askIds.slice(0, 3).map((id) => byId.get(id)),
     };
   }
-  if (!answer.refers || !byId.has(answer.entity_id)) return null;
+  if (!answer.refers || !usable(answer.entity_id)) return null;
   const entity = byId.get(answer.entity_id);
   const intent = answer.intent;
   if (confidence < CONFIDENCE_FLOOR) {
-    // Not sure enough to propose a change. The model's own alternatives, when it
-    // gave any, are the choice; otherwise the one item it named is shown and
-    // Gremly asks whether that is the one. Never a list padded with unrelated items.
-    if (askIds.length >= 2) {
-      const ids = [entity.id, ...askIds.filter((id) => id !== entity.id)].slice(0, 3);
+    // Not sure enough to propose a change. The model's own alternatives (the
+    // ones it named, else the ones it considered while reading the list) are the
+    // choice; otherwise the one item it named is shown and Gremly asks whether
+    // that is the one. Never a list padded with unrelated items.
+    const others = (askIds.length >= 2 ? askIds : knownIds(answer.considered)).filter(
+      (id) => id !== entity.id,
+    );
+    if (others.length >= 1) {
+      const ids = [entity.id, ...others].slice(0, 3);
       return { kind: 'choose', candidates: ids.map((id) => byId.get(id)) };
     }
     if (intent === 'edit' || intent === 'complete')
@@ -443,6 +458,8 @@ function itemLine(c, todayIso) {
  * In a feelings turn only the item they themselves brought up is passed on.
  */
 export function theirItemsPromptSection(match, todayIso, opts = {}) {
+  // when a card has taken the reply over, the card is the whole turn
+  if (opts.mode === 'entity_card') return '';
   const strict = NO_ATTENTION_MODES.has(opts.mode);
   const related = (match?.related || [])
     .filter((c) => c && c.title && (!strict || c.referred || c.shown))
@@ -529,7 +546,18 @@ export async function matchEntity({
     if (!res.ok) return result;
     const json = await res.json();
     const answer = parseJson(json.choices?.[0]?.message?.content || '');
-    const decision = decideCard(answer, candidates);
+    let decision = decideCard(answer, candidates);
+    // A card that proposes no change never repeats for the item on the last
+    // card while that card is still in view: only a new change earns a new one.
+    if (
+      decision?.kind === 'view' &&
+      recent?.id &&
+      decision.entity?.id === recent.id &&
+      recent.status !== 'declined' &&
+      (recent.turns_ago ?? 1) <= RECENT_CARD_TURNS
+    ) {
+      decision = { kind: 'mention', entity: decision.entity, change: null, confidence: 100 };
+    }
     if (decision?.kind === 'mention') result.mention = decision;
     else if (decision) result.card = decision;
     result.related = aboutItems(answer, candidates, decision?.kind === 'choose' ? null : decision);
@@ -649,6 +677,9 @@ export function recentCardPromptSection(recent) {
   }
   if (recent.status === 'undone') {
     return `\n\n=== LAST CARD ===\nEarlier in this chat the app showed the user a card for ${item}; they confirmed a change and then undid it, so the item is as it was.`;
+  }
+  if (recent.status === 'declined') {
+    return `\n\n=== LAST CARD ===\nEarlier in this chat the app showed the user a card for ${item} and they said it was not the one they meant. Do not offer that item again; ask which one they mean, or help them say it another way.`;
   }
   if (recent.status === 'pending') {
     return `\n\n=== LAST CARD ===\nEarlier in this chat the app showed the user a card for ${item} and they have not tapped it. Nothing about it has changed; if they ask, it is waiting on their tap.`;

@@ -40,6 +40,7 @@ import { MemorySpaceChatRepo } from '../../lib/repo/memory';
 import type {
   EntityCardEntity,
   EntityCardStatus,
+  RecentEntity,
   SpaceChat,
   SpaceChatMessage,
 } from '../../lib/types';
@@ -57,7 +58,12 @@ import { Placeholder } from '../../components/common/Placeholder';
 import { useCanChat, useCanCreate } from '../../lib/store/lifecycleSelectors';
 import { useChatMessages } from '../../hooks/useChatMessages';
 import { EntityCardBubble } from '../../components/chat/EntityCardMessage';
-import { foldEntityCards, isEntityCardMessage, recentEntityFor } from '../../lib/chat/entityCards';
+import {
+  declinedOrShown,
+  foldEntityCards,
+  isEntityCardMessage,
+  recentEntityFor,
+} from '../../lib/chat/entityCards';
 import { useOpenEntity } from '../../hooks/useOpenEntity';
 import { ChatBubble, timingLine } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
@@ -639,7 +645,7 @@ export default function ChatThreadScreen({ route }: Props) {
   // inline within ChatBubble via message.saveable property
 
   const handleSend = useCallback(
-    async (text: string) => {
+    async (text: string, opts: { recentEntity?: RecentEntity | null } = {}) => {
       const trimmedText = text.trim();
       if (!trimmedText || !chat) return;
 
@@ -827,7 +833,8 @@ export default function ChatThreadScreen({ route }: Props) {
               spaceId: chat.scope_id || spaceId,
               chatId: activeChatId || chat.id,
               userId: userId ?? undefined,
-              recentEntity: recentEntityFor(messages),
+              recentEntity:
+                opts.recentEntity !== undefined ? opts.recentEntity : recentEntityFor(messages),
             },
             {
               onChunk: (delta) => {
@@ -1528,6 +1535,13 @@ export default function ChatThreadScreen({ route }: Props) {
       onPick: (entity: EntityCardEntity) => {
         setEntityCardStatus(cardMessage.id, 'declined');
         handleSend(`I mean ${entity.title}`);
+      },
+      onDecline: (entity: EntityCardEntity | null) => {
+        if (entity) {
+          handleSend('Not that one', { recentEntity: declinedOrShown(entity, 'declined') });
+        } else {
+          handleSend('None of those');
+        }
       },
       onOpen: openEntity,
     }),

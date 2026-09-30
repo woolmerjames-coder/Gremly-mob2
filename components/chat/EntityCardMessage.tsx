@@ -13,7 +13,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import {
   ArrowRight,
-  Calendar,
   CalendarCheck,
   Check,
   ChevronRight,
@@ -33,7 +32,6 @@ import {
   describeChange,
   entityAfterChange,
   entitySubtitle,
-  entityWhen,
   isEditCard,
   primaryLabel,
 } from '../../lib/chat/entityCards';
@@ -49,6 +47,8 @@ export interface EntityCardMessageProps {
   onStatus: (status: EntityCardStatus, summary?: string) => void;
   /** Choose cards: the user picked one of the candidates. */
   onPick?: (entity: EntityCardEntity) => void;
+  /** The user said this was not the one (the item, or null for "none of these"); the screen tells Gremly. */
+  onDecline?: (entity: EntityCardEntity | null) => void;
   /** View cards, and the item on an edit card: open it in the app. */
   onOpen?: (entity: EntityCardEntity) => void;
   testID?: string;
@@ -101,6 +101,7 @@ export function EntityCardMessage({
   summary,
   onStatus,
   onPick,
+  onDecline,
   onOpen,
   testID,
 }: EntityCardMessageProps) {
@@ -175,7 +176,10 @@ export function EntityCardMessage({
         {status === 'pending' ? (
           <Pressable
             accessibilityRole="button"
-            onPress={() => onStatus('declined')}
+            onPress={() => {
+              onStatus('declined');
+              onDecline?.(null);
+            }}
             style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
           >
             <Text style={styles.secondaryText}>None of these</Text>
@@ -209,7 +213,7 @@ export function EntityCardMessage({
       >
         <EntityHeader
           entity={entity}
-          withWhen={!edit}
+          withWhen={!edit || applied}
           right={
             applied ? (
               <View style={styles.chip}>
@@ -225,22 +229,21 @@ export function EntityCardMessage({
 
       {words && pending ? (
         <View style={styles.changeRow}>
-          <View style={styles.changeCol}>
-            <Text style={styles.changeLabel}>Now</Text>
-            <Text style={styles.changeValue}>{words.from}</Text>
-          </View>
-          <ArrowRight size={20} color={lightTokens.colors.subtle} />
-          <View style={styles.changeCol}>
-            <Text style={[styles.changeLabel, styles.changeLabelTo]}>{words.label}</Text>
-            <Text style={[styles.changeValue, styles.changeValueTo]}>{words.to}</Text>
-          </View>
-        </View>
-      ) : null}
-
-      {words && applied && entityWhen(entity) ? (
-        <View style={styles.valueRow}>
-          <Calendar size={18} color={lightTokens.colors.mossGreen} />
-          <Text style={styles.valueText}>{entityWhen(entity)}</Text>
+          {isEditCard(card) && card.change.field === 'body_add' ? (
+            <Text style={[styles.changeValue, styles.changeValueTo]} numberOfLines={3}>
+              {words.label}: {words.to}
+            </Text>
+          ) : (
+            <>
+              <Text style={styles.changeValue} numberOfLines={1}>
+                {words.from}
+              </Text>
+              <ArrowRight size={16} color={lightTokens.colors.subtle} />
+              <Text style={[styles.changeValue, styles.changeValueTo]} numberOfLines={1}>
+                {words.to}
+              </Text>
+            </>
+          )}
         </View>
       ) : null}
 
@@ -262,7 +265,10 @@ export function EntityCardMessage({
           </Pressable>
           <Pressable
             accessibilityRole="button"
-            onPress={() => onStatus('declined')}
+            onPress={() => {
+              onStatus('declined');
+              onDecline?.(entity);
+            }}
             disabled={busy}
             style={({ pressed }) => [
               styles.secondaryButton,
@@ -310,12 +316,14 @@ export function EntityCardBubble({
   message,
   onStatus,
   onPick,
+  onDecline,
   onOpen,
   standalone = false,
 }: {
   message: SpaceChatMessage;
   onStatus: (status: EntityCardStatus, summary?: string) => void;
   onPick?: (entity: EntityCardEntity) => void;
+  onDecline?: (entity: EntityCardEntity | null) => void;
   onOpen?: (entity: EntityCardEntity) => void;
   /** True when this is its own chat row rather than part of a reply. */
   standalone?: boolean;
@@ -335,6 +343,7 @@ export function EntityCardBubble({
         summary={meta.summary}
         onStatus={onStatus}
         onPick={onPick}
+        onDecline={onDecline}
         onOpen={onOpen}
       />
     </View>
@@ -355,9 +364,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(46,85,64,0.10)',
     borderRadius: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    gap: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    gap: 8,
     shadowColor: '#000',
     shadowOpacity: 0.05,
     shadowRadius: 8,
@@ -365,20 +374,20 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   chooseWrap: { gap: 8 },
-  candidate: { paddingVertical: 12, paddingHorizontal: 14, minHeight: 60 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  candidate: { paddingVertical: 9, paddingHorizontal: 12, minHeight: 50 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   iconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     backgroundColor: lightTokens.colors.sageMist,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  titleWrap: { flex: 1, gap: 2 },
+  titleWrap: { flex: 1, gap: 0 },
   title: {
     fontFamily: lightTokens.typography.fontFamily.bold,
-    fontSize: 17,
+    fontSize: 16,
     color: lightTokens.colors.deepForest,
   },
   subtitle: { fontSize: 13, color: lightTokens.colors.subtle },
@@ -395,52 +404,39 @@ const styles = StyleSheet.create({
   changeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
     backgroundColor: lightTokens.colors.linenCreamLight,
-    borderRadius: 12,
-    paddingVertical: 10,
+    borderRadius: 10,
+    paddingVertical: 7,
     paddingHorizontal: 12,
   },
-  changeCol: { flex: 1, gap: 1 },
-  changeLabel: {
-    fontSize: 11,
-    color: lightTokens.colors.subtle,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
+  changeValue: {
+    flexShrink: 1,
+    fontSize: 14,
+    fontWeight: '500',
+    color: lightTokens.colors.text,
   },
-  changeLabelTo: { color: lightTokens.colors.mossGreen },
-  changeValue: { fontSize: 15, fontWeight: '500', color: lightTokens.colors.text },
   changeValueTo: { fontWeight: '600', color: lightTokens.colors.mossGreen },
-  valueRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: lightTokens.colors.linenCreamLight,
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-  },
-  valueText: { fontSize: 15, fontWeight: '500', color: lightTokens.colors.text },
-  buttons: { flexDirection: 'row', gap: 10 },
+  buttons: { flexDirection: 'row', gap: 8 },
   primaryButton: {
     flex: 1,
-    height: 44,
-    borderRadius: 22,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: lightTokens.colors.mossGreen,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  primaryText: { color: lightTokens.colors.onPrimary, fontWeight: '600', fontSize: 15 },
+  primaryText: { color: lightTokens.colors.onPrimary, fontWeight: '600', fontSize: 14 },
   secondaryButton: {
-    height: 44,
-    borderRadius: 22,
+    height: 36,
+    borderRadius: 18,
     borderWidth: 1.5,
     borderColor: 'rgba(46,85,64,0.25)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   buttonHalf: { flex: 1 },
-  secondaryText: { color: lightTokens.colors.mossGreen, fontWeight: '600', fontSize: 15 },
+  secondaryText: { color: lightTokens.colors.mossGreen, fontWeight: '600', fontSize: 14 },
   undoText: {
     color: lightTokens.colors.mossGreen,
     fontWeight: '600',

@@ -16,6 +16,7 @@ import { ChatBubble, timingLine } from '../../components/chat/ChatBubble';
 import { EntityCardBubble } from '../../components/chat/EntityCardMessage';
 import {
   applyEntityChange,
+  declinedOrShown,
   foldEntityCards,
   isEntityCardMessage,
   recentEntityFor,
@@ -53,6 +54,7 @@ import { useNavigation } from '@react-navigation/native';
 import type {
   EntityCardEntity,
   EntityCardStatus,
+  RecentEntity,
   SpaceChat,
   SpaceChatMessage,
 } from '../../lib/types';
@@ -175,7 +177,11 @@ export default function AskGremlyScreen() {
   }, []);
 
   const sendToChat = useCallback(
-    async (chat: SpaceChat, text: string, opts: { fresh?: boolean } = {}) => {
+    async (
+      chat: SpaceChat,
+      text: string,
+      opts: { fresh?: boolean; recentEntity?: RecentEntity | null } = {},
+    ) => {
       setSending(true);
 
       await sendUserMessage(text);
@@ -219,7 +225,11 @@ export default function AskGremlyScreen() {
         {
           chatId: chat.id,
           userId: userId ?? undefined,
-          recentEntity: opts.fresh ? null : recentEntityFor(messages),
+          recentEntity: opts.fresh
+            ? null
+            : opts.recentEntity !== undefined
+              ? opts.recentEntity
+              : recentEntityFor(messages),
         },
         {
           onChunk: (delta: string) => {
@@ -380,6 +390,18 @@ export default function AskGremlyScreen() {
       onPick: (entity: EntityCardEntity) => {
         setEntityCardStatus(cardMessage.id, 'declined');
         if (activeChat) sendToChat(activeChat, `I mean ${entity.title}`);
+      },
+      // "Not that one" goes back to Gremly with the item marked as turned down,
+      // so the next reply excludes it and offers the others
+      onDecline: (entity: EntityCardEntity | null) => {
+        if (!activeChat) return;
+        if (entity) {
+          sendToChat(activeChat, 'Not that one', {
+            recentEntity: declinedOrShown(entity, 'declined'),
+          });
+        } else {
+          sendToChat(activeChat, 'None of those');
+        }
       },
       onOpen: openEntity,
     }),

@@ -18,7 +18,12 @@ import { AppFlatList } from '../../components/common/AppFlatList';
 import { useChatMessages } from '../../hooks/useChatMessages';
 import { ChatBubble, timingLine } from '../../components/chat/ChatBubble';
 import { EntityCardBubble } from '../../components/chat/EntityCardMessage';
-import { foldEntityCards, isEntityCardMessage, recentEntityFor } from '../../lib/chat/entityCards';
+import {
+  declinedOrShown,
+  foldEntityCards,
+  isEntityCardMessage,
+  recentEntityFor,
+} from '../../lib/chat/entityCards';
 import { useOpenEntity } from '../../hooks/useOpenEntity';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { SaveIndicatorPill } from '../../components/chat/SaveIndicatorPill';
@@ -43,6 +48,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type {
   EntityCardEntity,
   EntityCardStatus,
+  RecentEntity,
   SpaceChat,
   SpaceChatMessage,
 } from '../../lib/types';
@@ -189,7 +195,7 @@ export default function ScopedChatScreen() {
   // ── Send message ────────────────────────────────────────────────────────────
 
   const sendToChat = useCallback(
-    async (chat: SpaceChat, text: string) => {
+    async (chat: SpaceChat, text: string, opts: { recentEntity?: RecentEntity | null } = {}) => {
       setSending(true);
       await sendUserMessage(text);
 
@@ -229,7 +235,8 @@ export default function ScopedChatScreen() {
         scopeName,
         chatId: chat.id,
         userId: userId ?? undefined,
-        recentEntity: recentEntityFor(messages),
+        recentEntity:
+          opts.recentEntity !== undefined ? opts.recentEntity : recentEntityFor(messages),
       };
 
       const streamFn = scopeType === 'world' ? callWorldChatStreaming : callChapterChatStreaming;
@@ -431,6 +438,16 @@ export default function ScopedChatScreen() {
       onPick: (entity: EntityCardEntity) => {
         setEntityCardStatus(cardMessage.id, 'declined');
         if (activeChat) sendToChat(activeChat, `I mean ${entity.title}`);
+      },
+      onDecline: (entity: EntityCardEntity | null) => {
+        if (!activeChat) return;
+        if (entity) {
+          sendToChat(activeChat, 'Not that one', {
+            recentEntity: declinedOrShown(entity, 'declined'),
+          });
+        } else {
+          sendToChat(activeChat, 'None of those');
+        }
       },
       onOpen: openEntity,
     }),

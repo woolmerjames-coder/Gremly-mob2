@@ -21,6 +21,7 @@ import {
   noteDay,
   matchEntity,
   CONFIDENCE_FLOOR,
+  RECENT_CARD_TURNS,
 } from '../entityMatch.js';
 import {
   editsToPillItems,
@@ -735,7 +736,9 @@ test('the pill can move a dated note, and skips fields a note does not have', ()
 test('the last card and what became of it reach the reply prompt', () => {
   const base = { id: 'n1', type: 'note', title: 'Bella Vet Appointment' };
   expect(recentCardPromptSection(null)).toBe('');
-  expect(recentCardPromptSection({ ...base, status: 'declined' })).toBe('');
+  expect(recentCardPromptSection({ ...base, status: 'declined' })).toContain(
+    'not the one they meant',
+  );
   const done = recentCardPromptSection({
     ...base,
     status: 'applied',
@@ -891,4 +894,133 @@ test("the split pill call asks one question and keeps the single call's field na
   expect(models().flags.pillSplit).toBe(true);
   configureModels({});
   expect(models().flags.pillSplit).toBe(false);
+});
+
+test('a card that proposes nothing never repeats for the item on the last card; a new change still does', async () => {
+  configureModels({ ENTITY_CARDS: 'on', OPENAI_API_KEY: 'k' });
+  const list = [{ id: 'aaaa1111-0000', type: 'todo', title: 'Dentist', due_day: '2026-10-04' }];
+  const answerWith = (content) => {
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200 });
+  };
+  const recent = {
+    id: 'aaaa1111-0000',
+    type: 'todo',
+    title: 'Dentist',
+    status: 'applied',
+    turns_ago: 0,
+  };
+  // "thanks" read as already set: no card, the reply just hears the item
+  answerWith(
+    '{"refers":true,"entity_id":"aaaa1111","intent":"edit","change":{"field":"due_day","value":"2026-10-04"},"confidence":95}',
+  );
+  const thanks = await matchEntity({
+    env: {},
+    userId: 'u',
+    message: 'Amazing, thanks!',
+    todayStr: 'x',
+    items: list,
+    recent,
+  });
+  expect(thanks.card).toBeNull();
+  expect(thanks.mention).toMatchObject({ entity: { id: 'aaaa1111-0000' } });
+  // a different change to the same item is a new card
+  answerWith(
+    '{"refers":true,"entity_id":"aaaa1111","intent":"edit","change":{"field":"due_day","value":"2026-10-05"},"confidence":95}',
+  );
+  const again = await matchEntity({
+    env: {},
+    userId: 'u',
+    message: 'actually Monday',
+    todayStr: 'x',
+    items: list,
+    recent,
+  });
+  expect(again.card).toMatchObject({ kind: 'edit', change: { to: '2026-10-05' } });
+  // long enough ago, a view card is fine again
+  answerWith('{"refers":true,"entity_id":"aaaa1111","intent":"view","confidence":95}');
+  const later = await matchEntity({
+    env: {},
+    userId: 'u',
+    message: 'show me the dentist one',
+    todayStr: 'x',
+    items: list,
+    recent: { ...recent, turns_ago: RECENT_CARD_TURNS + 1 },
+  });
+  expect(later.card).toMatchObject({ kind: 'view' });
+  delete globalThis.fetch;
+});
+
+test("when unsure, the which-one card is the model's own considered set, and a turned-down item is never offered again", () => {
+  const list = [
+    { id: 'c1000000-0000', type: 'todo', title: 'Fix Calendar Entry Field' },
+    { id: 'c2000000-0000', type: 'todo', title: 'Sort All Calendar Service Issues Properly' },
+    { id: 'c3000000-0000', type: 'todo', title: 'Sort the Microsoft Calendar Submission' },
+    { id: 'zzzz0000-0000', type: 'todo', title: 'Buy milk' },
+  ];
+  const cands = candidatesFor('push the calendar fix to friday', list, null);
+  const unsure = decideCard(
+    {
+      considered: ['c1000000', 'c2000000', 'c3000000'],
+      refers: true,
+      entity_id: 'c1000000',
+      intent: 'edit',
+      change: { field: 'due_day', value: '2026-10-02' },
+      confidence: 55,
+      ask: false,
+      candidates: [],
+    },
+    cands,
+  );
+  expect(unsure.kind).toBe('choose');
+  expect(unsure.candidates.map((c) => c.id)).toEqual([
+    'c1000000-0000',
+    'c2000000-0000',
+    'c3000000-0000',
+  ]);
+  // after "not that one" on the first, it is marked and excluded, however the model answers
+  const declined = {
+    id: 'c1000000-0000',
+    type: 'todo',
+    title: 'Fix Calendar Entry Field',
+    status: 'declined',
+    turns_ago: 0,
+  };
+  const after = candidatesFor('not that one', list, declined);
+  expect(after[0]).toMatchObject({ id: 'c1000000-0000', declined: true });
+  expect(after[0].shown).toBeUndefined();
+  expect(buildEntityMatchInput({ todayStr: 'x', message: 'm', candidates: after })).toContain(
+    'the user said this was not the one they meant',
+  );
+  expect(
+    decideCard(
+      {
+        refers: true,
+        entity_id: 'c1000000',
+        intent: 'edit',
+        change: { field: 'due_day', value: '2026-10-02' },
+        confidence: 95,
+      },
+      after,
+    ),
+  ).toBeNull();
+  const rest = decideCard(
+    {
+      considered: ['c1000000', 'c2000000', 'c3000000'],
+      refers: true,
+      entity_id: 'c2000000',
+      intent: 'edit',
+      change: null,
+      confidence: 50,
+    },
+    after,
+  );
+  expect(rest.candidates.map((c) => c.id)).toEqual(['c2000000-0000', 'c3000000-0000']);
+  expect(recentCardPromptSection(declined)).toContain('not the one they meant');
+  // a card turn carries no item list
+  expect(
+    theirItemsPromptSection({ related: [after[1]], attention: [] }, '2026-09-29', {
+      mode: 'entity_card',
+    }),
+  ).toBe('');
 });

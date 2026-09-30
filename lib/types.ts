@@ -708,6 +708,8 @@ export type EntityCardStatus = 'pending' | 'applied' | 'declined' | 'undone';
 export interface RecentEntity extends EntityCardEntity {
   status: EntityCardStatus;
   summary?: string | null;
+  /** User messages sent after that card, before this one; 0 when this is the first. */
+  turns_ago?: number;
 }
 /** Where a chat turn's time went; shown under the reply in dev builds only. */
 export interface ChatTurnTiming {
