@@ -668,6 +668,11 @@ export default function AskGremlyScreen({ embedded = false }: AskGremlyScreenPro
                   flatListRef.current?.scrollToEnd({ animated: true });
                 }, 100);
               }}
+              // Inside the Gremly home, Gremly steps aside while you scroll
+              onScrollBeginDrag={embedded ? () => homeDock?.setChatScrolling(true) : undefined}
+              onScrollEndDrag={embedded ? () => homeDock?.setChatScrolling(false) : undefined}
+              onMomentumScrollBegin={embedded ? () => homeDock?.setChatScrolling(true) : undefined}
+              onMomentumScrollEnd={embedded ? () => homeDock?.setChatScrolling(false) : undefined}
               ListEmptyComponent={<View style={styles.flex} />}
               ListFooterComponent={null}
             />

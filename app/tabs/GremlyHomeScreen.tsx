@@ -23,6 +23,7 @@ import {
   Animated,
   Keyboard,
   KeyboardAvoidingView,
+  LayoutAnimation,
   LayoutChangeEvent,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -82,6 +83,53 @@ export default function GremlyHomeScreen() {
   // send function. The API object never changes; see GremlyHomeDock.tsx.
   const [dock, setDock] = useState<React.ReactNode>(null);
   const [chatSending, setChatSending] = useState(false);
+  const [chatScrolling, setChatScrollingState] = useState(false);
+  const scrollSettleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Gremly steps aside as soon as the conversation moves, and comes back a
+  // moment after it stops, so a quick flick does not make him bob
+  const setChatScrolling = useCallback((scrolling: boolean) => {
+    if (scrollSettleRef.current) clearTimeout(scrollSettleRef.current);
+    scrollSettleRef.current = null;
+    if (scrolling) {
+      setChatScrollingState(true);
+    } else {
+      scrollSettleRef.current = setTimeout(() => setChatScrollingState(false), 700);
+    }
+  }, []);
+  useEffect(
+    () => () => {
+      if (scrollSettleRef.current) clearTimeout(scrollSettleRef.current);
+    },
+    [],
+  );
+
+  // While typing in Chat, the switch and dots tuck away to leave more room to
+  // read; they come back when the keyboard closes
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+  useEffect(() => {
+    const onShow = () => {
+      if (Platform.OS === 'ios')
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setKeyboardOpen(true);
+    };
+    const onHide = () => {
+      if (Platform.OS === 'ios')
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setKeyboardOpen(false);
+    };
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      onShow,
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      onHide,
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
   const chatApiRef = useRef<HomeChatApi | null>(null);
   const draftSetterRef = useRef<((text: string) => void) | null>(null);
   const pendingDraftRef = useRef<string | null>(null);
@@ -93,6 +141,7 @@ export default function GremlyHomeScreen() {
       },
       getChat: () => chatApiRef.current,
       setChatSending,
+      setChatScrolling,
       prefillDraft: (text) => {
         if (draftSetterRef.current) draftSetterRef.current(text);
         else pendingDraftRef.current = text;
@@ -105,9 +154,13 @@ export default function GremlyHomeScreen() {
         }
       },
     }),
-    [],
+    [setChatScrolling],
   );
-  const modeState = useMemo<HomeModeState>(() => ({ mode, chatSending }), [mode, chatSending]);
+  const modeState = useMemo<HomeModeState>(
+    () => ({ mode, chatSending, chatScrolling }),
+    [mode, chatSending, chatScrolling],
+  );
+  const switchTucked = keyboardOpen && mode === 'chat';
   const pendingModeRef = useRef<HomeMode | null>(null);
 
   const hasOpenedHomeChat = useGremlyStore((s) => s.hasOpenedHomeChat);
@@ -240,14 +293,22 @@ export default function GremlyHomeScreen() {
     <HomeDockContext.Provider value={dockApi}>
       <HomeModeContext.Provider value={modeState}>
         <View style={styles.root} testID="gremly-home">
-          <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-            <GremlyModeSwitch
-              progress={progress}
-              mode={mode}
-              onSelect={handleSelect}
-              showChatDot={!hasOpenedHomeChat}
-              hintVisible={hintVisible}
-            />
+          <View
+            style={[
+              styles.header,
+              { paddingTop: insets.top + (switchTucked ? 4 : 8) },
+              switchTucked && styles.headerTucked,
+            ]}
+          >
+            {switchTucked ? null : (
+              <GremlyModeSwitch
+                progress={progress}
+                mode={mode}
+                onSelect={handleSelect}
+                showChatDot={!hasOpenedHomeChat}
+                hintVisible={hintVisible}
+              />
+            )}
           </View>
 
           <KeyboardAvoidingView
@@ -294,6 +355,9 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
     backgroundColor: LINEN,
     zIndex: 2,
+  },
+  headerTucked: {
+    paddingBottom: 0,
   },
   body: {
     flex: 1,

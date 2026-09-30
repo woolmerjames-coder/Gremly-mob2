@@ -5,6 +5,7 @@
  */
 
 import React from 'react';
+import { Keyboard } from 'react-native';
 import { render, fireEvent, act } from '@testing-library/react-native';
 
 const mockSetParams = jest.fn();
@@ -143,6 +144,32 @@ describe('GremlyHomeScreen', () => {
     const { getByTestId } = render(<GremlyHomeScreen />);
     fireEvent.press(getByTestId('home-switch-chat'));
     expect(getByTestId('shared-box-draft').props.children).toBe('Plan the week with me');
+  });
+
+  it('tucks the switch away while typing in Chat, and brings it back after', () => {
+    const handlers: Record<string, () => void> = {};
+    const spy = jest.spyOn(Keyboard, 'addListener').mockImplementation(((
+      event: string,
+      handler: () => void,
+    ) => {
+      handlers[event] = handler;
+      return { remove: jest.fn() };
+    }) as any);
+    const { getByTestId, queryByTestId } = render(<GremlyHomeScreen />);
+    const show = handlers.keyboardWillShow ?? handlers.keyboardDidShow;
+    const hide = handlers.keyboardWillHide ?? handlers.keyboardDidHide;
+
+    // typing in Drop keeps the switch (you might want to move to Chat)
+    act(() => show());
+    expect(queryByTestId('home-switch-chat')).toBeTruthy();
+    act(() => hide());
+
+    fireEvent.press(getByTestId('home-switch-chat'));
+    act(() => show());
+    expect(queryByTestId('home-switch-chat')).toBeNull();
+    act(() => hide());
+    expect(queryByTestId('home-switch-chat')).toBeTruthy();
+    spy.mockRestore();
   });
 
   it('shows the one-time hint on first visit and records it as seen', () => {

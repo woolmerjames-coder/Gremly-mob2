@@ -187,6 +187,8 @@ const TYPEWRITER_CHAR_DELAY_MS = 28;
 
 // Auto-grow constants: aligned for deterministic behavior
 const LINE_HEIGHT = 24; // Must match styles.input lineHeight
+// Chat in the Gremly home, while typing: the box starts at one line and grows
+const COMPACT_INPUT_HEIGHT = LINE_HEIGHT + 4;
 const INPUT_VERTICAL_PADDING = 20; // paddingTop + paddingBottom
 const MAX_LINES = 8;
 
@@ -1281,6 +1283,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [listStyle, setListStyle] = useState<ListStyle>('none');
   const [note, setNote] = useState('');
   const [inputDynHeight, setInputDynHeight] = useState(START_HEIGHT);
+  // The text's own height, not held to START_HEIGHT (for the one-line Chat box)
+  const [rawInputHeight, setRawInputHeight] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [microcopyIndex, setMicrocopyIndex] = useState(0);
@@ -1697,6 +1701,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
       const raw = Math.ceil(event.nativeEvent.contentSize?.height ?? 0);
       if (!raw) return;
+      setRawInputHeight(raw);
 
       // Deterministic height calculation: clamp between START and MAX
       const target = Math.max(START_HEIGHT, Math.min(raw, MAX_HEIGHT));
@@ -3125,6 +3130,33 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   const statsVisible = organizedToday > 0;
 
+  // Typing in Chat (Gremly home): the box starts at one line and grows, and the
+  // big button folds into a send arrow inside the box, for more room to read
+  const compactTyping = chatMode && keyboardVisible;
+  const compactInputHeight = Math.max(
+    COMPACT_INPUT_HEIGHT,
+    Math.min(rawInputHeight || COMPACT_INPUT_HEIGHT, MAX_HEIGHT),
+  );
+
+  // Gremly steps aside (slides right and leans in) while the conversation is
+  // being read or typed into, and hops back when it settles
+  const gremlyTucked = chatMode && (keyboardVisible || !!homeMode?.chatScrolling);
+  const tuckAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(tuckAnim, {
+      toValue: gremlyTucked ? 1 : 0,
+      duration: reduceMotion ? 0 : gremlyTucked ? 260 : 460,
+      easing: gremlyTucked ? Easing.out(Easing.cubic) : Easing.out(Easing.back(1.4)),
+      useNativeDriver: true,
+    }).start();
+  }, [gremlyTucked, reduceMotion, tuckAnim]);
+  const gremlyTuckStyle = {
+    transform: [
+      { translateX: tuckAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 58] }) },
+      { rotate: tuckAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '-8deg'] }) },
+    ],
+  };
+
   // Fixed bottom section: input + chips + button + stats. On its own page it
   // sits under the drops list; inside the Gremly home it is handed to the
   // home, which keeps it still under both pages.
@@ -3155,33 +3187,42 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           </Reanimated.View>
         )}
         {/* Gremly perched on input - always visible */}
-        <Pressable
-          onPress={() => {
-            if (isTrainingMode) {
-              // Pre-graduation: show tutorial variant of TrainingMeter
-              setShowTrainingMeter(true);
-            } else if (isInChallenge) {
-              // Graduated but still in 7-fed-days challenge: show challenge variant
-              setShowTrainingMeter(true);
-            } else {
-              // Seasoned (challenge complete): show help card
-              setHelpInitialPage(undefined);
-              setShowHelp(true);
-            }
-          }}
-          accessibilityLabel="Help"
-          style={styles.inputGremly}
+        <Animated.View
+          style={[styles.inputGremly, styles.inputGremlyTuckOrigin, gremlyTuckStyle]}
+          pointerEvents="box-none"
         >
-          <MascotLottie />
-        </Pressable>
+          <Pressable
+            onPress={() => {
+              if (isTrainingMode) {
+                // Pre-graduation: show tutorial variant of TrainingMeter
+                setShowTrainingMeter(true);
+              } else if (isInChallenge) {
+                // Graduated but still in 7-fed-days challenge: show challenge variant
+                setShowTrainingMeter(true);
+              } else {
+                // Seasoned (challenge complete): show help card
+                setHelpInitialPage(undefined);
+                setShowHelp(true);
+              }
+            }}
+            accessibilityLabel="Help"
+            style={styles.inputGremlyPress}
+          >
+            <MascotLottie />
+          </Pressable>
+        </Animated.View>
         <MindDropInput
           value={note}
           onChangeText={handleChangeText}
           placeholder={chatMode ? 'Ask Gremly anything\u2026' : dynamicPlaceholder}
           placeholderTextColor="#757575"
-          containerStyle={styles.inputContainer}
+          containerStyle={
+            compactTyping
+              ? [styles.inputContainer, styles.inputContainerCompact]
+              : styles.inputContainer
+          }
           focusedStyle={styles.inputContainerFocused}
-          inputStyle={styles.input}
+          inputStyle={compactTyping ? [styles.input, styles.inputCompact] : styles.input}
           focusedInputStyle={styles.inputFocused}
           onFocusChange={handleInputFocusChange}
           onContentSizeChange={handleInputContentSizeChange}
@@ -3194,7 +3235,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           iconWrapperStyle={styles.inputIconWrapper}
           iconColor={c.mossGreen}
           heightWrapperStyle={styles.inputHeightWrapper}
-          inputDynHeight={inputDynHeight}
+          inputDynHeight={compactTyping ? compactInputHeight : inputDynHeight}
           onCameraPress={chatMode ? undefined : handleMindDropPhotoAction}
           showCamera={!chatMode}
           onCalendarPress={chatMode ? undefined : handleCalendarToggle}
@@ -3202,6 +3243,27 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           onMicPress={handleMicPress}
           voiceState={voiceState}
         />
+        {compactTyping ? (
+          <Pressable
+            onPress={handleChatSubmit}
+            disabled={chatDisabled}
+            accessibilityRole="button"
+            accessibilityLabel="Send to Gremly"
+            accessibilityState={{ disabled: chatDisabled }}
+            style={[
+              styles.inlineSend,
+              chatDisabled ? styles.inlineSendIdle : styles.inlineSendReady,
+            ]}
+            testID="minddrop-inline-send"
+          >
+            <Icon
+              name="Send"
+              size="xs"
+              color={chatDisabled ? 'rgba(46,85,64,0.85)' : '#F9F6F1'}
+              strokeWidth={2.2}
+            />
+          </Pressable>
+        ) : null}
       </View>
 
       {/* Calendar date pre-fill: chip + week strip */}
@@ -3285,62 +3347,68 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         />
       ) : null}
 
-      <View
-        style={[styles.submitButtonWrapper, !statsVisible && styles.submitButtonWrapperNoStats]}
-      >
-        <Pressable
-          testID="minddrop-submit-button"
-          onPress={chatMode ? handleChatSubmit : handleSubmit}
-          disabled={chatMode ? chatDisabled : disabled}
-          accessibilityRole="button"
-          accessibilityLabel={
-            chatMode ? 'Send to Gremly' : isProcessing ? 'Organizing' : 'Drop to Gremly'
-          }
-          accessibilityState={{
-            busy: chatMode ? chatBusy : isProcessing,
-            disabled: chatMode ? chatDisabled : disabled,
-          }}
-          style={styles.submitPressable}
-          onPressIn={handleSubmitPressIn}
-          onPressOut={handleSubmitPressOut}
+      {compactTyping ? null : (
+        <View
+          style={[styles.submitButtonWrapper, !statsVisible && styles.submitButtonWrapperNoStats]}
         >
-          <Animated.View
-            style={[
-              styles.submitButton,
-              buttonLooksDisabled ? styles.submitButtonDisabled : styles.submitButtonActive,
-              { transform: [{ scale: submitScale }] },
-            ]}
+          <Pressable
+            testID="minddrop-submit-button"
+            onPress={chatMode ? handleChatSubmit : handleSubmit}
+            disabled={chatMode ? chatDisabled : disabled}
+            accessibilityRole="button"
+            accessibilityLabel={
+              chatMode ? 'Send to Gremly' : isProcessing ? 'Organizing' : 'Drop to Gremly'
+            }
+            accessibilityState={{
+              busy: chatMode ? chatBusy : isProcessing,
+              disabled: chatMode ? chatDisabled : disabled,
+            }}
+            style={styles.submitPressable}
+            onPressIn={handleSubmitPressIn}
+            onPressOut={handleSubmitPressOut}
           >
-            <View style={styles.submitInnerRow}>
-              {isProcessing && !chatMode ? (
-                <Animated.View
+            <Animated.View
+              style={[
+                styles.submitButton,
+                buttonLooksDisabled ? styles.submitButtonDisabled : styles.submitButtonActive,
+                { transform: [{ scale: submitScale }] },
+              ]}
+            >
+              <View style={styles.submitInnerRow}>
+                {isProcessing && !chatMode ? (
+                  <Animated.View
+                    style={[
+                      styles.submitPulse,
+                      reduceMotion ? null : { transform: [{ scale: pulseScale }] },
+                    ]}
+                  />
+                ) : null}
+                <Text
                   style={[
-                    styles.submitPulse,
-                    reduceMotion ? null : { transform: [{ scale: pulseScale }] },
+                    styles.submitLabel,
+                    buttonLooksDisabled ? styles.submitLabelDisabled : null,
                   ]}
-                />
-              ) : null}
-              <Text
-                style={[
-                  styles.submitLabel,
-                  buttonLooksDisabled ? styles.submitLabelDisabled : null,
-                ]}
-              >
-                {chatMode ? 'Send to Gremly' : isProcessing ? '✓ Organizing...' : 'Drop to Gremly'}
-              </Text>
-              {/* Drop goes in (the MindDrop arrow); Chat is sent */}
-              {chatMode || !isProcessing ? (
-                <Icon
-                  name={chatMode ? 'Send' : 'ArrowDownToLine'}
-                  size="xs"
-                  color={buttonLooksDisabled ? 'rgba(46,85,64,0.85)' : '#F9F6F1'}
-                  strokeWidth={2.2}
-                />
-              ) : null}
-            </View>
-          </Animated.View>
-        </Pressable>
-      </View>
+                >
+                  {chatMode
+                    ? 'Send to Gremly'
+                    : isProcessing
+                      ? '✓ Organizing...'
+                      : 'Drop to Gremly'}
+                </Text>
+                {/* Drop goes in (the MindDrop arrow); Chat is sent */}
+                {chatMode || !isProcessing ? (
+                  <Icon
+                    name={chatMode ? 'Send' : 'ArrowDownToLine'}
+                    size="xs"
+                    color={buttonLooksDisabled ? 'rgba(46,85,64,0.85)' : '#F9F6F1'}
+                    strokeWidth={2.2}
+                  />
+                ) : null}
+              </View>
+            </Animated.View>
+          </Pressable>
+        </View>
+      )}
 
       {showPhotoTextNudge && !chatMode && (
         <View style={styles.photoTextNudge}>
@@ -3769,6 +3837,39 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       width: 95,
       height: 111,
       zIndex: 10,
+    },
+    // leans from his feet when he steps aside
+    inputGremlyTuckOrigin: {
+      transformOrigin: 'right bottom',
+    },
+    inputGremlyPress: {
+      flex: 1,
+    },
+    inputContainerCompact: {
+      minHeight: 0,
+      paddingTop: 12,
+      paddingBottom: 12,
+    },
+    inputCompact: {
+      paddingRight: 88,
+    },
+    // Chat send arrow inside the box while typing, left of where Gremly peeks in
+    inlineSend: {
+      position: 'absolute',
+      right: 46,
+      bottom: 8,
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 11,
+    },
+    inlineSendReady: {
+      backgroundColor: '#2E5540',
+    },
+    inlineSendIdle: {
+      backgroundColor: '#BFD8C0',
     },
     inputContainer: {
       width: '100%',
