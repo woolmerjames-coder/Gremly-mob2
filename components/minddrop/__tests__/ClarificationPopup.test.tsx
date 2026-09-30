@@ -263,6 +263,46 @@ describe('ClarificationPopup', () => {
 
       expect(onSkip).toHaveBeenCalledTimes(1);
     });
+
+    it('closes without answering when tapped outside', () => {
+      const onSkip = jest.fn();
+      const onClose = jest.fn();
+      const onSelectOption = jest.fn();
+      const { getByTestId } = render(
+        <ClarificationPopup
+          visible={true}
+          question="What would you like to do?"
+          options={mockOptions}
+          onSelectOption={onSelectOption}
+          onSkip={onSkip}
+          onClose={onClose}
+        />,
+      );
+
+      fireEvent.press(getByTestId('clarification-backdrop'));
+
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(onSkip).not.toHaveBeenCalled();
+      expect(onSelectOption).not.toHaveBeenCalled();
+    });
+
+    it('does not close when the question itself is tapped', () => {
+      const onClose = jest.fn();
+      const { getByText } = render(
+        <ClarificationPopup
+          visible={true}
+          question="What would you like to do?"
+          options={mockOptions}
+          onSelectOption={jest.fn()}
+          onSkip={jest.fn()}
+          onClose={onClose}
+        />,
+      );
+
+      fireEvent.press(getByText('What would you like to do?'));
+
+      expect(onClose).not.toHaveBeenCalled();
+    });
   });
 
   describe('success message state', () => {

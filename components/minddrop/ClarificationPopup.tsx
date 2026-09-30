@@ -415,66 +415,75 @@ export function ClarificationPopup({
       statusBarTranslucent
       onRequestClose={onSkip}
     >
-      <Pressable style={styles.backdrop} onPress={Keyboard.dismiss}>
+      {/* Tapping outside closes it without answering (the question stays on the
+          card); while typing, the first tap only puts the keyboard away */}
+      <Pressable
+        style={styles.backdrop}
+        onPress={() => (isTextInputFocused ? Keyboard.dismiss() : closePopup())}
+        testID="clarification-backdrop"
+      >
         <Animated.View style={[styles.card, animatedCardStyle]}>
-          {/* Show original drop text for context */}
-          {originalText && (
-            <View style={styles.originalTextContainer}>
-              <Text style={styles.originalTextLabel}>You dropped:</Text>
-              <Text style={styles.originalText}>"{originalText}"</Text>
-            </View>
-          )}
-
-          <Text style={styles.question}>{question}</Text>
-
-          <View style={styles.optionsContainer}>
-            {options?.map((option) => (
-              <Pressable
-                key={option.id}
-                style={({ pressed }) => [
-                  styles.optionButton,
-                  pressed && styles.optionButtonPressed,
-                ]}
-                onPress={() => handleOptionPress(option.id)}
-              >
-                <Text style={styles.optionText}>{option.label}</Text>
-              </Pressable>
-            ))}
-          </View>
-
-          {/* Free text input */}
-          <View style={styles.freeTextContainer}>
-            <TextInput
-              style={[styles.freeTextInput, isTextInputFocused && styles.freeTextInputFocused]}
-              placeholder="Or explain more..."
-              placeholderTextColor="#9CA39C"
-              value={freeText}
-              onChangeText={setFreeText}
-              onFocus={() => setIsTextInputFocused(true)}
-              onBlur={() => setIsTextInputFocused(false)}
-              onSubmitEditing={handleFreeTextSubmit}
-              returnKeyType="done"
-              maxLength={200}
-              multiline={false}
-            />
-            {freeText.trim().length >= 2 && (
-              <Pressable
-                style={({ pressed }) => [
-                  styles.freeTextSubmit,
-                  pressed && styles.freeTextSubmitPressed,
-                ]}
-                onPress={handleFreeTextSubmit}
-              >
-                <Text style={styles.freeTextSubmitText}>Go</Text>
-              </Pressable>
+          {/* Taps on the card itself stay on the card */}
+          <Pressable onPress={Keyboard.dismiss} style={styles.cardInner}>
+            {/* Show original drop text for context */}
+            {originalText && (
+              <View style={styles.originalTextContainer}>
+                <Text style={styles.originalTextLabel}>You dropped:</Text>
+                <Text style={styles.originalText}>"{originalText}"</Text>
+              </View>
             )}
-          </View>
 
-          <Pressable
-            style={({ pressed }) => [styles.skipButton, pressed && styles.skipButtonPressed]}
-            onPress={handleSkipPress}
-          >
-            <Text style={styles.skipText}>Skip for now</Text>
+            <Text style={styles.question}>{question}</Text>
+
+            <View style={styles.optionsContainer}>
+              {options?.map((option) => (
+                <Pressable
+                  key={option.id}
+                  style={({ pressed }) => [
+                    styles.optionButton,
+                    pressed && styles.optionButtonPressed,
+                  ]}
+                  onPress={() => handleOptionPress(option.id)}
+                >
+                  <Text style={styles.optionText}>{option.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            {/* Free text input */}
+            <View style={styles.freeTextContainer}>
+              <TextInput
+                style={[styles.freeTextInput, isTextInputFocused && styles.freeTextInputFocused]}
+                placeholder="Or explain more..."
+                placeholderTextColor="#9CA39C"
+                value={freeText}
+                onChangeText={setFreeText}
+                onFocus={() => setIsTextInputFocused(true)}
+                onBlur={() => setIsTextInputFocused(false)}
+                onSubmitEditing={handleFreeTextSubmit}
+                returnKeyType="done"
+                maxLength={200}
+                multiline={false}
+              />
+              {freeText.trim().length >= 2 && (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.freeTextSubmit,
+                    pressed && styles.freeTextSubmitPressed,
+                  ]}
+                  onPress={handleFreeTextSubmit}
+                >
+                  <Text style={styles.freeTextSubmitText}>Go</Text>
+                </Pressable>
+              )}
+            </View>
+
+            <Pressable
+              style={({ pressed }) => [styles.skipButton, pressed && styles.skipButtonPressed]}
+              onPress={handleSkipPress}
+            >
+              <Text style={styles.skipText}>Skip for now</Text>
+            </Pressable>
           </Pressable>
         </Animated.View>
       </Pressable>
@@ -501,6 +510,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 12,
     elevation: 8,
+  },
+  cardInner: {
+    width: '100%',
   },
   loadingCard: {
     alignItems: 'center',
