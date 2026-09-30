@@ -281,6 +281,22 @@ describe('applyDropRelation', () => {
     expect(relationOfNote().status).toBe('applied');
   });
 
+  it('archives a drop that only says the todo is done, even one filed as a journal entry', async () => {
+    resetStore([
+      heldNote({ ...complete, own_entry: false }, { bucket: 'log', subtype: 'journal' }),
+    ]);
+    const outcome = await applyDropRelation('note-1');
+    expect(mockState.archiveNote).toHaveBeenCalledWith('note-1', 'minddrop_relation');
+    expect(outcome.toast.detail).toBe('Drop archived');
+  });
+
+  it('keeps a drop that says how it went, as their entry', async () => {
+    resetStore([heldNote({ ...complete, own_entry: true }, { bucket: 'log', subtype: 'journal' })]);
+    const outcome = await applyDropRelation('note-1');
+    expect(mockState.archiveNote).not.toHaveBeenCalled();
+    expect(outcome.toast.detail).toBe('Your journal entry stays');
+  });
+
   it('works on the item the user picked instead', async () => {
     resetStore([heldNote(complete)]);
     await applyDropRelation('note-1', other);
@@ -415,6 +431,10 @@ describe('what the toast says', () => {
       toast: { icon: 'kept', title: 'Kept “Send Q3 deck to Rachel”' },
     });
     const habit: RelationEntity = { id: 'h1', type: 'habit', title: 'Walk Bella' };
+    const journal = {
+      ...held(complete),
+      classified: { ...held(complete).classified, bucket: 'log' as const, subtype: 'journal' },
+    };
     expect(
       outcomeWords(
         held(complete),
@@ -422,7 +442,11 @@ describe('what the toast says', () => {
         { field: 'logged', from: null, to: '2026-09-30' },
         false,
         true,
-      ).toast,
+      ).toast.detail,
+    ).toBe('Your drop stays as a note');
+    expect(
+      outcomeWords(journal, habit, { field: 'logged', from: null, to: '2026-09-30' }, false, true)
+        .toast,
     ).toEqual({
       icon: 'logged',
       title: 'Logged “Walk Bella” for today',

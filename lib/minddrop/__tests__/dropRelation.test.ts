@@ -254,4 +254,38 @@ describe('held drops', () => {
     expect(keepsDropAfterYes(held({ bucket: 'log', subtype: 'general' }))).toBe(false);
     expect(keepsDropAfterYes(held())).toBe(false);
   });
+
+  it('after ticking off or logging, keeps the drop only when it says more than that it happened', () => {
+    const done = (own_entry: boolean | null | undefined, over = {}): HeldRelation => ({
+      kind: 'edit',
+      intent: 'complete',
+      entity: todo,
+      others: [],
+      confidence: 95,
+      change: { field: 'completed', from: null, to: 'done' },
+      own_entry,
+      status: 'pending',
+      classified: { ...classified, bucket: 'log', subtype: 'journal', ...over },
+    });
+    expect(keepsDropAfterYes(done(false))).toBe(false);
+    expect(keepsDropAfterYes(done(true))).toBe(true);
+    expect(keepsDropAfterYes(done(true, { subtype: 'general' }))).toBe(true);
+    // held before the check said so: the journal rule
+    expect(keepsDropAfterYes(done(undefined))).toBe(true);
+    expect(keepsDropAfterYes(done(null, { bucket: 'todo', subtype: null }))).toBe(false);
+  });
+
+  it('reads whether the drop is its own entry from the Worker', () => {
+    const r = parseRelation({
+      kind: 'edit',
+      intent: 'complete',
+      entity: todo,
+      others: [],
+      confidence: 95,
+      change: { field: 'completed', from: null, to: 'done' },
+      own_entry: false,
+    });
+    expect(r).toMatchObject({ own_entry: false });
+    expect(parseRelation({ ...r, own_entry: 'yes' })).toMatchObject({ own_entry: null });
+  });
 });

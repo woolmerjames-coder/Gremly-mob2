@@ -312,7 +312,11 @@ export function outcomeWords(
   keptDrop: boolean,
 ): { confirm: string; toast: RelationToastWords } {
   const t = named(entity.title);
-  const detail = keptDrop ? 'Your journal entry stays' : 'Drop archived';
+  const detail = !keptDrop
+    ? 'Drop archived'
+    : rel.classified.subtype === 'journal'
+      ? 'Your journal entry stays'
+      : 'Your drop stays as a note';
   if (rel.intent === 'same') {
     return {
       confirm: 'Kept one',

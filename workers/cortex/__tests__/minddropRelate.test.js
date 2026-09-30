@@ -222,6 +222,30 @@ describe('decideRelation', () => {
     ).toBeNull();
   });
 
+  it('says whether a done or logged drop stands as their own entry, and only for those', () => {
+    const done = (own_entry) =>
+      decideRelation(
+        answer({ relation: 'complete', entity_id: key('todo-deck-0002'), own_entry }),
+        items,
+        TODAY,
+      );
+    expect(done(false)).toMatchObject({ kind: 'edit', own_entry: false });
+    expect(done(true)).toMatchObject({ kind: 'edit', own_entry: true });
+    expect(done(undefined)).toMatchObject({ kind: 'edit', own_entry: null });
+    expect(
+      decideRelation(
+        answer({
+          relation: 'edit',
+          entity_id: key('note-vet-00003'),
+          change: { field: 'due_day', value: '2026-10-01' },
+          own_entry: true,
+        }),
+        items,
+        TODAY,
+      ),
+    ).toMatchObject({ kind: 'edit', own_entry: null });
+  });
+
   it('logs a habit for the day, never twice, never a habit to cut out, never the future', () => {
     expect(
       decideRelation(

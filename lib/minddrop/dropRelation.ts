@@ -44,6 +44,8 @@ interface RelationBase {
   /** other items the model looked at, for "Not that one" */
   others: RelationEntity[];
   confidence: number;
+  /** done or logged: the drop says more than that it happened, so it stays as their entry */
+  own_entry?: boolean | null;
 }
 
 export type DropRelation =
@@ -61,6 +63,7 @@ export type DropRelation =
       change: RelationRawChange | null;
       value: string | null;
       confidence: number;
+      own_entry?: boolean | null;
     };
 
 /** How the drop was classified before it was held, so keeping it files it exactly that way. */
@@ -108,6 +111,7 @@ export function parseRelation(raw: unknown): DropRelation | null {
   if (!r || typeof r !== 'object' || !INTENTS.has(r.intent)) return null;
   const others = Array.isArray(r.others) ? r.others.filter(isEntity) : [];
   const confidence = Number(r.confidence) || 0;
+  const ownEntry = typeof r.own_entry === 'boolean' ? r.own_entry : null;
   if (r.kind === 'choose') {
     const candidates = Array.isArray(r.candidates) ? r.candidates.filter(isEntity) : [];
     if (candidates.length < 2) return null;
@@ -118,6 +122,7 @@ export function parseRelation(raw: unknown): DropRelation | null {
       change: r.change && typeof r.change === 'object' ? r.change : null,
       value: typeof r.value === 'string' ? r.value : null,
       confidence,
+      own_entry: ownEntry,
     };
   }
   if (!isEntity(r.entity)) return null;
@@ -140,7 +145,7 @@ export function parseRelation(raw: unknown): DropRelation | null {
     typeof r.change.field === 'string' &&
     typeof r.change.to === 'string'
   ) {
-    return { ...base, kind: 'edit', intent: r.intent, change: r.change };
+    return { ...base, kind: 'edit', intent: r.intent, change: r.change, own_entry: ownEntry };
   }
   return null;
 }
@@ -166,8 +171,20 @@ export function heldKindOf(rel: HeldRelation): {
   return { kind: 'note', subtype: c.subtype };
 }
 
-/** A journal entry stays as the user's entry after a yes; anything else was only the ask. */
+/**
+ * Whether the drop stays after a yes. A todo ticked off or a habit logged
+ * already records that it happened, so the drop stays only when the relate
+ * check found it says more than that (how it went, how they felt). Anything
+ * else: a journal entry stays as the user's entry, and the rest was only the
+ * ask. A drop held before the check said so keeps the journal rule.
+ */
 export function keepsDropAfterYes(rel: HeldRelation): boolean {
+  if (
+    (rel.intent === 'complete' || rel.intent === 'logged') &&
+    typeof rel.own_entry === 'boolean'
+  ) {
+    return rel.own_entry;
+  }
   return rel.classified.bucket === 'log' && rel.classified.subtype === 'journal';
 }
 

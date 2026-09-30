@@ -157,6 +157,7 @@ Decide, in this order:
   "new" in every other case.
 - entity_id: the id of that item, or null when the relation is new.
 - change: null unless one of these applies. For edit, the single field and its new value: due_day (YYYY-MM-DD), due_time (HH:MM, 24 hour), name (the new title) or frequency (plain words, habits only); when a new day also comes with a new time, give the day and add time (HH:MM, 24 hour). For logged, field logged with the day they did it as YYYY-MM-DD, today unless they name another day. For add, field body_add with the words to add, in their words. For same, field extra with only what the drop says that the item does not already say, in their words and as a short phrase that reads on its own, or null when it adds nothing.
+- own_entry: for complete and logged only. true when, beyond reporting that it happened, the drop says how it went, how they felt or anything else of their own, so it stands as their own entry beside the item; false when it only reports that it happened. null for every other relation.
 - confidence: 0 to 100, how sure you are of both the item and the relation.
 - ask: true only when the drop plainly relates to one of their items in one of these ways and two or more items fit about equally; then list their ids in candidates.
 
@@ -164,7 +165,7 @@ A due_day is the one calendar day the drop's words point to, counted from today'
 
 A wrong match is worse than no match: when in doubt, the relation is new. Never invent an id. Never resolve a date the drop does not give.
 
-Return ONLY JSON: {"considered":["..."],"relation":"new"|"same"|"edit"|"add"|"complete"|"logged"|"remove","entity_id":"..."|null,"change":{"field":"...","value":"...","time":"..."|null}|null,"confidence":0-100,"ask":true|false,"candidates":["..."]}`;
+Return ONLY JSON: {"considered":["..."],"relation":"new"|"same"|"edit"|"add"|"complete"|"logged"|"remove","entity_id":"..."|null,"change":{"field":"...","value":"...","time":"..."|null}|null,"own_entry":true|false|null,"confidence":0-100,"ask":true|false,"candidates":["..."]}`;
 
 /** The user turn: today, the drop, then every item with its key. */
 export function buildRelateInput({ todayIso, text, candidates }) {
@@ -294,6 +295,12 @@ export function decideRelation(answer, candidates, todayIso) {
     ).values(),
   ];
   const confidence = Number(answer.confidence) || 0;
+  // finishing or logging: whether the drop says more than that it happened,
+  // and so stays as the user's own entry beside the item
+  const ownEntry =
+    (intent === 'complete' || intent === 'logged') && typeof answer.own_entry === 'boolean'
+      ? answer.own_entry
+      : null;
   const value =
     answer.change && typeof answer.change === 'object' ? (answer.change.value ?? null) : null;
 
@@ -309,6 +316,7 @@ export function decideRelation(answer, candidates, todayIso) {
         candidates: options.slice(0, 3).map(publicEntity),
         change: answer.change && typeof answer.change === 'object' ? answer.change : null,
         value,
+        own_entry: ownEntry,
         confidence,
       };
     }
@@ -331,7 +339,7 @@ export function decideRelation(answer, candidates, todayIso) {
   }
   if (intent === 'remove') return { kind: 'remove', ...base };
   const change = changeFor(intent, entity, answer.change, todayIso);
-  return change ? { kind: 'edit', ...base, change } : null;
+  return change ? { kind: 'edit', ...base, change, own_entry: ownEntry } : null;
 }
 
 /** Whether an item could take this relation at all (used to trim a choice). */
