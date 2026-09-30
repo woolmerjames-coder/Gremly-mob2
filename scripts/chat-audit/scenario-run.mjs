@@ -13,6 +13,7 @@
 // opened about that item ("Talk it through"): it starts with Gremly's opener
 // and every turn carries the anchor, as the app sends it.
 import { readFileSync, writeFileSync } from 'node:fs';
+import { keys } from './keys.mjs';
 import { dirname, join } from 'node:path';
 import { configureModels, models } from '../../workers/cortex/models.js';
 import { triageMessage } from '../../workers/cortex/triage.js';
@@ -44,14 +45,9 @@ import {
   NO_EXTRACTION_MODES,
 } from '../../workers/cortex/chatPrompts.js';
 
-const env = {};
-for (const line of readFileSync('/home/claude/gremly-run/.env.audit.local', 'utf8').split('\n')) {
-  const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*"?([^"\n]*)"?\s*$/);
-  if (m) env[m[1]] = m[2];
-}
 configureModels({
-  OPENAI_API_KEY: env.OPENAI_API_KEY,
-  GOOGLE_API_KEY: env.GEMINI_TEST_API_KEY,
+  OPENAI_API_KEY: keys.openai,
+  GOOGLE_API_KEY: keys.gemini,
   CHAT_MODEL: 'gemini-3-flash-preview',
   HELPER_MODEL: 'gpt-6-luna',
   HELPER_FALLBACK_MODEL: 'gemini-3.8-flash',
@@ -298,7 +294,7 @@ for (const sc of runs) {
         thinkingLevel: gen.thinkingLevel,
         model: models().chat,
       },
-      env.GEMINI_TEST_API_KEY,
+      keys.gemini,
     );
     let reply = r.ok ? r.content : `[reply failed: ${r.error}]`;
     reply = reply.replace(/<!--SAVE:[\s\S]*?-->/g, '').trim();

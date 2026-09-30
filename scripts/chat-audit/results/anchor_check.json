@@ -1,0 +1,747 @@
+[
+  {
+    "id": "AN-walk-talk",
+    "base": "AN-walk-talk",
+    "group": "Anchor: the original case",
+    "expect": "Talks about walking Bella. Never says it is already on the list. No card.",
+    "note": null,
+    "anchor": "Take Bella for a walk",
+    "lead": "Sure, let's talk about **Take Bella for a walk**. What's on your mind?",
+    "turns": [
+      {
+        "message": "I keep putting it off, how do I make it easier?",
+        "mode": "emotional",
+        "modeBeforeCard": null,
+        "card": null,
+        "about": [
+          "Take Bella for a walk"
+        ],
+        "anchor": {
+          "title": "Take Bella for a walk",
+          "gone": false
+        },
+        "known": [
+          "none of their items, as far as the app can tell"
+        ],
+        "reply": "It sounds like you're feeling a bit stuck behind the friction of getting out the door. It's tough when a simple task starts feeling like a **heavy obligation** instead of just a walk.\n\nSince you're juggling the client job and building Gremly, your brain is probably looking for any excuse to stay in work mode. If you're ready to break the cycle, maybe try a **low-stakes version** today.\n\nCould you just commit to putting on your shoes and taking Bella to the end of the block? Often the hardest part is the transition, and once you're outside in the San Francisco air, the rest of the walk usually takes care of itself.",
+        "pill": {
+          "lateCard": null,
+          "lateCardFull": null,
+          "items": [],
+          "rawNew": [],
+          "ungrounded": 0,
+          "gated": true
+        },
+        "ms": 4816,
+        "cardMs": 1012,
+        "raw": {
+          "considered": [
+            "5b1e7a40"
+          ],
+          "refers": true,
+          "entity_id": "5b1e7a40",
+          "intent": "none",
+          "change": null,
+          "about": [
+            "5b1e7a40"
+          ],
+          "confidence": 95,
+          "ask": false,
+          "candidates": []
+        },
+        "recentIn": null
+      }
+    ]
+  },
+  {
+    "id": "AN-walk-move",
+    "base": "AN-walk-move",
+    "group": "Anchor: a pronoun edit",
+    "expect": "Edit card for Take Bella for a walk, due_day 2026-10-03.",
+    "note": null,
+    "anchor": "Take Bella for a walk",
+    "lead": "Sure, let's talk about **Take Bella for a walk**. What's on your mind?",
+    "turns": [
+      {
+        "message": "Can we move it to Saturday morning?",
+        "mode": "entity_card",
+        "modeBeforeCard": "quick_ask",
+        "card": {
+          "kind": "edit",
+          "inPassing": false,
+          "title": "Take Bella for a walk",
+          "change": {
+            "field": "due_day",
+            "from": "2026-09-29",
+            "to": "2026-10-03"
+          },
+          "intent": null,
+          "already": false
+        },
+        "about": [
+          "Take Bella for a walk"
+        ],
+        "anchor": {
+          "title": "Take Bella for a walk",
+          "gone": false
+        },
+        "known": [],
+        "reply": "Does Saturday morning work better for you and Bella?",
+        "pill": {
+          "lateCard": null,
+          "lateCardFull": null,
+          "items": [],
+          "rawNew": [],
+          "ungrounded": 0,
+          "gated": false
+        },
+        "ms": 3697,
+        "cardMs": 1022,
+        "raw": {
+          "considered": [
+            "5b1e7a40"
+          ],
+          "refers": true,
+          "entity_id": "5b1e7a40",
+          "intent": "edit",
+          "change": {
+            "field": "due_day",
+            "value": "2026-10-03"
+          },
+          "about": [
+            "5b1e7a40"
+          ],
+          "confidence": 95,
+          "ask": false,
+          "candidates": []
+        },
+        "recentIn": null
+      }
+    ]
+  },
+  {
+    "id": "AN-walk-done",
+    "base": "AN-walk-done",
+    "group": "Anchor: done",
+    "expect": "Complete card for Take Bella for a walk.",
+    "note": null,
+    "anchor": "Take Bella for a walk",
+    "lead": "Sure, let's talk about **Take Bella for a walk**. What's on your mind?",
+    "turns": [
+      {
+        "message": "Done, we just got back!",
+        "mode": "entity_card",
+        "modeBeforeCard": "celebration",
+        "card": {
+          "kind": "edit",
+          "inPassing": false,
+          "title": "Take Bella for a walk",
+          "change": {
+            "field": "completed",
+            "from": null,
+            "to": "done"
+          },
+          "intent": null,
+          "already": false
+        },
+        "about": [
+          "Take Bella for a walk"
+        ],
+        "anchor": {
+          "title": "Take Bella for a walk",
+          "gone": false
+        },
+        "known": [],
+        "reply": "Did Bella enjoy the San Francisco air, and should we mark this one as finished?",
+        "pill": {
+          "lateCard": null,
+          "lateCardFull": null,
+          "items": [],
+          "rawNew": [],
+          "ungrounded": 0,
+          "gated": false
+        },
+        "ms": 3043,
+        "cardMs": 1188,
+        "raw": {
+          "considered": [
+            "5b1e7a40"
+          ],
+          "refers": true,
+          "entity_id": "5b1e7a40",
+          "intent": "complete",
+          "change": null,
+          "about": [
+            "5b1e7a40"
+          ],
+          "confidence": 100,
+          "ask": false,
+          "candidates": []
+        },
+        "recentIn": null
+      }
+    ]
+  },
+  {
+    "id": "AN-walk-in-passing",
+    "base": "AN-walk-in-passing",
+    "group": "Anchor: a new day said in passing",
+    "expect": "In passing card (or pill) moving the walk to 2026-09-30. The reply offers it without calling it news.",
+    "note": null,
+    "anchor": "Take Bella for a walk",
+    "lead": "Sure, let's talk about **Take Bella for a walk**. What's on your mind?",
+    "turns": [
+      {
+        "message": "It's pouring today so I'll probably do it tomorrow instead",
+        "mode": "update",
+        "modeBeforeCard": null,
+        "card": {
+          "kind": "edit",
+          "inPassing": true,
+          "title": "Take Bella for a walk",
+          "change": {
+            "field": "due_day",
+            "from": "2026-09-29",
+            "to": "2026-09-30"
+          },
+          "intent": null,
+          "already": false
+        },
+        "about": [
+          "Take Bella for a walk"
+        ],
+        "anchor": {
+          "title": "Take Bella for a walk",
+          "gone": false
+        },
+        "known": [
+          "todo \"Take Bella for a walk\", due today (2026-09-29) (the item this chat was opened about)",
+          "todo \"Send Out Sage Future Deck\", due Thursday (2026-10-01)",
+          "todo \"Call Kim and Andrew\", due Friday (2026-10-02)",
+          "note \"Bella Vet Appointment\", Friday (2026-10-02)",
+          "todo \"Submit to Apple Health\", due Sunday (2026-10-04)"
+        ],
+        "reply": "That makes sense since San Francisco rain isn't much fun for Bella or you. I can move that walk to tomorrow if you'd like. You've still got that **Bella Vet Appointment** on Friday, so hopefully the weather clears up by then.",
+        "pill": {
+          "lateCard": null,
+          "lateCardFull": null,
+          "items": [],
+          "rawNew": [],
+          "ungrounded": 0,
+          "gated": false
+        },
+        "ms": 3827,
+        "cardMs": 1310,
+        "raw": {
+          "considered": [
+            "5b1e7a40"
+          ],
+          "refers": true,
+          "entity_id": "5b1e7a40",
+          "intent": "mention",
+          "change": {
+            "field": "due_day",
+            "value": "2026-09-30"
+          },
+          "about": [
+            "5b1e7a40"
+          ],
+          "confidence": 95,
+          "ask": false,
+          "candidates": []
+        },
+        "recentIn": null
+      }
+    ]
+  },
+  {
+    "id": "AN-drift-existing",
+    "base": "AN-drift-existing",
+    "group": "Anchor: moves on to another item they have",
+    "expect": "Turn 1 is about Arrange a Pet Sitter for Bella. Turn 2 is an edit card for the pet sitter todo, due_day 2026-10-02, not the walk.",
+    "note": null,
+    "anchor": "Take Bella for a walk",
+    "lead": "Sure, let's talk about **Take Bella for a walk**. What's on your mind?",
+    "turns": [
+      {
+        "message": "Thanks. Honestly I'm more worried about finding someone to look after her next week",
+        "mode": "emotional",
+        "modeBeforeCard": null,
+        "card": null,
+        "about": [
+          "Arrange a Pet Sitter for Bella"
+        ],
+        "anchor": {
+          "title": "Take Bella for a walk",
+          "gone": false
+        },
+        "known": [
+          "todo \"Arrange a Pet Sitter for Bella\", no day set"
+        ],
+        "reply": "Finding a sitter you trust is a lot more stressful than a quick walk around the block. It's tough when you're trying to balance client work and James, especially with the added pressure of making sure Bella is happy while you're away.\n\nSince you've got **Arrange a Pet Sitter for Bella** on your list without a date yet, do you want to pick a day this week to get that sorted? Getting the search started might take some of the weight off your mind.",
+        "pill": {
+          "lateCard": null,
+          "lateCardFull": null,
+          "items": [],
+          "rawNew": [],
+          "ungrounded": 0,
+          "gated": true
+        },
+        "ms": 3867,
+        "cardMs": 1022,
+        "raw": {
+          "considered": [
+            "8a9b0c5f",
+            "5b1e7a40",
+            "321e5cff"
+          ],
+          "refers": true,
+          "entity_id": "8a9b0c5f",
+          "intent": "mention",
+          "change": null,
+          "about": [
+            "8a9b0c5f"
+          ],
+          "confidence": 95,
+          "ask": false,
+          "candidates": []
+        },
+        "recentIn": null
+      },
+      {
+        "message": "Can you set that one for Friday?",
+        "mode": "entity_card",
+        "modeBeforeCard": "action_ready",
+        "card": {
+          "kind": "edit",
+          "inPassing": false,
+          "title": "Arrange a Pet Sitter for Bella",
+          "change": {
+            "field": "due_day",
+            "from": null,
+            "to": "2026-10-02"
+          },
+          "intent": null,
+          "already": false
+        },
+        "about": [
+          "Arrange a Pet Sitter for Bella"
+        ],
+        "anchor": {
+          "title": "Take Bella for a walk",
+          "gone": false
+        },
+        "known": [],
+        "reply": "Does Friday work for getting Bella's sitter situation sorted?",
+        "pill": {
+          "lateCard": null,
+          "lateCardFull": null,
+          "items": [],
+          "rawNew": [],
+          "ungrounded": 0,
+          "gated": false
+        },
+        "ms": 8907,
+        "cardMs": 6571,
+        "raw": {
+          "considered": [
+            "8a9b0c5f",
+            "5b1e7a40"
+          ],
+          "refers": true,
+          "entity_id": "8a9b0c5f",
+          "intent": "edit",
+          "change": {
+            "field": "due_day",
+            "value": "2026-10-02"
+          },
+          "about": [
+            "8a9b0c5f"
+          ],
+          "confidence": 95,
+          "ask": false,
+          "candidates": []
+        },
+        "recentIn": null
+      }
+    ]
+  },
+  {
+    "id": "AN-drift-new",
+    "base": "AN-drift-new",
+    "group": "Anchor: moves on to something new",
+    "expect": "No card for the walk. The pill may offer the haircut as new.",
+    "note": null,
+    "anchor": "Take Bella for a walk",
+    "lead": "Sure, let's talk about **Take Bella for a walk**. What's on your mind?",
+    "turns": [
+      {
+        "message": "Unrelated, but I need to book a haircut this week",
+        "mode": "capture",
+        "modeBeforeCard": null,
+        "card": null,
+        "about": [],
+        "anchor": {
+          "title": "Take Bella for a walk",
+          "gone": false
+        },
+        "known": [
+          "none of their items, as far as the app can tell",
+          "todo \"Take Bella for a walk\", due today (2026-09-29)",
+          "todo \"Send Out Sage Future Deck\", due Thursday (2026-10-01)",
+          "todo \"Call Kim and Andrew\", due Friday (2026-10-02)",
+          "note \"Bella Vet Appointment\", Friday (2026-10-02)",
+          "todo \"Submit to Apple Health\", due Sunday (2026-10-04)"
+        ],
+        "reply": "You should probably get that on the calendar before your **Sage Future Deck** deadline on Thursday. Do you want to try for a spot in SF tomorrow or wait until the weekend?",
+        "pill": {
+          "lateCard": null,
+          "lateCardFull": null,
+          "items": [
+            {
+              "kind": "new",
+              "type": "todo",
+              "title": "Book a haircut",
+              "same_as": null
+            }
+          ],
+          "rawNew": [
+            {
+              "title": "Book a haircut",
+              "type": "todo",
+              "same_as": null
+            }
+          ],
+          "ungrounded": 0,
+          "gated": false
+        },
+        "ms": 5123,
+        "cardMs": 1436,
+        "raw": {
+          "considered": [
+            "c2a314ba"
+          ],
+          "refers": false,
+          "entity_id": null,
+          "intent": "none",
+          "change": null,
+          "about": [],
+          "confidence": 0,
+          "ask": false,
+          "candidates": []
+        },
+        "recentIn": null
+      }
+    ]
+  },
+  {
+    "id": "AN-habit",
+    "base": "AN-habit",
+    "group": "Anchor: a habit",
+    "expect": "Turn 1 talks about the running habit. Turn 2 logs a run for 2026-09-29 on Run 3 Times A Week (in passing card).",
+    "note": null,
+    "anchor": "Run 3 Times A Week",
+    "lead": "Sure, let's talk about **Run 3 Times A Week**. What's on your mind?",
+    "turns": [
+      {
+        "message": "I only managed one so far this week",
+        "mode": "accountability",
+        "modeBeforeCard": null,
+        "card": null,
+        "about": [
+          "Run 3 Times A Week"
+        ],
+        "anchor": {
+          "title": "Run 3 Times A Week",
+          "gone": false
+        },
+        "known": [
+          "habit \"Run 3 Times A Week\", weekly, nothing logged this week (target 1) (the item this chat was opened about)",
+          "todo \"Take Bella for a walk\", due today (2026-09-29)",
+          "todo \"Send Out Sage Future Deck\", due Thursday (2026-10-01)",
+          "todo \"Call Kim and Andrew\", due Friday (2026-10-02)",
+          "note \"Bella Vet Appointment\", Friday (2026-10-02)",
+          "todo \"Submit to Apple Health\", due Sunday (2026-10-04)"
+        ],
+        "reply": "One run is better than zero, especially with the Sage Future deck and Bella's vet visit coming up. San Francisco hills are no joke when you're **balancing client work** too. Do you want to try for another one tomorrow, or just reset for next week?",
+        "pill": {
+          "lateCard": null,
+          "lateCardFull": null,
+          "items": [],
+          "rawNew": [],
+          "ungrounded": 0,
+          "gated": false
+        },
+        "ms": 3471,
+        "cardMs": 1356,
+        "raw": {
+          "considered": [
+            "f86ceed9"
+          ],
+          "refers": true,
+          "entity_id": "f86ceed9",
+          "intent": "mention",
+          "change": null,
+          "about": [
+            "f86ceed9"
+          ],
+          "confidence": 95,
+          "ask": false,
+          "candidates": []
+        },
+        "recentIn": null
+      },
+      {
+        "message": "Did one this morning actually",
+        "mode": "update",
+        "modeBeforeCard": null,
+        "card": {
+          "kind": "edit",
+          "inPassing": true,
+          "title": "Run 3 Times A Week",
+          "change": {
+            "field": "logged",
+            "from": null,
+            "to": "2026-09-29"
+          },
+          "intent": null,
+          "already": false
+        },
+        "about": [
+          "Run 3 Times A Week"
+        ],
+        "anchor": {
+          "title": "Run 3 Times A Week",
+          "gone": false
+        },
+        "known": [
+          "habit \"Run 3 Times A Week\", weekly, nothing logged this week (target 1) (the item this chat was opened about)",
+          "todo \"Take Bella for a walk\", due today (2026-09-29)",
+          "todo \"Send Out Sage Future Deck\", due Thursday (2026-10-01)",
+          "todo \"Call Kim and Andrew\", due Friday (2026-10-02)",
+          "note \"Bella Vet Appointment\", Friday (2026-10-02)",
+          "todo \"Submit to Apple Health\", due Sunday (2026-10-04)"
+        ],
+        "reply": "That counts. Since you're already out with Bella today, it's a good way to clear your head before diving back into the **Sage Future deck**. Should we log that run for yesterday?",
+        "pill": {
+          "lateCard": null,
+          "lateCardFull": null,
+          "items": [],
+          "rawNew": [],
+          "ungrounded": 0,
+          "gated": false
+        },
+        "ms": 3594,
+        "cardMs": 1283,
+        "raw": {
+          "considered": [
+            "f86ceed9"
+          ],
+          "refers": true,
+          "entity_id": "f86ceed9",
+          "intent": "logged",
+          "change": {
+            "field": "logged",
+            "value": "2026-09-29"
+          },
+          "about": [
+            "f86ceed9"
+          ],
+          "confidence": 95,
+          "ask": false,
+          "candidates": []
+        },
+        "recentIn": null
+      }
+    ]
+  },
+  {
+    "id": "AN-event",
+    "base": "AN-event",
+    "group": "Anchor: an event note",
+    "expect": "Turn 1 helps with vet questions, no card, not called news. Turn 2 proposes due_time 16:00 on Bella Vet Appointment.",
+    "note": null,
+    "anchor": "Bella Vet Appointment",
+    "lead": "Sure, let's talk about **Bella Vet Appointment**. What's on your mind?",
+    "turns": [
+      {
+        "message": "What should I ask them while we're there?",
+        "mode": "research",
+        "modeBeforeCard": null,
+        "card": null,
+        "about": [
+          "Bella Vet Appointment"
+        ],
+        "anchor": {
+          "title": "Bella Vet Appointment",
+          "gone": false
+        },
+        "known": [
+          "note \"Bella Vet Appointment\", Friday (2026-10-02) (the item this chat was opened about)",
+          "todo \"Take Bella for a walk\", due today (2026-09-29)",
+          "todo \"Send Out Sage Future Deck\", due Thursday (2026-10-01)",
+          "todo \"Call Kim and Andrew\", due Friday (2026-10-02)",
+          "todo \"Submit to Apple Health\", due Sunday (2026-10-04)"
+        ],
+        "reply": "Since Bella is getting older, it's a good time to ask about her **joint health** and mobility. Mention if you've noticed her slowing down on your daily walks or having trouble with stairs.\n\nYou should also check if her **vaccinations** are current for the SF area. Ask if there are specific local risks like leptospirosis or heartworm you need to be more aggressive about right now.\n\nLastly, have them look at her **dental health**. Small changes in how she eats or smells can signal issues that are easier to fix early.",
+        "pill": {
+          "lateCard": null,
+          "lateCardFull": null,
+          "items": [],
+          "rawNew": [],
+          "ungrounded": 0,
+          "gated": false
+        },
+        "ms": 4299,
+        "cardMs": 1035,
+        "raw": {
+          "considered": [
+            "2d8f3cee"
+          ],
+          "refers": true,
+          "entity_id": "2d8f3cee",
+          "intent": "none",
+          "change": null,
+          "about": [
+            "2d8f3cee"
+          ],
+          "confidence": 95,
+          "ask": false,
+          "candidates": []
+        },
+        "recentIn": null
+      },
+      {
+        "message": "They just called, it's moved to 4pm",
+        "mode": "entity_card",
+        "modeBeforeCard": "update",
+        "card": {
+          "kind": "edit",
+          "inPassing": false,
+          "title": "Bella Vet Appointment",
+          "change": {
+            "field": "due_time",
+            "from": null,
+            "to": "16:00"
+          },
+          "intent": null,
+          "already": false
+        },
+        "about": [
+          "Bella Vet Appointment"
+        ],
+        "anchor": {
+          "title": "Bella Vet Appointment",
+          "gone": false
+        },
+        "known": [],
+        "reply": "Does 4pm work better for your schedule today?",
+        "pill": {
+          "lateCard": null,
+          "lateCardFull": null,
+          "items": [],
+          "rawNew": [],
+          "ungrounded": 0,
+          "gated": false
+        },
+        "ms": 3276,
+        "cardMs": 1261,
+        "raw": {
+          "considered": [
+            "2d8f3cee"
+          ],
+          "refers": true,
+          "entity_id": "2d8f3cee",
+          "intent": "edit",
+          "change": {
+            "field": "due_time",
+            "value": "16:00"
+          },
+          "about": [
+            "2d8f3cee"
+          ],
+          "confidence": 95,
+          "ask": false,
+          "candidates": []
+        },
+        "recentIn": null
+      }
+    ]
+  },
+  {
+    "id": "AN-journal",
+    "base": "AN-journal",
+    "group": "Anchor: a journal entry",
+    "expect": "A supportive reply about that entry. No card, nothing saved as new.",
+    "note": null,
+    "anchor": "Feeling Overwhelmed with Work and Life",
+    "lead": "Sure, let's talk about **Feeling Overwhelmed with Work and Life**. What's on your mind?",
+    "turns": [
+      {
+        "message": "I think it was mostly the client stuff that got to me",
+        "mode": "emotional",
+        "modeBeforeCard": null,
+        "card": null,
+        "about": [
+          "Feeling Overwhelmed with Work and Life"
+        ],
+        "anchor": {
+          "title": "Feeling Overwhelmed with Work and Life",
+          "gone": false
+        },
+        "known": [
+          "note \"Feeling Overwhelmed with Work and Life\" (the item this chat was opened about)"
+        ],
+        "reply": "That makes sense, especially since you're balancing those client demands with building Gremly. It's a lot to hold at once. Was there a specific project or request that pushed things over the edge today?",
+        "pill": {
+          "lateCard": {
+            "title": "Feeling Overwhelmed with Work and Life",
+            "field": "body_add",
+            "to": "I think it was mostly the client stuff that got to me"
+          },
+          "lateCardFull": {
+            "kind": "edit",
+            "entity": {
+              "id": "cf50a43a-d301-4adf-bfe0-db7e982c48b3",
+              "type": "note",
+              "title": "Feeling Overwhelmed with Work and Life",
+              "due_day": null,
+              "due_time": null,
+              "frequency": null,
+              "space_id": null
+            },
+            "change": {
+              "field": "body_add",
+              "from": null,
+              "to": "I think it was mostly the client stuff that got to me"
+            },
+            "confidence": 90,
+            "late": true
+          },
+          "items": [],
+          "rawNew": [],
+          "ungrounded": 0,
+          "gated": true
+        },
+        "ms": 3344,
+        "cardMs": 884,
+        "raw": {
+          "considered": [
+            "cf50a43a"
+          ],
+          "refers": true,
+          "entity_id": "cf50a43a",
+          "intent": "mention",
+          "change": null,
+          "about": [
+            "cf50a43a"
+          ],
+          "confidence": 85,
+          "ask": false,
+          "candidates": []
+        },
+        "recentIn": null
+      }
+    ]
+  }
+]
