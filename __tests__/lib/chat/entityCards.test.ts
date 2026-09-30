@@ -195,13 +195,18 @@ describe('cards in the chat list', () => {
       status: 'pending',
       summary: null,
       turns_ago: 1,
+      card: { kind: 'edit' },
     });
     expect(recentEntityFor([msg('a1', 'assistant'), card('c1', 'applied')])).toMatchObject({
       id: 't1',
       status: 'applied',
       turns_ago: 0,
     });
-    expect(recentEntityFor([msg('a1', 'assistant'), card('c1', 'pending', 'view')])?.id).toBe('n1');
+    expect(recentEntityFor([msg('a1', 'assistant'), card('c1', 'pending', 'view')])).toMatchObject({
+      id: 'n1',
+      // a card that only showed the item is not waiting on a tap
+      card: { kind: 'view', intent: 'edit', already: false },
+    });
     // turned down carries over with its status, so the next turn excludes it;
     // a list not yet picked from gives nothing
     expect(recentEntityFor([msg('a1', 'assistant'), card('c1', 'declined')])).toMatchObject({

@@ -718,6 +718,8 @@ export type EntityCard =
       intent?: 'edit' | 'view' | 'confirm';
       /** the item was just saved from the pill; the card is its receipt */
       saved?: boolean;
+      /** they asked for a change it already had; nothing needed to change */
+      already?: boolean;
     }
   | { kind: 'choose'; candidates: EntityCardEntity[] };
 export type EntityCardStatus = 'pending' | 'applied' | 'declined' | 'undone';
@@ -725,6 +727,15 @@ export type EntityCardStatus = 'pending' | 'applied' | 'declined' | 'undone';
 export interface RecentEntity extends EntityCardEntity {
   status: EntityCardStatus;
   summary?: string | null;
+  /**
+   * What the card was for: a change waiting on a tap (edit), or showing the
+   * item (view), so "did you change it?" is answered truthfully.
+   */
+  card?: {
+    kind: 'edit' | 'view';
+    intent?: 'edit' | 'view' | 'confirm' | null;
+    already?: boolean;
+  };
   /** User messages sent after that card, before this one; 0 when this is the first. */
   turns_ago?: number;
 }

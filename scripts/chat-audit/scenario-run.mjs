@@ -77,6 +77,41 @@ if (spec.itemsFrom) {
 }
 const { persona, timezone: TZ, todayIso, todayStr } = spec;
 
+// The scenarios are written for one day, so every part of a turn runs on it:
+// the reply's own sense of today (gremlyPersona reads the clock) as well as the
+// matcher's. Without this the reply names days from the real date while the
+// cards use the scenario's. Date.now stays real, so the timings still work.
+const RealDate = Date;
+function noonIn(dayIso, tz) {
+  const [y, m, d] = dayIso.split('-').map(Number);
+  const guess = RealDate.UTC(y, m - 1, d, 12);
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+      .formatToParts(new RealDate(guess))
+      .map((p) => [p.type, p.value]),
+  );
+  const shown = RealDate.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute);
+  return guess - (shown - guess);
+}
+const PINNED_MS = noonIn(todayIso, TZ || 'UTC');
+globalThis.Date = class extends RealDate {
+  constructor(...args) {
+    if (args.length) super(...args);
+    else super(PINNED_MS);
+  }
+  static now() {
+    return RealDate.now();
+  }
+};
+
 const short = (id) => String(id || '').slice(0, 8);
 function existingItemsBlock(items, tracked, card, related) {
   const lines = [];
@@ -100,7 +135,7 @@ function existingItemsBlock(items, tracked, card, related) {
           : '';
     lines.push(`- [${it.type} id:${short(it.id)}] ${it.title}${when}`);
   }
-  return `\nITEMS ALREADY TRACKED IN THE USER'S SYSTEM (do NOT re-extract these or close paraphrases):\n${lines.join('\n')}\n${aboutTrackedNote(related)}${cardTrackedNote(card)}`;
+  return `\nITEMS ALREADY TRACKED IN THE USER'S SYSTEM (do NOT extract these again, in these words or in others; something is one of these only when it is the same thing):\n${lines.join('\n')}\n${aboutTrackedNote(related)}${cardTrackedNote(card)}`;
 }
 
 async function extraction(items, history, card, match, recent, shownCards) {
@@ -275,7 +310,8 @@ for (const sc of runs) {
     const gen = buildGeneralChatConfig(triage, { runningSummary: '' }, null, '', persona, TZ, null);
     let system = gen.systemPrompt;
     const anchorNow = match?.anchor || anchor;
-    if (card) system += entityCardPromptSection(card, { anchorId: anchorNow?.id || null });
+    if (card)
+      system += entityCardPromptSection(card, { anchorId: anchorNow?.id || null, todayIso });
     system += recentCardPromptSection(recent);
     system += anchorPromptSection(anchorNow, todayIso, { mode: triage.mode });
     const theirs = theirItemsPromptSection(match, todayIso, {
@@ -300,7 +336,10 @@ for (const sc of runs) {
     reply = reply.replace(/<!--SAVE:[\s\S]*?-->/g, '').trim();
     history.push({ role: 'user', content: message }, { role: 'assistant', content: reply });
     const gated = NO_EXTRACTION_MODES.includes(triage.mode);
-    const pill = await extraction(items, [...lead, ...history], card, match, recent, shownCards);
+    // the Worker skips extraction on these modes, so nothing is offered after them
+    const pill = gated
+      ? { skipped: true, items: [], rawNew: [], lateCard: null, lateCardFull: null, ungrounded: 0 }
+      : await extraction(items, [...lead, ...history], card, match, recent, shownCards);
     if (card && card.kind === 'edit') shownCards.push(card);
     if (pill.lateCardFull) shownCards.push(pill.lateCardFull);
     pill.gated = gated;
@@ -314,6 +353,8 @@ for (const sc of runs) {
         status: tapped ? 'applied' : 'pending',
         summary: tapped ? `Done. ${card.entity.title} is now ${card.change.to}.` : null,
         change: card.change ? { field: card.change.field, to: card.change.to } : null,
+        // what the card was for, as the app sends it (recentEntityFor)
+        card: { kind: card.kind, intent: card.intent || null, already: !!card.already },
         turns_ago: 0,
       };
     } else if (card && card.kind === 'choose') {

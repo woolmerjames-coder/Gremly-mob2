@@ -261,16 +261,18 @@ test('the reply hears the items the model says the message is about, the referre
   const open = theirItemsPromptSection({ related: about, attention: [] }, '2026-09-29', {
     mode: 'update',
   });
-  expect(open).toContain('"Dentist", due tomorrow (2026-09-30) 14:00');
+  expect(open).toContain('"Dentist", due tomorrow, Wednesday 30 September at 14:00');
 });
 
 test('days are said in words the reply will not get wrong', () => {
-  expect(dayInWords('2026-09-29', '2026-09-29')).toBe('today (2026-09-29)');
-  expect(dayInWords('2026-09-30', '2026-09-29')).toBe('tomorrow (2026-09-30)');
-  expect(dayInWords('2026-09-28', '2026-09-29')).toBe('yesterday (2026-09-28)');
-  expect(dayInWords('2026-10-02', '2026-09-29')).toBe('Friday (2026-10-02)');
-  expect(dayInWords('2026-10-06', '2026-09-29')).toBe('2026-10-06'); // a week away: the date
-  expect(dayInWords('2026-10-06', null)).toBe('2026-10-06');
+  expect(dayInWords('2026-09-29', '2026-09-29')).toBe('today, Tuesday 29 September');
+  expect(dayInWords('2026-09-30', '2026-09-29')).toBe('tomorrow, Wednesday 30 September');
+  expect(dayInWords('2026-09-28', '2026-09-29')).toBe('yesterday, Monday 28 September');
+  expect(dayInWords('2026-10-02', '2026-09-29')).toBe('Friday 2 October');
+  // further away the weekday still comes with it, so the reply never works it out
+  expect(dayInWords('2026-10-06', '2026-09-29')).toBe('Tuesday 6 October');
+  expect(dayInWords('2027-01-01', '2026-09-29')).toBe('Friday 1 January 2027');
+  expect(dayInWords('2026-10-06', null)).toBe('Tuesday 6 October');
   expect(dayInWords(null, '2026-09-29')).toBe('');
 });
 
@@ -692,7 +694,7 @@ test('a card that asks something takes over the reply mode; a plain mention leav
     entity,
     change: { field: 'due_day', from: null, to: '2026-10-02' },
   });
-  expect(editSec).toContain('move it to 2026-10-02');
+  expect(editSec).toContain('move it to Friday 2 October');
   expect(editSec).toContain('do not use a list');
 });
 
@@ -856,11 +858,11 @@ test('what needs attention: due this week first, then the most recently overdue 
   expect(sec).toContain('You may offer the natural next step');
   expect(sec).toContain('never say a change has been made');
   expect(sec).toContain(
-    'What they are talking about:\n- todo "Old one", was due 2026-07-16 (overdue)',
+    'What they are talking about:\n- todo "Old one", was due Thursday 16 July (overdue)',
   );
   expect(sec).toContain('Overdue or coming up this week:');
   expect(sec).not.toMatch(/Overdue or coming up this week:[\s\S]*"Old one"/); // not listed twice
-  expect(sec).toContain('- note "Bella vet", Friday (2026-10-02)');
+  expect(sec).toContain('- note "Bella vet", Friday 2 October');
   // nothing matched and nothing due: the block still tells the reply no card goes with it
   expect(theirItemsPromptSection({ related: [], attention: [] }, '2026-09-29')).toContain(
     'No card goes with this reply',
@@ -1070,7 +1072,10 @@ test('a habit check-in is a card under a normal reply, unless that day is alread
     inPassing: true,
     change: { field: 'logged', from: null, to: '2026-09-29' },
   });
-  expect(entityCardPromptSection(fresh)).toContain('log it for 2026-09-29');
+  expect(entityCardPromptSection(fresh)).toContain('log it for Tuesday 29 September');
+  expect(entityCardPromptSection(fresh, { todayIso: '2026-09-29' })).toContain(
+    'log it for today, Tuesday 29 September',
+  );
   expect(applyEntityCardToTriage({ mode: 'celebration' }, fresh).mode).toBe('celebration');
   const counted = decideCard(
     {
@@ -1101,14 +1106,14 @@ test('a habit check-in is a card under a normal reply, unless that day is alread
   );
   expect(habitProgressWords(run, '2026-09-29')).toBe('logged this week: yesterday (1 of 3)');
   expect(habitProgressWords({ ...run, logged_days: ['2026-09-20'] }, '2026-09-29')).toBe(
-    'nothing logged this week (target 3), last 2026-09-20',
+    'nothing logged this week (target 3), last Sunday 20 September',
   );
   expect(
     habitProgressWords(
       { ...run, cadence: 'daily', logged_days: ['2026-09-29', '2026-09-27', '2026-09-20'] },
       '2026-09-29',
     ),
-  ).toBe('logged 2 of the last 7 days, last today (2026-09-29)');
+  ).toBe('logged 2 of the last 7 days, last today, Tuesday 29 September');
   expect(
     theirItemsPromptSection({ related: [{ ...run, referred: true }], attention: [] }, '2026-09-29'),
   ).toContain('- habit "10k training run", 3 times a week, logged this week: yesterday (1 of 3)');
@@ -1441,4 +1446,113 @@ test('the reply knows what the chat is about and never calls that item news', ()
     mode: 'update',
   });
   expect(plain).not.toContain('opened about');
+});
+
+// ── What the reply is told, in words it will not get wrong ──────────────────
+
+test('a card names the item as it is set now, and the change, in words', () => {
+  const vet = {
+    id: 'v1',
+    type: 'note',
+    title: 'Bella Vet Appointment',
+    due_day: '2026-10-02',
+    due_time: '15:00',
+  };
+  const timeCard = {
+    kind: 'edit',
+    entity: vet,
+    change: { field: 'due_time', from: '15:00', to: '16:00' },
+  };
+  const sec = entityCardPromptSection(timeCard, { todayIso: '2026-09-29' });
+  // the reply knows the day a time change is on
+  expect(sec).toContain('note "Bella Vet Appointment" (Friday 2 October at 15:00)');
+  expect(sec).toContain('change its time to 16:00 on Friday 2 October');
+  const todo = { id: 't1', type: 'todo', title: 'Call Kim and Andrew', due_day: '2026-09-29' };
+  const move = entityCardPromptSection(
+    {
+      kind: 'edit',
+      entity: todo,
+      change: { field: 'due_day', from: '2026-09-29', to: '2026-10-02' },
+    },
+    { todayIso: '2026-09-29' },
+  );
+  expect(move).toContain('todo "Call Kim and Andrew" (due today, Tuesday 29 September)');
+  expect(move).toContain('move it to Friday 2 October');
+  expect(
+    entityCardPromptSection(
+      { kind: 'view', intent: 'view', entity: { id: 'x', type: 'todo', title: 'Undated' } },
+      { todayIso: '2026-09-29' },
+    ),
+  ).toContain('todo "Undated" (no day set)');
+  expect(
+    entityCardPromptSection(
+      {
+        kind: 'view',
+        intent: 'view',
+        entity: { id: 'h', type: 'habit', title: 'Run', frequency: 'weekly' },
+      },
+      {},
+    ),
+  ).toContain('habit "Run" (weekly)');
+});
+
+test('a last card that only showed the item is not waiting on a tap', () => {
+  const base = { id: 'v1', type: 'note', title: 'Bella Vet Appointment', status: 'pending' };
+  // older apps send only the status: as before
+  expect(recentCardPromptSection(base)).toContain('waiting on their tap');
+  expect(recentCardPromptSection({ ...base, card: { kind: 'edit' } })).toContain(
+    'waiting on their tap',
+  );
+  const already = recentCardPromptSection({
+    ...base,
+    card: { kind: 'view', intent: 'view', already: true },
+  });
+  expect(already).toContain('already set the way they asked');
+  expect(already).not.toContain('waiting on their tap');
+  const shown = recentCardPromptSection({ ...base, card: { kind: 'view', intent: 'view' } });
+  expect(shown).toContain('proposed no change');
+  expect(shown).not.toContain('waiting on their tap');
+  expect(recentCardPromptSection({ ...base, card: { kind: 'view', intent: 'confirm' } })).toContain(
+    'check it was the one they meant',
+  );
+  expect(recentCardPromptSection({ ...base, card: { kind: 'view', intent: 'edit' } })).toContain(
+    'without saying what to',
+  );
+});
+
+test('the reply never offers a change an item already has, nor calls a look alike theirs', () => {
+  const sec = theirItemsPromptSection({ related: [], attention: [] }, '2026-09-29', {
+    mode: 'update',
+  });
+  expect(sec).toContain('Never offer to change an item to what it already is');
+  expect(sec).toContain('only shares a word or a subject with what they said is a different thing');
+});
+
+test('the same-thing check has the last word on each item it answers for', async () => {
+  configureModels({ ENTITY_CARDS: 'on', OPENAI_API_KEY: 'k' });
+  const list = [{ id: 'e6fdc1b7-0000', type: 'todo', title: 'Plan Christmas In California' }];
+  const answer = (content) => async () =>
+    new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200 });
+  // the extractor was unsure and pointed at a listed item; the check says it is new
+  globalThis.fetch = answer('{"results":[{"index":0,"same_as":null}]}');
+  const cleared = await checkNewAgainstTracked(
+    [{ type: 'todo', title: 'Renew passport', same_as: 'e6fdc1b7', evidence: 'x' }],
+    list,
+  );
+  expect(cleared[0].same_as).toBeUndefined();
+  // the check agrees: it stays that item
+  globalThis.fetch = answer('{"results":[{"index":0,"same_as":"e6fdc1b7"}]}');
+  const kept = await checkNewAgainstTracked(
+    [{ type: 'todo', title: 'Plan a California Christmas', same_as: 'e6fdc1b7', evidence: 'x' }],
+    list,
+  );
+  expect(kept[0].same_as).toBe('e6fdc1b7');
+  // no answer for an item (the check failed): the extractor's mark stands
+  globalThis.fetch = answer('{"results":[]}');
+  const untouched = await checkNewAgainstTracked(
+    [{ type: 'todo', title: 'x', same_as: 'e6fdc1b7', evidence: 'x' }],
+    list,
+  );
+  expect(untouched[0].same_as).toBe('e6fdc1b7');
+  delete globalThis.fetch;
 });

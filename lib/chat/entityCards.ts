@@ -426,12 +426,22 @@ export function recentEntityFor(messages: SpaceChatMessage[]): RecentEntity | nu
       summary?: string | null;
     };
     if (meta.card.kind === 'choose') return null;
-    return declinedOrShown(
-      meta.card.entity,
-      meta.status || 'pending',
-      meta.summary ?? null,
-      turnsAgo,
-    );
+    return {
+      ...declinedOrShown(
+        meta.card.entity,
+        meta.status || 'pending',
+        meta.summary ?? null,
+        turnsAgo,
+      ),
+      card:
+        meta.card.kind === 'edit'
+          ? { kind: 'edit' }
+          : {
+              kind: 'view',
+              intent: meta.card.intent ?? null,
+              already: !!meta.card.already,
+            },
+    };
   }
   return null;
 }

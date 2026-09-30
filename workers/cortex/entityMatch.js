@@ -269,7 +269,7 @@ Decide, in this order:
 - refers: true when the message is about one specific item on the list, whether it names the item, points at it, or describes the same thing in different words. What they call it is their word for it, not a filter: when what they describe matches an item of another kind, a todo they call a note or a note they call a reminder, that item is the one they mean, and refers is true. Sharing a word or a topic with an item is not referring to it, describing something new is not referring to an existing item, and when their words cover an area of work, a project or several items at once, no single item is meant: refers is false and the items concerned go in about.
 - entity_id: the id of that item, or null.
 - intent: "edit" when the message is a request or an instruction about the item: to move it, reschedule it, rename it, give it another time or another frequency, add something to a note or to a todo, or a statement, in whatever words, that the item as it is set has to change, even without saying what to. "complete" when their words say a todo is done, whether they announce it as news or ask for it to be marked. "logged" when they say they did a habit: change is field logged with the day they did it as YYYY-MM-DD, today unless they name another day, whether or not that day is already logged. "view" only when they ask for the item itself: to see it, open it, read it back, or be told what it says or when it is. Asking for help, options, ideas or information about the subject an item is about is not a request to see the item; that is mention, or none. "mention" when they are telling you about the item rather than asking for anything: what they plan to do, when they now expect to do it, what has happened with it, or details about it. A plan or an intention is news, not an instruction, even when it names a day. Details about a note's subject that come up in passing are also mention, with change null: the app offers to add them to the note afterwards, and a note's title does not change because its subject grew. "none" when the message only shares a topic with it.
-- change: for edit and mention, the single field their words give a new value for, else null. Fields: due_day (YYYY-MM-DD), due_time (HH:MM, 24 hour), name (the new title), frequency (plain words; habits only), logged (YYYY-MM-DD; habits only, the day they did it), body_add (text to add to a note or to a todo's notes, in their words, only when they ask for it to be added). A due_day is the one calendar day their words point to, counted from today's date. Words point to one day when they name a day or a date, count days or weeks from today, give a deadline as the end of a period (its last day; whether a week ends on Friday or Sunday follows from what the item is), or give a short span of two or three days (its first day). A day of the month with no month named is the next such day after today. Words point to no single day when they give a month, a season, a vague time, or a different week or month without saying which day in it; then the value is null and the card asks which day. A day mentioned for some other reason, such as being busy on it, is not the new value. Null when they want a change but have not said what to, or the change is unclear.
+- change: for edit and mention, the single field their words give a new value for, else null. Fields: due_day (YYYY-MM-DD), due_time (HH:MM, 24 hour), name (the new title), frequency (plain words; habits only), logged (YYYY-MM-DD; habits only, the day they did it), body_add (text to add to a note or to a todo's notes, in their words, only when they ask for it to be added). A due_day is the one calendar day their words point to, counted from today's date. Words point to one day when they name a day or a date, count days or weeks from today, give a deadline as the end of a period (its last day; whether a week ends on Friday or Sunday follows from what the item is), or give a short span of two or three days (its first day). A day of the month with no month named is the next such day after today. Words point to no single day when they give a month, a season, a vague time, or a different week or month without saying which day in it; then the value is null and the card asks which day. A deadline is met by any day up to it: when the item already has a day from today up to the deadline their words give, the value is the day it already has, because nothing needs to move. A day mentioned for some other reason, such as being busy on it, is not the new value. Null when they want a change but have not said what to, or the change is unclear.
 - about: the ids of the items the message is about, whether or not refers is true: the item they are discussing, or the very piece of work they are talking about. Empty when it is about none of them. An item that is only on the same subject, one that merely shares a word with the message, or a note that records a past day does not belong here; a reply that name-drops such an item feels like being watched, so leave them out.
 - confidence: 0 to 100, how sure you are that entity_id is the item they mean.
 - ask: true only when they are asking for something to happen to one item (an edit, a completion, or to see it) and two or more items fit about equally; then list those ids in candidates. A loose description still refers to one of their items when any fit it: pick the one that fits best when one clearly does, ask when several fit, and answer refers false only when none of their items could be the one they mean. Never ask about a topic they are merely talking about.
@@ -565,7 +565,7 @@ export function habitProgressWords(h, todayIso) {
   const start = weekStartOf(todayIso);
   const week = logged.filter((d) => d >= start);
   const target = h.cadence === 'weekly' || !h.cadence ? h.target_per_period : null;
-  const days = week.map((d) => dayInWords(d, todayIso).replace(/ \(.*\)$/, '')).join(', ');
+  const days = week.map((d) => dayInOneWord(d, todayIso)).join(', ');
   const base = week.length
     ? `logged this week: ${days}${target ? ` (${week.length} of ${target})` : ''}`
     : `nothing logged this week${target ? ` (target ${target})` : ''}`;
@@ -616,19 +616,54 @@ export function todayIsoIn(timeZone) {
 }
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-/** A day as the reply should say it: today, tomorrow, a weekday this week, else the date. */
+const MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const weekdayOf = (day) => {
+  const [y, m, dd] = day.split('-').map(Number);
+  return DAY_NAMES[new Date(Date.UTC(y, m - 1, dd)).getUTCDay()];
+};
+
+/**
+ * A day as the reply should say it: its weekday and date in words, led by
+ * today, tomorrow or yesterday when it is one of those, so the reply never has
+ * to work out a weekday from a date. The year shows only when it is not this one.
+ */
 export function dayInWords(day, todayIso) {
   if (!day) return '';
-  if (!todayIso || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return day;
+  if (!ISO_DAY.test(day)) return day;
+  const [y, m, dd] = day.split('-').map(Number);
+  const known = todayIso && ISO_DAY.test(todayIso);
+  const sameYear = !known || todayIso.slice(0, 4) === day.slice(0, 4);
+  const date = `${weekdayOf(day)} ${dd} ${MONTH_NAMES[m - 1]}${sameYear ? '' : ` ${y}`}`;
+  if (!known) return date;
   const d = daysBetween(todayIso, day);
-  if (d === 0) return `today (${day})`;
-  if (d === 1) return `tomorrow (${day})`;
-  if (d === -1) return `yesterday (${day})`;
-  if (d > 1 && d < 7) {
-    const [y, m, dd] = day.split('-').map(Number);
-    return `${DAY_NAMES[new Date(Date.UTC(y, m - 1, dd)).getUTCDay()]} (${day})`;
-  }
-  return day;
+  if (d === 0) return `today, ${date}`;
+  if (d === 1) return `tomorrow, ${date}`;
+  if (d === -1) return `yesterday, ${date}`;
+  return date;
+}
+
+/** A day in one word, for lists of days: today, yesterday, tomorrow or its weekday. */
+function dayInOneWord(day, todayIso) {
+  if (!ISO_DAY.test(day || '')) return day || '';
+  const d = todayIso && ISO_DAY.test(todayIso) ? daysBetween(todayIso, day) : null;
+  if (d === 0) return 'today';
+  if (d === -1) return 'yesterday';
+  if (d === 1) return 'tomorrow';
+  return weekdayOf(day);
 }
 
 function itemLine(c, todayIso) {
@@ -637,10 +672,10 @@ function itemLine(c, todayIso) {
     const progress = habitProgressWords(c, todayIso);
     when = `${c.frequency ? `, ${c.frequency}` : ''}${progress ? `, ${progress}` : ''}`;
   } else if (c.due_day && c.type === 'note') {
-    when = `, ${dayInWords(c.due_day, todayIso)}${c.due_time ? ` ${c.due_time}` : ''}`;
+    when = `, ${dayInWords(c.due_day, todayIso)}${c.due_time ? ` at ${c.due_time}` : ''}`;
   } else if (c.due_day) {
     const overdue = todayIso && c.due_day < todayIso;
-    when = `, ${overdue ? 'was due' : 'due'} ${dayInWords(c.due_day, todayIso)}${c.due_time ? ` ${c.due_time}` : ''}${overdue ? ' (overdue)' : ''}`;
+    when = `, ${overdue ? 'was due' : 'due'} ${dayInWords(c.due_day, todayIso)}${c.due_time ? ` at ${c.due_time}` : ''}${overdue ? ' (overdue)' : ''}`;
   } else when = c.type === 'todo' ? ', no day set' : '';
   return `- ${c.type} "${c.title}"${when}`;
 }
@@ -668,7 +703,7 @@ export function theirItemsPromptSection(match, todayIso, opts = {}) {
   const anchor = opts.anchor && opts.anchor.title && !opts.anchor.gone ? opts.anchor : null;
   const parts = [
     '=== WHAT THEY HAVE ON ===',
-    "Their own items, as they stand right now. You know these exist. When one bears on what they said, say so plainly and in passing, in your own words: that it is already on their list, when it is, that it is overdue. You may offer the natural next step for the item they are talking about (moving it, marking it done) as a plain question in your own words; the app handles the confirmation, so never mention a card, a button or tapping, never say you will set anything up or get anything ready, never say a change has been made, and never offer to change several at once: one item per offer. Never offer to move something else to make room. Never say something is on their list unless it is listed here; if they ask for something to be done to an item you cannot see here, ask which one they mean. An item named anywhere else in what you know about them, such as their life map, earlier chats or upcoming dates, is history: it may since have been done, archived or renamed, so never say it is on their list and never offer to change it unless it is listed here. Never read the list out, never mention more than one or two, and leave them alone when the conversation is elsewhere. An overdue item is not on any particular day, so never present it as part of a day's plan. A habit line shows what has been logged; when they say they did a habit on a day that is already logged, say it is already counted, and you may speak to how the habit is going from what is logged.",
+    "Their own items, as they stand right now. You know these exist. When one bears on what they said, say so plainly and in passing, in your own words: that it is already on their list, when it is, that it is overdue. You may offer the natural next step for the item they are talking about (moving it, marking it done) as a plain question in your own words; the app handles the confirmation, so never mention a card, a button or tapping, never say you will set anything up or get anything ready, never say a change has been made, and never offer to change several at once: one item per offer. Never offer to move something else to make room. Never offer to change an item to what it already is; when what they say matches how it is set, say that it already is. Never say something is on their list unless it is listed here and is the very thing they mean: an item that only shares a word or a subject with what they said is a different thing. If they ask for something to be done to an item you cannot see here, ask which one they mean. An item named anywhere else in what you know about them, such as their life map, earlier chats or upcoming dates, is history: it may since have been done, archived or renamed, so never say it is on their list and never offer to change it unless it is listed here. Never read the list out, never mention more than one or two, and leave them alone when the conversation is elsewhere. An overdue item is not on any particular day, so never present it as part of a day's plan. A habit line shows what has been logged; when they say they did a habit on a day that is already logged, say it is already counted, and you may speak to how the habit is going from what is logged.",
   ];
   if (anchor) {
     parts.push(
@@ -856,12 +891,16 @@ export async function checkNewAgainstTracked(extractions, items) {
     const answer = parseJson(json.choices?.[0]?.message?.content || '');
     const byKey = new Map(live.map((c) => [c.key, c]));
     const results = Array.isArray(answer?.results) ? answer.results : [];
+    // The check has the last word on each item it answers for: the extractor
+    // marks what it is unsure of, and here that is judged against the whole list.
     for (const r of results) {
       const e = news[Number(r?.index)];
+      if (!e) continue;
       const hit = r?.same_as
         ? byKey.get(String(r.same_as)) || live.find((c) => c.id === r.same_as)
         : null;
-      if (e && hit && !e.same_as) e.same_as = hit.key;
+      if (hit) e.same_as = hit.key;
+      else delete e.same_as;
     }
     return extractions;
   } catch (err) {
@@ -893,16 +932,28 @@ export function applyEntityCardToTriage(triage, card) {
   };
 }
 
-function changeInWords(card) {
+function changeInWords(card, todayIso = null) {
   const f = card.change.field;
+  const day = card.entity?.due_day || card.entity?.target_date || null;
   if (f === 'completed') return 'mark it done';
-  if (f === 'due_day') return `move it to ${card.change.to}`;
-  if (f === 'due_time') return `change its time to ${card.change.to}`;
+  if (f === 'due_day') return `move it to ${dayInWords(card.change.to, todayIso)}`;
+  if (f === 'due_time')
+    return `change its time to ${card.change.to}${day ? ` on ${dayInWords(day, todayIso)}` : ''}`;
   if (f === 'name') return `rename it to ${card.change.to}`;
   if (f === 'frequency') return `change its frequency to ${card.change.to}`;
   if (f === 'body_add') return `add to it: ${card.change.to}`;
-  if (f === 'logged') return `log it for ${card.change.to}`;
+  if (f === 'logged') return `log it for ${dayInWords(card.change.to, todayIso)}`;
   return `update it to ${card.change.to}`;
+}
+
+/** Their item as the card shows it: its kind and title, with how it is set now, in words. */
+function cardItem(e, todayIso = null) {
+  const named = `their ${e.type} "${e.title}"`;
+  if (e.type === 'habit') return e.frequency ? `${named} (${e.frequency})` : named;
+  const day = e.due_day || e.target_date || null;
+  const at = e.due_time ? ` at ${e.due_time}` : '';
+  if (day) return `${named} (${e.type === 'todo' ? 'due ' : ''}${dayInWords(day, todayIso)}${at})`;
+  return e.type === 'todo' ? `${named} (no day set)` : named;
 }
 
 /**
@@ -923,6 +974,20 @@ export function recentCardPromptSection(recent) {
     return `\n\n=== LAST CARD ===\nEarlier in this chat the app showed the user a card for ${item} and they said it was not the one they meant. Do not offer that item again; ask which one they mean, or help them say it another way.`;
   }
   if (recent.status === 'pending') {
+    // what the card was for, when the app says (older apps send only the status)
+    const kind = recent.card?.kind;
+    if (kind === 'view' && recent.card.already) {
+      return `\n\n=== LAST CARD ===\nEarlier in this chat the app showed the user a card for ${item} because it was already set the way they asked. Nothing needed to change and nothing is waiting on them; if they ask whether it changed, say it was already that way.`;
+    }
+    if (kind === 'view' && recent.card.intent === 'confirm') {
+      return `\n\n=== LAST CARD ===\nEarlier in this chat the app showed the user a card for ${item} to check it was the one they meant, and they have not said. Nothing about it has changed.`;
+    }
+    if (kind === 'view' && recent.card.intent === 'edit') {
+      return `\n\n=== LAST CARD ===\nEarlier in this chat the app showed the user a card for ${item} because they wanted to change it without saying what to. Nothing about it has changed; it changes once they say what should change and confirm it.`;
+    }
+    if (kind === 'view') {
+      return `\n\n=== LAST CARD ===\nEarlier in this chat the app showed the user a card for ${item} so they could see it. It proposed no change, so nothing is waiting on them and nothing about it has changed.`;
+    }
     return `\n\n=== LAST CARD ===\nEarlier in this chat the app showed the user a card for ${item} and they have not tapped it. Nothing about it has changed; if they ask, it is waiting on their tap.`;
   }
   return '';
@@ -952,30 +1017,33 @@ export function anchorPromptSection(anchor, todayIso, opts = {}) {
 /** The section added to the reply prompt when a card is being shown. */
 export function entityCardPromptSection(card, opts = {}) {
   if (!card) return '';
+  const todayIso = opts.todayIso || null;
+  const item = card.entity ? cardItem(card.entity, todayIso) : '';
+  const change = card.change ? changeInWords(card, todayIso) : '';
   const never =
     "Nothing has been changed; the user decides with one tap on the card. Never say you have changed, moved, updated or saved anything, never say you will set anything up, and never mention a card, a button or tapping. Do not repeat the item's details, do not give advice, and do not use a list or numbered steps.";
   if (card.kind === 'edit' && card.inPassing) {
     // the item a chat was opened about is one they know they have
     const say =
       opts.anchorId && card.entity.id === opts.anchorId
-        ? `offer to ${changeInWords(card)} if they want`
-        : `let them know that item is already on their list and you can ${changeInWords(card)} if they want`;
-    return `\n\n=== ENTITY CARD ===\nBecause of what they just said, the app is showing a card under your reply for their ${card.entity.type} "${card.entity.title}", proposing to ${changeInWords(card)}. Nothing has changed; they decide with one tap. Reply to what they said the way you normally would, and in one clause, in your own words, ${say}. Never mention a card, a button or tapping, never say you will set anything up or get anything ready, and never say it is done or updated.`;
+        ? `offer to ${change} if they want`
+        : `let them know that item is already on their list and you can ${change} if they want`;
+    return `\n\n=== ENTITY CARD ===\nBecause of what they just said, the app is showing a card under your reply for ${item}, proposing to ${change}. Nothing has changed; they decide with one tap. Reply to what they said the way you normally would, and in one clause, in your own words, ${say}. Never mention a card, a button or tapping, never say you will set anything up or get anything ready, and never say it is done or updated.`;
   }
   if (card.kind === 'edit') {
-    return `\n\n=== ENTITY CARD ===\nThe app is showing the user a card for their ${card.entity.type} "${card.entity.title}" proposing to ${changeInWords(card)}. ${never} Reply with one short, warm line asking whether that is the one, and stop.`;
+    return `\n\n=== ENTITY CARD ===\nThe app is showing the user a card for ${item} proposing to ${change}. ${never} Reply with one short, warm line asking whether that is the one, and stop.`;
   }
   if (card.kind === 'view' && card.intent === 'edit') {
-    return `\n\n=== ENTITY CARD ===\nThe app is showing the user a card for their ${card.entity.type} "${card.entity.title}". They want to change it but have not said what to. ${never} Reply with one short line asking what should change, such as its day, its time or its name, and stop.`;
+    return `\n\n=== ENTITY CARD ===\nThe app is showing the user a card for ${item}. They want to change it but have not said what to. ${never} Reply with one short line asking what should change, such as its day, its time or its name, and stop.`;
   }
   if (card.kind === 'view' && card.intent === 'confirm') {
-    return `\n\n=== ENTITY CARD ===\nThe app is showing the user a card for their ${card.entity.type} "${card.entity.title}", which may be the one they mean. ${never} Reply with one short line asking whether that is the one, and stop.`;
+    return `\n\n=== ENTITY CARD ===\nThe app is showing the user a card for ${item}, which may be the one they mean. ${never} Reply with one short line asking whether that is the one, and stop.`;
   }
   if (card.kind === 'view' && card.already) {
-    return `\n\n=== ENTITY CARD ===\nThe app is showing the user a card for their ${card.entity.type} "${card.entity.title}" under your reply. It is already set the way they asked, so nothing needs to change; say that in one short line.`;
+    return `\n\n=== ENTITY CARD ===\nThe app is showing the user a card for ${item} under your reply. It is already set the way they asked, so nothing needs to change; say that in one short line.`;
   }
   if (card.kind === 'view') {
-    return `\n\n=== ENTITY CARD ===\nThe app is showing the user a card for their ${card.entity.type} "${card.entity.title}" under your reply. Refer to it naturally; do not repeat its details, and do not claim to have changed anything.`;
+    return `\n\n=== ENTITY CARD ===\nThe app is showing the user a card for ${item} under your reply. Refer to it naturally; do not repeat its details, and do not claim to have changed anything.`;
   }
   if (card.kind === 'choose') {
     return `\n\n=== ENTITY CARD ===\nThe app is showing the user ${card.candidates.length} of their items that might be the one they mean, so they can pick with a tap. ${never} Reply with one short line asking which one they mean, without naming them, and stop.`;

@@ -11806,7 +11806,10 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               return msg;
             });
 
-            if (entityCard) genConfig.systemPrompt += entityCardPromptSection(entityCard);
+            if (entityCard)
+              genConfig.systemPrompt += entityCardPromptSection(entityCard, {
+                todayIso: todayIsoIn(userTimezone),
+              });
             genConfig.systemPrompt += recentCardPromptSection(body.recentEntity);
             genConfig.systemPrompt += theirItemsPromptSection(
               entityMatch,
@@ -12648,6 +12651,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             if (entityCard)
               genConfig.systemPrompt += entityCardPromptSection(entityCard, {
                 anchorId: anchor?.id || null,
+                todayIso: todayIsoIn(userTimezone),
               });
             genConfig.systemPrompt += recentCardPromptSection(body.recentEntity);
             genConfig.systemPrompt += anchorPromptSection(anchor, todayIsoIn(userTimezone), {
@@ -13147,7 +13151,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     ];
                     const existingItemsBlock =
                       existingLines.length > 0
-                        ? `\nITEMS ALREADY TRACKED IN THE USER'S SYSTEM (do NOT re-extract these or close paraphrases):\n${existingLines.join('\n')}\n${
+                        ? `\nITEMS ALREADY TRACKED IN THE USER'S SYSTEM (do NOT extract these again, in these words or in others; something is one of these only when it is the same thing):\n${existingLines.join('\n')}\n${
                             editsOn
                               ? aboutTrackedNote(entityMatch?.related) + cardTrackedNote(entityCard)
                               : ''
@@ -14732,7 +14736,10 @@ function runScopedChatStream(
         return msg;
       });
 
-      if (entityCard) genConfig.systemPrompt += entityCardPromptSection(entityCard);
+      if (entityCard)
+        genConfig.systemPrompt += entityCardPromptSection(entityCard, {
+          todayIso: todayIsoIn(userTimezone),
+        });
       genConfig.systemPrompt += recentCardPromptSection(body.recentEntity);
       genConfig.systemPrompt += theirItemsPromptSection(entityMatch, todayIsoIn(userTimezone), {
         mode: triage.mode,
