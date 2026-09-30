@@ -1,37 +1,40 @@
 /**
  * @jest-environment node
  *
- * The entity matcher: candidate ranking, turning the model's answer into a
- * card (or nothing), the prompt section, and the extraction's edits job.
+ * The entity matcher's plumbing: the item list the model sees, turning its
+ * answer into a card (or nothing), the prompt sections, and the pill's edits.
+ * Nothing here judges meaning; that is the model's, and the scenario replay
+ * in scripts/chat-audit covers it with the real models.
  */
 import {
-  rankCandidates,
   candidatesFor,
   decideCard,
+  aboutItems,
+  dayInWords,
+  checkNewAgainstTracked,
   buildEntityMatchInput,
   entityCardPromptSection,
   applyEntityCardToTriage,
   recentCardPromptSection,
-  relatedItemsPromptSection,
   theirItemsPromptSection,
   attentionItems,
-  todayIsoIn,
   noteDay,
   matchEntity,
   CONFIDENCE_FLOOR,
-  VIEW_FLOOR,
 } from '../entityMatch.js';
 import {
   editsToPillItems,
-  mentionEditItem,
-  withoutCardDuplicates,
-  reconcileWithExisting,
+  cardTrackedNote,
+  aboutTrackedNote,
+  reconcileSameAs,
   mergePillItems,
+  buildPillPrompt,
+  buildSummaryPrompt,
   withEditsRule,
   withEvidenceRule,
   buildChatExtractionPrompt,
 } from '../chatPrompts.js';
-import { configureModels } from '../models.js';
+import { configureModels, models } from '../models.js';
 
 const items = [
   { id: 'aaaa1111-0000', type: 'todo', title: 'Dentist', due_day: '2026-09-30', due_time: '14:00' },
@@ -54,17 +57,8 @@ const items = [
 
 afterEach(() => configureModels({}));
 
-test('rankCandidates picks items whose words the message uses, best first', () => {
-  const r = rankCandidates('can you move my dentist appointment to thursday', items);
-  expect(r[0].title).toBe('Dentist');
-  expect(r.map((x) => x.title)).not.toContain('Morning run');
-  const g = rankCandidates('rename the gym habit to strength', items);
-  expect(g.map((x) => x.title)).toContain('Strength at Live Fit');
-  expect(rankCandidates('how are you today', items)).toEqual([]);
-});
-
 test('decideCard: a confident edit becomes an edit card with from and to', () => {
-  const cands = rankCandidates('move my dentist to thursday', items);
+  const cands = candidatesFor('move my dentist to thursday', items, null);
   const card = decideCard(
     {
       refers: true,
@@ -84,7 +78,7 @@ test('decideCard: a confident edit becomes an edit card with from and to', () =>
 });
 
 test('decideCard: below the floor it asks, an unknown id or refers false is nothing, a bad date is a view', () => {
-  const cands = rankCandidates('move my dentist to thursday', items);
+  const cands = candidatesFor('move my dentist to thursday', items, null);
   const low = decideCard(
     {
       refers: true,
@@ -130,28 +124,265 @@ test('decideCard: below the floor it asks, an unknown id or refers false is noth
 });
 
 test('decideCard: ask with two known candidates gives a choose card; complete marks a todo done', () => {
-  const cands = rankCandidates('rename my strength habit', [
-    ...items,
-    { id: 'ffff6666-0000', type: 'habit', title: 'Strength stretches', frequency: 'daily' },
-  ]);
+  const cands = candidatesFor(
+    'rename my strength habit',
+    [
+      ...items,
+      { id: 'ffff6666-0000', type: 'habit', title: 'Strength stretches', frequency: 'daily' },
+    ],
+    null,
+  );
+  // the model may answer with the short keys it was shown or with full ids; the
+  // "which one?" card needs no intent, only two known candidates
   const choose = decideCard(
     {
       refers: false,
       entity_id: null,
-      intent: 'edit',
-      confidence: 40,
+      intent: 'none',
+      confidence: 0,
       ask: true,
-      candidates: ['dddd4444-0000', 'ffff6666-0000', 'zzz'],
+      candidates: ['dddd4444', 'ffff6666-0000', 'zzz'],
     },
     cands,
   );
   expect(choose.kind).toBe('choose');
   expect(choose.candidates.map((c) => c.id)).toEqual(['dddd4444-0000', 'ffff6666-0000']);
+  expect(
+    decideCard({ refers: false, entity_id: null, ask: true, candidates: ['dddd4444'] }, cands),
+  ).toBeNull();
   const done = decideCard(
-    { refers: true, entity_id: 'aaaa1111-0000', intent: 'complete', confidence: 90 },
-    rankCandidates('dentist done', items),
+    { refers: true, entity_id: 'aaaa1111', intent: 'complete', confidence: 90 },
+    candidatesFor('dentist done', items, null),
   );
-  expect(done).toMatchObject({ kind: 'edit', change: { field: 'completed', to: 'done' } });
+  expect(done).toMatchObject({
+    kind: 'edit',
+    entity: { id: 'aaaa1111-0000' },
+    change: { field: 'completed', to: 'done' },
+  });
+});
+
+test('the model sees every live item, the last card first, journal entries left out, each with a short key', () => {
+  const list = [
+    ...items,
+    {
+      id: 'jjjj7777-0000',
+      type: 'note',
+      subtype: 'journal',
+      title: 'Felt tired',
+      due_day: '2026-09-20',
+    },
+    { id: 'aaaa1111-9999', type: 'todo', title: 'Dentist bill' }, // same first 8 chars as Dentist
+  ];
+  const all = candidatesFor('anything at all', list, null);
+  expect(all.map((c) => c.id)).toEqual([
+    'aaaa1111-0000',
+    'bbbb2222-0000',
+    'cccc3333-0000',
+    'dddd4444-0000',
+    'eeee5555-0000',
+    'aaaa1111-9999',
+  ]);
+  expect(all[0].key).toBe('aaaa1111');
+  expect(all[5].key).toBe('aaaa1111-'); // lengthened past the clash
+  // the item on the last card comes first and is marked, live fields and all
+  const recent = { id: 'cccc3333-0000', type: 'habit', title: 'Morning run' };
+  const withRecent = candidatesFor('move it', list, recent);
+  expect(withRecent[0]).toMatchObject({ id: 'cccc3333-0000', shown: true, frequency: 'weekdays' });
+  expect(withRecent.filter((c) => c.id === 'cccc3333-0000')).toHaveLength(1);
+  // a recent item the fetch did not return still counts
+  const gone = candidatesFor('rename it', list, {
+    id: 'zzzz9999-0000',
+    type: 'todo',
+    title: 'Old',
+  });
+  expect(gone[0]).toMatchObject({ id: 'zzzz9999-0000', title: 'Old', shown: true });
+  expect(candidatesFor('x', list, { id: 'x', type: 'space', title: 'Nope' })[0].id).toBe(
+    'aaaa1111-0000',
+  );
+  expect(
+    buildEntityMatchInput({ todayStr: 'x', message: 'move it', candidates: withRecent }),
+  ).toContain('- id cccc3333 [habit] Morning run (weekdays) [shown on the card in the last reply]');
+});
+
+test('the reply hears the items the model says the message is about, the referred one first', () => {
+  const cands = candidatesFor('m', items, null);
+  const decision = { kind: 'mention', entity: cands[1] };
+  const about = aboutItems(
+    { about: ['aaaa1111', 'bbbb2222-0000', 'nope', 'eeee5555'] },
+    cands,
+    decision,
+  );
+  expect(about.map((c) => c.id)).toEqual(['bbbb2222-0000', 'aaaa1111-0000', 'eeee5555-0000']);
+  expect(about[0].referred).toBe(true);
+  expect(aboutItems({}, cands, null)).toEqual([]);
+  // a feelings turn passes on only the item they themselves brought up
+  const strict = theirItemsPromptSection({ related: about, attention: [] }, '2026-09-29', {
+    mode: 'emotional',
+  });
+  expect(strict).toContain('"Book flights to Berlin"');
+  expect(strict).not.toContain('"Dentist"');
+  const open = theirItemsPromptSection({ related: about, attention: [] }, '2026-09-29', {
+    mode: 'update',
+  });
+  expect(open).toContain('"Dentist", due tomorrow (2026-09-30) 14:00');
+});
+
+test('days are said in words the reply will not get wrong', () => {
+  expect(dayInWords('2026-09-29', '2026-09-29')).toBe('today (2026-09-29)');
+  expect(dayInWords('2026-09-30', '2026-09-29')).toBe('tomorrow (2026-09-30)');
+  expect(dayInWords('2026-09-28', '2026-09-29')).toBe('yesterday (2026-09-28)');
+  expect(dayInWords('2026-10-02', '2026-09-29')).toBe('Friday (2026-10-02)');
+  expect(dayInWords('2026-10-06', '2026-09-29')).toBe('2026-10-06'); // a week away: the date
+  expect(dayInWords('2026-10-06', null)).toBe('2026-10-06');
+  expect(dayInWords(null, '2026-09-29')).toBe('');
+});
+
+test('an explicit add to a note is a card; details said in passing are left to the pill', () => {
+  const note = candidatesFor(
+    'm',
+    [{ id: 'nnnn0000-0000', type: 'note', title: 'Lisbon trip ideas' }],
+    null,
+  );
+  const asked = decideCard(
+    {
+      refers: true,
+      entity_id: 'nnnn0000',
+      intent: 'edit',
+      change: { field: 'body_add', value: 'Porto' },
+      confidence: 95,
+    },
+    note,
+  );
+  expect(asked).toMatchObject({
+    kind: 'edit',
+    change: { field: 'body_add', from: null, to: 'Porto' },
+  });
+  expect(entityCardPromptSection(asked)).toContain('add to it: Porto');
+  const passing = decideCard(
+    {
+      refers: true,
+      entity_id: 'nnnn0000',
+      intent: 'mention',
+      change: { field: 'body_add', value: 'Porto' },
+      confidence: 95,
+    },
+    note,
+  );
+  expect(passing).toMatchObject({ kind: 'mention', change: null });
+  // a todo has no body to add to
+  expect(
+    decideCard(
+      {
+        refers: true,
+        entity_id: 'aaaa1111',
+        intent: 'edit',
+        change: { field: 'body_add', value: 'x' },
+        confidence: 95,
+      },
+      candidatesFor('m', items, null),
+    ),
+  ).toMatchObject({ kind: 'view', intent: 'edit' });
+});
+
+test('the extractor is told what this turn is about and what the card already covers', () => {
+  const card = {
+    entity: { id: 'wwww0000-0000', type: 'todo', title: 'Build Mind Drop Widget' },
+    change: { field: 'due_day', from: '2026-07-27', to: '2026-10-02' },
+  };
+  const note = cardTrackedNote(card);
+  expect(note).toContain(
+    "THIS TURN'S CARD: the app has just shown the user a card for [todo id:wwww0000] Build Mind Drop Widget and has already offered to change its due_day to 2026-10-02",
+  );
+  expect(
+    cardTrackedNote({ entity: card.entity, change: { field: 'completed', to: 'done' } }),
+  ).toContain('offered to mark it done');
+  expect(cardTrackedNote(null)).toBe('');
+  const about = aboutTrackedNote([
+    { id: 'mmmm0000-0000', type: 'note', title: 'Clarify Mexico trip plans' },
+    { id: 'x', type: 'todo', title: '' },
+  ]);
+  expect(about).toContain(
+    'THE LATEST MESSAGE IS ABOUT THESE TRACKED ITEMS:\n- [note id:mmmm0000] Clarify Mexico trip plans',
+  );
+  expect(about).toContain('anything else the message brings up is judged on its own');
+  expect(aboutTrackedNote([])).toBe('');
+});
+
+test('a new item the extractor marks as an existing one becomes an add-to for a note and nothing for a todo', () => {
+  const tracked = new Map([
+    ['mmmm0000', { id: 'mmmm0000-0000', type: 'note', title: 'Clarify Mexico trip plans' }],
+    ['wwww0000', { id: 'wwww0000-0000', type: 'todo', title: 'Build Mind Drop Widget' }],
+  ]);
+  const out = reconcileSameAs(
+    [
+      {
+        type: 'event',
+        title: 'Mexico trip',
+        body: 'late November',
+        evidence: 'x',
+        same_as: 'mmmm0000',
+      },
+      { type: 'todo', title: 'Finish the widget', evidence: 'y', same_as: 'wwww0000' },
+      { type: 'todo', title: 'Buy milk', evidence: 'z' },
+      { type: 'todo', title: 'Unknown', evidence: 'z', same_as: 'nope' },
+    ],
+    tracked,
+  );
+  expect(out.map((e) => `${e.type}:${e.title}`)).toEqual([
+    'edit:Add to Clarify Mexico trip plans',
+    'todo:Buy milk',
+    'todo:Unknown',
+  ]);
+  expect(out[0]).toMatchObject({
+    field: 'body_add',
+    entity_id: 'mmmm0000-0000',
+    to: 'Mexico trip: late November',
+  });
+  // one add-to per note, the extractor's own wins; edits never repeat
+  const own = {
+    type: 'edit',
+    field: 'body_add',
+    entity_id: 'mmmm0000-0000',
+    title: 'Add to Clarify Mexico trip plans',
+    to: 'their words',
+  };
+  const merged = mergePillItems(out, [own, { ...own }]);
+  expect(merged.filter((e) => e.type === 'edit')).toHaveLength(1);
+  expect(merged.find((e) => e.type === 'edit').to).toBe('their words');
+  expect(reconcileSameAs([], tracked)).toEqual([]);
+});
+
+test('the same-thing check sets same_as from the model and never throws', async () => {
+  configureModels({ ENTITY_CARDS: 'on', OPENAI_API_KEY: 'k' });
+  const list = [{ id: 'mmmm0000-0000', type: 'note', title: 'Clarify Mexico trip plans' }];
+  const news = [
+    { type: 'event', title: 'Mexico trip', evidence: 'x' },
+    { type: 'todo', title: 'Buy milk', evidence: 'z' },
+  ];
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: '{"results":[{"index":0,"same_as":"mmmm0000"},{"index":1,"same_as":null}]}',
+            },
+          },
+        ],
+      }),
+      { status: 200 },
+    );
+  const out = await checkNewAgainstTracked(news, list);
+  expect(out[0].same_as).toBe('mmmm0000');
+  expect(out[1].same_as).toBeUndefined();
+  globalThis.fetch = async () => {
+    throw new Error('network');
+  };
+  expect(await checkNewAgainstTracked([{ type: 'todo', title: 'x' }], list)).toEqual([
+    { type: 'todo', title: 'x' },
+  ]);
+  expect(await checkNewAgainstTracked([], list)).toEqual([]);
+  delete globalThis.fetch;
 });
 
 test('the matcher input lists candidates with their details and the date', () => {
@@ -159,11 +390,27 @@ test('the matcher input lists candidates with their details and the date', () =>
     todayStr: 'Tuesday, September 29, 2026',
     message: 'move dentist',
     previousExchange: null,
-    candidates: items.slice(0, 3),
+    candidates: candidatesFor('move dentist', items.slice(0, 3), null),
   });
   expect(s).toContain('Today is Tuesday, September 29, 2026.');
-  expect(s).toContain('- id aaaa1111-0000 [todo] Dentist (due 2026-09-30 at 14:00)');
-  expect(s).toContain('- id cccc3333-0000 [habit] Morning run (weekdays)');
+  expect(s).toContain('THEIR ITEMS (everything they have):');
+  expect(s).toContain('- id aaaa1111 [todo] Dentist (due 2026-09-30 at 14:00)');
+  expect(s).toContain('- id cccc3333 [habit] Morning run (weekdays)');
+  expect(s).not.toContain('LAST EXCHANGES');
+  const withHistory = buildEntityMatchInput({
+    todayStr: 'x',
+    message: 'yes',
+    exchanges: [
+      { userMsg: 'one', assistantMsg: 'a1' },
+      { userMsg: 'two', assistantMsg: 'a2' },
+      { userMsg: 'three', assistantMsg: 'a3' },
+      { userMsg: 'four', assistantMsg: 'a4' },
+    ],
+    candidates: [],
+  });
+  expect(withHistory).toContain('LAST EXCHANGES, oldest first:');
+  expect(withHistory).not.toContain('User: one'); // only the last three
+  expect(withHistory.indexOf('User: two')).toBeLessThan(withHistory.indexOf('User: four'));
 });
 
 test('the prompt section never lets the reply claim a change', () => {
@@ -210,7 +457,8 @@ test('matchEntity is off unless ENTITY_CARDS=on, and never throws', async () => 
   });
   expect(match.card.kind).toBe('edit');
   expect(match.mention).toBeNull();
-  expect(match.related.map((c) => c.id)).toContain('aaaa1111-0000');
+  expect(match.related.map((c) => c.id)).toEqual(['aaaa1111-0000']); // the referred item
+  expect(match.related[0].referred).toBe(true);
   globalThis.fetch = async () => {
     throw new Error('network');
   };
@@ -320,44 +568,14 @@ test('withEditsRule adds the rule and the edits field to the JSON shape', () => 
     }),
   );
   const p = withEditsRule(base);
-  expect(p).toContain('EDITS: An item already tracked above');
+  expect(p).toContain('EDITS: The list of items already tracked above');
+  expect(p).toContain('"same_as"');
   expect(p).toContain('"edits":[{"entity_id":"<id from the list>"');
   expect(p.indexOf('EVIDENCE:')).toBeLessThan(p.indexOf('EDITS:'));
 });
 
-test('the item on the last card is always a candidate, so "move it" has something to mean', () => {
-  const recent = { id: 'aaaa1111-0000', type: 'todo', title: 'Dentist' };
-  expect(candidatesFor("Let's move it to Friday", items, null)).toHaveLength(0);
-  const withRecent = candidatesFor("Let's move it to Friday", items, recent);
-  expect(withRecent).toHaveLength(1);
-  expect(withRecent[0].id).toBe('aaaa1111-0000');
-  expect(withRecent[0].shown).toBe(true);
-  expect(withRecent[0].due_time).toBe('14:00'); // the live item, not the app's copy
-  // a recent item the app knows but the fetch did not return still counts
-  const gone = candidatesFor('rename it to teeth', items, {
-    id: 'zzzz9999-0000',
-    type: 'todo',
-    title: 'Old dentist',
-  });
-  expect(gone[0].title).toBe('Old dentist');
-  // the ranking still comes first when the message names something else
-  const named = candidatesFor('move my morning run to weekends', items, recent);
-  expect(named[0].id).toBe('aaaa1111-0000');
-  expect(named.map((c) => c.id)).toContain('cccc3333-0000');
-  expect(candidatesFor('move it', items, { id: 'x', type: 'space', title: 'Nope' })).toHaveLength(
-    0,
-  );
-  const s = buildEntityMatchInput({
-    todayStr: 'Tuesday, September 29, 2026',
-    message: "Let's move it to Friday",
-    previousExchange: null,
-    candidates: withRecent,
-  });
-  expect(s).toContain('[shown on the card in the last reply]');
-});
-
 test('decideCard: a change with no value is a view card that asks; dated notes edit like todos', () => {
-  const cands = rankCandidates('change the dentist', items);
+  const cands = candidatesFor('change the dentist', items, null);
   const asks = decideCard(
     { refers: true, entity_id: 'aaaa1111-0000', intent: 'edit', change: null, confidence: 90 },
     cands,
@@ -462,7 +680,7 @@ test('the pill can move a dated note, and skips fields a note does not have', ()
   );
   expect(items).toHaveLength(1);
   expect(items[0]).toMatchObject({ entity_type: 'note', field: 'due_day', to: '2026-10-02' });
-  // an edit to something the user never spoke about is not offered
+  // the evidence rule is the guard: the user's own words, not the item's title
   expect(
     editsToPillItems(
       [
@@ -476,42 +694,7 @@ test('the pill can move a dated note, and skips fields a note does not have', ()
       tracked,
       ["Let's move it to Friday"],
     ),
-  ).toHaveLength(0);
-});
-
-test('a mere mention gets no card: view needs a high confidence, and a note body is not a card field', () => {
-  const cands = rankCandidates('thinking about the mexico trip', [
-    { id: 'mmmm0000-0000', type: 'note', title: 'Clarify Mexico trip plans' },
-  ]);
-  const low = decideCard(
-    {
-      refers: true,
-      entity_id: 'mmmm0000-0000',
-      intent: 'view',
-      change: null,
-      confidence: VIEW_FLOOR - 1,
-    },
-    cands,
-  );
-  expect(low).toBeNull();
-  const none = decideCard(
-    { refers: true, entity_id: 'mmmm0000-0000', intent: 'none', change: null, confidence: 95 },
-    cands,
-  );
-  expect(none).toBeNull();
-  // details for a note are the pill's job (body_add), never a card that interrupts the chat
-  const body = decideCard(
-    {
-      refers: true,
-      entity_id: 'mmmm0000-0000',
-      intent: 'edit',
-      change: { field: 'body', value: 'Mexico City then Zipolite' },
-      confidence: 95,
-    },
-    cands,
-  );
-  expect(body.kind).toBe('view');
-  expect(body.intent).toBe('edit');
+  ).toHaveLength(1);
 });
 
 test('the last card and what became of it reach the reply prompt', () => {
@@ -581,106 +764,6 @@ test('details shared about a note become an add to the note in the pill, never a
   ).toContain('body_add');
 });
 
-test('said in passing: a concrete change is an edit card under a normal reply; a bare mention is context', async () => {
-  const cands = rankCandidates('I should probably call Kim and Andrew by the end of the week', [
-    { id: 'kkkk0000-0000', type: 'todo', title: 'Call Kim and Andrew', due_day: '2026-07-16' },
-    { id: 'jjjj0000-0000', type: 'todo', title: 'Meet Kim and Andrew', due_day: null },
-  ]);
-  const heard = decideCard(
-    {
-      refers: true,
-      entity_id: 'kkkk0000-0000',
-      intent: 'mention',
-      change: { field: 'due_day', value: '2026-10-02' },
-      confidence: 92,
-    },
-    cands,
-  );
-  expect(heard).toEqual({
-    kind: 'edit',
-    entity: cands.find((c) => c.id === 'kkkk0000-0000'),
-    change: { field: 'due_day', from: '2026-07-16', to: '2026-10-02' },
-    confidence: 92,
-    inPassing: true,
-  });
-  // the same value as today, or an unusable one, leaves a plain mention
-  expect(
-    decideCard(
-      {
-        refers: true,
-        entity_id: 'kkkk0000-0000',
-        intent: 'mention',
-        change: { field: 'due_day', value: 'Friday' },
-        confidence: 92,
-      },
-      cands,
-    ),
-  ).toMatchObject({ kind: 'mention', change: null });
-  // an in-passing card never takes over the reply; an asked-for one does
-  const triage = { mode: 'capture', depth: 'brief', search: 'none' };
-  expect(applyEntityCardToTriage(triage, heard)).toBe(triage);
-  expect(applyEntityCardToTriage(triage, { ...heard, inPassing: false }).mode).toBe('entity_card');
-  const sec = entityCardPromptSection(heard);
-  expect(sec).toContain('under your reply');
-  expect(sec).toContain('the way you normally would');
-  expect(sec).toContain('never say it is done');
-  // the pill item helper still works for a mention that carries a change
-  const item = mentionEditItem({ ...heard, kind: 'mention' });
-  expect(item).toMatchObject({
-    type: 'edit',
-    entity_id: 'kkkk0000-0000',
-    title: 'Update Call Kim and Andrew',
-  });
-  expect(mentionEditItem({ kind: 'mention', entity: heard.entity, change: null })).toBeNull();
-  expect(mentionEditItem(null)).toBeNull();
-  expect(todayIsoIn('America/Los_Angeles')).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-
-  // matchEntity carries the whole picture out, even with no wording match
-  configureModels({ ENTITY_CARDS: 'on', OPENAI_API_KEY: 'k' });
-  globalThis.fetch = async () =>
-    new Response(
-      JSON.stringify({
-        choices: [
-          {
-            message: {
-              content:
-                '{"refers":true,"entity_id":"kkkk0000-0000","intent":"mention","change":{"field":"due_day","value":"2026-10-02"},"confidence":92,"ask":false}',
-            },
-          },
-        ],
-      }),
-      { status: 200 },
-    );
-  const list = [
-    { id: 'kkkk0000-0000', type: 'todo', title: 'Call Kim and Andrew', due_day: '2026-07-16' },
-    { id: 'pppp0000-0000', type: 'todo', title: 'Pay the plumber', due_day: '2026-10-01' },
-  ];
-  const match = await matchEntity({
-    env: {},
-    userId: 'u',
-    message: 'I should probably call Kim and Andrew by the end of the week',
-    todayStr: 'Tuesday, September 29, 2026',
-    todayIso: '2026-09-29',
-    items: list,
-  });
-  expect(match.card).toMatchObject({ kind: 'edit', inPassing: true });
-  expect(match.mention).toBeNull();
-  expect(match.all).toBe(list);
-  expect(match.attention.map((c) => c.id)).toEqual(['pppp0000-0000']); // due this week; July's slip is too old to raise
-  const quiet = await matchEntity({
-    env: {},
-    userId: 'u',
-    message: 'how are you',
-    todayStr: 'x',
-    todayIso: '2026-09-29',
-    items: list,
-  });
-  expect(quiet.card).toBeNull();
-  expect(quiet.related).toHaveLength(0);
-  expect(quiet.attention).toHaveLength(1);
-  delete globalThis.fetch;
-});
-
 test('what needs attention: due this week first, then the most recently overdue todos, no habits', () => {
   const items = [
     { id: 'a', type: 'todo', title: 'Old one', due_day: '2026-07-16' },
@@ -710,17 +793,7 @@ test('what needs attention: due this week first, then the most recently overdue 
   expect(attentionItems(items, null)).toEqual([]);
   const sec = theirItemsPromptSection(
     {
-      related: [
-        {
-          id: 'a',
-          type: 'todo',
-          title: 'Old one',
-          due_day: '2026-07-16',
-          score: 1.3,
-          hits: 2,
-          share: 1,
-        },
-      ],
+      related: [{ id: 'a', type: 'todo', title: 'Old one', due_day: '2026-07-16', referred: true }],
       attention: attentionItems(items, '2026-09-29'),
     },
     '2026-09-29',
@@ -729,42 +802,17 @@ test('what needs attention: due this week first, then the most recently overdue 
   expect(sec).toContain('You may offer the natural next step');
   expect(sec).toContain('never say a change has been made');
   expect(sec).toContain(
-    'Matching what they just said:\n- todo "Old one", was due 2026-07-16 (overdue)',
+    'What they are talking about:\n- todo "Old one", was due 2026-07-16 (overdue)',
   );
   expect(sec).toContain('Overdue or coming up this week:');
   expect(sec).not.toMatch(/Overdue or coming up this week:[\s\S]*"Old one"/); // not listed twice
-  expect(sec).toContain('- note "Bella vet", 2026-10-02');
+  expect(sec).toContain('- note "Bella vet", Friday (2026-10-02)');
   expect(theirItemsPromptSection({ related: [], attention: [] }, '2026-09-29')).toBe('');
   expect(theirItemsPromptSection(null, '2026-09-29')).toBe('');
 });
 
-test('a short yes points at what Gremly named in its last reply', () => {
-  const items = [
-    { id: 'kkkk0000-0000', type: 'todo', title: 'Call Kim and Andrew', due_day: '2026-07-16' },
-    { id: 'zzzz0000-0000', type: 'todo', title: 'Buy milk' },
-  ];
-  const prev = {
-    userMsg: 'I need to call Kim and Andrew this week',
-    assistantMsg:
-      'That call to Kim and Andrew has been on your list since July. Want it moved to Friday?',
-  };
-  const cands = candidatesFor('yes please', items, null, 6, prev);
-  expect(cands.map((c) => c.id)).toEqual(['kkkk0000-0000']);
-  expect(cands[0].named).toBe(true);
-  expect(
-    buildEntityMatchInput({
-      todayStr: 'x',
-      message: 'yes please',
-      previousExchange: prev,
-      candidates: cands,
-    }),
-  ).toContain('[named in your last reply]');
-  // a message with words of its own is ranked on those words
-  expect(candidatesFor('buy milk tonight', items, null, 6, prev)[0].id).toBe('zzzz0000-0000');
-});
-
 test('asking for what it already is: a view card that says so, not an edit', () => {
-  const cands = rankCandidates('move the dentist to wednesday', items);
+  const cands = candidatesFor('move the dentist to wednesday', items, null);
   const same = decideCard(
     {
       refers: true,
@@ -779,80 +827,33 @@ test('asking for what it already is: a view card that says so, not an edit', () 
   expect(entityCardPromptSection(same)).toContain('already set the way they asked');
 });
 
-test('the reply only hears items that really match the wording, not one shared word', () => {
-  const list = [
-    { id: 'v', type: 'note', title: 'Bella Vet Appointment', due_day: '2026-09-30' },
-    { id: 'b', type: 'todo', title: 'Book Appointment', due_day: '2026-07-17' },
-    { id: 'w', type: 'todo', title: 'Walk with Bella' },
-  ];
-  const related = rankCandidates("I don't have time for Bellas appointment tomorrow", list);
-  const sec = theirItemsPromptSection({ related, attention: [] }, '2026-09-29');
-  expect(sec).toContain('"Bella Vet Appointment"');
-  expect(sec).not.toContain('"Book Appointment"');
-  expect(sec).not.toContain('"Walk with Bella"');
-  expect(sec).toContain('never offer to change several at once');
-});
-
-test('the pill reconciles against what they already have before offering anything new', () => {
-  const tracked = new Map([
-    ['mmmm0000', { id: 'mmmm0000-0000', type: 'note', title: 'Clarify Mexico trip plans' }],
-    ['wwww0000', { id: 'wwww0000-0000', type: 'todo', title: 'Build Mind Drop Widget' }],
-  ]);
-  const card = { entity: { id: 'wwww0000-0000', type: 'todo', title: 'Build Mind Drop Widget' } };
-  const last = 'Yeah I should probably get the widget done by eow too';
-  // the item on this turn's card is not a new item too
-  const afterCard = withoutCardDuplicates(
-    [
-      {
-        type: 'event',
-        title: 'Complete the Gremly widget',
-        evidence: 'get the widget done by eow',
-      },
-      {
-        type: 'event',
-        title: 'Finish Mind Drop and chat',
-        evidence: 'the mind drop and chat finished by end of week',
-      },
-      { type: 'todo', title: 'Buy milk', evidence: 'buy milk' },
-    ],
-    card,
-    last,
-  );
-  expect(afterCard.map((e) => e.title)).toEqual(['Finish Mind Drop and chat', 'Buy milk']);
-  // something a note already covers becomes an add-to; something a todo covers is dropped
-  const reconciled = reconcileWithExisting(
-    [
-      {
-        type: 'event',
-        title: 'Mexico trip for Thanksgiving',
-        body: 'late November',
-        evidence: 'x',
-      },
-      { type: 'event', title: 'Finish Mind Drop and chat', evidence: 'y' },
-      { type: 'todo', title: 'Buy milk', evidence: 'z' },
-    ],
-    tracked,
-  );
-  expect(reconciled.map((e) => `${e.type}:${e.title}`)).toEqual([
-    'edit:Add to Clarify Mexico trip plans',
-    'todo:Buy milk',
-  ]);
-  expect(reconciled[0]).toMatchObject({
-    field: 'body_add',
-    entity_id: 'mmmm0000-0000',
-    to: 'Mexico trip for Thanksgiving: late November',
+test("the split pill call asks one question and keeps the single call's field names; the summary is its own call", () => {
+  const pill = buildPillPrompt({
+    todayStr: 'Tuesday, September 29, 2026',
+    conversationText: 'User: I need to get the flea treatment sorted',
+    existingItemsBlock: '- [todo id:abcd1234] Book the vaccination\n',
   });
-  // the extractor's own add-to wins over a converted one, and edits never repeat
-  const own = {
-    type: 'edit',
-    field: 'body_add',
-    entity_id: 'mmmm0000-0000',
-    title: 'Add to Clarify Mexico trip plans',
-    to: 'their words',
-  };
-  const merged = mergePillItems(reconciled, [own, { ...own }]);
-  expect(merged.filter((e) => e.type === 'edit')).toHaveLength(1);
-  expect(merged.find((e) => e.type === 'edit').to).toBe('their words');
-  expect(reconcileWithExisting([], tracked)).toEqual([]);
-  expect(reconcileWithExisting([{ type: 'todo', title: 'Buy milk' }], new Map())).toHaveLength(1);
+  expect(pill).toContain('Today is Tuesday, September 29, 2026.');
+  expect(pill).toContain("what in it is new to the user's list, and what has changed");
+  expect(pill).toContain('[todo id:abcd1234] Book the vaccination');
+  expect(pill).toContain('Progress on something is not completion.');
+  expect(pill).toContain('"same_as"');
+  expect(pill).toContain('"edits":[{"entity_id":"<id from the list>"');
+  expect(pill).toContain('"date_range_end"');
+  expect(pill).not.toContain('chat_summary');
+  expect(pill).not.toContain('e.g.');
+  const summary = buildSummaryPrompt({
+    runningSummary: 'Earlier: trip ideas.',
+    conversationText: 'User: hi',
+  });
+  expect(summary).toContain('SUMMARY OF EARLIER MESSAGES');
+  expect(summary).toContain('Earlier: trip ideas.');
+  expect(summary).toContain('{"chat_summary":{"title":"...","summary":"..."}}');
+  expect(buildSummaryPrompt({ runningSummary: null, conversationText: 'User: hi' })).not.toContain(
+    'SUMMARY OF EARLIER MESSAGES',
+  );
+  configureModels({ CHAT_PILL_SPLIT: 'on' });
+  expect(models().flags.pillSplit).toBe(true);
+  configureModels({});
+  expect(models().flags.pillSplit).toBe(false);
 });

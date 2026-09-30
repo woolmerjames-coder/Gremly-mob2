@@ -34,6 +34,9 @@ CLASSIFY_FALLBACK_MODEL = "gpt-6-luna"
 #                             reply model decide (default on, forces a search)
 #   ENTITY_CARDS              on: match a mention to one of the user's items and show
 #                             its card with a proposed change to confirm (default off)
+#   CHAT_PILL_SPLIT           on: the Save items pill is its own focused call (new and
+#                             changed only) and the chat title a separate small call,
+#                             both after the reply (default off, the single four-job call)
 
 # The split from docs/2026-09-29-chat-helper-model-audit.md, live since 29 Sep 2026.
 # James judges the chat tone in the app rather than by a replay (his call).
@@ -50,6 +53,7 @@ TRIAGE_ONE_CALL = "off"
 CHAT_EXTRACTION_V2 = "on"
 SEARCH_REQUIRED_FORCES = "off"
 ENTITY_CARDS = "on"
+CHAT_PILL_SPLIT = "on"
 
 [observability]
 enabled = true

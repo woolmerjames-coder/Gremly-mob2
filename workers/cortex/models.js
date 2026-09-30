@@ -17,7 +17,7 @@
 //                  World and Chapter chat.
 //   WEEKLY_SUMMARY_MODEL  the Anthropic model behind the weekly summary.
 //   HELPER_FALLBACK_MODEL  retry a failed helper call once on this model.
-//   TRIAGE_ONE_CALL, CHAT_EXTRACTION_V2, SEARCH_REQUIRED_FORCES  behaviour
+//   TRIAGE_ONE_CALL, CHAT_EXTRACTION_V2, SEARCH_REQUIRED_FORCES, CHAT_PILL_SPLIT  behaviour
 //                  switches for the chat helper split; see flags below.
 //   APP_HELPER_MODEL  the model for the generic non streaming path that app
 //                  builds call for saveable detection, summary generation, list
@@ -96,6 +96,9 @@ export function resolveModels(env = {}) {
       // The entity card in chat: match a mention to an existing item and show
       // its card with a proposed change for the user to confirm.
       entityCards: env.ENTITY_CARDS === 'on',
+      // The Save items pill as its own focused call (new and changed only), with
+      // the chat summary as a separate small call, both after the reply.
+      pillSplit: env.CHAT_PILL_SPLIT === 'on',
     },
     // A helper call that fails on its model is retried once on this model, if set.
     helperFallback: env.HELPER_FALLBACK_MODEL || '',

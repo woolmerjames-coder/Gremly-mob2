@@ -38,6 +38,7 @@ test('flags default to today', () => {
     extractionV2: false,
     searchRequiredForces: true,
     entityCards: false,
+    pillSplit: false,
   });
   expect(m.helperFallback).toBe('');
 });

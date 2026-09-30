@@ -11,7 +11,7 @@
 // The evidence rule tested in the chat helper model audit (round 2). Text is
 // identical to scripts/chat-audit/prompts/variants.mjs, where it was frozen.
 export const EXTRACTION_EVIDENCE_RULE = `EVIDENCE: For every item, include "evidence": the user's own words, copied exactly from a User line, that show the commitment, decision or upcoming event. Something Gremly proposed counts only if the user then took it up in their own words, and the evidence must be those words. If the only support for an item is something Gremly said, do not extract it.
-Do not extract plans for later the same day that this conversation is itself arranging, and do not extract anything that restates an item already tracked or already extracted in this conversation.`;
+Do not extract plans for later the same day that this conversation is itself arranging, and do not extract anything that restates an item already tracked or already extracted in this conversation. Extract each thing once: when one sentence gives both something to do and the occasion it is for, that is a single item.`;
 
 /** Add the evidence rule to a built extraction prompt (the audit's applyExtractionV2). */
 export function withEvidenceRule(prompt) {
@@ -43,7 +43,7 @@ export function evidenceGrounded(evidence, userMessages) {
 // The extraction's second job (ENTITY_CARDS=on with CHAT_EXTRACTION_V2=on): when the
 // user says an item they already track has changed, record an edit to it, not a
 // new item. The ids come from the ITEMS ALREADY TRACKED list, which then carries them.
-export const EXTRACTION_EDITS_RULE = `EDITS: An item already tracked above, or the same thing in other words, is never extracted again as new. When the user's own words say that one of the items already tracked above has changed (moved to another day or time, renamed, given a different frequency) or is done, record that as an edit to that item using its id from the list, instead of extracting a new item. When the user's own words add details to something one of the notes above already covers (plans, names, places, decisions about that same thing), record an edit to that note with field body_add, whose value is the new details in the user's words, kept to a line or two, instead of a new item. Fields: due_day (YYYY-MM-DD, resolved from today's date; todos and notes), due_time (HH:MM, 24 hour; todos and notes), name, frequency (habits), completed (value "done", todos), body_add (notes). The evidence rule applies to edits too. Never edit an item the user did not clearly refer to, and never resolve a date the user did not give.`;
+export const EXTRACTION_EDITS_RULE = `EDITS: The list of items already tracked above is what the user already has. Anything that is one of those items, in the same words or in different ones, is never extracted as new. When the user's own words say that a tracked item has changed (a different day, time, name or frequency) or is done, record an edit to that item, using its id from the list, instead of a new item. When the user's own words add to what one of the tracked notes already covers (anything further about that same subject), record an edit to that note with field body_add, whose value is the new details in the user's words, kept to a line or two, instead of a new item. Fields: due_day (YYYY-MM-DD, resolved from today's date; todos and notes), due_time (HH:MM, 24 hour; todos and notes), name, frequency (habits), completed (value "done", todos), body_add (notes). The evidence rule applies to edits too. Never edit an item the user did not clearly refer to, and never resolve a date the user did not give. If a new item you list is nonetheless a tracked item in other words, put that item's id in its same_as field, else omit same_as.`;
 
 /** Add the edits job to an extraction prompt that already has the evidence rule. */
 export function withEditsRule(prompt) {
@@ -51,10 +51,15 @@ export function withEditsRule(prompt) {
   const i = prompt.indexOf(marker);
   if (i < 0) return prompt;
   const p = prompt.slice(0, i) + EXTRACTION_EDITS_RULE + '\n\n' + prompt.slice(i);
-  return p.replace(
-    '"chat_summary":{"title":"...","summary":"..."}}',
-    '"edits":[{"entity_id":"<id from the list>","type":"todo|habit|note","field":"due_day|due_time|name|frequency|completed|body_add","value":"...","evidence":"..."}],"chat_summary":{"title":"...","summary":"..."}}',
-  );
+  return p
+    .replace(
+      '"chat_summary":{"title":"...","summary":"..."}}',
+      '"edits":[{"entity_id":"<id from the list>","type":"todo|habit|note","field":"due_day|due_time|name|frequency|completed|body_add","value":"...","evidence":"..."}],"chat_summary":{"title":"...","summary":"..."}}',
+    )
+    .replace(
+      '"evidence":"...","due_date"',
+      '"evidence":"...","same_as":"<id from the list, only when it is that item>","due_date"',
+    );
 }
 
 // body_add appends to a note; a note's text is never replaced from chat.
@@ -69,22 +74,12 @@ const EDIT_FIELDS = {
  * `tracked` maps the short id used in the prompt to the item; `userTexts` are the
  * user messages the evidence must be grounded in. Pure.
  */
-/** The user's own words name the item: at least one of its content words is in what they said. */
-export function titleMentioned(title, userTexts) {
-  const t = keyToks(title);
-  if (t.length === 0) return false;
-  const said = new Set(keyToks((userTexts || []).join(' ')));
-  return t.some((w) => said.has(w));
-}
-
 export function editsToPillItems(edits, tracked, userTexts) {
   if (!Array.isArray(edits)) return [];
   const out = [];
   for (const e of edits) {
     const item = tracked.get(String(e?.entity_id || ''));
     if (!item) continue;
-    // an edit to something the user never spoke about is the extractor's idea, not theirs
-    if (!titleMentioned(item.title, userTexts)) continue;
     const field = String(e.field || '');
     if (!EDIT_FIELDS[item.type]?.includes(field)) continue;
     const value = String(e.value ?? '').trim();
@@ -144,100 +139,73 @@ export function mentionEditItem(mention) {
 }
 
 /**
- * When this turn showed a card for one of the user's items, a "new" item the
- * extractor pulled from the same message is that item again in other words.
- * Drop new extractions that share wording with the card's item and rest on
- * the message that produced the card; things said in earlier turns stay.
+ * What the extractor is told when this turn already showed a card for one of
+ * the user's items, so the pill does not offer that item or that change again.
+ * Appended to the tracked items block. `short` maps an item id to the id used
+ * in that block.
  */
-export function withoutCardDuplicates(extractions, card, lastUserText) {
-  const title = card?.entity?.title;
-  if (!title || !Array.isArray(extractions)) return extractions || [];
-  const cardToks = new Set(keyToks(title));
-  if (cardToks.size === 0) return extractions;
-  return extractions.filter((e) => {
-    if (e?.type === 'edit') return true;
-    const t = keyToks(e?.title || '');
-    let hit = 0;
-    for (const w of t) if (cardToks.has(w)) hit++;
-    if (hit === 0) return true;
-    const fromThisTurn =
-      !e?.evidence || !lastUserText || evidenceGrounded(e.evidence, [lastUserText]);
-    return !fromThisTurn;
-  });
+export function cardTrackedNote(card, short) {
+  const e = card?.entity;
+  if (!e || !e.id || !e.title) return '';
+  const id = typeof short === 'function' ? short(e.id) : String(e.id).slice(0, 8);
+  const c = card.change;
+  const what = c
+    ? c.field === 'completed'
+      ? ' and has already offered to mark it done'
+      : ` and has already offered to change its ${c.field} to ${c.to}`
+    : '';
+  return `\nTHIS TURN'S CARD: the app has just shown the user a card for [${e.type} id:${id}] ${e.title}${what}. That item is tracked: never extract it as new, and do not record that same change as an edit.\n`;
 }
 
 /**
- * The pill reconciles against what the user already has before it offers
- * anything new. A new extraction that shares two words with an existing item
- * is that item in other words: for a note it becomes "add to" that note, for
- * a todo or habit it is dropped (an edit, if any, is offered separately).
+ * What the extractor is told about the tracked items this turn's message is
+ * about, as the matcher judged them, so anything new said about them is an
+ * edit or an addition to that item rather than a new item. Appended to the
+ * tracked items block.
  */
-export function reconcileWithExisting(extractions, tracked) {
-  if (!Array.isArray(extractions) || !tracked || tracked.size === 0) return extractions || [];
-  const existing = [...tracked.values()].map((it) => ({ it, toks: new Set(keyToks(it.title)) }));
+export function aboutTrackedNote(related, short) {
+  const list = (related || []).filter((c) => c && c.id && c.title);
+  if (list.length === 0) return '';
+  const key = (id) => (typeof short === 'function' ? short(id) : String(id).slice(0, 8));
+  const lines = list.map((c) => `- [${c.type} id:${key(c.id)}] ${c.title}`);
+  return `\nTHE LATEST MESSAGE IS ABOUT THESE TRACKED ITEMS:\n${lines.join('\n')}\nWhat it says about those items is an edit to that item or an addition to that note, never a new item; anything else the message brings up is judged on its own.\n`;
+}
+
+/**
+ * The pill reconciles against what the user already has before offering
+ * anything new: the extractor marks a new item that is a tracked item in other
+ * words with same_as. For a note that becomes "add to" the note; for a todo or
+ * habit there is nothing new to save (an edit, if any, is offered separately).
+ */
+export function reconcileSameAs(extractions, tracked) {
+  if (!Array.isArray(extractions)) return extractions || [];
   const out = [];
   for (const e of extractions) {
-    if (!e || e.type === 'edit') {
-      out.push(e);
-      continue;
-    }
-    const t = keyToks(e.title || '');
-    let best = null;
-    let bestHits = 0;
-    for (const x of existing) {
-      let hit = 0;
-      for (const w of t) if (x.toks.has(w)) hit++;
-      if (hit > bestHits) {
-        bestHits = hit;
-        best = x.it;
-      }
-    }
-    const same =
-      bestHits >= 2 ||
-      (t.length > 0 &&
-        bestHits === t.length &&
-        bestHits >= 1 &&
-        t.length <= 2 &&
-        best &&
-        new Set(keyToks(best.title)).size <= 2);
+    const same = e && e.type !== 'edit' && e.same_as ? tracked?.get(String(e.same_as)) : null;
     if (!same) {
       out.push(e);
       continue;
     }
-    if (best.type === 'note') {
+    if (same.type === 'note') {
       const text = [e.title, e.body].filter(Boolean).join(': ');
       out.push({
         id: Math.random().toString(36).slice(2, 10),
         type: 'edit',
-        entity_id: best.id,
+        entity_id: same.id,
         entity_type: 'note',
-        entity_title: best.title,
+        entity_title: same.title,
         field: 'body_add',
         from: null,
         to: text,
-        title: `Add to ${best.title}`,
+        title: `Add to ${same.title}`,
         body: null,
         evidence: String(e.evidence || ''),
         confidence: 80,
         reconciled_from: e.title,
       });
     }
-    // a todo or habit already covers it: nothing new to save
   }
-  // one add-to per note: the extractor's own edit wins over a converted one
-  const own = new Set(
-    out
-      .filter((e) => e?.type === 'edit' && e.field === 'body_add' && !e.reconciled_from)
-      .map((e) => e.entity_id),
-  );
-  const seen = new Set();
-  return out.filter((e) => {
-    if (e?.type !== 'edit' || e.field !== 'body_add') return true;
-    if (e.reconciled_from && own.has(e.entity_id)) return false;
-    if (seen.has(e.entity_id)) return false;
-    seen.add(e.entity_id);
-    return true;
-  });
+  return out;
 }
 
 /**
@@ -261,39 +229,6 @@ export function mergePillItems(extractions, editItems) {
     seen.add(key);
     return true;
   });
-}
-
-const KEY_STOP = new Set([
-  'the',
-  'a',
-  'an',
-  'to',
-  'for',
-  'of',
-  'in',
-  'on',
-  'and',
-  'with',
-  'my',
-  'me',
-  'up',
-  'do',
-  'get',
-  'finish',
-  'complete',
-  'build',
-  'make',
-  'start',
-]);
-function keyToks(s) {
-  return (
-    String(s || '')
-      .toLowerCase()
-      .replace(/[’']/g, '')
-      .match(/[a-z0-9]+/g) || []
-  )
-    .filter((t) => t.length > 2 && !KEY_STOP.has(t))
-    .map((t) => t.replace(/(ing|ed|es|s)$/, ''));
 }
 
 // Turns whose reply mode should never show the Save items pill: extraction is
@@ -346,4 +281,54 @@ WRITING STYLE for title and body fields:
 Also generate a chat title (3-6 words) and a one-sentence summary that covers the ENTIRE conversation — not just the most recent messages. Use the CONVERSATION CONTEXT above to include earlier topics. The summary should capture the full arc of what was discussed.
 Return ONLY valid JSON:
 {"extractions":[{"id":"<8chars>","type":"todo|habit|note|event","title":"...","body":"...","due_date":"YYYY-MM-DD or null","frequency":"string or null","confidence":0-100,"date_text":"string or null","resolved_date":"YYYY-MM-DD or null","date_confidence":"exact|approximate|unknown or null","date_range_start":"YYYY-MM-DD or null","date_range_end":"YYYY-MM-DD or null"}],"chat_summary":{"title":"...","summary":"..."}}`;
+}
+
+// ── The split pill (CHAT_PILL_SPLIT=on) ─────────────────────────────────────
+// The one extraction call above does four jobs at once: new items, event
+// timing, edits and the chat summary. Split, the pill call answers one
+// question, what is new or changed relative to the user's list, and the summary
+// is its own small call. Both run after the reply, in parallel.
+
+/**
+ * The pill's own prompt: new items and changes to listed items, nothing else.
+ * Output field names match the single call so the app and the worker need no
+ * change. `existingItemsBlock` is the tracked list with any about and card notes.
+ */
+export function buildPillPrompt({ todayStr, conversationText, existingItemsBlock }) {
+  return `Today is ${todayStr}.
+
+You read a conversation between a user and Gremly, their companion in a personal productivity app, and answer one question: what in it is new to the user's list, and what has changed about items already on the list. Nothing else.
+
+THE USER'S LIST
+${existingItemsBlock || '(nothing tracked yet)'}
+CONVERSATION
+${conversationText}
+
+NEW ITEMS
+Something is new when the user's own words commit to it, decide it, ask Gremly to keep or remind them of it, or say it may be coming up, and it is not on the list above in any words. Kinds: todo, an action they have committed to or asked to be reminded of; habit, a behaviour they mean to repeat, with how often, or to stop; note, an idea, a decision or a recommendation they took up; event, something that may happen on or around a time they mention, whether decided or still being considered, with or without an exact date. Not new: feelings, questions and thinking out loud with nothing to keep, what Gremly suggested and they did not take up, small talk, plans for later the same day that this conversation is itself arranging, and anything that is a listed item in other words. A related but distinct thing, such as another task about the same person, project, pet or place, is new. Each thing once: when a sentence gives both something to do and the occasion it is for, that is one item. When you are unsure whether something is a listed item in other words, list it and put that item's id in its same_as field, and it will be checked; otherwise leave same_as out.
+
+CHANGES
+When the user's own words say a listed item has changed, moved, been renamed, repeats differently, or is done, record a change to it by its id from the list. Progress on something is not completion. A plan for when they will now do a listed item is a change to its day. Details about the subject a listed note already covers are an addition to that note, field body_add, the details in their words, a line or two. Never change an item the user did not clearly refer to, and never resolve a date they did not give. Fields: due_day (YYYY-MM-DD, todos and notes), due_time (HH:MM, 24 hour, todos and notes), name, frequency (habits), completed (value "done", todos), body_add (notes).
+
+EVIDENCE
+For every new item and every change, evidence is the user's own words, copied exactly from one User line, that show it. Words Gremly said do not count unless the user took them up in their own words, and then the evidence is the user's words.
+
+TIMING, for events only (null for every other kind): date_text, the user's words about when, verbatim; resolved_date, the most likely day as YYYY-MM-DD, the middle of the range when they were vague; date_confidence, exact when they gave a specific day, approximate when a rough time, unknown when no timing; date_range_start and date_range_end, the earliest and latest plausible days.
+
+WRITING
+A title is a short phrase in the user's own terms, an action for a todo. A body is one casual sentence, or null when the title says it all. Write as a note for them, never about "the user".
+
+Return ONLY valid JSON:
+{"extractions":[{"id":"<8 random characters>","type":"todo|habit|note|event","title":"...","body":"...","evidence":"...","same_as":"<id from the list, only when it is that item>","due_date":"YYYY-MM-DD or null","frequency":"string or null","confidence":0-100,"date_text":"string or null","resolved_date":"YYYY-MM-DD or null","date_confidence":"exact|approximate|unknown or null","date_range_start":"YYYY-MM-DD or null","date_range_end":"YYYY-MM-DD or null"}],"edits":[{"entity_id":"<id from the list>","type":"todo|habit|note","field":"due_day|due_time|name|frequency|completed|body_add","value":"...","evidence":"..."}]}`;
+}
+
+/** The chat's title and running summary, on their own. */
+export function buildSummaryPrompt({ runningSummary, conversationText }) {
+  return `You write the title and the running summary of a conversation between a user and Gremly, their companion in a personal productivity app.
+${runningSummary ? `\nSUMMARY OF EARLIER MESSAGES (not shown below):\n${runningSummary}\n` : ''}
+CONVERSATION:
+${conversationText}
+
+The title is three to six words in the user's own terms. The summary is one sentence covering the whole conversation from its start, including what the earlier summary covers, so someone reading only the summary knows what was discussed and decided.
+Return ONLY valid JSON: {"chat_summary":{"title":"...","summary":"..."}}`;
 }

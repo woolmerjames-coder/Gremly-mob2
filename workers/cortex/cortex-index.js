@@ -210,13 +210,17 @@ import {
   theirItemsPromptSection,
   todayIsoIn,
   noteDay,
+  checkNewAgainstTracked,
 } from './entityMatch.js';
 import {
   mentionEditItem,
-  withoutCardDuplicates,
-  reconcileWithExisting,
+  cardTrackedNote,
+  aboutTrackedNote,
+  reconcileSameAs,
   mergePillItems,
   buildChatExtractionPrompt,
+  buildPillPrompt,
+  buildSummaryPrompt,
   withEvidenceRule,
   withEditsRule,
   editsToPillItems,
@@ -252,6 +256,22 @@ function extractPreviousExchange(messages) {
   }
   if (!userMsg || !assistantMsg) return null;
   return { userMsg, assistantMsg };
+}
+
+/** The last n user/assistant pairs before the current message, oldest first. */
+function extractRecentExchanges(messages, n = 3) {
+  const out = [];
+  let assistantMsg = null;
+  for (let i = (messages || []).length - 1; i >= 0 && out.length < n; i--) {
+    const m = messages[i];
+    if (!m) continue;
+    if (m.role === 'assistant') assistantMsg = m.content;
+    else if (m.role === 'user' && assistantMsg) {
+      out.push({ userMsg: m.content, assistantMsg });
+      assistantMsg = null;
+    }
+  }
+  return out.reverse();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -11668,6 +11688,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   userId: authenticatedUserId,
                   message: lastUserMsgSpace,
                   previousExchange,
+                  exchanges: extractRecentExchanges(messages),
                   recent: body.recentEntity || null,
                   todayIso: todayIsoIn(userTimezone),
                   todayStr: new Intl.DateTimeFormat('en-US', {
@@ -12507,6 +12528,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   userId: authenticatedUserId,
                   message: lastUserMsg,
                   previousExchange,
+                  exchanges: extractRecentExchanges(messages),
                   recent: body.recentEntity || null,
                   todayIso: todayIsoIn(userTimezone),
                   todayStr: new Intl.DateTimeFormat('en-US', {
@@ -13059,7 +13081,11 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     ];
                     const existingItemsBlock =
                       existingLines.length > 0
-                        ? `\nITEMS ALREADY TRACKED IN THE USER'S SYSTEM (do NOT re-extract these or close paraphrases):\n${existingLines.join('\n')}\n`
+                        ? `\nITEMS ALREADY TRACKED IN THE USER'S SYSTEM (do NOT re-extract these or close paraphrases):\n${existingLines.join('\n')}\n${
+                            editsOn
+                              ? aboutTrackedNote(entityMatch?.related) + cardTrackedNote(entityCard)
+                              : ''
+                          }`
                         : '';
 
                     const allMsgs = [
@@ -13088,23 +13114,57 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     if (extractionV2) extractionPromptText = withEvidenceRule(extractionPromptText);
                     if (editsOn) extractionPromptText = withEditsRule(extractionPromptText);
 
+                    // CHAT_PILL_SPLIT=on: the pill is its own focused call (new and
+                    // changed only) and the title and summary a separate small one,
+                    // run together. Off: the single four-job call as before.
+                    const pillSplit = models().flags.pillSplit && extractionV2 && editsOn;
                     let extractResult = null;
                     try {
                       const extractReq = {
                         messages: [
-                          { role: 'system', content: extractionPromptText },
+                          {
+                            role: 'system',
+                            content: pillSplit
+                              ? buildPillPrompt({ todayStr, conversationText, existingItemsBlock })
+                              : extractionPromptText,
+                          },
                           { role: 'user', content: 'Extract items from the conversation above.' },
                         ],
                         // 500 cut long chats off mid JSON (12 of 116 in the audit); v2 gives room
                         max_tokens: extractionV2 ? 2000 : 500,
-                        temperature: 0.1,
+                        temperature: pillSplit ? 0 : 0.1,
                       };
                       if (extractionV2) extractReq.response_format = { type: 'json_object' };
-                      const extractRes = await helperFetch('chat_extraction', extractReq);
+                      const summaryReq = pillSplit
+                        ? {
+                            messages: [
+                              {
+                                role: 'system',
+                                content: buildSummaryPrompt({ runningSummary, conversationText }),
+                              },
+                              { role: 'user', content: 'Write the title and summary.' },
+                            ],
+                            max_tokens: 300,
+                            temperature: 0.2,
+                            response_format: { type: 'json_object' },
+                          }
+                        : null;
+                      const [extractRes, summaryRes2] = await Promise.all([
+                        helperFetch('chat_extraction', extractReq),
+                        summaryReq ? helperFetch('running_summary', summaryReq) : null,
+                      ]);
                       if (extractRes.ok) {
                         const extractJson = await extractRes.json();
                         const rawContent = extractJson.choices?.[0]?.message?.content || '';
                         extractResult = safeParseJson(rawContent);
+                        if (pillSplit && extractResult) {
+                          let summary = null;
+                          if (summaryRes2?.ok) {
+                            const sj = await summaryRes2.json().catch(() => null);
+                            summary = safeParseJson(sj?.choices?.[0]?.message?.content || '');
+                          }
+                          extractResult.chat_summary = summary?.chat_summary || null;
+                        }
                         if (
                           extractionV2 &&
                           extractResult &&
@@ -13118,17 +13178,17 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                           extractResult.extractions = extractResult.extractions.filter((x) =>
                             evidenceGrounded(x.evidence, userTexts),
                           );
-                          // the item on this turn's card is not a new item as well
-                          extractResult.extractions = withoutCardDuplicates(
-                            extractResult.extractions,
-                            entityCard,
-                            userTexts[userTexts.length - 1] || '',
-                          );
-                          // and nothing they already have comes back as new: a note
-                          // gets "add to", a todo or habit is left to its edit
+                          // what the extractor itself marked as an existing item in
+                          // other words: a note gets "add to", a todo or habit is
+                          // left to its edit (nothing new to save)
                           if (editsOn) {
-                            extractResult.extractions = reconcileWithExisting(
-                              extractResult.extractions,
+                            // a second, independent look at anything new against the
+                            // same list the reply and the card used
+                            extractResult.extractions = reconcileSameAs(
+                              await checkNewAgainstTracked(
+                                extractResult.extractions,
+                                shared || [...tracked.values()],
+                              ),
                               tracked,
                             );
                           }
@@ -14503,6 +14563,7 @@ function runScopedChatStream(
             userId: authenticatedUserId,
             message: lastUserMsg,
             previousExchange,
+            exchanges: extractRecentExchanges(messages),
             recent: body.recentEntity || null,
             todayIso: todayIsoIn(userTimezone),
             todayStr: new Intl.DateTimeFormat('en-US', {
