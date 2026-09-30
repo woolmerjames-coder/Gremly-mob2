@@ -54,6 +54,8 @@ import type {
   Note,
 } from '../../lib/types';
 import { getDateService, nowTimestamp } from '../../lib/date';
+import { FEATURE_FLAGS } from '../../lib/config/featureFlags';
+import { ItemChatScreen } from './ItemChatScreen';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -241,7 +243,20 @@ const isContentSaveable = (
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function EntityChatScreen({
+/**
+ * Every place that opens a chat about an item renders this. With ITEM_CHAT_V2
+ * on it is the Ask Gremly chat tied to the item (ItemChatScreen); off, the old
+ * entity chat below.
+ */
+export function EntityChatScreen(props: EntityChatScreenProps) {
+  return FEATURE_FLAGS.ITEM_CHAT_V2 ? (
+    <ItemChatScreen {...props} />
+  ) : (
+    <LegacyEntityChatScreen {...props} />
+  );
+}
+
+function LegacyEntityChatScreen({
   entityId,
   entityType,
   initialPreset,

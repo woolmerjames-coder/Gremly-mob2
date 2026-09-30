@@ -34,29 +34,24 @@ Either order works: the live Worker ignores the new app fields, and the new Work
 
 ## 4. What happens next, in order
 
+Updated 30 Sep, evening. Done since the first version of this list: James's phone test of the home and the anchor (all steps pass after two fixes, below); a tapped card is now always saved (step 11 of the test found it was sometimes lost, so Gremly thought nothing had changed); the Save items pill waits for its own turn instead of turning up a turn late; extraction no longer offers changes nobody asked for (a model check before any late card); one message can log several days of a habit; the reply no longer says it cannot change things; the runner uses the Worker's own prompt assembly; the keyboard opens on Talk it through; a first week line under the switch.
+
 Now:
 
-1. James's phone test of the home and the anchor (section 3).
-2. Deploy the cortex Worker and ship the app build.
+1. Corpus gate on the latest Worker (c156570b and after), then `cd workers/cortex && npx wrangler deploy`.
+2. James tries the item chat in the simulator (it is on in development builds only): open a todo, habit or note, tap Chat with Gremly. It should open the Ask Gremly chat about that item; closing and opening it again should carry on the same chat, including one started from Talk it through.
+3. When happy, a TestFlight build (ITEM_CHAT_V2 stays off in production builds until switched on).
 
-Chat quality. Each one is a prompt change, so each goes through the gate:
+Entity chat moves to the Ask Gremly experience:
 
-3. Replies over-personalise. They bring Bella, San Francisco, client work and the Sage deck into turns about something else, once called James someone else, and once invented a walk with Bella. This needs a session on the persona and what the reply is given about the user.
-4. Extraction sometimes offers a change the message did not ask for: an add to the vet note, or a move to tomorrow, from "busy tomorrow" (J-262f, 1 in 4 runs), and Gremly's own comparison added to the Mexico note from a question (T12, 1 in 4 runs). Look at the edits rule and at the evidence check for edits.
-5. Two check-ins in one message ("yesterday and again today") give a card for one day while the reply offers both. Either a card that logs several days, or the reply told only one day is on the card.
-6. Low: a generic word for an item ("the entity") is taken as an item's name.
-7. The runner copies the Worker's prompt assembly by hand, so every Worker prompt change has to be mirrored in `scenario-run.mjs`. Sharing one assembly function would stop the two drifting apart.
+4. Phase A, built (behind ITEM_CHAT_V2): `components/chat/ItemChatScreen.tsx` is Ask Gremly tied to the item, one chat per item found by the anchor on its opener (no database change was needed), the item named at the top, starters per kind, and the old entity chat's props, so the overlay, both habit pages and Sweep all open it. Sweep's starter sentence is now sent as the first message. Saving onto the item is the add to card, as in any chat.
+5. Phase B: the Worker gives the reply the anchored item's full detail (body, notes, tags, estimate, habit progress, Sweep context). James's idea belongs here too: when a chat is about a note, Gremly draws on what the note already says and suggests what to talk about next, and what is settled can then be added. Corpus gate.
+6. Phase C: each item's old chat (`views.chat`, 127 items across about 15 people, last used in May) becomes the start of its new chat the first time it opens; saved notes stay on the item; point the chat summary jobs, `entity_chat_count` and the feeding gauge at anchored chats; then remove the old screen and its dead parts.
 
-Entity chat moves to the Ask Gremly experience (agreed, to start after the above). What today's entity chat does that must survive is folded into these steps.
+Chat quality, each a prompt change through the gate:
 
-8. Decisions first: one chat per item that reopens (recommended) or a new chat each time; saving "onto this item" becomes the add to card (habits have nothing to add to yet); what happens to each item's existing chat.
-9. Phase A: an item chat screen with the Ask Gremly look, anchored, the item pinned at the top, starters per type (todo, habit, note), reached from every current entry point (overlay view and edit rows, both habit detail pages, Sweep with its context). Finding a chat by its item needs a small database change on `scope_chats`. Keep the old screen behind a flag for rollback.
-10. Phase B: the Worker gives the reply the anchored item's full detail (body, notes, tags, estimate, habit progress, Sweep context). Corpus gate.
-11. Phase C: move each item's old chat (`views.chat`) into its anchored chat on first open; saved notes stay on the item and in the overlay; point the chat summary jobs, `entity_chat_count` and the feeding gauge at anchored chats; then remove the old screen and its dead parts (the unreachable notes editor, the save card that ignores its type, the unused Promote to Space, the Sweep starter that never matches).
-
-Small home items not done:
-
-12. Open the keyboard when Chat opens from Talk it through.
-13. A first week hint under the switch (idea, not agreed).
+7. Replies over-personalise (Bella, San Francisco, client work, the Sage deck in turns about something else). Parked by James: it is the rich context being used.
+8. Low: a generic word for an item ("the entity") is taken as an item's name.
+9. Low: a reply sometimes says "I'll set a reminder" when the pill or a card does the saving.
 
 Other threads have their own lists: `docs/2026-09-28-minddrop-fixes.md` and the 29 Sep audits. The one dated deadline among them is the gpt-4.1-nano switch off on 23 Oct 2026, which needs the Worker deployed before then.

@@ -38,6 +38,14 @@ export const FEATURE_FLAGS = {
   MIND_DROP_V4_ENABLED: true,
 
   /**
+   * Item chat v2: chatting about a todo, habit or note opens the Ask Gremly
+   * chat tied to that item (components/chat/ItemChatScreen.tsx) in place of
+   * the old entity chat. On in development builds only until James has tried
+   * it; false puts every entry point back on the old screen.
+   */
+  ITEM_CHAT_V2: isDev,
+
+  /**
    * Enable Phase 2 AI enrichment
    *
    * Phase 2 runs after initial classification to:
