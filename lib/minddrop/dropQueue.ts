@@ -349,6 +349,13 @@ export interface QueuedDrop {
   /** Question to present to the user */
   clarificationQuestion?: string | null;
 
+  /**
+   * Set when the drop is about something the user already has (a repeat, a
+   * change, a done todo, a habit they did). The drop then syncs as a note
+   * carrying this in views.relation until the user decides (dropRelation.ts).
+   */
+  relation?: import('./dropRelation').HeldRelation | null;
+
   /** Available options for the user to choose from */
   clarificationOptions?: Array<{
     id: string;

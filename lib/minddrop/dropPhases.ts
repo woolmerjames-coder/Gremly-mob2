@@ -30,6 +30,7 @@ import {
   normalizeAmbiguityType,
   CLARIFY_TIMEOUT_MS,
 } from './clarification';
+import { fetchDropRelation, holdDropForRelation, shouldRelate } from './relationActions';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // withTimeout helper
@@ -457,6 +458,10 @@ export async function handleClassified(drop: QueuedDrop): Promise<QueuedDrop> {
       })
     : Promise.resolve(null);
 
+  // Is this drop about something they already have? Runs alongside, never
+  // rejects, and null (off, slow, unsure) files the drop exactly as before.
+  const relationPromise = shouldRelate(drop) ? fetchDropRelation(drop.text) : Promise.resolve(null);
+
   // Phase 1.5a: get title + confirmation (soft timeout, fallback to raw text)
   const result = await withTimeout(
     callPhase1_5a(drop.text, drop.bucket!, drop.subtype || null),
@@ -496,6 +501,18 @@ export async function handleClassified(drop: QueuedDrop): Promise<QueuedDrop> {
       clarificationQuestion: clarification.question,
       clarificationOptions: clarification.options,
     };
+  }
+
+  // A drop about one of their items waits as a note carrying the question,
+  // so nothing new appears in their lists before they answer.
+  const relation = await relationPromise;
+  if (relation) {
+    console.log('[DropPhases] Drop relates to an existing item', {
+      localId: drop.localId,
+      kind: relation.kind,
+      intent: relation.intent,
+    });
+    drop = holdDropForRelation(drop, relation);
   }
 
   console.log('[DropPhases] handleClassified complete', {

@@ -2616,3 +2616,62 @@ describe('selectUpcomingEventNotes', () => {
     expect(result.map((e) => e.id)).toEqual(['e2', 'e3', 'e1']);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Held drops ("is this one you already have?", lib/minddrop/dropRelation.ts)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('selectSweepCandidatesUnified: held drops', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2025-12-15T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  const relation = (status: string) => ({
+    kind: 'same',
+    intent: 'same',
+    entity: { id: 't9', type: 'todo', title: 'Walk Bella' },
+    others: [],
+    confidence: 90,
+    extra: null,
+    status,
+    classified: {
+      bucket: 'log',
+      subtype: 'journal',
+      habitSubtype: null,
+      needsClarification: false,
+      ambiguityType: null,
+      clarificationQuestion: null,
+      clarificationOptions: null,
+    },
+  });
+
+  it('asks about a held drop whatever its kind or day, like a split', () => {
+    const old = '2025-12-10T09:00:00Z';
+    const state = makeState({
+      notes: [
+        makeNote({
+          id: 'held',
+          subtype: 'journal',
+          created_at: old,
+          views: { relation: relation('pending') },
+        } as any),
+        makeNote({ id: 'plain-journal', subtype: 'journal', created_at: old } as any),
+        makeNote({
+          id: 'answered',
+          subtype: 'catchall',
+          created_at: old,
+          views: { relation: relation('kept') },
+        } as any),
+      ],
+    });
+    const ids = selectSweepCandidatesUnified(state as any).map((i) => i.candidate.id);
+    expect(ids).toContain('held');
+    expect(ids).not.toContain('plain-journal');
+    expect(ids).not.toContain('answered');
+  });
+});

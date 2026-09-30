@@ -74,6 +74,7 @@ import {
   getDisplayKindForDrop,
 } from '../../lib/minddrop/cardHelpers';
 import { env } from '../../lib/env';
+import { heldKindOf, relationLine, relationOf } from '../../lib/minddrop/dropRelation';
 import { getSessionToken } from '../../lib/cortex/getSessionToken';
 import { MOOD_CONFIG, type Mood } from '../../lib/shared/moods';
 import { makeStyles } from './CatchAllNotepad';
@@ -1689,6 +1690,8 @@ const AnimatedMindDropCard = React.memo<{
     options: Array<{ id: string; label: string; action: any }> | null; // null = loading
     originalText?: string | null; // The original drop text to show context
   }) => void;
+  // "Is this one you already have?" for a held drop (lib/minddrop/dropRelation.ts)
+  openRelationPopup?: (options: { entityId: string }) => void;
 }>(
   ({
     item,
@@ -1707,6 +1710,7 @@ const AnimatedMindDropCard = React.memo<{
     onSplitSelected,
     onOpenModal,
     openClarificationPopup,
+    openRelationPopup,
   }) => {
     console.log('[RENDER_CHECK] AnimatedMindDropCard COMPLETE rendered');
     // Capture render time in a ref (initialized once on mount)
@@ -1723,6 +1727,10 @@ const AnimatedMindDropCard = React.memo<{
       (item.views?.needs_clarification || item.needs_clarification) &&
       !item.clarification_resolved &&
       !item.views?.clarification_resolved;
+
+    // A drop that may be one they already have waits for a tap, like a question
+    const heldRelation = item.kind === 'note' ? relationOf(item.views) : null;
+    const relationPending = heldRelation?.status === 'pending';
 
     // Tracking for badge animation (uses trackingId declared below)
     const bucketConfirmed = item.views?.bucket_confirmed !== false; // true for real entities
@@ -1953,7 +1961,7 @@ const AnimatedMindDropCard = React.memo<{
     // CLARIFICATION ITEMS: Skip animation states UNLESS processing
     // - needsClarification && !processing → show clarify card (skip skeleton)
     // - needsClarification && processing → show skeleton (user just selected option)
-    if (needsClarification && !clarificationProcessing) {
+    if ((needsClarification || relationPending) && !clarificationProcessing) {
       // Fall through to complete card render below
     } else if (isMulti) {
       // Fall through to complete card render below (skip skeleton states)
@@ -2017,6 +2025,11 @@ const AnimatedMindDropCard = React.memo<{
         return;
       }
 
+      if (relationPending && openRelationPopup) {
+        openRelationPopup({ entityId: item.id });
+        return;
+      }
+
       // Check if this item needs clarification
       const needsClarification =
         (item as any)?.needs_clarification || (item.views as any)?.needs_clarification;
@@ -2061,7 +2074,7 @@ const AnimatedMindDropCard = React.memo<{
           style={[
             styles.recentCard,
             // Both multi and clarification cards get the same green background
-            (isMulti || needsClarification) && { backgroundColor: '#F4F9F4' },
+            (isMulti || needsClarification || relationPending) && { backgroundColor: '#F4F9F4' },
           ]}
           onPress={handleCardPress}
           accessibilityRole="button"
@@ -2070,7 +2083,9 @@ const AnimatedMindDropCard = React.memo<{
               ? 'Tap to decide what to do with multiple items'
               : needsClarification
                 ? 'Tap to answer a quick question'
-                : `Edit ${item.title || item.text || 'item'}`
+                : relationPending
+                  ? 'Tap to check whether this is one you already have'
+                  : `Edit ${item.title || item.text || 'item'}`
           }
         >
           {/* Row 1: Title (left) + Chip (right) */}
@@ -2110,6 +2125,7 @@ const AnimatedMindDropCard = React.memo<{
           {!isFailed &&
           !isMulti &&
           !needsClarification &&
+          !relationPending &&
           sessionCardNotes.get(item.drop_id || item.id) ? (
             <Text style={styles.recentConfirmation} numberOfLines={1}>
               {sessionCardNotes.get(item.drop_id || item.id)}
@@ -2156,6 +2172,25 @@ const AnimatedMindDropCard = React.memo<{
                 Should I split these? Tap to decide.
               </Text>
             </View>
+          ) : relationPending && heldRelation ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: -2 }}>
+              <Animated.Image
+                source={require('../../assets/buttonforHP.png')}
+                style={{
+                  width: 26,
+                  height: 26,
+                  marginRight: 8,
+                  borderRadius: 13,
+                }}
+              />
+              <Text
+                style={{ flex: 1, fontSize: 13, color: '#4A7C59', fontWeight: '600' }}
+                numberOfLines={2}
+                testID={`minddrop-relation-line-${item.id}`}
+              >
+                {relationLine(heldRelation)}
+              </Text>
+            </View>
           ) : needsClarification ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: -2 }}>
               <Animated.Image
@@ -2178,7 +2213,7 @@ const AnimatedMindDropCard = React.memo<{
           {/* Hide chips when card needs clarification - show only timestamp */}
           <View style={styles.recentMetaRow}>
             {/* Left side: Chips (hidden during clarification/multi) */}
-            {!needsClarification && !isMulti && (
+            {!needsClarification && !isMulti && !relationPending && (
               <Row3Chips
                 item={item}
                 effectiveKind={effectiveKind}
@@ -2188,7 +2223,7 @@ const AnimatedMindDropCard = React.memo<{
               />
             )}
             {/* Left side helper text when clarification or multi */}
-            {(needsClarification || isMulti) && (
+            {(needsClarification || isMulti || relationPending) && (
               <Text style={{ flex: 1, fontSize: 12, color: '#657865', marginLeft: 34 }}>
                 no pressure, can sweep it later
               </Text>
@@ -2232,6 +2267,12 @@ const AnimatedMindDropCard = React.memo<{
     )
       return false;
     if (prevProps.item.time_estimate_minutes !== nextProps.item.time_estimate_minutes) return false;
+    // A held drop's question appears and goes with its status
+    if (
+      (prevProps.item.views as any)?.relation?.status !==
+      (nextProps.item.views as any)?.relation?.status
+    )
+      return false;
     // Reminders - re-render when reminders array changes (for bell chip)
     const prevReminders = prevProps.item.reminders;
     const nextReminders = nextProps.item.reminders;
@@ -2274,7 +2315,7 @@ export type GlobalOverlayController = Pick<
   | 'close'
   | 'openClarificationPopup'
   | 'closeClarificationPopup'
->;
+> & { openRelationPopup?: OverlayContextValue['openRelationPopup'] };
 
 export const noopOverlayController: GlobalOverlayController = {
   openCreate: () => {},
@@ -4391,7 +4432,10 @@ const RecentDrops: React.FC<{
               {/* a pending item is promoted to a real item (prevents modal from closing) */}
               {combinedItems.map((item) => {
                 const itemIsPending = pendingIdSet.has(item.drop_id || item.id);
-                const effectiveKind = item.optimisticKind ?? item.kind;
+                // A held drop shows the kind it will become, not the note it waits as
+                const held = item.kind === 'note' ? relationOf(item.views) : null;
+                const heldKind = held?.status === 'pending' ? heldKindOf(held).kind : null;
+                const effectiveKind = heldKind ?? item.optimisticKind ?? item.kind;
                 const displayKind = getDisplayKindForDrop(item, canonicalTypesOn);
                 const showLegacyUnsortedBadge =
                   !canonicalTypesOn && effectiveKind === 'note' && (item as any).unsorted;
@@ -4440,6 +4484,7 @@ const RecentDrops: React.FC<{
                       onSplitSelected={handleSplitSelected}
                       onOpenModal={handleOpenModal}
                       openClarificationPopup={overlay.openClarificationPopup}
+                      openRelationPopup={overlay.openRelationPopup}
                     />
                   </UnifiedCardWrapper>
                 );

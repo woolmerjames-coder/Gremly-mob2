@@ -285,6 +285,8 @@ export async function syncDropToSupabase(
           classify_engine: drop.classifyEngine || null,
           ai_degraded: drop.classificationDegraded || false,
           classification_source: drop.classificationSource || 'unknown',
+          // "Is this one you already have?" waiting for the user (dropRelation.ts)
+          relation: drop.relation || undefined,
         },
         updated_at: now,
       };

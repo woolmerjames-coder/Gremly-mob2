@@ -202,6 +202,7 @@ import {
 import { handleHabitRead } from './habitRead.js';
 import { configureModels, models, helperModel } from './models.js';
 import { helperFetch } from './helperClient.js';
+import { relateDrop } from './minddropRelate.js';
 import {
   matchEntity,
   entityCardPromptSection,
@@ -3461,6 +3462,7 @@ export default {
         'weekly-summary',
         'floor-suggest',
         'habit-read',
+        'minddrop-relate',
       ]);
       const AUTH_REQUIRED_LANES = new Set([
         'space_chat',
@@ -8547,6 +8549,35 @@ Segment rules:
       }
 
       // =========================
+      // === MIND DROP: IS THIS DROP ABOUT SOMETHING THEY ALREADY HAVE? ===
+      // Runs after the drop is classified. The model reads the user's live items
+      // and says whether the drop repeats one, changes it, adds to it, finishes a
+      // todo, logs a habit or cancels one (minddropRelate.js). It only proposes:
+      // the app changes nothing until the user taps. Off unless
+      // MINDDROP_RELATE_ENABLED = "true"; the app then files drops as before.
+      // docs/minddrop-relate.md
+      // =========================
+      if (type === 'minddrop-relate') {
+        // checked first, so a switched off step costs nothing per drop
+        if (String(env.MINDDROP_RELATE_ENABLED || '').toLowerCase() !== 'true') {
+          return j({ enabled: false, relation: null });
+        }
+
+        const rl = await checkIpRateLimit(request, env, 'relate', 60);
+        if (!rl.allowed) return rateLimitResponse('relate', rl.count, rl.limit);
+
+        const text = String(body.text || '').trim();
+        if (!text) {
+          return j({ error: 'missing_text', detail: 'text field is required' }, 400);
+        }
+        const todayIso = /^\d{4}-\d{2}-\d{2}$/.test(String(body.currentDate || ''))
+          ? String(body.currentDate)
+          : todayIsoIn(userTimezone);
+        // Never throws; any failure or doubt comes back as no relation
+        const { relation } = await relateDrop({ env, userId: authenticatedUserId, text, todayIso });
+        return j({ enabled: true, relation });
+      }
+
       // === CLASSIFY v3: SINGLE CALL (classification + multi + clarification) ===
       // Replaces detect-multi + preparse (8 calls) + Phase 1 + clarify-ambiguity
       // for a drop with one structured call. Response is a superset of the
@@ -8849,6 +8880,7 @@ Segment rules:
         const selectedLabel = body.selectedLabel || '';
         const selectedBucket = body.selectedBucket || null;
         const selectedSubtype = body.selectedSubtype || null;
+        const selectedHabitSubtype = body.selectedHabitSubtype || null;
         // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
         const currentDate =
           body.currentDate ||
@@ -8962,10 +8994,24 @@ If no date in input, all date fields are null.
 
         if (!result.parsed) {
           console.log('[Reclassify] Both providers failed', { latency_ms: latency });
+          // the kind the user picked still decides what the item becomes
+          const fallbackBucket = ['todo', 'habit', 'log'].includes(selectedBucket)
+            ? selectedBucket
+            : 'log';
           return j({
-            bucket: 'log',
-            subtype: 'general',
-            habit_subtype: null,
+            bucket: fallbackBucket,
+            subtype:
+              fallbackBucket === 'log'
+                ? ['general', 'idea', 'journal', 'event'].includes(selectedSubtype)
+                  ? selectedSubtype
+                  : 'general'
+                : null,
+            habit_subtype:
+              fallbackBucket === 'habit'
+                ? selectedHabitSubtype === 'break_habit'
+                  ? 'break_habit'
+                  : 'start_habit'
+                : null,
             smart_title: titleCase(text.substring(0, 50)),
             confirmation_message: 'Saved for later.',
             target_date: null,
@@ -9001,9 +9047,12 @@ If no date in input, all date fields are null.
         let habitSubtype = null;
         if (bucket === 'habit') {
           const validHabitSubtypes = ['start_habit', 'break_habit'];
-          habitSubtype = validHabitSubtypes.includes(parsed.habit_subtype)
-            ? parsed.habit_subtype
-            : 'start_habit';
+          // a habit to cut back that the user picked stays one
+          habitSubtype = validHabitSubtypes.includes(selectedHabitSubtype)
+            ? selectedHabitSubtype
+            : validHabitSubtypes.includes(parsed.habit_subtype)
+              ? parsed.habit_subtype
+              : 'start_habit';
         }
 
         // Validate dates

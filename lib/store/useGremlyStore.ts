@@ -9313,8 +9313,14 @@ export const useGremlyStore = create<GremlyState>()(
             };
           }
 
-          // Determine target bucket from reclassify result (fallback to current)
-          const targetBucket = reclassifyResult.bucket || currentBucket;
+          // Determine target bucket: the answer the user picked decides it (the
+          // reclassify step is told to match it, but may be unreachable), then
+          // the reclassify result, then the current bucket
+          const pickedBucket =
+            selectedBucket === 'todo' || selectedBucket === 'habit' || selectedBucket === 'log'
+              ? selectedBucket
+              : null;
+          const targetBucket = pickedBucket || reclassifyResult.bucket || currentBucket;
           const bucketChanged = targetBucket !== currentBucket;
 
           // Extract values from reclassify result (with fallbacks)

@@ -148,6 +148,8 @@ import { SweepCompletedModal } from '../../components/sweep/SweepCompletedModal'
 import { SweepEndCard } from '../../components/sweep/SweepEndCard';
 import { SweepEndItemList } from '../../components/sweep/SweepEndItemList';
 import { ClarificationPopup } from '../../components/minddrop/ClarificationPopup';
+import { RelationPopup, type RelationResolution } from '../../components/minddrop/RelationPopup';
+import { relationOf } from '../../lib/minddrop/dropRelation';
 import { sweepLog } from '../../lib/debug/sweepLogger';
 
 // Gremly mascot for summary step
@@ -1816,6 +1818,8 @@ function SweepDecisionStep({
   const [clarificationSuccess, setClarificationSuccess] = useState<string | null>(null);
   const [cardFlipKey, setCardFlipKey] = useState(0); // Used to trigger card re-render after clarification
   const [isClarified, setIsClarified] = useState(false); // Triggers flip animation after clarification
+  // Held drops ("is this one you already have?") already asked on this sweep
+  const [relationHandledIds, setRelationHandledIds] = useState<Set<string>>(() => new Set());
 
   // Track item details for summary display
   const itemDetailsRef = useRef<Map<string, { name: string; kind: 'todo' | 'habit' | 'note' }>>(
@@ -3232,6 +3236,51 @@ function SweepDecisionStep({
     setShowClarification(false);
   }, []);
 
+  // A held drop on the current card asks "is this one you already have?",
+  // like a question or a split. The candidates are a snapshot, so what was
+  // asked is tracked here rather than read back from the card.
+  const relationCandidate = candidatesWithMeta[currentIndex]?.candidate;
+  const relationHeld =
+    relationCandidate?.kind === 'note' ? relationOf(relationCandidate.raw?.views) : null;
+  const relationNoteId =
+    relationCandidate &&
+    relationHeld?.status === 'pending' &&
+    !relationHandledIds.has(relationCandidate.id)
+      ? relationCandidate.id
+      : null;
+
+  const markRelationHandled = useCallback((id: string | null) => {
+    if (!id) return;
+    setRelationHandledIds((prev) => new Set(prev).add(id));
+  }, []);
+
+  const handleRelationResolved = useCallback(
+    (outcome: RelationResolution, targetId?: string) => {
+      markRelationHandled(relationNoteId);
+      if (outcome === 'applied') {
+        // Sweep saves its decisions at the end; an earlier one on the item
+        // just changed would undo what the user said yes to
+        if (targetId) decisionsRef.current.delete(targetId);
+        // the drop was only the ask (or a journal entry that stays): next card
+        handleOutcome('changed');
+        return;
+      }
+      const c = relationHeld?.classified;
+      if (outcome === 'clarify' && c?.clarificationQuestion && c.clarificationOptions) {
+        // it was unclear before it was held: its question comes back now
+        setClarificationQuestion(c.clarificationQuestion);
+        setClarificationOptions(c.clarificationOptions as any[]);
+        setShowClarification(true);
+        return;
+      }
+      // filed as it was classified: refresh the card the way an answered question does
+      setCardFlipKey((prev) => prev + 1);
+      setIsClarified(true);
+      setTimeout(() => setIsClarified(false), 850);
+    },
+    [markRelationHandled, relationNoteId, relationHeld, handleOutcome],
+  );
+
   // Auto-advance to summary when all cards are processed (fallback)
   useEffect(() => {
     if (!isLoading && candidatesWithMeta.length > 0 && currentIndex >= candidatesWithMeta.length) {
@@ -3503,6 +3552,15 @@ function SweepDecisionStep({
               onClose={handleClarificationSkip}
               isSubmitting={isSubmittingClarification}
               successMessage={clarificationSuccess}
+            />
+
+            {/* "Is this one you already have?" - shown when the current card is a held drop */}
+            <RelationPopup
+              key={relationNoteId ?? 'none'}
+              visible={!!relationNoteId}
+              noteId={relationNoteId}
+              onClose={() => markRelationHandled(relationNoteId)}
+              onResolved={handleRelationResolved}
             />
           </>
         )}

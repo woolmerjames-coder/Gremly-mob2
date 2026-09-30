@@ -6,6 +6,7 @@ import React, { createContext, useContext, useState, useCallback, useRef, useEff
 import type { AppRecord, CanonicalType, LogSubtype } from '../lib/types';
 import { persistedNoteSubtypeToLogSubtype } from '../lib/logSubtypes';
 import { ClarificationPopup } from '../components/minddrop/ClarificationPopup';
+import { RelationPopup } from '../components/minddrop/RelationPopup';
 import type { ClarificationWhen } from '../lib/minddrop/clarification';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
 import * as Haptics from 'expo-haptics';
@@ -96,6 +97,8 @@ interface OverlayContextValue {
   // Clarification popup methods
   openClarificationPopup: (options: ClarificationPopupOptions) => void;
   closeClarificationPopup: () => void;
+  /** "Is this one you already have?" for a held drop (lib/minddrop/dropRelation.ts) */
+  openRelationPopup: (options: { entityId: string }) => void;
 }
 
 const OverlayContext = createContext<OverlayContextValue | undefined>(undefined);
@@ -117,6 +120,8 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
     originalText: null,
   });
   const [clarificationLoading, setClarificationLoading] = useState(false);
+  // The held drop whose relation question is open, if any
+  const [relationNoteId, setRelationNoteId] = useState<string | null>(null);
   const [clarificationSuccess, setClarificationSuccess] = useState<string | null>(null);
 
   const isOpeningRef = useRef(false);
@@ -290,6 +295,11 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
     },
     [],
   );
+
+  const openRelationPopup = useCallback(({ entityId }: { entityId: string }) => {
+    setRelationNoteId(entityId);
+  }, []);
+  const closeRelationPopup = useCallback(() => setRelationNoteId(null), []);
 
   const closeClarificationPopup = useCallback(() => {
     setClarificationPopup({
@@ -555,6 +565,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
         close,
         openClarificationPopup,
         closeClarificationPopup,
+        openRelationPopup,
       }}
     >
       {children}
@@ -569,6 +580,13 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
         onClose={closeClarificationPopup}
         isSubmitting={clarificationLoading}
         successMessage={clarificationSuccess}
+      />
+      {/* "Is this one you already have?", opened from a held drop's card */}
+      <RelationPopup
+        key={relationNoteId ?? 'none'}
+        visible={!!relationNoteId}
+        noteId={relationNoteId}
+        onClose={closeRelationPopup}
       />
     </OverlayContext.Provider>
   );

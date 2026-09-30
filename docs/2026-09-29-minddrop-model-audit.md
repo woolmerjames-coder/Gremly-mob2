@@ -198,3 +198,6 @@ The answers are fixed copy, and only the question is written for the drop. Chat 
 - On the 307 test drops in the run: 303 right against 300 before, 2 filed wrong without asking against 3, and 2 needless questions against 4. Nothing else changed beyond run to run noise.
 - The prompt in the Worker is the exact one tested.
 
+## 14. After the audit: drops about things you already have
+
+A separate step, after classification, asks whether a drop is about one of the user's existing items: the same thing again, a change to one, a detail for one, a todo now done, a habit they did, or something cancelled. The card shows one quiet line and a tap opens the question popup; nothing changes without a tap. The classifier's prompt is untouched. It is off (`MINDDROP_RELATE_ENABLED = "false"`) until James has reviewed the replay of the beta account's 429 drops, which would have asked on 60 of them. Details, the replay and the two open questions: `docs/minddrop-relate.md`.

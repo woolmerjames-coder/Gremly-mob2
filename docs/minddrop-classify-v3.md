@@ -53,6 +53,7 @@ The second opinion uses its own prompt (`buildSecondOpinionPrompt`), built from 
 
 1. **Second opinion** (off unless `SECOND_OPINION_MODEL` is set). Only when the classifier wants to ask. A stronger model looks at the drop again and either files it or confirms the question. Meant for a cheap classifier such as Luna, which asks too often.
 2. **Question writer** (on by default when `ANTHROPIC_API_KEY` is set). Only when the answer is still a question. The classifier has already chosen the kind of question, so the answers and what they do are fixed; Claude Sonnet writes the words. If it is slow, or its words fail the checks above, the classifier's own words stay. `CLARIFY_WRITER_ENABLED = "false"` turns it off. The standalone `clarify-ambiguity` route uses the same writer.
+3. **Is it one they already have?** (off unless `MINDDROP_RELATE_ENABLED = "true"`). A separate call from the app, alongside the title call, for single drops only: whether the drop repeats, changes, finishes, logs or cancels one of the user's items. The drop then waits as a note with the question on its card. See `docs/minddrop-relate.md`.
 
 ## Timing and backup
 

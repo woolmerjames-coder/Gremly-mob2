@@ -15,6 +15,7 @@ import { computeSweepCardMeta } from '../sweep/computeSweepCardMeta';
 import { computeWorldsForEntity } from './worldsSelectors';
 import type { NowWeeklyHabitSummary, HabitWeeklyStatus } from '../now/nowTypes';
 import { getDateService } from '../date';
+import { isRelationPending } from '../minddrop/dropRelation';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // DATE HELPERS
@@ -813,7 +814,10 @@ export const selectSweepCandidatesUnified = createSelector(
     // Process notes
     for (const note of notes) {
       if (note.archived) continue;
-      if (note.subtype === 'journal') continue;
+      // A drop waiting on "is this one you already have?" is asked in Sweep
+      // whatever its kind or day, like a split (lib/minddrop/dropRelation.ts)
+      const relationPending = isRelationPending(note.views);
+      if (note.subtype === 'journal' && !relationPending) continue;
 
       const resurfaceAt = (note as any).resurface_at;
       const sweptAt = (note as any).swept_at;
@@ -827,7 +831,7 @@ export const selectSweepCandidatesUnified = createSelector(
       const shouldResurface = resurfaceAt && resurfaceAt <= today;
 
       // Skip notes that were swept, UNLESS they should resurface or were skipped
-      if (sweptAt && !shouldResurface && !note.skipped_in_sweep_at) {
+      if (sweptAt && !shouldResurface && !note.skipped_in_sweep_at && !relationPending) {
         continue;
       }
 
@@ -851,7 +855,7 @@ export const selectSweepCandidatesUnified = createSelector(
             )
           : null;
 
-      if (isEvent && isEventPassed && !(note as any).external_source) {
+      if (isEvent && isEventPassed && !(note as any).external_source && !relationPending) {
         continue;
       }
 
@@ -861,7 +865,14 @@ export const selectSweepCandidatesUnified = createSelector(
         note.subtype === 'catchall' || note.subtype === 'list' || note.subtype === 'reference';
       const isTodayOther = isOtherSubtype && isCreatedToday;
 
-      if (isRecentIdea || isTodayOther || isUpcomingEvent || wasSkipped || shouldResurface) {
+      if (
+        relationPending ||
+        isRecentIdea ||
+        isTodayOther ||
+        isUpcomingEvent ||
+        wasSkipped ||
+        shouldResurface
+      ) {
         // Extract log_photos from note (joined in useGremlyStore.initialize)
         const logPhotos = (note as any).log_photos;
         const attachments: SweepAttachment[] = Array.isArray(logPhotos)
