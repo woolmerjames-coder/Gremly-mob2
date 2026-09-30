@@ -112,7 +112,9 @@ export function describeChange(
         label: 'Update note to',
       };
     case 'body_add':
-      return { from: 'Current note', to: change.to, label: 'Add to note' };
+      return entity.type === 'todo'
+        ? { from: 'Current notes', to: change.to, label: 'Add to its notes' }
+        : { from: 'Current note', to: change.to, label: 'Add to note' };
     case 'completed':
       return { from: 'Open', to: 'Done', label: 'Mark as' };
     default:
@@ -212,13 +214,16 @@ export async function applyEntityChange(
       due_day: todo.due_day ?? null,
       due_date: todo.due_date ?? null,
       due_time: todo.due_time ?? null,
+      body: todo.body ?? null,
     };
     const updates =
       change.field === 'due_day'
         ? { due_day: change.to, due_date: change.to }
         : change.field === 'due_time'
           ? { due_time: change.to }
-          : { name: change.to, title: change.to };
+          : change.field === 'body_add'
+            ? { body: todo.body?.trim() ? `${todo.body.trimEnd()}\n\n${change.to}` : change.to }
+            : { name: change.to, title: change.to };
     await store.updateTodo(todo.id, updates);
     return {
       revert: () =>
@@ -230,9 +235,16 @@ export async function applyEntityChange(
               ? { due_day: before.due_day, due_date: before.due_date }
               : change.field === 'due_time'
                 ? { due_time: before.due_time }
-                : { name: before.name, title: before.title },
+                : change.field === 'body_add'
+                  ? { body: before.body }
+                  : { name: before.name, title: before.title },
           ),
-      summary: change.field === 'name' ? `Renamed to ${words.to}.` : `${title} is now ${words.to}.`,
+      summary:
+        change.field === 'name'
+          ? `Renamed to ${words.to}.`
+          : change.field === 'body_add'
+            ? `Added to ${title}.`
+            : `${title} is now ${words.to}.`,
       entity: after,
     };
   }

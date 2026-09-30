@@ -90,8 +90,31 @@ test('decideCard: below the floor it asks, an unknown id or refers false is noth
     },
     cands,
   );
-  expect(low.kind).toBe('choose');
-  expect(low.candidates[0].id).toBe('aaaa1111-0000');
+  // not sure enough to propose a change, and no alternatives named: the one
+  // item is shown and Gremly checks it is the one; never a list padded with
+  // whatever happens to be next on the list
+  expect(low).toMatchObject({ kind: 'view', intent: 'confirm', entity: { id: 'aaaa1111-0000' } });
+  expect(entityCardPromptSection(low)).toContain('may be the one they mean');
+  expect(applyEntityCardToTriage({ mode: 'update' }, low).mode).toBe('entity_card');
+  expect(
+    decideCard(
+      {
+        refers: true,
+        entity_id: 'aaaa1111-0000',
+        intent: 'edit',
+        change: null,
+        confidence: CONFIDENCE_FLOOR - 1,
+        candidates: ['aaaa1111-0000', 'bbbb2222'],
+      },
+      cands,
+    ),
+  ).toMatchObject({ kind: 'choose' });
+  expect(
+    decideCard(
+      { refers: true, entity_id: 'aaaa1111-0000', intent: 'mention', confidence: 40 },
+      cands,
+    ),
+  ).toBeNull();
   expect(
     decideCard({ refers: true, entity_id: 'nope', intent: 'edit', confidence: 99 }, cands),
   ).toBeNull();
@@ -269,12 +292,24 @@ test('an explicit add to a note is a card; details said in passing are left to t
     note,
   );
   expect(passing).toMatchObject({ kind: 'mention', change: null });
-  // a todo has no body to add to
+  // a todo keeps notes too, so an explicit add is a card there as well; a habit has nothing to add to
   expect(
     decideCard(
       {
         refers: true,
         entity_id: 'aaaa1111',
+        intent: 'edit',
+        change: { field: 'body_add', value: 'x' },
+        confidence: 95,
+      },
+      candidatesFor('m', items, null),
+    ),
+  ).toMatchObject({ kind: 'edit', change: { field: 'body_add', to: 'x' } });
+  expect(
+    decideCard(
+      {
+        refers: true,
+        entity_id: 'cccc3333',
         intent: 'edit',
         change: { field: 'body_add', value: 'x' },
         confidence: 95,

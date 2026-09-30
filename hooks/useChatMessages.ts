@@ -139,11 +139,23 @@ export function useChatMessages(
 
   const chatRepo = useMemo(() => new SupabaseSpaceChatRepo(user?.id), [user?.id]);
 
-  // Update currentChatId if chatId prop changes
+  // Update currentChatId if chatId prop changes. Moving from one chat to
+  // another, or back to the empty state, drops the old chat's messages at
+  // once, so nothing sent from the next chat carries the last one's history.
+  const previousChatIdRef = useRef<string | undefined>(chatId);
   useEffect(() => {
+    const previous = previousChatIdRef.current;
+    previousChatIdRef.current = chatId;
+    if (previous && previous !== chatId) {
+      setMessages([]);
+      saveableDataRef.current.clear();
+    }
     if (chatId) {
       setCurrentChatId(chatId);
       currentChatIdRef.current = chatId;
+    } else if (previous) {
+      setCurrentChatId(null);
+      currentChatIdRef.current = null;
     }
   }, [chatId]);
 

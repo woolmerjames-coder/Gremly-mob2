@@ -146,22 +146,23 @@ function withKeys(list) {
 
 export const ENTITY_MATCH_SYSTEM_PROMPT = `You decide whether a chat message in a personal productivity app is about something the user already has, and what they want done with it.
 
-You are given today's date, the message, the last few exchanges when there are any, and the user's items: their todos and notes, some with a day and time, and their habits with how often they repeat. The list is everything they have, so most of it has nothing to do with the message. An item marked as shown on the card in the last reply is the one the app has just shown them. A short follow up takes its meaning from the exchanges before it: a pronoun or a bare yes means the item those exchanges were about unless the message plainly names something else, and a yes to an offer Gremly made is an edit with the change that offer named.
+You are given today's date, the message, the last few exchanges when there are any, and the user's items: their todos and notes, some with a day and time, and their habits with how often they repeat. The list is everything they have, so most of it has nothing to do with the message. Read the whole list before deciding; an item near the end counts as much as one near the top. An item marked as shown on the card in the last reply is the one the app has just shown them. A short follow up takes its meaning from the exchanges before it: a pronoun or a bare yes means the item those exchanges were about unless the message plainly names something else, and a yes to an offer Gremly made is an edit with the change that offer named.
 
 This is a conversation first. Two different things can follow from your answer, so tell them apart: a card in the reply, which interrupts the conversation and is only for an explicit ask; and a quiet offer later, which is for things said in passing.
 
-Decide:
-- refers: true when the message is about one specific item on the list, whether it names the item, points at it, or describes the same thing in different words. Sharing a word or a topic with an item is not referring to it, describing something new is not referring to an existing item, and when their words cover an area of work, a project or several items at once, no single item is meant: refers is false and the items concerned go in about.
+Decide, in this order:
+- considered: first, the ids of every item that could be the one the message is about, up to five, found by reading the whole list; empty when none could be.
+- refers: true when the message is about one specific item on the list, whether it names the item, points at it, or describes the same thing in different words. What they call it is their word for it, not a filter: when what they describe matches an item of another kind, a todo they call a note or a note they call a reminder, that item is the one they mean, and refers is true. Sharing a word or a topic with an item is not referring to it, describing something new is not referring to an existing item, and when their words cover an area of work, a project or several items at once, no single item is meant: refers is false and the items concerned go in about.
 - entity_id: the id of that item, or null.
-- intent: "edit" when the message is a request or an instruction about the item: to move it, reschedule it, rename it, give it another time or another frequency, add something to a note, or a statement, in whatever words, that the item as it is set has to change, even without saying what to. "complete" when their words say the item is done, whether they announce it as news or ask for it to be marked. "view" only when they ask for the item itself: to see it, open it, read it back, or be told what it says or when it is. Asking for help, options, ideas or information about the subject an item is about is not a request to see the item; that is mention, or none. "mention" when they are telling you about the item rather than asking for anything: what they plan to do, when they now expect to do it, what has happened with it, or details about it. A plan or an intention is news, not an instruction, even when it names a day. Details about a note's subject that come up in passing are also mention, with change null: the app offers to add them to the note afterwards, and a note's title does not change because its subject grew. "none" when the message only shares a topic with it.
-- change: for edit and mention, the single field their words give a new value for, else null. Fields: due_day (YYYY-MM-DD), due_time (HH:MM, 24 hour), name (the new title), frequency (plain words; habits only), body_add (text to add to a note, in their words, only when they ask for it to be added). A due_day is the one calendar day their words point to, counted from today's date. Words point to one day when they name a day or a date, count days or weeks from today, give a deadline as the end of a period (its last day; whether a week ends on Friday or Sunday follows from what the item is), or give a short span of two or three days (its first day). A day of the month with no month named is the next such day after today. Words point to no single day when they give a month, a season, a vague time, or a different week or month without saying which day in it; then the value is null and the card asks which day. A day mentioned for some other reason, such as being busy on it, is not the new value. Null when they want a change but have not said what to, or the change is unclear.
+- intent: "edit" when the message is a request or an instruction about the item: to move it, reschedule it, rename it, give it another time or another frequency, add something to a note or to a todo, or a statement, in whatever words, that the item as it is set has to change, even without saying what to. "complete" when their words say the item is done, whether they announce it as news or ask for it to be marked. "view" only when they ask for the item itself: to see it, open it, read it back, or be told what it says or when it is. Asking for help, options, ideas or information about the subject an item is about is not a request to see the item; that is mention, or none. "mention" when they are telling you about the item rather than asking for anything: what they plan to do, when they now expect to do it, what has happened with it, or details about it. A plan or an intention is news, not an instruction, even when it names a day. Details about a note's subject that come up in passing are also mention, with change null: the app offers to add them to the note afterwards, and a note's title does not change because its subject grew. "none" when the message only shares a topic with it.
+- change: for edit and mention, the single field their words give a new value for, else null. Fields: due_day (YYYY-MM-DD), due_time (HH:MM, 24 hour), name (the new title), frequency (plain words; habits only), body_add (text to add to a note or to a todo's notes, in their words, only when they ask for it to be added). A due_day is the one calendar day their words point to, counted from today's date. Words point to one day when they name a day or a date, count days or weeks from today, give a deadline as the end of a period (its last day; whether a week ends on Friday or Sunday follows from what the item is), or give a short span of two or three days (its first day). A day of the month with no month named is the next such day after today. Words point to no single day when they give a month, a season, a vague time, or a different week or month without saying which day in it; then the value is null and the card asks which day. A day mentioned for some other reason, such as being busy on it, is not the new value. Null when they want a change but have not said what to, or the change is unclear.
 - about: the ids of the items the message is about, whether or not refers is true: the item they are discussing, or the very piece of work they are talking about. Empty when it is about none of them. An item that is only on the same subject, one that merely shares a word with the message, or a note that records a past day does not belong here; a reply that name-drops such an item feels like being watched, so leave them out.
 - confidence: 0 to 100, how sure you are that entity_id is the item they mean.
 - ask: true only when they are asking for something to happen to one item (an edit, a completion, or to see it) and two or more items fit about equally; then list those ids in candidates. A loose description still refers to one of their items when any fit it: pick the one that fits best when one clearly does, ask when several fit, and answer refers false only when none of their items could be the one they mean. Never ask about a topic they are merely talking about.
 
 A wrong match is worse than no match: when in doubt, refers false or ask true. Never invent an id. Never resolve a date the user did not give.
 
-Return ONLY JSON: {"refers":true|false,"entity_id":"..."|null,"intent":"edit"|"mention"|"view"|"complete"|"none","change":{"field":"...","value":"..."}|null,"about":["..."],"confidence":0-100,"ask":true|false,"candidates":["..."]}`;
+Return ONLY JSON: {"considered":["..."],"refers":true|false,"entity_id":"..."|null,"intent":"edit"|"mention"|"view"|"complete"|"none","change":{"field":"...","value":"..."}|null,"about":["..."],"confidence":0-100,"ask":true|false,"candidates":["..."]}`;
 
 // how many exchanges before the message the matcher reads
 export const MATCH_EXCHANGES = 3;
@@ -214,7 +215,7 @@ function parseJson(raw) {
 // What a card in the conversation may change. Adding to a note's text is a card
 // only when they ask for it; said in passing it is an offer in the Save items pill.
 const FIELDS = {
-  todo: ['due_day', 'due_time', 'name'],
+  todo: ['due_day', 'due_time', 'name', 'body_add'],
   habit: ['name', 'frequency'],
   note: ['name', 'due_day', 'due_time', 'body_add'],
 };
@@ -240,12 +241,19 @@ export function decideCard(answer, candidates) {
   }
   if (!answer.refers || !byId.has(answer.entity_id)) return null;
   const entity = byId.get(answer.entity_id);
-  if (confidence < CONFIDENCE_FLOOR) {
-    // Not sure enough to propose anything: ask, with the runner up when there is one
-    const others = candidates.filter((c) => c.id !== entity.id).slice(0, 2);
-    return { kind: 'choose', candidates: [entity, ...others] };
-  }
   const intent = answer.intent;
+  if (confidence < CONFIDENCE_FLOOR) {
+    // Not sure enough to propose a change. The model's own alternatives, when it
+    // gave any, are the choice; otherwise the one item it named is shown and
+    // Gremly asks whether that is the one. Never a list padded with unrelated items.
+    if (askIds.length >= 2) {
+      const ids = [entity.id, ...askIds.filter((id) => id !== entity.id)].slice(0, 3);
+      return { kind: 'choose', candidates: ids.map((id) => byId.get(id)) };
+    }
+    if (intent === 'edit' || intent === 'complete')
+      return { kind: 'view', entity, intent: 'confirm' };
+    return null;
+  }
   if (intent === 'edit' && answer.change && FIELDS[entity.type]?.includes(answer.change.field)) {
     const value = String(answer.change.value ?? '').trim();
     // the user wants a change but the new value is missing or unusable: show the
@@ -444,7 +452,7 @@ export function theirItemsPromptSection(match, todayIso, opts = {}) {
   if (related.length === 0 && attention.length === 0) return '';
   const parts = [
     '=== WHAT THEY HAVE ON ===',
-    "Their own items, as they stand right now. You know these exist. When one bears on what they said, say so plainly and in passing, in your own words: that it is already on their list, when it is, that it is overdue. You may offer the natural next step for one of them (moving it, marking it done); the app then shows a card and they confirm with a tap, so never say a change has been made, and never offer to change several at once: one item per offer. Never read the list out, never mention more than one or two, and leave them alone when the conversation is elsewhere. An overdue item is not on any particular day, so never present it as part of a day's plan.",
+    "Their own items, as they stand right now. You know these exist. When one bears on what they said, say so plainly and in passing, in your own words: that it is already on their list, when it is, that it is overdue. You may offer the natural next step for the item they are talking about (moving it, marking it done) as a plain question in your own words; the app handles the confirmation, so never mention a card, a button or tapping, never say you will set anything up or get anything ready, never say a change has been made, and never offer to change several at once: one item per offer. Never offer to move something else to make room. Never say something is on their list unless it is listed here; if they ask for something to be done to an item you cannot see here, ask which one they mean. Never read the list out, never mention more than one or two, and leave them alone when the conversation is elsewhere. An overdue item is not on any particular day, so never present it as part of a day's plan.",
   ];
   if (related.length) {
     parts.push('What they are talking about:');
@@ -545,7 +553,7 @@ export async function matchEntity({
 
 const SAME_THING_PROMPT = `You check proposed new items against what a user already has in a personal productivity app, so nothing they already track is saved twice.
 
-You are given the user's existing items (todos, habits and notes, with ids) and a list of proposed new items. For each proposed item decide whether it is the same thing as one existing item or new. Two things are the same when doing, keeping or noting one would make the other redundant: the same task in other words, the same appointment or event, or a detail of a subject one of the notes already covers. Sharing a subject with a listed item does not make something that item. When in doubt, it is new.
+You are given the user's existing items (todos, habits and notes, with ids) and a list of proposed new items. For each proposed item decide whether it is the same thing as one existing item or new. Two things are the same when doing, keeping or noting one would make the other redundant: the same task in other words, the same appointment or event, or a detail of a subject one of the notes already covers. Sharing a subject with a listed item does not make something that item: if they would still need to do or keep the proposed thing after the listed item was done, it is new. When in doubt, it is new.
 
 Return ONLY JSON: {"results":[{"index":0,"same_as":"<existing id>"|null}]} with one entry per proposed item, in order.`;
 
@@ -606,7 +614,7 @@ export function applyEntityCardToTriage(triage, card) {
   const takesOver =
     (card.kind === 'edit' && !card.inPassing) ||
     card.kind === 'choose' ||
-    (card.kind === 'view' && card.intent === 'edit');
+    (card.kind === 'view' && (card.intent === 'edit' || card.intent === 'confirm'));
   if (!takesOver) return triage;
   return {
     ...triage,
@@ -652,15 +660,18 @@ export function recentCardPromptSection(recent) {
 export function entityCardPromptSection(card) {
   if (!card) return '';
   const never =
-    'Nothing has been changed; the user decides with one tap on the card. Never say you have changed, moved, updated or saved anything. Do not describe the card or repeat its details, do not give advice, and do not use a list or numbered steps.';
+    "Nothing has been changed; the user decides with one tap on the card. Never say you have changed, moved, updated or saved anything, never say you will set anything up, and never mention a card, a button or tapping. Do not repeat the item's details, do not give advice, and do not use a list or numbered steps.";
   if (card.kind === 'edit' && card.inPassing) {
-    return `\n\n=== ENTITY CARD ===\nBecause of what they just said, the app is showing a card under your reply for their ${card.entity.type} "${card.entity.title}", proposing to ${changeInWords(card)}. Nothing has changed; they decide with one tap. Reply to what they said the way you normally would, and in one clause, in your own words, let them know that item is already on their list and the card will move it if they want. Do not describe the card, and never say it is done or updated.`;
+    return `\n\n=== ENTITY CARD ===\nBecause of what they just said, the app is showing a card under your reply for their ${card.entity.type} "${card.entity.title}", proposing to ${changeInWords(card)}. Nothing has changed; they decide with one tap. Reply to what they said the way you normally would, and in one clause, in your own words, let them know that item is already on their list and you can ${changeInWords(card)} if they want. Never mention a card, a button or tapping, never say you will set anything up or get anything ready, and never say it is done or updated.`;
   }
   if (card.kind === 'edit') {
     return `\n\n=== ENTITY CARD ===\nThe app is showing the user a card for their ${card.entity.type} "${card.entity.title}" proposing to ${changeInWords(card)}. ${never} Reply with one short, warm line asking whether that is the one, and stop.`;
   }
   if (card.kind === 'view' && card.intent === 'edit') {
     return `\n\n=== ENTITY CARD ===\nThe app is showing the user a card for their ${card.entity.type} "${card.entity.title}". They want to change it but have not said what to. ${never} Reply with one short line asking what should change, such as its day, its time or its name, and stop.`;
+  }
+  if (card.kind === 'view' && card.intent === 'confirm') {
+    return `\n\n=== ENTITY CARD ===\nThe app is showing the user a card for their ${card.entity.type} "${card.entity.title}", which may be the one they mean. ${never} Reply with one short line asking whether that is the one, and stop.`;
   }
   if (card.kind === 'view' && card.already) {
     return `\n\n=== ENTITY CARD ===\nThe app is showing the user a card for their ${card.entity.type} "${card.entity.title}" under your reply. It is already set the way they asked, so nothing needs to change; say that in one short line.`;

@@ -175,7 +175,7 @@ export default function AskGremlyScreen() {
   }, []);
 
   const sendToChat = useCallback(
-    async (chat: SpaceChat, text: string) => {
+    async (chat: SpaceChat, text: string, opts: { fresh?: boolean } = {}) => {
       setSending(true);
 
       await sendUserMessage(text);
@@ -189,7 +189,10 @@ export default function AskGremlyScreen() {
       streamingMessageIdRef.current = messageId;
       startWordFlushInterval();
 
-      const conversationHistory = messages
+      // A brand new chat has no history of its own; the hook's messages can
+      // still be the previous chat's for a moment, so they are not used.
+      const prior = opts.fresh ? [] : messages;
+      const conversationHistory = prior
         .filter((m) => m.role === 'user' || m.role === 'assistant')
         .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
       conversationHistory.push({ role: 'user', content: text });
@@ -213,7 +216,11 @@ export default function AskGremlyScreen() {
 
       streamingControllerRef.current = callGeneralChatStreaming(
         conversationHistory,
-        { chatId: chat.id, userId: userId ?? undefined, recentEntity: recentEntityFor(messages) },
+        {
+          chatId: chat.id,
+          userId: userId ?? undefined,
+          recentEntity: opts.fresh ? null : recentEntityFor(messages),
+        },
         {
           onChunk: (delta: string) => {
             receivedChunks = true;
@@ -343,7 +350,7 @@ export default function AskGremlyScreen() {
         setActiveChat(chat as SpaceChat);
 
         // Send the initial message after a tick so useChatMessages picks up the new chatId
-        setTimeout(() => sendToChat(chat as SpaceChat, trimmed), 200);
+        setTimeout(() => sendToChat(chat as SpaceChat, trimmed, { fresh: true }), 200);
       } catch {
         Alert.alert('Error', 'Could not create chat');
       }

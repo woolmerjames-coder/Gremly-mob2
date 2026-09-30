@@ -700,8 +700,8 @@ export interface EntityCardChange {
 }
 export type EntityCard =
   | { kind: 'edit'; entity: EntityCardEntity; change: EntityCardChange; confidence?: number }
-  /** intent 'edit': the user wants to change it but has not said what to; Gremly asks. */
-  | { kind: 'view'; entity: EntityCardEntity; intent?: 'edit' | 'view' }
+  /** intent 'edit': the user wants to change it but has not said what to; Gremly asks. 'confirm': it may be the one they mean; Gremly checks. */
+  | { kind: 'view'; entity: EntityCardEntity; intent?: 'edit' | 'view' | 'confirm' }
   | { kind: 'choose'; candidates: EntityCardEntity[] };
 export type EntityCardStatus = 'pending' | 'applied' | 'declined' | 'undone';
 /** The item on the last card in a chat, with what became of it, sent with the next turn. */
