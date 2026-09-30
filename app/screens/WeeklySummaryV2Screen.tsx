@@ -834,8 +834,9 @@ function DiscoveriesCard({ card }: { card: WSV2DiscoveriesCard }) {
         {card.spotlight.ask_gremly_prompt ? (
           <Pressable
             onPress={() => {
-              navigation.navigate('AskGremly' as any, {
-                prefillPrompt: card.spotlight.ask_gremly_prompt,
+              navigation.navigate('Tabs' as any, {
+                screen: 'Gremly',
+                params: { mode: 'chat', prefillPrompt: card.spotlight.ask_gremly_prompt },
               });
             }}
             style={{

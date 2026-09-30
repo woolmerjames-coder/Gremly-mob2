@@ -700,6 +700,10 @@ export interface GremlyState {
   hasSeenEntityChatHighlight: boolean;
   hasSeenTrainingMeterAutoOpen: boolean;
   hasSeenReadonlyIntro: boolean;
+  /** Gremly home: Chat has been opened at least once (clears the new dot on the switch) */
+  hasOpenedHomeChat: boolean;
+  /** Gremly home: the one-time "Swipe or tap for Chat" hint has been shown */
+  hasSeenHomeSwipeHint: boolean;
   /** Whether the fed celebration toast has been shown today (prevents duplicate) */
   todayFedCelebrationShownAt: string | null;
   /** Whether an age-up via feeding gauge has been celebrated today */
@@ -740,6 +744,8 @@ export interface GremlyState {
   markEntityChatHighlightSeen: () => void;
   markTrainingMeterAutoOpenSeen: () => void;
   markReadonlyIntroSeen: () => Promise<void>;
+  markHomeChatOpened: () => void;
+  markHomeSwipeHintSeen: () => void;
 
   // Feeding gauge actions (Soul Document v8)
   addGaugeContribution: (
@@ -1364,6 +1370,8 @@ const initialState = {
   hasSeenEntityChatHighlight: false,
   hasSeenTrainingMeterAutoOpen: false,
   hasSeenReadonlyIntro: false,
+  hasOpenedHomeChat: false,
+  hasSeenHomeSwipeHint: false,
   todayFedCelebrationShownAt: null as string | null,
   todayFeedingAgeUpShownAt: null as string | null,
   feedingHistory: [] as Array<{ date: string; isFed: boolean }>,
@@ -2086,6 +2094,8 @@ export const useGremlyStore = create<GremlyState>()(
             hasSeenEntityChatHighlight: false,
             hasSeenTrainingMeterAutoOpen: false,
             hasSeenReadonlyIntro: false,
+            hasOpenedHomeChat: false,
+            hasSeenHomeSwipeHint: false,
             todayFedCelebrationShownAt: null,
             todayFeedingAgeUpShownAt: null,
           });
@@ -3138,6 +3148,15 @@ export const useGremlyStore = create<GremlyState>()(
                   );
               });
           }
+        },
+
+        // Gremly home flags are device-local (persisted, not synced)
+        markHomeChatOpened: () => {
+          if (!get().hasOpenedHomeChat) set({ hasOpenedHomeChat: true });
+        },
+
+        markHomeSwipeHintSeen: () => {
+          if (!get().hasSeenHomeSwipeHint) set({ hasSeenHomeSwipeHint: true });
         },
 
         markTrainingMeterAutoOpenSeen: () => {
@@ -11762,6 +11781,8 @@ export const useGremlyStore = create<GremlyState>()(
           hasSeenEntityChatHighlight: state.hasSeenEntityChatHighlight,
           hasSeenTrainingMeterAutoOpen: state.hasSeenTrainingMeterAutoOpen,
           hasSeenReadonlyIntro: state.hasSeenReadonlyIntro,
+          hasOpenedHomeChat: state.hasOpenedHomeChat,
+          hasSeenHomeSwipeHint: state.hasSeenHomeSwipeHint,
           gremlyColor: state.gremlyColor,
           lastActiveDate: state.lastActiveDate,
           userName: state.userName,

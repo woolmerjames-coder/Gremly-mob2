@@ -952,6 +952,7 @@ export default function NowScreenV1() {
         onCalendarPress={handleCalendarHintPress}
         onNotesPress={handleNotesPress}
         onMascotPress={() => setShowHelp(true)}
+        onSettingsPress={() => navigation.navigate('Settings')}
       />
       <FirstTodayVisitBubble
         visible={showFirstVisitBubble}

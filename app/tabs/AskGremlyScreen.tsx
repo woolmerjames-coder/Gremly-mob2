@@ -72,7 +72,17 @@ const STARTERS = [
   { icon: CalendarDays, label: "What's coming up this week?" },
 ];
 
-export default function AskGremlyScreen() {
+type AskGremlyScreenProps = {
+  /** Rendered as the Chat page inside the Gremly home, under the DROP | CHAT switch */
+  embedded?: boolean;
+  /** Distance from the top of the window to this screen, for keyboard avoidance */
+  keyboardOffset?: number;
+};
+
+export default function AskGremlyScreen({
+  embedded = false,
+  keyboardOffset = 0,
+}: AskGremlyScreenProps = {}) {
   const route = useRoute<any>();
   const prefillPrompt = route.params?.prefillPrompt || null;
   const { userId } = useAuth();
@@ -442,14 +452,59 @@ export default function AskGremlyScreen() {
   const inConversation = activeChat !== null;
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
+    <SafeAreaView
+      style={styles.safe}
+      edges={embedded ? ['left', 'right'] : ['top', 'left', 'right']}
+    >
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={0}
+        keyboardVerticalOffset={keyboardOffset}
       >
-        {/* Header */}
-        {inConversation ? (
+        {/* Header. Inside the Gremly home the switch above names the page, so
+            this is a slim row: history on the left, the chat's title in the
+            middle, save and new chat on the right. */}
+        {embedded ? (
+          <View style={styles.embeddedHeader}>
+            <TouchableOpacity
+              style={styles.embeddedHeaderBtn}
+              onPress={() => setHistoryVisible(true)}
+              accessibilityLabel="Chat history"
+              accessibilityRole="button"
+            >
+              <Clock size={20} color={MOSS} />
+            </TouchableOpacity>
+            <View style={styles.embeddedHeaderCenter}>
+              {inConversation && autoTitle ? (
+                <Text style={styles.embeddedHeaderTitle} numberOfLines={1}>
+                  {autoTitle}
+                </Text>
+              ) : null}
+            </View>
+            {inConversation ? (
+              <View style={styles.embeddedHeaderRight}>
+                <TouchableOpacity
+                  style={styles.embeddedHeaderBtn}
+                  onPress={() => setSaveSheetVisible(true)}
+                  accessibilityLabel="Save from this chat"
+                  accessibilityRole="button"
+                >
+                  <Bookmark size={20} color={MOSS} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.embeddedHeaderBtn}
+                  onPress={goToEmptyState}
+                  accessibilityLabel="New chat"
+                  accessibilityRole="button"
+                >
+                  <SquarePen size={19} color={MOSS} />
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.embeddedHeaderBtn} />
+            )}
+          </View>
+        ) : inConversation ? (
           <View style={styles.chatHeader}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <TouchableOpacity
@@ -530,18 +585,22 @@ export default function AskGremlyScreen() {
               ListFooterComponent={null}
             />
           ) : (
-            <View style={styles.emptyState}>
-              <Text style={styles.greeting}>{greeting}</Text>
+            <View style={embedded ? styles.emptyStateTop : styles.emptyState}>
+              <Text style={[styles.greeting, embedded && styles.greetingTop]}>{greeting}</Text>
 
-              <Pressable
-                style={styles.stageMascot}
-                onPress={() => setShowHelp(true)}
-                accessibilityLabel="Chat with Gremly"
-                accessibilityRole="button"
-              >
-                <View style={styles.stageGroundShadow} pointerEvents="none" />
-                <MascotLottie width={180} />
-              </Pressable>
+              {/* Inside the Gremly home, Gremly stays perched on the input (as on
+                  the Drop page) so he does not jump when switching pages */}
+              {!embedded && (
+                <Pressable
+                  style={styles.stageMascot}
+                  onPress={() => setShowHelp(true)}
+                  accessibilityLabel="Chat with Gremly"
+                  accessibilityRole="button"
+                >
+                  <View style={styles.stageGroundShadow} pointerEvents="none" />
+                  <MascotLottie width={180} />
+                </Pressable>
+              )}
 
               <View style={styles.startersContainer}>
                 {STARTERS.map(({ icon: Icon, label }) => (
@@ -564,7 +623,7 @@ export default function AskGremlyScreen() {
         </View>
 
         {/* Bottom section — fixed height, always at bottom */}
-        <View style={styles.bottomSection}>
+        <View style={[styles.bottomSection, embedded && styles.bottomSectionEmbedded]}>
           <View style={styles.composerContainer}>
             <SaveIndicatorPill
               count={extractions.length}
@@ -572,7 +631,7 @@ export default function AskGremlyScreen() {
               onPress={() => setSaveSheetVisible(true)}
               style={{ position: 'absolute', top: -30, right: 105, zIndex: 11 }}
             />
-            {inConversation && (
+            {(inConversation || embedded) && (
               <Pressable style={styles.mascot} onPress={() => setShowHelp(true)}>
                 <MascotLottie />
               </Pressable>
@@ -830,6 +889,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
+  // Header inside the Gremly home
+  embeddedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    height: 48,
+  },
+  embeddedHeaderBtn: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  embeddedHeaderCenter: { flex: 1, alignItems: 'center', paddingHorizontal: 8 },
+  embeddedHeaderTitle: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 14,
+    color: 'rgba(26, 51, 40, 0.75)',
+  },
+  embeddedHeaderRight: { flexDirection: 'row', alignItems: 'center' },
+
   // Conversation header
   chatHeader: {
     flexDirection: 'row',
@@ -870,6 +950,16 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     paddingBottom: 30,
     position: 'relative',
+  },
+  // Inside the Gremly home: questions sit at the top, Gremly stays on the input
+  emptyStateTop: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingTop: 4,
+  },
+  greetingTop: {
+    marginBottom: 16,
   },
   greeting: {
     fontFamily: 'Inter-Medium',
@@ -949,6 +1039,10 @@ const styles = StyleSheet.create({
   bottomSection: {
     paddingHorizontal: 16,
     paddingBottom: 80,
+  },
+  // a little more room above the raised Gremly button in the tab bar
+  bottomSectionEmbedded: {
+    paddingBottom: 92,
   },
   composerContainer: { position: 'relative' as const },
   mascot: {

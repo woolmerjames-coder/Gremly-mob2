@@ -1072,6 +1072,12 @@ export type CatchAllNotepadProps = {
   // Test hook: override organized today count directly to simplify deterministic assertions
   testOrganizedTodayOverride?: number;
   overlayController?: GlobalOverlayController;
+  /** Rendered as the Drop page inside the Gremly home: no MindDrop header or sign out */
+  embedded?: boolean;
+  /** Inside the Gremly home: whether the Drop page is the one showing */
+  active?: boolean;
+  /** Distance from the top of the window to this screen, for keyboard avoidance */
+  keyboardOffset?: number;
 };
 
 export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React.JSX.Element {
@@ -1080,6 +1086,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     networkIsOnline,
     testOrganizedTodayOverride,
     overlayController,
+    embedded = false,
+    active = true,
+    keyboardOffset = 0,
   } = props;
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const canCreate = useCanCreate();
@@ -1774,6 +1783,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     });
     return unsubscribe;
   }, [navigation, triggerRecentRefresh]);
+
+  // Inside the Gremly home the tab stays focused while moving between Drop and
+  // Chat, so refresh when the Drop page comes back into view instead
+  const wasActiveRef = useRef(active);
+  useEffect(() => {
+    if (active && !wasActiveRef.current) triggerRecentRefresh();
+    wasActiveRef.current = active;
+  }, [active, triggerRecentRefresh]);
 
   const canonicalConversionsOn = env.feature.canonicalConversions;
 
@@ -2982,41 +2999,45 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
     return (
       <View style={styles.mainContainer} {...panResponder.panHandlers}>
-        {/* Header: Safe area wrapper + row with mascot, centered title, logout */}
-        <View style={{ paddingTop: insets.top + 16 }} testID="minddrop-header">
-          <View style={styles.headerRow}>
-            {/* Left - Training icon during training, otherwise empty spacer */}
-            <View style={styles.headerLeft}></View>
+        {/* Header: Safe area wrapper + row with mascot, centered title, logout.
+            Inside the Gremly home the DROP | CHAT switch replaces it, and sign
+            out lives in Settings. */}
+        {!embedded && (
+          <View style={{ paddingTop: insets.top + 16 }} testID="minddrop-header">
+            <View style={styles.headerRow}>
+              {/* Left - Training icon during training, otherwise empty spacer */}
+              <View style={styles.headerLeft}></View>
 
-            {/* Center - Title (absolutely positioned to true center) */}
-            <View style={styles.headerCenter} pointerEvents="none">
-              <View style={styles.titleImageWrapper}>
-                <Image
-                  ref={headerTitleRef}
-                  source={MINDDROP_HEADER}
-                  style={styles.headerTitleCenter}
-                  resizeMode="contain"
-                  accessibilityLabel="Mind Drop"
-                  accessibilityIgnoresInvertColors
-                />
-                <View style={styles.titleUnderline} />
+              {/* Center - Title (absolutely positioned to true center) */}
+              <View style={styles.headerCenter} pointerEvents="none">
+                <View style={styles.titleImageWrapper}>
+                  <Image
+                    ref={headerTitleRef}
+                    source={MINDDROP_HEADER}
+                    style={styles.headerTitleCenter}
+                    resizeMode="contain"
+                    accessibilityLabel="Mind Drop"
+                    accessibilityIgnoresInvertColors
+                  />
+                  <View style={styles.titleUnderline} />
+                </View>
+              </View>
+
+              {/* Right - Logout button */}
+              <View style={styles.headerRight}>
+                <Pressable
+                  accessibilityLabel="Sign out"
+                  accessibilityRole="button"
+                  onPress={handleSignOutPress}
+                  hitSlop={12}
+                  style={styles.logoutBtn}
+                >
+                  <LogOut size={18} color="#6A6F76" />
+                </Pressable>
               </View>
             </View>
-
-            {/* Right - Logout button */}
-            <View style={styles.headerRight}>
-              <Pressable
-                accessibilityLabel="Sign out"
-                accessibilityRole="button"
-                onPress={handleSignOutPress}
-                hitSlop={12}
-                style={styles.logoutBtn}
-              >
-                <LogOut size={18} color="#6A6F76" />
-              </Pressable>
-            </View>
           </View>
-        </View>
+        )}
 
         <WeeklySummaryBanner />
 
@@ -3290,6 +3311,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     isInputFocused,
     keyboardVisible,
     gremlySpeech,
+    embedded,
   ]);
 
   const content = MIND_DROP_V2 ? (
@@ -3471,7 +3493,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       <KeyboardAvoidingView
         style={styles.keyboardAvoider}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={0}
+        keyboardVerticalOffset={keyboardOffset}
       >
         <View
           style={[
