@@ -35,12 +35,37 @@ function reset() {
   mockState.updateNote = updater('notes');
   mockState.updateHabit = updater('habits');
   mockState.completeTodo = jest.fn(async () => {});
+  mockState.logHabitCompletionForDate = jest.fn(async () => {});
+  mockState.removeHabitCompletionForDate = jest.fn(async () => {});
 }
 
 const note = () => mockState.notes[0];
 
 describe('the history an applied change leaves', () => {
   beforeEach(reset);
+
+  it('a check-in for several days logs each of them, and Undo takes each back out', async () => {
+    const habit = { id: 'h1', type: 'habit' as const, title: 'Run', frequency: 'weekly' };
+    const applied = await applyEntityChange(habit, {
+      field: 'logged',
+      from: null,
+      to: '2031-10-02',
+      days: ['2031-10-01', '2031-10-02'],
+    });
+    expect(mockState.logHabitCompletionForDate.mock.calls).toEqual([
+      ['h1', '2031-10-01'],
+      ['h1', '2031-10-02'],
+    ]);
+    expect(applied.summary).toMatch(/^Logged Run for .*1 Oct.* and .*2 Oct/);
+    await applied.revert();
+    expect(mockState.removeHabitCompletionForDate.mock.calls).toEqual([
+      ['h1', '2031-10-01'],
+      ['h1', '2031-10-02'],
+    ]);
+    // one day, as before
+    await applyEntityChange(habit, { field: 'logged', from: null, to: '2031-10-03' });
+    expect(mockState.logHabitCompletionForDate).toHaveBeenLastCalledWith('h1', '2031-10-03');
+  });
 
   it('a Mind Drop move on an appointment: one write, the day, its copy in views, and the history', async () => {
     const entity = {

@@ -675,19 +675,37 @@ export function useChatMessages(
       status: import('../lib/types').EntityCardStatus,
       summary?: string,
     ): Promise<void> => {
-      let nextMeta: Record<string, unknown> | null = null;
-      setMessages((prev) =>
-        prev.map((m) => {
-          if (m.id !== messageId) return m;
-          nextMeta = {
-            ...(m.metadata_json || {}),
-            status,
-            summary: summary ?? m.metadata_json?.summary ?? null,
-          };
-          return { ...m, metadata_json: nextMeta as SpaceChatMessage['metadata_json'] };
-        }),
+      // Read the card from the ref, not inside the state updater: React may run
+      // an updater later (when other updates are queued), and then the status
+      // was never saved, so the card came back as waiting after a reload and
+      // the next turn told Gremly nothing had changed.
+      const current = messagesRef.current.find((m) => m.id === messageId);
+      if (!current) return;
+      const nextSummary = summary ?? current.metadata_json?.summary ?? null;
+      const nextMeta: Record<string, unknown> = {
+        ...(current.metadata_json || {}),
+        status,
+        summary: nextSummary,
+      };
+      messagesRef.current = messagesRef.current.map((m) =>
+        m.id === messageId
+          ? { ...m, metadata_json: nextMeta as SpaceChatMessage['metadata_json'] }
+          : m,
       );
-      if (!nextMeta) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? {
+                ...m,
+                metadata_json: {
+                  ...(m.metadata_json || {}),
+                  status,
+                  summary: nextSummary,
+                } as SpaceChatMessage['metadata_json'],
+              }
+            : m,
+        ),
+      );
       try {
         await messageRepo.update(messageId, { metadata_json: nextMeta });
       } catch (err) {

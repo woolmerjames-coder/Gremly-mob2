@@ -934,7 +934,8 @@ export interface GremlyState {
   createGeneralChat: (title?: string) => Promise<SpaceChat | null>;
   fetchGeneralChats: () => Promise<void>;
   setActiveGeneralChat: (chatId: string | null) => void;
-  updateGeneralChatExtractions: (chatId: string) => Promise<void>;
+  /** Load the chat's Save items and late card; resolves with the turn that extraction is for. */
+  updateGeneralChatExtractions: (chatId: string) => Promise<string | null>;
   dismissExtraction: (chatId: string, extractionId: string) => Promise<void>;
   markExtractionsSaved: (chatId: string, extractionIds: string[]) => Promise<void>;
   addChatMessage: (
@@ -5473,7 +5474,7 @@ export const useGremlyStore = create<GremlyState>()(
             )
             .eq('id', chatId)
             .single();
-          if (!data) return;
+          if (!data) return null;
           const exclude = new Set([
             ...((data as any).dismissed_extractions || []),
             ...((data as any).saved_extraction_ids || []),
@@ -5487,6 +5488,7 @@ export const useGremlyStore = create<GremlyState>()(
             generalChatRunningSummary: (data as any).running_summary || null,
             generalChatLateCard: (data as any).metadata_json?.late_card || null,
           });
+          return (data as any).metadata_json?.extracted_turn ?? null;
         },
 
         dismissExtraction: async (chatId: string, extractionId: string) => {

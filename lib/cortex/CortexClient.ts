@@ -55,6 +55,8 @@ export interface SpaceChatStreamingResult {
   sources?: Array<{ title: string; url: string }>;
   search_query?: string;
   fetchedUrl?: { url: string; title: string } | null;
+  /** Whether the Save items pill and a late card may follow this turn (general chat) */
+  extraction?: 'running' | 'skipped';
 }
 
 /**
@@ -518,6 +520,8 @@ export function callGeneralChatStreaming(
     recentEntity?: import('../types').RecentEntity | null;
     /** The item this chat was opened about, if any (Talk it through) */
     anchorEntity?: import('../types').ChatAnchor | null;
+    /** This turn's id, written back with its extraction so the app knows when it has landed */
+    turnId?: string;
   },
   callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
 ): { close: () => void } {
@@ -559,6 +563,7 @@ export function callGeneralChatStreaming(
       recentEntity: opts.recentEntity ?? null,
       // the item the chat was opened about, so every turn knows what it is about
       anchorEntity: opts.anchorEntity ?? null,
+      turnId: opts.turnId ?? null,
       userId: opts.userId,
       currentTime: nowTimestamp(),
       timezone: getDateService().getTimezone(),
@@ -604,6 +609,7 @@ export function callGeneralChatStreaming(
           sources: data.sources,
           search_query: data.search_query,
           fetchedUrl: data.fetchedUrl ?? null,
+          extraction: data.extraction,
         };
         log('GENERAL_CHAT_STREAM_DONE', { contentLength: finalContent.length });
         (callbacks.onComplete as any)(finalContent, richResult);

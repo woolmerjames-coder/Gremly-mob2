@@ -20,10 +20,9 @@ import { triageMessage } from '../../workers/cortex/triage.js';
 import {
   matchEntity,
   applyEntityCardToTriage,
-  entityCardPromptSection,
-  recentCardPromptSection,
   theirItemsPromptSection,
-  anchorPromptSection,
+  turnItemSections,
+  offerLateCard,
   checkNewAgainstTracked,
 } from '../../workers/cortex/entityMatch.js';
 import { buildGeneralChatConfig } from '../../workers/cortex/gremlyPersona.js';
@@ -34,13 +33,11 @@ import {
   buildPillPrompt,
   withEvidenceRule,
   withEditsRule,
-  editsToPillItems,
   evidenceGrounded,
-  mentionEditItem,
-  cardTrackedNote,
-  aboutTrackedNote,
   reconcileSameAs,
-  lateCardFrom,
+  trackedRowsFromItems,
+  trackedItemsBlock,
+  lateCardCandidate,
   newItemsOnly,
   NO_EXTRACTION_MODES,
 } from '../../workers/cortex/chatPrompts.js';
@@ -112,35 +109,15 @@ globalThis.Date = class extends RealDate {
   }
 };
 
-const short = (id) => String(id || '').slice(0, 8);
-function existingItemsBlock(items, tracked, card, related) {
-  const lines = [];
-  for (const it of items) {
-    tracked.set(short(it.id), {
-      id: it.id,
-      type: it.type,
-      title: it.title,
-      due_day: it.due_day,
-      due_time: it.due_time,
-      frequency: it.frequency,
-      logged_days: it.logged_days || [],
-    });
-    const when =
-      it.type === 'habit'
-        ? it.frequency
-          ? ` (${it.frequency})`
-          : ''
-        : it.due_day
-          ? ` (${it.type === 'note' ? 'dated' : 'due'} ${it.due_day}${it.due_time ? ` ${it.due_time}` : ''})`
-          : '';
-    lines.push(`- [${it.type} id:${short(it.id)}] ${it.title}${when}`);
-  }
-  return `\nITEMS ALREADY TRACKED IN THE USER'S SYSTEM (do NOT extract these again, in these words or in others; something is one of these only when it is the same thing):\n${lines.join('\n')}\n${aboutTrackedNote(related)}${cardTrackedNote(card)}`;
-}
-
-async function extraction(items, history, card, match, recent, shownCards) {
-  const tracked = new Map();
-  const block = existingItemsBlock(items, tracked, card, match?.related);
+// The tracked items block, the late card and its check are the Worker's own
+// functions (chatPrompts.js, entityMatch.js), so the runner reads what
+// production reads.
+async function extraction(items, history, card, match, recent, shownCards, message, exchanges) {
+  const { block, tracked } = trackedItemsBlock(trackedRowsFromItems(items), {
+    editsOn: true,
+    related: match?.related,
+    card,
+  });
   const conversationText = history
     .map((m) => `${m.role === 'user' ? 'User' : 'Gremly'}: ${m.content}`)
     .join('\n\n');
@@ -179,26 +156,38 @@ async function extraction(items, history, card, match, recent, shownCards) {
   const grounded = raw.filter((e) => evidenceGrounded(e.evidence, userTexts));
   const checked = await checkNewAgainstTracked(grounded, items);
   const news = reconcileSameAs(checked, tracked);
-  let edits = editsToPillItems(parsed.edits, tracked, userTexts).filter(
-    (e) => !card?.entity || e.entity_id !== card.entity.id,
-  );
-  const heard = mentionEditItem(match?.mention);
-  if (heard && !edits.some((e) => e.entity_id === heard.entity_id && e.field === heard.field))
-    edits.push(heard);
   // existing means card, new means pill
-  const converted = news.filter((e) => e && e.type === 'edit');
-  let lateCard = lateCardFrom([...edits, ...converted], tracked, {
-    cardEntityId: card?.entity?.id || null,
-    declinedId: recent?.status === 'declined' ? recent.id : null,
-    aboutIds: (match?.related || []).map((c) => c.id),
-  });
+  const { lateCard: candidate } = lateCardCandidate(
+    { extractions: news, edits: parsed.edits },
+    tracked,
+    userTexts,
+    {
+      mention: match?.mention,
+      cardEntityId: card?.entity?.id || null,
+      declinedId: recent?.status === 'declined' ? recent.id : null,
+      aboutIds: (match?.related || []).map((c) => c.id),
+    },
+  );
   // the app never shows a late card for a change this chat already had a card
   // for, whatever became of it (lateCardAlreadyShown in lib/chat/entityCards.ts)
-  if (lateCard && lateCardAlreadyShown(shownCards, lateCard)) lateCard = null;
+  const unseen = candidate && !lateCardAlreadyShown(shownCards, candidate) ? candidate : null;
+  // the Worker's last word: offered only when their own words asked for it
+  const offered = unseen
+    ? await offerLateCard({ card: unseen, message, exchanges, todayStr, todayIso })
+    : false;
+  const lateCard = offered ? unseen : null;
+  const brief = (c) =>
+    c
+      ? {
+          title: c.entity.title,
+          field: c.change.field,
+          to: c.change.days ? c.change.days.join(',') : c.change.to,
+        }
+      : null;
   return {
-    lateCard: lateCard
-      ? { title: lateCard.entity.title, field: lateCard.change.field, to: lateCard.change.to }
-      : null,
+    lateCard: brief(lateCard),
+    // found by the extraction, held back by the check
+    lateCardHeld: offered ? null : brief(unseen),
     lateCardFull: lateCard,
     items: newItemsOnly(news).map((e) => ({ kind: 'new', type: e.type, title: e.title, same_as: e.same_as || null })),
     rawNew: raw.map((e) => ({ title: e.title, type: e.type, same_as: e.same_as || null })),
@@ -226,7 +215,8 @@ function applyTap(items, card) {
   if (c.field === 'completed') return items.filter((i) => i.id !== e.id);
   return items.map((i) => {
     if (i.id !== e.id) return i;
-    if (c.field === 'logged') return { ...i, logged_days: [c.to, ...(i.logged_days || [])] };
+    if (c.field === 'logged')
+      return { ...i, logged_days: [...(c.days || [c.to]), ...(i.logged_days || [])] };
     if (c.field === 'name') return { ...i, title: c.to };
     if (c.field === 'due_day') return { ...i, due_day: c.to, target_date: c.to };
     return { ...i, [c.field]: c.to };
@@ -308,18 +298,16 @@ for (const sc of runs) {
     const card = match?.card || null;
     const triage = applyEntityCardToTriage(triageRaw, card);
     const gen = buildGeneralChatConfig(triage, { runningSummary: '' }, null, '', persona, TZ, null);
-    let system = gen.systemPrompt;
     const anchorNow = match?.anchor || anchor;
-    if (card)
-      system += entityCardPromptSection(card, { anchorId: anchorNow?.id || null, todayIso });
-    system += recentCardPromptSection(recent);
-    system += anchorPromptSection(anchorNow, todayIso, { mode: triage.mode });
+    const system =
+      gen.systemPrompt +
+      turnItemSections({ match, card, recent, anchor: anchorNow, mode: triage.mode, todayIso });
+    // what the reply was told it can see, for the results file
     const theirs = theirItemsPromptSection(match, todayIso, {
       mode: triage.mode,
       card,
       anchor: anchorNow,
     });
-    system += theirs;
     const msgs = [...lead, ...history, { role: 'user', content: message }];
     const r = await geminiGenerate(
       system,
@@ -337,12 +325,32 @@ for (const sc of runs) {
     history.push({ role: 'user', content: message }, { role: 'assistant', content: reply });
     const gated = NO_EXTRACTION_MODES.includes(triage.mode);
     // the Worker skips extraction on these modes, so nothing is offered after them
+    const tPill = Date.now();
     const pill = gated
-      ? { skipped: true, items: [], rawNew: [], lateCard: null, lateCardFull: null, ungrounded: 0 }
-      : await extraction(items, [...lead, ...history], card, match, recent, shownCards);
+      ? {
+          skipped: true,
+          items: [],
+          rawNew: [],
+          lateCard: null,
+          lateCardHeld: null,
+          lateCardFull: null,
+          ungrounded: 0,
+        }
+      : await extraction(
+          items,
+          [...lead, ...history],
+          card,
+          match,
+          recent,
+          shownCards,
+          message,
+          exchanges,
+        );
     if (card && card.kind === 'edit') shownCards.push(card);
     if (pill.lateCardFull) shownCards.push(pill.lateCardFull);
     pill.gated = gated;
+    // how long the extraction took (the Worker adds a Supabase read and write)
+    pill.ms = gated ? 0 : Date.now() - tPill;
     // an asked-for card is assumed tapped; one offered in passing is left for the user
     const tapped = !!card && card.kind === 'edit' && !card.inPassing;
     // the tap lands before the next turn, unless that turn turns the card down
@@ -388,7 +396,7 @@ for (const sc of runs) {
       recentIn: recentBefore,
     });
     console.log(
-      `${sc.id} | ${message.slice(0, 48)} | ${triage.mode}${card ? ` | card ${card.kind}${card.inPassing ? ' (in passing)' : ''}: ${card.entity?.title || ''}${card.change ? ` ${card.change.field}->${card.change.to}` : ''}` : ''} | about ${(match?.related || []).length} | pill ${pill.items.length}${gated ? ' (gated)' : ''}${pill.lateCard ? ` | late card: ${pill.lateCard.title} ${pill.lateCard.field}->${pill.lateCard.to}` : ''} | ${tCard}ms`,
+      `${sc.id} | ${message.slice(0, 48)} | ${triage.mode}${card ? ` | card ${card.kind}${card.inPassing ? ' (in passing)' : ''}: ${card.entity?.title || ''}${card.change ? ` ${card.change.field}->${card.change.days ? card.change.days.join(',') : card.change.to}` : ''}` : ''} | about ${(match?.related || []).length} | pill ${pill.items.length}${gated ? ' (gated)' : ''}${pill.lateCard ? ` | late card: ${pill.lateCard.title} ${pill.lateCard.field}->${pill.lateCard.to}` : ''}${pill.lateCardHeld ? ` | held: ${pill.lateCardHeld.title} ${pill.lateCardHeld.field}->${pill.lateCardHeld.to}` : ''} | ${tCard}ms`,
     );
   }
   out.push({

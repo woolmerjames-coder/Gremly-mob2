@@ -67,6 +67,7 @@ import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import { useHomeDock } from '../../components/home/GremlyHomeDock';
 import { talkAboutOpener, type TalkAboutItem } from '../../lib/chat/talkAboutOpeners';
 import { anchorFor, anchorMetadata, anchorOf } from '../../lib/chat/chatAnchor';
+import { waitForExtraction } from '../../lib/chat/waitForExtraction';
 
 const MOSS = '#2E5540';
 const LINEN = '#F9F6F1';
@@ -101,6 +102,9 @@ export default function AskGremlyScreen({ embedded = false }: AskGremlyScreenPro
 
   const wakeOnInput = useWakeOnInput();
   const [activeChat, setActiveChat] = useState<SpaceChat | null>(null);
+  // the chat on screen right now, for work that finishes after the user may have moved on
+  const activeChatIdRef = useRef<string | null>(null);
+  activeChatIdRef.current = activeChat?.id ?? null;
   const [sending, setSending] = useState(false);
   const [saveSheetVisible, setSaveSheetVisible] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -273,6 +277,8 @@ export default function AskGremlyScreen({ embedded = false }: AskGremlyScreenPro
 
       let receivedChunks = false;
       const sentAt = getDateService().now().getTime();
+      // written back with this turn's extraction, so the app knows when it has landed
+      const turnId = `${sentAt.toString(36)}${Math.random().toString(36).slice(2, 8)}`;
       let firstChunkAt: number | null = null;
       if (streamTimeoutRef.current) clearTimeout(streamTimeoutRef.current);
 
@@ -301,6 +307,7 @@ export default function AskGremlyScreen({ embedded = false }: AskGremlyScreenPro
           // every turn of a chat opened about an item says which item
           anchorEntity:
             opts.anchor !== undefined ? opts.anchor : opts.fresh ? null : anchorFor(messages),
+          turnId,
         },
         {
           onChunk: (delta: string) => {
@@ -357,12 +364,13 @@ export default function AskGremlyScreen({ embedded = false }: AskGremlyScreenPro
               await appendEntityCard(richResult.entity_card);
             }
 
-            setTimeout(() => {
-              useGremlyStore.getState().updateGeneralChatExtractions(chat.id);
-            }, 2000);
-            setTimeout(() => {
-              useGremlyStore.getState().updateGeneralChatExtractions(chat.id);
-            }, 5000);
+            // the Save items pill and any late card follow from the Worker's
+            // background extraction; wait for this turn's, however long it takes
+            void waitForExtraction(turnId, richResult?.extraction, {
+              fetch: () => useGremlyStore.getState().updateGeneralChatExtractions(chat.id),
+              sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+              stillHere: () => activeChatIdRef.current === chat.id,
+            });
 
             supabase
               .from('scope_chats')

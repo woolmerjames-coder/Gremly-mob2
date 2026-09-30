@@ -22,6 +22,10 @@ import {
   matchEntity,
   anchorFrom,
   anchorPromptSection,
+  turnItemSections,
+  offerLateCard,
+  LATE_CARD_CHECK_PROMPT,
+  ENTITY_MATCH_SYSTEM_PROMPT,
   CONFIDENCE_FLOOR,
   RECENT_CARD_TURNS,
   habitProgressWords,
@@ -37,6 +41,9 @@ import {
   buildPillPrompt,
   buildSummaryPrompt,
   lateCardFrom,
+  lateCardCandidate,
+  trackedItemsBlock,
+  trackedRowsFromItems,
   newItemsOnly,
   withEditsRule,
   withEvidenceRule,
@@ -1554,5 +1561,171 @@ test('the same-thing check has the last word on each item it answers for', async
     list,
   );
   expect(untouched[0].same_as).toBe('e6fdc1b7');
+  delete globalThis.fetch;
+});
+
+// ── Several days in one check-in, and the check before a late card ─────────
+
+test('a check-in for several days is one card with every day not yet logged', () => {
+  const run = {
+    id: 'hhhh0000-0000',
+    type: 'habit',
+    title: 'Strength',
+    frequency: 'weekly',
+    logged_days: ['2026-09-27'],
+  };
+  const cands = candidatesFor('m', [run], null);
+  const answer = (value) => ({
+    refers: true,
+    entity_id: 'hhhh0000',
+    intent: 'logged',
+    change: { field: 'logged', value },
+    confidence: 95,
+  });
+  const two = decideCard(answer(['2026-09-29', '2026-09-28']), cands);
+  expect(two).toMatchObject({
+    kind: 'edit',
+    inPassing: true,
+    change: { field: 'logged', to: '2026-09-29', days: ['2026-09-28', '2026-09-29'] },
+  });
+  // a day already logged drops out; one day left is a plain one day card
+  const one = decideCard(answer(['2026-09-27', '2026-09-29']), cands);
+  expect(one.change).toEqual({ field: 'logged', from: null, to: '2026-09-29' });
+  // every day already logged: no card, the reply says so
+  expect(decideCard(answer(['2026-09-27']), cands)).toMatchObject({
+    kind: 'mention',
+    loggedAlready: '2026-09-27',
+  });
+  // a single day as before
+  expect(decideCard(answer('2026-09-29'), cands).change).toEqual({
+    field: 'logged',
+    from: null,
+    to: '2026-09-29',
+  });
+  expect(entityCardPromptSection(two, { todayIso: '2026-09-29' })).toContain(
+    'log it for yesterday, Monday 28 September and today, Tuesday 29 September',
+  );
+  expect(ENTITY_MATCH_SYSTEM_PROMPT).toContain('or a list of those days');
+});
+
+test('the extraction: check-ins on several days are one late card, logged days drop out', () => {
+  const { tracked } = trackedItemsBlock(
+    trackedRowsFromItems([
+      { id: 'hhhh0000-0000', type: 'habit', title: 'Strength', logged_days: ['2026-09-27'] },
+    ]),
+    { editsOn: true },
+  );
+  const edit = (value) => ({
+    entity_id: 'hhhh0000',
+    field: 'logged',
+    value,
+    evidence: 'I did strength yesterday and today',
+  });
+  const { lateCard } = lateCardCandidate(
+    { extractions: [], edits: [edit('2026-09-29'), edit('2026-09-28'), edit('2026-09-27')] },
+    tracked,
+    ['I did strength yesterday and today'],
+  );
+  expect(lateCard.change).toEqual({
+    field: 'logged',
+    from: null,
+    to: '2026-09-29',
+    days: ['2026-09-28', '2026-09-29'],
+  });
+});
+
+test('the tracked items block is one builder for the Worker and the runner', () => {
+  const rows = trackedRowsFromItems([
+    {
+      id: 'aaaa1111-0000',
+      type: 'todo',
+      title: 'Dentist',
+      due_day: '2026-09-30',
+      due_time: '14:00',
+    },
+    { id: 'cccc3333-0000', type: 'habit', title: 'Morning run', frequency: 'weekdays' },
+    { id: 'nnnn0000-0000', type: 'note', title: 'Vet', due_day: '2026-10-02', due_time: '15:00' },
+  ]);
+  const { block, tracked } = trackedItemsBlock(rows, { editsOn: true });
+  expect(block).toContain('- [todo id:aaaa1111] Dentist (due 2026-09-30 14:00)');
+  expect(block).toContain('- [habit id:cccc3333] Morning run (weekdays)');
+  expect(block).toContain('- [note id:nnnn0000] Vet (dated 2026-10-02 15:00)');
+  expect(block).toContain('something is one of these only when it is the same thing');
+  expect(tracked.get('aaaa1111')).toMatchObject({ id: 'aaaa1111-0000', type: 'todo' });
+  // without entity cards: no ids, nothing tracked
+  const plain = trackedItemsBlock(rows, { editsOn: false });
+  expect(plain.block).toContain('- [todo] Dentist');
+  expect(plain.tracked.size).toBe(0);
+  expect(trackedItemsBlock({}, {}).block).toBe('');
+});
+
+test('what the reply is told about their items is built in one place, in order', () => {
+  const cands = candidatesFor('m', items, null);
+  const card = {
+    kind: 'edit',
+    inPassing: true,
+    entity: cands[0],
+    change: { field: 'due_day', from: null, to: '2026-10-01' },
+  };
+  const out = turnItemSections({
+    match: { related: [cands[0]], attention: [] },
+    card,
+    recent: { ...cands[1], status: 'applied' },
+    anchor: { id: 'zz', type: 'todo', title: 'Walk Bella' },
+    mode: 'update',
+    todayIso: '2026-09-29',
+  });
+  const at = (h) => out.indexOf(h);
+  expect(at('=== ENTITY CARD ===')).toBeGreaterThan(-1);
+  expect(at('=== ENTITY CARD ===')).toBeLessThan(at('=== LAST CARD ==='));
+  expect(at('=== LAST CARD ===')).toBeLessThan(at('=== WHAT THIS CHAT IS ABOUT ==='));
+  expect(at('=== WHAT THIS CHAT IS ABOUT ===')).toBeLessThan(at('=== WHAT THEY HAVE ON ==='));
+  // no anchor, no card: only what applies
+  const bare = turnItemSections({
+    match: { related: [], attention: [] },
+    mode: 'update',
+    todayIso: '2026-09-29',
+  });
+  expect(bare).not.toContain('=== ENTITY CARD ===');
+  expect(bare).not.toContain('=== WHAT THIS CHAT IS ABOUT ===');
+  expect(bare).toContain('=== WHAT THEY HAVE ON ===');
+});
+
+test('a late card is offered only when the check says their words asked for it', async () => {
+  configureModels({ ENTITY_CARDS: 'on', OPENAI_API_KEY: 'k' });
+  const card = {
+    kind: 'edit',
+    late: true,
+    entity: { id: 'v1', type: 'note', title: 'Bella Vet Appointment', due_day: '2026-10-02' },
+    change: { field: 'body_add', from: null, to: 'I am busy tomorrow' },
+  };
+  let sent = null;
+  const answer = (content) => async (_url, init) => {
+    sent = JSON.parse(init.body);
+    return new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200 });
+  };
+  const args = {
+    card,
+    message: 'I am busy tomorrow',
+    exchanges: [{ userMsg: 'hi', assistantMsg: 'hello' }],
+    todayStr: 'Tuesday, September 29, 2026',
+    todayIso: '2026-09-29',
+  };
+  globalThis.fetch = answer('{"offer":false}');
+  expect(await offerLateCard(args)).toBe(false);
+  const input = sent.messages[1].content;
+  expect(sent.messages[0].content).toBe(LATE_CARD_CHECK_PROMPT);
+  expect(input).toContain('LATEST MESSAGE:\nI am busy tomorrow');
+  expect(input).toContain('THEIR ITEM: their note "Bella Vet Appointment" (Friday 2 October)');
+  expect(input).toContain('PROPOSED CHANGE: add to it: I am busy tomorrow');
+  expect(input).toContain('User: hi');
+  globalThis.fetch = answer('{"offer":true}');
+  expect(await offerLateCard(args)).toBe(true);
+  // a failed check offers nothing
+  globalThis.fetch = async () => {
+    throw new Error('network');
+  };
+  expect(await offerLateCard(args)).toBe(false);
+  expect(await offerLateCard({ ...args, card: null })).toBe(false);
   delete globalThis.fetch;
 });

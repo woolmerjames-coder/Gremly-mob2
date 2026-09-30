@@ -4,6 +4,8 @@
 // Moved here verbatim from cortex-index.js; the text is unchanged.
 // ============================================================================
 
+import { noteDay } from './entityMatch.js';
+
 /**
  * Ask Gremly background extraction (the Save items pill).
  * @param {{todayStr: string, runningSummary: string|null, conversationText: string, handledIds: string[], existingItemsBlock: string}} p
@@ -43,7 +45,7 @@ export function evidenceGrounded(evidence, userMessages) {
 // The extraction's second job (ENTITY_CARDS=on with CHAT_EXTRACTION_V2=on): when the
 // user says an item they already track has changed, record an edit to it, not a
 // new item. The ids come from the ITEMS ALREADY TRACKED list, which then carries them.
-export const EXTRACTION_EDITS_RULE = `EDITS: The list of items already tracked above is what the user already has. Anything that is one of those items, in the same words or in different ones, is never extracted as new. When the user's own words say that a tracked item has changed (a different day, time, name or frequency) or is done, record an edit to that item, using its id from the list, instead of a new item. When the user's own words add to what one of the tracked notes already covers (anything further about that same subject), record an edit to that note with field body_add, whose value is the new details in the user's words, kept to a line or two, instead of a new item. Fields: due_day (YYYY-MM-DD, resolved from today's date; todos and notes), due_time (HH:MM, 24 hour; todos and notes), name, frequency (habits), completed (value "done", todos), body_add (notes). The evidence rule applies to edits too. Never edit an item the user did not clearly refer to, and never resolve a date the user did not give. If a new item you list is nonetheless a tracked item in other words, put that item's id in its same_as field, else omit same_as.`;
+export const EXTRACTION_EDITS_RULE = `EDITS: The list of items already tracked above is what the user already has. Anything that is one of those items, in the same words or in different ones, is never extracted as new. When the user's own words say that a tracked item has changed (a different day, time, name or frequency) or is done, record an edit to that item, using its id from the list, instead of a new item. When the user's own words add to what one of the tracked notes already covers (anything further about that same subject), record an edit to that note with field body_add, whose value is the new details in the user's words, kept to a line or two, instead of a new item. An addition is something they told about the subject that is worth keeping with it; their questions, how they feel, how busy they are, and anything only Gremly said are not additions. An edit needs its new value in their words: a problem with an item that they have not resolved is not an edit. When they did a tracked habit on several days, record one logged edit for each day. Fields: due_day (YYYY-MM-DD, resolved from today's date; todos and notes), due_time (HH:MM, 24 hour; todos and notes), name, frequency (habits), completed (value "done", todos), body_add (notes). The evidence rule applies to edits too. Never edit an item the user did not clearly refer to, and never resolve a date the user did not give. If a new item you list is nonetheless a tracked item in other words, put that item's id in its same_as field, else omit same_as.`;
 
 /** Add the edits job to an extraction prompt that already has the evidence rule. */
 export function withEditsRule(prompt) {
@@ -221,14 +223,19 @@ export function lateCardFrom(editItems, tracked, opts = {}) {
   const about = new Set(opts.aboutIds || []);
   const items = [...(tracked?.values?.() || [])];
   const itemOf = (id) => items.find((t) => t.id === id) || {};
-  const list = (editItems || []).filter(
-    (e) =>
-      e &&
-      e.entity_id &&
-      !skip.has(e.entity_id) &&
+  const list = (editItems || [])
+    .filter((e) => e && e.entity_id && !skip.has(e.entity_id))
+    .map((e) => {
+      if (e.field !== 'logged') return e;
       // a check-in for a day already logged is nothing to offer
-      !(e.field === 'logged' && (itemOf(e.entity_id).logged_days || []).includes(String(e.to))),
-  );
+      const logged = itemOf(e.entity_id).logged_days || [];
+      const days = (e.days?.length ? e.days : [e.to])
+        .map(String)
+        .filter((d) => !logged.includes(d));
+      if (days.length === 0) return null;
+      return { ...e, to: days[days.length - 1], days: days.length > 1 ? days : undefined };
+    })
+    .filter(Boolean);
   if (list.length === 0) return null;
   const pick = list.find((e) => about.has(e.entity_id)) || list[0];
   const item = itemOf(pick.entity_id);
@@ -243,9 +250,132 @@ export function lateCardFrom(editItems, tracked, opts = {}) {
       frequency: item.frequency ?? null,
       space_id: item.space_id ?? null,
     },
-    change: { field: pick.field, from: pick.from ?? null, to: pick.to },
+    change: {
+      field: pick.field,
+      from: pick.from ?? null,
+      to: pick.to,
+      ...(pick.days ? { days: pick.days } : {}),
+    },
     confidence: pick.confidence ?? 85,
     late: true,
+  };
+}
+
+/**
+ * The turn's item list (entityMatch.all) in the row shapes the tracked block
+ * reads, so the extraction reconciles against the same picture as the reply.
+ */
+export function trackedRowsFromItems(items) {
+  const rows = (type) =>
+    (items || [])
+      .filter((i) => i && i.type === type)
+      .map((i) => ({
+        id: i.id,
+        title: i.title,
+        name: i.title,
+        due_day: i.due_day || null,
+        due_time: i.due_time || null,
+        target_date: i.due_day || null,
+        event_time: i.due_time || null,
+        frequency: i.frequency || null,
+        logged_days: i.logged_days || [],
+      }));
+  return { todos: rows('todo'), habits: rows('habit'), notes: rows('note') };
+}
+
+/**
+ * The tracked items block the extractor reads, and the map from the short ids
+ * it shows to the items. With entity cards on (editsOn) the list carries ids so
+ * the extractor can record edits (EXTRACTION_EDITS_RULE), and it is told which
+ * items the latest message is about and which card this turn showed. The Worker
+ * and the scenario runner both build it here, so they read the same thing.
+ */
+export function trackedItemsBlock(
+  { todos = [], habits = [], notes = [] },
+  { editsOn = false, related = null, card = null } = {},
+) {
+  const tracked = new Map();
+  const trackedTag = (row, type) => {
+    if (!editsOn) return `[${type}]`;
+    const short = String(row.id || '').slice(0, 8);
+    tracked.set(short, {
+      id: row.id,
+      type,
+      title: row.name || row.title || '',
+      due_day: row.due_day || noteDay(row),
+      due_time: row.due_time || row.event_time || row.views?.event_time || null,
+      frequency: row.frequency || null,
+      logged_days: row.logged_days || [],
+    });
+    return `[${type} id:${short}]`;
+  };
+  const existingLines = [
+    ...todos.map(
+      (t) =>
+        `- ${trackedTag(t, 'todo')} ${t.name || t.title}${
+          editsOn && t.due_day ? ` (due ${t.due_day}${t.due_time ? ` ${t.due_time}` : ''})` : ''
+        }`,
+    ),
+    ...habits.map(
+      (h) =>
+        `- ${trackedTag(h, 'habit')} ${h.name || h.title}${h.frequency ? ` (${h.frequency})` : ''}`,
+    ),
+    ...notes
+      .filter((n) => n.title)
+      .map(
+        (n) =>
+          `- ${trackedTag(n, 'note')} ${n.title}${
+            editsOn && noteDay(n)
+              ? ` (dated ${noteDay(n)}${n.event_time ? ` ${String(n.event_time).slice(0, 5)}` : ''})`
+              : ''
+          }`,
+      ),
+  ];
+  const block =
+    existingLines.length > 0
+      ? `\nITEMS ALREADY TRACKED IN THE USER'S SYSTEM (do NOT extract these again, in these words or in others; something is one of these only when it is the same thing):\n${existingLines.join('\n')}\n${
+          editsOn ? aboutTrackedNote(related) + cardTrackedNote(card) : ''
+        }`
+      : '';
+  return { block, tracked };
+}
+
+/**
+ * Every change to an existing item the extraction found this turn (its own
+ * edits, add-tos from reconciliation, what the matcher heard in passing), and
+ * the one of them that may become a card under the reply. Check-ins for the
+ * same habit on several days are one change. The card still has to pass the
+ * check in entityMatch.js (offerLateCard) before it is shown.
+ */
+export function lateCardCandidate(
+  extractResult,
+  tracked,
+  userTexts,
+  { mention = null, cardEntityId = null, declinedId = null, aboutIds = [] } = {},
+) {
+  const converted = (extractResult?.extractions || []).filter((e) => e && e.type === 'edit');
+  const editItems = [...editsToPillItems(extractResult?.edits, tracked, userTexts), ...converted];
+  const heard = mentionEditItem(mention);
+  if (heard && !editItems.some((e) => e.entity_id === heard.entity_id && e.field === heard.field)) {
+    editItems.push(heard);
+  }
+  const merged = [];
+  for (const e of editItems) {
+    const same =
+      e.field === 'logged'
+        ? merged.find((m) => m.field === 'logged' && m.entity_id === e.entity_id)
+        : null;
+    if (!same) {
+      merged.push(e.field === 'logged' ? { ...e, days: [String(e.to)] } : e);
+      continue;
+    }
+    same.days = [...new Set([...same.days, String(e.to)])].sort();
+    same.to = same.days[same.days.length - 1];
+  }
+  for (const m of merged) if (m.days && m.days.length < 2) delete m.days;
+  return {
+    editItems: merged,
+    lateCard: lateCardFrom(merged, tracked, { cardEntityId, declinedId, aboutIds }),
   };
 }
 
@@ -354,7 +484,7 @@ NEW ITEMS
 Something is new when the user's own words commit to it, decide it, ask Gremly to keep or remind them of it, or say it may be coming up, and it is not on the list above in any words. An intention they state for themselves counts as a commitment however hedged it is. Kinds: todo, an action they have committed to or asked to be reminded of; habit, a behaviour they mean to repeat, with how often, or to stop; note, an idea, a decision or a recommendation they took up; event, something that may happen on or around a time they mention, whether decided or still being considered, with or without an exact date. Not new: feelings, questions and thinking out loud with nothing to keep, what Gremly suggested and they did not take up, small talk, plans for later the same day that this conversation is itself arranging, and anything that is a listed item in other words. Sharing a subject with a listed item does not make something that item; it is the same only when doing, keeping or noting one would make the other redundant, and if they would still need to do or keep the proposed thing after the listed item was done, it is new. Each thing once: when a sentence gives both something to do and the occasion it is for, that is one item. When you are unsure whether something is a listed item in other words, list it and put that item's id in its same_as field, and it will be checked; otherwise leave same_as out.
 
 CHANGES
-When the user's own words say a listed item has changed, moved, been renamed, repeats differently, or is done, record a change to it by its id from the list; when they say they did a listed habit, record a change with field logged and the day they did it. Progress on something is not completion. A plan for when they will now do a listed item is a change to its day. Details about the subject a listed note already covers are an addition to that note, field body_add, the details in their words, a line or two; details they ask to have kept with a todo are an addition to that todo the same way. Never change an item the user did not clearly refer to, and never resolve a date they did not give. Fields: due_day (YYYY-MM-DD, todos and notes), due_time (HH:MM, 24 hour, todos and notes), name, frequency (habits), logged (YYYY-MM-DD, habits, the day they did it), completed (value "done", todos), body_add (notes and todos).
+When the user's own words say a listed item has changed, moved, been renamed, repeats differently, or is done, record a change to it by its id from the list; when they say they did a listed habit, record a change with field logged and the day they did it, one change for each day they name. Progress on something is not completion. A plan for when they will now do a listed item is a change to its day. A change needs its new value in their words: a problem with an item that they have not resolved is not a change, and a day or time they did not give is never one. Details about the subject a listed note already covers are an addition to that note, field body_add, the details in their words, a line or two; details they ask to have kept with a todo are an addition to that todo the same way. An addition is something they told about the subject that is worth keeping with it; their questions, how they feel, how busy they are, and anything only Gremly said are not additions. Never change an item the user did not clearly refer to, and never resolve a date they did not give. Fields: due_day (YYYY-MM-DD, todos and notes), due_time (HH:MM, 24 hour, todos and notes), name, frequency (habits), logged (YYYY-MM-DD, habits, the day they did it), completed (value "done", todos), body_add (notes and todos).
 
 EVIDENCE
 For every new item and every change, evidence is the user's own words, copied exactly from one User line, that show it. Words Gremly said do not count unless the user took them up in their own words, and then the evidence is the user's words.

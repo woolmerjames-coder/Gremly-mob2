@@ -268,15 +268,15 @@ Decide, in this order:
 - considered: first, the ids of every item that could be the one the message is about, up to five, found by reading the whole list; empty when none could be.
 - refers: true when the message is about one specific item on the list, whether it names the item, points at it, or describes the same thing in different words. What they call it is their word for it, not a filter: when what they describe matches an item of another kind, a todo they call a note or a note they call a reminder, that item is the one they mean, and refers is true. Sharing a word or a topic with an item is not referring to it, describing something new is not referring to an existing item, and when their words cover an area of work, a project or several items at once, no single item is meant: refers is false and the items concerned go in about.
 - entity_id: the id of that item, or null.
-- intent: "edit" when the message is a request or an instruction about the item: to move it, reschedule it, rename it, give it another time or another frequency, add something to a note or to a todo, or a statement, in whatever words, that the item as it is set has to change, even without saying what to. "complete" when their words say a todo is done, whether they announce it as news or ask for it to be marked. "logged" when they say they did a habit: change is field logged with the day they did it as YYYY-MM-DD, today unless they name another day, whether or not that day is already logged. "view" only when they ask for the item itself: to see it, open it, read it back, or be told what it says or when it is. Asking for help, options, ideas or information about the subject an item is about is not a request to see the item; that is mention, or none. "mention" when they are telling you about the item rather than asking for anything: what they plan to do, when they now expect to do it, what has happened with it, or details about it. A plan or an intention is news, not an instruction, even when it names a day. Details about a note's subject that come up in passing are also mention, with change null: the app offers to add them to the note afterwards, and a note's title does not change because its subject grew. "none" when the message only shares a topic with it.
-- change: for edit and mention, the single field their words give a new value for, else null. Fields: due_day (YYYY-MM-DD), due_time (HH:MM, 24 hour), name (the new title), frequency (plain words; habits only), logged (YYYY-MM-DD; habits only, the day they did it), body_add (text to add to a note or to a todo's notes, in their words, only when they ask for it to be added). A due_day is the one calendar day their words point to, counted from today's date. Words point to one day when they name a day or a date, count days or weeks from today, give a deadline as the end of a period (its last day; whether a week ends on Friday or Sunday follows from what the item is), or give a short span of two or three days (its first day). A day of the month with no month named is the next such day after today. Words point to no single day when they give a month, a season, a vague time, or a different week or month without saying which day in it; then the value is null and the card asks which day. A deadline is met by any day up to it: when the item already has a day from today up to the deadline their words give, the value is the day it already has, because nothing needs to move. A day mentioned for some other reason, such as being busy on it, is not the new value. Null when they want a change but have not said what to, or the change is unclear.
+- intent: "edit" when the message is a request or an instruction about the item: to move it, reschedule it, rename it, give it another time or another frequency, add something to a note or to a todo, or a statement, in whatever words, that the item as it is set has to change, even without saying what to. "complete" when their words say a todo is done, whether they announce it as news or ask for it to be marked. "logged" when they say they did a habit: change is field logged with the day they did it as YYYY-MM-DD, today unless they name another day, or a list of those days when they say they did it on more than one, whether or not those days are already logged. "view" only when they ask for the item itself: to see it, open it, read it back, or be told what it says or when it is. Asking for help, options, ideas or information about the subject an item is about is not a request to see the item; that is mention, or none. "mention" when they are telling you about the item rather than asking for anything: what they plan to do, when they now expect to do it, what has happened with it, or details about it. A plan or an intention is news, not an instruction, even when it names a day. Details about a note's subject that come up in passing are also mention, with change null: the app offers to add them to the note afterwards, and a note's title does not change because its subject grew. "none" when the message only shares a topic with it.
+- change: for edit and mention, the single field their words give a new value for, else null. Fields: due_day (YYYY-MM-DD), due_time (HH:MM, 24 hour), name (the new title), frequency (plain words; habits only), logged (YYYY-MM-DD, or a list of them; habits only, the days they did it), body_add (text to add to a note or to a todo's notes, in their words, only when they ask for it to be added). A due_day is the one calendar day their words point to, counted from today's date. Words point to one day when they name a day or a date, count days or weeks from today, give a deadline as the end of a period (its last day; whether a week ends on Friday or Sunday follows from what the item is), or give a short span of two or three days (its first day). A day of the month with no month named is the next such day after today. Words point to no single day when they give a month, a season, a vague time, or a different week or month without saying which day in it; then the value is null and the card asks which day. A deadline is met by any day up to it: when the item already has a day from today up to the deadline their words give, the value is the day it already has, because nothing needs to move. A day mentioned for some other reason, such as being busy on it, is not the new value. Null when they want a change but have not said what to, or the change is unclear.
 - about: the ids of the items the message is about, whether or not refers is true: the item they are discussing, or the very piece of work they are talking about. Empty when it is about none of them. An item that is only on the same subject, one that merely shares a word with the message, or a note that records a past day does not belong here; a reply that name-drops such an item feels like being watched, so leave them out.
 - confidence: 0 to 100, how sure you are that entity_id is the item they mean.
 - ask: true only when they are asking for something to happen to one item (an edit, a completion, or to see it) and two or more items fit about equally; then list those ids in candidates. A loose description still refers to one of their items when any fit it: pick the one that fits best when one clearly does, ask when several fit, and answer refers false only when none of their items could be the one they mean. Never ask about a topic they are merely talking about.
 
 A wrong match is worse than no match: when in doubt, refers false or ask true. Never invent an id. Never resolve a date the user did not give.
 
-Return ONLY JSON: {"considered":["..."],"refers":true|false,"entity_id":"..."|null,"intent":"edit"|"mention"|"view"|"complete"|"none","change":{"field":"...","value":"..."}|null,"about":["..."],"confidence":0-100,"ask":true|false,"candidates":["..."]}`;
+Return ONLY JSON: {"considered":["..."],"refers":true|false,"entity_id":"..."|null,"intent":"edit"|"mention"|"view"|"complete"|"none","change":{"field":"...","value":"..."|["..."]}|null,"about":["..."],"confidence":0-100,"ask":true|false,"candidates":["..."]}`;
 
 // how many exchanges before the message the matcher reads
 export const MATCH_EXCHANGES = 3;
@@ -424,17 +424,36 @@ export function decideCard(answer, candidates, opts = {}) {
       };
     }
     if (intent === 'logged' && entity.type === 'habit') {
-      const day = String(answer.change?.value ?? '').trim();
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(day))
-        return { kind: 'mention', entity, change: null, confidence };
-      // already counted for that day: no card, the reply says so
-      if ((entity.logged_days || []).includes(day))
-        return { kind: 'mention', entity, change: null, confidence, loggedAlready: day };
-      // a check-in never interrupts: the card sits under a normal reply
+      const raw = answer.change?.value;
+      const days = [
+        ...new Set(
+          (Array.isArray(raw) ? raw : [raw])
+            .map((d) => String(d ?? '').trim())
+            .filter((d) => ISO_DAY.test(d)),
+        ),
+      ].sort();
+      if (days.length === 0) return { kind: 'mention', entity, change: null, confidence };
+      // days already counted are left out; all of them counted: no card, the reply says so
+      const open = days.filter((d) => !(entity.logged_days || []).includes(d));
+      if (open.length === 0)
+        return {
+          kind: 'mention',
+          entity,
+          change: null,
+          confidence,
+          loggedAlready: days[days.length - 1],
+        };
+      // a check-in never interrupts: the card sits under a normal reply. The
+      // latest day is `to`, so an app that knows only one day still logs that one.
       return {
         kind: 'edit',
         entity,
-        change: { field: 'logged', from: null, to: day },
+        change: {
+          field: 'logged',
+          from: null,
+          to: open[open.length - 1],
+          ...(open.length > 1 ? { days: open } : {}),
+        },
         confidence,
         inPassing: true,
       };
@@ -727,7 +746,7 @@ export function theirItemsPromptSection(match, todayIso, opts = {}) {
   }
   if (!opts.card) {
     parts.push(
-      'No card goes with this reply. For this turn, the items listed above are the only ones of theirs you know exist, whatever they call them; anything else they name, the app has not found among their current todos, notes and habits. So nothing changes from this reply, and you never say a change was made, that something is done or off their list, that you will do it, or that you will add or save anything; the app offers new things for saving on its own. When they ask for something to be done to an item: if it is listed above, ask in plain words what should change or whether they want it changed; if it is not, say you cannot see it on their list right now and ask which one they mean, or whether it is new. When they tell you something is finished and it is not listed above, hear the news, but do not say it is marked done. An offer for an item listed above is fine; the change happens on a later turn, through the app, once they say yes.',
+      'No card goes with this reply. For this turn, the items listed above are the only ones of theirs you know exist, whatever they call them; anything else they name, the app has not found among their current todos, notes and habits. So nothing changes from this reply, and you never say a change was made, that something is done or off their list, that you will do it, or that you will add or save anything; the app offers new things for saving on its own. When they ask for something to be done to an item: if it is listed above, ask in plain words what should change or whether they want it changed; if it is not, say you cannot see it on their list right now and ask which one they mean, or whether it is new. When they tell you something is finished and it is not listed above, hear the news, but do not say it is marked done. An offer for an item listed above is fine; the change happens on a later turn, through the app, once they say yes. So never tell them you cannot change their items: changes happen through the app once they say yes.',
     );
   }
   return `\n\n${parts.join('\n')}`;
@@ -854,6 +873,54 @@ export async function matchEntity({
   }
 }
 
+export const LATE_CARD_CHECK_PROMPT = `You check one change the app is about to offer a user of a personal productivity app after a turn of their conversation with Gremly, their companion. The change was proposed by a reader of the whole conversation, and it is offered only when the user asked for it or decided it.
+
+You are given today's date, the last few exchanges, the user's latest message, their item as it is set now, and the proposed change. The answer is yes only when the user's own words, in the latest message or the exchanges before it, decide or ask for this change to this item, or say yes to Gremly offering it. A new day or time needs them to give that day or time. Done needs them to say it is done. A check-in needs them to say they did it on each of those days. A new name or frequency needs them to say it. An addition to the item's text needs the text to be something they told about its subject that is worth keeping with it, in their words; their questions, how they feel, how busy they are, and anything only Gremly said are not additions. A problem with the item that they have not resolved is not a change. When in doubt, the answer is no.
+
+Return ONLY JSON: {"offer":true|false}`;
+
+/**
+ * The last word on a late card: one small call, only when the extraction has
+ * found a change to offer, with the conversation in view. A change nobody
+ * asked for is worse than no offer, so a failed check offers nothing.
+ */
+export async function offerLateCard({ card, message, exchanges, todayStr, todayIso }) {
+  if (!card || card.kind !== 'edit' || !card.entity || !card.change) return false;
+  try {
+    const lines = [`Today is ${todayStr}.`];
+    const recent = (Array.isArray(exchanges) ? exchanges : [])
+      .filter((x) => x && x.userMsg && x.assistantMsg)
+      .slice(-MATCH_EXCHANGES);
+    if (recent.length) {
+      lines.push('\nLAST EXCHANGES, oldest first:');
+      for (const x of recent) {
+        lines.push(
+          `User: ${String(x.userMsg).slice(0, 300)}\nGremly: ${String(x.assistantMsg).slice(0, 300)}`,
+        );
+      }
+    }
+    lines.push(`\nLATEST MESSAGE:\n${String(message || '').slice(0, 600)}`);
+    lines.push(`\nTHEIR ITEM: ${cardItem(card.entity, todayIso || null)}`);
+    lines.push(`PROPOSED CHANGE: ${changeInWords(card, todayIso || null)}`);
+    const res = await helperFetch('entity_match', {
+      messages: [
+        { role: 'system', content: LATE_CARD_CHECK_PROMPT },
+        { role: 'user', content: lines.join('\n') },
+      ],
+      max_tokens: 50,
+      temperature: 0,
+      response_format: { type: 'json_object' },
+    });
+    if (!res.ok) return false;
+    const json = await res.json();
+    const answer = parseJson(json.choices?.[0]?.message?.content || '');
+    return answer?.offer === true;
+  } catch (err) {
+    console.error('[EntityMatch] late card check failed', String(err).slice(0, 200));
+    return false;
+  }
+}
+
 const SAME_THING_PROMPT = `You check proposed new items against what a user already has in a personal productivity app, so nothing they already track is saved twice.
 
 You are given the user's existing items (todos, habits and notes, with ids) and a list of proposed new items. For each proposed item decide whether it is the same thing as one existing item or new. Two things are the same when doing, keeping or noting one would make the other redundant: the same task in other words, the same appointment or event, or a detail of a subject one of the notes already covers. Sharing a subject with a listed item does not make something that item: if they would still need to do or keep the proposed thing after the listed item was done, it is new. When in doubt, it is new.
@@ -942,8 +1009,17 @@ function changeInWords(card, todayIso = null) {
   if (f === 'name') return `rename it to ${card.change.to}`;
   if (f === 'frequency') return `change its frequency to ${card.change.to}`;
   if (f === 'body_add') return `add to it: ${card.change.to}`;
-  if (f === 'logged') return `log it for ${dayInWords(card.change.to, todayIso)}`;
+  if (f === 'logged') {
+    const days = card.change.days?.length ? card.change.days : [card.change.to];
+    return `log it for ${wordsList(days.map((d) => dayInWords(d, todayIso)))}`;
+  }
   return `update it to ${card.change.to}`;
+}
+
+/** Several things in one phrase: a, b and c. */
+function wordsList(parts) {
+  if (parts.length < 2) return parts[0] || '';
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
 }
 
 /** Their item as the card shows it: its kind and title, with how it is set now, in words. */
@@ -1012,6 +1088,21 @@ export function anchorPromptSection(anchor, todayIso, opts = {}) {
   const known = `The user opened this chat from their ${kind} "${title}" to talk it through, so they know it exists and is on their list: never tell them it is on their list or already tracked, never offer to add or save it, and never ask whether it is new.`;
   if (opts.mode === 'entity_card') return `${head}${known}`;
   return `${head}${known} Until the conversation moves on, what they say is about this item: talk it through with them and help with whatever they need about it. When they move on to something else, follow them and leave this item alone.\n${itemLine(anchor, todayIso)}`;
+}
+
+/**
+ * Everything the reply is told about the user's items for one turn, in order:
+ * the card under the reply, what became of the last card, the item the chat
+ * was opened about, and what they have on. The Worker's chat paths and the
+ * scenario runner all build it here, so the runner reads what production reads.
+ */
+export function turnItemSections({ match, card, recent, anchor = null, mode, todayIso }) {
+  let out = '';
+  if (card) out += entityCardPromptSection(card, { anchorId: anchor?.id || null, todayIso });
+  out += recentCardPromptSection(recent);
+  out += anchorPromptSection(anchor, todayIso, { mode });
+  out += theirItemsPromptSection(match, todayIso, { mode, card, anchor });
+  return out;
 }
 
 /** The section added to the reply prompt when a card is being shown. */

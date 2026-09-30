@@ -205,29 +205,24 @@ import { helperFetch } from './helperClient.js';
 import { relateDrop } from './minddropRelate.js';
 import {
   matchEntity,
-  entityCardPromptSection,
   applyEntityCardToTriage,
-  recentCardPromptSection,
-  theirItemsPromptSection,
   anchorFrom,
-  anchorPromptSection,
+  turnItemSections,
+  offerLateCard,
   todayIsoIn,
-  noteDay,
   checkNewAgainstTracked,
 } from './entityMatch.js';
 import {
-  mentionEditItem,
-  cardTrackedNote,
-  aboutTrackedNote,
   reconcileSameAs,
-  lateCardFrom,
+  trackedRowsFromItems,
+  trackedItemsBlock,
+  lateCardCandidate,
   newItemsOnly,
   buildChatExtractionPrompt,
   buildPillPrompt,
   buildSummaryPrompt,
   withEvidenceRule,
   withEditsRule,
-  editsToPillItems,
   evidenceGrounded,
   NO_EXTRACTION_MODES,
 } from './chatPrompts.js';
@@ -11806,16 +11801,13 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               return msg;
             });
 
-            if (entityCard)
-              genConfig.systemPrompt += entityCardPromptSection(entityCard, {
-                todayIso: todayIsoIn(userTimezone),
-              });
-            genConfig.systemPrompt += recentCardPromptSection(body.recentEntity);
-            genConfig.systemPrompt += theirItemsPromptSection(
-              entityMatch,
-              todayIsoIn(userTimezone),
-              { mode: triage.mode, card: entityCard },
-            );
+            genConfig.systemPrompt += turnItemSections({
+              match: entityMatch,
+              card: entityCard,
+              recent: body.recentEntity,
+              mode: triage.mode,
+              todayIso: todayIsoIn(userTimezone),
+            });
 
             const spaceChatMessages = [
               { role: 'system', content: genConfig.systemPrompt },
@@ -12648,20 +12640,14 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               return msg;
             });
 
-            if (entityCard)
-              genConfig.systemPrompt += entityCardPromptSection(entityCard, {
-                anchorId: anchor?.id || null,
-                todayIso: todayIsoIn(userTimezone),
-              });
-            genConfig.systemPrompt += recentCardPromptSection(body.recentEntity);
-            genConfig.systemPrompt += anchorPromptSection(anchor, todayIsoIn(userTimezone), {
+            genConfig.systemPrompt += turnItemSections({
+              match: entityMatch,
+              card: entityCard,
+              recent: body.recentEntity,
+              anchor,
               mode: triage.mode,
+              todayIso: todayIsoIn(userTimezone),
             });
-            genConfig.systemPrompt += theirItemsPromptSection(
-              entityMatch,
-              todayIsoIn(userTimezone),
-              { mode: triage.mode, card: entityCard, anchor },
-            );
 
             const chatMessages = [
               { role: 'system', content: genConfig.systemPrompt },
@@ -12963,6 +12949,15 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     full_content: fullContent,
                     save_suggestion,
                     entity_card: entityCard || null,
+                    // whether the Save items pill and a late card may follow, so the
+                    // app knows to wait for them (it watches for this turn's marker)
+                    extraction:
+                      body.chatId &&
+                      authenticatedUserId &&
+                      fullContent &&
+                      !(models().flags.extractionV2 && NO_EXTRACTION_MODES.includes(triage.mode))
+                        ? 'running'
+                        : 'skipped',
                     timing: {
                       triage_ms: triageMs,
                       card_ms: cardMs,
@@ -13077,32 +13072,19 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       ? await summaryRes.json().catch(() => [])
                       : [];
                     const runningSummary = summaryData?.[0]?.running_summary || null;
-                    const fromShared = (type) =>
-                      shared
-                        .filter((i) => i.type === type)
-                        .map((i) => ({
-                          id: i.id,
-                          title: i.title,
-                          name: i.title,
-                          due_day: i.due_day || null,
-                          due_time: i.due_time || null,
-                          target_date: i.due_day || null,
-                          event_time: i.due_time || null,
-                          frequency: i.frequency || null,
-                          logged_days: i.logged_days || [],
-                        }));
+                    const rowsFromShared = shared ? trackedRowsFromItems(shared) : null;
                     const todosData = shared
-                      ? fromShared('todo')
+                      ? rowsFromShared.todos
                       : todosRes?.ok
                         ? await todosRes.json().catch(() => [])
                         : [];
                     const habitsData = shared
-                      ? fromShared('habit')
+                      ? rowsFromShared.habits
                       : habitsRes?.ok
                         ? await habitsRes.json().catch(() => [])
                         : [];
                     const notesData = shared
-                      ? fromShared('note')
+                      ? rowsFromShared.notes
                       : notesRes?.ok
                         ? await notesRes.json().catch(() => [])
                         : [];
@@ -13110,53 +13092,10 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     // With entity cards on, the list carries ids so the extractor can
                     // record edits to tracked items (chatPrompts.js, EXTRACTION_EDITS_RULE)
                     const editsOn = extractionV2 && models().flags.entityCards;
-                    const tracked = new Map();
-                    const trackedTag = (row, type) => {
-                      if (!editsOn) return `[${type}]`;
-                      const short = String(row.id || '').slice(0, 8);
-                      tracked.set(short, {
-                        id: row.id,
-                        type,
-                        title: row.name || row.title || '',
-                        due_day: row.due_day || noteDay(row),
-                        due_time: row.due_time || row.event_time || row.views?.event_time || null,
-                        frequency: row.frequency || null,
-                        logged_days: row.logged_days || [],
-                      });
-                      return `[${type} id:${short}]`;
-                    };
-                    const existingLines = [
-                      ...todosData.map(
-                        (t) =>
-                          `- ${trackedTag(t, 'todo')} ${t.name || t.title}${
-                            editsOn && t.due_day
-                              ? ` (due ${t.due_day}${t.due_time ? ` ${t.due_time}` : ''})`
-                              : ''
-                          }`,
-                      ),
-                      ...habitsData.map(
-                        (h) =>
-                          `- ${trackedTag(h, 'habit')} ${h.name || h.title}${h.frequency ? ` (${h.frequency})` : ''}`,
-                      ),
-                      ...notesData
-                        .filter((n) => n.title)
-                        .map(
-                          (n) =>
-                            `- ${trackedTag(n, 'note')} ${n.title}${
-                              editsOn && noteDay(n)
-                                ? ` (dated ${noteDay(n)}${n.event_time ? ` ${String(n.event_time).slice(0, 5)}` : ''})`
-                                : ''
-                            }`,
-                        ),
-                    ];
-                    const existingItemsBlock =
-                      existingLines.length > 0
-                        ? `\nITEMS ALREADY TRACKED IN THE USER'S SYSTEM (do NOT extract these again, in these words or in others; something is one of these only when it is the same thing):\n${existingLines.join('\n')}\n${
-                            editsOn
-                              ? aboutTrackedNote(entityMatch?.related) + cardTrackedNote(entityCard)
-                              : ''
-                          }`
-                        : '';
+                    const { block: existingItemsBlock, tracked } = trackedItemsBlock(
+                      { todos: todosData, habits: habitsData, notes: notesData },
+                      { editsOn, related: entityMatch?.related, card: entityCard },
+                    );
 
                     const allMsgs = [
                       ...messages.filter((m) => m.role !== 'system'),
@@ -13278,24 +13217,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                           const userTexts = recentMsgs
                             .filter((m) => m.role === 'user')
                             .map((m) => String(m.content || ''));
-                          const converted = (extractResult.extractions || []).filter(
-                            (e) => e && e.type === 'edit',
-                          );
-                          const editItems = [
-                            ...editsToPillItems(extractResult.edits, tracked, userTexts),
-                            ...converted,
-                          ];
-                          const heard = mentionEditItem(entityMatch?.mention);
-                          if (
-                            heard &&
-                            !editItems.some(
-                              (e) => e.entity_id === heard.entity_id && e.field === heard.field,
-                            )
-                          ) {
-                            editItems.push(heard);
-                          }
-                          extractResult.extractions = newItemsOnly(extractResult.extractions);
-                          lateCard = lateCardFrom(editItems, tracked, {
+                          const candidate = lateCardCandidate(extractResult, tracked, userTexts, {
+                            mention: entityMatch?.mention,
                             cardEntityId: entityCard?.entity?.id || null,
                             declinedId:
                               body.recentEntity?.status === 'declined'
@@ -13303,12 +13226,27 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                                 : null,
                             aboutIds: (entityMatch?.related || []).map((c) => c.id),
                           });
-                          if (editItems.length > 0) {
+                          extractResult.extractions = newItemsOnly(extractResult.extractions);
+                          // offered only when their own words asked for it or decided it
+                          const offered =
+                            candidate.lateCard &&
+                            (await offerLateCard({
+                              card: candidate.lateCard,
+                              message: lastUserMsg,
+                              exchanges: extractRecentExchanges(messages),
+                              todayStr,
+                              todayIso: todayIsoIn(userTimezone),
+                            }));
+                          lateCard = offered ? candidate.lateCard : null;
+                          if (candidate.editItems.length > 0) {
                             console.log(
                               '[GeneralChat] Extraction found changes to existing items',
                               {
-                                edits: editItems.length,
-                                lateCard: lateCard ? lateCard.entity.title : null,
+                                edits: candidate.editItems.length,
+                                candidate: candidate.lateCard
+                                  ? candidate.lateCard.entity.title
+                                  : null,
+                                offered: !!lateCard,
                               },
                             );
                           }
@@ -13335,6 +13273,9 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                             late_card: lateCard
                               ? { card: lateCard, at: new Date().toISOString() }
                               : null,
+                            // the turn this extraction is for, so the app stops waiting
+                            extracted_turn:
+                              typeof body.turnId === 'string' ? body.turnId.slice(0, 40) : null,
                           },
                         }),
                       });
@@ -14736,14 +14677,12 @@ function runScopedChatStream(
         return msg;
       });
 
-      if (entityCard)
-        genConfig.systemPrompt += entityCardPromptSection(entityCard, {
-          todayIso: todayIsoIn(userTimezone),
-        });
-      genConfig.systemPrompt += recentCardPromptSection(body.recentEntity);
-      genConfig.systemPrompt += theirItemsPromptSection(entityMatch, todayIsoIn(userTimezone), {
-        mode: triage.mode,
+      genConfig.systemPrompt += turnItemSections({
+        match: entityMatch,
         card: entityCard,
+        recent: body.recentEntity,
+        mode: triage.mode,
+        todayIso: todayIsoIn(userTimezone),
       });
       const chatMessages = [
         { role: 'system', content: genConfig.systemPrompt },

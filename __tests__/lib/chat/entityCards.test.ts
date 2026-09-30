@@ -301,5 +301,11 @@ describe('cards in the chat list', () => {
     expect(words).toMatchObject({ from: 'Not logged', label: 'Log for' });
     expect(words.to).toMatch(/1 Oct|Today|Tomorrow/);
     expect(primaryLabel({ field: 'logged', from: null, to: '2031-10-01' })).toBe('Yes, log it');
+    // several days on one card: all of them, oldest first
+    const both = describeChange(
+      { ...dentist, type: 'habit' },
+      { field: 'logged', from: null, to: '2031-10-02', days: ['2031-10-01', '2031-10-02'] },
+    );
+    expect(both.to).toMatch(/1 Oct.* and .*2 Oct/);
   });
 });

@@ -699,6 +699,11 @@ export interface EntityCardChange {
   field: EntityCardField;
   from: string | null;
   to: string;
+  /**
+   * A habit check-in for several days: every day, oldest first. `to` is the
+   * latest of them, so an app that knows only one day still logs that one.
+   */
+  days?: string[];
 }
 export type EntityCard =
   | {

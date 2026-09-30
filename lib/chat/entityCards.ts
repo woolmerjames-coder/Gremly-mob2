@@ -36,6 +36,21 @@ export function formatDay(dateStr: string | null | undefined): string {
   return `${WEEKDAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
 }
 
+/** Several days in one phrase: "Mon 28 Sep and today". */
+export function formatDays(days: string[]): string {
+  const words = days.map((d, i) => {
+    const w = formatDay(d);
+    return i > 0 && (w === 'Today' || w === 'Tomorrow') ? w.toLowerCase() : w;
+  });
+  if (words.length < 2) return words[0] || '';
+  return `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
+}
+
+/** The days a check-in logs: all of them when the card names several. */
+export function loggedDaysOf(change: EntityCardChange): string[] {
+  return change.days?.length ? change.days : [change.to];
+}
+
 /** "2:00pm" from HH:mm (a seconds part is ignored). */
 export function formatTime(time: string | null | undefined): string {
   if (!time) return '';
@@ -119,7 +134,7 @@ export function describeChange(
     case 'completed':
       return { from: 'Open', to: 'Done', label: 'Mark as' };
     case 'logged':
-      return { from: 'Not logged', to: formatDay(change.to), label: 'Log for' };
+      return { from: 'Not logged', to: formatDays(loggedDaysOf(change)), label: 'Log for' };
     default:
       return { from: change.from || '', to: change.to, label: 'Change to' };
   }
@@ -271,11 +286,15 @@ export async function applyEntityChange(
     const habit = store.habits.find((h) => h.id === entity.id);
     if (!habit) throw new Error('That habit is no longer here.');
     if (change.field === 'logged') {
-      // a check-in for the day they said; the store ignores a day already logged
-      await store.logHabitCompletionForDate(habit.id, change.to);
+      // a check-in for each day they said; the store ignores a day already logged
+      const days = loggedDaysOf(change);
+      for (const day of days) await store.logHabitCompletionForDate(habit.id, day);
       return {
-        revert: () => useGremlyStore.getState().removeHabitCompletionForDate(habit.id, change.to),
-        summary: `Logged ${habit.name} for ${formatDay(change.to)}.`,
+        revert: async () => {
+          const now = useGremlyStore.getState();
+          for (const day of days) await now.removeHabitCompletionForDate(habit.id, day);
+        },
+        summary: `Logged ${habit.name} for ${formatDays(days)}.`,
         entity: after,
       };
     }
