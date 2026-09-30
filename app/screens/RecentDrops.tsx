@@ -9,6 +9,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
 import {
   Animated,
+  Dimensions,
   Easing,
   Alert,
   Platform,
@@ -478,7 +479,10 @@ const UnifiedCardWrapper = React.memo<{
   dropId?: string | null;
   isPending: boolean;
   children: React.ReactNode;
-}>(({ itemId, dropId, isPending, children }) => {
+  /** a yes just cleared this card: it slides out to the right, then leaves */
+  leaving?: boolean;
+  onLeft?: (itemId: string) => void;
+}>(({ itemId, dropId, isPending, children, leaving = false, onLeft }) => {
   console.log('[RENDER_CHECK] UnifiedCardWrapper rendered');
   // DEBUG: Track wrapper mount/unmount (disabled to reduce Metro noise)
   // React.useEffect(() => {
@@ -501,6 +505,37 @@ const UnifiedCardWrapper = React.memo<{
   const hasAnimated = animatedInItemIds.has(itemId);
   const scale = React.useMemo(() => new Animated.Value(hasAnimated ? 1 : 0.65), []);
   const opacity = React.useMemo(() => new Animated.Value(hasAnimated ? 1 : 0.2), []);
+
+  // Leaving after a yes to "is this one you already have?": slide out to the
+  // right and fade, then tell the list it can go
+  const leaveX = React.useMemo(() => new Animated.Value(0), []);
+  const leaveOpacity = React.useMemo(() => new Animated.Value(1), []);
+  React.useEffect(() => {
+    if (!leaving) {
+      leaveX.setValue(0);
+      leaveOpacity.setValue(1);
+      return;
+    }
+    const anim = Animated.parallel([
+      Animated.timing(leaveX, {
+        toValue: Dimensions.get('window').width,
+        duration: 320,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(leaveOpacity, {
+        toValue: 0,
+        duration: 320,
+        easing: Easing.in(Easing.quad),
+        useNativeDriver: true,
+      }),
+    ]);
+    anim.start(({ finished }) => {
+      if (finished) onLeft?.(itemId);
+    });
+    return () => anim.stop();
+  }, [leaving, itemId, onLeft, leaveX, leaveOpacity]);
+  const leaveStyle = { opacity: leaveOpacity, transform: [{ translateX: leaveX }] };
 
   // Handle pending→real transition
   React.useEffect(() => {
@@ -568,13 +603,13 @@ const UnifiedCardWrapper = React.memo<{
       <Reanimated.View
         layout={Layout.duration(450).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
       >
-        {children}
+        <Animated.View style={leaveStyle}>{children}</Animated.View>
       </Reanimated.View>
     );
   }
 
   // Default: plain View (pending after animation, or real before Layout enabled)
-  return <View>{children}</View>;
+  return <Animated.View style={leaveStyle}>{children}</Animated.View>;
 });
 UnifiedCardWrapper.displayName = 'UnifiedCardWrapper';
 
@@ -2443,6 +2478,65 @@ const RecentDrops: React.FC<{
   const [open, setOpen] = React.useState(initiallyOpen); // open by default for inline confirmation
   const [loading, setLoading] = React.useState(false);
   const [items, setItems] = React.useState<UnifiedDrop[]>([]);
+
+  // Cards a yes to "is this one you already have?" just cleared: they slide out
+  // once the popup has closed, then leave the list. What they looked like is
+  // kept so an Undo can put them back.
+  const leavingRef = React.useRef<Set<string>>(new Set());
+  const [leavingIds, setLeavingIds] = React.useState<Set<string>>(() => new Set());
+  const leftSnapshots = React.useRef<Map<string, UnifiedDrop>>(new Map());
+
+  useEffect(() => {
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const unsubLeaving = eventBus.on('minddrop:cards_leaving', ({ ids, delayMs }) => {
+      ids.forEach((id) => leavingRef.current.add(id));
+      timers.push(
+        setTimeout(() => {
+          setLeavingIds((prev) => {
+            const next = new Set(prev);
+            ids.forEach((id) => leavingRef.current.has(id) && next.add(id));
+            return next;
+          });
+        }, delayMs),
+      );
+    });
+    const unsubStay = eventBus.on('minddrop:cards_stay', ({ ids }) => {
+      ids.forEach((id) => leavingRef.current.delete(id));
+      setLeavingIds((prev) => {
+        const next = new Set(prev);
+        ids.forEach((id) => next.delete(id));
+        return next;
+      });
+    });
+    return () => {
+      unsubLeaving();
+      unsubStay();
+      timers.forEach(clearTimeout);
+    };
+  }, []);
+
+  const handleCardLeft = React.useCallback((id: string) => {
+    leavingRef.current.delete(id);
+    setLeavingIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    // Only a card that really went leaves (a change that did not go through keeps it)
+    const s = useGremlyStore.getState();
+    const note = s.notes.find((n) => n.id === id) as any;
+    const todo = s.todos.find((t) => t.id === id) as any;
+    const habit = s.habits.find((h) => h.id === id) as any;
+    const entity = note || todo || habit;
+    const gone = !entity || entity.archived === true || (!!todo && !!todo.completed_at);
+    if (!gone) return;
+    setItems((prev) => {
+      const item = prev.find((i) => i.id === id);
+      if (item) leftSnapshots.current.set(id, item);
+      return prev.filter((i) => i.id !== id);
+    });
+  }, []);
   const [todayCount, setTodayCount] = React.useState(0); // Track today's drop count for toggle label
   const [olderCount, setOlderCount] = React.useState(0); // Track older drops count
   const [filter, setFilter] = React.useState<'today' | 'older'>('today'); // Filter selection
@@ -3456,6 +3550,8 @@ const RecentDrops: React.FC<{
       'ItemCompleted',
       (payload: { id: string; type: 'habit' | 'todo' }) => {
         // console.debug('[RecentDrops] ItemCompleted event:', payload.id, payload.type);
+        // A card sliding out after a yes leaves when its slide ends
+        if (leavingRef.current.has(payload.id)) return;
         // Remove the item immediately from local state
         setItems((prev) => prev.filter((item) => item.id !== payload.id));
         // Note: Pending items are managed by Zustand pendingDrops - no cleanup needed here
@@ -3485,6 +3581,37 @@ const RecentDrops: React.FC<{
         }
 
         const views = (entity as any).views || {};
+
+        // Archived or ticked off: it leaves the list, as it would on a reload
+        // (a card sliding out after a yes leaves when its slide ends)
+        const gone =
+          (entity as any).archived === true ||
+          (entityType === 'todo' && !!(entity as any).completed_at);
+        if (gone) {
+          if (!leavingRef.current.has(payload.id)) {
+            setItems((prev) => prev.filter((item) => item.id !== payload.id));
+          }
+          return;
+        }
+
+        // Put back by an Undo after a yes: it returns as it was, with what changed since
+        const snapshot = leftSnapshots.current.get(payload.id);
+        if (snapshot) {
+          leftSnapshots.current.delete(payload.id);
+          setItems((prev) =>
+            prev.some((item) => item.id === payload.id)
+              ? prev
+              : [
+                  ...prev,
+                  {
+                    ...snapshot,
+                    title: (entity as any).title ?? (entity as any).name ?? snapshot.title,
+                    views,
+                  },
+                ],
+          );
+          return;
+        }
 
         // CRITICAL: If clarification_processing just started, reset animation tracking
         // so the card shows fresh shimmer animation
@@ -3521,6 +3648,10 @@ const RecentDrops: React.FC<{
               views: views,
               due_date: (entity as any).due_date ?? (entity as any).due_at ?? item.due_date,
               due_day: (entity as any).due_day ?? item.due_day,
+              // A day or time changed from a card (chat or Mind Drop) shows straight away
+              due_time: 'due_time' in (entity as any) ? (entity as any).due_time : item.due_time,
+              target_date:
+                'target_date' in (entity as any) ? (entity as any).target_date : item.target_date,
               // Note subtype - CRITICAL for correct chip after clarification resolution
               noteSubtype:
                 entityType === 'note'
@@ -4467,6 +4598,8 @@ const RecentDrops: React.FC<{
                     itemId={item.id}
                     dropId={item.drop_id}
                     isPending={itemIsPending}
+                    leaving={leavingIds.has(item.id)}
+                    onLeft={handleCardLeft}
                   >
                     <AnimatedMindDropCard
                       item={item}

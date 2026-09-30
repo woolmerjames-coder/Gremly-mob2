@@ -7,6 +7,7 @@ import type { AppRecord, CanonicalType, LogSubtype } from '../lib/types';
 import { persistedNoteSubtypeToLogSubtype } from '../lib/logSubtypes';
 import { ClarificationPopup } from '../components/minddrop/ClarificationPopup';
 import { RelationPopup } from '../components/minddrop/RelationPopup';
+import { RelationToastHost } from '../components/minddrop/RelationToast';
 import type { ClarificationWhen } from '../lib/minddrop/clarification';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
 import * as Haptics from 'expo-haptics';
@@ -588,6 +589,8 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
         noteId={relationNoteId}
         onClose={closeRelationPopup}
       />
+      {/* What a yes did, with Undo (shows over Mind Drop and Sweep) */}
+      <RelationToastHost />
     </OverlayContext.Provider>
   );
 }

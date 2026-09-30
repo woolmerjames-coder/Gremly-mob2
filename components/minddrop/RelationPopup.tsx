@@ -4,10 +4,11 @@
  * Opened from the drop's card (its one quiet line) or in Sweep. The same frame
  * as the question popup, with the item shown the way the chat's entity card
  * shows it. Mockup is spec (Mind Drop "drops about things you already have"
- * canvas, September 2026). Nothing changes until a button is tapped; after a
- * yes the closing line carries an Undo for a few seconds. Closing without a
- * tap leaves the question on the card; "Skip for now" files the drop as it was
- * classified.
+ * canvas, September 2026). Nothing changes until a button is tapped. After a
+ * yes the popup shows a short confirmation and closes; a toast then says what
+ * happened, with Undo (RelationToast), and the cards that went slide out of
+ * Recent Drops. Closing without a tap leaves the question on the card; "Skip
+ * for now" files the drop as it was classified.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -21,6 +22,7 @@ import {
   StickyNote,
 } from 'lucide-react-native';
 import { lightTokens } from '../../design/tokens';
+import { eventBus } from '../../lib/events/EventBus';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { getDateService } from '../../lib/date/DateService';
 import {
@@ -45,10 +47,12 @@ import {
   changeNow,
   currentEntity,
   keepDropAsNew,
+  leavingCardIds,
   type RelationOutcome,
 } from '../../lib/minddrop/relationActions';
 
-const UNDO_WINDOW_MS = 6000;
+/** How long the tick shows after a yes before the popup gets out of the way. */
+export const CONFIRM_MS = 900;
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export type RelationResolution = 'applied' | 'kept' | 'clarify';
@@ -213,7 +217,7 @@ export function RelationPopup({ visible, noteId, onClose, onResolved }: Relation
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<RelationOutcome | null>(null);
-  const [undoOpen, setUndoOpen] = useState(false);
+  const finished = useRef(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Guards that hold within a frame, where state would be stale
   const busyRef = useRef(false);
@@ -237,7 +241,6 @@ export function RelationPopup({ visible, noteId, onClose, onResolved }: Relation
         setBusy(false);
         setError(null);
         setDone(null);
-        setUndoOpen(false);
       });
       if (closeTimer.current) clearTimeout(closeTimer.current);
     }
@@ -286,11 +289,16 @@ export function RelationPopup({ visible, noteId, onClose, onResolved }: Relation
     latest.current = { onClose, onResolved, done };
   });
 
+  // After the tick: the toast takes over (with Undo), and the popup closes.
+  // Runs once, from the timer or from a tap outside.
   const finishApplied = useCallback(() => {
     if (closeTimer.current) clearTimeout(closeTimer.current);
     closeTimer.current = null;
     const { onClose: close, onResolved: resolved, done: outcome } = latest.current;
-    resolved?.('applied', outcome?.targetId);
+    if (finished.current || !outcome) return;
+    finished.current = true;
+    eventBus.emit('minddrop:relation_done', { ...outcome.toast, undo: outcome.undo });
+    resolved?.('applied', outcome.targetId);
     close();
   }, []);
 
@@ -315,13 +323,22 @@ export function RelationPopup({ visible, noteId, onClose, onResolved }: Relation
       if (!noteId || !startBusy()) return;
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       setError(null);
+      // The cards that will go, so Recent Drops slides them out once the
+      // popup has closed rather than dropping them behind it
+      const leaving = leavingCardIds(noteId, picked);
+      if (leaving.length)
+        eventBus.emit('minddrop:cards_leaving', { ids: leaving, delayMs: CONFIRM_MS });
       try {
         const outcome = await applyDropRelation(noteId, picked);
-        if (!mounted.current) return;
+        latest.current = { ...latest.current, done: outcome };
+        if (!mounted.current) {
+          finishApplied();
+          return;
+        }
         setDone(outcome);
-        setUndoOpen(true);
         setView('done');
       } catch (err) {
+        if (leaving.length) eventBus.emit('minddrop:cards_stay', { ids: leaving });
         if (mounted.current) {
           setError(err instanceof Error ? err.message : 'That change did not go through.');
         }
@@ -329,33 +346,17 @@ export function RelationPopup({ visible, noteId, onClose, onResolved }: Relation
         endBusy();
       }
     },
-    [noteId],
+    [noteId, finishApplied],
   );
 
-  // After a yes the popup closes itself once the Undo window has passed
+  // After a yes the tick shows briefly, then the toast takes over
   useEffect(() => {
     if (view !== 'done' || !done) return;
-    closeTimer.current = setTimeout(() => finishApplied(), UNDO_WINDOW_MS);
+    closeTimer.current = setTimeout(() => finishApplied(), CONFIRM_MS);
     return () => {
       if (closeTimer.current) clearTimeout(closeTimer.current);
     };
   }, [view, done, finishApplied]);
-
-  const undo = useCallback(async () => {
-    if (!done || !startBusy()) return;
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-    try {
-      await done.undo();
-      if (!mounted.current) return;
-      setDone(null);
-      setUndoOpen(false);
-      setView(rel?.kind === 'choose' ? 'choose' : 'ask');
-    } catch (err) {
-      if (mounted.current) setError(err instanceof Error ? err.message : 'Could not undo that.');
-    } finally {
-      endBusy();
-    }
-  }, [done, rel]);
 
   const notThatOne = useCallback(() => {
     if (otherChoices.length) {
@@ -406,24 +407,7 @@ export function RelationPopup({ visible, noteId, onClose, onResolved }: Relation
     content = (
       <View style={styles.doneWrap} testID="relation-done">
         <CheckCircle size={40} color="#4A7C59" />
-        <Text style={styles.doneText}>{done.summary}</Text>
-        {undoOpen ? (
-          <Pressable
-            testID="relation-undo"
-            accessibilityRole="button"
-            onPress={undo}
-            disabled={busy}
-            style={({ pressed }) => [styles.linkButton, pressed && styles.pressed]}
-          >
-            <Text style={styles.undoText}>Undo</Text>
-          </Pressable>
-        ) : null}
-        <Pressable
-          onPress={finishApplied}
-          style={({ pressed }) => [styles.linkButton, pressed && styles.pressed]}
-        >
-          <Text style={styles.skipText}>Close</Text>
-        </Pressable>
+        <Text style={styles.doneText}>{done.confirm}</Text>
       </View>
     );
   } else if (view === 'choose') {
@@ -676,12 +660,6 @@ const styles = StyleSheet.create({
   hint: { fontSize: 12.5, color: '#8A8F8A', textAlign: 'center' },
   linkButton: { paddingVertical: 6, alignSelf: 'center' },
   skipText: { fontSize: 14, color: '#8A8F8A', textAlign: 'center', fontFamily: 'Inter-Regular' },
-  undoText: {
-    fontSize: 15,
-    color: lightTokens.colors.mossGreen,
-    fontWeight: '600',
-    textDecorationLine: 'underline',
-  },
   doneWrap: { alignItems: 'center', gap: 10, paddingVertical: 8 },
   doneText: {
     fontSize: 16,

@@ -4,8 +4,9 @@
  */
 import React from 'react';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
-import { RelationPopup } from '../RelationPopup';
+import { RelationPopup, CONFIRM_MS } from '../RelationPopup';
 import { applyDropRelation, keepDropAsNew } from '../../../lib/minddrop/relationActions';
+import { eventBus } from '../../../lib/events/EventBus';
 
 jest.mock('expo-haptics', () => ({
   impactAsync: jest.fn(),
@@ -31,6 +32,7 @@ jest.mock('../../../lib/minddrop/relationActions', () => ({
   keepDropAsNew: jest.fn(),
   currentEntity: (e: any) => ({ entity: e, gone: null }),
   changeNow: (rel: any) => rel.change ?? null,
+  leavingCardIds: (noteId: string) => [noteId, 't1'],
 }));
 
 const todo = {
@@ -92,22 +94,51 @@ describe('RelationPopup', () => {
     expect(getByText('Skip for now')).toBeTruthy();
   });
 
-  it('applies on yes and offers Undo', async () => {
+  it('applies on yes, ticks briefly, then hands over to the toast and closes', async () => {
     held(done);
     const undo = jest.fn(async () => {});
+    const toast = {
+      icon: 'done',
+      title: 'Marked “Arrange a Pet Sitter for Bella” done',
+      detail: 'Drop archived',
+    };
     (applyDropRelation as jest.Mock).mockResolvedValue({
       summary: 'Arrange a Pet Sitter for Bella is done.',
+      confirm: 'Done',
+      toast,
+      targetId: 't1',
       undo,
     });
-    const { findByText, getByTestId } = render(
-      <RelationPopup visible noteId="note-1" onClose={jest.fn()} />,
+    const leaving = jest.fn();
+    const toasts = jest.fn();
+    const offLeaving = eventBus.on('minddrop:cards_leaving', leaving);
+    const offToast = eventBus.on('minddrop:relation_done', toasts);
+    const onClose = jest.fn();
+    const onResolved = jest.fn();
+    const { findByText } = render(
+      <RelationPopup visible noteId="note-1" onClose={onClose} onResolved={onResolved} />,
     );
     fireEvent.press(await findByText('Yes, mark it done'));
-    await findByText('Arrange a Pet Sitter for Bella is done.');
+    expect(leaving).toHaveBeenCalledWith({ ids: ['note-1', 't1'], delayMs: CONFIRM_MS });
+    await findByText('Done');
     expect(applyDropRelation).toHaveBeenCalledWith('note-1', undefined);
-    fireEvent.press(getByTestId('relation-undo'));
-    await waitFor(() => expect(undo).toHaveBeenCalled());
-    await findByText('Mark this one done?');
+    await waitFor(() => expect(onClose).toHaveBeenCalled(), { timeout: CONFIRM_MS + 1000 });
+    expect(toasts).toHaveBeenCalledWith({ ...toast, undo });
+    expect(onResolved).toHaveBeenCalledWith('applied', 't1');
+    offLeaving();
+    offToast();
+  });
+
+  it('keeps the cards when the change did not go through', async () => {
+    held(done);
+    (applyDropRelation as jest.Mock).mockRejectedValue(new Error('That one is already done.'));
+    const stay = jest.fn();
+    const off = eventBus.on('minddrop:cards_stay', stay);
+    const { findByText } = render(<RelationPopup visible noteId="note-1" onClose={jest.fn()} />);
+    fireEvent.press(await findByText('Yes, mark it done'));
+    await findByText('That one is already done.');
+    expect(stay).toHaveBeenCalledWith({ ids: ['note-1', 't1'] });
+    off();
   });
 
   it('offers the other items after Not that one', async () => {

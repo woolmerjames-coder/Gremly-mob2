@@ -14,7 +14,7 @@
  * Nothing here runs without a tap except the fetch and the hold.
  */
 import { useGremlyStore } from '../store/useGremlyStore';
-import { applyEntityChange } from '../chat/entityCards';
+import { applyEntityChange, formatDay, formatTime } from '../chat/entityCards';
 import { getSessionToken } from '../cortex/getSessionToken';
 import { dateService } from '../date/DateService';
 import { env, getEnv } from '../env';
@@ -226,13 +226,117 @@ export function currentEntity(e: RelationEntity): {
   };
 }
 
+/** Which icon the toast shows, by what happened. */
+export type RelationToastIcon =
+  | 'moved'
+  | 'renamed'
+  | 'repeat'
+  | 'added'
+  | 'done'
+  | 'logged'
+  | 'kept'
+  | 'removed';
+
+/** The toast after a yes: what happened to the item, and to the drop. */
+export interface RelationToastWords {
+  icon: RelationToastIcon;
+  title: string;
+  detail: string | null;
+}
+
 export interface RelationOutcome {
   /** plain words for the closing line */
   summary: string;
+  /** one or two words for the moment of confirmation in the popup */
+  confirm: string;
+  /** the toast shown once the popup has closed */
+  toast: RelationToastWords;
   /** the item that was changed (Sweep drops any earlier decision on it) */
   targetId: string;
   /** put everything back, and the question back on the drop */
   undo: () => Promise<void>;
+}
+
+const named = (title: string, n = 34) =>
+  `“${title.length > n ? `${title.slice(0, n - 1).trimEnd()}…` : title}”`;
+
+/** "today" and "tomorrow" read as words in a sentence; other days stay as they are. */
+const dayWords = (day: string) => {
+  const d = formatDay(day);
+  return d === 'Today' || d === 'Tomorrow' ? d.toLowerCase() : d;
+};
+
+/** What the confirmation and the toast say, by what happened. */
+export function outcomeWords(
+  rel: HeldRelation,
+  entity: RelationEntity,
+  change: RelationChange | null,
+  extraAdded: boolean,
+  keptDrop: boolean,
+): { confirm: string; toast: RelationToastWords } {
+  const t = named(entity.title);
+  const detail = keptDrop ? 'Your journal entry stays' : 'Drop archived';
+  if (rel.intent === 'same') {
+    return {
+      confirm: 'Kept one',
+      toast: {
+        icon: 'kept',
+        title: extraAdded ? `Kept ${t}, with the new detail` : `Kept ${t}`,
+        detail,
+      },
+    };
+  }
+  if (rel.intent === 'remove') {
+    return { confirm: 'Removed', toast: { icon: 'removed', title: `Removed ${t}`, detail } };
+  }
+  switch (change?.field) {
+    case 'due_day': {
+      const time = change.time_to ?? entity.due_time ?? null;
+      const when = [dayWords(change.to), time ? formatTime(time) : ''].filter(Boolean).join(', ');
+      return { confirm: 'Moved', toast: { icon: 'moved', title: `Moved ${t} to ${when}`, detail } };
+    }
+    case 'due_time':
+      return {
+        confirm: 'Moved',
+        toast: { icon: 'moved', title: `Moved ${t} to ${formatTime(change.to)}`, detail },
+      };
+    case 'name':
+      return {
+        confirm: 'Renamed',
+        toast: { icon: 'renamed', title: `Renamed to ${named(change.to)}`, detail },
+      };
+    case 'frequency':
+      return {
+        confirm: 'Updated',
+        toast: { icon: 'repeat', title: `${t} is now ${change.to}`, detail },
+      };
+    case 'body_add':
+      return { confirm: 'Added', toast: { icon: 'added', title: `Added to ${t}`, detail } };
+    case 'completed':
+      return { confirm: 'Done', toast: { icon: 'done', title: `Marked ${t} done`, detail } };
+    case 'logged':
+      return {
+        confirm: 'Logged',
+        toast: { icon: 'logged', title: `Logged ${t} for ${dayWords(change.to)}`, detail },
+      };
+    default:
+      return { confirm: 'Done', toast: { icon: 'done', title: `Updated ${t}`, detail } };
+  }
+}
+
+/**
+ * The cards that leave the list after a yes, known before it is applied so
+ * the list can let them slide away rather than vanish: the drop (unless it is
+ * a journal entry that stays), and the item when it was ticked off or removed.
+ */
+export function leavingCardIds(noteId: string, picked?: RelationEntity): string[] {
+  const held = heldNote(noteId);
+  if (!held) return [];
+  const { note, rel } = held;
+  const ids = keepsDropAfterYes(rel) ? [] : [note.id];
+  const target = picked ?? (rel.kind === 'choose' ? null : rel.entity);
+  if (target && (rel.intent === 'remove' || rel.intent === 'complete')) ids.push(target.id);
+  return ids;
 }
 
 async function removeItem(e: RelationEntity): Promise<() => Promise<void>> {
@@ -292,6 +396,8 @@ async function applyOnce(noteId: string, picked?: RelationEntity): Promise<Relat
 
   let summary: string;
   let revert: () => Promise<void>;
+  let madeChange: RelationChange | null = null;
+  let extraAdded = false;
 
   if (rel.intent === 'same') {
     const extra = rel.kind === 'same' ? rel.extra : rel.kind === 'choose' ? rel.value : null;
@@ -299,6 +405,7 @@ async function applyOnce(noteId: string, picked?: RelationEntity): Promise<Relat
       const applied = await applyEntityChange(entity, { field: 'body_add', from: null, to: extra });
       summary = `Kept ${entity.title}, with the new detail added.`;
       revert = applied.revert;
+      extraAdded = true;
     } else {
       summary = `Kept ${entity.title}.`;
       revert = async () => {};
@@ -318,6 +425,7 @@ async function applyOnce(noteId: string, picked?: RelationEntity): Promise<Relat
     const applied = await applyEntityChange(entity, change);
     summary = applied.summary;
     revert = applied.revert;
+    madeChange = change;
     // a new day that came with a new time: the time moves too
     if (change.field === 'due_day' && change.time_to) {
       try {
@@ -357,6 +465,7 @@ async function applyOnce(noteId: string, picked?: RelationEntity): Promise<Relat
 
   return {
     summary,
+    ...outcomeWords(rel, entity, madeChange, extraAdded, keepDrop),
     targetId: entity.id,
     undo: async () => {
       await revert();

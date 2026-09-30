@@ -12,18 +12,19 @@ Design: the "drops about things you already have" canvas (September 2026), appro
 4. **The card** (`app/screens/RecentDrops.tsx`) shows the chip of what the drop would have been and one line: "Looks like one you already have", "Mark ... done?", "Log it for ...?", "Add this to ...?", "Remove ...?", "Is this about ...?". A tap opens the popup.
 5. **The popup** (`components/minddrop/RelationPopup.tsx`) shows the drop, the question and the item the way the chat's entity card does, with the change laid out as now and after:
 
-   | Relation | Question | Buttons |
-   |---|---|---|
-   | Same thing | Same as this one? (with how long ago the first was added) | Keep just one / Keep both |
-   | Change | Is this the one? | Yes, move it (or change, rename) / Not that one |
-   | Add to | Add this to your note? | Add to note / Keep separate |
-   | Done | Mark this one done? | Yes, mark it done / Not that one |
-   | Did a habit | Log this for your habit? | Yes, log it / Not that one |
-   | Cancelled | Remove this from your list? | Yes, remove it / Keep it |
-   | Two fit equally | Which one did you mean? | the items / None of these, keep it as new |
+   | Relation        | Question                                                  | Buttons                                         |
+   | --------------- | --------------------------------------------------------- | ----------------------------------------------- |
+   | Same thing      | Same as this one? (with how long ago the first was added) | Keep just one / Keep both                       |
+   | Change          | Is this the one?                                          | Yes, move it (or change, rename) / Not that one |
+   | Add to          | Add this to your note?                                    | Add to note / Keep separate                     |
+   | Done            | Mark this one done?                                       | Yes, mark it done / Not that one                |
+   | Did a habit     | Log this for your habit?                                  | Yes, log it / Not that one                      |
+   | Cancelled       | Remove this from your list?                               | Yes, remove it / Keep it                        |
+   | Two fit equally | Which one did you mean?                                   | the items / None of these, keep it as new       |
 
    Every view has "Skip for now". "Not that one" lists the other items the model looked at that could take the change, then "None of these".
-6. **After a yes** (`lib/minddrop/relationActions.ts`), the change goes through the chat card's own `applyEntityChange` (`lib/chat/entityCards.ts`), so sync, rollback and Undo behave the same as in chat. "Keep just one" keeps the first and adds anything new from the drop to it. The drop itself was only the ask and is cleared, except a journal entry, which stays as their entry. The closing line has an Undo for 6 seconds, which puts the item back and the question back on the drop.
+
+6. **After a yes** (`lib/minddrop/relationActions.ts`), the change goes through the chat card's own `applyEntityChange` (`lib/chat/entityCards.ts`), so sync, rollback and Undo behave the same as in chat. "Keep just one" keeps the first and adds anything new from the drop to it. The drop itself was only the ask and is archived, except a journal entry, which stays as their entry. The popup shows a tick for under a second and closes. Then the cards that went (the drop, and the item when it was ticked off or removed) slide out of Recent Drops to the right, and a small toast at the top (`components/minddrop/RelationToast.tsx`) says what happened, with an icon for it, "Drop archived", Undo and a close button, for 5 seconds. Undo puts the item back, brings the drop's card back and puts the question back on it. An item whose day or time changed updates on its card straight away.
 7. **Keep both, Keep separate, Keep it, None of these and Skip for now** all file the drop exactly as it was classified and leave the existing item alone. A todo or habit drop becomes that item through the same step a clarification answer uses. A drop that was unclear before it was held gets its question back.
 8. **Sweep.** A held drop is always a Sweep candidate, whatever its kind or day, like a split (`selectSweepCandidatesUnified`). The same popup shows on its card. A yes moves to the next card; keeping it refreshes the card; skipping files it as classified. Closing the popup without a tap leaves the question on the card.
 

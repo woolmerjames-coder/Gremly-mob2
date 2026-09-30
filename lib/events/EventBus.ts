@@ -94,6 +94,17 @@ export type EventMap = {
   'notification:open_item': { itemId: string; itemType: string };
   // Mind Drop clarification answer "Chat with Gremly": open Ask Gremly and send the drop
   'minddrop:open_chat': { text: string };
+  // Mind Drop "is this one you already have?" after a yes (lib/minddrop/relationActions.ts):
+  // the cards that will slide out of Recent Drops, a change of plan when it did not go
+  // through, and the toast that says what happened, with its Undo
+  'minddrop:cards_leaving': { ids: string[]; delayMs: number };
+  'minddrop:cards_stay': { ids: string[] };
+  'minddrop:relation_done': {
+    icon: 'moved' | 'renamed' | 'repeat' | 'added' | 'done' | 'logged' | 'kept' | 'removed';
+    title: string;
+    detail: string | null;
+    undo: () => Promise<void>;
+  };
   'notification:done_action': { entityId: string; entityType: string };
   'notification:snooze': { entityId: string; entityType: string; seconds: number; label: string };
   'notification:snooze_before_due': {

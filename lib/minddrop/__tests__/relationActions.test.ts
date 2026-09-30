@@ -8,6 +8,8 @@ import {
   fetchDropRelation,
   holdDropForRelation,
   keepDropAsNew,
+  leavingCardIds,
+  outcomeWords,
   RELATION_KEEP_OPTION,
   shouldRelate,
 } from '../relationActions';
@@ -19,7 +21,11 @@ const mockState: any = {};
 jest.mock('../../store/useGremlyStore', () => ({
   useGremlyStore: { getState: () => mockState },
 }));
-jest.mock('../../chat/entityCards', () => ({ applyEntityChange: jest.fn() }));
+jest.mock('../../chat/entityCards', () => ({
+  applyEntityChange: jest.fn(),
+  formatDay: (d: string) => (d === '2026-09-30' ? 'Today' : 'Thu 1 Oct'),
+  formatTime: (t: string) => (t === '16:00' ? '4:00pm' : t),
+}));
 jest.mock('../../cortex/getSessionToken', () => ({
   getSessionToken: () => Promise.resolve('tok'),
 }));
@@ -337,6 +343,91 @@ describe('applyDropRelation', () => {
     await expect(applyDropRelation('note-1')).rejects.toThrow('already done');
     expect(applyEntityChange).not.toHaveBeenCalled();
     expect(mockState.archiveNote).not.toHaveBeenCalled();
+  });
+});
+
+describe('what the toast says', () => {
+  const held = (rel: DropRelation) => heldNote(rel).views.relation as HeldRelation;
+
+  it('says what happened to the item and to the drop, in plain words', () => {
+    const moved = held({
+      ...complete,
+      intent: 'edit',
+      change: { field: 'due_day', from: '2026-10-02', to: '2026-10-01', time_to: '16:00' },
+    } as DropRelation);
+    const w = outcomeWords(
+      moved,
+      todo,
+      { field: 'due_day', from: '2026-10-02', to: '2026-10-01', time_to: '16:00' },
+      false,
+      false,
+    );
+    expect(w.confirm).toBe('Moved');
+    expect(w.toast).toEqual({
+      icon: 'moved',
+      title: 'Moved “Send Q3 deck to Rachel” to Thu 1 Oct, 4:00pm',
+      detail: 'Drop archived',
+    });
+
+    expect(
+      outcomeWords(
+        held(complete),
+        todo,
+        { field: 'completed', from: null, to: 'done' },
+        false,
+        false,
+      ).toast.title,
+    ).toBe('Marked “Send Q3 deck to Rachel” done');
+    const same = held({
+      kind: 'same',
+      intent: 'same',
+      entity: todo,
+      others: [],
+      confidence: 95,
+      extra: null,
+    });
+    expect(outcomeWords(same, todo, null, false, false)).toMatchObject({
+      confirm: 'Kept one',
+      toast: { icon: 'kept', title: 'Kept “Send Q3 deck to Rachel”' },
+    });
+    const habit: RelationEntity = { id: 'h1', type: 'habit', title: 'Walk Bella' };
+    expect(
+      outcomeWords(
+        held(complete),
+        habit,
+        { field: 'logged', from: null, to: '2026-09-30' },
+        false,
+        true,
+      ).toast,
+    ).toEqual({
+      icon: 'logged',
+      title: 'Logged “Walk Bella” for today',
+      detail: 'Your journal entry stays',
+    });
+  });
+
+  it('knows which cards leave before the change is made', () => {
+    resetStore([heldNote(complete)]);
+    expect(leavingCardIds('note-1')).toEqual(['note-1', 't1']);
+    const same: DropRelation = {
+      kind: 'same',
+      intent: 'same',
+      entity: todo,
+      others: [],
+      confidence: 95,
+      extra: null,
+    };
+    resetStore([heldNote(same)]);
+    expect(leavingCardIds('note-1')).toEqual(['note-1']);
+    resetStore([heldNote(complete, { bucket: 'log', subtype: 'journal' })]);
+    expect(leavingCardIds('note-1')).toEqual(['t1']);
+  });
+
+  it('gives the toast its words after a yes', async () => {
+    resetStore([heldNote(complete)]);
+    const outcome = await applyDropRelation('note-1');
+    expect(outcome.confirm).toBe('Done');
+    expect(outcome.toast).toMatchObject({ icon: 'done', detail: 'Drop archived' });
   });
 });
 
