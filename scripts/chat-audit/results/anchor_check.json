@@ -21,26 +21,27 @@
           "gone": false
         },
         "known": [
-          "none of their items, as far as the app can tell"
+          "todo \"Take Bella for a walk\", due today, Tuesday 29 September (the item this chat was opened about)"
         ],
-        "reply": "It sounds like you're feeling a bit stuck behind the friction of getting out the door. It's tough when a simple task starts feeling like a **heavy obligation** instead of just a walk.\n\nSince you're juggling the client job and building Gremly, your brain is probably looking for any excuse to stay in work mode. If you're ready to break the cycle, maybe try a **low-stakes version** today.\n\nCould you just commit to putting on your shoes and taking Bella to the end of the block? Often the hardest part is the transition, and once you're outside in the San Francisco air, the rest of the walk usually takes care of itself.",
+        "reply": "It feels like a heavy weight when it's just one more thing on the pile, especially with the client work and building Gremly. That **mental friction** usually comes from the transition, not the walk itself.\n\nSince you're in SF, maybe the hill climbs or the fog make it feel like a bigger production than it needs to be. If you're feeling stuck, try the **five minute rule** where you tell yourself you'll just go to the end of the block and come back if you're still not feeling it.\n\nDoes it feel like a chore because of your workload today, or is it just the energy of getting out the door?",
         "pill": {
-          "lateCard": null,
-          "lateCardFull": null,
+          "skipped": true,
           "items": [],
           "rawNew": [],
+          "lateCard": null,
+          "lateCardFull": null,
           "ungrounded": 0,
           "gated": true
         },
-        "ms": 4816,
-        "cardMs": 1012,
+        "ms": 3180,
+        "cardMs": 1251,
         "raw": {
           "considered": [
             "5b1e7a40"
           ],
           "refers": true,
           "entity_id": "5b1e7a40",
-          "intent": "none",
+          "intent": "mention",
           "change": null,
           "about": [
             "5b1e7a40"
@@ -86,7 +87,7 @@
           "gone": false
         },
         "known": [],
-        "reply": "Does Saturday morning work better for you and Bella?",
+        "reply": "Does Saturday morning work better for getting Bella out?",
         "pill": {
           "lateCard": null,
           "lateCardFull": null,
@@ -95,8 +96,8 @@
           "ungrounded": 0,
           "gated": false
         },
-        "ms": 3697,
-        "cardMs": 1022,
+        "ms": 4593,
+        "cardMs": 894,
         "raw": {
           "considered": [
             "5b1e7a40"
@@ -152,7 +153,7 @@
           "gone": false
         },
         "known": [],
-        "reply": "Did Bella enjoy the San Francisco air, and should we mark this one as finished?",
+        "reply": "Did Bella enjoy the fresh air as much as you did?",
         "pill": {
           "lateCard": null,
           "lateCardFull": null,
@@ -161,8 +162,8 @@
           "ungrounded": 0,
           "gated": false
         },
-        "ms": 3043,
-        "cardMs": 1188,
+        "ms": 3673,
+        "cardMs": 1238,
         "raw": {
           "considered": [
             "5b1e7a40"
@@ -174,7 +175,7 @@
           "about": [
             "5b1e7a40"
           ],
-          "confidence": 100,
+          "confidence": 95,
           "ask": false,
           "candidates": []
         },
@@ -215,13 +216,13 @@
           "gone": false
         },
         "known": [
-          "todo \"Take Bella for a walk\", due today (2026-09-29) (the item this chat was opened about)",
-          "todo \"Send Out Sage Future Deck\", due Thursday (2026-10-01)",
-          "todo \"Call Kim and Andrew\", due Friday (2026-10-02)",
-          "note \"Bella Vet Appointment\", Friday (2026-10-02)",
-          "todo \"Submit to Apple Health\", due Sunday (2026-10-04)"
+          "todo \"Take Bella for a walk\", due today, Tuesday 29 September (the item this chat was opened about)",
+          "todo \"Send Out Sage Future Deck\", due Thursday 1 October",
+          "todo \"Call Kim and Andrew\", due Friday 2 October",
+          "note \"Bella Vet Appointment\", Friday 2 October",
+          "todo \"Submit to Apple Health\", due Sunday 4 October"
         ],
-        "reply": "That makes sense since San Francisco rain isn't much fun for Bella or you. I can move that walk to tomorrow if you'd like. You've still got that **Bella Vet Appointment** on Friday, so hopefully the weather clears up by then.",
+        "reply": "That makes sense, especially with the rain in San Francisco today. Bella probably wouldn't enjoy a soaked walk anyway, so do you want to **move this to tomorrow** instead?",
         "pill": {
           "lateCard": null,
           "lateCardFull": null,
@@ -230,8 +231,8 @@
           "ungrounded": 0,
           "gated": false
         },
-        "ms": 3827,
-        "cardMs": 1310,
+        "ms": 2864,
+        "cardMs": 1029,
         "raw": {
           "considered": [
             "5b1e7a40"
@@ -278,22 +279,24 @@
         "known": [
           "todo \"Arrange a Pet Sitter for Bella\", no day set"
         ],
-        "reply": "Finding a sitter you trust is a lot more stressful than a quick walk around the block. It's tough when you're trying to balance client work and James, especially with the added pressure of making sure Bella is happy while you're away.\n\nSince you've got **Arrange a Pet Sitter for Bella** on your list without a date yet, do you want to pick a day this week to get that sorted? Getting the search started might take some of the weight off your mind.",
+        "reply": "That uncertainty is a heavy weight to carry, especially when it involves Bella. It's stressful trying to find someone you actually trust to step into your home and handle her routine while you're focused on client work.\n\nSince you have **Arrange a Pet Sitter for Bella** on your list without a date yet, do you want to move that to today so it stays front and center while you're looking? \n\nSometimes just getting the first few messages out to potential sitters makes the rest of the week feel less like a looming deadline. Is there a specific person in SF you usually check with first?",
         "pill": {
-          "lateCard": null,
-          "lateCardFull": null,
+          "skipped": true,
           "items": [],
           "rawNew": [],
+          "lateCard": null,
+          "lateCardFull": null,
           "ungrounded": 0,
           "gated": true
         },
-        "ms": 3867,
-        "cardMs": 1022,
+        "ms": 2417,
+        "cardMs": 824,
         "raw": {
           "considered": [
             "8a9b0c5f",
             "5b1e7a40",
-            "321e5cff"
+            "321e5cff",
+            "2d8f3cee"
           ],
           "refers": true,
           "entity_id": "8a9b0c5f",
@@ -302,7 +305,7 @@
           "about": [
             "8a9b0c5f"
           ],
-          "confidence": 95,
+          "confidence": 90,
           "ask": false,
           "candidates": []
         },
@@ -332,7 +335,7 @@
           "gone": false
         },
         "known": [],
-        "reply": "Does Friday work for getting Bella's sitter situation sorted?",
+        "reply": "Would you like to move that to Friday?",
         "pill": {
           "lateCard": null,
           "lateCardFull": null,
@@ -341,8 +344,8 @@
           "ungrounded": 0,
           "gated": false
         },
-        "ms": 8907,
-        "cardMs": 6571,
+        "ms": 3702,
+        "cardMs": 984,
         "raw": {
           "considered": [
             "8a9b0c5f",
@@ -387,13 +390,13 @@
         },
         "known": [
           "none of their items, as far as the app can tell",
-          "todo \"Take Bella for a walk\", due today (2026-09-29)",
-          "todo \"Send Out Sage Future Deck\", due Thursday (2026-10-01)",
-          "todo \"Call Kim and Andrew\", due Friday (2026-10-02)",
-          "note \"Bella Vet Appointment\", Friday (2026-10-02)",
-          "todo \"Submit to Apple Health\", due Sunday (2026-10-04)"
+          "todo \"Take Bella for a walk\", due today, Tuesday 29 September",
+          "todo \"Send Out Sage Future Deck\", due Thursday 1 October",
+          "todo \"Call Kim and Andrew\", due Friday 2 October",
+          "note \"Bella Vet Appointment\", Friday 2 October",
+          "todo \"Submit to Apple Health\", due Sunday 4 October"
         ],
-        "reply": "You should probably get that on the calendar before your **Sage Future Deck** deadline on Thursday. Do you want to try for a spot in SF tomorrow or wait until the weekend?",
+        "reply": "You should probably get that on the calendar before your **Sage Future Deck** deadline on Thursday. Do you want to aim for a specific day in San Francisco?",
         "pill": {
           "lateCard": null,
           "lateCardFull": null,
@@ -415,8 +418,8 @@
           "ungrounded": 0,
           "gated": false
         },
-        "ms": 5123,
-        "cardMs": 1436,
+        "ms": 4553,
+        "cardMs": 848,
         "raw": {
           "considered": [
             "c2a314ba"
@@ -457,13 +460,13 @@
         },
         "known": [
           "habit \"Run 3 Times A Week\", weekly, nothing logged this week (target 1) (the item this chat was opened about)",
-          "todo \"Take Bella for a walk\", due today (2026-09-29)",
-          "todo \"Send Out Sage Future Deck\", due Thursday (2026-10-01)",
-          "todo \"Call Kim and Andrew\", due Friday (2026-10-02)",
-          "note \"Bella Vet Appointment\", Friday (2026-10-02)",
-          "todo \"Submit to Apple Health\", due Sunday (2026-10-04)"
+          "todo \"Take Bella for a walk\", due today, Tuesday 29 September",
+          "todo \"Send Out Sage Future Deck\", due Thursday 1 October",
+          "todo \"Call Kim and Andrew\", due Friday 2 October",
+          "note \"Bella Vet Appointment\", Friday 2 October",
+          "todo \"Submit to Apple Health\", due Sunday 4 October"
         ],
-        "reply": "One run is better than zero, especially with the Sage Future deck and Bella's vet visit coming up. San Francisco hills are no joke when you're **balancing client work** too. Do you want to try for another one tomorrow, or just reset for next week?",
+        "reply": "One run is still a win, especially with a client services job and the Sage Future deck due Thursday. San Francisco hills are no joke for a quick session with Bella if you're short on time. Do you want to **log that one run** for this week?",
         "pill": {
           "lateCard": null,
           "lateCardFull": null,
@@ -472,8 +475,8 @@
           "ungrounded": 0,
           "gated": false
         },
-        "ms": 3471,
-        "cardMs": 1356,
+        "ms": 3458,
+        "cardMs": 1458,
         "raw": {
           "considered": [
             "f86ceed9"
@@ -516,13 +519,13 @@
         },
         "known": [
           "habit \"Run 3 Times A Week\", weekly, nothing logged this week (target 1) (the item this chat was opened about)",
-          "todo \"Take Bella for a walk\", due today (2026-09-29)",
-          "todo \"Send Out Sage Future Deck\", due Thursday (2026-10-01)",
-          "todo \"Call Kim and Andrew\", due Friday (2026-10-02)",
-          "note \"Bella Vet Appointment\", Friday (2026-10-02)",
-          "todo \"Submit to Apple Health\", due Sunday (2026-10-04)"
+          "todo \"Take Bella for a walk\", due today, Tuesday 29 September",
+          "todo \"Send Out Sage Future Deck\", due Thursday 1 October",
+          "todo \"Call Kim and Andrew\", due Friday 2 October",
+          "note \"Bella Vet Appointment\", Friday 2 October",
+          "todo \"Submit to Apple Health\", due Sunday 4 October"
         ],
-        "reply": "That counts. Since you're already out with Bella today, it's a good way to clear your head before diving back into the **Sage Future deck**. Should we log that run for yesterday?",
+        "reply": "Getting it done on a Tuesday morning is a solid start to the week. Since you have that Sage Future deck due Thursday, it's probably good to have those **endorphins** in the bank now. Should I log that run for today?",
         "pill": {
           "lateCard": null,
           "lateCardFull": null,
@@ -531,8 +534,8 @@
           "ungrounded": 0,
           "gated": false
         },
-        "ms": 3594,
-        "cardMs": 1283,
+        "ms": 4152,
+        "cardMs": 1818,
         "raw": {
           "considered": [
             "f86ceed9"
@@ -577,13 +580,13 @@
           "gone": false
         },
         "known": [
-          "note \"Bella Vet Appointment\", Friday (2026-10-02) (the item this chat was opened about)",
-          "todo \"Take Bella for a walk\", due today (2026-09-29)",
-          "todo \"Send Out Sage Future Deck\", due Thursday (2026-10-01)",
-          "todo \"Call Kim and Andrew\", due Friday (2026-10-02)",
-          "todo \"Submit to Apple Health\", due Sunday (2026-10-04)"
+          "note \"Bella Vet Appointment\", Friday 2 October (the item this chat was opened about)",
+          "todo \"Take Bella for a walk\", due today, Tuesday 29 September",
+          "todo \"Send Out Sage Future Deck\", due Thursday 1 October",
+          "todo \"Call Kim and Andrew\", due Friday 2 October",
+          "todo \"Submit to Apple Health\", due Sunday 4 October"
         ],
-        "reply": "Since Bella is getting older, it's a good time to ask about her **joint health** and mobility. Mention if you've noticed her slowing down on your daily walks or having trouble with stairs.\n\nYou should also check if her **vaccinations** are current for the SF area. Ask if there are specific local risks like leptospirosis or heartworm you need to be more aggressive about right now.\n\nLastly, have them look at her **dental health**. Small changes in how she eats or smells can signal issues that are easier to fix early.",
+        "reply": "Since Bella is getting older, it's worth asking about her **joint health** and mobility. San Francisco hills can be tough on a dog's hips, so check if her current exercise level is still right for her.\n\nYou should also bring up her **dental health** and whether she's due for a professional cleaning. It's one of those things that's easy to overlook until it becomes a bigger issue.\n\nLastly, ask about her **weight and diet**. Even a couple of extra pounds can change how much energy she has for those daily walks you have on your list.",
         "pill": {
           "lateCard": null,
           "lateCardFull": null,
@@ -592,8 +595,8 @@
           "ungrounded": 0,
           "gated": false
         },
-        "ms": 4299,
-        "cardMs": 1035,
+        "ms": 3727,
+        "cardMs": 922,
         "raw": {
           "considered": [
             "2d8f3cee"
@@ -635,7 +638,7 @@
           "gone": false
         },
         "known": [],
-        "reply": "Does 4pm work better for your schedule today?",
+        "reply": "Does 4pm on Friday work better for Bella's appointment?",
         "pill": {
           "lateCard": null,
           "lateCardFull": null,
@@ -644,8 +647,8 @@
           "ungrounded": 0,
           "gated": false
         },
-        "ms": 3276,
-        "cardMs": 1261,
+        "ms": 2562,
+        "cardMs": 1033,
         "raw": {
           "considered": [
             "2d8f3cee"
@@ -692,39 +695,18 @@
         "known": [
           "note \"Feeling Overwhelmed with Work and Life\" (the item this chat was opened about)"
         ],
-        "reply": "That makes sense, especially since you're balancing those client demands with building Gremly. It's a lot to hold at once. Was there a specific project or request that pushed things over the edge today?",
+        "reply": "That client work can be a total drain, especially when you're also trying to build Gremly. It sounds like you're stuck in that **constant context switching** between their demands and your own vision. Does it feel like they're taking up too much mental space, or is it just the sheer volume of tasks?",
         "pill": {
-          "lateCard": {
-            "title": "Feeling Overwhelmed with Work and Life",
-            "field": "body_add",
-            "to": "I think it was mostly the client stuff that got to me"
-          },
-          "lateCardFull": {
-            "kind": "edit",
-            "entity": {
-              "id": "cf50a43a-d301-4adf-bfe0-db7e982c48b3",
-              "type": "note",
-              "title": "Feeling Overwhelmed with Work and Life",
-              "due_day": null,
-              "due_time": null,
-              "frequency": null,
-              "space_id": null
-            },
-            "change": {
-              "field": "body_add",
-              "from": null,
-              "to": "I think it was mostly the client stuff that got to me"
-            },
-            "confidence": 90,
-            "late": true
-          },
+          "skipped": true,
           "items": [],
           "rawNew": [],
+          "lateCard": null,
+          "lateCardFull": null,
           "ungrounded": 0,
           "gated": true
         },
-        "ms": 3344,
-        "cardMs": 884,
+        "ms": 3075,
+        "cardMs": 1948,
         "raw": {
           "considered": [
             "cf50a43a"
