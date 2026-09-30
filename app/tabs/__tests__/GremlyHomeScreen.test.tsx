@@ -23,6 +23,7 @@ jest.mock('react-native-safe-area-context', () => ({
 // The Drop page hands a box to the home and sends through it in Chat, like
 // CatchAllNotepad does; the Chat page registers how to send, like AskGremlyScreen
 const mockChatSend = jest.fn();
+const mockFocus = jest.fn();
 let mockChatPrefill: string | null = null;
 jest.mock('../../screens/CatchAllNotepad', () => {
   const React = require('react');
@@ -45,6 +46,10 @@ jest.mock('../../screens/CatchAllNotepad', () => {
     React.useEffect(() => {
       dock?.registerDraftSetter(setDraft);
       return () => dock?.registerDraftSetter(null);
+    }, [dock]);
+    React.useEffect(() => {
+      dock?.registerFocus(mockFocus);
+      return () => dock?.registerFocus(null);
     }, [dock]);
     return <T testID="drop-page">{`drop embedded=${props.embedded} active=${props.active}`}</T>;
   };
@@ -87,6 +92,47 @@ beforeEach(() => {
     markHomeChatOpened: mockMarkHomeChatOpened,
     markHomeSwipeHintSeen: mockMarkHomeSwipeHintSeen,
   };
+});
+
+describe('Talk it through and the first week line', () => {
+  afterEach(() => jest.useRealTimers());
+
+  it('opens the keyboard once Chat has slid over, when opened from Talk it through', () => {
+    jest.useFakeTimers();
+    mockParams = {
+      mode: 'chat',
+      talkKey: 'talk-1',
+      talkAbout: { id: 't1', type: 'todo', title: 'Walk Bella', label: 'To-do' },
+    };
+    render(<GremlyHomeScreen />);
+    expect(mockFocus).not.toHaveBeenCalled();
+    act(() => {
+      jest.advanceTimersByTime(500);
+    });
+    expect(mockFocus).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not open the keyboard when Chat opens for another reason', () => {
+    jest.useFakeTimers();
+    mockParams = { mode: 'chat', prefillPrompt: 'Help me plan', autoSendKey: 'k1' };
+    render(<GremlyHomeScreen />);
+    act(() => {
+      jest.advanceTimersByTime(1000);
+    });
+    expect(mockFocus).not.toHaveBeenCalled();
+  });
+
+  it('says what each side is for in the first week, and not after', () => {
+    mockState.accountCreatedAt = new Date(Date.now() - 2 * 86400000).toISOString();
+    const first = render(<GremlyHomeScreen />);
+    expect(first.getByTestId('home-first-week-caption').props.accessibilityLabel).toBe(
+      'Drop anything in and Gremly sorts it',
+    );
+    first.unmount();
+    mockState.accountCreatedAt = new Date(Date.now() - 9 * 86400000).toISOString();
+    const later = render(<GremlyHomeScreen />);
+    expect(later.queryByTestId('home-first-week-caption')).toBeNull();
+  });
 });
 
 describe('GremlyHomeScreen', () => {

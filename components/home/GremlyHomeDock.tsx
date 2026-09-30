@@ -35,6 +35,10 @@ export type HomeDockApi = {
   prefillDraft: (text: string) => void;
   /** The Drop page registers how to set the box's text */
   registerDraftSetter: (setter: ((text: string) => void) | null) => void;
+  /** Opens the keyboard on the shared box (Chat opened from Talk it through) */
+  focusInput: () => void;
+  /** The Drop page registers how to focus the box */
+  registerFocus: (focus: (() => void) | null) => void;
 };
 
 export type HomeModeState = {

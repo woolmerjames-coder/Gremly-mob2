@@ -392,6 +392,8 @@ type MindDropInputProps = {
   // Voice capture
   onMicPress?: () => void;
   voiceState?: VoiceCaptureState;
+  /** Each new value opens the keyboard on the box (the Gremly home asks) */
+  focusRequest?: number;
 };
 
 const MindDropInput = React.memo<MindDropInputProps>(
@@ -427,8 +429,17 @@ const MindDropInput = React.memo<MindDropInputProps>(
     photoHintText,
     onMicPress,
     voiceState = 'idle',
+    focusRequest = 0,
   }) => {
     const inputRef = React.useRef<TextInput>(null);
+
+    // the Gremly home asks for the keyboard (Chat opened from Talk it through)
+    React.useEffect(() => {
+      if (!focusRequest) return;
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+      });
+    }, [focusRequest]);
     const [focused, setFocused] = React.useState(false);
     const hasAutoFocusedRef = React.useRef(false);
 
@@ -1098,6 +1109,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   // Inside the Gremly home: the shared input box lives under both pages, and
   // in Chat it sends to the Chat page (components/home/GremlyHomeDock.tsx)
   const homeDock = useHomeDock();
+  // each new value opens the keyboard on the shared box (Talk it through)
+  const [focusRequest, setFocusRequest] = useState(0);
   const homeMode = useHomeMode();
   const chatMode = embedded && homeMode?.mode === 'chat';
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -3221,6 +3234,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           </Pressable>
         </Animated.View>
         <MindDropInput
+          focusRequest={focusRequest}
           value={note}
           onChangeText={handleChangeText}
           placeholder={chatMode ? 'Ask Gremly anything\u2026' : dynamicPlaceholder}
@@ -3446,6 +3460,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     homeDock.registerDraftSetter(handleChangeText);
     return () => homeDock.registerDraftSetter(null);
   }, [embedded, homeDock, handleChangeText]);
+  // Lets the Gremly home open the keyboard on the box
+  useEffect(() => {
+    if (!embedded || !homeDock) return;
+    homeDock.registerFocus(() => setFocusRequest((n) => n + 1));
+    return () => homeDock.registerFocus(null);
+  }, [embedded, homeDock]);
 
   const mainUI = (
     <View style={styles.mainContainer} {...panResponder.panHandlers}>

@@ -48,12 +48,16 @@ import {
 } from '../../components/home/GremlyHomeDock';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useNeedsMindDropTutorial } from '../../lib/store/lifecycleSelectors';
+import { getDateService } from '../../lib/date/DateService';
+import { CHAT_CAPTION, DROP_CAPTION, inFirstWeek } from '../../components/home/homeCaptions';
 import type { TabParamList } from '../../navigation/TabNavigator';
 
 const LINEN = '#F9F6F1';
 const HINT_DELAY_MS = 900;
 const HINT_VISIBLE_MS = 5000;
 const NUDGE_PX = 56;
+// Talk it through: the keyboard opens once the page has slid over to Chat
+const FOCUS_AFTER_SLIDE_MS = 450;
 
 export default function GremlyHomeScreen() {
   const route = useRoute<RouteProp<TabParamList, 'Gremly'>>();
@@ -131,6 +135,14 @@ export default function GremlyHomeScreen() {
     };
   }, []);
   const chatApiRef = useRef<HomeChatApi | null>(null);
+  const focusRef = useRef<(() => void) | null>(null);
+  const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
+    },
+    [],
+  );
   const draftSetterRef = useRef<((text: string) => void) | null>(null);
   const pendingDraftRef = useRef<string | null>(null);
   const dockApi = useMemo<HomeDockApi>(
@@ -152,6 +164,10 @@ export default function GremlyHomeScreen() {
           setter(pendingDraftRef.current);
           pendingDraftRef.current = null;
         }
+      },
+      focusInput: () => focusRef.current?.(),
+      registerFocus: (focus) => {
+        focusRef.current = focus;
       },
     }),
     [setChatScrolling],
@@ -205,11 +221,27 @@ export default function GremlyHomeScreen() {
   // Another screen asked for a mode (e.g. "Chat with Gremly" on a drop)
   const requestedMode = route.params?.mode;
   const requestKey = route.params?.autoSendKey ?? route.params?.talkKey;
+  const talkKey = route.params?.talkKey;
   useEffect(() => {
     if (requestedMode !== 'drop' && requestedMode !== 'chat') return;
     goTo(requestedMode);
     navigation.setParams({ mode: undefined });
-  }, [requestedMode, requestKey, goTo, navigation]);
+    // Talk it through: the drop is attached and Gremly has asked, so the
+    // keyboard opens for the answer once the page has slid over
+    if (requestedMode === 'chat' && talkKey) {
+      if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
+      focusTimerRef.current = setTimeout(() => focusRef.current?.(), FOCUS_AFTER_SLIDE_MS);
+    }
+  }, [requestedMode, requestKey, talkKey, goTo, navigation]);
+
+  // In the first week, a line under the switch says what each side is for;
+  // it crossfades with the swipe, like the switch itself
+  const accountCreatedAt = useGremlyStore((s) => s.accountCreatedAt) as string | null | undefined;
+  const firstWeek = inFirstWeek(accountCreatedAt, getDateService().now().getTime());
+  const dropCaptionOpacity = useMemo(
+    () => progress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
+    [progress],
+  );
 
   // Keep the page in place if the screen size changes (rotation, split view)
   useEffect(() => {
@@ -309,6 +341,21 @@ export default function GremlyHomeScreen() {
                 hintVisible={hintVisible}
               />
             )}
+            {firstWeek && !switchTucked && !hintVisible ? (
+              <View
+                style={styles.captionRow}
+                testID="home-first-week-caption"
+                accessible
+                accessibilityLabel={mode === 'chat' ? CHAT_CAPTION : DROP_CAPTION}
+              >
+                <Animated.Text style={[styles.caption, { opacity: dropCaptionOpacity }]}>
+                  {DROP_CAPTION}
+                </Animated.Text>
+                <Animated.Text style={[styles.caption, styles.captionOver, { opacity: progress }]}>
+                  {CHAT_CAPTION}
+                </Animated.Text>
+              </View>
+            ) : null}
           </View>
 
           <KeyboardAvoidingView
@@ -358,6 +405,22 @@ const styles = StyleSheet.create({
   },
   headerTucked: {
     paddingBottom: 0,
+  },
+  captionRow: {
+    height: 18,
+    marginTop: 6,
+    justifyContent: 'center',
+  },
+  caption: {
+    fontFamily: 'PlusJakartaSans-Medium',
+    fontSize: 12.5,
+    color: '#4B6A50',
+    textAlign: 'center',
+  },
+  captionOver: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
   },
   body: {
     flex: 1,
