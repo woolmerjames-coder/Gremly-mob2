@@ -5,7 +5,11 @@
 import React from 'react';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import { RelationPopup, CONFIRM_MS } from '../RelationPopup';
-import { POPUP_FADE_MS, TOAST_AFTER_CARDS_MS } from '../../../lib/minddrop/popupTiming';
+import {
+  NEXT_QUESTION_CONFIRM_MS,
+  POPUP_FADE_MS,
+  TOAST_AFTER_CARDS_MS,
+} from '../../../lib/minddrop/popupTiming';
 import { applyDropRelation, keepDropAsNew } from '../../../lib/minddrop/relationActions';
 import { eventBus } from '../../../lib/events/EventBus';
 
@@ -185,6 +189,47 @@ describe('RelationPopup', () => {
     await waitFor(() => expect(onResolved).toHaveBeenCalledWith('kept'));
     expect(keepDropAsNew).toHaveBeenCalledWith('note-1');
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('after Keep both, the question the drop has of its own follows once this popup has gone', async () => {
+    held({ kind: 'same', intent: 'same', entity: todo, others: [], confidence: 95, extra: null });
+    (keepDropAsNew as jest.Mock).mockResolvedValue('clarify');
+    const order: string[] = [];
+    const onClose = jest.fn(() => order.push('popup closes'));
+    const onResolved = jest.fn(() => order.push('resolved'));
+    const onNextQuestion = jest.fn(() => order.push('next question'));
+    const { findByText, getByText } = render(
+      <RelationPopup
+        visible
+        noteId="note-1"
+        onClose={onClose}
+        onResolved={onResolved}
+        onNextQuestion={onNextQuestion}
+      />,
+    );
+    fireEvent.press(await findByText('Keep both'));
+    await findByText('Kept');
+    expect(getByText('One more quick question about it')).toBeTruthy();
+    expect(onClose).not.toHaveBeenCalled();
+    await waitFor(() => expect(onNextQuestion).toHaveBeenCalledWith('note-1'), {
+      timeout: NEXT_QUESTION_CONFIRM_MS + POPUP_FADE_MS + 1000,
+    });
+    expect(onResolved).toHaveBeenCalledWith('clarify');
+    expect(order).toEqual(['popup closes', 'resolved', 'next question']);
+  });
+
+  it('Skip for now leaves the question the drop has of its own on the card', async () => {
+    held(done);
+    (keepDropAsNew as jest.Mock).mockResolvedValue('clarify');
+    const onClose = jest.fn();
+    const onNextQuestion = jest.fn();
+    const { findByText } = render(
+      <RelationPopup visible noteId="note-1" onClose={onClose} onNextQuestion={onNextQuestion} />,
+    );
+    fireEvent.press(await findByText('Skip for now'));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, NEXT_QUESTION_CONFIRM_MS + POPUP_FADE_MS + 100));
+    expect(onNextQuestion).not.toHaveBeenCalled();
   });
 
   it('opens the item in full when it is tapped', async () => {

@@ -12,3 +12,6 @@ export const POPUP_FADE_MS = 350;
 
 /** The toast comes in a beat after the cards start to slide. */
 export const TOAST_AFTER_CARDS_MS = 150;
+
+/** The tick after keeping a drop that has another question: short, as the question follows. */
+export const NEXT_QUESTION_CONFIRM_MS = 700;

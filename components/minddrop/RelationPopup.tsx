@@ -50,7 +50,11 @@ import {
   leavingCardIds,
   type RelationOutcome,
 } from '../../lib/minddrop/relationActions';
-import { POPUP_FADE_MS, TOAST_AFTER_CARDS_MS } from '../../lib/minddrop/popupTiming';
+import {
+  NEXT_QUESTION_CONFIRM_MS,
+  POPUP_FADE_MS,
+  TOAST_AFTER_CARDS_MS,
+} from '../../lib/minddrop/popupTiming';
 
 /** How long the tick shows after a yes before the popup gets out of the way. */
 export const CONFIRM_MS = 900;
@@ -68,6 +72,8 @@ interface RelationPopupProps {
   onResolved?: (outcome: RelationResolution, targetId?: string) => void;
   /** tapping the item opens it in full; the host brings this popup back when it closes */
   onOpenItem?: (entity: RelationEntity) => void;
+  /** kept as new, and the drop has a question of its own: open it (called once this popup has gone) */
+  onNextQuestion?: (noteId: string) => void;
 }
 
 function TypeIcon({ type }: { type: RelationEntity['type'] }) {
@@ -216,6 +222,7 @@ export function RelationPopup({
   onClose,
   onResolved,
   onOpenItem,
+  onNextQuestion,
 }: RelationPopupProps) {
   const note = useGremlyStore((s) => (noteId ? s.notes.find((n) => n.id === noteId) : undefined));
   const live = relationOf(note?.views);
@@ -225,7 +232,8 @@ export function RelationPopup({
   // still show it after the drop has been cleared away.
   const [snap, setSnap] = useState<HeldRelation | null>(null);
   const [nowMs, setNowMs] = useState(0);
-  const [view, setView] = useState<'ask' | 'choose' | 'done'>('ask');
+  // kept: kept as new, and the drop's own question comes next
+  const [view, setView] = useState<'ask' | 'choose' | 'done' | 'kept'>('ask');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<RelationOutcome | null>(null);
@@ -331,21 +339,45 @@ export function RelationPopup({
     }, POPUP_FADE_MS);
   }, []);
 
-  const keep = useCallback(async () => {
-    if (!noteId || !startBusy()) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    try {
-      const outcome = await keepDropAsNew(noteId);
-      if (!mounted.current) return;
-      onResolved?.(outcome);
-      onClose();
-    } catch (err) {
-      if (mounted.current)
-        setError(err instanceof Error ? err.message : 'That did not go through.');
-    } finally {
-      endBusy();
-    }
-  }, [noteId, onClose, onResolved]);
+  // Keep it as new. askNext: a question the drop has of its own follows on
+  // (not after Skip for now, which leaves it on the card)
+  const keep = useCallback(
+    async (askNext: boolean) => {
+      if (!noteId || !startBusy()) return;
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      try {
+        const outcome = await keepDropAsNew(noteId);
+        if (!mounted.current) return;
+        if (outcome === 'clarify' && askNext) {
+          // The drop has a question of its own: a short tick, this popup goes,
+          // and once it has faded that question opens, so they answer both in
+          // one go instead of tapping the card again. Not tied to this popup,
+          // which is closing.
+          setView('kept');
+          const resolved = onResolved;
+          const next = onNextQuestion;
+          const close = onClose;
+          const id = noteId;
+          setTimeout(() => {
+            close();
+            setTimeout(() => {
+              resolved?.('clarify');
+              next?.(id);
+            }, POPUP_FADE_MS);
+          }, NEXT_QUESTION_CONFIRM_MS);
+          return;
+        }
+        onResolved?.(outcome);
+        onClose();
+      } catch (err) {
+        if (mounted.current)
+          setError(err instanceof Error ? err.message : 'That did not go through.');
+      } finally {
+        endBusy();
+      }
+    },
+    [noteId, onClose, onResolved, onNextQuestion],
+  );
 
   const yes = useCallback(
     async (picked?: RelationEntity) => {
@@ -394,12 +426,13 @@ export function RelationPopup({
       setView('choose');
       return;
     }
-    keep();
+    keep(true);
   }, [otherChoices, keep]);
 
   // Nothing closes the popup while a tap is being saved
   const dismiss = () => {
-    if (busyRef.current) return;
+    // the next question is already on its way
+    if (busyRef.current || view === 'kept') return;
     if (view === 'done') finishApplied();
     else onClose();
   };
@@ -440,6 +473,14 @@ export function RelationPopup({
         <Text style={styles.doneText}>{done.confirm}</Text>
       </View>
     );
+  } else if (view === 'kept') {
+    content = (
+      <View style={styles.doneWrap} testID="relation-kept">
+        <CheckCircle size={40} color="#4A7C59" />
+        <Text style={styles.doneText}>Kept</Text>
+        <Text style={styles.doneHint}>One more quick question about it</Text>
+      </View>
+    );
   } else if (view === 'choose') {
     content = (
       <>
@@ -460,7 +501,7 @@ export function RelationPopup({
         </View>
         <Pressable
           testID="relation-none"
-          onPress={keep}
+          onPress={() => keep(true)}
           disabled={busy}
           style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
         >
@@ -474,7 +515,7 @@ export function RelationPopup({
         <Text style={styles.question}>{shown.gone}</Text>
         <Pressable
           testID="relation-keep-new"
-          onPress={keep}
+          onPress={() => keep(true)}
           disabled={busy}
           style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
         >
@@ -488,7 +529,7 @@ export function RelationPopup({
     // the change as it would be made now, against the item as it is now
     const change = rel.kind === 'edit' ? (changeNow(rel, entity) ?? rel.change) : null;
     // "Keep both" and "Keep separate" file it as new; "Not that one" offers the others first
-    const secondary = rel.kind === 'edit' && rel.intent !== 'add' ? notThatOne : keep;
+    const secondary = rel.kind === 'edit' && rel.intent !== 'add' ? notThatOne : () => keep(true);
     content = (
       <>
         <Text style={styles.question}>{relationQuestion(rel)}</Text>
@@ -553,7 +594,7 @@ export function RelationPopup({
           {view !== 'done' && rel ? (
             <Pressable
               testID="relation-skip"
-              onPress={keep}
+              onPress={() => keep(false)}
               disabled={busy}
               style={({ pressed }) => [styles.linkButton, pressed && styles.pressed]}
             >
@@ -693,6 +734,7 @@ const styles = StyleSheet.create({
   linkButton: { paddingVertical: 6, alignSelf: 'center' },
   skipText: { fontSize: 14, color: '#8A8F8A', textAlign: 'center', fontFamily: 'Inter-Regular' },
   doneWrap: { alignItems: 'center', gap: 10, paddingVertical: 8 },
+  doneHint: { fontSize: 13, color: '#6A6F76', textAlign: 'center', marginTop: -4 },
   doneText: {
     fontSize: 16,
     fontWeight: '500',

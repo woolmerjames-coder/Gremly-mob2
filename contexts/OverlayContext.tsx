@@ -594,6 +594,31 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
     [openStoreItem],
   );
 
+  // Kept as new, and the drop was unclear: its own question opens next (the
+  // relation popup calls this once it has faded), so one tap on the card
+  // answers both
+  const openNextQuestion = useCallback(
+    (id: string) => {
+      const note = useGremlyStore.getState().notes.find((n) => n.id === id);
+      if (!note || note.archived) return;
+      type Held = {
+        clarification_question?: string | null;
+        clarification_options?: ClarificationPopupOptions['options'];
+        text?: string | null;
+      };
+      const views = (note.views || {}) as Held;
+      const raw = note as unknown as Held;
+      openClarificationPopup({
+        entityId: id,
+        entityType: 'note',
+        question: raw.clarification_question || views.clarification_question || null,
+        options: raw.clarification_options || views.clarification_options || null,
+        originalText: raw.text || views.text || note.body || note.title || null,
+      });
+    },
+    [openClarificationPopup],
+  );
+
   const openRelationItem = useCallback(
     (entity: { id: string; type: 'todo' | 'habit' | 'note' }) => {
       const noteId = relationNoteId;
@@ -656,6 +681,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
         visible={!!relationNoteId}
         noteId={relationNoteId}
         onClose={closeRelationPopup}
+        onNextQuestion={openNextQuestion}
         onOpenItem={openRelationItem}
       />
       {/* What a yes did, with Undo; tapping its words opens the item (over Mind Drop and Sweep) */}
