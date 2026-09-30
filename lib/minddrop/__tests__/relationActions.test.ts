@@ -240,6 +240,7 @@ describe('applyDropRelation', () => {
     expect(applyEntityChange).toHaveBeenCalledWith(
       expect.objectContaining({ id: 't1' }),
       complete.kind === 'edit' ? complete.change : null,
+      { source: 'minddrop' },
     );
     expect(mockState.archiveNote).toHaveBeenCalledWith('note-1', 'minddrop_relation');
     expect(relationOfNote().status).toBe('applied');
@@ -249,6 +250,28 @@ describe('applyDropRelation', () => {
     expect(mockRevert).toHaveBeenCalled();
     expect(mockState.restoreNote).toHaveBeenCalledWith('note-1');
     expect(relationOfNote().status).toBe('pending');
+  });
+
+  it('a new day with a new time goes into the history as one change from Mind Drop', async () => {
+    const moved = {
+      ...complete,
+      intent: 'edit',
+      change: { field: 'due_day', from: '2026-10-01', to: '2026-10-05', time_to: '15:00' },
+    } as DropRelation;
+    resetStore([heldNote(moved)]);
+    await applyDropRelation('note-1');
+    expect(applyEntityChange).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ id: 't1' }),
+      expect.objectContaining({ field: 'due_day', to: '2026-10-05' }),
+      { source: 'minddrop' },
+    );
+    expect(applyEntityChange).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ id: 't1' }),
+      { field: 'due_time', from: null, to: '15:00' },
+      { source: 'minddrop', sameChange: true },
+    );
   });
 
   it('keeps a journal entry after the yes', async () => {
@@ -264,6 +287,7 @@ describe('applyDropRelation', () => {
     expect(applyEntityChange).toHaveBeenCalledWith(
       expect.objectContaining({ id: 't2' }),
       expect.objectContaining({ field: 'completed' }),
+      { source: 'minddrop' },
     );
   });
 
@@ -278,11 +302,11 @@ describe('applyDropRelation', () => {
     };
     resetStore([heldNote(same)]);
     const outcome = await applyDropRelation('note-1');
-    expect(applyEntityChange).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), {
-      field: 'body_add',
-      from: null,
-      to: 'with the appendix',
-    });
+    expect(applyEntityChange).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 't1' }),
+      { field: 'body_add', from: null, to: 'with the appendix' },
+      { source: 'minddrop' },
+    );
     expect(outcome.summary).toMatch(/Kept Send Q3 deck to Rachel/);
   });
 

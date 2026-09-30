@@ -14,7 +14,12 @@
  * Nothing here runs without a tap except the fetch and the hold.
  */
 import { useGremlyStore } from '../store/useGremlyStore';
-import { applyEntityChange, formatDay, formatTime } from '../chat/entityCards';
+import {
+  applyEntityChange,
+  formatDay,
+  formatTime,
+  type ApplyChangeOptions,
+} from '../chat/entityCards';
 import { getSessionToken } from '../cortex/getSessionToken';
 import { dateService } from '../date/DateService';
 import { env, getEnv } from '../env';
@@ -37,6 +42,9 @@ import {
 export const RELATE_TIMEOUT_MS = 7000;
 /** Hidden answer used to file a held drop as it was classified. */
 export const RELATION_KEEP_OPTION = 'relation_keep';
+
+/** A yes here goes into the item's history as coming from Mind Drop. */
+const FROM_MINDDROP: ApplyChangeOptions = { source: 'minddrop' };
 
 const readCortexUrl = (): string => {
   const fromGetEnv = typeof getEnv === 'function' ? getEnv('EXPO_PUBLIC_CORTEX_URL') : undefined;
@@ -431,7 +439,11 @@ async function applyOnce(noteId: string, picked?: RelationEntity): Promise<Relat
   if (rel.intent === 'same') {
     const extra = rel.kind === 'same' ? rel.extra : rel.kind === 'choose' ? rel.value : null;
     if (extra && entity.type !== 'habit') {
-      const applied = await applyEntityChange(entity, { field: 'body_add', from: null, to: extra });
+      const applied = await applyEntityChange(
+        entity,
+        { field: 'body_add', from: null, to: extra },
+        FROM_MINDDROP,
+      );
       summary = `Kept ${entity.title}, with the new detail added.`;
       revert = applied.revert;
       extraAdded = true;
@@ -451,18 +463,18 @@ async function applyOnce(noteId: string, picked?: RelationEntity): Promise<Relat
           : 'There is nothing to change on that one.',
       );
     }
-    const applied = await applyEntityChange(entity, change);
+    const applied = await applyEntityChange(entity, change, FROM_MINDDROP);
     summary = applied.summary;
     revert = applied.revert;
     madeChange = change;
     // a new day that came with a new time: the time moves too
     if (change.field === 'due_day' && change.time_to) {
       try {
-        const timed = await applyEntityChange(applied.entity, {
-          field: 'due_time',
-          from: change.time_from ?? null,
-          to: change.time_to,
-        });
+        const timed = await applyEntityChange(
+          applied.entity,
+          { field: 'due_time', from: change.time_from ?? null, to: change.time_to },
+          { ...FROM_MINDDROP, sameChange: true },
+        );
         summary = timed.summary;
         const revertDay = applied.revert;
         revert = async () => {

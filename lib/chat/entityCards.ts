@@ -12,6 +12,7 @@
  */
 import { useGremlyStore } from '../store/useGremlyStore';
 import { getDateService } from '../date/DateService';
+import { recordChange, type ChangeSource } from './changeHistory';
 import type {
   EntityCard,
   EntityCardChange,
@@ -188,15 +189,26 @@ export function entityAfterChange(
   }
 }
 
+export interface ApplyChangeOptions {
+  /** Where the yes came from, for the item's history. Chat unless said. */
+  source?: ChangeSource;
+  /** A time that came with the day change just made: one line in the history, not two. */
+  sameChange?: boolean;
+}
+
 /**
  * Apply a confirmed edit through the store. Resolves with an undo function.
- * Throws when the item no longer exists.
+ * Throws when the item no longer exists. The change goes into the item's
+ * history (lib/chat/changeHistory) in the same write, and Undo takes it out;
+ * marking done and habit check-ins are not history, the item shows those.
  */
 export async function applyEntityChange(
   entity: EntityCardEntity,
   change: EntityCardChange,
+  opts: ApplyChangeOptions = {},
 ): Promise<AppliedChange> {
   const store = useGremlyStore.getState();
+  const source = opts.source ?? 'chat';
   const words = describeChange(entity, change);
   const after = entityAfterChange(entity, change);
 
@@ -228,21 +240,23 @@ export async function applyEntityChange(
           : change.field === 'body_add'
             ? { body: todo.body?.trim() ? `${todo.body.trimEnd()}\n\n${change.to}` : change.to }
             : { name: change.to, title: change.to };
-    await store.updateTodo(todo.id, updates);
+    const history = recordChange(todo.views, entity, change, source, todo.body, opts.sameChange);
+    await store.updateTodo(todo.id, { ...updates, views: history.views });
     return {
-      revert: () =>
-        useGremlyStore
-          .getState()
-          .updateTodo(
-            todo.id,
-            change.field === 'due_day'
-              ? { due_day: before.due_day, due_date: before.due_date }
-              : change.field === 'due_time'
-                ? { due_time: before.due_time }
-                : change.field === 'body_add'
-                  ? { body: before.body }
-                  : { name: before.name, title: before.title },
-          ),
+      revert: () => {
+        const now = useGremlyStore.getState();
+        const current = now.todos.find((t) => t.id === todo.id)?.views ?? history.views;
+        return now.updateTodo(todo.id, {
+          ...(change.field === 'due_day'
+            ? { due_day: before.due_day, due_date: before.due_date }
+            : change.field === 'due_time'
+              ? { due_time: before.due_time }
+              : change.field === 'body_add'
+                ? { body: before.body }
+                : { name: before.name, title: before.title }),
+          views: history.undo(current),
+        });
+      },
       summary:
         change.field === 'name'
           ? `Renamed to ${words.to}.`
@@ -267,15 +281,19 @@ export async function applyEntityChange(
     }
     const before = { name: habit.name, frequency: habit.frequency };
     const updates = change.field === 'frequency' ? { frequency: change.to } : { name: change.to };
-    await store.updateHabit(habit.id, updates);
+    const history = recordChange(habit.views, entity, change, source, habit.notes, opts.sameChange);
+    await store.updateHabit(habit.id, { ...updates, views: history.views });
     return {
-      revert: () =>
-        useGremlyStore
-          .getState()
-          .updateHabit(
-            habit.id,
-            change.field === 'frequency' ? { frequency: before.frequency } : { name: before.name },
-          ),
+      revert: () => {
+        const now = useGremlyStore.getState();
+        const current = now.habits.find((h) => h.id === habit.id)?.views ?? history.views;
+        return now.updateHabit(habit.id, {
+          ...(change.field === 'frequency'
+            ? { frequency: before.frequency }
+            : { name: before.name }),
+          views: history.undo(current),
+        });
+      },
       summary:
         change.field === 'frequency'
           ? `${habit.name} is now ${words.to}.`
@@ -293,14 +311,13 @@ export async function applyEntityChange(
     body: note.body ?? null,
     target_date: note.target_date ?? null,
     event_time: note.event_time ?? null,
-    views,
   };
   // MindDrop keeps a copy of a note's day and time in views; keep it in step
   const withViews = (patch: Record<string, unknown>) =>
     views && ('target_date' in views || 'event_time' in views)
       ? { ...patch, views: { ...views, ...patch } }
       : patch;
-  const updates =
+  const fieldUpdates: Record<string, unknown> =
     change.field === 'body'
       ? { body: change.to }
       : change.field === 'body_add'
@@ -310,22 +327,42 @@ export async function applyEntityChange(
           : change.field === 'due_time'
             ? withViews({ event_time: change.to })
             : { title: change.to };
+  const history = recordChange(
+    fieldUpdates.views ?? views,
+    entity,
+    change,
+    source,
+    note.body,
+    opts.sameChange,
+  );
+  const updates = { ...fieldUpdates, views: history.views };
   await store.updateNote(note.id, updates as Partial<typeof note>);
   const title = note.title || entity.title;
+  // Undo puts back MindDrop's copy of the day or time as it was, and takes the
+  // history line out, leaving anything else in views that changed since
+  const viewsCopyBack = (key: 'target_date' | 'event_time') =>
+    views && key in views ? { [key]: views[key] } : {};
   return {
-    revert: () =>
-      useGremlyStore
-        .getState()
-        .updateNote(
-          note.id,
-          (change.field === 'body' || change.field === 'body_add'
-            ? { body: before.body }
-            : change.field === 'due_day'
-              ? { target_date: before.target_date, ...(views ? { views } : {}) }
-              : change.field === 'due_time'
-                ? { event_time: before.event_time, ...(views ? { views } : {}) }
-                : { title: before.title }) as Partial<typeof note>,
-        ),
+    revert: () => {
+      const now = useGremlyStore.getState();
+      const current = now.notes.find((n) => n.id === note.id)?.views ?? history.views;
+      const undone = history.undo(current);
+      return now.updateNote(note.id, {
+        ...(change.field === 'body' || change.field === 'body_add'
+          ? { body: before.body, views: undone }
+          : change.field === 'due_day'
+            ? {
+                target_date: before.target_date,
+                views: { ...undone, ...viewsCopyBack('target_date') },
+              }
+            : change.field === 'due_time'
+              ? {
+                  event_time: before.event_time,
+                  views: { ...undone, ...viewsCopyBack('event_time') },
+                }
+              : { title: before.title, views: undone }),
+      } as Partial<typeof note>);
+    },
     summary:
       change.field === 'body'
         ? 'Note updated.'
