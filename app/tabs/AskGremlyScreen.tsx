@@ -55,6 +55,7 @@ import { useNavigation } from '@react-navigation/native';
 import type {
   EntityCardEntity,
   EntityCardStatus,
+  ChatAnchor,
   RecentEntity,
   SpaceChat,
   SpaceChatMessage,
@@ -65,6 +66,7 @@ import { useMascotActions } from '../../hooks/useMascotActions';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import { useHomeDock } from '../../components/home/GremlyHomeDock';
 import { talkAboutOpener, type TalkAboutItem } from '../../lib/chat/talkAboutOpeners';
+import { anchorFor, anchorMetadata, anchorOf } from '../../lib/chat/chatAnchor';
 
 const MOSS = '#2E5540';
 const LINEN = '#F9F6F1';
@@ -240,6 +242,8 @@ export default function AskGremlyScreen({ embedded = false }: AskGremlyScreenPro
         recentEntity?: RecentEntity | null;
         /** Gremly's opener (already saved) that this new chat starts with */
         lead?: string;
+        /** The item this chat was opened about; read from the chat when not given */
+        anchor?: ChatAnchor | null;
       } = {},
     ) => {
       setSending(true);
@@ -294,6 +298,9 @@ export default function AskGremlyScreen({ embedded = false }: AskGremlyScreenPro
             : opts.recentEntity !== undefined
               ? opts.recentEntity
               : recentEntityFor(messages),
+          // every turn of a chat opened about an item says which item
+          anchorEntity:
+            opts.anchor !== undefined ? opts.anchor : opts.fresh ? null : anchorFor(messages),
         },
         {
           onChunk: (delta: string) => {
@@ -414,8 +421,10 @@ export default function AskGremlyScreen({ embedded = false }: AskGremlyScreenPro
       }
 
       // Empty state → create new chat. About a drop: named after the drop, and
-      // Gremly's opener is saved first so the chat (and the model) starts there
+      // Gremly's opener is saved first, carrying the drop as the chat's anchor,
+      // so the chat (and the model, every turn) knows what it is about
       const about = aboutRef.current;
+      const anchor = about ? anchorOf(about.item) : null;
       try {
         const chat = await useGremlyStore
           .getState()
@@ -429,14 +438,14 @@ export default function AskGremlyScreen({ embedded = false }: AskGremlyScreenPro
 
         // Send the initial message after a tick so useChatMessages picks up the new chatId
         setTimeout(async () => {
-          if (about) {
+          if (about && anchor) {
             try {
-              await appendAssistantMessage(about.opener, undefined, chat.id);
+              await appendAssistantMessage(about.opener, anchorMetadata(anchor), chat.id);
             } catch {
-              // the reply still knows the item from the opener sent with it
+              // this turn still sends the anchor and the opener
             }
           }
-          sendToChat(chat as SpaceChat, trimmed, { fresh: true, lead: about?.opener });
+          sendToChat(chat as SpaceChat, trimmed, { fresh: true, lead: about?.opener, anchor });
         }, 200);
       } catch {
         Alert.alert('Error', 'Could not create chat');

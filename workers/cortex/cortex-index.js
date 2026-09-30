@@ -209,6 +209,8 @@ import {
   applyEntityCardToTriage,
   recentCardPromptSection,
   theirItemsPromptSection,
+  anchorFrom,
+  anchorPromptSection,
   todayIsoIn,
   noteDay,
   checkNewAgainstTracked,
@@ -12572,6 +12574,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             // Triage, with the entity matcher running alongside it
             const tLane = Date.now();
             const previousExchange = extractPreviousExchange(messages);
+            // the item this chat was opened about ("Talk it through"), sent with every turn
+            const anchorEntity = anchorFrom(body.anchorEntity);
             const entityCardPromise = authenticatedUserId
               ? matchEntity({
                   env,
@@ -12580,6 +12584,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   previousExchange,
                   exchanges: extractRecentExchanges(messages),
                   recent: body.recentEntity || null,
+                  anchor: anchorEntity,
                   todayIso: todayIsoIn(userTimezone),
                   todayStr: new Intl.DateTimeFormat('en-US', {
                     weekday: 'long',
@@ -12608,12 +12613,15 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             const entityCard = entityMatch?.card || null;
             const cardMs = Date.now() - tLane;
             const triage = applyEntityCardToTriage(triageFromClassifier, entityCard);
+            // as it is now when the matcher ran, else as the app sent it
+            const anchor = entityMatch?.anchor || anchorEntity;
 
             console.log('[GeneralChat:Triage]', {
               mode: triage.mode,
               search: triage.search,
               personal: triage.personal,
               depth: triage.depth,
+              anchored: anchor ? (anchor.gone ? 'gone' : true) : false,
             });
 
             const streamContext = { runningSummary: body.runningSummary || '' };
@@ -12637,12 +12645,18 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               return msg;
             });
 
-            if (entityCard) genConfig.systemPrompt += entityCardPromptSection(entityCard);
+            if (entityCard)
+              genConfig.systemPrompt += entityCardPromptSection(entityCard, {
+                anchorId: anchor?.id || null,
+              });
             genConfig.systemPrompt += recentCardPromptSection(body.recentEntity);
+            genConfig.systemPrompt += anchorPromptSection(anchor, todayIsoIn(userTimezone), {
+              mode: triage.mode,
+            });
             genConfig.systemPrompt += theirItemsPromptSection(
               entityMatch,
               todayIsoIn(userTimezone),
-              { mode: triage.mode, card: entityCard },
+              { mode: triage.mode, card: entityCard, anchor },
             );
 
             const chatMessages = [

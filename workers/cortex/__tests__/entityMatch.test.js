@@ -20,6 +20,8 @@ import {
   attentionItems,
   noteDay,
   matchEntity,
+  anchorFrom,
+  anchorPromptSection,
   CONFIDENCE_FLOOR,
   RECENT_CARD_TURNS,
   habitProgressWords,
@@ -1268,4 +1270,175 @@ test('the reply is told every turn what it can see and whether a card goes with 
     theirItemsPromptSection({ related: [], attention: [] }, '2026-09-29', { mode: 'entity_card' }),
   ).toBe('');
   expect(theirItemsPromptSection(null, '2026-09-29', { mode: 'update' })).toBe('');
+});
+
+// ── The anchor: a chat opened about one item ("Talk it through") ────────────
+
+test('an anchor from the app is an id, a kind of item and a title, or nothing', () => {
+  expect(anchorFrom({ id: 'aaaa1111-0000', type: 'todo', title: ' Dentist ' })).toEqual({
+    id: 'aaaa1111-0000',
+    type: 'todo',
+    title: 'Dentist',
+  });
+  expect(anchorFrom(null)).toBeNull();
+  expect(anchorFrom({ id: 'aaaa1111-0000', type: 'journal', title: 'x' })).toBeNull();
+  expect(anchorFrom({ id: 'aaaa1111-0000', type: 'todo', title: '' })).toBeNull();
+  // the id goes into a lookup, so anything that is not an id is refused
+  expect(anchorFrom({ id: 'x&owner_id=eq.y', type: 'todo', title: 'x' })).toBeNull();
+});
+
+test('the anchored item is always a candidate, marked, after the item on the last card', () => {
+  const journal = { id: 'jjjj0000-0000', type: 'note', subtype: 'journal', title: 'Rough Monday' };
+  const list = [...items, journal];
+  const anchored = candidatesFor('m', list, null, 700, { ...items[2], title: 'stale title' });
+  expect(anchored[0]).toMatchObject({ id: items[2].id, anchored: true, title: 'Morning run' });
+  expect(anchored.filter((c) => c.id === items[2].id)).toHaveLength(1);
+  // a journal entry is left out of the list, except the one the chat is about
+  expect(candidatesFor('m', list, null).some((c) => c.id === journal.id)).toBe(false);
+  expect(candidatesFor('m', list, null, 700, journal)[0]).toMatchObject({
+    id: journal.id,
+    anchored: true,
+  });
+  // the item on the last card stays first
+  const recent = { id: items[0].id, type: 'todo', title: 'Dentist', status: 'pending' };
+  const both = candidatesFor('m', list, recent, 700, items[2]);
+  expect(both[0]).toMatchObject({ id: items[0].id, shown: true });
+  expect(both[1]).toMatchObject({ id: items[2].id, anchored: true });
+  // the same item on the last card and anchored carries both marks
+  const same = candidatesFor('m', list, recent, 700, items[0]);
+  expect(same[0]).toMatchObject({ id: items[0].id, shown: true, anchored: true });
+  // an anchor that is gone is not a candidate
+  expect(
+    candidatesFor('m', items, null, 700, { ...items[2], gone: true }).some((c) => c.anchored),
+  ).toBe(false);
+  const input = buildEntityMatchInput({
+    todayStr: 'x',
+    message: 'm',
+    candidates: same,
+  });
+  expect(input).toContain(
+    '[this chat was opened about this item; shown on the card in the last reply]',
+  );
+});
+
+test('matchEntity resolves the anchor as it is now, and says when it is gone', async () => {
+  configureModels({ ENTITY_CARDS: 'on', OPENAI_API_KEY: 'k' });
+  const answer = (content) =>
+    new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200 });
+  globalThis.fetch = async () =>
+    answer('{"refers":true,"entity_id":"cccc3333","intent":"mention","confidence":90}');
+  const match = await matchEntity({
+    env: {},
+    userId: 'u',
+    message: 'I keep skipping it',
+    todayStr: 'x',
+    items,
+    anchor: { id: items[2].id, type: 'habit', title: 'Old name' },
+  });
+  expect(match.anchor).toMatchObject({ id: items[2].id, title: 'Morning run' });
+  expect(match.anchor.gone).toBeUndefined();
+  expect(match.related[0]).toMatchObject({ id: items[2].id, anchored: true });
+  // not among the items the caller passed: it is no longer theirs
+  const gone = await matchEntity({
+    env: {},
+    userId: 'u',
+    message: 'hello',
+    todayStr: 'x',
+    items,
+    anchor: { id: '1234abcd-0000', type: 'todo', title: 'Walk Bella' },
+  });
+  expect(gone.anchor).toMatchObject({ id: '1234abcd-0000', gone: true });
+  delete globalThis.fetch;
+});
+
+test('an anchor the list fetch did not reach is looked up on its own', async () => {
+  configureModels({ ENTITY_CARDS: 'on', OPENAI_API_KEY: 'k' });
+  const env = { SUPABASE_URL: 'https://sb.test', SUPABASE_SERVICE_KEY: 's' };
+  const seen = [];
+  const reply = (body) => new Response(JSON.stringify(body), { status: 200 });
+  const serve = (row) => async (url) => {
+    const u = String(url);
+    seen.push(u);
+    if (u.includes('/rest/v1/todos?id=eq.')) return reply(row ? [row] : []);
+    if (u.includes('/rest/v1/')) return reply([]);
+    return reply({
+      choices: [{ message: { content: '{"refers":false,"about":[],"confidence":0}' } }],
+    });
+  };
+  globalThis.fetch = serve({ id: 'ffff6666-0000', name: 'Walk Bella', due_day: '2026-09-30' });
+  const found = await matchEntity({
+    env,
+    userId: 'u',
+    message: 'hello',
+    todayStr: 'x',
+    todayIso: '2026-09-29',
+    anchor: { id: 'ffff6666-0000', type: 'todo', title: 'Walk Bella' },
+  });
+  expect(
+    seen.some((u) => u.includes('todos?id=eq.ffff6666-0000&owner_id=eq.u&completed_at=is.null')),
+  ).toBe(true);
+  expect(found.anchor).toMatchObject({
+    id: 'ffff6666-0000',
+    title: 'Walk Bella',
+    due_day: '2026-09-30',
+  });
+  // it joins the list the extraction reuses
+  expect(found.all.some((i) => i.id === 'ffff6666-0000')).toBe(true);
+  // done, archived or deleted: gone
+  globalThis.fetch = serve(null);
+  const gone = await matchEntity({
+    env,
+    userId: 'u',
+    message: 'hello',
+    todayStr: 'x',
+    todayIso: '2026-09-29',
+    anchor: { id: 'ffff6666-0000', type: 'todo', title: 'Walk Bella' },
+  });
+  expect(gone.anchor).toMatchObject({ gone: true });
+  delete globalThis.fetch;
+});
+
+test('the reply knows what the chat is about and never calls that item news', () => {
+  const walk = { id: 'ffff6666-0000', type: 'todo', title: 'Walk Bella', due_day: '2026-09-29' };
+  const sec = anchorPromptSection(walk, '2026-09-29');
+  expect(sec).toContain('=== WHAT THIS CHAT IS ABOUT ===');
+  expect(sec).toContain('todo "Walk Bella"');
+  expect(sec).toContain('never tell them it is on their list');
+  expect(sec).toContain('follow them');
+  expect(sec).toContain('- todo "Walk Bella", due today');
+  // a card that took the turn over keeps its reply short: only what they know
+  const short = anchorPromptSection(walk, '2026-09-29', { mode: 'entity_card' });
+  expect(short).toContain('never tell them it is on their list');
+  expect(short).not.toContain('follow them');
+  expect(anchorPromptSection({ ...walk, gone: true }, '2026-09-29')).toContain(
+    'no longer among their current items',
+  );
+  expect(
+    anchorPromptSection({ id: 'j', type: 'note', subtype: 'journal', title: 'Rough Monday' }),
+  ).toContain('journal entry "Rough Monday"');
+  expect(anchorPromptSection(null)).toBe('');
+  // said in passing about the anchored item: an offer, not news that it is on their list
+  const card = {
+    kind: 'edit',
+    inPassing: true,
+    entity: walk,
+    change: { field: 'due_day', from: '2026-09-29', to: '2026-10-01' },
+  };
+  expect(entityCardPromptSection(card, { anchorId: walk.id })).not.toContain(
+    'already on their list',
+  );
+  expect(entityCardPromptSection(card, { anchorId: walk.id })).toContain('offer to move it to');
+  expect(entityCardPromptSection(card)).toContain('already on their list');
+  // the items section counts it as known and marks it
+  const theirs = theirItemsPromptSection(
+    { related: [{ ...walk, anchored: true }], attention: [] },
+    '2026-09-29',
+    { mode: 'update', anchor: walk },
+  );
+  expect(theirs).toContain('This chat was opened about their todo "Walk Bella"');
+  expect(theirs).toContain('(the item this chat was opened about)');
+  const plain = theirItemsPromptSection({ related: [walk], attention: [] }, '2026-09-29', {
+    mode: 'update',
+  });
+  expect(plain).not.toContain('opened about');
 });

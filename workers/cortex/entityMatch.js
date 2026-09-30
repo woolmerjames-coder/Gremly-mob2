@@ -18,6 +18,12 @@
 //
 // Follow ups: the app sends the item from the last card it showed (recent), and
 // that item is always a candidate, so "move it to Friday" can resolve "it".
+//
+// Anchor: a chat opened about one item ("Talk it through" on a drop) carries
+// that item with every turn. It is a soft anchor, not a lock: the item is
+// always a candidate, marked as the one the chat was opened about, and the
+// reply knows the user chose it, but which item a message means is still the
+// model's judgement over the whole list, so the chat can move on.
 // ============================================================================
 
 import { helperFetch } from './helperClient.js';
@@ -42,12 +48,118 @@ const clockTime = (v) => (v ? String(v).slice(0, 5) : null);
 export const noteDay = (n) => n?.target_date || n?.views?.target_date || null;
 const ENTITY_TYPES = new Set(['todo', 'habit', 'note']);
 
+// Where each kind lives, what makes one live, and the columns the matcher needs.
+const TABLES = {
+  todo: {
+    table: 'todos',
+    live: 'completed_at=is.null&archived=not.is.true',
+    select: 'id,name,title,due_day,due_time,space_id,updated_at',
+  },
+  habit: {
+    table: 'habits',
+    live: 'archived_at=is.null',
+    select: 'id,name,title,frequency,cadence,target_per_period,period_unit,space_id,updated_at',
+  },
+  note: {
+    table: 'notes',
+    live: 'archived=not.is.true',
+    select: 'id,title,space_id,subtype,target_date,event_time,views,updated_at',
+  },
+};
+
+/** One item as the matcher and the card see it, from its row. */
+function toItem(row, type, loggedDays = []) {
+  if (type === 'todo')
+    return {
+      id: row.id,
+      type: 'todo',
+      title: row.name || row.title || '',
+      due_day: row.due_day || null,
+      due_time: clockTime(row.due_time),
+      space_id: row.space_id || null,
+    };
+  if (type === 'habit')
+    return {
+      id: row.id,
+      type: 'habit',
+      title: row.name || row.title || '',
+      frequency: row.frequency || null,
+      cadence: row.cadence || null,
+      target_per_period: row.target_per_period ?? null,
+      period_unit: row.period_unit || null,
+      logged_days: [...new Set(loggedDays)].sort().reverse(),
+      space_id: row.space_id || null,
+    };
+  return {
+    id: row.id,
+    type: 'note',
+    title: row.title || '',
+    subtype: row.subtype || null,
+    // a note with a day and time (an appointment, an event) edits like a todo
+    due_day: noteDay(row),
+    due_time: clockTime(row.event_time || row.views?.event_time),
+    target_date: noteDay(row),
+    space_id: row.space_id || null,
+  };
+}
+
+/**
+ * The item a chat was opened about, as the app sends it with every turn of
+ * that chat: {id, type, title}, or null when the value is not one.
+ */
+export function anchorFrom(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = typeof raw.id === 'string' ? raw.id.trim() : '';
+  const title = typeof raw.title === 'string' ? raw.title.trim().slice(0, 120) : '';
+  if (!/^[0-9a-f-]{8,64}$/i.test(id) || !ENTITY_TYPES.has(raw.type) || !title) return null;
+  return { id, type: raw.type, title };
+}
+
+const serviceHeaders = (env) => ({
+  apikey: env.SUPABASE_SERVICE_KEY,
+  Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+});
+
+/**
+ * The anchored item looked up on its own, for when the list fetch did not
+ * reach it (the list is bounded, most recently touched first). Null when it is
+ * no longer a live item of theirs (done, archived or deleted); undefined when
+ * the lookup failed, so nothing is claimed either way.
+ */
+async function fetchAnchorItem(env, userId, anchor, todayIso) {
+  const t = TABLES[anchor.type];
+  if (!t) return null;
+  const headers = serviceHeaders(env);
+  try {
+    const res = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/${t.table}?id=eq.${encodeURIComponent(anchor.id)}&owner_id=eq.${userId}&${t.live}&select=${t.select}&limit=1`,
+      { headers },
+    );
+    if (!res.ok) return undefined;
+    const rows = await res.json();
+    const row = Array.isArray(rows) ? rows[0] : null;
+    if (!row) return null;
+    let logged = [];
+    if (anchor.type === 'habit' && todayIso) {
+      const logs = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/habit_progress?owner_id=eq.${userId}&habit_id=eq.${encodeURIComponent(anchor.id)}&occurred_day=gte.${addDays(todayIso, -LOG_WINDOW_DAYS)}&select=occurred_day&order=occurred_day.desc&limit=100`,
+        { headers },
+      );
+      const days = logs.ok ? await logs.json() : [];
+      logged = (Array.isArray(days) ? days : [])
+        .filter((l) => l?.occurred_day)
+        .map((l) => String(l.occurred_day).slice(0, 10));
+    }
+    const item = toItem(row, anchor.type, logged);
+    return item.title ? item : null;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Fetch the user's live items with the fields the matcher and the card need. */
 export async function fetchEntities(env, userId, todayIso = null) {
-  const headers = {
-    apikey: env.SUPABASE_SERVICE_KEY,
-    Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-  };
+  const headers = serviceHeaders(env);
   const get = async (path) => {
     try {
       const res = await fetch(`${env.SUPABASE_URL}/rest/v1/${path}`, { headers });
@@ -59,14 +171,14 @@ export async function fetchEntities(env, userId, todayIso = null) {
   const since = todayIso ? addDays(todayIso, -LOG_WINDOW_DAYS) : null;
   const [todos, habits, notes, logs] = await Promise.all([
     get(
-      `todos?owner_id=eq.${userId}&completed_at=is.null&archived=not.is.true&select=id,name,title,due_day,due_time,space_id,updated_at&order=updated_at.desc&limit=300`,
+      `todos?owner_id=eq.${userId}&${TABLES.todo.live}&select=${TABLES.todo.select}&order=updated_at.desc&limit=300`,
     ),
     get(
-      `habits?owner_id=eq.${userId}&archived_at=is.null&select=id,name,title,frequency,cadence,target_per_period,period_unit,space_id,updated_at&order=updated_at.desc&limit=100`,
+      `habits?owner_id=eq.${userId}&${TABLES.habit.live}&select=${TABLES.habit.select}&order=updated_at.desc&limit=100`,
     ),
     // a note's day can live in the column or, for MindDrop captures, in views
     get(
-      `notes?owner_id=eq.${userId}&archived=not.is.true&select=id,title,space_id,subtype,target_date,event_time,views,updated_at&order=updated_at.desc&limit=300`,
+      `notes?owner_id=eq.${userId}&${TABLES.note.live}&select=${TABLES.note.select}&order=updated_at.desc&limit=300`,
     ),
     // the last two weeks of habit check-ins, so a check-in said in chat is not
     // counted twice and the reply can speak to how a habit is going
@@ -83,50 +195,22 @@ export async function fetchEntities(env, userId, todayIso = null) {
     loggedByHabit.get(l.habit_id).push(String(l.occurred_day).slice(0, 10));
   }
   const items = [];
-  for (const t of todos)
-    items.push({
-      id: t.id,
-      type: 'todo',
-      title: t.name || t.title || '',
-      due_day: t.due_day || null,
-      due_time: clockTime(t.due_time),
-      space_id: t.space_id || null,
-    });
-  for (const h of habits)
-    items.push({
-      id: h.id,
-      type: 'habit',
-      title: h.name || h.title || '',
-      frequency: h.frequency || null,
-      cadence: h.cadence || null,
-      target_per_period: h.target_per_period ?? null,
-      period_unit: h.period_unit || null,
-      logged_days: [...new Set(loggedByHabit.get(h.id) || [])].sort().reverse(),
-      space_id: h.space_id || null,
-    });
-  for (const n of notes)
-    items.push({
-      id: n.id,
-      type: 'note',
-      title: n.title || '',
-      subtype: n.subtype || null,
-      // a note with a day and time (an appointment, an event) edits like a todo
-      due_day: noteDay(n),
-      due_time: clockTime(n.event_time || n.views?.event_time),
-      target_date: noteDay(n),
-      space_id: n.space_id || null,
-    });
+  for (const t of todos) items.push(toItem(t, 'todo'));
+  for (const h of habits) items.push(toItem(h, 'habit', loggedByHabit.get(h.id) || []));
+  for (const n of notes) items.push(toItem(n, 'note'));
   return items.filter((i) => i.title);
 }
 
 /**
  * The items the matcher sees for one turn: all of them, most recently touched
- * first, with the item on the last card the app showed (shown) in front. Nothing
- * here reads the message: which item, if any, the message means is the model's
- * call, and an item described in other words is on the list like any other.
- * Each item gets a short key the model can copy without error.
+ * first, with the item on the last card the app showed (shown) in front and the
+ * item the chat was opened about (anchored) next. Journal entries are left out,
+ * except the one a chat was opened about. Nothing here reads the message: which
+ * item, if any, the message means is the model's call, and an item described in
+ * other words is on the list like any other. Each item gets a short key the
+ * model can copy without error.
  */
-export function candidatesFor(message, items, recent, limit = MATCH_ITEMS_MAX) {
+export function candidatesFor(message, items, recent, limit = MATCH_ITEMS_MAX, anchor = null) {
   const live = (items || []).filter(
     (i) => i && i.title && !(i.type === 'note' && i.subtype === 'journal'),
   );
@@ -150,6 +234,13 @@ export function candidatesFor(message, items, recent, limit = MATCH_ITEMS_MAX) {
         };
     if (shown.title) list = [shown, ...live.filter((c) => c.id !== shown.id)];
   }
+  if (anchor && anchor.id && anchor.title && !anchor.gone && ENTITY_TYPES.has(anchor.type)) {
+    const same = list.find((c) => c.id === anchor.id);
+    const pinned = { ...anchor, ...(same || {}), anchored: true };
+    const rest = list.filter((c) => c.id !== anchor.id);
+    const lead = rest[0] && (rest[0].shown || rest[0].declined) ? [rest[0]] : [];
+    list = [...lead, pinned, ...rest.slice(lead.length)];
+  }
   return withKeys(list.slice(0, limit));
 }
 
@@ -169,7 +260,7 @@ function withKeys(list) {
 
 export const ENTITY_MATCH_SYSTEM_PROMPT = `You decide whether a chat message in a personal productivity app is about something the user already has, and what they want done with it.
 
-You are given today's date, the message, the last few exchanges when there are any, and the user's items: their todos and notes, some with a day and time, and their habits with how often they repeat. The list is everything they have, so most of it has nothing to do with the message. Read the whole list before deciding; an item near the end counts as much as one near the top. An item marked as shown on the card in the last reply is the one the app has just shown them; one marked as not the one they meant was on the last card and they turned it down, so it is never the answer. When the message only turns that card down, what they want is still what they asked for in the exchange before it: find the other items that fit that request among everything they have, and ask which of them they mean (ask true, with their ids in candidates), or take the one that plainly fits. A short follow up takes its meaning from the exchanges before it: a pronoun or a bare yes means the item those exchanges were about unless the message plainly names something else, and a yes to an offer Gremly made is an edit with the change that offer named.
+You are given today's date, the message, the last few exchanges when there are any, and the user's items: their todos and notes, some with a day and time, and their habits with how often they repeat. The list is everything they have, so most of it has nothing to do with the message. Read the whole list before deciding; an item near the end counts as much as one near the top. An item marked as shown on the card in the last reply is the one the app has just shown them; one marked as not the one they meant was on the last card and they turned it down, so it is never the answer. When the message only turns that card down, what they want is still what they asked for in the exchange before it: find the other items that fit that request among everything they have, and ask which of them they mean (ask true, with their ids in candidates), or take the one that plainly fits. A short follow up takes its meaning from the exchanges before it: a pronoun or a bare yes means the item those exchanges were about unless the message plainly names something else, and a yes to an offer Gremly made is an edit with the change that offer named. An item marked as the one this chat was opened about is the one the user chose to talk about when the chat began: a pronoun, a bare reference or a message with no subject of its own means that item, unless the exchanges since have moved on to something else or the message plainly names another item or something new. Otherwise it is judged like every other item: it goes in about only when the message is about it, and anything else they bring up is found on the list as usual.
 
 This is a conversation first. Two different things can follow from your answer, so tell them apart: a card in the reply, which interrupts the conversation and is only for an explicit ask; and a quiet offer later, which is for things said in passing.
 
@@ -224,11 +315,12 @@ export function buildEntityMatchInput({
           : c.due_day
             ? `dated ${c.due_day}${c.due_time ? ` at ${c.due_time}` : ''}`
             : 'note, no day set';
-    const tag = c.shown
-      ? ' [shown on the card in the last reply]'
-      : c.declined
-        ? ' [on the last card; the user said this was not the one they meant]'
-        : '';
+    const tags = [];
+    if (c.anchored) tags.push('this chat was opened about this item');
+    if (c.shown) tags.push('shown on the card in the last reply');
+    else if (c.declined)
+      tags.push('on the last card; the user said this was not the one they meant');
+    const tag = tags.length ? ` [${tags.join('; ')}]` : '';
     lines.push(`- id ${c.key || c.id} [${c.type}] ${c.title} (${detail})${tag}`);
   }
   return lines.join('\n');
@@ -573,12 +665,26 @@ export function theirItemsPromptSection(match, todayIso, opts = {}) {
     .slice(0, RELATED_MAX);
   const relatedIds = new Set(related.map((c) => c.id));
   const attention = strict ? [] : (match.attention || []).filter((c) => !relatedIds.has(c.id));
+  const anchor = opts.anchor && opts.anchor.title && !opts.anchor.gone ? opts.anchor : null;
   const parts = [
     '=== WHAT THEY HAVE ON ===',
     "Their own items, as they stand right now. You know these exist. When one bears on what they said, say so plainly and in passing, in your own words: that it is already on their list, when it is, that it is overdue. You may offer the natural next step for the item they are talking about (moving it, marking it done) as a plain question in your own words; the app handles the confirmation, so never mention a card, a button or tapping, never say you will set anything up or get anything ready, never say a change has been made, and never offer to change several at once: one item per offer. Never offer to move something else to make room. Never say something is on their list unless it is listed here; if they ask for something to be done to an item you cannot see here, ask which one they mean. An item named anywhere else in what you know about them, such as their life map, earlier chats or upcoming dates, is history: it may since have been done, archived or renamed, so never say it is on their list and never offer to change it unless it is listed here. Never read the list out, never mention more than one or two, and leave them alone when the conversation is elsewhere. An overdue item is not on any particular day, so never present it as part of a day's plan. A habit line shows what has been logged; when they say they did a habit on a day that is already logged, say it is already counted, and you may speak to how the habit is going from what is logged.",
   ];
+  if (anchor) {
+    parts.push(
+      `This chat was opened about their ${anchor.type} "${String(anchor.title).slice(0, 120)}". They know it is on their list, so never tell them it is; it counts as one of the items you know exist even when it is not listed below.`,
+    );
+  }
   parts.push('What they are talking about:');
-  if (related.length) parts.push(...related.map((c) => itemLine(c, todayIso)));
+  if (related.length)
+    parts.push(
+      ...related.map(
+        (c) =>
+          `${itemLine(c, todayIso)}${
+            anchor && c.id === anchor.id ? ' (the item this chat was opened about)' : ''
+          }`,
+      ),
+    );
   else parts.push('- none of their items, as far as the app can tell');
   if (attention.length) {
     parts.push('Overdue or coming up this week:');
@@ -608,9 +714,13 @@ export function relatedItemsPromptSection(related, todayIso) {
  *         with inPassing set came from something said in passing and sits
  *         under a normal reply.
  *   mention: the item the message was about in passing, or null
- * @param {{env: object, userId: string, message: string, previousExchange?: object, exchanges?: Array, todayStr: string, todayIso?: string, items?: Array, recent?: object|null}} p
+ *   anchor: the item the chat was opened about, as it is now (from the list,
+ *           else looked up on its own), flagged gone when it is no longer
+ *           theirs; null when the chat has no anchor
+ * @param {{env: object, userId: string, message: string, previousExchange?: object, exchanges?: Array, todayStr: string, todayIso?: string, items?: Array, recent?: object|null, anchor?: object|null}} p
  *   exchanges: the last few {userMsg, assistantMsg} pairs, oldest first
  *   recent: the item on the last card the app showed in this chat, if any
+ *   anchor: the item this chat was opened about ({id, type, title}), if any
  */
 export async function matchEntity({
   env,
@@ -622,17 +732,34 @@ export async function matchEntity({
   todayIso,
   items,
   recent,
+  anchor,
 }) {
   try {
     if (!models().flags.entityCards) return null;
-    const all = items || (await fetchEntities(env, userId, todayIso || null));
-    const candidates = candidatesFor(message, all, recent || null, MATCH_ITEMS_MAX);
+    const all = items ? [...items] : await fetchEntities(env, userId, todayIso || null);
+    // the item this chat was opened about, as it is now: from the list, else
+    // looked up on its own (then it joins the list the extraction reuses)
+    let anchorItem = null;
+    if (anchor && anchor.id) {
+      const listed = all.find((i) => i && i.id === anchor.id);
+      const found = listed || (items ? null : await fetchAnchorItem(env, userId, anchor, todayIso));
+      if (found && !listed) all.push(found);
+      anchorItem =
+        found === null
+          ? { ...anchor, gone: true }
+          : found
+            ? { ...found }
+            : // the lookup failed: known only as the app sent it
+              { ...anchor };
+    }
+    const candidates = candidatesFor(message, all, recent || null, MATCH_ITEMS_MAX, anchorItem);
     const result = {
       all,
       card: null,
       mention: null,
       related: [],
       attention: attentionItems(all, todayIso || null),
+      anchor: anchorItem,
     };
     if (candidates.length === 0 || !String(message || '').trim()) return result;
     const res = await helperFetch('entity_match', {
@@ -677,6 +804,7 @@ export async function matchEntity({
     console.log('[EntityMatch]', {
       items: candidates.length,
       recent: !!recent,
+      anchored: anchorItem ? (anchorItem.gone ? 'gone' : true) : false,
       kind: decision?.kind || 'none',
       type: decision?.entity?.type || null,
       intent: decision?.intent || null,
@@ -800,13 +928,39 @@ export function recentCardPromptSection(recent) {
   return '';
 }
 
+/**
+ * What the reply knows about the item this chat was opened about. The user
+ * chose it, so they know it exists: the reply talks it through with them and
+ * never tells them it is on their list. The chat may move on, and then the
+ * reply follows them. When a card has taken the turn over, only that they know
+ * it exists is said, so the card's short reply stays short.
+ */
+export function anchorPromptSection(anchor, todayIso, opts = {}) {
+  if (!anchor || !anchor.id || !anchor.title || !ENTITY_TYPES.has(anchor.type)) return '';
+  const title = String(anchor.title).slice(0, 120);
+  const kind =
+    anchor.type === 'note' && anchor.subtype === 'journal' ? 'journal entry' : anchor.type;
+  const head = '\n\n=== WHAT THIS CHAT IS ABOUT ===\n';
+  if (anchor.gone) {
+    return `${head}The user opened this chat to talk about their ${kind} "${title}", which is no longer among their current items: it may have been finished, archived or deleted. Talk about it if they want to; if they ask for something to be done to it, say you cannot see it on their list now.`;
+  }
+  const known = `The user opened this chat from their ${kind} "${title}" to talk it through, so they know it exists and is on their list: never tell them it is on their list or already tracked, never offer to add or save it, and never ask whether it is new.`;
+  if (opts.mode === 'entity_card') return `${head}${known}`;
+  return `${head}${known} Until the conversation moves on, what they say is about this item: talk it through with them and help with whatever they need about it. When they move on to something else, follow them and leave this item alone.\n${itemLine(anchor, todayIso)}`;
+}
+
 /** The section added to the reply prompt when a card is being shown. */
-export function entityCardPromptSection(card) {
+export function entityCardPromptSection(card, opts = {}) {
   if (!card) return '';
   const never =
     "Nothing has been changed; the user decides with one tap on the card. Never say you have changed, moved, updated or saved anything, never say you will set anything up, and never mention a card, a button or tapping. Do not repeat the item's details, do not give advice, and do not use a list or numbered steps.";
   if (card.kind === 'edit' && card.inPassing) {
-    return `\n\n=== ENTITY CARD ===\nBecause of what they just said, the app is showing a card under your reply for their ${card.entity.type} "${card.entity.title}", proposing to ${changeInWords(card)}. Nothing has changed; they decide with one tap. Reply to what they said the way you normally would, and in one clause, in your own words, let them know that item is already on their list and you can ${changeInWords(card)} if they want. Never mention a card, a button or tapping, never say you will set anything up or get anything ready, and never say it is done or updated.`;
+    // the item a chat was opened about is one they know they have
+    const say =
+      opts.anchorId && card.entity.id === opts.anchorId
+        ? `offer to ${changeInWords(card)} if they want`
+        : `let them know that item is already on their list and you can ${changeInWords(card)} if they want`;
+    return `\n\n=== ENTITY CARD ===\nBecause of what they just said, the app is showing a card under your reply for their ${card.entity.type} "${card.entity.title}", proposing to ${changeInWords(card)}. Nothing has changed; they decide with one tap. Reply to what they said the way you normally would, and in one clause, in your own words, ${say}. Never mention a card, a button or tapping, never say you will set anything up or get anything ready, and never say it is done or updated.`;
   }
   if (card.kind === 'edit') {
     return `\n\n=== ENTITY CARD ===\nThe app is showing the user a card for their ${card.entity.type} "${card.entity.title}" proposing to ${changeInWords(card)}. ${never} Reply with one short, warm line asking whether that is the one, and stop.`;

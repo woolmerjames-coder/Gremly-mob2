@@ -7,7 +7,13 @@
 // web search.
 //
 //   node scenario-run.mjs data/scenarios.json results/scenarios.json [ids]
+//
+// A spec may take its items (and persona) from another spec with itemsFrom,
+// adding its own items to them. A scenario with anchor (an item id) is a chat
+// opened about that item ("Talk it through"): it starts with Gremly's opener
+// and every turn carries the anchor, as the app sends it.
 import { readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { configureModels, models } from '../../workers/cortex/models.js';
 import { triageMessage } from '../../workers/cortex/triage.js';
 import {
@@ -16,6 +22,7 @@ import {
   entityCardPromptSection,
   recentCardPromptSection,
   theirItemsPromptSection,
+  anchorPromptSection,
   checkNewAgainstTracked,
 } from '../../workers/cortex/entityMatch.js';
 import { buildGeneralChatConfig } from '../../workers/cortex/gremlyPersona.js';
@@ -64,6 +71,14 @@ const only = process.argv[4] && process.argv[4] !== 'all' ? new Set(process.argv
 const SPLIT = process.env.PILL_SPLIT === 'on';
 const REPEAT = Number(process.env.REPEAT || 1);
 const spec = JSON.parse(readFileSync(file, 'utf8'));
+if (spec.itemsFrom) {
+  const base = JSON.parse(readFileSync(join(dirname(file), spec.itemsFrom), 'utf8'));
+  spec.items = [...(base.items || []), ...(spec.items || [])];
+  spec.persona = spec.persona ?? base.persona;
+  spec.timezone = spec.timezone ?? base.timezone;
+  spec.todayIso = spec.todayIso ?? base.todayIso;
+  spec.todayStr = spec.todayStr ?? base.todayStr;
+}
 const { persona, timezone: TZ, todayIso, todayStr } = spec;
 
 const short = (id) => String(id || '').slice(0, 8);
@@ -200,6 +215,19 @@ for (const sc of runs) {
   let pendingTap = null;
   const shownCards = [];
   const turns = [];
+  // a chat opened about one item: Gremly's opener comes first, and the item
+  // goes with every turn (the opener is not an exchange: no user turn before it)
+  const anchorRow = sc.anchor ? items.find((i) => i.id === sc.anchor) : null;
+  if (sc.anchor && !anchorRow) throw new Error(`${sc.id}: anchor ${sc.anchor} is not an item`);
+  const anchor = anchorRow ? { id: anchorRow.id, type: anchorRow.type, title: anchorRow.title } : null;
+  const lead = anchor
+    ? [
+        {
+          role: 'assistant',
+          content: sc.opener || `Sure, let's talk about **${anchor.title}**. What's on your mind?`,
+        },
+      ]
+    : [];
   for (const turnSpec of sc.turns) {
     // a turn may be an object: { text, decline: true } means the user tapped
     // "Not that one" on the previous card before sending this text
@@ -240,6 +268,7 @@ for (const sc of runs) {
           todayIso,
           items,
           recent,
+          anchor,
         });
         tCard = Date.now() - s;
         return m;
@@ -249,11 +278,17 @@ for (const sc of runs) {
     const triage = applyEntityCardToTriage(triageRaw, card);
     const gen = buildGeneralChatConfig(triage, { runningSummary: '' }, null, '', persona, TZ, null);
     let system = gen.systemPrompt;
-    if (card) system += entityCardPromptSection(card);
+    const anchorNow = match?.anchor || anchor;
+    if (card) system += entityCardPromptSection(card, { anchorId: anchorNow?.id || null });
     system += recentCardPromptSection(recent);
-    const theirs = theirItemsPromptSection(match, todayIso, { mode: triage.mode, card });
+    system += anchorPromptSection(anchorNow, todayIso, { mode: triage.mode });
+    const theirs = theirItemsPromptSection(match, todayIso, {
+      mode: triage.mode,
+      card,
+      anchor: anchorNow,
+    });
     system += theirs;
-    const msgs = [...history, { role: 'user', content: message }];
+    const msgs = [...lead, ...history, { role: 'user', content: message }];
     const r = await geminiGenerate(
       system,
       msgs,
@@ -269,7 +304,7 @@ for (const sc of runs) {
     reply = reply.replace(/<!--SAVE:[\s\S]*?-->/g, '').trim();
     history.push({ role: 'user', content: message }, { role: 'assistant', content: reply });
     const gated = NO_EXTRACTION_MODES.includes(triage.mode);
-    const pill = await extraction(items, history, card, match, recent, shownCards);
+    const pill = await extraction(items, [...lead, ...history], card, match, recent, shownCards);
     if (card && card.kind === 'edit') shownCards.push(card);
     if (pill.lateCardFull) shownCards.push(pill.lateCardFull);
     pill.gated = gated;
@@ -305,6 +340,7 @@ for (const sc of runs) {
           }
         : null,
       about: (match?.related || []).map((c) => c.title),
+      anchor: anchorNow ? { title: anchorNow.title, gone: !!anchorNow.gone } : null,
       known: theirs ? theirs.split('\n').filter((l) => l.startsWith('- ')).map((l) => l.slice(2)) : [],
       reply,
       pill,
@@ -318,7 +354,16 @@ for (const sc of runs) {
       `${sc.id} | ${message.slice(0, 48)} | ${triage.mode}${card ? ` | card ${card.kind}${card.inPassing ? ' (in passing)' : ''}: ${card.entity?.title || ''}${card.change ? ` ${card.change.field}->${card.change.to}` : ''}` : ''} | about ${(match?.related || []).length} | pill ${pill.items.length}${gated ? ' (gated)' : ''}${pill.lateCard ? ` | late card: ${pill.lateCard.title} ${pill.lateCard.field}->${pill.lateCard.to}` : ''} | ${tCard}ms`,
     );
   }
-  out.push({ id: sc.id, base: sc.base || sc.id, group: sc.group, expect: sc.expect || null, note: sc.note || null, turns });
+  out.push({
+    id: sc.id,
+    base: sc.base || sc.id,
+    group: sc.group,
+    expect: sc.expect || null,
+    note: sc.note || null,
+    anchor: anchor ? anchor.title : null,
+    lead: lead[0]?.content || null,
+    turns,
+  });
 }
 writeFileSync(outPath, JSON.stringify(out, null, 2));
 console.log('written', out.length, 'scenarios to', outPath);

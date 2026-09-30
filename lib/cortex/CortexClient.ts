@@ -516,6 +516,8 @@ export function callGeneralChatStreaming(
     userId?: string;
     systemPrompt?: string;
     recentEntity?: import('../types').RecentEntity | null;
+    /** The item this chat was opened about, if any (Talk it through) */
+    anchorEntity?: import('../types').ChatAnchor | null;
   },
   callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
 ): { close: () => void } {
@@ -555,6 +557,8 @@ export function callGeneralChatStreaming(
       chatId: opts.chatId,
       // the item on the last entity card in this chat, so "move it" can mean it
       recentEntity: opts.recentEntity ?? null,
+      // the item the chat was opened about, so every turn knows what it is about
+      anchorEntity: opts.anchorEntity ?? null,
       userId: opts.userId,
       currentTime: nowTimestamp(),
       timezone: getDateService().getTimezone(),

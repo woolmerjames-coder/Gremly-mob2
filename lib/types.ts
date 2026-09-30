@@ -728,6 +728,15 @@ export interface RecentEntity extends EntityCardEntity {
   /** User messages sent after that card, before this one; 0 when this is the first. */
   turns_ago?: number;
 }
+/**
+ * The item a chat was opened about ("Talk it through with Gremly" on a drop).
+ * Saved on Gremly's opener and sent with every turn of that chat.
+ */
+export interface ChatAnchor {
+  id: string;
+  type: 'todo' | 'habit' | 'note';
+  title: string;
+}
 /** Where a chat turn's time went; shown under the reply in dev builds only. */
 export interface ChatTurnTiming {
   /** From send to the first word on screen, on the phone. */
@@ -746,7 +755,13 @@ export interface SpaceChatMessage {
   role: MessageRole;
   content: string;
   metadata_json?: {
-    type?: 'action-confirmation' | 'entry-card' | 'multi-intent' | 'saved-item' | 'entity-card';
+    type?:
+      | 'action-confirmation'
+      | 'entry-card'
+      | 'multi-intent'
+      | 'saved-item'
+      | 'entity-card'
+      | 'chat-anchor';
     actionType?: string;
     actionId?: string;
     entryId?: string;
@@ -809,7 +824,13 @@ export interface SpaceChatMessageInsert {
   role: MessageRole;
   content: string;
   metadata_json?: {
-    type?: 'action-confirmation' | 'entry-card' | 'multi-intent' | 'saved-item' | 'entity-card';
+    type?:
+      | 'action-confirmation'
+      | 'entry-card'
+      | 'multi-intent'
+      | 'saved-item'
+      | 'entity-card'
+      | 'chat-anchor';
     actionType?: string;
     actionId?: string;
     entryId?: string;
