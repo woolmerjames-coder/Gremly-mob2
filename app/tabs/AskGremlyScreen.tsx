@@ -622,6 +622,14 @@ export default function AskGremlyScreen() {
 
           const store = useGremlyStore.getState();
           const savedIds: string[] = [];
+          const savedEntities: Array<{
+            id: string;
+            type: 'todo' | 'habit' | 'note';
+            title: string;
+            due_day?: string | null;
+            due_time?: string | null;
+            frequency?: string | null;
+          }> = [];
 
           for (const item of items) {
             try {
@@ -659,8 +667,16 @@ export default function AskGremlyScreen() {
                 bucket_confirmed: true,
               };
 
+              let createdEntity: {
+                id: string;
+                type: 'todo' | 'habit' | 'note';
+                title: string;
+                due_day?: string | null;
+                due_time?: string | null;
+                frequency?: string | null;
+              } | null = null;
               if (item.type === 'todo') {
-                await store.createTodo({
+                const todo = await store.createTodo({
                   title: smartTitle,
                   name: smartTitle,
                   body: item.body || null,
@@ -672,8 +688,15 @@ export default function AskGremlyScreen() {
                   ai_placed: true,
                   origin: 'chat_save',
                 });
+                createdEntity = {
+                  id: todo.id,
+                  type: 'todo',
+                  title: todo.name || todo.title || smartTitle,
+                  due_day: todo.due_day ?? null,
+                  due_time: todo.due_time ?? null,
+                };
               } else if (item.type === 'habit') {
-                await store.createHabit({
+                const habit = await store.createHabit({
                   name: smartTitle,
                   frequency: (phase2.ok && phase2.extracted_frequency) || item.frequency || 'daily',
                   subtype: item.habit_subtype === 'break' ? 'break_habit' : 'start_habit',
@@ -684,8 +707,14 @@ export default function AskGremlyScreen() {
                   ai_placed: true,
                   origin: 'chat_save',
                 });
+                createdEntity = {
+                  id: habit.id,
+                  type: 'habit',
+                  title: habit.name || smartTitle,
+                  frequency: habit.frequency ?? null,
+                };
               } else {
-                await store.createNote({
+                const note = await store.createNote({
                   title: smartTitle,
                   body: item.body || item.title,
                   subtype: subtype || 'general',
@@ -694,8 +723,10 @@ export default function AskGremlyScreen() {
                   ai_placed: true,
                   origin: 'chat_save',
                 });
+                createdEntity = { id: note.id, type: 'note', title: note.title || smartTitle };
               }
               savedIds.push(item.id);
+              if (createdEntity) savedEntities.push(createdEntity);
             } catch (err) {
               console.warn('[AskGremly] Save failed:', item.title, err);
             }
@@ -718,19 +749,21 @@ export default function AskGremlyScreen() {
           if (activeChat?.id && savedIds.length > 0) {
             await store.markExtractionsSaved(activeChat.id, savedIds);
 
-            const done = items.filter((i) => savedIds.includes(i.id));
-            const created = done.filter((i) => i.type !== 'edit');
-            const edited = done.filter((i) => i.type === 'edit');
-            const parts: string[] = [];
-            if (created.length === 1) parts.push(`Saved "${created[0].title}" to your list.`);
-            else if (created.length > 1)
-              parts.push(
-                `Saved ${created.length} items: ${created.map((i) => i.title).join(', ')}`,
+            // each saved item gets its card in the chat, the receipt that opens it
+            for (const e of savedEntities) {
+              await appendEntityCard(
+                { kind: 'view', entity: { ...e, space_id: null }, intent: 'view', saved: true },
+                { status: 'applied', summary: 'Saved to your list.' },
               );
-            if (edited.length === 1) parts.push(`Updated ${edited[0].entity_title}.`);
+            }
+            const done = items.filter((i) => savedIds.includes(i.id));
+            const edited = done.filter((i) => i.type === 'edit');
+            if (edited.length === 1)
+              await appendAssistantMessage(`✓ Updated ${edited[0].entity_title}.`);
             else if (edited.length > 1)
-              parts.push(`Updated ${edited.map((i) => i.entity_title).join(', ')}.`);
-            await appendAssistantMessage(`✓ ${parts.join(' ')}`);
+              await appendAssistantMessage(
+                `✓ Updated ${edited.map((i) => i.entity_title).join(', ')}.`,
+              );
           }
 
           for (let i = 0; i < savedIds.length + (includeSummary ? 1 : 0); i++) {

@@ -3795,7 +3795,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               fontSize: 14,
                               lineHeight: 14 * 1.65,
                               color: tokens.colors.text,
-                              maxHeight: 72,
+                              // six lines before the expand control is needed, so a line
+                              // added from chat is visible without opening the full editor
+                              maxHeight: 14 * 1.65 * 6,
                               paddingVertical: 8,
                               paddingHorizontal: 0,
                               paddingRight: 36,

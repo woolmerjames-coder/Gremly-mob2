@@ -218,7 +218,9 @@ export function EntityCardMessage({
             applied ? (
               <View style={styles.chip}>
                 <Check size={14} color={lightTokens.colors.deepForest} strokeWidth={2.5} />
-                <Text style={styles.chipText}>Updated</Text>
+                <Text style={styles.chipText}>
+                  {card.kind === 'view' && card.saved ? 'Added' : 'Updated'}
+                </Text>
               </View>
             ) : !edit && open ? (
               <ChevronRight size={20} color={lightTokens.colors.subtle} />

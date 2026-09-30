@@ -29,6 +29,7 @@ export interface ChatBubbleEntityCard {
   message: SpaceChatMessage;
   onStatus: (status: EntityCardStatus, summary?: string) => void;
   onPick?: (entity: EntityCardEntity) => void;
+  onDecline?: (entity: EntityCardEntity | null) => void;
   onOpen?: (entity: EntityCardEntity) => void;
 }
 
@@ -395,6 +396,7 @@ function ChatBubbleInner({
           message={entityCard.message}
           onStatus={entityCard.onStatus}
           onPick={entityCard.onPick}
+          onDecline={entityCard.onDecline}
           onOpen={entityCard.onOpen}
         />
       ) : null}

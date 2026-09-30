@@ -712,7 +712,13 @@ export type EntityCard =
       inPassing?: boolean;
     }
   /** intent 'edit': the user wants to change it but has not said what to; Gremly asks. 'confirm': it may be the one they mean; Gremly checks. */
-  | { kind: 'view'; entity: EntityCardEntity; intent?: 'edit' | 'view' | 'confirm' }
+  | {
+      kind: 'view';
+      entity: EntityCardEntity;
+      intent?: 'edit' | 'view' | 'confirm';
+      /** the item was just saved from the pill; the card is its receipt */
+      saved?: boolean;
+    }
   | { kind: 'choose'; candidates: EntityCardEntity[] };
 export type EntityCardStatus = 'pending' | 'applied' | 'declined' | 'undone';
 /** The item on the last card in a chat, with what became of it, sent with the next turn. */

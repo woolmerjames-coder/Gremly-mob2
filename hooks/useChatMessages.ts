@@ -75,6 +75,7 @@ export interface UseChatMessagesResult {
   /** Entity card in chat: persist the card the worker proposed as a system message. */
   appendEntityCard: (
     card: import('../lib/types').EntityCard,
+    opts?: { status?: import('../lib/types').EntityCardStatus; summary?: string },
   ) => Promise<SpaceChatMessage | undefined>;
   /** Entity card in chat: persist what the user did with it, plus Gremly's closing line. */
   setEntityCardStatus: (
@@ -622,7 +623,10 @@ export function useChatMessages(
   messagesRef.current = messages;
 
   const appendEntityCard = useCallback(
-    async (card: import('../lib/types').EntityCard): Promise<SpaceChatMessage | undefined> => {
+    async (
+      card: import('../lib/types').EntityCard,
+      opts: { status?: import('../lib/types').EntityCardStatus; summary?: string } = {},
+    ): Promise<SpaceChatMessage | undefined> => {
       const targetChatId = currentChatIdRef.current || currentChatId;
       if (!card || !targetChatId || !user?.id) return undefined;
       // The same change offered again while its card is still waiting: the
@@ -647,7 +651,12 @@ export function useChatMessages(
           scope_id: spaceId,
           role: 'system',
           content: `Entity card: ${title}`,
-          metadata_json: { type: 'entity-card', card, status: 'pending' },
+          metadata_json: {
+            type: 'entity-card',
+            card,
+            status: opts.status || 'pending',
+            ...(opts.summary ? { summary: opts.summary } : {}),
+          },
         };
         const newMessage = await messageRepo.append(input);
         setMessages((prev) => [...prev, newMessage]);
