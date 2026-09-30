@@ -545,7 +545,7 @@ export async function matchEntity({
 
 const SAME_THING_PROMPT = `You check proposed new items against what a user already has in a personal productivity app, so nothing they already track is saved twice.
 
-You are given the user's existing items (todos, habits and notes, with ids) and a list of proposed new items. For each proposed item decide whether it is the same thing as one existing item or new. Two things are the same when doing, keeping or noting one would make the other redundant: the same task in other words, the same appointment or event, or a detail of a subject one of the notes already covers. A related but distinct thing, such as another task about the same person, project, pet or place, is new. When in doubt, it is new.
+You are given the user's existing items (todos, habits and notes, with ids) and a list of proposed new items. For each proposed item decide whether it is the same thing as one existing item or new. Two things are the same when doing, keeping or noting one would make the other redundant: the same task in other words, the same appointment or event, or a detail of a subject one of the notes already covers. Sharing a subject with a listed item does not make something that item. When in doubt, it is new.
 
 Return ONLY JSON: {"results":[{"index":0,"same_as":"<existing id>"|null}]} with one entry per proposed item, in order.`;
 
