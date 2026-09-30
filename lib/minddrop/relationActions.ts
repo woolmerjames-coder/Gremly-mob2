@@ -280,6 +280,8 @@ export interface RelationOutcome {
   toast: RelationToastWords;
   /** the item that was changed (Sweep drops any earlier decision on it) */
   targetId: string;
+  /** what kind of item it is, so the toast can open it */
+  targetType: RelationEntity['type'];
   /** put everything back, and the question back on the drop */
   undo: () => Promise<void>;
 }
@@ -494,6 +496,7 @@ async function applyOnce(noteId: string, picked?: RelationEntity): Promise<Relat
     summary,
     ...outcomeWords(rel, entity, madeChange, extraAdded, keepDrop),
     targetId: entity.id,
+    targetType: entity.type,
     undo: async () => {
       await revert();
       if (!keepDrop) await useGremlyStore.getState().restoreNote(note.id);

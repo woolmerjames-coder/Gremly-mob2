@@ -100,6 +100,14 @@ interface OverlayContextValue {
   closeClarificationPopup: () => void;
   /** "Is this one you already have?" for a held drop (lib/minddrop/dropRelation.ts) */
   openRelationPopup: (options: { entityId: string }) => void;
+  /**
+   * Open one of the user's items in the overlay, then call onReturn once the
+   * overlay has closed (a question popup that stepped aside comes back).
+   */
+  openItemThenReturn: (
+    target: { id: string; type: 'todo' | 'habit' | 'note' },
+    onReturn: () => void,
+  ) => void;
 }
 
 const OverlayContext = createContext<OverlayContextValue | undefined>(undefined);
@@ -537,6 +545,65 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
     }, 600);
   }, []);
 
+  // Opening an item from a question popup or the toast. The overlay is not a
+  // modal, so a popup steps aside while it is open and comes back after.
+  const returnAfterOverlay = useRef<(() => void) | null>(null);
+  const overlayVisibleRef = useRef(state.visible);
+  useEffect(() => {
+    overlayVisibleRef.current = state.visible;
+    if (state.visible || !returnAfterOverlay.current) return;
+    const onReturn = returnAfterOverlay.current;
+    returnAfterOverlay.current = null;
+    // let the overlay finish closing first
+    const t = setTimeout(onReturn, 250);
+    return () => clearTimeout(t);
+  }, [state.visible]);
+
+  const openStoreItem = useCallback(
+    (target: { id: string; type: 'todo' | 'habit' | 'note' }): boolean => {
+      const s = useGremlyStore.getState();
+      const list: Array<{ id: string }> =
+        target.type === 'todo' ? s.todos : target.type === 'habit' ? s.habits : s.notes;
+      const record = list.find((r) => r.id === target.id) as Record<string, unknown> | undefined;
+      if (!record) return false;
+      openEdit({
+        record: { ...record, type: target.type } as unknown as AppRecord,
+        spaceId: (record.space_id as string | null | undefined) ?? null,
+      });
+      return true;
+    },
+    [openEdit],
+  );
+
+  const openItemThenReturn = useCallback(
+    (target: { id: string; type: 'todo' | 'habit' | 'note' }, onReturn: () => void) => {
+      returnAfterOverlay.current = onReturn;
+      if (!openStoreItem(target)) {
+        returnAfterOverlay.current = null;
+        onReturn();
+        return;
+      }
+      // If the overlay did not open (another open was already under way), come back anyway
+      setTimeout(() => {
+        if (!overlayVisibleRef.current && returnAfterOverlay.current === onReturn) {
+          returnAfterOverlay.current = null;
+          onReturn();
+        }
+      }, 900);
+    },
+    [openStoreItem],
+  );
+
+  const openRelationItem = useCallback(
+    (entity: { id: string; type: 'todo' | 'habit' | 'note' }) => {
+      const noteId = relationNoteId;
+      if (!noteId) return;
+      setRelationNoteId(null);
+      openItemThenReturn({ id: entity.id, type: entity.type }, () => setRelationNoteId(noteId));
+    },
+    [relationNoteId, openItemThenReturn],
+  );
+
   const close = useCallback(() => {
     setState({
       visible: false,
@@ -567,6 +634,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
         openClarificationPopup,
         closeClarificationPopup,
         openRelationPopup,
+        openItemThenReturn,
       }}
     >
       {children}
@@ -588,9 +656,10 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
         visible={!!relationNoteId}
         noteId={relationNoteId}
         onClose={closeRelationPopup}
+        onOpenItem={openRelationItem}
       />
-      {/* What a yes did, with Undo (shows over Mind Drop and Sweep) */}
-      <RelationToastHost />
+      {/* What a yes did, with Undo; tapping its words opens the item (over Mind Drop and Sweep) */}
+      <RelationToastHost onOpen={openStoreItem} />
     </OverlayContext.Provider>
   );
 }

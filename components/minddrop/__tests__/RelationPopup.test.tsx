@@ -107,6 +107,7 @@ describe('RelationPopup', () => {
       confirm: 'Done',
       toast,
       targetId: 't1',
+      targetType: 'todo',
       undo,
     });
     const leaving = jest.fn();
@@ -123,7 +124,7 @@ describe('RelationPopup', () => {
     await findByText('Done');
     expect(applyDropRelation).toHaveBeenCalledWith('note-1', undefined);
     await waitFor(() => expect(onClose).toHaveBeenCalled(), { timeout: CONFIRM_MS + 1000 });
-    expect(toasts).toHaveBeenCalledWith({ ...toast, undo });
+    expect(toasts).toHaveBeenCalledWith({ ...toast, undo, target: { id: 't1', type: 'todo' } });
     expect(onResolved).toHaveBeenCalledWith('applied', 't1');
     offLeaving();
     offToast();
@@ -170,6 +171,18 @@ describe('RelationPopup', () => {
     await waitFor(() => expect(onResolved).toHaveBeenCalledWith('kept'));
     expect(keepDropAsNew).toHaveBeenCalledWith('note-1');
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('opens the item in full when it is tapped', async () => {
+    held(done);
+    const onOpenItem = jest.fn();
+    const { findByText, getByTestId } = render(
+      <RelationPopup visible noteId="note-1" onClose={jest.fn()} onOpenItem={onOpenItem} />,
+    );
+    await findByText('Mark this one done?');
+    fireEvent.press(getByTestId('relation-item'));
+    expect(onOpenItem).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }));
+    expect(applyDropRelation).not.toHaveBeenCalled();
   });
 
   it('asks same as this one with Keep just one and Keep both', async () => {

@@ -31,11 +31,15 @@ jest.mock('react-native-reanimated', () => {
   };
 });
 
-const payload = (undo = jest.fn(async () => {})) => ({
+const payload = (
+  undo = jest.fn(async () => {}),
+  target: { id: string; type: 'todo' | 'habit' | 'note' } | null = { id: 'n1', type: 'note' },
+) => ({
   icon: 'moved' as const,
   title: 'Moved “Bella Vet Appointment” to Thu 1 Oct, 4:00pm',
   detail: 'Drop archived',
   undo,
+  target,
 });
 
 describe('RelationToast', () => {
@@ -67,5 +71,28 @@ describe('RelationToast', () => {
     fireEvent.press(await findByText('Undo'));
     await findByText('Could not undo that');
     expect(getByTestId('relation-toast')).toBeTruthy();
+  });
+
+  it('opens the item when its words are tapped, and Undo stays separate', async () => {
+    const undo = jest.fn(async () => {});
+    const onOpen = jest.fn();
+    const { findByText, getByTestId, queryByTestId } = render(
+      <RelationToastHost onOpen={onOpen} />,
+    );
+    act(() => eventBus.emit('minddrop:relation_done', payload(undo)));
+    await findByText('Drop archived');
+    fireEvent.press(getByTestId('relation-toast-open'));
+    expect(onOpen).toHaveBeenCalledWith({ id: 'n1', type: 'note' });
+    expect(undo).not.toHaveBeenCalled();
+    await waitFor(() => expect(queryByTestId('relation-toast')).toBeNull());
+  });
+
+  it('has nothing to open when the item was removed', async () => {
+    const onOpen = jest.fn();
+    const { findByText, getByTestId } = render(<RelationToastHost onOpen={onOpen} />);
+    act(() => eventBus.emit('minddrop:relation_done', payload(undefined, null)));
+    await findByText('Drop archived');
+    fireEvent.press(getByTestId('relation-toast-open'));
+    expect(onOpen).not.toHaveBeenCalled();
   });
 });

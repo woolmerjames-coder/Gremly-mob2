@@ -104,6 +104,8 @@ export type EventMap = {
     title: string;
     detail: string | null;
     undo: () => Promise<void>;
+    /** the item the yes changed, opened by tapping the toast (null when it was removed) */
+    target: { id: string; type: 'todo' | 'habit' | 'note' } | null;
   };
   'notification:done_action': { entityId: string; entityType: string };
   'notification:snooze': { entityId: string; entityType: string; seconds: number; label: string };

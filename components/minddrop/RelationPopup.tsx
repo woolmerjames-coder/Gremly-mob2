@@ -65,6 +65,8 @@ interface RelationPopupProps {
   onClose: () => void;
   /** the user decided; Sweep moves on or refreshes the card. targetId: the item a yes changed */
   onResolved?: (outcome: RelationResolution, targetId?: string) => void;
+  /** tapping the item opens it in full; the host brings this popup back when it closes */
+  onOpenItem?: (entity: RelationEntity) => void;
 }
 
 function TypeIcon({ type }: { type: RelationEntity['type'] }) {
@@ -125,6 +127,7 @@ function ItemCard({
   change,
   extra,
   onPress,
+  pressLabel,
   testID,
 }: {
   entity: RelationEntity;
@@ -132,6 +135,8 @@ function ItemCard({
   change?: RelationChange | null;
   extra?: string | null;
   onPress?: () => void;
+  /** what tapping it does, for screen readers */
+  pressLabel?: string;
   testID?: string;
 }) {
   const words = change ? changeWords(entity, change) : null;
@@ -195,7 +200,7 @@ function ItemCard({
     <Pressable
       testID={testID}
       accessibilityRole="button"
-      accessibilityLabel={`Choose ${entity.title}`}
+      accessibilityLabel={pressLabel ?? `Choose ${entity.title}`}
       onPress={onPress}
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
     >
@@ -204,7 +209,13 @@ function ItemCard({
   );
 }
 
-export function RelationPopup({ visible, noteId, onClose, onResolved }: RelationPopupProps) {
+export function RelationPopup({
+  visible,
+  noteId,
+  onClose,
+  onResolved,
+  onOpenItem,
+}: RelationPopupProps) {
   const note = useGremlyStore((s) => (noteId ? s.notes.find((n) => n.id === noteId) : undefined));
   const live = relationOf(note?.views);
   const originalText = String((note as { body?: string } | undefined)?.body || note?.title || '');
@@ -297,7 +308,15 @@ export function RelationPopup({ visible, noteId, onClose, onResolved }: Relation
     const { onClose: close, onResolved: resolved, done: outcome } = latest.current;
     if (finished.current || !outcome) return;
     finished.current = true;
-    eventBus.emit('minddrop:relation_done', { ...outcome.toast, undo: outcome.undo });
+    eventBus.emit('minddrop:relation_done', {
+      ...outcome.toast,
+      undo: outcome.undo,
+      // a removed item has nothing to open
+      target:
+        outcome.toast.icon === 'removed'
+          ? null
+          : { id: outcome.targetId, type: outcome.targetType },
+    });
     resolved?.('applied', outcome.targetId);
     close();
   }, []);
@@ -467,6 +486,8 @@ export function RelationPopup({ visible, noteId, onClose, onResolved }: Relation
           subtitle={subtitleFor(entity, !change)}
           change={change}
           extra={rel.kind === 'same' ? rel.extra : null}
+          onPress={onOpenItem && !busy ? () => onOpenItem(entity) : undefined}
+          pressLabel={`Open ${entity.title}`}
           testID="relation-item"
         />
         <View style={styles.buttons}>

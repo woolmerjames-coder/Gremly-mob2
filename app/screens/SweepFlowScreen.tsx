@@ -1820,6 +1820,9 @@ function SweepDecisionStep({
   const [isClarified, setIsClarified] = useState(false); // Triggers flip animation after clarification
   // Held drops ("is this one you already have?") already asked on this sweep
   const [relationHandledIds, setRelationHandledIds] = useState<Set<string>>(() => new Set());
+  // The popup steps aside while its item is open in the overlay, then comes back
+  const [relationParked, setRelationParked] = useState(false);
+  const { openItemThenReturn } = useGlobalOverlay();
 
   // Track item details for summary display
   const itemDetailsRef = useRef<Map<string, { name: string; kind: 'todo' | 'habit' | 'note' }>>(
@@ -3557,10 +3560,20 @@ function SweepDecisionStep({
             {/* "Is this one you already have?" - shown when the current card is a held drop */}
             <RelationPopup
               key={relationNoteId ?? 'none'}
-              visible={!!relationNoteId}
+              visible={!!relationNoteId && !relationParked}
               noteId={relationNoteId}
               onClose={() => markRelationHandled(relationNoteId)}
               onResolved={handleRelationResolved}
+              onOpenItem={
+                openItemThenReturn
+                  ? (entity) => {
+                      setRelationParked(true);
+                      openItemThenReturn({ id: entity.id, type: entity.type }, () =>
+                        setRelationParked(false),
+                      );
+                    }
+                  : undefined
+              }
             />
           </>
         )}

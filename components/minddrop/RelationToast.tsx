@@ -4,8 +4,9 @@
  *
  * The popup shows a short tick and gets out of the way; this small toast at
  * the top then says what changed ("Moved “Vet” to Thu 1 Oct, 4:00pm", "Drop
- * archived"), with an icon for what happened, for a few seconds. One host
- * lives in the OverlayProvider, so it shows over Mind Drop and Sweep alike.
+ * archived"), with an icon for what happened, for a few seconds. Tapping the
+ * words opens the item; Undo sits in its own small button beside them. One
+ * host lives in the OverlayProvider, so it shows over Mind Drop and Sweep.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -50,7 +51,18 @@ const ICONS = {
   removed: Archive,
 } as const;
 
-export function RelationToast({ payload, onHide }: { payload: Payload; onHide: () => void }) {
+type Target = NonNullable<Payload['target']>;
+
+export function RelationToast({
+  payload,
+  onHide,
+  onOpen,
+}: {
+  payload: Payload;
+  onHide: () => void;
+  /** tapping the words opens the item that changed */
+  onOpen?: (target: Target) => void;
+}) {
   const insets = useSafeAreaInsets();
   const [state, setState] = useState<'shown' | 'undoing' | 'undone' | 'failed'>('shown');
   const translateY = useSharedValue(-24);
@@ -112,6 +124,14 @@ export function RelationToast({ payload, onHide }: { payload: Payload; onHide: (
     transform: [{ translateY: translateY.value }],
   }));
 
+  const canOpen = state === 'shown' && !!payload.target && !!onOpen;
+  const open = useCallback(() => {
+    if (!payload.target || !onOpen) return;
+    const target = payload.target;
+    hide();
+    onOpen(target);
+  }, [payload.target, onOpen, hide]);
+
   const Icon = state === 'undone' ? RotateCcw : ICONS[payload.icon] || CircleCheck;
   const title =
     state === 'undone'
@@ -124,26 +144,36 @@ export function RelationToast({ payload, onHide }: { payload: Payload; onHide: (
   return (
     <View pointerEvents="box-none" style={[styles.container, { top: insets.top + 8 }]}>
       <Animated.View style={[styles.toast, style]} testID="relation-toast">
-        <View style={styles.iconWrap}>
-          <Icon size={16} color={lightTokens.colors.mossGreen} strokeWidth={2.25} />
-        </View>
-        <View style={styles.textWrap}>
-          <Text style={styles.title} numberOfLines={2}>
-            {title}
-          </Text>
-          {detail ? (
-            <Text style={styles.detail} numberOfLines={1}>
-              {detail}
+        {/* The icon and words: tap to open the item that changed */}
+        <Pressable
+          testID="relation-toast-open"
+          accessibilityRole={canOpen ? 'button' : undefined}
+          accessibilityLabel={canOpen ? `${title}. Open it` : undefined}
+          disabled={!canOpen}
+          onPress={open}
+          style={({ pressed }) => [styles.openArea, pressed && canOpen && styles.openPressed]}
+        >
+          <View style={styles.iconWrap}>
+            <Icon size={16} color={lightTokens.colors.mossGreen} strokeWidth={2.25} />
+          </View>
+          <View style={styles.textWrap}>
+            <Text style={styles.title} numberOfLines={2}>
+              {title}
             </Text>
-          ) : null}
-        </View>
+            {detail ? (
+              <Text style={styles.detail} numberOfLines={1}>
+                {detail}
+              </Text>
+            ) : null}
+          </View>
+        </Pressable>
         {state === 'shown' ? (
           <Pressable
             testID="relation-toast-undo"
             accessibilityRole="button"
             accessibilityLabel="Undo"
             onPress={undo}
-            hitSlop={8}
+            hitSlop={6}
             style={({ pressed }) => [styles.undo, pressed && styles.pressed]}
           >
             <Text style={styles.undoText}>Undo</Text>
@@ -167,7 +197,7 @@ export function RelationToast({ payload, onHide }: { payload: Payload; onHide: (
 }
 
 /** Shows the latest toast; a new one replaces the one on screen. */
-export function RelationToastHost() {
+export function RelationToastHost({ onOpen }: { onOpen?: (target: Target) => void }) {
   const [current, setCurrent] = useState<{ key: number; payload: Payload } | null>(null);
   const counter = useRef(0);
 
@@ -185,6 +215,7 @@ export function RelationToastHost() {
     <RelationToast
       key={current.key}
       payload={current.payload}
+      onOpen={onOpen}
       onHide={() => setCurrent((c) => (c && c.key === current.key ? null : c))}
     />
   );
@@ -204,7 +235,7 @@ const styles = StyleSheet.create({
     maxWidth: 420,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
     backgroundColor: lightTokens.colors.surface,
     borderRadius: 16,
     borderWidth: 1,
@@ -234,7 +265,15 @@ const styles = StyleSheet.create({
     color: lightTokens.colors.deepForest,
   },
   detail: { fontSize: 12, color: lightTokens.colors.subtle, marginTop: 1 },
-  undo: { paddingHorizontal: 8, paddingVertical: 6 },
+  openArea: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  openPressed: { opacity: 0.6 },
+  // Undo in its own small button, so it reads apart from the tappable words
+  undo: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: 'rgba(191, 216, 192, 0.45)',
+  },
   undoText: {
     fontSize: 14,
     fontFamily: 'Inter-SemiBold',
