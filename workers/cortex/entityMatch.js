@@ -256,7 +256,7 @@ const FIELDS = {
  * Pure, so it is unit tested; matchEntity below does the fetching. Items are
  * looked up by the short key the model was shown or by their full id.
  */
-export function decideCard(answer, candidates) {
+export function decideCard(answer, candidates, opts = {}) {
   if (!answer || typeof answer !== 'object') return null;
   const byId = itemIndex(candidates);
   const confidence = Number(answer.confidence) || 0;
@@ -264,110 +264,131 @@ export function decideCard(answer, candidates) {
   const usable = (id) => byId.has(id) && !byId.get(id).declined;
   const knownIds = (list) =>
     Array.isArray(list) ? [...new Set(list.filter(usable).map((id) => byId.get(id).id))] : [];
+  const choice = (ids) => ({
+    kind: 'choose',
+    candidates: ids.slice(0, 3).map((id) => byId.get(id)),
+  });
+  const confirm = (id) => ({ kind: 'view', entity: byId.get(id), intent: 'confirm' });
+  // the model asks only when they want something to happen to one of these:
+  // two or more still open are the choice, one left (the other turned down) is
+  // shown to confirm, and none named falls back to the ones it considered
+  if (answer.ask) {
+    const named = knownIds(answer.candidates);
+    const askIds = named.length ? named : knownIds(answer.considered);
+    if (askIds.length >= 2) return choice(askIds);
+    if (askIds.length === 1) return confirm(askIds[0]);
+  }
   const askIds = knownIds(answer.candidates);
-  // the model asks only when they want something to happen to one of these
-  if (answer.ask && askIds.length >= 2) {
-    return {
-      kind: 'choose',
-      candidates: askIds.slice(0, 3).map((id) => byId.get(id)),
-    };
+  const decided = decideReferred();
+  if (decided) return decided;
+  // They have just turned a card down, so what they asked for still stands and
+  // the item they meant is one of the others the model considered: those are the
+  // choice, a single one is shown to confirm, and none means nothing else fits.
+  if (opts.afterDecline) {
+    const others = knownIds(answer.considered);
+    if (others.length >= 2) return choice(others);
+    if (others.length === 1) return confirm(others[0]);
   }
-  if (!answer.refers || !usable(answer.entity_id)) return null;
-  const entity = byId.get(answer.entity_id);
-  const intent = answer.intent;
-  if (confidence < CONFIDENCE_FLOOR) {
-    // Not sure enough to propose a change. The model's own alternatives (the
-    // ones it named, else the ones it considered while reading the list) are the
-    // choice; otherwise the one item it named is shown and Gremly asks whether
-    // that is the one. Never a list padded with unrelated items.
-    const others = (askIds.length >= 2 ? askIds : knownIds(answer.considered)).filter(
-      (id) => id !== entity.id,
-    );
-    if (others.length >= 1) {
-      const ids = [entity.id, ...others].slice(0, 3);
-      return { kind: 'choose', candidates: ids.map((id) => byId.get(id)) };
+  return null;
+
+  function decideReferred() {
+    if (!answer.refers || !usable(answer.entity_id)) return null;
+    const entity = byId.get(answer.entity_id);
+    const intent = answer.intent;
+    if (confidence < CONFIDENCE_FLOOR) {
+      // Not sure enough to propose a change. The model's own alternatives (the
+      // ones it named, else the ones it considered while reading the list) are the
+      // choice; otherwise the one item it named is shown and Gremly asks whether
+      // that is the one. Never a list padded with unrelated items.
+      const others = (askIds.length >= 2 ? askIds : knownIds(answer.considered)).filter(
+        (id) => id !== entity.id,
+      );
+      if (others.length >= 1) {
+        const ids = [entity.id, ...others].slice(0, 3);
+        return { kind: 'choose', candidates: ids.map((id) => byId.get(id)) };
+      }
+      if (intent === 'edit' || intent === 'complete')
+        return { kind: 'view', entity, intent: 'confirm' };
+      return null;
     }
-    if (intent === 'edit' || intent === 'complete')
-      return { kind: 'view', entity, intent: 'confirm' };
-    return null;
-  }
-  if (intent === 'edit' && answer.change && FIELDS[entity.type]?.includes(answer.change.field)) {
-    const value = String(answer.change.value ?? '').trim();
-    // the user wants a change but the new value is missing or unusable: show the
-    // item and let Gremly ask what should change
-    if (!value) return { kind: 'view', entity, intent: 'edit' };
-    if (answer.change.field === 'due_day' && !/^\d{4}-\d{2}-\d{2}$/.test(value))
-      return { kind: 'view', entity, intent: 'edit' };
-    if (answer.change.field === 'due_time' && !/^\d{2}:\d{2}$/.test(value))
-      return { kind: 'view', entity, intent: 'edit' };
-    const from = entity[answer.change.field === 'name' ? 'title' : answer.change.field] ?? null;
-    // already that way: nothing to change, Gremly says so
-    if (String(from ?? '') === value)
-      return { kind: 'view', entity, intent: 'view', already: true };
-    return {
-      kind: 'edit',
-      entity,
-      change: { field: answer.change.field, from, to: value },
-      confidence,
-    };
-  }
-  if (intent === 'logged' && entity.type === 'habit') {
-    const day = String(answer.change?.value ?? '').trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(day))
-      return { kind: 'mention', entity, change: null, confidence };
-    // already counted for that day: no card, the reply says so
-    if ((entity.logged_days || []).includes(day))
-      return { kind: 'mention', entity, change: null, confidence, loggedAlready: day };
-    // a check-in never interrupts: the card sits under a normal reply
-    return {
-      kind: 'edit',
-      entity,
-      change: { field: 'logged', from: null, to: day },
-      confidence,
-      inPassing: true,
-    };
-  }
-  if (intent === 'complete' && entity.type === 'todo') {
-    return {
-      kind: 'edit',
-      entity,
-      change: { field: 'completed', from: null, to: 'done' },
-      confidence,
-    };
-  }
-  if (intent === 'edit') return { kind: 'view', entity, intent: 'edit' };
-  // a card that only shows an item interrupts the chat, so the model has to be
-  // sure they asked to see it, not merely talked about it
-  if (intent === 'view' && confidence >= VIEW_FLOOR)
-    return { kind: 'view', entity, intent: 'view' };
-  if (intent === 'mention') {
-    // no card: the reply hears about the item, and any change the words carry
-    // becomes an offer in the Save items pill
-    const f = answer.change?.field;
-    const value = String(answer.change?.value ?? '').trim();
-    // details said in passing go to the pill, which can hold the text; a card cannot
-    const usable =
-      f &&
-      f !== 'body_add' &&
-      value &&
-      FIELDS[entity.type]?.includes(f) &&
-      (f !== 'due_day' || /^\d{4}-\d{2}-\d{2}$/.test(value)) &&
-      (f !== 'due_time' || /^\d{2}:\d{2}$/.test(value));
-    const from = usable ? (entity[f === 'name' ? 'title' : f] ?? null) : null;
-    if (usable && String(from ?? '') !== value) {
-      // a concrete change said in passing: the card is the offer, under a
-      // reply that carries on the conversation (inPassing keeps triage as is)
+    if (intent === 'edit' && answer.change && FIELDS[entity.type]?.includes(answer.change.field)) {
+      const value = String(answer.change.value ?? '').trim();
+      // the user wants a change but the new value is missing or unusable: show the
+      // item and let Gremly ask what should change
+      if (!value) return { kind: 'view', entity, intent: 'edit' };
+      if (answer.change.field === 'due_day' && !/^\d{4}-\d{2}-\d{2}$/.test(value))
+        return { kind: 'view', entity, intent: 'edit' };
+      if (answer.change.field === 'due_time' && !/^\d{2}:\d{2}$/.test(value))
+        return { kind: 'view', entity, intent: 'edit' };
+      const from = entity[answer.change.field === 'name' ? 'title' : answer.change.field] ?? null;
+      // already that way: nothing to change, Gremly says so
+      if (String(from ?? '') === value)
+        return { kind: 'view', entity, intent: 'view', already: true };
       return {
         kind: 'edit',
         entity,
-        change: { field: f, from, to: value },
+        change: { field: answer.change.field, from, to: value },
+        confidence,
+      };
+    }
+    if (intent === 'logged' && entity.type === 'habit') {
+      const day = String(answer.change?.value ?? '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day))
+        return { kind: 'mention', entity, change: null, confidence };
+      // already counted for that day: no card, the reply says so
+      if ((entity.logged_days || []).includes(day))
+        return { kind: 'mention', entity, change: null, confidence, loggedAlready: day };
+      // a check-in never interrupts: the card sits under a normal reply
+      return {
+        kind: 'edit',
+        entity,
+        change: { field: 'logged', from: null, to: day },
         confidence,
         inPassing: true,
       };
     }
-    return { kind: 'mention', entity, change: null, confidence };
+    if (intent === 'complete' && entity.type === 'todo') {
+      return {
+        kind: 'edit',
+        entity,
+        change: { field: 'completed', from: null, to: 'done' },
+        confidence,
+      };
+    }
+    if (intent === 'edit') return { kind: 'view', entity, intent: 'edit' };
+    // a card that only shows an item interrupts the chat, so the model has to be
+    // sure they asked to see it, not merely talked about it
+    if (intent === 'view' && confidence >= VIEW_FLOOR)
+      return { kind: 'view', entity, intent: 'view' };
+    if (intent === 'mention') {
+      // no card: the reply hears about the item, and any change the words carry
+      // becomes an offer in the Save items pill
+      const f = answer.change?.field;
+      const value = String(answer.change?.value ?? '').trim();
+      // details said in passing go to the pill, which can hold the text; a card cannot
+      const usable =
+        f &&
+        f !== 'body_add' &&
+        value &&
+        FIELDS[entity.type]?.includes(f) &&
+        (f !== 'due_day' || /^\d{4}-\d{2}-\d{2}$/.test(value)) &&
+        (f !== 'due_time' || /^\d{2}:\d{2}$/.test(value));
+      const from = usable ? (entity[f === 'name' ? 'title' : f] ?? null) : null;
+      if (usable && String(from ?? '') !== value) {
+        // a concrete change said in passing: the card is the offer, under a
+        // reply that carries on the conversation (inPassing keeps triage as is)
+        return {
+          kind: 'edit',
+          entity,
+          change: { field: f, from, to: value },
+          confidence,
+          inPassing: true,
+        };
+      }
+      return { kind: 'mention', entity, change: null, confidence };
+    }
+    return null;
   }
-  return null;
 }
 
 /** Items by their short key and by their full id. */
@@ -534,32 +555,39 @@ function itemLine(c, todayIso) {
 
 /**
  * The reply's knowledge of the user's own items for this turn: the ones the
- * matcher says the message is about, and the ones that need attention anyway.
- * Gremly may speak about them and offer the natural next step; the card and
- * the pill are where a change is confirmed, so the reply never claims one.
+ * matcher says the message is about, the ones that need attention anyway, and
+ * whether a card goes with this reply. Gremly may speak about the items and
+ * offer the natural next step; the card and the pill are where a change is
+ * confirmed, so the reply never claims one, and when no card goes with the
+ * reply it is told so, because then nothing can change from this turn.
  * In a feelings turn only the item they themselves brought up is passed on.
+ * Present every turn the matcher ran, so the rules hold when the list is empty.
  */
 export function theirItemsPromptSection(match, todayIso, opts = {}) {
   // when a card has taken the reply over, the card is the whole turn
   if (opts.mode === 'entity_card') return '';
+  if (!match) return '';
   const strict = NO_ATTENTION_MODES.has(opts.mode);
-  const related = (match?.related || [])
+  const related = (match.related || [])
     .filter((c) => c && c.title && (!strict || c.referred || c.shown))
     .slice(0, RELATED_MAX);
   const relatedIds = new Set(related.map((c) => c.id));
-  const attention = strict ? [] : (match?.attention || []).filter((c) => !relatedIds.has(c.id));
-  if (related.length === 0 && attention.length === 0) return '';
+  const attention = strict ? [] : (match.attention || []).filter((c) => !relatedIds.has(c.id));
   const parts = [
     '=== WHAT THEY HAVE ON ===',
-    "Their own items, as they stand right now. You know these exist. When one bears on what they said, say so plainly and in passing, in your own words: that it is already on their list, when it is, that it is overdue. You may offer the natural next step for the item they are talking about (moving it, marking it done) as a plain question in your own words; the app handles the confirmation, so never mention a card, a button or tapping, never say you will set anything up or get anything ready, never say a change has been made, and never offer to change several at once: one item per offer. Never offer to move something else to make room. Never say something is on their list unless it is listed here; if they ask for something to be done to an item you cannot see here, ask which one they mean. Never read the list out, never mention more than one or two, and leave them alone when the conversation is elsewhere. An overdue item is not on any particular day, so never present it as part of a day's plan. A habit line shows what has been logged; when they say they did a habit on a day that is already logged, say it is already counted, and you may speak to how the habit is going from what is logged.",
+    "Their own items, as they stand right now. You know these exist. When one bears on what they said, say so plainly and in passing, in your own words: that it is already on their list, when it is, that it is overdue. You may offer the natural next step for the item they are talking about (moving it, marking it done) as a plain question in your own words; the app handles the confirmation, so never mention a card, a button or tapping, never say you will set anything up or get anything ready, never say a change has been made, and never offer to change several at once: one item per offer. Never offer to move something else to make room. Never say something is on their list unless it is listed here; if they ask for something to be done to an item you cannot see here, ask which one they mean. An item named anywhere else in what you know about them, such as their life map, earlier chats or upcoming dates, is history: it may since have been done, archived or renamed, so never say it is on their list and never offer to change it unless it is listed here. Never read the list out, never mention more than one or two, and leave them alone when the conversation is elsewhere. An overdue item is not on any particular day, so never present it as part of a day's plan. A habit line shows what has been logged; when they say they did a habit on a day that is already logged, say it is already counted, and you may speak to how the habit is going from what is logged.",
   ];
-  if (related.length) {
-    parts.push('What they are talking about:');
-    parts.push(...related.map((c) => itemLine(c, todayIso)));
-  }
+  parts.push('What they are talking about:');
+  if (related.length) parts.push(...related.map((c) => itemLine(c, todayIso)));
+  else parts.push('- none of their items, as far as the app can tell');
   if (attention.length) {
     parts.push('Overdue or coming up this week:');
     parts.push(...attention.map((c) => itemLine(c, todayIso)));
+  }
+  if (!opts.card) {
+    parts.push(
+      'No card goes with this reply. For this turn, the items listed above are the only ones of theirs you know exist, whatever they call them; anything else they name, the app has not found among their current todos, notes and habits. So nothing changes from this reply, and you never say a change was made, that something is done or off their list, that you will do it, or that you will add or save anything; the app offers new things for saving on its own. When they ask for something to be done to an item: if it is listed above, ask in plain words what should change or whether they want it changed; if it is not, say you cannot see it on their list right now and ask which one they mean, or whether it is new. When they tell you something is finished and it is not listed above, hear the news, but do not say it is marked done. An offer for an item listed above is fine; the change happens on a later turn, through the app, once they say yes.',
+    );
   }
   return `\n\n${parts.join('\n')}`;
 }
@@ -628,7 +656,9 @@ export async function matchEntity({
     if (!res.ok) return result;
     const json = await res.json();
     const answer = parseJson(json.choices?.[0]?.message?.content || '');
-    let decision = decideCard(answer, candidates);
+    // the message right after they turned a card down
+    const afterDecline = recent?.status === 'declined' && (recent.turns_ago ?? 0) === 0;
+    let decision = decideCard(answer, candidates, { afterDecline });
     // A card that proposes no change never repeats for the item on the last
     // card while that card is still in view: only a new change earns a new one.
     if (

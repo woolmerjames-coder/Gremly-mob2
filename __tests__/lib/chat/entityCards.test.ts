@@ -270,6 +270,24 @@ describe('cards in the chat list', () => {
     ];
     expect(lateCardAlreadyShown(logged, log(true, '2031-10-01'))).toBe(true);
     expect(lateCardAlreadyShown(logged, log(true, '2031-10-02'))).toBe(false);
+    // a day change the chat already offered and the user turned down is not offered again late
+    const move = (late: boolean, to: string) =>
+      ({
+        kind: 'edit',
+        entity: dentist,
+        change: { field: 'due_day', from: null, to },
+        late,
+      }) as EntityCard;
+    const declinedMove = [
+      msg('c7', 'system', {
+        type: 'entity-card',
+        status: 'declined',
+        card: move(false, '2031-10-02'),
+      }),
+    ];
+    expect(lateCardAlreadyShown(declinedMove, move(true, '2031-10-02'))).toBe(true);
+    expect(lateCardAlreadyShown(declinedMove, move(true, '2031-10-03'))).toBe(false);
+    expect(lateCardAlreadyShown(declinedMove, move(false, '2031-10-02'))).toBe(false);
     // the check-in card's words
     const words = describeChange(
       { ...dentist, type: 'habit' },

@@ -426,13 +426,14 @@ export function pendingTwinOf(
 
 /**
  * A card found after the reply (late) repeats too easily, because the
- * extraction reads the whole conversation each turn: an add-to or a check-in
- * for an item that already had one in this chat, whatever became of it, is
- * not shown again. Only an explicit ask (a matcher card) can repeat those.
+ * extraction reads the whole conversation each turn: a change this chat
+ * already had a card for, whatever became of it (tapped, turned down or
+ * still waiting), is not shown again. An add-to counts by item, since the
+ * words differ each time; any other change counts by item, field and value.
+ * Only an explicit ask (a matcher card) can repeat those.
  */
 export function lateCardAlreadyShown(messages: SpaceChatMessage[], card: EntityCard): boolean {
   if (card.kind !== 'edit' || !card.late) return false;
-  if (card.change.field !== 'body_add' && card.change.field !== 'logged') return false;
   return messages.some((m) => {
     if (!isEntityCardMessage(m)) return false;
     const c = (m.metadata_json as { card: EntityCard }).card;

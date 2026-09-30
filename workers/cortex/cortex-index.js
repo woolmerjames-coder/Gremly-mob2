@@ -11760,7 +11760,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             genConfig.systemPrompt += theirItemsPromptSection(
               entityMatch,
               todayIsoIn(userTimezone),
-              { mode: triage.mode },
+              { mode: triage.mode, card: entityCard },
             );
 
             const spaceChatMessages = [
@@ -12593,7 +12593,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             genConfig.systemPrompt += theirItemsPromptSection(
               entityMatch,
               todayIsoIn(userTimezone),
-              { mode: triage.mode },
+              { mode: triage.mode, card: entityCard },
             );
 
             const chatMessages = [
@@ -14673,6 +14673,7 @@ function runScopedChatStream(
       genConfig.systemPrompt += recentCardPromptSection(body.recentEntity);
       genConfig.systemPrompt += theirItemsPromptSection(entityMatch, todayIsoIn(userTimezone), {
         mode: triage.mode,
+        card: entityCard,
       });
       const chatMessages = [
         { role: 'system', content: genConfig.systemPrompt },

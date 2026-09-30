@@ -176,8 +176,12 @@ test('decideCard: ask with two known candidates gives a choose card; complete ma
   );
   expect(choose.kind).toBe('choose');
   expect(choose.candidates.map((c) => c.id)).toEqual(['dddd4444-0000', 'ffff6666-0000']);
+  // asking with a single one named: that one is shown to confirm
   expect(
     decideCard({ refers: false, entity_id: null, ask: true, candidates: ['dddd4444'] }, cands),
+  ).toMatchObject({ kind: 'view', intent: 'confirm', entity: { id: 'dddd4444-0000' } });
+  expect(
+    decideCard({ refers: false, entity_id: null, ask: true, candidates: [] }, cands),
   ).toBeNull();
   const done = decideCard(
     { refers: true, entity_id: 'aaaa1111', intent: 'complete', confidence: 90 },
@@ -834,7 +838,10 @@ test('what needs attention: due this week first, then the most recently overdue 
     '2026-09-29',
     { mode: 'emotional' },
   );
-  expect(quietSec).toBe('');
+  expect(quietSec).not.toContain('Overdue or coming up');
+  expect(quietSec).not.toContain('"Dentist"');
+  // the rules and the no-card statement hold even then
+  expect(quietSec).toContain('No card goes with this reply');
   expect(attentionItems(items, null)).toEqual([]);
   const sec = theirItemsPromptSection(
     {
@@ -852,7 +859,10 @@ test('what needs attention: due this week first, then the most recently overdue 
   expect(sec).toContain('Overdue or coming up this week:');
   expect(sec).not.toMatch(/Overdue or coming up this week:[\s\S]*"Old one"/); // not listed twice
   expect(sec).toContain('- note "Bella vet", Friday (2026-10-02)');
-  expect(theirItemsPromptSection({ related: [], attention: [] }, '2026-09-29')).toBe('');
+  // nothing matched and nothing due: the block still tells the reply no card goes with it
+  expect(theirItemsPromptSection({ related: [], attention: [] }, '2026-09-29')).toContain(
+    'No card goes with this reply',
+  );
   expect(theirItemsPromptSection(null, '2026-09-29')).toBe('');
 });
 
@@ -1155,4 +1165,107 @@ test('existing means card, new means pill: one late card from the changes the ex
       { type: 'event', title: 'Trip' },
     ]).map((e) => e.title),
   ).toEqual(['Buy milk', 'Trip']);
+});
+
+test('after "not that one", the others the model considered are the choice, one is a confirm, none is nothing', () => {
+  const list = [
+    {
+      id: 's1000000-0000',
+      type: 'todo',
+      title: 'Send Out Sage Future Deck',
+      due_day: '2026-10-01',
+    },
+    {
+      id: 's2000000-0000',
+      type: 'todo',
+      title: 'Create Two Sage Case Studies',
+      due_day: '2026-07-16',
+    },
+    { id: 's3000000-0000', type: 'note', title: 'Sage Future On April 28' },
+    { id: 'zzzz0000-0000', type: 'todo', title: 'Buy milk' },
+  ];
+  const declined = {
+    id: 's1000000-0000',
+    type: 'todo',
+    title: 'Send Out Sage Future Deck',
+    status: 'declined',
+    turns_ago: 0,
+  };
+  const after = candidatesFor('not that one', list, declined);
+  // the model saw the others but did not pick or ask: the decline says what they want
+  const shrug = {
+    considered: ['s1000000', 's2000000', 's3000000'],
+    refers: false,
+    entity_id: null,
+    intent: 'none',
+    change: null,
+    about: [],
+    confidence: 90,
+    ask: false,
+    candidates: [],
+  };
+  expect(decideCard(shrug, after)).toBeNull();
+  const choose = decideCard(shrug, after, { afterDecline: true });
+  expect(choose.kind).toBe('choose');
+  expect(choose.candidates.map((c) => c.id)).toEqual(['s2000000-0000', 's3000000-0000']);
+  // one other left: shown to confirm
+  const one = decideCard({ ...shrug, considered: ['s1000000', 's2000000'] }, after, {
+    afterDecline: true,
+  });
+  expect(one).toMatchObject({ kind: 'view', intent: 'confirm', entity: { id: 's2000000-0000' } });
+  // nothing else fits: no card, the reply says so
+  expect(
+    decideCard({ ...shrug, considered: ['s1000000'] }, after, { afterDecline: true }),
+  ).toBeNull();
+  expect(decideCard({ ...shrug, considered: [] }, after, { afterDecline: true })).toBeNull();
+  // the model asks but names the turned-down one among two: the one left is a confirm
+  const askTwo = { ...shrug, ask: true, candidates: ['s1000000', 's2000000'] };
+  expect(decideCard(askTwo, after)).toMatchObject({
+    kind: 'view',
+    intent: 'confirm',
+    entity: { id: 's2000000-0000' },
+  });
+  // the model asks with nothing usable named but a considered set: the set is the choice
+  const askLoose = {
+    ...shrug,
+    ask: true,
+    candidates: [],
+    considered: ['s2000000', 's3000000', 'zzzz0000'],
+  };
+  expect(decideCard(askLoose, after).candidates.map((c) => c.id)).toEqual([
+    's2000000-0000',
+    's3000000-0000',
+    'zzzz0000-0000',
+  ]);
+  // an ordinary turn, not after a decline: refers false stays nothing
+  expect(decideCard(shrug, candidatesFor('m', list, null))).toBeNull();
+});
+
+test('the reply is told every turn what it can see and whether a card goes with the reply', () => {
+  const cands = candidatesFor('m', items, null);
+  // nothing matched, no card: the rules still stand and the reply cannot claim or promise a change
+  const none = theirItemsPromptSection({ related: [], attention: [] }, '2026-09-29', {
+    mode: 'update',
+  });
+  expect(none).toContain('=== WHAT THEY HAVE ON ===');
+  expect(none).toContain('none of their items, as far as the app can tell');
+  expect(none).toContain('No card goes with this reply');
+  expect(none).toContain('is history');
+  // an in-passing card sits under the reply: the card section speaks for it
+  const withCard = theirItemsPromptSection({ related: [cands[0]], attention: [] }, '2026-09-29', {
+    mode: 'update',
+    card: {
+      kind: 'edit',
+      inPassing: true,
+      entity: cands[0],
+      change: { field: 'due_day', from: null, to: '2026-10-01' },
+    },
+  });
+  expect(withCard).toContain('"Dentist"');
+  expect(withCard).not.toContain('No card goes with this reply');
+  // a card that took the reply over, or no matcher at all: nothing
+  expect(
+    theirItemsPromptSection({ related: [], attention: [] }, '2026-09-29', { mode: 'entity_card' }),
+  ).toBe('');
+  expect(theirItemsPromptSection(null, '2026-09-29', { mode: 'update' })).toBe('');
 });
