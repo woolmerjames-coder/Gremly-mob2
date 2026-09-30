@@ -11,6 +11,7 @@ import {
   Animated,
   Dimensions,
   Easing,
+  StyleSheet,
   Alert,
   Platform,
   Pressable,
@@ -666,6 +667,21 @@ const UnifiedCardWrapper = React.memo<{
 );
 UnifiedCardWrapper.displayName = 'UnifiedCardWrapper';
 
+// The question, split and "one you already have" lines: set line heights (the
+// Text default is much taller than 13pt type), so the card sits close to a
+// normal card's height
+const ASK_ROW = { flexDirection: 'row' as const, alignItems: 'center' as const, marginTop: 2 };
+const ASK_AVATAR = { width: 22, height: 22, marginRight: 8, borderRadius: 11 };
+const ASK_TEXT = {
+  flex: 1,
+  fontSize: 13,
+  lineHeight: 17,
+  color: '#4A7C59',
+  fontWeight: '600' as const,
+};
+const ASK_HELPER = { flex: 1, fontSize: 12, lineHeight: 15, color: '#657865', marginLeft: 30 };
+const ASK_TIME = { lineHeight: 15 };
+
 /**
  * ClarifyBadge - Static badge for items needing clarification
  * Shows in the top-right badge position, replacing the bucket badge.
@@ -675,17 +691,18 @@ const ClarifyBadge: React.FC = () => {
   return (
     <View
       style={{
-        paddingHorizontal: 8,
-        paddingVertical: 3,
+        paddingHorizontal: 7,
+        paddingVertical: 2,
         borderRadius: 8,
         backgroundColor: 'rgba(255, 243, 224, 0.9)',
-        borderWidth: 1,
-        borderColor: 'rgba(180, 140, 80, 0.25)',
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: 'rgba(180, 140, 80, 0.35)',
       }}
     >
       <Text
         style={{
           fontSize: 10,
+          lineHeight: 14,
           fontWeight: '600',
           color: '#8B6914',
           fontFamily: 'Inter-Medium',
@@ -1882,8 +1899,15 @@ const AnimatedMindDropCard = React.memo<{
         return;
       }
 
-      // Clarification bounce: happens when needsClarification becomes true
-      if (needsClarification && !clarificationBounceAnimatedIds.has(bounceTrackingId)) {
+      // Question bounce: when the finished question card first shows (not while
+      // the drop is still being worked on behind a skeleton), for a new drop only
+      const askingShown =
+        (needsClarification || relationPending) &&
+        item.views?.clarification_processing !== true &&
+        item.views?.ai_pending !== true;
+      const isFresh =
+        getDateService().now().getTime() - new Date(item.created_at).getTime() < 2 * 60 * 1000;
+      if (askingShown && isFresh && !clarificationBounceAnimatedIds.has(bounceTrackingId)) {
         clarificationBounceAnimatedIds.add(bounceTrackingId);
 
         // Same pronounced bounce as multi: 1.0 → 1.10 → 0.96 → 1.0
@@ -1897,7 +1921,16 @@ const AnimatedMindDropCard = React.memo<{
 
       // NOTE: Phase 1 bounce removed - regular cards no longer bounce
       // Only multi-drop cards get the attention-grabbing bounce
-    }, [isMulti, needsClarification, bounceTrackingId, bounceScale]);
+    }, [
+      isMulti,
+      needsClarification,
+      relationPending,
+      item.views?.clarification_processing,
+      item.views?.ai_pending,
+      item.created_at,
+      bounceTrackingId,
+      bounceScale,
+    ]);
 
     const bounceStyle = useAnimatedStyle(() => ({
       transform: [{ scale: bounceScale.value }],
@@ -2051,6 +2084,19 @@ const AnimatedMindDropCard = React.memo<{
     // - needsClarification && processing → show skeleton (user just selected option)
     if ((needsClarification || relationPending) && !clarificationProcessing) {
       // Fall through to complete card render below
+    } else if ((needsClarification || relationPending) && visualState !== 'pending') {
+      // A drop that will ask a question stays a quiet skeleton until its
+      // question card is ready: no title and note typing in, then being replaced
+      return (
+        <EnrichingSkeleton
+          item={item}
+          effectiveKind={effectiveKind}
+          badgeStyleKey={badgeStyleKey}
+          styles={styles}
+          c={c}
+          index={index}
+        />
+      );
     } else if (isMulti) {
       // Fall through to complete card render below (skip skeleton states)
     } else {
@@ -2245,55 +2291,30 @@ const AnimatedMindDropCard = React.memo<{
               </Text>
             </Pressable>
           ) : isMulti ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: -2 }}>
+            <View style={ASK_ROW}>
               <Animated.Image
                 source={require('../../assets/buttonforHP.png')}
-                style={{
-                  width: 26,
-                  height: 26,
-                  marginRight: 8,
-                  borderRadius: 13,
-                  transform: [{ scale: gremlyPulseScale }],
-                }}
+                style={[ASK_AVATAR, { transform: [{ scale: gremlyPulseScale }] }]}
               />
-              <Text style={{ fontSize: 13, color: '#4A7C59', fontWeight: '600' }}>
-                Should I split these? Tap to decide.
-              </Text>
+              <Text style={ASK_TEXT}>Should I split these? Tap to decide.</Text>
             </View>
           ) : relationPending && heldRelation ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: -2 }}>
+            <View style={ASK_ROW}>
               <Animated.Image
                 source={require('../../assets/buttonforHP.png')}
-                style={{
-                  width: 26,
-                  height: 26,
-                  marginRight: 8,
-                  borderRadius: 13,
-                }}
+                style={[ASK_AVATAR, { transform: [{ scale: gremlyPulseScale }] }]}
               />
-              <Text
-                style={{ flex: 1, fontSize: 13, color: '#4A7C59', fontWeight: '600' }}
-                numberOfLines={2}
-                testID={`minddrop-relation-line-${item.id}`}
-              >
+              <Text style={ASK_TEXT} numberOfLines={2} testID={`minddrop-relation-line-${item.id}`}>
                 {relationLine(heldRelation)}
               </Text>
             </View>
           ) : needsClarification ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: -2 }}>
+            <View style={ASK_ROW}>
               <Animated.Image
                 source={require('../../assets/buttonforHP.png')}
-                style={{
-                  width: 26,
-                  height: 26,
-                  marginRight: 8,
-                  borderRadius: 13,
-                  transform: [{ scale: gremlyPulseScale }],
-                }}
+                style={[ASK_AVATAR, { transform: [{ scale: gremlyPulseScale }] }]}
               />
-              <Text style={{ fontSize: 13, color: '#4A7C59', fontWeight: '600' }}>
-                Gremly has a question, tap to clarify
-              </Text>
+              <Text style={ASK_TEXT}>Gremly has a question, tap to clarify</Text>
             </View>
           ) : null}
 
@@ -2312,14 +2333,19 @@ const AnimatedMindDropCard = React.memo<{
             )}
             {/* Left side helper text when clarification or multi */}
             {(needsClarification || isMulti || relationPending) && (
-              <Text style={{ flex: 1, fontSize: 12, color: '#657865', marginLeft: 34 }}>
-                no pressure, can sweep it later
-              </Text>
+              <Text style={ASK_HELPER}>no pressure, can sweep it later</Text>
             )}
             {/* Right side: photo icon + timestamp */}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               {item.hasPhotos && <Camera size={14} color="#888" strokeWidth={1.5} />}
-              <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
+              <Text
+                style={[
+                  styles.recentMetaTime,
+                  (needsClarification || isMulti || relationPending) && ASK_TIME,
+                ]}
+              >
+                {relativeTime(item.created_at)}
+              </Text>
             </View>
           </View>
         </Pressable>
@@ -2752,6 +2778,8 @@ const RecentDrops: React.FC<{
             clarification_question: drop.clarificationQuestion,
             clarification_options: drop.clarificationOptions,
             clarification_resolved: false,
+            // "Is this one you already have?" once the pipeline has asked (dropRelation.ts)
+            relation: drop.relation ?? undefined,
           },
           time_estimate_minutes: drop.timeEstimateMinutes ?? null,
           frequency: drop.extractedFrequency ?? null,
