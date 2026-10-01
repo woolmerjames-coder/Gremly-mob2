@@ -194,7 +194,7 @@ CHAPTERS
 - Return every chapter you are given; one you cannot say anything true about keeps a plain summary of its dates and what it was.
 
 QUESTIONS
-- Ask about anything the records leave genuinely unclear that matters to understanding them, especially plans whose outcome is unknown. Short and friendly. Do not repeat open questions.
+- Ask about anything the records leave genuinely unclear that bears on their life now or on something still ahead, especially plans whose outcome is unknown. Differences about things long past are left as they are. Short and friendly. Do not repeat open questions.
 
 WEEK NOTE
 - One short paragraph on what this week was, in plain words, for Gremly's own reference.`;
