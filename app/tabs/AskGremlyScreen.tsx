@@ -146,6 +146,8 @@ export type ItemChatOptions = {
 
 /** How long a new item chat waits for starters drawn from the item */
 export const ITEM_STARTERS_WAIT_MS = 6000;
+// A brief written but not yet readable is loaded once more after this long
+const BRIEF_RELOAD_MS = 1500;
 
 type AskGremlyScreenProps = {
   /** Rendered as the Chat page inside the Gremly home, under the DROP | CHAT
@@ -222,6 +224,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   const {
     messages,
     loading: messagesLoading,
+    loadedChatId,
     sendUserMessage,
     appendAssistantMessage,
     createStreamingMessage,
@@ -236,6 +239,9 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     patchMessageMetadata,
     refresh: refreshMessages,
   } = useChatMessages(activeChat?.id, null);
+  // The open chat's own messages are in: not still loading, and not the
+  // last chat's left over from before the switch
+  const threadLoaded = !!activeChat && loadedChatId === activeChat.id && !messagesLoading;
   const openEntity = useOpenEntity();
   // entity cards live inside the reply they came with (one list row for the two)
   const { rows, cardFor } = useMemo(
@@ -815,7 +821,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   }, [isDailyThread, chatOnScreen, briefWriting, rows]);
 
   useEffect(() => {
-    if (!isDailyThread || !activeChat || messagesLoading || !chatOnScreen || !briefInChat) return;
+    if (!isDailyThread || !activeChat || !threadLoaded || !chatOnScreen || !briefInChat) return;
     const meta = (activeChat.metadata_json ?? {}) as Partial<DailyThreadMeta>;
     if (meta.seen_at) return;
     const now = getDateService().now();
@@ -835,7 +841,14 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       setBriefWriting(true);
       const res = await callDailyBrief(due);
       if (!res.ok) console.warn('[DailyBrief] could not write the brief:', res.error);
-      await refreshMessages();
+      // the thread by its id: the screen may have rendered since this began
+      const loaded = await refreshMessages(threadId);
+      if (res.ok && loaded && !loaded.some((m) => briefMetaOf(m)?.type === 'brief-text')) {
+        await new Promise((resolve) => setTimeout(resolve, BRIEF_RELOAD_MS));
+        if (mountedRef.current && activeChatIdRef.current === threadId) {
+          await refreshMessages(threadId);
+        }
+      }
       // the thread's own record of the brief (written, part of the day)
       const fresh = await useTodayThread.getState().refresh();
       if (mountedRef.current) {
@@ -848,7 +861,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   }, [
     isDailyThread,
     activeChat,
-    messagesLoading,
+    threadLoaded,
     chatOnScreen,
     briefInChat,
     hasBriefLines,
@@ -881,7 +894,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     threadId: isDailyThread && activeChat ? activeChat.id : null,
     rows,
     seen: threadSeen,
-    ready: !!isDailyThread && !messagesLoading && chatOnScreen && !briefWriting && briefInChat,
+    ready: !!isDailyThread && threadLoaded && chatOnScreen && !briefWriting && briefInChat,
     reducedMotion: reducedMotion || skipPlayback,
     onStart: () => useMascotStore.getState().requestMode('waving'),
     onSeen: handleBriefSeen,
@@ -896,14 +909,14 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   // The plan step, once today's thread is on screen with its messages
   useEffect(() => {
     const pending = pendingPlanRef.current;
-    if (!pending || !isDailyThread || !activeChat || messagesLoading || briefWriting) return;
+    if (!pending || !isDailyThread || !activeChat || !threadLoaded || briefWriting) return;
     if (messages.length && messages[0].chat_id !== activeChat.id) return;
     pendingPlanRef.current = null;
     setSkipPlayback(false);
     const live = livePlanOf(messages, pending.day);
     if (live) pendingPlanScrollRef.current = live.id;
     else void planFlowRef.current.start(null, { day: pending.day });
-  }, [isDailyThread, activeChat, messagesLoading, briefWriting, messages]);
+  }, [isDailyThread, activeChat, threadLoaded, briefWriting, messages]);
 
   // Coming into Chat (Daily brief in Chat on): an unread brief opens today's
   // thread; within five minutes of leaving, the chat as it was left; after
@@ -1321,7 +1334,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
               ListEmptyComponent={
                 // today's thread with nothing in it yet (the brief could not be
                 // written, or it is someone's first day): the day card, from the store
-                isDailyThread && !messagesLoading && !briefWriting && !playback.playing ? (
+                isDailyThread && threadLoaded && !briefWriting && !playback.playing ? (
                   <View style={styles.dailyEmpty} testID="daily-thread-empty">
                     <BriefDayCardBlock date={threadDay} />
                   </View>

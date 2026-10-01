@@ -47,7 +47,14 @@ export interface UseChatMessagesResult {
   error: string | null;
   /** The current chat ID - may be null for new chats until first message */
   currentChatId: string | null;
-  refresh: () => Promise<void>;
+  /** The chat whose messages are in `messages` (null until the first load) */
+  loadedChatId: string | null;
+  /**
+   * Load the chat's messages again. Reads the chat id at call time, so a
+   * call made from an older render still loads the chat now on screen.
+   * Returns what was loaded, or undefined when nothing was.
+   */
+  refresh: (chatId?: string) => Promise<SpaceChatMessage[] | undefined>;
   sendUserMessage: (text: string) => Promise<string | undefined>;
   appendAssistantMessage: (
     text: string,
@@ -118,6 +125,7 @@ export function useChatMessages(
   const [messages, setMessages] = useState<SpaceChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loadedChatId, setLoadedChatId] = useState<string | null>(null);
 
   // Track the current chat ID (may be created during session)
   const [currentChatId, setCurrentChatId] = useState<string | null>(chatId || null);
@@ -161,6 +169,7 @@ export function useChatMessages(
     previousChatIdRef.current = chatId;
     if (previous && previous !== chatId) {
       setMessages([]);
+      setLoadedChatId(null);
       saveableDataRef.current.clear();
     }
     if (chatId) {
@@ -172,69 +181,85 @@ export function useChatMessages(
     }
   }, [chatId]);
 
-  const refresh = useCallback(async () => {
-    // Skip refresh during active send/append operations to prevent race conditions
-    if (isAddingMessageRef.current) {
-      if (__DEV__) {
-        console.log('[useChatMessages] Skipping refresh - message operation in progress');
+  const refresh = useCallback(
+    async (chatIdOverride?: string): Promise<SpaceChatMessage[] | undefined> => {
+      // Skip refresh during active send/append operations to prevent race conditions
+      if (isAddingMessageRef.current) {
+        if (__DEV__) {
+          console.log('[useChatMessages] Skipping refresh - message operation in progress');
+        }
+        return undefined;
       }
-      return;
-    }
 
-    if (!currentChatId || !user?.id) {
-      setLoading(false);
-      return;
-    }
+      // The ref holds the chat on screen even when this callback came from an
+      // earlier render, before the state caught up
+      const targetChatId =
+        (typeof chatIdOverride === 'string' && chatIdOverride) ||
+        currentChatIdRef.current ||
+        currentChatId;
+      if (!targetChatId || !user?.id) {
+        setLoading(false);
+        return undefined;
+      }
 
-    try {
-      setLoading(true);
-      setError(null);
-      const fetchedMessages = await messageRepo.list(currentChatId);
-
-      // Restore saveable data: Priority 1 = session ref, Priority 2 = database column
-      const messagesWithSaveable = fetchedMessages.map((msg) => {
-        // Priority 1: Session ref (most recent, set this session)
-        const refData = saveableDataRef.current.get(msg.id);
-        if (refData) {
-          return {
-            ...msg,
-            saveable: refData.saveable,
-            saveableDismissed: refData.saveableDismissed,
-          };
+      try {
+        setLoading(true);
+        setError(null);
+        const fetchedMessages = await messageRepo.list(targetChatId);
+        // Moved to another chat while this one loaded: leave its messages be
+        if (currentChatIdRef.current !== targetChatId) {
+          return undefined;
         }
 
-        // Priority 2: Database column (persisted from previous session)
-        if (msg.saveable_json) {
-          const dbSaveable = msg.saveable_json as {
-            type: string;
-            title: string;
-            dismissed?: boolean;
-            savedItemId?: string;
-            savedItemType?: string;
-          };
-          return {
-            ...msg,
-            saveable: {
-              type: dbSaveable.type as 'todo' | 'habit' | 'note',
-              title: dbSaveable.title,
-              savedItemId: dbSaveable.savedItemId,
-              savedItemType: dbSaveable.savedItemType as 'habit' | 'todo' | 'log' | undefined,
-            },
-            saveableDismissed: dbSaveable.dismissed ?? false,
-          };
-        }
+        // Restore saveable data: Priority 1 = session ref, Priority 2 = database column
+        const messagesWithSaveable = fetchedMessages.map((msg) => {
+          // Priority 1: Session ref (most recent, set this session)
+          const refData = saveableDataRef.current.get(msg.id);
+          if (refData) {
+            return {
+              ...msg,
+              saveable: refData.saveable,
+              saveableDismissed: refData.saveableDismissed,
+            };
+          }
 
-        return msg;
-      });
+          // Priority 2: Database column (persisted from previous session)
+          if (msg.saveable_json) {
+            const dbSaveable = msg.saveable_json as {
+              type: string;
+              title: string;
+              dismissed?: boolean;
+              savedItemId?: string;
+              savedItemType?: string;
+            };
+            return {
+              ...msg,
+              saveable: {
+                type: dbSaveable.type as 'todo' | 'habit' | 'note',
+                title: dbSaveable.title,
+                savedItemId: dbSaveable.savedItemId,
+                savedItemType: dbSaveable.savedItemType as 'habit' | 'todo' | 'log' | undefined,
+              },
+              saveableDismissed: dbSaveable.dismissed ?? false,
+            };
+          }
 
-      setMessages(messagesWithSaveable);
-    } catch (err) {
-      console.error('Failed to refresh chat messages:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load messages');
-    } finally {
-      setLoading(false);
-    }
-  }, [currentChatId, spaceId, user?.id, messageRepo]);
+          return msg;
+        });
+
+        setMessages(messagesWithSaveable);
+        setLoadedChatId(targetChatId);
+        return messagesWithSaveable;
+      } catch (err) {
+        console.error('Failed to refresh chat messages:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load messages');
+        return undefined;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [currentChatId, spaceId, user?.id, messageRepo],
+  );
 
   /**
    * Send a user message. If this is a new chat (no chatId), creates the chat first.
@@ -920,6 +945,7 @@ export function useChatMessages(
     loading,
     error,
     currentChatId,
+    loadedChatId,
     refresh,
     sendUserMessage,
     appendAssistantMessage,

@@ -165,6 +165,89 @@ describe('useChatMessages hook', () => {
     mockMessageRepoList.mockResolvedValue([]);
   });
 
+  describe('refresh after a chat switch', () => {
+    const msg = (id: string, chatId: string) => ({
+      id,
+      chat_id: chatId,
+      scope_id: null,
+      user_id: mockUserId,
+      role: 'assistant',
+      content: `line ${id}`,
+      created_at: '2026-10-01T20:08:00Z',
+      metadata_json: { type: 'brief-text' },
+    });
+
+    beforeEach(() => {
+      const { SupabaseSpaceChatMessageRepo } = jest.requireMock('../../lib/repo/supabase');
+      SupabaseSpaceChatMessageRepo.mockImplementation(() => ({
+        append: mockMessageRepoAppend,
+        list: mockMessageRepoList,
+        update: mockMessageRepoUpdate,
+      }));
+    });
+
+    it('loads the chat now open, from a refresh captured before the switch', async () => {
+      mockMessageRepoList.mockResolvedValue([]);
+      const { result, rerender, unmount } = renderHook(
+        ({ id }: { id: string | undefined }) => useChatMessages(id, null),
+        { initialProps: { id: undefined as string | undefined } },
+      );
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 10));
+      });
+      // the screen keeps the refresh from the render before today's thread opened
+      const staleRefresh = result.current.refresh;
+      rerender({ id: 'daily-1' });
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 10));
+      });
+      expect(result.current.loadedChatId).toBe('daily-1');
+      expect(result.current.messages).toEqual([]);
+
+      // the brief is written, then the old callback asks for the messages
+      mockMessageRepoList.mockResolvedValue([msg('m1', 'daily-1'), msg('m2', 'daily-1')]);
+      let loaded: unknown;
+      await act(async () => {
+        loaded = await staleRefresh();
+      });
+      expect(mockMessageRepoList).toHaveBeenLastCalledWith('daily-1');
+      expect(loaded).toHaveLength(2);
+      expect(result.current.messages.map((m) => m.id)).toEqual(['m1', 'm2']);
+      unmount();
+    });
+
+    it('leaves the messages be when the chat changed while loading', async () => {
+      let release: (rows: unknown[]) => void = () => {};
+      mockMessageRepoList.mockResolvedValue([]);
+      const { result, rerender, unmount } = renderHook(
+        ({ id }: { id: string }) => useChatMessages(id, null),
+        { initialProps: { id: 'chat-a' } },
+      );
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 10));
+      });
+      mockMessageRepoList.mockImplementationOnce(
+        () => new Promise((resolve) => (release = resolve as (rows: unknown[]) => void)),
+      );
+      let pending: Promise<unknown> = Promise.resolve();
+      act(() => {
+        pending = result.current.refresh('chat-a');
+      });
+      mockMessageRepoList.mockResolvedValue([msg('b1', 'chat-b')]);
+      rerender({ id: 'chat-b' });
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 10));
+      });
+      await act(async () => {
+        release([msg('a1', 'chat-a')]);
+        await pending;
+      });
+      expect(result.current.loadedChatId).toBe('chat-b');
+      expect(result.current.messages.map((m) => m.id)).toEqual(['b1']);
+      unmount();
+    });
+  });
+
   describe('initialization', () => {
     it('returns null currentChatId when no chatId provided', async () => {
       const { result, unmount } = renderHook(() => useChatMessages(undefined, spaceId));
