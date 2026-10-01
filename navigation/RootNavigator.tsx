@@ -41,6 +41,8 @@ import WeeklyArchiveScreen from '../app/screens/WeeklyArchiveScreen';
 import HubScreen from '../app/tabs/HubScreen';
 import WorldDetailScreen from '../app/screens/WorldDetailScreen';
 import ChapterDetailScreen from '../app/screens/ChapterDetailScreen';
+import YourStoryScreen from '../app/screens/YourStoryScreen';
+import GremlyQuestionsScreen from '../app/screens/GremlyQuestionsScreen';
 import ScopedChatScreen from '../app/screens/ScopedChatScreen';
 
 // Wrapper to bridge navigation params to MorningBriefSheet props
@@ -117,6 +119,8 @@ export type RootStackParamList = {
   HubScreen: undefined;
   WorldDetail: { worldId: string };
   ChapterDetail: { chapterId: string };
+  YourStory: undefined;
+  GremlyQuestions: undefined;
   ScopedChat: {
     scopeType: 'world' | 'chapter';
     scopeId: string;
@@ -355,6 +359,16 @@ export default function RootNavigator() {
             component={ChapterDetailScreen}
             options={{ headerShown: false, animation: 'slide_from_right' }}
             getId={({ params }) => params?.chapterId}
+          />
+          <Stack.Screen
+            name="YourStory"
+            component={YourStoryScreen}
+            options={{ headerShown: false, animation: 'slide_from_right' }}
+          />
+          <Stack.Screen
+            name="GremlyQuestions"
+            component={GremlyQuestionsScreen}
+            options={{ headerShown: false, animation: 'slide_from_right' }}
           />
           <Stack.Screen
             name="ScopedChat"

@@ -151,8 +151,8 @@ export default function SettingsScreen() {
       key: 'gremly-knows',
       icon: <Brain size={ICON_SIZE} color={BRAND.colors.mossGreen} />,
       title: 'What Gremly Knows',
-      subtitle: 'View and edit what Gremly has learned about you',
-      route: 'WhatGremlyKnows',
+      subtitle: 'Your story, and what Gremly has learned about you',
+      route: 'YourStory',
     },
     {
       key: 'gremly-color',

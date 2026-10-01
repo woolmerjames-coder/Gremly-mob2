@@ -2035,3 +2035,42 @@ export const CortexClient = {
   callJournalAnalyze,
   callHabitInsight,
 };
+
+/**
+ * "Not right?" and answers to Gremly's questions. The cortex worker forwards it
+ * to the context pipeline, which applies it everywhere. Separate from postJSON
+ * so a chat request in flight never blocks it.
+ */
+export async function callNotRight(input: {
+  surface: 'not_right' | 'question' | 'brief';
+  said?: string;
+  targetText?: string | null;
+  targetKind?: string | null;
+  targetId?: string | null;
+  kind?: 'wrong' | 'changed' | 'done' | 'private' | null;
+}): Promise<CortexClientResult<{ ok?: boolean; correction_id?: string }>> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return { ok: false, error: '[cortex] Missing EXPO_PUBLIC_CORTEX_URL' };
+  const token = await getSessionToken();
+  if (!token) return { ok: false, error: 'not signed in' };
+  try {
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        type: 'not-right',
+        surface: input.surface,
+        said: input.said || undefined,
+        target_text: input.targetText || undefined,
+        target_kind: input.targetKind || undefined,
+        target_id: input.targetId || undefined,
+        kind: input.kind || undefined,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.error) return { ok: false, error: String(data?.error || res.status), status: res.status };
+    return { ok: true, data };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}

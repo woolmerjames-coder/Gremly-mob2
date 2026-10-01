@@ -9,6 +9,7 @@ import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
 import { useWorldById, useCurrentChapterForWorld } from '../../lib/store/worldsSelectors';
 import { useAppEventOnFocus } from '../../lib/appEvents';
+import { NotRightLink, NotRightSheet } from '../../components/story/NotRightSheet';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { WorldDetailHeader } from '../../components/worlds/WorldDetailHeader';
 import { ArchetypeLayoutDispatcher } from '../../components/worlds/ArchetypeLayoutDispatcher';
@@ -23,6 +24,7 @@ export default function WorldDetailScreen() {
   const nav = useNavigation<NavT>();
   const world = useWorldById(route.params.worldId);
   useAppEventOnFocus('world_view', { type: 'world', id: route.params.worldId });
+  const [notRightOpen, setNotRightOpen] = useState(false);
   const currentChapter = useCurrentChapterForWorld(route.params.worldId);
 
   // Must be declared before any early return (Rules of Hooks)
@@ -64,12 +66,18 @@ export default function WorldDetailScreen() {
       >
         <ArchetypeLayoutDispatcher world={world} currentChapter={currentChapter} />
         <GremlyNoticedSlot worldId={world.id} />
+        <NotRightLink onPress={() => setNotRightOpen(true)} />
         <View style={{ height: 60 }} />
       </Animated.ScrollView>
       <WorldActionButtons
         worldName={worldName}
         onAddPress={() => console.log('[WorldDetail] add to world', world.id)}
         onChatPress={() => nav.navigate('ScopedChat', { scopeType: 'world', scopeId: world.id, scopeName: worldName })}
+      />
+      <NotRightSheet
+        visible={notRightOpen}
+        target={notRightOpen ? { text: '', kind: 'world', id: world.id } : null}
+        onClose={() => setNotRightOpen(false)}
       />
     </SafeAreaView>
   );

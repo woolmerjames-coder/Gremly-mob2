@@ -15,6 +15,7 @@ import { ContextsChipRow } from '../../components/worlds/ContextsChipRow';
 import { OpenChaptersSection } from '../../components/worlds/OpenChaptersSection';
 import { RecentClosedChaptersSection } from '../../components/worlds/RecentClosedChaptersSection';
 import { PeopleRow } from '../../components/worlds/PeopleRow';
+import { StoryHeroCard } from '../../components/worlds/StoryHeroCard';
 
 export default function WorldsScreen() {
   useAppEventOnFocus('world_view', { type: 'worlds_tab' });
@@ -73,6 +74,7 @@ export default function WorldsScreen() {
         }
       >
         <WorldsHeader />
+        <StoryHeroCard onPress={() => nav.navigate('YourStory')} />
         <ProposalBanner onPress={handlePressProposals} />
         <WeeklySummaryCard
           onPressNew={handlePressWeeklySummary}
