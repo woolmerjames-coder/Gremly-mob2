@@ -5,8 +5,8 @@
  * days, how things have shifted, patterns and the people who matter.
  *
  * It is opened on purpose, so private items show here in their own words,
- * marked as private. Long-press any item, or the link at the bottom, to say
- * something is not right.
+ * marked as private. The Not right? button at the bottom is how they say
+ * something here is wrong.
  */
 
 import { useMemo, useState } from 'react';
@@ -22,7 +22,11 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useAppEventOnFocus } from '../../lib/appEvents';
 import { useOpenQuestions, useStory, useUsage } from '../../lib/story/useStory';
 import type { StoryItem, UsageGrain } from '../../lib/story/storyApi';
-import { NotRightLink, NotRightSheet, type NotRightTarget } from '../../components/story/NotRightSheet';
+import {
+  NotRightLink,
+  NotRightSheet,
+  type NotRightTarget,
+} from '../../components/story/NotRightSheet';
 
 const C = lightTokens.colors;
 
@@ -84,14 +88,21 @@ export default function YourStoryScreen() {
     };
   }, [story.items]);
 
-  const updated = story.header.writtenAt ? format(new Date(story.header.writtenAt), 'd MMMM') : null;
+  const updated = story.header.writtenAt
+    ? format(new Date(story.header.writtenAt), 'd MMMM')
+    : null;
   const empty = !loading && !story.header.storyForThem && story.items.length === 0;
-  const markItem = (i: StoryItem) => setNotRight({ text: `${i.title}. ${i.body}`, kind: 'story', id: i.id });
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Pressable onPress={() => nav.goBack()} style={styles.back} hitSlop={12} accessibilityRole="button" accessibilityLabel="Back">
+        <Pressable
+          onPress={() => nav.goBack()}
+          style={styles.back}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+        >
           <ChevronLeft size={22} color={C.mossGreen} />
         </Pressable>
         <Text style={styles.h1}>Your story</Text>
@@ -106,7 +117,8 @@ export default function YourStoryScreen() {
         {empty ? (
           <View style={styles.card}>
             <Text style={styles.body}>
-              Your story is still being written. It fills in as you use Gremly, and Gremly will never guess at it.
+              Your story is still being written. It fills in as you use Gremly, and Gremly will
+              never guess at it.
             </Text>
           </View>
         ) : null}
@@ -130,7 +142,9 @@ export default function YourStoryScreen() {
                   accessibilityRole="tab"
                   accessibilityState={{ selected: grain === g }}
                 >
-                  <Text style={[styles.segText, grain === g && styles.segTextOn]}>{PERIOD_LABEL[g].tab}</Text>
+                  <Text style={[styles.segText, grain === g && styles.segTextOn]}>
+                    {PERIOD_LABEL[g].tab}
+                  </Text>
                 </Pressable>
               ))}
             </View>
@@ -153,7 +167,9 @@ export default function YourStoryScreen() {
           </View>
           <Text style={styles.caption}>
             {usage?.sweeps ? `${usage.sweeps} sweeps` : ''}
-            {usage?.age_ups ? `${usage.sweeps ? ', and ' : ''}your Gremly aged up ${usage.age_ups} time${usage.age_ups === 1 ? '' : 's'}` : ''}
+            {usage?.age_ups
+              ? `${usage.sweeps ? ', and ' : ''}your Gremly aged up ${usage.age_ups} time${usage.age_ups === 1 ? '' : 's'}`
+              : ''}
             {usage?.sweeps || usage?.age_ups ? '. ' : ''}
             Counts of how you used the app, not how your {PERIOD_LABEL[grain].noun} went.
           </Text>
@@ -163,7 +179,7 @@ export default function YourStoryScreen() {
           <View style={styles.section}>
             <Text style={styles.h2}>Milestones</Text>
             {by.milestones.map((m, idx) => (
-              <Pressable key={m.id} onLongPress={() => markItem(m)} style={styles.tlRow} accessibilityHint="Long-press to say this is not right">
+              <View key={m.id} style={styles.tlRow}>
                 <Text style={styles.tlWhen}>{span(m)}</Text>
                 <View style={styles.tlRail}>
                   <View style={styles.tlDot} />
@@ -174,7 +190,7 @@ export default function YourStoryScreen() {
                   <Text style={styles.itemBody}>{m.body}</Text>
                   {m.private ? <PrivateTag /> : null}
                 </View>
-              </Pressable>
+              </View>
             ))}
           </View>
         ) : null}
@@ -182,16 +198,18 @@ export default function YourStoryScreen() {
         {by.proud.length ? (
           <View style={[styles.section, styles.proudBox]}>
             <Text style={[styles.h2, { color: '#3F3108' }]}>Proud moments</Text>
-            <Text style={[styles.caption, { color: '#5C4A12', marginTop: -6 }]}>For the harder days.</Text>
+            <Text style={[styles.caption, { color: '#5C4A12', marginTop: -6 }]}>
+              For the harder days.
+            </Text>
             {by.proud.map((p) => (
-              <Pressable key={p.id} onLongPress={() => markItem(p)} style={styles.proudCard}>
+              <View key={p.id} style={styles.proudCard}>
                 <View style={styles.rowBetween}>
                   <Text style={[styles.itemTitle, { color: '#2E2405', flex: 1 }]}>{p.title}</Text>
                   <Text style={styles.proudWhen}>{dayMonth(p.period_start)}</Text>
                 </View>
                 <Text style={[styles.itemBody, { color: '#4A3B10' }]}>{p.body}</Text>
                 {p.private ? <PrivateTag tone="pear" /> : null}
-              </Pressable>
+              </View>
             ))}
           </View>
         ) : null}
@@ -200,12 +218,12 @@ export default function YourStoryScreen() {
           <View style={styles.section}>
             <Text style={styles.h2}>How things have shifted</Text>
             {by.shifts.map((s) => (
-              <Pressable key={s.id} onLongPress={() => markItem(s)} style={styles.card}>
+              <View key={s.id} style={styles.card}>
                 <Text style={styles.itemTitle}>{s.title}</Text>
                 {span(s) ? <Text style={styles.when}>{span(s)}</Text> : null}
                 <Text style={styles.itemBody}>{s.body}</Text>
                 {s.private ? <PrivateTag /> : null}
-              </Pressable>
+              </View>
             ))}
           </View>
         ) : null}
@@ -216,7 +234,7 @@ export default function YourStoryScreen() {
             {by.patterns.map((p) => {
               const tag = PATTERN_TAG[p.pattern_kind ?? ''] ?? PATTERN_TAG.often;
               return (
-                <Pressable key={p.id} onLongPress={() => markItem(p)} style={[styles.card, styles.patternRow]}>
+                <View key={p.id} style={[styles.card, styles.patternRow]}>
                   <View style={[styles.tag, { backgroundColor: tag.bg }]}>
                     <Text style={[styles.tagText, { color: tag.fg }]}>{tag.label}</Text>
                   </View>
@@ -225,7 +243,7 @@ export default function YourStoryScreen() {
                     <Text style={styles.itemBody}>{p.body}</Text>
                     {p.private ? <PrivateTag /> : null}
                   </View>
-                </Pressable>
+                </View>
               );
             })}
           </View>
@@ -239,13 +257,21 @@ export default function YourStoryScreen() {
                 const [name, ...rest] = p.title.split(', ');
                 const pal = C.avatarPalette[i % C.avatarPalette.length];
                 return (
-                  <Pressable key={p.id} onLongPress={() => markItem(p)} style={styles.person}>
+                  <View key={p.id} style={styles.person}>
                     <View style={[styles.avatar, { backgroundColor: pal.bg }]}>
-                      <Text style={[styles.avatarText, { color: pal.fg }]}>{name.slice(0, 1).toUpperCase()}</Text>
+                      <Text style={[styles.avatarText, { color: pal.fg }]}>
+                        {name.slice(0, 1).toUpperCase()}
+                      </Text>
                     </View>
-                    <Text style={styles.personName} numberOfLines={2}>{name}</Text>
-                    {rest.length ? <Text style={styles.personRole} numberOfLines={2}>{rest.join(', ')}</Text> : null}
-                  </Pressable>
+                    <Text style={styles.personName} numberOfLines={2}>
+                      {name}
+                    </Text>
+                    {rest.length ? (
+                      <Text style={styles.personRole} numberOfLines={2}>
+                        {rest.join(', ')}
+                      </Text>
+                    ) : null}
+                  </View>
                 );
               })}
             </View>
@@ -253,7 +279,11 @@ export default function YourStoryScreen() {
         ) : null}
 
         {questions.length ? (
-          <Pressable onPress={() => nav.navigate('GremlyQuestions')} style={styles.questionsCard} accessibilityRole="button">
+          <Pressable
+            onPress={() => nav.navigate('GremlyQuestions')}
+            style={styles.questionsCard}
+            accessibilityRole="button"
+          >
             <View style={styles.qIcon}>
               <HelpCircle size={20} color="#4A4E7A" />
             </View>
@@ -267,8 +297,13 @@ export default function YourStoryScreen() {
           </Pressable>
         ) : null}
 
-        <NotRightLink onPress={() => setNotRight({ text: '', kind: 'story' })} note="Or press and hold any line." />
-        <Pressable onPress={() => nav.navigate('WhatGremlyKnows')} style={styles.manage} hitSlop={8} accessibilityRole="button">
+        <NotRightLink onPress={() => setNotRight({ text: '', kind: 'story' })} />
+        <Pressable
+          onPress={() => nav.navigate('WhatGremlyKnows')}
+          style={styles.manage}
+          hitSlop={8}
+          accessibilityRole="button"
+        >
           <Text style={styles.manageText}>Edit or clear what Gremly remembers</Text>
         </Pressable>
       </ScrollView>
@@ -282,7 +317,9 @@ function PrivateTag({ tone }: { tone?: 'pear' }) {
   return (
     <View style={styles.privateRow}>
       <Lock size={12} color={color} />
-      <Text style={[styles.privateText, { color }]}>Private: only here, never on cards or notifications</Text>
+      <Text style={[styles.privateText, { color }]}>
+        Private: only here, never on cards or notifications
+      </Text>
     </View>
   );
 }
@@ -291,8 +328,20 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.linenCream },
   content: { paddingHorizontal: 18, paddingBottom: 60, gap: 22 },
   back: { width: 40, height: 40, justifyContent: 'center', marginTop: 4, marginBottom: -14 },
-  h1: { fontFamily: 'Fraunces-SemiBold', fontSize: 34, lineHeight: 38, color: C.worldsInk, letterSpacing: -0.5 },
-  sub: { fontFamily: 'Inter-Regular', fontSize: 13.5, lineHeight: 20, color: '#4D5A52', marginTop: -14 },
+  h1: {
+    fontFamily: 'Fraunces-SemiBold',
+    fontSize: 34,
+    lineHeight: 38,
+    color: C.worldsInk,
+    letterSpacing: -0.5,
+  },
+  sub: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 13.5,
+    lineHeight: 20,
+    color: '#4D5A52',
+    marginTop: -14,
+  },
   section: { gap: 12 },
   h2: { fontFamily: 'Fraunces-SemiBold', fontSize: 22, lineHeight: 27, color: C.worldsInk },
   card: {
@@ -303,11 +352,27 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 6,
   },
-  kicker: { fontFamily: 'PlusJakartaSans-Bold', fontSize: 11, letterSpacing: 1.5, color: C.mossGreen },
+  kicker: {
+    fontFamily: 'PlusJakartaSans-Bold',
+    fontSize: 11,
+    letterSpacing: 1.5,
+    color: C.mossGreen,
+  },
   storyText: { fontFamily: 'Fraunces', fontSize: 17, lineHeight: 26, color: C.worldsInk },
   body: { fontFamily: 'Inter-Regular', fontSize: 15, lineHeight: 22, color: C.worldsInk },
-  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 },
-  segment: { flexDirection: 'row', gap: 2, padding: 3, borderRadius: 999, backgroundColor: '#EFEBE2' },
+  rowBetween: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 10,
+  },
+  segment: {
+    flexDirection: 'row',
+    gap: 2,
+    padding: 3,
+    borderRadius: 999,
+    backgroundColor: '#EFEBE2',
+  },
   segBtn: { minHeight: 32, paddingHorizontal: 12, borderRadius: 999, justifyContent: 'center' },
   segBtnOn: { backgroundColor: C.mossGreen },
   segText: { fontFamily: 'Inter-Medium', fontSize: 12.5, fontWeight: '700', color: '#4D5A52' },
@@ -327,26 +392,63 @@ const styles = StyleSheet.create({
   statValue: { fontFamily: 'Fraunces-SemiBold', fontSize: 24, lineHeight: 28, color: C.worldsInk },
   statLabel: { fontFamily: 'Inter-Regular', fontSize: 12, lineHeight: 16, color: '#4D5A52' },
   tlRow: { flexDirection: 'row', gap: 8 },
-  tlWhen: { width: 70, textAlign: 'right', fontFamily: 'Inter-Medium', fontSize: 12, color: '#4D5A52', paddingTop: 2 },
+  tlWhen: {
+    width: 70,
+    textAlign: 'right',
+    fontFamily: 'Inter-Medium',
+    fontSize: 12,
+    color: '#4D5A52',
+    paddingTop: 2,
+  },
   tlRail: { width: 18, alignItems: 'center' },
   tlDot: { width: 11, height: 11, borderRadius: 6, backgroundColor: C.mossGreen, marginTop: 4 },
   tlLine: { width: 2, flex: 1, backgroundColor: '#D6E3D4' },
   tlBody: { flex: 1, paddingBottom: 18, gap: 3 },
-  itemTitle: { fontFamily: 'Inter-Medium', fontSize: 15, fontWeight: '700', lineHeight: 20, color: C.worldsInk },
+  itemTitle: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 20,
+    color: C.worldsInk,
+  },
   itemBody: { fontFamily: 'Inter-Regular', fontSize: 13.5, lineHeight: 20, color: '#33463C' },
   when: { fontFamily: 'Inter-Medium', fontSize: 12, color: C.mossGreen },
   proudBox: { backgroundColor: '#F6EDD2', borderRadius: 24, padding: 18 },
   proudCard: { backgroundColor: '#FFFBF0', borderRadius: 16, padding: 14, gap: 4 },
   proudWhen: { fontFamily: 'Inter-Regular', fontSize: 12, color: '#6E5413' },
   patternRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  tag: { minWidth: 56, alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 },
+  tag: {
+    minWidth: 56,
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
   tagText: { fontFamily: 'Inter-Medium', fontSize: 11, fontWeight: '700', letterSpacing: 0.4 },
   peopleGrid: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 14 },
   person: { width: '25%', alignItems: 'center', gap: 5, paddingHorizontal: 4 },
-  avatar: { width: 54, height: 54, borderRadius: 27, alignItems: 'center', justifyContent: 'center' },
+  avatar: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   avatarText: { fontFamily: 'Fraunces-SemiBold', fontSize: 18 },
-  personName: { fontFamily: 'Inter-Medium', fontSize: 13, fontWeight: '700', textAlign: 'center', color: C.worldsInk },
-  personRole: { fontFamily: 'Inter-Regular', fontSize: 11.5, lineHeight: 15, textAlign: 'center', color: '#4D5A52' },
+  personName: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+    color: C.worldsInk,
+  },
+  personRole: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 11.5,
+    lineHeight: 15,
+    textAlign: 'center',
+    color: '#4D5A52',
+  },
   questionsCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -355,11 +457,23 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     padding: 18,
   },
-  qIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
+  qIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   qTitle: { fontFamily: 'Inter-Medium', fontSize: 15, fontWeight: '700', color: '#2B2F55' },
   qSub: { fontFamily: 'Inter-Regular', fontSize: 13, lineHeight: 18, color: '#4A4E7A' },
   privateRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
   privateText: { fontFamily: 'Inter-Medium', fontSize: 12, fontWeight: '600' },
   manage: { alignSelf: 'center', minHeight: 36, justifyContent: 'center', marginTop: -16 },
-  manageText: { fontFamily: 'Inter-Regular', fontSize: 12.5, color: '#4D5A52', textDecorationLine: 'underline' },
+  manageText: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12.5,
+    color: '#4D5A52',
+    textDecorationLine: 'underline',
+  },
 });
