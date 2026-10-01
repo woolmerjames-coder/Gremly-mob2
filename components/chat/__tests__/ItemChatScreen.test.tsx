@@ -28,6 +28,12 @@ jest.mock('../../../lib/config/featureFlags', () => ({
   },
 }));
 
+const mockFetchItemTopics = jest.fn();
+jest.mock('../../../lib/cortex/CortexClient', () => ({
+  ...jest.requireActual('../../../lib/cortex/CortexClient'),
+  fetchItemTopics: (...args: unknown[]) => mockFetchItemTopics(...args),
+}));
+
 import { ItemChatScreen } from '../ItemChatScreen';
 import { EntityChatScreen } from '../EntityChatScreen';
 
@@ -55,6 +61,18 @@ describe('ItemChatScreen', () => {
     expect(mockItemProps.starters.map((s: any) => s.key)).toContain('expand');
     mockItemProps.onClose();
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("a note's chat draws its starters from what the note says; other kinds keep theirs", async () => {
+    mockFetchItemTopics.mockResolvedValue([{ label: 'The vet', message: 'What should I ask the vet?' }]);
+    render(<ItemChatScreen entityId="n1" entityType="note" onClose={jest.fn()} />);
+    const drawn = await mockItemProps.loadStarters();
+    expect(mockFetchItemTopics).toHaveBeenCalledWith('n1');
+    expect(drawn.map((s: any) => [s.key, s.label, s.prompt])).toEqual([
+      ['topic-0', 'The vet', 'What should I ask the vet?'],
+    ]);
+    render(<ItemChatScreen entityId="t1" entityType="todo" onClose={jest.fn()} />);
+    expect(mockItemProps.loadStarters).toBeUndefined();
   });
 
   it('starts with the message a screen asked for', () => {

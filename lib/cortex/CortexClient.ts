@@ -1600,6 +1600,49 @@ export async function callChatFullSummary(chatId: string): Promise<{ summary: st
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// ITEM TOPICS - What to talk about when a chat about a note opens
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export type ItemTopic = { label: string; message: string };
+
+/**
+ * Up to four starters drawn from one of their notes (the Worker reads the note
+ * and keeps the answer until it changes). An empty list on any failure, so
+ * the chat shows its usual starters.
+ */
+export async function fetchItemTopics(itemId: string, timeoutMs = 8000): Promise<ItemTopic[]> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl || isAiDisabled()) return [];
+  const sessionToken = await getSessionToken();
+  if (!sessionToken) return [];
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionToken}` },
+      body: JSON.stringify({ type: 'item-topics', itemId, itemType: 'note' }),
+      signal: controller.signal,
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const topics: unknown[] = Array.isArray(data?.topics) ? data.topics : [];
+    return topics.filter(
+      (t): t is ItemTopic =>
+        !!t &&
+        typeof (t as ItemTopic).label === 'string' &&
+        typeof (t as ItemTopic).message === 'string' &&
+        !!(t as ItemTopic).label.trim() &&
+        !!(t as ItemTopic).message.trim(),
+    );
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // ENTITY CHAT - Chat within entity overlays and sweep cards
 // ═══════════════════════════════════════════════════════════════════════════════
 

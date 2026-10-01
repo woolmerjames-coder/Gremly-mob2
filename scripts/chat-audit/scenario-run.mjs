@@ -11,7 +11,11 @@
 // A spec may take its items (and persona) from another spec with itemsFrom,
 // adding its own items to them. A scenario with anchor (an item id) is a chat
 // opened about that item ("Talk it through"): it starts with Gremly's opener
-// and every turn carries the anchor, as the app sends it.
+// and every turn carries the anchor, as the app sends it. The reply is also
+// given what the anchored item holds (itemDetail.js), built from the spec
+// item's own fields (body, notes, list_items, floor_note, chat_summary and
+// the rest, named as the database names them), as the Worker builds it from
+// the row.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { keys } from './keys.mjs';
 import { dirname, join } from 'node:path';
@@ -26,6 +30,7 @@ import {
   checkNewAgainstTracked,
 } from '../../workers/cortex/entityMatch.js';
 import { buildGeneralChatConfig } from '../../workers/cortex/gremlyPersona.js';
+import { toDetail, itemDetailText } from '../../workers/cortex/itemDetail.js';
 import { geminiGenerate } from '../../workers/cortex/geminiClient.js';
 import { helperFetch } from '../../workers/cortex/helperClient.js';
 import {
@@ -245,6 +250,7 @@ function applyTap(items, card) {
       return { ...i, logged_days: [...(c.days || [c.to]), ...(i.logged_days || [])] };
     if (c.field === 'name') return { ...i, title: c.to };
     if (c.field === 'due_day') return { ...i, due_day: c.to, target_date: c.to };
+    if (c.field === 'body_add') return { ...i, body: i.body ? `${i.body}\n\n${c.to}` : c.to };
     return { ...i, [c.field]: c.to };
   });
 }
@@ -325,9 +331,29 @@ for (const sc of runs) {
     const triage = applyEntityCardToTriage(triageRaw, card);
     const gen = buildGeneralChatConfig(triage, { runningSummary: '' }, null, '', persona, TZ, null);
     const anchorNow = match?.anchor || anchor;
+    // what the anchored item holds, from its row as it is now (taps applied)
+    const anchorItemNow = anchorNow && !anchorNow.gone ? items.find((i) => i.id === anchorNow.id) : null;
+    const detailText = anchorItemNow
+      ? itemDetailText(
+          toDetail(anchorItemNow, anchorItemNow.type, {
+            loggedDays: anchorItemNow.logged_days || [],
+            spaceName: anchorItemNow.space_name || null,
+            timezone: TZ,
+          }),
+          todayIso,
+        )
+      : '';
     const system =
       gen.systemPrompt +
-      turnItemSections({ match, card, recent, anchor: anchorNow, mode: triage.mode, todayIso });
+      turnItemSections({
+        match,
+        card,
+        recent,
+        anchor: anchorNow,
+        mode: triage.mode,
+        todayIso,
+        detailText,
+      });
     // what the reply was told it can see, for the results file
     const theirs = theirItemsPromptSection(match, todayIso, {
       mode: triage.mode,

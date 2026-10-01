@@ -62,6 +62,7 @@ export const HELPER_JOB_VARS = {
   sweep_headline: 'MODEL_SWEEP_HEADLINE', // type sweep-headline
   classify_phase1: 'MODEL_CLASSIFY_PHASE1', // Mind Drop v2 chain, only when CLASSIFY_V3_ENABLED is false
   entity_match: 'MODEL_ENTITY_MATCH', // entityMatch.js: does the message refer to an existing item
+  item_topics: 'MODEL_ITEM_TOPICS', // itemDetail.js: starters drawn from a note when its chat opens
 };
 
 /**

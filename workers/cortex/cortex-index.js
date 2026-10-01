@@ -200,6 +200,7 @@ import {
 } from './classifyV3.js';
 
 import { handleHabitRead } from './habitRead.js';
+import { fetchItemDetail, itemDetailText, handleItemTopics } from './itemDetail.js';
 import { configureModels, models, helperModel } from './models.js';
 import { helperFetch } from './helperClient.js';
 import { relateDrop } from './minddropRelate.js';
@@ -3460,6 +3461,7 @@ export default {
         'floor-suggest',
         'habit-read',
         'minddrop-relate',
+        'item-topics',
       ]);
       const AUTH_REQUIRED_LANES = new Set([
         'space_chat',
@@ -12571,6 +12573,14 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             const previousExchange = extractPreviousExchange(messages);
             // the item this chat was opened about ("Talk it through"), sent with every turn
             const anchorEntity = anchorFrom(body.anchorEntity);
+            // and what that item holds, read alongside triage and the matcher
+            const anchorDetailPromise =
+              authenticatedUserId && anchorEntity
+                ? fetchItemDetail(env, authenticatedUserId, anchorEntity, {
+                    todayIso: todayIsoIn(userTimezone),
+                    timezone: userTimezone,
+                  })
+                : Promise.resolve(null);
             const entityCardPromise = authenticatedUserId
               ? matchEntity({
                   env,
@@ -12610,6 +12620,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             const triage = applyEntityCardToTriage(triageFromClassifier, entityCard);
             // as it is now when the matcher ran, else as the app sent it
             const anchor = entityMatch?.anchor || anchorEntity;
+            const anchorDetail = anchor && !anchor.gone ? await anchorDetailPromise : null;
 
             console.log('[GeneralChat:Triage]', {
               mode: triage.mode,
@@ -12647,6 +12658,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               anchor,
               mode: triage.mode,
               todayIso: todayIsoIn(userTimezone),
+              detailText: itemDetailText(anchorDetail, todayIsoIn(userTimezone)),
             });
 
             const chatMessages = [
@@ -14199,6 +14211,11 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
 
       if (type === 'habit-read') {
         return j(await handleHabitRead(body, env, authenticatedUserId, ctx));
+      }
+
+      // starters drawn from a note when its chat opens (itemDetail.js)
+      if (type === 'item-topics') {
+        return j(await handleItemTopics(body, env, authenticatedUserId));
       }
 
       // =========================

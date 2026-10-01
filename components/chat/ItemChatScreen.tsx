@@ -2,8 +2,9 @@
  * ItemChatScreen - the chat about one todo, habit or note, opened from the
  * item (the overlay, a habit's page, Sweep). It is Ask Gremly tied to that
  * exact item: one chat per item that carries on each time, the item named at
- * the top, starters for its kind, and every turn sent with the item as its
- * anchor so Gremly knows what the chat is about.
+ * the top, starters for its kind (for a note, drawn from what it says), and
+ * every turn sent with the item as its anchor so Gremly knows what the chat
+ * is about.
  *
  * It takes the old entity chat's props, so every place that opened that
  * screen opens this one (see EntityChatScreen, behind ITEM_CHAT_V2).
@@ -14,7 +15,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ChevronLeft } from 'lucide-react-native';
 import AskGremlyScreen from '../../app/tabs/AskGremlyScreen';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
-import { ITEM_STARTERS, itemKindLabel, openingPrompt } from '../../lib/chat/itemStarters';
+import {
+  ITEM_STARTERS,
+  itemKindLabel,
+  openingPrompt,
+  startersFromTopics,
+} from '../../lib/chat/itemStarters';
+import { fetchItemTopics } from '../../lib/cortex/CortexClient';
 import type { ChatAnchor } from '../../lib/types';
 import type { EntityChatScreenProps } from './EntityChatScreen';
 
@@ -52,10 +59,15 @@ export function ItemChatScreen({
             label: itemKindLabel(entityType, subtype),
             initialPrompt: openingPrompt(entityType, initialPreset ?? null),
             starters: ITEM_STARTERS[entityType],
+            // a note's chat opens with things to talk about drawn from what it says
+            loadStarters:
+              entityType === 'note'
+                ? () => fetchItemTopics(entityId).then(startersFromTopics)
+                : undefined,
             onClose,
           }
         : null,
-    [anchor, entityType, subtype, initialPreset, onClose],
+    [anchor, entityId, entityType, subtype, initialPreset, onClose],
   );
 
   if (!item) {

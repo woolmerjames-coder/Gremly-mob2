@@ -593,7 +593,7 @@ export function habitProgressWords(h, todayIso) {
 }
 
 /** Days from a to b, both YYYY-MM-DD; positive when b is later. */
-function daysBetween(a, b) {
+export function daysBetween(a, b) {
   const [ay, am, ad] = a.split('-').map(Number);
   const [by, bm, bd] = b.split('-').map(Number);
   return Math.round((Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / 86400000);
@@ -1115,20 +1115,44 @@ export function anchorPromptSection(anchor, todayIso, opts = {}) {
   }
   const known = `The user opened this chat from their ${kind} "${title}" to talk it through, so they know it exists and is on their list: never tell them it is on their list or already tracked, never offer to add or save it, and never ask whether it is new.`;
   if (opts.mode === 'entity_card') return `${head}${known}`;
-  return `${head}${known} Until the conversation moves on, what they say is about this item: talk it through with them and help with whatever they need about it. When they move on to something else, follow them and leave this item alone.\n${itemLine(anchor, todayIso)}`;
+  const detail = opts.detailText ? `\n${opts.detailText}\n${workFromIt(anchor.type)}` : '';
+  return `${head}${known} Until the conversation moves on, what they say is about this item: talk it through with them and help with whatever they need about it. When they move on to something else, follow them and leave this item alone.\n${itemLine(anchor, todayIso)}${detail}`;
+}
+
+/**
+ * How the reply uses what the item holds: it builds on it, and now and then
+ * offers something it leaves open. What they settle can be added to a note or
+ * a todo (the Save items pill offers that after the reply); a habit holds no
+ * text to add to.
+ */
+function workFromIt(type) {
+  const add =
+    type === 'habit'
+      ? ''
+      : ' What they settle about it can be added to it: the app offers that after your reply, so never say you have added it or will.';
+  return `Work from what it already holds: build on it rather than asking them for what is already there, and never read it back to them in full. Now and then, when the moment suits it, suggest something it leaves open that they could talk through.${add}`;
 }
 
 /**
  * Everything the reply is told about the user's items for one turn, in order:
  * the card under the reply, what became of the last card, the item the chat
- * was opened about, and what they have on. The Worker's chat paths and the
+ * was opened about (with what it holds, itemDetail.js, when the caller read
+ * it), and what they have on. The Worker's chat paths and the
  * scenario runner all build it here, so the runner reads what production reads.
  */
-export function turnItemSections({ match, card, recent, anchor = null, mode, todayIso }) {
+export function turnItemSections({
+  match,
+  card,
+  recent,
+  anchor = null,
+  mode,
+  todayIso,
+  detailText = '',
+}) {
   let out = '';
   if (card) out += entityCardPromptSection(card, { anchorId: anchor?.id || null, todayIso });
   out += recentCardPromptSection(recent, todayIso);
-  out += anchorPromptSection(anchor, todayIso, { mode });
+  out += anchorPromptSection(anchor, todayIso, { mode, detailText });
   out += theirItemsPromptSection(match, todayIso, { mode, card, anchor });
   return out;
 }
