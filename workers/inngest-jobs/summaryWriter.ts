@@ -292,6 +292,15 @@ ${JSON.stringify(facts.week.date_lookup, null, 0)}`,
 ${JSON.stringify(facts.entities, null, 2)}`,
   );
 
+  if (facts.ledger_context) {
+    sections.push(
+      `WHAT GREMLY KNOWS ABOUT THEIR LIFE (from the fact ledger and their story):
+A plan, trip, date or outcome you mention must appear in this week's records or here, with its state. A plan whose date has passed is not upcoming, a corrected fact is never used, and nothing here is a card's evidence on its own: cite the week's records or hard facts as usual.
+
+${facts.ledger_context}`,
+    );
+  }
+
   if (brief.week_shape) {
     sections.push(
       `WEEK_SHAPE BRIEF (the analyst's editorial direction):

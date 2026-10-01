@@ -55,6 +55,8 @@ export interface GenerateParams {
   env: Record<string, string>;
   runRpc: (fnName: string, params: Record<string, unknown>) => Promise<unknown>;
   fetchRows: (path: string) => Promise<unknown[]>;
+  /** Context pipeline: ledger and story text for people on the new pipeline. */
+  ledgerContext?: string | null;
 }
 
 export interface SurfacedObservationRow {
@@ -104,7 +106,7 @@ export interface GenerateResult {
 }
 
 export async function generateAdaptiveSummary(params: GenerateParams): Promise<GenerateResult> {
-  const { userId, weekStart, weekEnd, label, env, runRpc, fetchRows } = params;
+  const { userId, weekStart, weekEnd, label, env, runRpc, fetchRows, ledgerContext } = params;
 
   // ── 1. Brief ──────────────────────────────────────────────────────────────
   const brief = await loadBrief(userId, weekStart, fetchRows);
@@ -117,6 +119,7 @@ export async function generateAdaptiveSummary(params: GenerateParams): Promise<G
     runRpc,
     fetchRows,
   });
+  if (ledgerContext) facts.ledger_context = ledgerContext;
 
   const writerModelEnv = env.SUMMARY_WRITER_MODEL || env.SUMMARY_FILL_MODEL || 'claude-sonnet-4-6';
   const checkerModelEnv = env.SUMMARY_CHECKER_MODEL || 'claude-haiku-4-5-20251001';

@@ -33,6 +33,7 @@ import { aiContext, installAiUsageLogging } from './aiUsage';
 import { CARE_RULES } from './careRules';
 import { createContextFunctions, hourlyContextEvents, contextMode } from './context/functions';
 import { buildDcoV4, writeDco } from './context/daily';
+import { weeklySummaryContext } from './context/summaryContext';
 
 // Cloudflare Workers middleware to inject env bindings
 const bindings = new InngestMiddleware({
@@ -1913,10 +1914,23 @@ const weeklySummaryV07Worker = inngest.createFunction(
       fetchUserSnapshot(user_id, timezone, 21, env, { targetDate: week_end }),
     );
 
+    // Context pipeline: for people on it, the week is read against the fact
+    // ledger and their story instead of raw milestones, old summaries and chat
+    // summaries (Gremly's own words, which are never evidence).
+    const ledgerContext =
+      contextMode(env, user_id) === 'on'
+        ? await step.run('ledger-context', () => weeklySummaryContext(env, user_id, week_start, week_end))
+        : null;
+
     // Step B: run the analyst — produces week_shape and world_signal_candidate
     // observations that loadBrief (inside generateAdaptiveSummary) needs.
     const analystResult = await step.run('run-analyst', async () => {
       const weeklySnapshot = buildWeeklySnapshot(snapshot);
+      if (ledgerContext) {
+        weeklySnapshot.ledger = ledgerContext;
+        weeklySnapshot.weeklySummaries = [];
+        weeklySnapshot.chatSummaries = [];
+      }
       const lifeMap = snapshot.raw.currentLifeMap?.life_map || null;
       return runUnifiedAnalyst(weeklySnapshot, lifeMap, week_start, week_end, env);
     });
@@ -2033,6 +2047,7 @@ const weeklySummaryV07Worker = inngest.createFunction(
         env,
         runRpc,
         fetchRows,
+        ledgerContext,
       }),
     );
 
@@ -8566,11 +8581,18 @@ Prior weekly summaries are provided under "PRIOR WEEKLY SUMMARIES." Use them to:
     }
   }
 
-  dataLines.push('\n=== MILESTONES ===');
-  if ((weeklySnapshot.milestones || []).length === 0) {
+  if (weeklySnapshot.ledger) {
+    // Context pipeline: the fact ledger already accounts for milestones, with
+    // what happened to each one. Raw milestone dates are not shown.
+    dataLines.push('\n=== WHAT GREMLY KNOWS (fact ledger with states; the source for plans, dates and outcomes) ===');
+    dataLines.push(weeklySnapshot.ledger);
+  } else {
+    dataLines.push('\n=== MILESTONES ===');
+  }
+  if (!weeklySnapshot.ledger && (weeklySnapshot.milestones || []).length === 0) {
     dataLines.push('  No active milestones.');
   }
-  for (const m of weeklySnapshot.milestones || []) {
+  for (const m of weeklySnapshot.ledger ? [] : weeklySnapshot.milestones || []) {
     const status = m.completed ? ' [COMPLETED]' : '';
     const days =
       m.daysFromTarget !== null

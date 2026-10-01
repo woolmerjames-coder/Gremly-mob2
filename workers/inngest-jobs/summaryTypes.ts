@@ -135,6 +135,12 @@ export interface EntitiesBlock {
 }
 
 export interface HardFacts {
+  /**
+   * What Gremly knows about the person's life from the fact ledger and their
+   * story (context pipeline). When present it is the only source for plans,
+   * trips, dates and outcomes beyond the week's own records.
+   */
+  ledger_context?: string | null;
   user: {
     user_id: string;
     tenure_days: number;
