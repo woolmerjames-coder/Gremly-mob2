@@ -7,8 +7,8 @@
  * Settings V2 (Feb 2026)
  */
 
-import React, { useLayoutEffect, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, Alert, ActivityIndicator, Linking } from 'react-native';
+import React, { useLayoutEffect } from 'react';
+import { View, Text, StyleSheet, Pressable, Alert, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import {
@@ -24,7 +24,6 @@ import {
 } from 'lucide-react-native';
 import { colors, spacing, borderRadius } from '../../design/tokens';
 import { BRAND } from '../../design/brand';
-import { generateWeeklySummary } from '../../lib/weeklySummary';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useCurrentWeekSummary } from '../../lib/store/selectors';
 import { GREMLY_PALETTES, getPaletteById } from '../../lib/constants/gremlyPalettes';
@@ -44,7 +43,6 @@ const SIGN_OUT_RED = '#A2402F';
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
-  const [weeklyLoading, setWeeklyLoading] = useState(false);
   const currentSummary = useCurrentWeekSummary();
   const gremlyColor = useGremlyStore((s) => s.gremlyColor);
   const setGremlyColor = useGremlyStore((s) => s.setGremlyColor);
@@ -73,26 +71,6 @@ export default function SettingsScreen() {
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false });
   }, [navigation]);
-
-  const handleGenerateWeeklySummary = async () => {
-    setWeeklyLoading(true);
-    try {
-      const result = await generateWeeklySummary();
-      if (result.success) {
-        Alert.alert(
-          'Weekly Summary Generated',
-          `Commentary: ${result.summary?.content?.weeklyCommentary?.substring(0, 100)}...`,
-        );
-        console.log('[Dev] Weekly Summary result:', JSON.stringify(result.summary, null, 2));
-      } else {
-        Alert.alert('Generation Failed', result.error || 'Unknown error');
-      }
-    } catch (err) {
-      Alert.alert('Error', String(err));
-    } finally {
-      setWeeklyLoading(false);
-    }
-  };
 
   const handleDebugWeeklySummary = () => {
     const state = useGremlyStore.getState();
@@ -234,26 +212,6 @@ export default function SettingsScreen() {
           <Text style={styles.devSectionTitle}>Dev Tools</Text>
           <View style={styles.devCard}>
             <Pressable
-              onPress={handleGenerateWeeklySummary}
-              disabled={weeklyLoading}
-              style={({ pressed }) => [
-                styles.devRow,
-                pressed && styles.rowPressed,
-                weeklyLoading && styles.devRowDisabled,
-              ]}
-            >
-              {weeklyLoading ? (
-                <ActivityIndicator
-                  size="small"
-                  color={BRAND.colors.mossGreen}
-                  style={{ marginRight: spacing.sm }}
-                />
-              ) : null}
-              <Text style={styles.devRowText}>
-                {weeklyLoading ? 'Generating...' : '🧪 Generate Weekly Summary'}
-              </Text>
-            </Pressable>
-            <Pressable
               onPress={handleDebugWeeklySummary}
               style={({ pressed }) => [styles.devRow, pressed && styles.rowPressed]}
             >
@@ -383,9 +341,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border.DEFAULT,
-  },
-  devRowDisabled: {
-    opacity: 0.6,
   },
   devRowText: {
     fontSize: 15,

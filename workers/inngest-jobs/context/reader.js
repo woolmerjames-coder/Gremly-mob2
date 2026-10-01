@@ -41,7 +41,16 @@ const READER_SCHEMA = {
           quote: { type: 'string' },
           private: { type: 'boolean' },
         },
-        required: ['statement', 'subject', 'kind', 'date_confidence', 'state', 'source_ref', 'quote', 'private'],
+        required: [
+          'statement',
+          'subject',
+          'kind',
+          'date_confidence',
+          'state',
+          'source_ref',
+          'quote',
+          'private',
+        ],
       },
     },
     fact_updates: {
@@ -50,13 +59,20 @@ const READER_SCHEMA = {
         type: 'object',
         properties: {
           fact_ref: { type: 'string' },
-          new_state: { type: 'string', enum: ['current', 'happened', 'changed', 'superseded', 'unconfirmed'] },
+          new_state: {
+            type: 'string',
+            enum: ['current', 'happened', 'changed', 'superseded', 'unconfirmed'],
+          },
           reason: { type: 'string' },
           source_ref: { type: 'string' },
           replacement_statement: { type: 'string', nullable: true },
           replacement_about_date: { type: 'string', nullable: true },
           replacement_about_date_end: { type: 'string', nullable: true },
-          replacement_state: { type: 'string', nullable: true, enum: ['current', 'planned', 'happened'] },
+          replacement_state: {
+            type: 'string',
+            nullable: true,
+            enum: ['current', 'planned', 'happened'],
+          },
         },
         required: ['fact_ref', 'new_state', 'reason', 'source_ref'],
       },
@@ -118,7 +134,7 @@ KEEPING THE LEDGER TRUE
 - Never mark a fact as happened just because its date has passed. Without a record, a passed plan stays as it is; it is simply no longer ahead.
 
 ${PRIVATE_RULES}
-- Mark each new fact private or not by that meaning.
+- Mark each new fact private or not by that meaning. Keep a private detail in a fact of its own, so the rest of what the record says stays open.
 
 ${WRITING_RULES}
 
@@ -126,25 +142,47 @@ Return only the structured result.`;
 }
 
 function trim(text, n) {
-  const s = String(text || '').replace(/\s+/g, ' ').trim();
+  const s = String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim();
   return s.length > n ? `${s.slice(0, n)}…` : s;
 }
 
 /** Load every record for a user in [since, until), oldest first. */
 export async function loadRecords(env, userId, sinceIso, untilIso) {
   const d = db(env);
-  const w = (col) => `&${col}=gt.${encodeURIComponent(sinceIso)}&${col}=lte.${encodeURIComponent(untilIso)}`;
-  const [created, completed, notes, habits, milestones, chats, calendar, overrides, answers] = await Promise.all([
-    d.select(`todos?owner_id=eq.${userId}${w('created_at')}&select=id,title,body,notes,due_day,due_date,target_date,created_at,status&order=created_at.asc&limit=5000`),
-    d.select(`todos?owner_id=eq.${userId}${w('completed_at')}&select=id,title,completed_at&order=completed_at.asc&limit=5000`),
-    d.select(`notes?owner_id=eq.${userId}&external_source=is.null${w('created_at')}&select=id,title,body,subtype,journal_subtype,date,target_date,end_date,mood,created_at&order=created_at.asc&limit=5000`),
-    d.select(`habits?owner_id=eq.${userId}${w('created_at')}&select=id,name,title,frequency,why_string,created_at&order=created_at.asc&limit=1000`),
-    d.select(`space_milestones?owner_id=eq.${userId}${w('created_at')}&select=id,title,name,date,note,completed,completed_at,created_at&order=created_at.asc&limit=1000`),
-    d.select(`scope_chat_messages?user_id=eq.${userId}&role=eq.user${w('created_at')}&select=id,chat_id,content,created_at&order=created_at.asc&limit=5000`),
-    d.select(`synced_calendar_events?owner_id=eq.${userId}&archived=eq.false${w('created_at')}&select=id,title,location,start_at,end_at,is_all_day,created_at&order=created_at.asc&limit=5000`),
-    d.select(`user_profile_overrides?user_id=eq.${userId}${w('created_at')}&select=id,action,fact_text,created_at&order=created_at.asc&limit=500`),
-    d.select(`gremly_questions?user_id=eq.${userId}&status=eq.answered${w('answered_at')}&select=id,question,answer,answered_at&order=answered_at.asc&limit=500`),
-  ]);
+  const w = (col) =>
+    `&${col}=gt.${encodeURIComponent(sinceIso)}&${col}=lte.${encodeURIComponent(untilIso)}`;
+  const [created, completed, notes, habits, milestones, chats, calendar, overrides, answers] =
+    await Promise.all([
+      d.select(
+        `todos?owner_id=eq.${userId}${w('created_at')}&select=id,title,body,notes,due_day,due_date,target_date,created_at,status&order=created_at.asc&limit=5000`,
+      ),
+      d.select(
+        `todos?owner_id=eq.${userId}${w('completed_at')}&select=id,title,completed_at&order=completed_at.asc&limit=5000`,
+      ),
+      d.select(
+        `notes?owner_id=eq.${userId}&external_source=is.null${w('created_at')}&select=id,title,body,subtype,journal_subtype,date,target_date,end_date,mood,created_at&order=created_at.asc&limit=5000`,
+      ),
+      d.select(
+        `habits?owner_id=eq.${userId}${w('created_at')}&select=id,name,title,frequency,why_string,created_at&order=created_at.asc&limit=1000`,
+      ),
+      d.select(
+        `space_milestones?owner_id=eq.${userId}${w('created_at')}&select=id,title,name,date,note,completed,completed_at,created_at&order=created_at.asc&limit=1000`,
+      ),
+      d.select(
+        `scope_chat_messages?user_id=eq.${userId}&role=eq.user${w('created_at')}&select=id,chat_id,content,created_at&order=created_at.asc&limit=5000`,
+      ),
+      d.select(
+        `synced_calendar_events?owner_id=eq.${userId}&archived=eq.false${w('created_at')}&select=id,title,location,start_at,end_at,is_all_day,created_at&order=created_at.asc&limit=5000`,
+      ),
+      d.select(
+        `user_profile_overrides?user_id=eq.${userId}${w('created_at')}&select=id,action,fact_text,created_at&order=created_at.asc&limit=500`,
+      ),
+      d.select(
+        `gremly_questions?user_id=eq.${userId}&status=eq.answered${w('answered_at')}&select=id,question,answer,answered_at&order=answered_at.asc&limit=500`,
+      ),
+    ]);
   return { created, completed, notes, habits, milestones, chats, calendar, overrides, answers };
 }
 
@@ -186,39 +224,89 @@ export async function buildRecordList(env, tz, rows) {
   for (const t of rows.created) {
     const due = t.due_day || t.target_date || (t.due_date ? t.due_date.slice(0, 10) : null);
     const extra = trim([t.body, t.notes].filter(Boolean).join(' '), 400);
-    push('todos', t.id, t.created_at, `Added a todo: "${trim(t.title, 200)}"${due ? ` (due ${due})` : ''}${extra ? `. Details: ${extra}` : ''}`);
+    push(
+      'todos',
+      t.id,
+      t.created_at,
+      `Added a todo: "${trim(t.title, 200)}"${due ? ` (due ${due})` : ''}${extra ? `. Details: ${extra}` : ''}`,
+    );
   }
   for (const t of rows.completed) {
     push('todos', t.id, t.completed_at, `Completed the todo: "${trim(t.title, 200)}"`);
   }
   for (const n of rows.notes) {
-    const kind = n.subtype === 'journal' ? 'Wrote a journal entry' : n.subtype === 'event' ? 'Added an event' : n.subtype === 'idea' ? 'Noted an idea' : 'Wrote a note';
-    const when = n.subtype === 'event' && (n.target_date || n.date) ? ` (on ${n.target_date || n.date}${n.end_date ? ` to ${n.end_date}` : ''})` : '';
+    const kind =
+      n.subtype === 'journal'
+        ? 'Wrote a journal entry'
+        : n.subtype === 'event'
+          ? 'Added an event'
+          : n.subtype === 'idea'
+            ? 'Noted an idea'
+            : 'Wrote a note';
+    const when =
+      n.subtype === 'event' && (n.target_date || n.date)
+        ? ` (on ${n.target_date || n.date}${n.end_date ? ` to ${n.end_date}` : ''})`
+        : '';
     const mood = Array.isArray(n.mood) && n.mood.length ? ` Mood: ${n.mood.join(', ')}.` : '';
     const body = trim(n.body, n.subtype === 'journal' ? 1500 : 600);
-    push('notes', n.id, n.created_at, `${kind}${when}: "${trim(n.title, 160)}"${body ? `. ${body}` : ''}${mood}`);
+    push(
+      'notes',
+      n.id,
+      n.created_at,
+      `${kind}${when}: "${trim(n.title, 160)}"${body ? `. ${body}` : ''}${mood}`,
+    );
   }
   for (const h of rows.habits) {
-    push('habits', h.id, h.created_at, `Started tracking a habit: "${trim(h.name || h.title, 160)}"${h.frequency ? ` (${h.frequency})` : ''}${h.why_string ? `. Why: ${trim(h.why_string, 200)}` : ''}`);
+    push(
+      'habits',
+      h.id,
+      h.created_at,
+      `Started tracking a habit: "${trim(h.name || h.title, 160)}"${h.frequency ? ` (${h.frequency})` : ''}${h.why_string ? `. Why: ${trim(h.why_string, 200)}` : ''}`,
+    );
   }
   for (const m of rows.milestones) {
-    push('space_milestones', m.id, m.created_at, `Set a milestone: "${trim(m.title || m.name, 160)}"${m.date ? ` dated ${m.date}` : ''}${m.completed ? ' (marked done)' : ''}${m.note ? `. ${trim(m.note, 200)}` : ''}`);
+    push(
+      'space_milestones',
+      m.id,
+      m.created_at,
+      `Set a milestone: "${trim(m.title || m.name, 160)}"${m.date ? ` dated ${m.date}` : ''}${m.completed ? ' (marked done)' : ''}${m.note ? `. ${trim(m.note, 200)}` : ''}`,
+    );
   }
   for (const c of rows.calendar) {
     const start = c.is_all_day ? c.start_at?.slice(0, 10) : localDateTime(tz, c.start_at);
     const end = c.is_all_day ? c.end_at?.slice(0, 10) : localDateTime(tz, c.end_at);
-    push('synced_calendar_events', c.id, c.created_at, `Calendar entry: "${trim(c.title, 160)}" from ${start} to ${end}${c.location ? ` at ${trim(c.location, 80)}` : ''}`);
+    push(
+      'synced_calendar_events',
+      c.id,
+      c.created_at,
+      `Calendar entry: "${trim(c.title, 160)}" from ${start} to ${end}${c.location ? ` at ${trim(c.location, 80)}` : ''}`,
+    );
   }
   for (const o of rows.overrides) {
-    push('user_profile_overrides', o.id, o.created_at, `Told Gremly about themselves (${o.action}): "${trim(o.fact_text, 300)}"`);
+    push(
+      'user_profile_overrides',
+      o.id,
+      o.created_at,
+      `Told Gremly about themselves (${o.action}): "${trim(o.fact_text, 300)}"`,
+    );
   }
   for (const a of rows.answers) {
-    push('gremly_questions', a.id, a.answered_at, `Answered Gremly's question "${trim(a.question, 200)}" with: "${trim(a.answer, 300)}"`);
+    push(
+      'gremly_questions',
+      a.id,
+      a.answered_at,
+      `Answered Gremly's question "${trim(a.question, 200)}" with: "${trim(a.answer, 300)}"`,
+    );
   }
   const prior = await priorGremlyLines(env, rows.chats);
   for (const m of rows.chats) {
     const g = prior.get(m.id);
-    push('scope_chat_messages', m.id, m.created_at, `${g ? `[Gremly had said, context only: "${trim(g, 240)}"] ` : ''}Said in chat: "${trim(m.content, 700)}"`);
+    push(
+      'scope_chat_messages',
+      m.id,
+      m.created_at,
+      `${g ? `[Gremly had said, context only: "${trim(g, 240)}"] ` : ''}Said in chat: "${trim(m.content, 700)}"`,
+    );
   }
   items.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
   return items;
@@ -229,7 +317,10 @@ export function chunkRecords(items) {
   let cur = [];
   let chars = 0;
   for (const it of items) {
-    if (cur.length && (cur.length >= MAX_RECORDS_PER_CALL || chars + it.text.length > MAX_CHARS_PER_CALL)) {
+    if (
+      cur.length &&
+      (cur.length >= MAX_RECORDS_PER_CALL || chars + it.text.length > MAX_CHARS_PER_CALL)
+    ) {
       chunks.push(cur);
       cur = [];
       chars = 0;
@@ -246,8 +337,12 @@ export async function loadOpenFacts(env, userId, aroundIso) {
   const d = db(env);
   const lo = new Date(Date.parse(aroundIso) - 120 * 864e5).toISOString().slice(0, 10);
   const [dated, recent] = await Promise.all([
-    d.select(`life_facts?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&about_date=gte.${lo}&select=id,statement,subject,about_date,about_date_end,state,observed_at,private&order=about_date.asc&limit=${MAX_OPEN_FACTS}`),
-    d.select(`life_facts?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=id,statement,subject,about_date,about_date_end,state,observed_at,private&order=last_confirmed_at.desc&limit=${MAX_OPEN_FACTS}`),
+    d.select(
+      `life_facts?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&about_date=gte.${lo}&select=id,statement,subject,about_date,about_date_end,state,observed_at,private&order=about_date.asc&limit=${MAX_OPEN_FACTS}`,
+    ),
+    d.select(
+      `life_facts?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=id,statement,subject,about_date,about_date_end,state,observed_at,private&order=last_confirmed_at.desc&limit=${MAX_OPEN_FACTS}`,
+    ),
   ]);
   const byId = new Map();
   for (const f of [...dated, ...recent]) if (!byId.has(f.id)) byId.set(f.id, f);
@@ -255,7 +350,11 @@ export async function loadOpenFacts(env, userId, aroundIso) {
 }
 
 function validDate(s) {
-  return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`)) ? s : null;
+  return typeof s === 'string' &&
+    /^\d{4}-\d{2}-\d{2}$/.test(s) &&
+    !Number.isNaN(Date.parse(`${s}T00:00:00Z`))
+    ? s
+    : null;
 }
 
 const UPDATE_STATES = new Set(['current', 'happened', 'changed', 'superseded', 'unconfirmed']);
@@ -277,9 +376,15 @@ const SAID_BY = {
  */
 async function rollbackRun(d, userId, runId) {
   const rid = encodeURIComponent(runId);
-  const changes = await d.select(`life_fact_changes?user_id=eq.${userId}&run_id=eq.${rid}&select=id,fact_id,from_state&order=id.desc`);
+  const changes = await d.select(
+    `life_fact_changes?user_id=eq.${userId}&run_id=eq.${rid}&select=id,fact_id,from_state&order=id.desc`,
+  );
   for (const c of changes) {
-    await d.update(`life_facts?id=eq.${c.fact_id}&user_id=eq.${userId}`, { state: c.from_state, superseded_by: null, state_reason: null });
+    await d.update(`life_facts?id=eq.${c.fact_id}&user_id=eq.${userId}`, {
+      state: c.from_state,
+      superseded_by: null,
+      state_reason: null,
+    });
   }
   if (changes.length) await d.remove(`life_fact_changes?user_id=eq.${userId}&run_id=eq.${rid}`);
   await d.remove(`gremly_questions?user_id=eq.${userId}&run_id=eq.${rid}&status=eq.open`);
@@ -298,7 +403,10 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
   // duplicates facts or questions.
   const runId = `${baseRunId}:${chunk[0].at}`;
   await rollbackRun(d, userId, runId);
-  const [openFacts, person] = await Promise.all([loadOpenFacts(env, userId, chunk[0].at), personIdentity(env, userId)]);
+  const [openFacts, person] = await Promise.all([
+    loadOpenFacts(env, userId, chunk[0].at),
+    personIdentity(env, userId),
+  ]);
 
   const recRef = new Map();
   const recordLines = chunk.map((r, i) => {
@@ -311,7 +419,9 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
   const factLines = openFacts.map((f, i) => {
     const ref = `f${i + 1}`;
     factRef.set(ref, f);
-    const when = f.about_date ? `${f.about_date}${f.about_date_end ? ` to ${f.about_date_end}` : ''} (${relativeDay(f.about_date, today)})` : 'no date';
+    const when = f.about_date
+      ? `${f.about_date}${f.about_date_end ? ` to ${f.about_date_end}` : ''} (${relativeDay(f.about_date, today)})`
+      : 'no date';
     return `${ref} | ${f.state}${f.private ? ' [private]' : ''} | ${when} | ${f.statement}`;
   });
 
@@ -332,10 +442,24 @@ ${recordLines.join('\n')}`;
     thinking: 'low',
   });
 
-  const counts = { records: chunk.length, facts_added: 0, facts_updated: 0, confirmed: 0, questions: 0, rejected: 0 };
+  const counts = {
+    records: chunk.length,
+    facts_added: 0,
+    facts_updated: 0,
+    confirmed: 0,
+    questions: 0,
+    rejected: 0,
+  };
   const nowIso = new Date().toISOString();
 
-  // New facts
+  // New facts. A statement identical to one already held, or to another in this
+  // batch, for the same date is the same fact: it is not stored twice.
+  const sameKey = (statement, date) =>
+    `${String(statement || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()}|${date || ''}`;
+  const seen = new Set(openFacts.map((f) => sameKey(f.statement, f.about_date)));
   const newRows = [];
   for (const f of output.new_facts || []) {
     const src = recRef.get(f.source_ref);
@@ -343,6 +467,12 @@ ${recordLines.join('\n')}`;
       counts.rejected++;
       continue;
     }
+    const key = sameKey(trim(f.statement, 400), validDate(f.about_date));
+    if (seen.has(key)) {
+      counts.duplicates = (counts.duplicates || 0) + 1;
+      continue;
+    }
+    seen.add(key);
     newRows.push({
       user_id: userId,
       statement: trim(f.statement, 400),
@@ -350,8 +480,12 @@ ${recordLines.join('\n')}`;
       kind: f.kind ? trim(f.kind, 40) : null,
       about_date: validDate(f.about_date),
       about_date_end: validDate(f.about_date_end),
-      date_confidence: ['exact', 'approximate', 'unknown'].includes(f.date_confidence) ? f.date_confidence : 'unknown',
-      state: ['current', 'planned', 'happened', 'unconfirmed'].includes(f.state) ? f.state : 'current',
+      date_confidence: ['exact', 'approximate', 'unknown'].includes(f.date_confidence)
+        ? f.date_confidence
+        : 'unknown',
+      state: ['current', 'planned', 'happened', 'unconfirmed'].includes(f.state)
+        ? f.state
+        : 'current',
       said_by: SAID_BY[src.table] || 'app_record',
       source_table: src.table,
       source_id: src.id,
@@ -387,7 +521,9 @@ ${recordLines.join('\n')}`;
           about_date_end: validDate(u.replacement_about_date_end),
           date_confidence: validDate(u.replacement_about_date) ? 'exact' : 'unknown',
           private: !!fact.private,
-          state: ['current', 'planned', 'happened'].includes(u.replacement_state) ? u.replacement_state : 'current',
+          state: ['current', 'planned', 'happened'].includes(u.replacement_state)
+            ? u.replacement_state
+            : 'current',
           said_by: SAID_BY[src.table] || 'app_record',
           source_table: src.table,
           source_id: src.id,
@@ -401,7 +537,8 @@ ${recordLines.join('\n')}`;
     }
     // A fact with a replacement is no longer the true version, whatever the
     // model called it: it changed, and points at the fact that replaces it.
-    const newState = replacementId && !['changed', 'superseded'].includes(u.new_state) ? 'changed' : u.new_state;
+    const newState =
+      replacementId && !['changed', 'superseded'].includes(u.new_state) ? 'changed' : u.new_state;
     await d.update(`life_facts?id=eq.${fact.id}&user_id=eq.${userId}`, {
       state: newState,
       state_reason: trim(u.reason, 400),
@@ -429,7 +566,10 @@ ${recordLines.join('\n')}`;
     const fact = factRef.get(c.fact_ref);
     const src = recRef.get(c.source_ref);
     if (!fact || !src) continue;
-    await d.update(`life_facts?id=eq.${fact.id}&user_id=eq.${userId}`, { last_confirmed_at: src.at, updated_at: nowIso });
+    await d.update(`life_facts?id=eq.${fact.id}&user_id=eq.${userId}`, {
+      last_confirmed_at: src.at,
+      updated_at: nowIso,
+    });
     counts.confirmed++;
   }
 
@@ -439,7 +579,9 @@ ${recordLines.join('\n')}`;
     const fact = q.fact_ref ? factRef.get(q.fact_ref) : null;
     const src = q.source_ref ? recRef.get(q.source_ref) : null;
     if (fact) {
-      const existing = await d.select(`gremly_questions?user_id=eq.${userId}&about_fact_id=eq.${fact.id}&status=in.(open,asked)&select=id&limit=1`);
+      const existing = await d.select(
+        `gremly_questions?user_id=eq.${userId}&about_fact_id=eq.${fact.id}&status=in.(open,asked)&select=id&limit=1`,
+      );
       if (existing.length) continue;
     }
     await d.insertQuiet('gremly_questions', [
@@ -484,7 +626,14 @@ export async function planWindows(env, userId, sinceIso, untilIso) {
 export async function readWindow(env, userId, tz, fromIso, toIso, runId) {
   const rows = await loadRecords(env, userId, fromIso, toIso);
   const items = await buildRecordList(env, tz, rows);
-  const totals = { records: 0, facts_added: 0, facts_updated: 0, confirmed: 0, questions: 0, rejected: 0 };
+  const totals = {
+    records: 0,
+    facts_added: 0,
+    facts_updated: 0,
+    confirmed: 0,
+    questions: 0,
+    rejected: 0,
+  };
   for (const chunk of chunkRecords(items)) {
     const c = await readChunk(env, userId, tz, chunk, runId);
     for (const k of Object.keys(totals)) totals[k] += c[k] || 0;
@@ -493,7 +642,9 @@ export async function readWindow(env, userId, tz, fromIso, toIso, runId) {
 }
 
 export async function readCursor(env, userId) {
-  const rows = await db(env).select(`ledger_cursor?user_id=eq.${userId}&select=read_through,backfilled_at`);
+  const rows = await db(env).select(
+    `ledger_cursor?user_id=eq.${userId}&select=read_through,backfilled_at`,
+  );
   return rows?.[0] || null;
 }
 
@@ -502,7 +653,12 @@ export async function advanceCursor(env, userId, throughIso, { backfilled = fals
   // The cursor only moves forward: two runs for one person never undo each other.
   const cur = await readCursor(env, userId);
   if (cur?.read_through && cur.read_through >= throughIso && !backfilled) return;
-  const row = { user_id: userId, read_through: cur?.read_through && cur.read_through > throughIso ? cur.read_through : throughIso, updated_at: new Date().toISOString() };
+  const row = {
+    user_id: userId,
+    read_through:
+      cur?.read_through && cur.read_through > throughIso ? cur.read_through : throughIso,
+    updated_at: new Date().toISOString(),
+  };
   if (backfilled) row.backfilled_at = new Date().toISOString();
   await d.upsert('ledger_cursor', [row], 'user_id');
 }

@@ -18,7 +18,13 @@ import { applyCorrection } from './corrections';
 import { reconcileAnchors } from './anchors';
 import { reviewQuestions } from './questions';
 import { buildDcoV4, writeDco } from './daily';
-import { weeklyRequestParams, applyWeekly, submitWeeklyBatch, readWeeklyBatch, WEEKLY_PROMPT_VERSION } from './weekly';
+import {
+  weeklyRequestParams,
+  applyWeekly,
+  submitWeeklyBatch,
+  readWeeklyBatch,
+  WEEKLY_PROMPT_VERSION,
+} from './weekly';
 import { anthropicJsonResult } from './llm';
 import { storyRequestParams, applyStory, STORY_PROMPT_VERSION } from './story';
 import { writeUsageRow } from '../aiUsage';
@@ -31,7 +37,10 @@ export function contextMode(env, userId) {
   const raw = env.CONTEXT_PIPELINE || 'shadow';
   const m = ['off', 'shadow', 'on'].includes(raw) ? raw : 'shadow';
   if (m !== 'shadow' || !userId) return m;
-  const live = String(env.CONTEXT_LIVE_USERS || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const live = String(env.CONTEXT_LIVE_USERS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
   return live.includes(userId) ? 'on' : m;
 }
 
@@ -66,11 +75,26 @@ export function createContextFunctions(inngest) {
         const start = event.data?.from || '2025-01-01T00:00:00Z';
         const since = event.data?.force ? start : cursor?.read_through || start;
         const p = await planWindows(env, userId, since, until);
-        if (!p.windows.length) await advanceCursor(env, userId, until, { backfilled: !!event.data?.backfill });
-        return { ...p, since, until };
+        if (!p.windows.length)
+          await advanceCursor(env, userId, until, { backfilled: !!event.data?.backfill });
+        // Someone with no story or Worlds written yet gets them after this read
+        // (at most one try a day, so a failing run is not repeated on every read).
+        const dayAgo = new Date(Date.now() - 864e5).toISOString();
+        const runs = await db(env).select(
+          `synthesis_runs?user_id=eq.${userId}&or=(status.eq.applied,created_at.gte.${dayAgo})&select=id&limit=1`,
+        );
+        return { ...p, since, until, first: !runs.length };
       });
       const runId = `ledger-${userId.slice(0, 8)}-${plan.until}`;
-      const totals = { windows: plan.windows.length, records: 0, facts_added: 0, facts_updated: 0, confirmed: 0, questions: 0, rejected: 0 };
+      const totals = {
+        windows: plan.windows.length,
+        records: 0,
+        facts_added: 0,
+        facts_updated: 0,
+        confirmed: 0,
+        questions: 0,
+        rejected: 0,
+      };
       for (let i = 0; i < plan.windows.length; i++) {
         const w = plan.windows[i];
         const last = i === plan.windows.length - 1;
@@ -80,11 +104,14 @@ export function createContextFunctions(inngest) {
           const cur = await readCursor(env, userId);
           const from = cur?.read_through && cur.read_through > w.from ? cur.read_through : w.from;
           if (from >= w.to) {
-            if (last) await advanceCursor(env, userId, plan.until, { backfilled: !!event.data?.backfill });
+            if (last)
+              await advanceCursor(env, userId, plan.until, { backfilled: !!event.data?.backfill });
             return { records: 0, skipped: 1 };
           }
           const r = await readWindow(env, userId, plan.tz, from, w.to, runId);
-          await advanceCursor(env, userId, last ? plan.until : w.to, { backfilled: last && !!event.data?.backfill });
+          await advanceCursor(env, userId, last ? plan.until : w.to, {
+            backfilled: last && !!event.data?.backfill,
+          });
           return r;
         });
         for (const k of Object.keys(c)) totals[k] = (totals[k] || 0) + c[k];
@@ -98,6 +125,26 @@ export function createContextFunctions(inngest) {
         totals.question_review = await step.run('questions', () =>
           reviewQuestions(env, userId, plan.tz, { shadow: contextMode(env, userId) !== 'on' }),
         );
+      }
+      // Someone new, or anyone who has never had a story or Worlds written, gets
+      // them straight away instead of waiting for the 1st of the month and
+      // Sunday. A catch-up runs these itself.
+      if (
+        plan.first &&
+        totals.records > 0 &&
+        !event.data?.backfill &&
+        contextMode(env, userId) === 'on'
+      ) {
+        totals.first_story = await step.invoke('first-story', {
+          function: story,
+          data: { user_id: userId, direct: true },
+          timeout: '1h',
+        });
+        totals.first_weekly = await step.invoke('first-weekly', {
+          function: weekly,
+          data: { user_id: userId, direct: true, kind: 'first_look' },
+          timeout: '1h',
+        });
       }
       return totals;
     },
@@ -121,7 +168,12 @@ export function createContextFunctions(inngest) {
 
   // ── DCO v4 on demand (the 4am path calls buildDcoV4 from the live worker) ─
   const dcoV4 = inngest.createFunction(
-    { id: 'context-dco-v4', name: 'Context: build DCO v4', concurrency: [{ key: 'event.data.user_id', limit: 1 }], retries: 2 },
+    {
+      id: 'context-dco-v4',
+      name: 'Context: build DCO v4',
+      concurrency: [{ key: 'event.data.user_id', limit: 1 }],
+      retries: 2,
+    },
     { event: 'app/dco.v4' },
     async ({ event, step, env }) => {
       const userId = event.data?.user_id;
@@ -129,12 +181,23 @@ export function createContextFunctions(inngest) {
       const shadow = event.data?.shadow ?? contextMode(env, userId) !== 'on';
       const review = await step.run('questions', async () => {
         const tz = await userTimezone(env, userId);
-        return reviewQuestions(env, userId, tz, { shadow }).catch((err) => ({ error: String(err?.message || err).slice(0, 200) }));
+        return reviewQuestions(env, userId, tz, { shadow }).catch((err) => ({
+          error: String(err?.message || err).slice(0, 200),
+        }));
       });
       return step.run('build-and-write', async () => {
         const built = await buildDcoV4(env, userId, {});
         const written = await writeDco(env, userId, built, { shadow });
-        return { date: built.today, shadow, written, attempts: built.attempts, problems: built.problems, brief: built.dco.brief, today_focus: built.dco.today_focus, question_review: review };
+        return {
+          date: built.today,
+          shadow,
+          written,
+          attempts: built.attempts,
+          problems: built.problems,
+          brief: built.dco.brief,
+          today_focus: built.dco.today_focus,
+          question_review: review,
+        };
       });
     },
   );
@@ -147,7 +210,12 @@ export function createContextFunctions(inngest) {
    */
   const synthesisJob = ({ id, name, event: eventName, kind: defaultKind, prepare, apply }) =>
     inngest.createFunction(
-      { id, name, concurrency: [{ key: 'event.data.user_id', limit: 1 }, { limit: 3 }], retries: 2 },
+      {
+        id,
+        name,
+        concurrency: [{ key: 'event.data.user_id', limit: 1 }, { limit: 3 }],
+        retries: 2,
+      },
       { event: eventName },
       async ({ event, step, env }) => {
         const userId = event.data?.user_id;
@@ -169,23 +237,43 @@ export function createContextFunctions(inngest) {
               status: 'queued',
               model: p.params.model,
               prompt_version: p.promptVersion,
-              input_stats: { input_chars: p.inputChars, refs: p.refsSnapshot, today: p.today, shadow, direct, ...(p.stats || {}) },
+              input_stats: {
+                input_chars: p.inputChars,
+                refs: p.refsSnapshot,
+                today: p.today,
+                shadow,
+                direct,
+                ...(p.stats || {}),
+              },
             },
           ]);
           if (direct) {
             const res = await fetch('https://api.anthropic.com/v1/messages', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+              headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': env.ANTHROPIC_API_KEY,
+                'anthropic-version': '2023-06-01',
+              },
               body: JSON.stringify(p.params),
             });
             const text = await res.text();
-            if (!res.ok) throw new Error(`${name} direct call ${res.status}: ${text.slice(0, 300)}`);
+            if (!res.ok)
+              throw new Error(`${name} direct call ${res.status}: ${text.slice(0, 300)}`);
             const output = anthropicJsonResult(JSON.parse(text));
-            await d.update(`synthesis_runs?id=eq.${run.id}`, { status: 'completed', output, completed_at: new Date().toISOString() });
+            await d.update(`synthesis_runs?id=eq.${run.id}`, {
+              status: 'completed',
+              output,
+              completed_at: new Date().toISOString(),
+            });
             return { runId: run.id, done: true };
           }
           const batch = await submitWeeklyBatch(env, [{ custom_id: run.id, params: p.params }]);
-          await d.update(`synthesis_runs?id=eq.${run.id}`, { status: 'submitted', batch_id: batch.id, submitted_at: new Date().toISOString() });
+          await d.update(`synthesis_runs?id=eq.${run.id}`, {
+            status: 'submitted',
+            batch_id: batch.id,
+            submitted_at: new Date().toISOString(),
+          });
           return { runId: run.id, batchId: batch.id, done: false };
         });
 
@@ -194,15 +282,25 @@ export function createContextFunctions(inngest) {
           for (let i = 0; i < 40 && !finished; i++) {
             await step.sleep(`wait-${i}`, i < 6 ? '10m' : '30m');
             finished = await step.run(`poll-${i}`, async () => {
-              const r = await readWeeklyBatch(env, prepared.batchId, { jobByCustomId: { [prepared.runId]: { userId, runId: prepared.runId, job: id } } });
+              const r = await readWeeklyBatch(env, prepared.batchId, {
+                jobByCustomId: { [prepared.runId]: { userId, runId: prepared.runId, job: id } },
+              });
               if (!r.done) return false;
               const res = r.results[prepared.runId];
               const d = db(env);
               if (!res?.ok) {
-                await d.update(`synthesis_runs?id=eq.${prepared.runId}`, { status: 'failed', error: res?.error || 'missing result', completed_at: new Date().toISOString() });
+                await d.update(`synthesis_runs?id=eq.${prepared.runId}`, {
+                  status: 'failed',
+                  error: res?.error || 'missing result',
+                  completed_at: new Date().toISOString(),
+                });
                 throw new Error(`${name} batch failed: ${res?.error || 'missing result'}`);
               }
-              await d.update(`synthesis_runs?id=eq.${prepared.runId}`, { status: 'completed', output: res.output, completed_at: new Date().toISOString() });
+              await d.update(`synthesis_runs?id=eq.${prepared.runId}`, {
+                status: 'completed',
+                output: res.output,
+                completed_at: new Date().toISOString(),
+              });
               return true;
             });
           }
@@ -233,11 +331,23 @@ export function createContextFunctions(inngest) {
       const tz = await userTimezone(env, userId);
       const periodEnd = data.period_end || lastCompleteWeekEnd(tz);
       const p = await weeklyRequestParams(env, userId, periodEnd);
-      return { ...p, periodStart: addDays(periodEnd, -6), periodEnd, promptVersion: WEEKLY_PROMPT_VERSION };
+      return {
+        ...p,
+        periodStart: addDays(periodEnd, -6),
+        periodEnd,
+        promptVersion: WEEKLY_PROMPT_VERSION,
+      };
     },
     apply: async (env, userId, run, { shadow }) => {
-      const r = await applyWeekly(env, userId, run.output, run.input_stats.refs, { shadow, runId: run.id, today: run.input_stats.today });
-      return { applied: r.applied, extra: { worlds_summary_resolved: r.worldsSummary, previous: r.previous || null } };
+      const r = await applyWeekly(env, userId, run.output, run.input_stats.refs, {
+        shadow,
+        runId: run.id,
+        today: run.input_stats.today,
+      });
+      return {
+        applied: r.applied,
+        extra: { worlds_summary_resolved: r.worldsSummary, previous: r.previous || null },
+      };
     },
   });
 
@@ -252,7 +362,12 @@ export function createContextFunctions(inngest) {
       return { ...p, periodEnd: p.today, promptVersion: STORY_PROMPT_VERSION, stats: p.counts };
     },
     apply: async (env, userId, run, { shadow }) => {
-      const r = await applyStory(env, userId, run.output, run.input_stats.refs, { shadow, runId: run.id, model: run.model, today: run.input_stats.today });
+      const r = await applyStory(env, userId, run.output, run.input_stats.refs, {
+        shadow,
+        runId: run.id,
+        model: run.model,
+        today: run.input_stats.today,
+      });
       return { applied: r.applied };
     },
   });
@@ -262,12 +377,18 @@ export function createContextFunctions(inngest) {
     { cron: '0 12 1 * *' },
     async ({ step, env }) => {
       if (contextMode(env) === 'off') return { skipped: 'pipeline off' };
-      const users = await step.run('active', () => db(env).rpc('get_active_people', { active_days: 60 }));
+      const users = await step.run('active', () =>
+        db(env).rpc('get_active_people', { active_days: 60 }),
+      );
       if (!users.length) return { scheduled: 0 };
       const month = new Date().toISOString().slice(0, 7);
       await step.sendEvent(
         'fan-out',
-        users.map((u) => ({ id: `story-${u.user_id}-${month}`, name: 'app/story.monthly', data: { user_id: u.user_id, shadow: contextMode(env, u.user_id) !== 'on' } })),
+        users.map((u) => ({
+          id: `story-${u.user_id}-${month}`,
+          name: 'app/story.monthly',
+          data: { user_id: u.user_id, shadow: contextMode(env, u.user_id) !== 'on' },
+        })),
       );
       return { scheduled: users.length };
     },
@@ -280,11 +401,17 @@ export function createContextFunctions(inngest) {
     async ({ step, env }) => {
       const mode = contextMode(env);
       if (mode === 'off') return { skipped: 'pipeline off' };
-      const users = await step.run('active', () => db(env).rpc('get_active_people', { active_days: 30 }));
+      const users = await step.run('active', () =>
+        db(env).rpc('get_active_people', { active_days: 30 }),
+      );
       if (!users.length) return { scheduled: 0 };
       await step.sendEvent(
         'fan-out',
-        users.map((u) => ({ id: `weekly-synthesis-${u.user_id}-${localDate(u.timezone || 'America/Los_Angeles')}`, name: 'app/synthesis.weekly', data: { user_id: u.user_id, shadow: contextMode(env, u.user_id) !== 'on' } })),
+        users.map((u) => ({
+          id: `weekly-synthesis-${u.user_id}-${localDate(u.timezone || 'America/Los_Angeles')}`,
+          name: 'app/synthesis.weekly',
+          data: { user_id: u.user_id, shadow: contextMode(env, u.user_id) !== 'on' },
+        })),
       );
       return { scheduled: users.length, mode };
     },
@@ -292,7 +419,12 @@ export function createContextFunctions(inngest) {
 
   // ── Catch-up: rebuild one person from their whole history ────────────────
   const catchUpUser = inngest.createFunction(
-    { id: 'context-catch-up-user', name: 'Context: catch one person up', concurrency: [{ limit: 2 }], retries: 1 },
+    {
+      id: 'context-catch-up-user',
+      name: 'Context: catch one person up',
+      concurrency: [{ limit: 2 }],
+      retries: 1,
+    },
     { event: 'app/context.catch-up-user' },
     async ({ event, step, env }) => {
       const userId = event.data?.user_id;
@@ -326,19 +458,40 @@ export function createContextFunctions(inngest) {
     { id: 'context-catch-up', name: 'Context: catch everyone up' },
     { event: 'app/context.catch-up' },
     async ({ event, step, env }) => {
-      const ids = Array.isArray(event.data?.user_ids) && event.data.user_ids.length
-        ? event.data.user_ids
-        : (await step.run('active', () => db(env).rpc('get_active_people', { active_days: event.data?.active_days || 30 }))).map((u) => u.user_id);
+      const ids =
+        Array.isArray(event.data?.user_ids) && event.data.user_ids.length
+          ? event.data.user_ids
+          : (
+              await step.run('active', () =>
+                db(env).rpc('get_active_people', { active_days: event.data?.active_days || 30 }),
+              )
+            ).map((u) => u.user_id);
       if (!ids.length) return { users: 0 };
       await step.sendEvent(
         'fan-out',
-        ids.map((id) => ({ name: 'app/context.catch-up-user', data: event.data?.shadow == null ? { user_id: id } : { user_id: id, shadow: event.data.shadow } })),
+        ids.map((id) => ({
+          name: 'app/context.catch-up-user',
+          data:
+            event.data?.shadow == null
+              ? { user_id: id }
+              : { user_id: id, shadow: event.data.shadow },
+        })),
       );
       return { users: ids.length };
     },
   );
 
-  return [ledgerRead, correctionApply, dcoV4, weekly, weeklyScheduler, story, storyScheduler, catchUpUser, catchUp];
+  return [
+    ledgerRead,
+    correctionApply,
+    dcoV4,
+    weekly,
+    weeklyScheduler,
+    story,
+    storyScheduler,
+    catchUpUser,
+    catchUp,
+  ];
 }
 
 /**
@@ -350,11 +503,20 @@ export async function hourlyContextEvents(env) {
   const d = db(env);
   const hourKey = new Date().toISOString().slice(0, 13);
   const due = await d.rpc('ledger_users_due', { active_days: 30 });
-  const events = due.map((u) => ({ id: `ledger-${u.user_id}-${hourKey}`, name: 'app/ledger.read', data: { user_id: u.user_id } }));
+  const events = due.map((u) => ({
+    id: `ledger-${u.user_id}-${hourKey}`,
+    name: 'app/ledger.read',
+    data: { user_id: u.user_id },
+  }));
   const pending = await d.select(
     `user_corrections?status=eq.received&created_at=lt.${encodeURIComponent(new Date(Date.now() - 60e3).toISOString())}&select=id,user_id&limit=50`,
   );
-  for (const c of pending) events.push({ id: `correction-${c.id}`, name: 'app/correction.apply', data: { correction_id: c.id, user_id: c.user_id } });
+  for (const c of pending)
+    events.push({
+      id: `correction-${c.id}`,
+      name: 'app/correction.apply',
+      data: { correction_id: c.id, user_id: c.user_id },
+    });
   return events;
 }
 

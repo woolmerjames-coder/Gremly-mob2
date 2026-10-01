@@ -15,17 +15,35 @@
  */
 
 import { CARE_RULES, WRITING_RULES, PRIVATE_RULES, personBlock } from '../careRules';
-import { db, userTimezone, localDate, addDays, relativeDay, weekdayName, personIdentity, identityLine } from './db';
-import { anthropicJsonParams, anthropicJsonResult, modelFor, createBatch, getBatch, getBatchResults } from './llm';
+import {
+  db,
+  userTimezone,
+  localDate,
+  addDays,
+  relativeDay,
+  weekdayName,
+  personIdentity,
+  identityLine,
+} from './db';
+import {
+  anthropicJsonParams,
+  anthropicJsonResult,
+  modelFor,
+  createBatch,
+  getBatch,
+  getBatchResults,
+} from './llm';
 import { recentCorrections } from './corrections';
 import { loadStory, storyLines } from './story';
 import { invalidateChatCache } from './cache';
 import { batchUsageRow, writeUsageRow } from '../aiUsage';
 
-export const WEEKLY_PROMPT_VERSION = 'weekly-2026-10-01b';
+export const WEEKLY_PROMPT_VERSION = 'weekly-2026-10-01c';
 
 function trim(text, n) {
-  const s = String(text || '').replace(/\s+/g, ' ').trim();
+  const s = String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim();
   return s.length > n ? `${s.slice(0, n)}…` : s;
 }
 
@@ -58,7 +76,16 @@ const WEEKLY_SCHEMA = {
                     recent_update: { type: 'string' },
                     fact_refs: { type: 'array', items: { type: 'string' } },
                   },
-                  required: ['name', 'status', 'momentum', 'lifecycle', 'importance', 'attention', 'summary', 'fact_refs'],
+                  required: [
+                    'name',
+                    'status',
+                    'momentum',
+                    'lifecycle',
+                    'importance',
+                    'attention',
+                    'summary',
+                    'fact_refs',
+                  ],
                 },
               },
             },
@@ -88,7 +115,14 @@ const WEEKLY_SCHEMA = {
           },
           card_fact_refs: { type: 'array', items: { type: 'string' } },
         },
-        required: ['world_ref', 'phase', 'card_subtitle', 'summary', 'key_priorities', 'card_fact_refs'],
+        required: [
+          'world_ref',
+          'phase',
+          'card_subtitle',
+          'summary',
+          'key_priorities',
+          'card_fact_refs',
+        ],
       },
     },
     worlds_summary: {
@@ -112,6 +146,7 @@ const WEEKLY_SCHEMA = {
         type: 'object',
         properties: {
           chapter_ref: { type: 'string' },
+          title: { type: 'string' },
           card_subtitle: { type: 'string' },
           summary: { type: 'string' },
           epigraph: { type: 'string' },
@@ -130,7 +165,16 @@ const WEEKLY_SCHEMA = {
           },
           card_fact_refs: { type: 'array', items: { type: 'string' } },
         },
-        required: ['chapter_ref', 'card_subtitle', 'summary', 'epigraph', 'stage', 'key_priorities', 'card_fact_refs'],
+        required: [
+          'chapter_ref',
+          'title',
+          'card_subtitle',
+          'summary',
+          'epigraph',
+          'stage',
+          'key_priorities',
+          'card_fact_refs',
+        ],
       },
     },
     questions: {
@@ -143,7 +187,15 @@ const WEEKLY_SCHEMA = {
     },
     week_note: { type: 'string' },
   },
-  required: ['life_map', 'profile_text', 'worlds', 'worlds_summary', 'chapters', 'questions', 'week_note'],
+  required: [
+    'life_map',
+    'profile_text',
+    'worlds',
+    'worlds_summary',
+    'chapters',
+    'questions',
+    'week_note',
+  ],
 };
 
 function weeklySystemPrompt(today, person) {
@@ -198,6 +250,7 @@ CHAPTERS
 - An active chapter that has gone quiet says when it was last active and what was happening then; its stage is a neutral label. Nothing on a chapter tells the person what they should do.
 - Setbacks, slips and health details appear only in the person's own words, and only when they recorded them as part of the chapter themselves.
 - Cite the facts each chapter's card line rests on in card_fact_refs, and write the whole chapter from what the facts show: when the records do not show how a chapter ended, say what it was and when, and leave the outcome out. A chapter with no facts behind it keeps what it has, and a card line resting on a private fact is not used.
+- title: leave it empty to keep the current title. Give a new one only when the current title no longer describes the chapter as the facts show it. A title the person set is kept.
 - Return every chapter you are given; one you cannot say anything true about keeps a plain summary of its dates and what it was. An epigraph you cannot ground in their words is left empty.
 
 QUESTIONS
@@ -213,39 +266,113 @@ export async function gatherWeek(env, userId, tz, periodEnd) {
   const periodStart = addDays(periodEnd, -6);
   const since = `${periodStart}T00:00:00Z`;
   const startIso = new Date(Date.parse(since) - 14 * 3600e3).toISOString();
-  const endIso = new Date(Date.parse(`${addDays(periodEnd, 1)}T00:00:00Z`) + 14 * 3600e3).toISOString();
-  const between = (col) => `${col}=gte.${encodeURIComponent(startIso)}&${col}=lt.${encodeURIComponent(endIso)}`;
-  const [openFacts, recentHappened, changes, corrections, journals, chats, created, completed, habits, progress, lifeMap, worlds, links, questions, absence, usage, chapterRows, story] = await Promise.all([
-    d.select(`life_facts?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=id,statement,subject,about_date,about_date_end,state,observed_at,last_confirmed_at,private&order=last_confirmed_at.desc&limit=400`),
-    d.select(`life_facts?user_id=eq.${userId}&state=in.(happened,changed)&updated_at=gte.${encodeURIComponent(new Date(Date.now() - 60 * 864e5).toISOString())}&select=id,statement,subject,about_date,state,state_reason,updated_at,private&order=updated_at.desc&limit=150`),
-    d.select(`life_fact_changes?user_id=eq.${userId}&${between('created_at')}&select=fact_id,from_state,to_state,reason,created_at&order=created_at.asc&limit=100`),
+  const endIso = new Date(
+    Date.parse(`${addDays(periodEnd, 1)}T00:00:00Z`) + 14 * 3600e3,
+  ).toISOString();
+  const between = (col) =>
+    `${col}=gte.${encodeURIComponent(startIso)}&${col}=lt.${encodeURIComponent(endIso)}`;
+  const [
+    openFacts,
+    recentHappened,
+    changes,
+    corrections,
+    journals,
+    chats,
+    created,
+    completed,
+    habits,
+    progress,
+    lifeMap,
+    worlds,
+    links,
+    questions,
+    absence,
+    usage,
+    chapterRows,
+    story,
+  ] = await Promise.all([
+    d.select(
+      `life_facts?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=id,statement,subject,about_date,about_date_end,state,observed_at,last_confirmed_at,private&order=last_confirmed_at.desc&limit=400`,
+    ),
+    d.select(
+      `life_facts?user_id=eq.${userId}&state=in.(happened,changed)&updated_at=gte.${encodeURIComponent(new Date(Date.now() - 60 * 864e5).toISOString())}&select=id,statement,subject,about_date,state,state_reason,updated_at,private&order=updated_at.desc&limit=150`,
+    ),
+    d.select(
+      `life_fact_changes?user_id=eq.${userId}&${between('created_at')}&select=fact_id,from_state,to_state,reason,created_at&order=created_at.asc&limit=100`,
+    ),
     recentCorrections(env, userId, 365),
-    d.select(`notes?owner_id=eq.${userId}&subtype=eq.journal&${between('created_at')}&select=title,body,mood,created_at&order=created_at.asc&limit=25`),
-    d.select(`scope_chat_messages?user_id=eq.${userId}&role=eq.user&${between('created_at')}&select=content,created_at&order=created_at.asc&limit=120`),
-    d.select(`todos?owner_id=eq.${userId}&${between('created_at')}&select=id,title,due_day,created_at&order=created_at.asc&limit=80`),
-    d.select(`todos?owner_id=eq.${userId}&${between('completed_at')}&select=id,title,completed_at&order=completed_at.asc&limit=80`),
-    d.select(`habits?owner_id=eq.${userId}&archived=eq.false&select=id,name,title,cadence,target_per_period`),
-    d.select(`habit_progress?owner_id=eq.${userId}&occurred_day=gte.${periodStart}&occurred_day=lte.${periodEnd}&select=habit_id,occurred_day&limit=2000`),
+    d.select(
+      `notes?owner_id=eq.${userId}&subtype=eq.journal&${between('created_at')}&select=title,body,mood,created_at&order=created_at.asc&limit=25`,
+    ),
+    d.select(
+      `scope_chat_messages?user_id=eq.${userId}&role=eq.user&${between('created_at')}&select=content,created_at&order=created_at.asc&limit=120`,
+    ),
+    d.select(
+      `todos?owner_id=eq.${userId}&${between('created_at')}&select=id,title,due_day,created_at&order=created_at.asc&limit=80`,
+    ),
+    d.select(
+      `todos?owner_id=eq.${userId}&${between('completed_at')}&select=id,title,completed_at&order=completed_at.asc&limit=80`,
+    ),
+    d.select(
+      `habits?owner_id=eq.${userId}&archived=eq.false&select=id,name,title,cadence,target_per_period`,
+    ),
+    d.select(
+      `habit_progress?owner_id=eq.${userId}&occurred_day=gte.${periodStart}&occurred_day=lte.${periodEnd}&select=habit_id,occurred_day&limit=2000`,
+    ),
     d.select(`user_life_map?user_id=eq.${userId}&select=id,life_map,version`),
-    d.select(`worlds?owner_id=eq.${userId}&phase=in.(candidate,active,evolving,dormant)&select=id,name,display_name,phase,card_subtitle,card_subtitle_source,summary,summary_source,key_priorities,last_signal_at`),
+    d.select(
+      `worlds?owner_id=eq.${userId}&phase=in.(candidate,active,evolving,dormant)&select=id,name,display_name,phase,card_subtitle,card_subtitle_source,summary,summary_source,key_priorities,last_signal_at`,
+    ),
     d.select(`drop_world_links?owner_id=eq.${userId}&select=world_id,drop_id,drop_type&limit=5000`),
-    d.select(`gremly_questions?user_id=eq.${userId}&status=in.(open,asked)&select=id,question,created_at&limit=20`),
+    d.select(
+      `gremly_questions?user_id=eq.${userId}&status=in.(open,asked)&select=id,question,created_at&limit=20`,
+    ),
     d.rpc('absence_snapshot', { p_user: userId }),
     d.rpc('usage_rollup', { p_user: userId, p_grain: 'week', p_periods: 8 }),
-    d.select(`chapters?owner_id=eq.${userId}&phase=in.(suggested,upcoming,active,closed)&select=id,title,chapter_type,phase,start_date,end_date,closed_at,card_subtitle,card_subtitle_source,summary,summary_source,epigraph,epigraph_source,key_priorities,current_phase_key,phase_labels&order=start_date.desc.nullslast&limit=60`),
+    d.select(
+      `chapters?owner_id=eq.${userId}&phase=in.(suggested,upcoming,active,closed)&select=id,title,title_source,chapter_type,phase,start_date,end_date,closed_at,card_subtitle,card_subtitle_source,summary,summary_source,epigraph,epigraph_source,key_priorities,current_phase_key,phase_labels&order=start_date.desc.nullslast&limit=60`,
+    ),
     loadStory(env, userId),
   ]);
   // Chapters the weekly writes: every open one, any closed in the last 120 days,
   // and any whose words have not yet been written under these rules.
   const recentCut = new Date(Date.now() - 120 * 864e5).toISOString();
-  const chapters = (chapterRows || []).filter((c) => {
-    const allUser = c.card_subtitle_source === 'user' && c.summary_source === 'user' && c.epigraph_source === 'user';
-    if (allUser) return false;
-    if (c.phase !== 'closed') return true;
-    if (c.closed_at && c.closed_at >= recentCut) return true;
-    return ![c.card_subtitle_source, c.summary_source, c.epigraph_source].every((s) => s === 'synthesis' || s === 'user');
-  }).slice(0, 40);
-  return { periodStart, periodEnd, openFacts, recentHappened, changes, corrections, journals, chats, created, completed, habits, progress, lifeMap: lifeMap?.[0] || null, worlds, links, questions, absence, usage, chapters, story: story || [] };
+  const chapters = (chapterRows || [])
+    .filter((c) => {
+      const allUser =
+        c.card_subtitle_source === 'user' &&
+        c.summary_source === 'user' &&
+        c.epigraph_source === 'user';
+      if (allUser) return false;
+      if (c.phase !== 'closed') return true;
+      if (c.closed_at && c.closed_at >= recentCut) return true;
+      return ![c.card_subtitle_source, c.summary_source, c.epigraph_source].every(
+        (s) => s === 'synthesis' || s === 'user',
+      );
+    })
+    .slice(0, 40);
+  return {
+    periodStart,
+    periodEnd,
+    openFacts,
+    recentHappened,
+    changes,
+    corrections,
+    journals,
+    chats,
+    created,
+    completed,
+    habits,
+    progress,
+    lifeMap: lifeMap?.[0] || null,
+    worlds,
+    links,
+    questions,
+    absence,
+    usage,
+    chapters,
+    story: story || [],
+  };
 }
 
 export function renderWeek(g, today) {
@@ -258,35 +385,53 @@ export function renderWeek(g, today) {
   };
   const factLine = (f) => {
     const ref = add('f', { type: 'fact', ...f });
-    const when = f.about_date ? `${f.about_date}${f.about_date_end ? ` to ${f.about_date_end}` : ''} (${relativeDay(f.about_date, today)})` : 'no date';
+    const when = f.about_date
+      ? `${f.about_date}${f.about_date_end ? ` to ${f.about_date_end}` : ''} (${relativeDay(f.about_date, today)})`
+      : 'no date';
     return `${ref} | ${f.state}${f.private ? ' [private]' : ''} | ${when} | ${trim(f.statement, 220)} | recorded ${String(f.observed_at || f.updated_at).slice(0, 10)}`;
   };
   const weekItemIds = new Set([...g.created.map((t) => t.id), ...g.completed.map((t) => t.id)]);
   const worldActivity = new Map();
-  for (const l of g.links) if (weekItemIds.has(l.drop_id)) worldActivity.set(l.world_id, (worldActivity.get(l.world_id) || 0) + 1);
+  for (const l of g.links)
+    if (weekItemIds.has(l.drop_id))
+      worldActivity.set(l.world_id, (worldActivity.get(l.world_id) || 0) + 1);
   const counts = new Map();
   for (const p of g.progress) counts.set(p.habit_id, (counts.get(p.habit_id) || 0) + 1);
 
   const usageLines = (g.usage?.periods || []).map(
-    (p) => `week of ${p.period_start}: ${p.active_days} active days, ${p.drops} drops, ${p.todos_done} done, ${p.habit_checkins} check-ins, ${p.journals} journals, ${p.chat_messages} chat messages, ${p.sweeps} sweeps, ${p.fed_days} fed days`,
+    (p) =>
+      `week of ${p.period_start}: ${p.active_days} active days, ${p.drops} drops, ${p.todos_done} done, ${p.habit_checkins} check-ins, ${p.journals} journals, ${p.chat_messages} chat messages, ${p.sweeps} sweeps, ${p.fed_days} fed days`,
   );
 
   const threads = [];
   for (const dom of g.lifeMap?.life_map?.domains || []) {
     for (const t of dom.threads || []) {
-      threads.push(`${trim(dom.name, 50)} / ${trim(t.name, 70)} | ${t.status}, ${t.momentum}, ${t.lifecycle || 'active'} | last activity ${t.last_activity || 'unknown'} | ${trim(t.summary, 300)}`);
+      threads.push(
+        `${trim(dom.name, 50)} / ${trim(t.name, 70)} | ${t.status}, ${t.momentum}, ${t.lifecycle || 'active'} | last activity ${t.last_activity || 'unknown'} | ${trim(t.summary, 300)}`,
+      );
     }
   }
   const worldLines = g.worlds.map((w) => {
     const ref = add('w', { type: 'world', ...w });
-    const kp = (Array.isArray(w.key_priorities) ? w.key_priorities : []).map((k) => (typeof k === 'string' ? k : k?.text)).filter(Boolean);
+    const kp = (Array.isArray(w.key_priorities) ? w.key_priorities : [])
+      .map((k) => (typeof k === 'string' ? k : k?.text))
+      .filter(Boolean);
     return `${ref} | ${w.display_name || w.name} | phase ${w.phase} | last real activity ${w.last_signal_at ? w.last_signal_at.slice(0, 10) : 'unknown'} | items this week ${worldActivity.get(w.id) || 0} | card: "${trim(w.card_subtitle, 100)}"${w.card_subtitle_source === 'user' ? ' (set by the person, keep unless untrue)' : ''} | summary: "${trim(w.summary, 200)}" | priorities: ${kp.map((k) => trim(k, 80)).join('; ') || 'none'}`;
   });
-  const qLines = g.questions.map((q) => `- ${trim(q.question, 200)} (asked ${q.created_at.slice(0, 10)})`);
+  const qLines = g.questions.map(
+    (q) => `- ${trim(q.question, 200)} (asked ${q.created_at.slice(0, 10)})`,
+  );
   const chapterLines = (g.chapters || []).map((c) => {
     const ref = add('c', { type: 'chapter', id: c.id });
-    const kp = (Array.isArray(c.key_priorities) ? c.key_priorities : []).map((k) => (typeof k === 'string' ? k : k?.text)).filter(Boolean);
-    const userSet = [c.card_subtitle_source === 'user' && 'card', c.summary_source === 'user' && 'summary', c.epigraph_source === 'user' && 'epigraph'].filter(Boolean);
+    const kp = (Array.isArray(c.key_priorities) ? c.key_priorities : [])
+      .map((k) => (typeof k === 'string' ? k : k?.text))
+      .filter(Boolean);
+    const userSet = [
+      c.title_source === 'user' && 'title',
+      c.card_subtitle_source === 'user' && 'card',
+      c.summary_source === 'user' && 'summary',
+      c.epigraph_source === 'user' && 'epigraph',
+    ].filter(Boolean);
     return `${ref} | ${trim(c.title, 80)} | ${c.chapter_type} | ${c.phase} | ${c.start_date || '?'} to ${c.end_date || (c.phase === 'closed' ? '?' : 'now')} | stage: ${c.current_phase_key || 'none'} | card: "${trim(c.card_subtitle, 100)}" | summary: "${trim(c.summary, 300)}" | epigraph: "${trim(c.epigraph, 200)}" | priorities: ${kp.map((k) => trim(k, 70)).join('; ') || 'none'}${userSet.length ? ` | set by the person, keep unless untrue: ${userSet.join(', ')}` : ''}`;
   });
   const storyText = storyLines(g.story || [], today);
@@ -327,7 +472,10 @@ export function renderWeek(g, today) {
 export async function weeklyRequestParams(env, userId, periodEnd) {
   const tz = await userTimezone(env, userId);
   const today = localDate(tz);
-  const [g, person] = await Promise.all([gatherWeek(env, userId, tz, periodEnd), personIdentity(env, userId)]);
+  const [g, person] = await Promise.all([
+    gatherWeek(env, userId, tz, periodEnd),
+    personIdentity(env, userId),
+  ]);
   const { text, refs } = renderWeek(g, today);
   const m = modelFor(env, 'weekly');
   const params = anthropicJsonParams({
@@ -337,7 +485,25 @@ export async function weeklyRequestParams(env, userId, periodEnd) {
     schema: WEEKLY_SCHEMA,
     maxTokens: 24000,
   });
-  return { params, refsSnapshot: [...refs.entries()].map(([k, v]) => [k, { type: v.type, id: v.id, statement: v.statement, about_date: v.about_date, observed_at: v.observed_at, state: v.state, private: !!v.private }]), today, tz, g, inputChars: text.length };
+  return {
+    params,
+    refsSnapshot: [...refs.entries()].map(([k, v]) => [
+      k,
+      {
+        type: v.type,
+        id: v.id,
+        statement: v.statement,
+        about_date: v.about_date,
+        observed_at: v.observed_at,
+        state: v.state,
+        private: !!v.private,
+      },
+    ]),
+    today,
+    tz,
+    g,
+    inputChars: text.length,
+  };
 }
 
 function validDate(s) {
@@ -346,7 +512,12 @@ function validDate(s) {
 
 /** Real prose, not a placeholder: a few words with letters in them. */
 function isProse(s, minChars = 8) {
-  return typeof s === 'string' && s.trim().length >= minChars && /[a-z]{3,}/i.test(s) && s.trim().split(/\s+/).length >= 2;
+  return (
+    typeof s === 'string' &&
+    s.trim().length >= minChars &&
+    /[a-z]{3,}/i.test(s) &&
+    s.trim().split(/\s+/).length >= 2
+  );
 }
 
 /** Apply a weekly result. In shadow mode nothing user-facing changes. */
@@ -355,7 +526,9 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
   const refs = new Map(refsSnapshot);
   const nowIso = new Date().toISOString();
   const [current] = await d.select(`user_life_map?user_id=eq.${userId}&select=id,life_map,version`);
-  const existingDomains = new Map((current?.life_map?.domains || []).map((dm) => [dm.name.toLowerCase(), dm]));
+  const existingDomains = new Map(
+    (current?.life_map?.domains || []).map((dm) => [dm.name.toLowerCase(), dm]),
+  );
 
   // Life Map, rebuilt in the existing shape with evidence from cited facts.
   let lastEvidence = null;
@@ -366,29 +539,42 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
       source: prior?.source || 'ai_detected',
       space_id: prior?.space_id || null,
       attention: dm.attention,
-      threads: (dm.threads || []).filter((t) => isProse(t?.name, 3) || isProse(t?.summary, 20)).map((t) => {
-        const evidence = (t.fact_refs || [])
-          .map((r) => refs.get(r))
-          .filter((f) => f && f.type === 'fact')
-          .map((f) => {
-            const date = f.about_date && f.about_date <= today ? f.about_date : String(f.observed_at || '').slice(0, 10) || null;
-            if (date && date <= today && (!lastEvidence || date > lastEvidence)) lastEvidence = date;
-            return { type: 'fact', date, signal: f.statement, fact_id: f.id, salience: 'medium', source: 'ledger' };
-          });
-        const la = validDate(t.last_activity);
-        return {
-          name: t.name,
-          status: t.status,
-          momentum: t.momentum,
-          lifecycle: t.lifecycle,
-          importance: t.importance,
-          attention: t.attention,
-          last_activity: la && la <= today ? la : null,
-          summary: t.summary,
-          recent_update: t.recent_update || null,
-          evidence,
-        };
-      }),
+      threads: (dm.threads || [])
+        .filter((t) => isProse(t?.name, 3) || isProse(t?.summary, 20))
+        .map((t) => {
+          const evidence = (t.fact_refs || [])
+            .map((r) => refs.get(r))
+            .filter((f) => f && f.type === 'fact')
+            .map((f) => {
+              const date =
+                f.about_date && f.about_date <= today
+                  ? f.about_date
+                  : String(f.observed_at || '').slice(0, 10) || null;
+              if (date && date <= today && (!lastEvidence || date > lastEvidence))
+                lastEvidence = date;
+              return {
+                type: 'fact',
+                date,
+                signal: f.statement,
+                fact_id: f.id,
+                salience: 'medium',
+                source: 'ledger',
+              };
+            });
+          const la = validDate(t.last_activity);
+          return {
+            name: t.name,
+            status: t.status,
+            momentum: t.momentum,
+            lifecycle: t.lifecycle,
+            importance: t.importance,
+            attention: t.attention,
+            last_activity: la && la <= today ? la : null,
+            summary: t.summary,
+            recent_update: t.recent_update || null,
+            evidence,
+          };
+        }),
     };
   });
   const lifeMap = {
@@ -418,19 +604,38 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
     for (const r of w.card_fact_refs || []) {
       const f = refs.get(r);
       if (!f || f.type !== 'fact') continue;
-      const days = [String(f.observed_at || '').slice(0, 10), f.state === 'happened' ? f.about_date : null];
-      for (const day of days) if (validDate(day) && day <= today && (!lived || day > lived)) lived = day;
+      const days = [
+        String(f.observed_at || '').slice(0, 10),
+        f.state === 'happened' ? f.about_date : null,
+      ];
+      for (const day of days)
+        if (validDate(day) && day <= today && (!lived || day > lived)) lived = day;
     }
     // A card line is glanceable: it must rest on cited facts, none of them private.
-    const cardFacts = (w.card_fact_refs || []).map((r) => refs.get(r)).filter((f) => f && f.type === 'fact');
+    const cardFacts = (w.card_fact_refs || [])
+      .map((r) => refs.get(r))
+      .filter((f) => f && f.type === 'fact');
     const cardOk = cardFacts.length > 0 && !cardFacts.some((f) => f.private);
-    if (!cardOk) skipped.push({ world_ref: w.world_ref, card_subtitle: w.card_subtitle, reason: cardFacts.length ? 'card rests on a private fact' : 'card cites no facts' });
+    if (!cardOk)
+      skipped.push({
+        world_ref: w.world_ref,
+        card_subtitle: w.card_subtitle,
+        reason: cardFacts.length ? 'card rests on a private fact' : 'card cites no facts',
+      });
     worldUpdates.push({ id: ref.id, w, lived, cardOk });
   }
   const featured = (output.worlds_summary?.featured || [])
-    .map((f) => ({ world_id: refs.get(f.world_ref)?.type === 'world' ? refs.get(f.world_ref).id : null, reason: f.reason }))
+    .map((f) => ({
+      world_id: refs.get(f.world_ref)?.type === 'world' ? refs.get(f.world_ref).id : null,
+      reason: f.reason,
+    }))
     .filter((f) => f.world_id);
-  const worldsSummary = { headline: output.worlds_summary?.headline || null, featured, generated_at: nowIso, source: 'weekly_synthesis' };
+  const worldsSummary = {
+    headline: output.worlds_summary?.headline || null,
+    featured,
+    generated_at: nowIso,
+    source: 'weekly_synthesis',
+  };
 
   // Chapters
   const chapterUpdates = [];
@@ -438,21 +643,42 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
     const ref = refs.get(c.chapter_ref);
     if (!ref || ref.type !== 'chapter') continue;
     if (!isProse(c.card_subtitle) || !isProse(c.summary, 20)) {
-      skipped.push({ chapter_ref: c.chapter_ref, card_subtitle: c.card_subtitle, summary: c.summary });
+      skipped.push({
+        chapter_ref: c.chapter_ref,
+        card_subtitle: c.card_subtitle,
+        summary: c.summary,
+      });
       continue;
     }
     // A chapter's words must rest on cited facts; its card line, on facts none of which is private.
-    const chCard = (c.card_fact_refs || []).map((r) => refs.get(r)).filter((f) => f && f.type === 'fact');
+    const chCard = (c.card_fact_refs || [])
+      .map((r) => refs.get(r))
+      .filter((f) => f && f.type === 'fact');
     if (!chCard.length) {
-      skipped.push({ chapter_ref: c.chapter_ref, card_subtitle: c.card_subtitle, reason: 'cites no facts' });
+      skipped.push({
+        chapter_ref: c.chapter_ref,
+        card_subtitle: c.card_subtitle,
+        reason: 'cites no facts',
+      });
       continue;
     }
     const cardOk = !chCard.some((f) => f.private);
-    if (!cardOk) skipped.push({ chapter_ref: c.chapter_ref, card_subtitle: c.card_subtitle, reason: 'card rests on a private fact' });
+    if (!cardOk)
+      skipped.push({
+        chapter_ref: c.chapter_ref,
+        card_subtitle: c.card_subtitle,
+        reason: 'card rests on a private fact',
+      });
     chapterUpdates.push({ id: ref.id, c, cardOk });
   }
 
-  const applied = { threads: domains.reduce((n, dm) => n + dm.threads.length, 0), worlds: worldUpdates.length, chapters: chapterUpdates.length, worlds_skipped: skipped, questions: 0 };
+  const applied = {
+    threads: domains.reduce((n, dm) => n + dm.threads.length, 0),
+    worlds: worldUpdates.length,
+    chapters: chapterUpdates.length,
+    worlds_skipped: skipped,
+    questions: 0,
+  };
   const profileOk = isProse(output.profile_text, 120);
   if (!profileOk) applied.profile_skipped = String(output.profile_text || '').slice(0, 200);
   // A Life Map with no threads is not a rewrite; keep the current one.
@@ -462,63 +688,184 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
 
   // Keep what this run replaces, so a bad week can be rolled back by hand.
   const [prevProfile] = await d.select(`user_profiles?user_id=eq.${userId}&select=profile_text`);
-  const prevWorlds = await d.select(`worlds?owner_id=eq.${userId}&select=id,phase,card_subtitle,card_subtitle_source,summary,summary_source,key_priorities,last_signal_at`);
-  const previous = { life_map: current?.life_map || null, profile_text: prevProfile?.profile_text ?? null, worlds: prevWorlds };
+  const prevWorlds = await d.select(
+    `worlds?owner_id=eq.${userId}&select=id,phase,card_subtitle,card_subtitle_source,summary,summary_source,key_priorities,last_signal_at`,
+  );
+  const previous = {
+    life_map: current?.life_map || null,
+    profile_text: prevProfile?.profile_text ?? null,
+    worlds: prevWorlds,
+  };
 
   if (lifeMapOk && current) {
-    await d.update(`user_life_map?id=eq.${current.id}`, { life_map: lifeMap, version: (current.version || 1) + 1, rebuilt_at: nowIso, updated_at: nowIso, last_evidence_date: lastEvidence });
+    await d.update(`user_life_map?id=eq.${current.id}`, {
+      life_map: lifeMap,
+      version: (current.version || 1) + 1,
+      rebuilt_at: nowIso,
+      updated_at: nowIso,
+      last_evidence_date: lastEvidence,
+    });
   } else if (lifeMapOk) {
-    await d.insertQuiet('user_life_map', [{ user_id: userId, life_map: lifeMap, version: 1, rebuilt_at: nowIso, updated_at: nowIso, last_evidence_date: lastEvidence }]);
+    await d.insertQuiet('user_life_map', [
+      {
+        user_id: userId,
+        life_map: lifeMap,
+        version: 1,
+        rebuilt_at: nowIso,
+        updated_at: nowIso,
+        last_evidence_date: lastEvidence,
+      },
+    ]);
   }
 
   // Other prompts read the IDENTITY line at the top of profile_text, so it stays first.
   const person = await personIdentity(env, userId);
   const idLine = identityLine(person);
-  const profileText = [idLine, String(output.profile_text || '').trim()].filter(Boolean).join('\n\n');
+  const profileText = [idLine, String(output.profile_text || '').trim()]
+    .filter(Boolean)
+    .join('\n\n');
   const [profileRow] = await d.select(`user_profiles?user_id=eq.${userId}&select=user_id,signals`);
-  const signals = { ...(profileRow?.signals || {}), source: 'weekly_synthesis', synthesized_at: nowIso };
-  if (profileOk && profileRow) await d.update(`user_profiles?user_id=eq.${userId}`, { profile_text: profileText, signals, generated_at: nowIso, model_used: 'weekly_synthesis' });
-  else if (profileOk) await d.insertQuiet('user_profiles', [{ user_id: userId, profile_text: profileText, signals, generated_at: nowIso, model_used: 'weekly_synthesis' }]);
+  const signals = {
+    ...(profileRow?.signals || {}),
+    source: 'weekly_synthesis',
+    synthesized_at: nowIso,
+  };
+  if (profileOk && profileRow)
+    await d.update(`user_profiles?user_id=eq.${userId}`, {
+      profile_text: profileText,
+      signals,
+      generated_at: nowIso,
+      model_used: 'weekly_synthesis',
+    });
+  else if (profileOk)
+    await d.insertQuiet('user_profiles', [
+      {
+        user_id: userId,
+        profile_text: profileText,
+        signals,
+        generated_at: nowIso,
+        model_used: 'weekly_synthesis',
+      },
+    ]);
 
-  const [worldRows] = [await d.select(`worlds?owner_id=eq.${userId}&select=id,card_subtitle_source,summary_source,last_signal_at`)];
+  const [worldRows] = [
+    await d.select(
+      `worlds?owner_id=eq.${userId}&select=id,card_subtitle_source,summary_source,last_signal_at`,
+    ),
+  ];
   const sources = new Map(worldRows.map((r) => [r.id, r]));
   for (const { id, w, lived, cardOk } of worldUpdates) {
     const src = sources.get(id) || {};
-    const patch = { phase: w.phase, updated_at: nowIso, key_priorities: (w.key_priorities || []).slice(0, 5).map((k) => ({ text: k.text, date: validDate(k.date) })) };
-    if (lived && (!src.last_signal_at || String(src.last_signal_at).slice(0, 10) < lived)) patch.last_signal_at = `${lived}T12:00:00Z`;
-    if (cardOk && src.card_subtitle_source !== 'user') Object.assign(patch, { card_subtitle: w.card_subtitle, card_subtitle_source: 'synthesis', card_subtitle_updated_at: nowIso });
-    if (src.summary_source !== 'user') Object.assign(patch, { summary: w.summary, summary_source: 'synthesis', summary_updated_at: nowIso });
+    const patch = {
+      phase: w.phase,
+      updated_at: nowIso,
+      key_priorities: (w.key_priorities || [])
+        .slice(0, 5)
+        .map((k) => ({ text: k.text, date: validDate(k.date) })),
+    };
+    if (lived && (!src.last_signal_at || String(src.last_signal_at).slice(0, 10) < lived))
+      patch.last_signal_at = `${lived}T12:00:00Z`;
+    if (cardOk && src.card_subtitle_source !== 'user')
+      Object.assign(patch, {
+        card_subtitle: w.card_subtitle,
+        card_subtitle_source: 'synthesis',
+        card_subtitle_updated_at: nowIso,
+      });
+    if (src.summary_source !== 'user')
+      Object.assign(patch, {
+        summary: w.summary,
+        summary_source: 'synthesis',
+        summary_updated_at: nowIso,
+      });
     await d.update(`worlds?id=eq.${id}&owner_id=eq.${userId}`, patch);
   }
 
   // Chapters: the words, stage label and priorities, never the person's own edits.
   if (chapterUpdates.length) {
     const ids = chapterUpdates.map((u) => u.id).join(',');
-    const prevChapters = await d.select(`chapters?id=in.(${ids})&owner_id=eq.${userId}&select=id,phase,card_subtitle,card_subtitle_source,summary,summary_source,epigraph,epigraph_source,key_priorities,key_priorities_source,current_phase_key,current_phase_key_source,phase_labels,phase_labels_source`);
+    const prevChapters = await d.select(
+      `chapters?id=in.(${ids})&owner_id=eq.${userId}&select=id,phase,title,title_source,card_subtitle,card_subtitle_source,summary,summary_source,epigraph,epigraph_source,key_priorities,key_priorities_source,current_phase_key,current_phase_key_source,phase_labels,phase_labels_source`,
+    );
     previous.chapters = prevChapters;
     const byId = new Map(prevChapters.map((r) => [r.id, r]));
     for (const { id, c, cardOk } of chapterUpdates) {
       const row = byId.get(id);
       if (!row) continue;
       const patch = { updated_at: nowIso };
-      if (cardOk && row.card_subtitle_source !== 'user') Object.assign(patch, { card_subtitle: trim(c.card_subtitle, 120), card_subtitle_source: 'synthesis', card_subtitle_updated_at: nowIso });
-      if (row.summary_source !== 'user') Object.assign(patch, { summary: trim(c.summary, 900), summary_source: 'synthesis', summary_updated_at: nowIso });
-      if (row.epigraph_source !== 'user' && isProse(c.epigraph, 20)) Object.assign(patch, { epigraph: trim(c.epigraph, 250), epigraph_source: 'synthesis', epigraph_updated_at: nowIso });
+      if (cardOk && row.card_subtitle_source !== 'user')
+        Object.assign(patch, {
+          card_subtitle: trim(c.card_subtitle, 120),
+          card_subtitle_source: 'synthesis',
+          card_subtitle_updated_at: nowIso,
+        });
+      // A title is glanceable too: it changes only when the model gives a new one,
+      // the person did not set it, and the card's facts are not private.
+      const newTitle = typeof c.title === 'string' ? c.title.trim() : '';
+      if (cardOk && row.title_source !== 'user' && isProse(newTitle, 3) && newTitle !== row.title) {
+        Object.assign(patch, {
+          title: trim(newTitle, 80),
+          title_source: 'synthesis',
+          title_updated_at: nowIso,
+        });
+      }
+      if (row.summary_source !== 'user')
+        Object.assign(patch, {
+          summary: trim(c.summary, 900),
+          summary_source: 'synthesis',
+          summary_updated_at: nowIso,
+        });
+      if (row.epigraph_source !== 'user' && isProse(c.epigraph, 20))
+        Object.assign(patch, {
+          epigraph: trim(c.epigraph, 250),
+          epigraph_source: 'synthesis',
+          epigraph_updated_at: nowIso,
+        });
       // The model left the epigraph empty: older machine-written words do not stay behind.
-      else if (row.epigraph_source !== 'user' && !c.epigraph) Object.assign(patch, { epigraph: null, epigraph_source: 'synthesis', epigraph_updated_at: nowIso });
+      else if (row.epigraph_source !== 'user' && !c.epigraph)
+        Object.assign(patch, {
+          epigraph: null,
+          epigraph_source: 'synthesis',
+          epigraph_updated_at: nowIso,
+        });
       if (row.key_priorities_source !== 'user') {
-        const kp = row.phase === 'closed' ? [] : (c.key_priorities || []).filter((k) => isProse(k.text, 3)).slice(0, 3)
-          .map((k, i) => ({ kind: k.kind || 'action', rank: i + 1, text: trim(k.text, 120), due_date: validDate(k.date) }));
-        Object.assign(patch, { key_priorities: kp, key_priorities_source: 'synthesis', key_priorities_updated_at: nowIso });
+        const kp =
+          row.phase === 'closed'
+            ? []
+            : (c.key_priorities || [])
+                .filter((k) => isProse(k.text, 3))
+                .slice(0, 3)
+                .map((k, i) => ({
+                  kind: k.kind || 'action',
+                  rank: i + 1,
+                  text: trim(k.text, 120),
+                  due_date: validDate(k.date),
+                }));
+        Object.assign(patch, {
+          key_priorities: kp,
+          key_priorities_source: 'synthesis',
+          key_priorities_updated_at: nowIso,
+        });
       }
       // The stage label replaces the current one in the chapter's arc, so the arc stays whole.
-      if (typeof c.stage === 'string' && /[a-z]{3,}/i.test(c.stage) && row.current_phase_key_source !== 'user' && row.phase_labels_source !== 'user') {
+      if (
+        typeof c.stage === 'string' &&
+        /[a-z]{3,}/i.test(c.stage) &&
+        row.current_phase_key_source !== 'user' &&
+        row.phase_labels_source !== 'user'
+      ) {
         const stage = trim(c.stage, 40);
         const labels = Array.isArray(row.phase_labels) ? [...row.phase_labels] : [];
         const at = labels.indexOf(row.current_phase_key);
         if (at >= 0) labels[at] = stage;
         else if (!labels.includes(stage)) labels.push(stage);
-        Object.assign(patch, { current_phase_key: stage, current_phase_key_source: 'synthesis', current_phase_key_updated_at: nowIso, phase_labels: labels, phase_labels_source: 'synthesis', phase_labels_updated_at: nowIso });
+        Object.assign(patch, {
+          current_phase_key: stage,
+          current_phase_key_source: 'synthesis',
+          current_phase_key_updated_at: nowIso,
+          phase_labels: labels,
+          phase_labels_source: 'synthesis',
+          phase_labels_updated_at: nowIso,
+        });
       }
       await d.update(`chapters?id=eq.${id}&owner_id=eq.${userId}`, patch);
     }
@@ -527,7 +874,15 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
   for (const q of output.questions || []) {
     if (!q.question) continue;
     const f = q.fact_ref ? refs.get(q.fact_ref) : null;
-    await d.insertQuiet('gremly_questions', [{ user_id: userId, question: trim(q.question, 300), status: 'open', about_fact_id: f?.type === 'fact' ? f.id : null, run_id: runId }]);
+    await d.insertQuiet('gremly_questions', [
+      {
+        user_id: userId,
+        question: trim(q.question, 300),
+        status: 'open',
+        about_fact_id: f?.type === 'fact' ? f.id : null,
+        run_id: runId,
+      },
+    ]);
     applied.questions++;
   }
   await invalidateChatCache(env, userId);
@@ -538,18 +893,29 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
 
 export async function submitWeeklyBatch(env, items) {
   // items: [{ custom_id, params }]
-  return createBatch(env, items.map((i) => ({ custom_id: i.custom_id, params: i.params })));
+  return createBatch(
+    env,
+    items.map((i) => ({ custom_id: i.custom_id, params: i.params })),
+  );
 }
 
 export async function readWeeklyBatch(env, batchId, { jobByCustomId = {} } = {}) {
   const status = await getBatch(env, batchId);
-  if (status.processing_status !== 'ended') return { done: false, status: status.processing_status };
+  if (status.processing_status !== 'ended')
+    return { done: false, status: status.processing_status };
   const results = await getBatchResults(env, batchId);
   const out = {};
   for (const r of results) {
     if (r.result?.type === 'succeeded') {
       const meta = jobByCustomId[r.custom_id] || {};
-      await writeUsageRow(env, batchUsageRow(r.result.message, { job: meta.job || 'weekly-synthesis', userId: meta.userId, runId: meta.runId })).catch(() => {});
+      await writeUsageRow(
+        env,
+        batchUsageRow(r.result.message, {
+          job: meta.job || 'weekly-synthesis',
+          userId: meta.userId,
+          runId: meta.runId,
+        }),
+      ).catch(() => {});
       try {
         out[r.custom_id] = { ok: true, output: anthropicJsonResult(r.result.message) };
       } catch (err) {

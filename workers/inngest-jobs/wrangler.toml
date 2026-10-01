@@ -13,10 +13,10 @@ CORTEX_WORKER_URL = "https://gentle-thunder-5854.woolmerjames.workers.dev"
 #   on      the new outputs are live: DCO v4, and the weekly synthesis owns the Life Map,
 #           the profile text and the words on each World
 # Models can be overridden per job, e.g. CONTEXT_MODEL_DAILY = "google:gemini-3.8-flash".
-CONTEXT_PIPELINE = "shadow"
-# People who get the new pipeline live while everyone else is in shadow (comma-separated user ids).
-# James, Tina and Dave: the three accounts checked before the TestFlight launch,
-# when CONTEXT_PIPELINE becomes "on" for everyone.
+CONTEXT_PIPELINE = "on"
+# Only used when CONTEXT_PIPELINE is "shadow": people who get the new pipeline live
+# (comma-separated user ids). James, Tina and Dave were the accounts checked first;
+# since 1 Oct 2026 the pipeline is on for everyone, new people included.
 CONTEXT_LIVE_USERS = "05a3c53d-b242-4b5f-a0db-83004c8e3892,c64ec85f-735c-4d5c-859a-1ac6630aebb3,c7674834-114b-4f6d-ac57-4d18aec8393b"
 
 # Add secrets via CLI:
