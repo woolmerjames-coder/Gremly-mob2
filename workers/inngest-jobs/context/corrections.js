@@ -122,6 +122,7 @@ async function loadPassages(env, userId, today) {
 
   const lm = lifeMapRows?.[0];
   add('life_map', { id: lm?.id, path: ['story', 'story_so_far'] }, lm?.life_map?.story?.story_so_far);
+  add('life_map', { id: lm?.id, path: ['story', 'story_for_them'] }, lm?.life_map?.story?.story_for_them);
   if (lm?.life_map?.domains) {
     lm.life_map.domains.forEach((dom, di) => {
       (dom.threads || []).forEach((t, ti) => {
@@ -270,7 +271,7 @@ LEDGER FACTS (ref | state | date | statement):
 ${factLines.join('\n') || '(none)'}
 
 GREMLY-WRITTEN PASSAGES (ref | where | text):
-${passages.map((p) => `${p.ref} | ${p.kind} | ${trim(p.text, 600)}`).join('\n') || '(none)'}
+${passages.map((p) => `${p.ref} | ${p.kind} | ${trim(p.text, 4000)}`).join('\n') || '(none)'}
 
 LIVE DATE ANCHORS (ref | date | title):
 ${anchorLines.join('\n') || '(none)'}`;
@@ -342,7 +343,7 @@ ${anchorLines.join('\n') || '(none)'}`;
   for (const r of output.rewrites || []) {
     const p = passageRefs.get(r.passage_ref);
     if (!p) continue;
-    const text = r.new_text == null ? null : trim(r.new_text, 1200);
+    const text = r.new_text == null ? null : trim(r.new_text, 4000);
     if (p.kind === 'dco') {
       if (!dcoEdits.has(p.locator.id)) dcoEdits.set(p.locator.id, []);
       dcoEdits.get(p.locator.id).push({ path: p.locator.path, text });

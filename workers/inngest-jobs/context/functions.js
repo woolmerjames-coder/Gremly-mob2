@@ -16,6 +16,7 @@ import { db, userTimezone, localDate, addDays } from './db';
 import { planWindows, readWindow, readCursor, advanceCursor } from './reader';
 import { applyCorrection } from './corrections';
 import { reconcileAnchors } from './anchors';
+import { reviewQuestions } from './questions';
 import { buildDcoV4, writeDco } from './daily';
 import { weeklyRequestParams, applyWeekly, submitWeeklyBatch, readWeeklyBatch, WEEKLY_PROMPT_VERSION } from './weekly';
 import { anthropicJsonResult } from './llm';
@@ -93,6 +94,10 @@ export function createContextFunctions(inngest) {
         totals.anchors = await step.run('anchors', () =>
           reconcileAnchors(env, userId, plan.tz, { shadow: contextMode(env, userId) !== 'on' }),
         );
+        // Questions written while reading old records are checked against today.
+        totals.question_review = await step.run('questions', () =>
+          reviewQuestions(env, userId, plan.tz, { shadow: contextMode(env, userId) !== 'on' }),
+        );
       }
       return totals;
     },
@@ -122,10 +127,14 @@ export function createContextFunctions(inngest) {
       const userId = event.data?.user_id;
       if (!userId) throw new Error('user_id is required');
       const shadow = event.data?.shadow ?? contextMode(env, userId) !== 'on';
+      const review = await step.run('questions', async () => {
+        const tz = await userTimezone(env, userId);
+        return reviewQuestions(env, userId, tz, { shadow }).catch((err) => ({ error: String(err?.message || err).slice(0, 200) }));
+      });
       return step.run('build-and-write', async () => {
         const built = await buildDcoV4(env, userId, {});
         const written = await writeDco(env, userId, built, { shadow });
-        return { date: built.today, shadow, written, attempts: built.attempts, problems: built.problems, brief: built.dco.brief, today_focus: built.dco.today_focus };
+        return { date: built.today, shadow, written, attempts: built.attempts, problems: built.problems, brief: built.dco.brief, today_focus: built.dco.today_focus, question_review: review };
       });
     },
   );

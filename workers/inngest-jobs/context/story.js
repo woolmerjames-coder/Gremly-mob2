@@ -14,7 +14,7 @@ import { anthropicJsonParams, modelFor } from './llm';
 import { recentCorrections } from './corrections';
 import { invalidateChatCache } from './cache';
 
-export const STORY_PROMPT_VERSION = 'story-2026-10-01';
+export const STORY_PROMPT_VERSION = 'story-2026-10-01b';
 
 function trim(text, n) {
   const s = String(text || '').replace(/\s+/g, ' ').trim();
@@ -31,6 +31,7 @@ const STORY_SCHEMA = {
   type: 'object',
   properties: {
     story_so_far: { type: 'string' },
+    story_for_them: { type: 'string' },
     milestones: {
       type: 'array',
       items: {
@@ -105,7 +106,7 @@ const STORY_SCHEMA = {
       },
     },
   },
-  required: ['story_so_far', 'milestones', 'shifts', 'proud_moments', 'patterns', 'people'],
+  required: ['story_so_far', 'story_for_them', 'milestones', 'shifts', 'proud_moments', 'patterns', 'people'],
 };
 
 function storySystemPrompt(today, person) {
@@ -129,7 +130,8 @@ WHAT YOU ARE GIVEN
 - The story as it stood last time, if there is one.
 
 WHAT TO WRITE
-- story_so_far: a few short paragraphs telling their story across the time Gremly has known them: where they were, what happened, what changed, and where things stand now.
+- story_so_far: a few short paragraphs telling their story across the time Gremly has known them: where they were, what happened, what changed, and where things stand now. This one is for Gremly to read.
+- story_for_them: the same story told to them, in the second person, in two or three short paragraphs. It opens their story screen in the app, which they visit on purpose, so it can be warm and personal. Private items appear only in their own terms.
 - milestones: the events and turning points that shape their story, the kind of thing they would put in an album or tell a friend about. Each with its dates and a few sentences on what happened, in their words where possible. Link the matching Chapter when there is one.
 - shifts: how their attitude, feelings, priorities or relationships around something have changed over time. Each one sets what they said or did at one time beside what they said or did later, with both dates, in their own words. Describe the change; never judge it, explain it or diagnose it.
 - proud_moments: things they did, finished, kept to or got through, as they described them, that would be good to be reminded of on a hard day. Never frame one against something they did not do.
@@ -141,7 +143,7 @@ EVIDENCE
 - Leave a section short rather than stretch the evidence. Plans that never showed as happening are not milestones.
 
 ${PRIVATE_RULES}
-- Mark each item private or not by that meaning; an item that rests on a fact marked private is private. Write private items only in the person's own terms.
+- Mark each item private or not by that meaning. An item that cites a fact marked private is stored as private, so keep a private detail out of an item that is not private in itself, and give the detail an item of its own where it matters. A person, a pattern or a milestone that is open in itself stays open. Write private items only in the person's own terms.
 
 CONTINUITY
 - Keep the story steady from month to month. Carry over items from last time that still hold, revise them when the facts have moved on, and drop only what the facts no longer support.`;
@@ -300,6 +302,7 @@ export async function applyStory(env, userId, output, refsSnapshot, { shadow, ru
       written_at: nowIso,
       source: 'monthly_story',
       story_so_far: trim(output.story_so_far, 4000),
+      story_for_them: trim(output.story_for_them, 3000),
       milestones: pick('milestone'),
       shifts: pick('shift'),
       proud_moments: pick('proud'),

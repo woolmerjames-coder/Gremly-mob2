@@ -33,6 +33,7 @@ import { aiContext, installAiUsageLogging } from './aiUsage';
 import { CARE_RULES } from './careRules';
 import { createContextFunctions, hourlyContextEvents, contextMode } from './context/functions';
 import { buildDcoV4, writeDco } from './context/daily';
+import { reviewQuestions } from './context/questions';
 import { weeklySummaryContext } from './context/summaryContext';
 
 // Cloudflare Workers middleware to inject env bindings
@@ -369,6 +370,8 @@ const generateSingleUserDco = inngest.createFunction(
     // If v4 fails, the person still gets a DCO from the old path today.
     let v4Error = null;
     if (mode === 'on') {
+      // Questions that have gone out of date are retired before the brief can ask one.
+      await reviewQuestions(env, userId, timezone, { shadow: false }).catch((err) => console.error(`[Questions] review failed for ${userId}:`, err));
       try {
         const built = await buildDcoV4(env, userId, { tz: timezone });
         await writeDco(env, userId, built, { shadow: false });

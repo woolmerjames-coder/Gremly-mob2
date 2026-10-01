@@ -86,8 +86,9 @@ const WEEKLY_SCHEMA = {
               required: ['text'],
             },
           },
+          fact_refs: { type: 'array', items: { type: 'string' } },
         },
-        required: ['world_ref', 'phase', 'card_subtitle', 'summary', 'key_priorities'],
+        required: ['world_ref', 'phase', 'card_subtitle', 'summary', 'key_priorities', 'fact_refs'],
       },
     },
     worlds_summary: {
@@ -183,6 +184,7 @@ WORLDS
 - Never put a passed date, a plan that has gone by, or a count of things not done on a card. When a world has been quiet, the card describes the last real state with its month, or what is next if something is genuinely ahead.
 - Return only the worlds you have something true to say about; a world you leave out keeps its current card.
 - phase: active when the person is engaged with it now, dormant when it has gone quiet for weeks, candidate only when it is still forming.
+- Cite the facts each world's card and summary rest on. The most recent of them that happened is taken as when the world was last active, so the app does not show a living world as gone quiet.
 - worlds_summary: one line noticing what is most alive across their worlds this week. Feature up to three worlds with a short reason. In a quiet week say so kindly and feature none.
 
 CHAPTERS
@@ -330,7 +332,7 @@ export async function weeklyRequestParams(env, userId, periodEnd) {
     schema: WEEKLY_SCHEMA,
     maxTokens: 24000,
   });
-  return { params, refsSnapshot: [...refs.entries()].map(([k, v]) => [k, { type: v.type, id: v.id, statement: v.statement, about_date: v.about_date, observed_at: v.observed_at }]), today, tz, g, inputChars: text.length };
+  return { params, refsSnapshot: [...refs.entries()].map(([k, v]) => [k, { type: v.type, id: v.id, statement: v.statement, about_date: v.about_date, observed_at: v.observed_at, state: v.state }]), today, tz, g, inputChars: text.length };
 }
 
 function validDate(s) {
@@ -404,7 +406,16 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
       skipped.push({ world_ref: w.world_ref, card_subtitle: w.card_subtitle, summary: w.summary });
       continue;
     }
-    worldUpdates.push({ id: ref.id, w });
+    // When the world was last lived in, from the facts the model cited: the
+    // latest thing that happened, or the last time something ongoing was recorded.
+    let lived = null;
+    for (const r of w.fact_refs || []) {
+      const f = refs.get(r);
+      if (!f || f.type !== 'fact') continue;
+      const day = f.state === 'happened' ? f.about_date : f.state === 'current' ? String(f.observed_at || '').slice(0, 10) : null;
+      if (validDate(day) && day <= today && (!lived || day > lived)) lived = day;
+    }
+    worldUpdates.push({ id: ref.id, w, lived });
   }
   const featured = (output.worlds_summary?.featured || [])
     .map((f) => ({ world_id: refs.get(f.world_ref)?.type === 'world' ? refs.get(f.world_ref).id : null, reason: f.reason }))
@@ -451,11 +462,12 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
   if (profileOk && profileRow) await d.update(`user_profiles?user_id=eq.${userId}`, { profile_text: profileText, signals, generated_at: nowIso, model_used: 'weekly_synthesis' });
   else if (profileOk) await d.insertQuiet('user_profiles', [{ user_id: userId, profile_text: profileText, signals, generated_at: nowIso, model_used: 'weekly_synthesis' }]);
 
-  const [worldRows] = [await d.select(`worlds?owner_id=eq.${userId}&select=id,card_subtitle_source,summary_source`)];
+  const [worldRows] = [await d.select(`worlds?owner_id=eq.${userId}&select=id,card_subtitle_source,summary_source,last_signal_at`)];
   const sources = new Map(worldRows.map((r) => [r.id, r]));
-  for (const { id, w } of worldUpdates) {
+  for (const { id, w, lived } of worldUpdates) {
     const src = sources.get(id) || {};
     const patch = { phase: w.phase, updated_at: nowIso, key_priorities: (w.key_priorities || []).slice(0, 5).map((k) => ({ text: k.text, date: validDate(k.date) })) };
+    if (lived && (!src.last_signal_at || String(src.last_signal_at).slice(0, 10) < lived)) patch.last_signal_at = `${lived}T12:00:00Z`;
     if (src.card_subtitle_source !== 'user') Object.assign(patch, { card_subtitle: w.card_subtitle, card_subtitle_source: 'synthesis', card_subtitle_updated_at: nowIso });
     if (src.summary_source !== 'user') Object.assign(patch, { summary: w.summary, summary_source: 'synthesis', summary_updated_at: nowIso });
     await d.update(`worlds?id=eq.${id}&owner_id=eq.${userId}`, patch);
