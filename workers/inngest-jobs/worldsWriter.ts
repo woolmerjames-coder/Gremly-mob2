@@ -629,7 +629,8 @@ export async function writeClassifierOutput(
     const patch: Record<string, unknown> = {
       signal_velocity: vu.signal_velocity,
       signal_velocity_delta: vu.signal_velocity_delta,
-      last_signal_at: now(),
+      // last_signal_at is no longer stamped with the run time. It is set from the
+      // user's own linked activity by refresh_world_last_signal after this step.
       last_run_id: run_id,
       updated_at: now(),
     };
@@ -679,7 +680,6 @@ export async function writeClassifierOutput(
       .from('worlds')
       .update({
         phase: 'active',
-        last_signal_at: now(),
         last_run_id: run_id,
         updated_at: now(),
       })
@@ -691,6 +691,14 @@ export async function writeClassifierOutput(
       continue;
     }
     result.applied.reactivation_proposals++;
+  }
+
+  // ── Step 7b: last_signal_at from the user's own activity ──────
+  // The newest item the user linked to each world, so a world only looks
+  // active when the person has actually been active in it.
+  {
+    const { error: lsError } = await db.rpc('refresh_world_last_signal', { p_owner: ownerId });
+    if (lsError) result.errors.push(`refresh_world_last_signal: ${lsError.message}`);
   }
 
   // ── Step 8: defer reclassification + evolution proposals ──────
@@ -724,7 +732,20 @@ export async function writeClassifierOutput(
 
   // ── Step 8b: write worlds_summary to user_daily_state ────────
   if (output.worlds_summary) {
-    const today = now().slice(0, 10);
+    // The user's own calendar date, not UTC, so it lines up with their DCO row.
+    const { data: tzRow } = await db
+      .from('notification_preferences')
+      .select('timezone')
+      .eq('user_id', ownerId)
+      .maybeSingle();
+    let today = now().slice(0, 10);
+    try {
+      today = new Intl.DateTimeFormat('en-CA', {
+        timeZone: (tzRow as { timezone?: string } | null)?.timezone || 'America/Los_Angeles',
+      }).format(new Date());
+    } catch {
+      // keep the UTC date if the stored timezone is not recognised
+    }
     const existingDsoRes = await db
       .from('user_daily_state')
       .select('dco')
@@ -736,7 +757,11 @@ export async function writeClassifierOutput(
       {
         user_id: ownerId,
         date: today,
-        dco: { ...existingDco, worlds_summary: output.worlds_summary },
+        dco: {
+          ...existingDco,
+          worlds_summary: { ...output.worlds_summary, generated_at: now(), source: 'worlds_weekly' },
+        },
+        expires_at: new Date(Date.now() + 7 * 864e5).toISOString(),
       },
       { onConflict: 'user_id,date' },
     );

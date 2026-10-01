@@ -33,6 +33,7 @@
  */
 
 import type { SignalBundle } from './signalCollector';
+import { CARE_RULES } from './careRules';
 
 export interface ClassifierEnv {
   ANTHROPIC_API_KEY: string;
@@ -496,7 +497,9 @@ export interface ClassifierOutput {
 
 // ─── System prompt ───────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are the signal-first classifier for Gremly's Worlds & Chapters system. You read a user's raw signal (journals, notes, todos, habits, chat running summaries, temporal anchors, profile overrides, daily ritual progress, photo-accompanying note bodies, a calendar summary digest, plus in live mode the most recent Daily Context Objects and weekly summaries) and produce eight outputs by calling the submit_classifier_output tool exactly once.
+const SYSTEM_PROMPT = `${CARE_RULES}
+
+You are the signal-first classifier for Gremly's Worlds & Chapters system. You read a user's raw signal (journals, notes, todos, habits, chat running summaries, temporal anchors, profile overrides, daily ritual progress, photo-accompanying note bodies, a calendar summary digest, plus in live mode the most recent Daily Context Objects and weekly summaries) and produce eight outputs by calling the submit_classifier_output tool exactly once.
 
 What a World is. A World is an active, long-lived domain of the user's life where the user is engaged, reflecting, or growing. A domain has recurring signal across multiple signal types; journals, todos, habits, and chats often all touch it. It names a region of someone's life, not a single activity or feeling. One-off tasks, single moods, and isolated thoughts are not Worlds.
 
@@ -579,7 +582,7 @@ Authored content for new World candidates. For each new_world_candidate you emit
 
 Authored content for new Chapter candidates. For each new_chapter_candidate you emit, you must also author the following fields. target_summary is a single clause, maximum 90 characters, describing what this chapter is working toward, or null for season-type chapters without a defined target. card_subtitle is a single anchor statement, maximum 60 characters, written in present tense. It names one concrete focal element of the chapter's current arc: the most imminent dated commitment from the chapter's key_priorities, or when no dated commitment exists, the chapter's current central undertaking. Comma-separated enumerations are forbidden. If the chapter's top-ranked key_priority has a due_date within the next 14 days, or if the chapter's target_summary contains a date reference within 30 days, the subtitle must reference that temporal context. Items whose date lies in the past relative to today must never appear. summary is 2 to 3 short sentences, maximum 180 characters total, describing the chapter's arc, its current moment, and what completing or progressing it means for the user. Write in second person. key_priorities follows the same structure as World key_priorities. phase_labels is an ordered list of 3 to 5 short phase name strings describing the arc's stages, labelled from the arc's current vantage point. current_phase_key is the string from phase_labels that best describes where this chapter sits right now.
 
-Cross-world summary. You must include a worlds_summary block at the top level of your output. worlds_summary has two fields: headline and featured.
+Cross-world summary. You must include a worlds_summary block at the top level of your output. worlds_summary has two fields: headline and featured. When the window holds little or no signal, featured may be empty and the headline says plainly and kindly that it has been a quiet stretch in the app, without reading anything into it.
 
 headline is a single line, maximum 120 characters, written in Gremly's voice. Gremly is a sharp, warm thinking partner who observes the user's life without performing emotion about it. The headline is Gremly noticing the dominant force in play across the user's worlds this week, not announcing a theme, not summarizing categories, not rallying the user toward action. Written from a third-person observational stance. Never address the user as "you" or include possessives like "your". Never use "we" or "our".
 
@@ -690,7 +693,7 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
           headline: { type: 'string', maxLength: 120 },
           featured: {
             type: 'array',
-            minItems: 2,
+            minItems: 0,
             maxItems: 3,
             items: {
               type: 'object',

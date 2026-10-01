@@ -33,6 +33,7 @@
  */
 
 import { jsonrepair } from 'jsonrepair';
+import { CARE_RULES } from './careRules';
 import type {
   HardFacts,
   SummaryBrief,
@@ -57,6 +58,8 @@ const DEFAULT_CHECKER_MODEL = 'claude-haiku-4-5-20251001';
 // ── Writer system prompt ───────────────────────────────────────────────────
 
 const WRITER_SYSTEM = `You write the entire weekly summary deck for a single user of Gremly, an AI-powered life companion app.
+
+${CARE_RULES}
 
 The deck is ONE coherent narrative: a hero card naming the week's character, 2 to 5 middle cards illustrating the arc, and a closing letter that weaves the named threads. You decide which cards exist, what shape each card is, and how the through-line builds.
 

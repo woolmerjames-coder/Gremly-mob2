@@ -121,7 +121,8 @@ export async function processWorldsWindow(params: {
     // Find the user's most recent analyst observed_for_week.
     const latestRes = await fetch(
       `${env.SUPABASE_URL}/rest/v1/observations` +
-        `?user_id=eq.${ownerId}&stage=eq.analyst` +
+        `?user_id=eq.${ownerId}&stage=eq.analyst&superseded_at=is.null` +
+        `&observed_for_week=gte.${new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10)}` +
         `&select=observed_for_week&order=observed_for_week.desc&limit=1`,
       { headers },
     );
@@ -131,7 +132,7 @@ export async function processWorldsWindow(params: {
     if (latestWeek) {
       const obsRes = await fetch(
         `${env.SUPABASE_URL}/rest/v1/observations` +
-          `?user_id=eq.${ownerId}&stage=eq.analyst&observed_for_week=eq.${latestWeek}` +
+          `?user_id=eq.${ownerId}&stage=eq.analyst&superseded_at=is.null&observed_for_week=eq.${latestWeek}` +
           `&kind=in.(world_signal_candidate,temporal_observation)` +
           `&select=kind,evidence_snapshot`,
         { headers },
