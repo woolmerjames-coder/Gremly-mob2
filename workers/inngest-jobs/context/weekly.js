@@ -38,7 +38,7 @@ import { loadStory, storyLines } from './story';
 import { invalidateChatCache } from './cache';
 import { batchUsageRow, writeUsageRow } from '../aiUsage';
 
-export const WEEKLY_PROMPT_VERSION = 'weekly-2026-10-01c';
+export const WEEKLY_PROMPT_VERSION = 'weekly-2026-10-01d';
 
 function trim(text, n) {
   const s = String(text || '')
@@ -198,12 +198,17 @@ const WEEKLY_SCHEMA = {
   ],
 };
 
+// The fixed part comes first so Anthropic can cache it across people; today's
+// date and who the person is follow it.
 function weeklySystemPrompt(today, person) {
+  return {
+    fixed: weeklySystemPromptFixed(),
+    varying: `TODAY'S DATE: ${today}\n\n${personBlock(person)}`,
+  };
+}
+
+function weeklySystemPromptFixed() {
   return `You keep Gremly's long-term understanding of one person up to date. Once a week you rewrite their Life Map, the short profile every conversation with them reads, the cards on their Worlds screen and the Chapters of their life, from what is known about their life.
-
-TODAY'S DATE: ${today}
-
-${personBlock(person)}
 
 ${CARE_RULES}
 

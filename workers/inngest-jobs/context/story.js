@@ -14,10 +14,12 @@ import { anthropicJsonParams, modelFor } from './llm';
 import { recentCorrections } from './corrections';
 import { invalidateChatCache } from './cache';
 
-export const STORY_PROMPT_VERSION = 'story-2026-10-01b';
+export const STORY_PROMPT_VERSION = 'story-2026-10-01c';
 
 function trim(text, n) {
-  const s = String(text || '').replace(/\s+/g, ' ').trim();
+  const s = String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim();
   return s.length > n ? `${s.slice(0, n)}…` : s;
 }
 
@@ -45,7 +47,15 @@ const STORY_SCHEMA = {
           private: { type: 'boolean' },
           fact_refs: REFS,
         },
-        required: ['title', 'start_date', 'end_date', 'body', 'chapter_ref', 'private', 'fact_refs'],
+        required: [
+          'title',
+          'start_date',
+          'end_date',
+          'body',
+          'chapter_ref',
+          'private',
+          'fact_refs',
+        ],
       },
     },
     shifts: {
@@ -106,15 +116,28 @@ const STORY_SCHEMA = {
       },
     },
   },
-  required: ['story_so_far', 'story_for_them', 'milestones', 'shifts', 'proud_moments', 'patterns', 'people'],
+  required: [
+    'story_so_far',
+    'story_for_them',
+    'milestones',
+    'shifts',
+    'proud_moments',
+    'patterns',
+    'people',
+  ],
 };
 
+// The fixed part comes first so Anthropic can cache it across people; today's
+// date and who the person is follow it.
 function storySystemPrompt(today, person) {
+  return {
+    fixed: storySystemPromptFixed(),
+    varying: `TODAY'S DATE: ${today}\n\n${personBlock(person)}`,
+  };
+}
+
+function storySystemPromptFixed() {
   return `You write the story of one person's life so far for Gremly, a warm companion app. Gremly uses it to remember what has happened to them, to notice how they have grown and changed, to remind them of what they have done when things are hard, and to know what they love. It is read by Gremly in conversations with them, and parts of it may be shown to them.
-
-TODAY'S DATE: ${today}
-
-${personBlock(person)}
 
 ${CARE_RULES}
 
@@ -153,12 +176,20 @@ CONTINUITY
 export async function gatherStory(env, userId) {
   const d = db(env);
   const [facts, corrections, chapters, weeks, usage, current] = await Promise.all([
-    d.select(`life_facts?user_id=eq.${userId}&state=in.(current,planned,happened,changed,unconfirmed)&select=id,statement,subject,about_date,about_date_end,state,observed_at,private&order=observed_at.asc&limit=800`),
+    d.select(
+      `life_facts?user_id=eq.${userId}&state=in.(current,planned,happened,changed,unconfirmed)&select=id,statement,subject,about_date,about_date_end,state,observed_at,private&order=observed_at.asc&limit=800`,
+    ),
     recentCorrections(env, userId, 3650),
-    d.select(`chapters?owner_id=eq.${userId}&select=id,title,chapter_type,phase,start_date,end_date,summary,card_subtitle&order=start_date.asc.nullslast&limit=60`),
-    d.select(`weekly_summaries?user_id=eq.${userId}&select=week_start_date,key_themes&order=week_start_date.asc&limit=80`),
+    d.select(
+      `chapters?owner_id=eq.${userId}&select=id,title,chapter_type,phase,start_date,end_date,summary,card_subtitle&order=start_date.asc.nullslast&limit=60`,
+    ),
+    d.select(
+      `weekly_summaries?user_id=eq.${userId}&select=week_start_date,key_themes&order=week_start_date.asc&limit=80`,
+    ),
     d.rpc('usage_rollup', { p_user: userId, p_grain: 'month', p_periods: 13 }),
-    d.select(`story_items?user_id=eq.${userId}&state=eq.current&select=kind,pattern_kind,title,period_start,period_end&order=kind.asc&limit=200`),
+    d.select(
+      `story_items?user_id=eq.${userId}&state=eq.current&select=kind,pattern_kind,title,period_start,period_end&order=kind.asc&limit=200`,
+    ),
   ]);
   return { facts, corrections, chapters, weeks, usage, current };
 }
@@ -171,8 +202,18 @@ export function renderStory(g, today) {
     return ref;
   };
   const factLines = g.facts.map((f) => {
-    const ref = add('f', { type: 'fact', id: f.id, statement: f.statement, about_date: f.about_date, observed_at: f.observed_at, private: !!f.private, state: f.state });
-    const when = f.about_date ? `${f.about_date}${f.about_date_end ? ` to ${f.about_date_end}` : ''}` : 'no date';
+    const ref = add('f', {
+      type: 'fact',
+      id: f.id,
+      statement: f.statement,
+      about_date: f.about_date,
+      observed_at: f.observed_at,
+      private: !!f.private,
+      state: f.state,
+    });
+    const when = f.about_date
+      ? `${f.about_date}${f.about_date_end ? ` to ${f.about_date_end}` : ''}`
+      : 'no date';
     return `${ref} | recorded ${String(f.observed_at).slice(0, 10)} | ${f.state}${f.private ? ' [private]' : ''} | ${when} | ${trim(f.statement, 220)}`;
   });
   const chapterLines = g.chapters.map((c) => {
@@ -183,10 +224,14 @@ export function renderStory(g, today) {
     .filter((w) => Array.isArray(w.key_themes) && w.key_themes.length)
     .map((w) => `${w.week_start_date}: ${w.key_themes.map((t) => trim(t, 60)).join('; ')}`);
   const usageLines = (g.usage?.periods || []).map(
-    (p) => `${String(p.period_start).slice(0, 7)}: ${p.active_days} active days, ${p.drops} drops, ${p.todos_done} done, ${p.habit_checkins} habit check-ins, ${p.journals} journals, ${p.chat_messages} chat messages`,
+    (p) =>
+      `${String(p.period_start).slice(0, 7)}: ${p.active_days} active days, ${p.drops} drops, ${p.todos_done} done, ${p.habit_checkins} habit check-ins, ${p.journals} journals, ${p.chat_messages} chat messages`,
   );
   const cur = g.usage?.current;
-  const currentLines = g.current.map((s) => `- ${s.kind}${s.pattern_kind ? ` (${s.pattern_kind})` : ''}: ${trim(s.title, 120)}${s.period_start ? ` (${s.period_start}${s.period_end ? ` to ${s.period_end}` : ''})` : ''}`);
+  const currentLines = g.current.map(
+    (s) =>
+      `- ${s.kind}${s.pattern_kind ? ` (${s.pattern_kind})` : ''}: ${trim(s.title, 120)}${s.period_start ? ` (${s.period_start}${s.period_end ? ` to ${s.period_end}` : ''})` : ''}`,
+  );
 
   const text = [
     `TODAY: ${today}.`,
@@ -219,14 +264,37 @@ export async function storyRequestParams(env, userId) {
     schema: STORY_SCHEMA,
     maxTokens: 32000,
   });
-  const refsSnapshot = [...refs.entries()].map(([k, v]) => [k, { type: v.type, id: v.id, about_date: v.about_date || null, private: !!v.private, state: v.state || null }]);
-  return { params, refsSnapshot, today, tz, inputChars: text.length, counts: { facts: g.facts.length, chapters: g.chapters.length } };
+  const refsSnapshot = [...refs.entries()].map(([k, v]) => [
+    k,
+    {
+      type: v.type,
+      id: v.id,
+      about_date: v.about_date || null,
+      private: !!v.private,
+      state: v.state || null,
+    },
+  ]);
+  return {
+    params,
+    refsSnapshot,
+    today,
+    tz,
+    inputChars: text.length,
+    counts: { facts: g.facts.length, chapters: g.chapters.length },
+  };
 }
 
 /** Turn the model's story into rows, keeping only items that rest on real facts. */
 export function storyRows(userId, output, refsSnapshot, { runId, model, today }) {
   const refs = new Map(refsSnapshot);
-  const factIds = (list) => [...new Set((list || []).map((r) => refs.get(r)).filter((f) => f && f.type === 'fact').map((f) => f.id))];
+  const factIds = (list) => [
+    ...new Set(
+      (list || [])
+        .map((r) => refs.get(r))
+        .filter((f) => f && f.type === 'fact')
+        .map((f) => f.id),
+    ),
+  ];
   const chapterId = (r) => (r && refs.get(r)?.type === 'chapter' ? refs.get(r).id : null);
   const notFuture = (s) => (validDate(s) && s <= today ? s : null);
   const rows = [];
@@ -235,8 +303,16 @@ export function storyRows(userId, output, refsSnapshot, { runId, model, today })
     const ids = factIds(refsList);
     // Milestones and proud moments are things that took place: at least one cited
     // fact must say it happened or is so now. A plan alone is not one.
-    if (lived && !(refsList || []).some((r) => ['happened', 'current'].includes(refs.get(r)?.state))) {
-      dropped.push({ kind: row.kind, title: row.title, facts: ids.length, reason: ids.length ? 'only plans cited' : 'no facts' });
+    if (
+      lived &&
+      !(refsList || []).some((r) => ['happened', 'current'].includes(refs.get(r)?.state))
+    ) {
+      dropped.push({
+        kind: row.kind,
+        title: row.title,
+        facts: ids.length,
+        reason: ids.length ? 'only plans cited' : 'no facts',
+      });
       return;
     }
     // An item that rests on a private fact is private, whatever the model said.
@@ -263,19 +339,74 @@ export function storyRows(userId, output, refsSnapshot, { runId, model, today })
     });
   };
   for (const m of output.milestones || []) {
-    push({ kind: 'milestone', title: m.title, body: m.body, period_start: notFuture(m.start_date), period_end: validDate(m.end_date), private: !!m.private, chapter_id: chapterId(m.chapter_ref) }, m.fact_refs, 1, { lived: true });
+    push(
+      {
+        kind: 'milestone',
+        title: m.title,
+        body: m.body,
+        period_start: notFuture(m.start_date),
+        period_end: validDate(m.end_date),
+        private: !!m.private,
+        chapter_id: chapterId(m.chapter_ref),
+      },
+      m.fact_refs,
+      1,
+      { lived: true },
+    );
   }
   for (const s of output.shifts || []) {
-    push({ kind: 'shift', title: s.title, body: s.body, period_start: notFuture(s.start_date), period_end: notFuture(s.end_date), private: !!s.private }, s.fact_refs, 2);
+    push(
+      {
+        kind: 'shift',
+        title: s.title,
+        body: s.body,
+        period_start: notFuture(s.start_date),
+        period_end: notFuture(s.end_date),
+        private: !!s.private,
+      },
+      s.fact_refs,
+      2,
+    );
   }
   for (const p of output.proud_moments || []) {
-    push({ kind: 'proud', title: p.title, body: p.body, period_start: notFuture(p.date), private: !!p.private }, p.fact_refs, 1, { lived: true });
+    push(
+      {
+        kind: 'proud',
+        title: p.title,
+        body: p.body,
+        period_start: notFuture(p.date),
+        private: !!p.private,
+      },
+      p.fact_refs,
+      1,
+      { lived: true },
+    );
   }
   for (const p of output.patterns || []) {
-    push({ kind: 'pattern', pattern_kind: ['loves', 'avoids', 'often', 'rarely', 'rhythm'].includes(p.kind) ? p.kind : null, title: p.title, body: p.body, private: !!p.private }, p.fact_refs, 2);
+    push(
+      {
+        kind: 'pattern',
+        pattern_kind: ['loves', 'avoids', 'often', 'rarely', 'rhythm'].includes(p.kind)
+          ? p.kind
+          : null,
+        title: p.title,
+        body: p.body,
+        private: !!p.private,
+      },
+      p.fact_refs,
+      2,
+    );
   }
   for (const p of output.people || []) {
-    push({ kind: 'person', title: `${trim(p.name, 60)}${p.relationship ? `, ${trim(p.relationship, 60)}` : ''}`, body: p.body, private: !!p.private }, p.fact_refs);
+    push(
+      {
+        kind: 'person',
+        title: `${trim(p.name, 60)}${p.relationship ? `, ${trim(p.relationship, 60)}` : ''}`,
+        body: p.body,
+        private: !!p.private,
+      },
+      p.fact_refs,
+    );
   }
   return { rows, dropped };
 }
@@ -285,10 +416,20 @@ export function storyRows(userId, output, refsSnapshot, { runId, model, today })
  * Live: the new items replace the current ones (kept as superseded), and a
  * compact copy goes into the Life Map JSON, which chat already reads.
  */
-export async function applyStory(env, userId, output, refsSnapshot, { shadow, runId, model, today }) {
+export async function applyStory(
+  env,
+  userId,
+  output,
+  refsSnapshot,
+  { shadow, runId, model, today },
+) {
   const d = db(env);
   const { rows, dropped } = storyRows(userId, output, refsSnapshot, { runId, model, today });
-  const applied = { items: rows.length, dropped, by_kind: rows.reduce((m, r) => ({ ...m, [r.kind]: (m[r.kind] || 0) + 1 }), {}) };
+  const applied = {
+    items: rows.length,
+    dropped,
+    by_kind: rows.reduce((m, r) => ({ ...m, [r.kind]: (m[r.kind] || 0) + 1 }), {}),
+  };
   if (shadow) return { applied, rows };
   if (!rows.length) return { applied: { ...applied, skipped: 'no items with evidence' } };
 
@@ -296,14 +437,25 @@ export async function applyStory(env, userId, output, refsSnapshot, { shadow, ru
   // New items first, then the old ones step aside, so a failure never leaves
   // the person with no story.
   await d.insertQuiet('story_items', rows);
-  await d.update(`story_items?user_id=eq.${userId}&state=eq.current&or=(run_id.is.null,run_id.neq.${runId})`, { state: 'superseded', updated_at: nowIso });
+  await d.update(
+    `story_items?user_id=eq.${userId}&state=eq.current&or=(run_id.is.null,run_id.neq.${runId})`,
+    { state: 'superseded', updated_at: nowIso },
+  );
 
   // Compact copy for the Life Map: what chat and the app already read.
   const [lm] = await d.select(`user_life_map?user_id=eq.${userId}&select=id,life_map`);
   if (lm) {
-    const pick = (kind) => rows.filter((r) => r.kind === kind).map((r) => ({
-      title: r.title, body: r.body, from: r.period_start || null, to: r.period_end || null, private: r.private, ...(r.pattern_kind ? { kind: r.pattern_kind } : {}),
-    }));
+    const pick = (kind) =>
+      rows
+        .filter((r) => r.kind === kind)
+        .map((r) => ({
+          title: r.title,
+          body: r.body,
+          from: r.period_start || null,
+          to: r.period_end || null,
+          private: r.private,
+          ...(r.pattern_kind ? { kind: r.pattern_kind } : {}),
+        }));
     const story = {
       written_at: nowIso,
       source: 'monthly_story',
@@ -315,7 +467,10 @@ export async function applyStory(env, userId, output, refsSnapshot, { shadow, ru
       patterns: pick('pattern'),
       people: pick('person'),
     };
-    await d.update(`user_life_map?id=eq.${lm.id}`, { life_map: { ...(lm.life_map || {}), story }, updated_at: nowIso });
+    await d.update(`user_life_map?id=eq.${lm.id}`, {
+      life_map: { ...(lm.life_map || {}), story },
+      updated_at: nowIso,
+    });
   }
   await invalidateChatCache(env, userId);
   return { applied };
@@ -331,7 +486,9 @@ export async function loadStory(env, userId, { includePrivate = true, limit = 80
 
 export function storyLines(items, today, { bodies = true } = {}) {
   return items.map((s) => {
-    const when = s.period_start ? ` (${s.period_start}${s.period_end && s.period_end !== s.period_start ? ` to ${s.period_end}` : ''}, ${relativeDay(s.period_start, today)})` : '';
+    const when = s.period_start
+      ? ` (${s.period_start}${s.period_end && s.period_end !== s.period_start ? ` to ${s.period_end}` : ''}, ${relativeDay(s.period_start, today)})`
+      : '';
     return `- ${s.kind}${s.pattern_kind ? `/${s.pattern_kind}` : ''}${s.private ? ' [private]' : ''}: ${trim(s.title, 120)}${when}${bodies ? `. ${trim(s.body, 280)}` : ''}`;
   });
 }
@@ -342,9 +499,17 @@ export async function refreshLifeMapStory(env, userId) {
   const [lm] = await d.select(`user_life_map?user_id=eq.${userId}&select=id,life_map`);
   if (!lm?.life_map?.story) return;
   const items = await loadStory(env, userId, { limit: 200 });
-  const pick = (kind) => items.filter((r) => r.kind === kind).map((r) => ({
-    title: r.title, body: r.body, from: r.period_start || null, to: r.period_end || null, private: r.private, ...(r.pattern_kind ? { kind: r.pattern_kind } : {}),
-  }));
+  const pick = (kind) =>
+    items
+      .filter((r) => r.kind === kind)
+      .map((r) => ({
+        title: r.title,
+        body: r.body,
+        from: r.period_start || null,
+        to: r.period_end || null,
+        private: r.private,
+        ...(r.pattern_kind ? { kind: r.pattern_kind } : {}),
+      }));
   const story = {
     ...lm.life_map.story,
     milestones: pick('milestone'),
@@ -354,5 +519,8 @@ export async function refreshLifeMapStory(env, userId) {
     people: pick('person'),
     updated_at: new Date().toISOString(),
   };
-  await d.update(`user_life_map?id=eq.${lm.id}`, { life_map: { ...lm.life_map, story }, updated_at: new Date().toISOString() });
+  await d.update(`user_life_map?id=eq.${lm.id}`, {
+    life_map: { ...lm.life_map, story },
+    updated_at: new Date().toISOString(),
+  });
 }

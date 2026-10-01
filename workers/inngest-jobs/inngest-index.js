@@ -311,12 +311,17 @@ const dcoDispatcher = inngest.createFunction(
         try {
           const tz = u.timezone || 'America/Los_Angeles';
           const hour = parseInt(
-            new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: tz }).format(now),
+            new Intl.DateTimeFormat('en-US', {
+              hour: 'numeric',
+              hour12: false,
+              timeZone: tz,
+            }).format(now),
             10,
           );
           const localDay = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(now);
           const due = !u.last_dco_date || u.last_dco_date < localDay;
-          if (hour >= 4 && hour !== 24 && due) ready.push({ user_id: u.user_id, timezone: tz, local_day: localDay });
+          if (hour >= 4 && hour !== 24 && due)
+            ready.push({ user_id: u.user_id, timezone: tz, local_day: localDay });
         } catch {
           // an unknown timezone is skipped rather than guessed
         }
@@ -371,11 +376,19 @@ const generateSingleUserDco = inngest.createFunction(
     let v4Error = null;
     if (mode === 'on') {
       // Questions that have gone out of date are retired before the brief can ask one.
-      await reviewQuestions(env, userId, timezone, { shadow: false }).catch((err) => console.error(`[Questions] review failed for ${userId}:`, err));
+      await reviewQuestions(env, userId, timezone, { shadow: false }).catch((err) =>
+        console.error(`[Questions] review failed for ${userId}:`, err),
+      );
       try {
         const built = await buildDcoV4(env, userId, { tz: timezone });
         await writeDco(env, userId, built, { shadow: false });
-        return { user_id: userId, pipeline: 'dco-v4', date: built.today, attempts: built.attempts, review_flags: built.problems };
+        return {
+          user_id: userId,
+          pipeline: 'dco-v4',
+          date: built.today,
+          attempts: built.attempts,
+          review_flags: built.problems,
+        };
       } catch (err) {
         console.error(`[ALERT][DCO v4] Failed for user ${userId}, falling back to v3:`, err);
         v4Error = String(err?.message || err).slice(0, 300);
@@ -401,7 +414,12 @@ const generateSingleUserDco = inngest.createFunction(
       try {
         const built = await buildDcoV4(env, userId, { tz: timezone });
         const written = await writeDco(env, userId, built, { shadow: true });
-        live.shadow_v4 = { ok: true, written, attempts: built.attempts, review_flags: built.problems.length };
+        live.shadow_v4 = {
+          ok: true,
+          written,
+          attempts: built.attempts,
+          review_flags: built.problems.length,
+        };
       } catch (err) {
         console.error(`[DCO v4 shadow] Failed for user ${userId}:`, err);
         live.shadow_v4 = { ok: false, error: String(err?.message || err).slice(0, 300) };
@@ -1922,7 +1940,9 @@ const weeklySummaryV07Worker = inngest.createFunction(
     // summaries (Gremly's own words, which are never evidence).
     const ledgerContext =
       contextMode(env, user_id) === 'on'
-        ? await step.run('ledger-context', () => weeklySummaryContext(env, user_id, week_start, week_end))
+        ? await step.run('ledger-context', () =>
+            weeklySummaryContext(env, user_id, week_start, week_end),
+          )
         : null;
 
     // Step B: run the analyst — produces week_shape and world_signal_candidate
@@ -8587,7 +8607,9 @@ Prior weekly summaries are provided under "PRIOR WEEKLY SUMMARIES." Use them to:
   if (weeklySnapshot.ledger) {
     // Context pipeline: the fact ledger already accounts for milestones, with
     // what happened to each one. Raw milestone dates are not shown.
-    dataLines.push('\n=== WHAT GREMLY KNOWS (fact ledger with states; the source for plans, dates and outcomes) ===');
+    dataLines.push(
+      '\n=== WHAT GREMLY KNOWS (fact ledger with states; the source for plans, dates and outcomes) ===',
+    );
     dataLines.push(weeklySnapshot.ledger);
   } else {
     dataLines.push('\n=== MILESTONES ===');
@@ -8730,7 +8752,9 @@ Prior weekly summaries are provided under "PRIOR WEEKLY SUMMARIES." Use them to:
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 20000,
       stream: true,
-      system: systemPrompt,
+      // The analyst prompt is the same for everyone in a given week, so it is
+      // cached for the Sunday runs (Haiku caches prompts of 4,096 tokens or more).
+      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
       messages: [
         {
           role: 'user',
@@ -11232,7 +11256,9 @@ const appHandler = {
         const body = await request.json().catch(() => ({}));
         const userId = typeof body.user_id === 'string' ? body.user_id : null;
         const said = typeof body.said === 'string' ? body.said.trim().slice(0, 2000) : '';
-        const surface = ['chat', 'not_right', 'brief', 'question'].includes(body.surface) ? body.surface : 'chat';
+        const surface = ['chat', 'not_right', 'brief', 'question'].includes(body.surface)
+          ? body.surface
+          : 'chat';
         if (!userId || !/^[0-9a-f-]{36}$/i.test(userId) || !said) {
           return corsResponse({ error: 'user_id and said are required' }, 400);
         }
@@ -11240,17 +11266,23 @@ const appHandler = {
           user_id: userId,
           surface,
           said,
-          chat_id: typeof body.chat_id === 'string' && /^[0-9a-f-]{36}$/i.test(body.chat_id) ? body.chat_id : null,
+          chat_id:
+            typeof body.chat_id === 'string' && /^[0-9a-f-]{36}$/i.test(body.chat_id)
+              ? body.chat_id
+              : null,
           target_kind: typeof body.target_kind === 'string' ? body.target_kind.slice(0, 40) : null,
           // What they marked, the id it came from (a question when answering one), and
           // what they chose on the Not right sheet: wrong, changed, done or private.
-          target_ref: body.target_text || body.target_id || body.kind
-            ? {
-                text: body.target_text ? String(body.target_text).slice(0, 1000) : null,
-                id: typeof body.target_id === 'string' ? body.target_id.slice(0, 64) : null,
-                kind: ['wrong', 'changed', 'done', 'private'].includes(body.kind) ? body.kind : null,
-              }
-            : null,
+          target_ref:
+            body.target_text || body.target_id || body.kind
+              ? {
+                  text: body.target_text ? String(body.target_text).slice(0, 1000) : null,
+                  id: typeof body.target_id === 'string' ? body.target_id.slice(0, 64) : null,
+                  kind: ['wrong', 'changed', 'done', 'private'].includes(body.kind)
+                    ? body.kind
+                    : null,
+                }
+              : null,
           status: 'received',
         };
         const ins = await fetch(`${env.SUPABASE_URL}/rest/v1/user_corrections`, {
@@ -11263,12 +11295,19 @@ const appHandler = {
           },
           body: JSON.stringify(row),
         });
-        if (!ins.ok) return corsResponse({ error: `could not save: ${(await ins.text()).slice(0, 200)}` }, 500);
+        if (!ins.ok)
+          return corsResponse(
+            { error: `could not save: ${(await ins.text()).slice(0, 200)}` },
+            500,
+          );
         const [saved] = await ins.json();
         await fetch('https://inn.gs/e/' + env.INNGEST_EVENT_KEY, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: 'app/correction.apply', data: { correction_id: saved.id, user_id: userId } }),
+          body: JSON.stringify({
+            name: 'app/correction.apply',
+            data: { correction_id: saved.id, user_id: userId },
+          }),
         }).catch(() => {});
         return corsResponse({ ok: true, correction_id: saved.id });
       } catch (e) {
@@ -12256,10 +12295,7 @@ export default {
       try {
         const body = await request.clone().json();
         userId =
-          body?.event?.data?.user_id ||
-          body?.events?.[0]?.data?.user_id ||
-          body?.user_id ||
-          null;
+          body?.event?.data?.user_id || body?.events?.[0]?.data?.user_id || body?.user_id || null;
       } catch {
         userId = null;
       }

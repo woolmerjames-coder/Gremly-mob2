@@ -422,11 +422,28 @@ ${JSON.stringify(brief.prior_surfaced, null, 0)}`,
 
 // ── API calls ──────────────────────────────────────────────────────────────
 
+/**
+ * A user message as one string, or as a part that repeats across calls
+ * (`cached`) and a part that does not (`rest`). The repeated part is marked
+ * for Anthropic's prompt cache: the writer's second attempt sends the same
+ * brief and facts again, and cache reads cost a tenth of normal input.
+ */
+type UserMessage = string | { cached: string; rest?: string };
+
+function userContent(message: UserMessage) {
+  if (typeof message === 'string') return message;
+  const blocks: Record<string, unknown>[] = [
+    { type: 'text', text: message.cached, cache_control: { type: 'ephemeral' } },
+  ];
+  if (message.rest) blocks.push({ type: 'text', text: message.rest });
+  return blocks;
+}
+
 async function callAnthropic(
   apiKey: string,
   model: string,
   system: string,
-  userMessage: string,
+  userMessage: UserMessage,
   maxTokens: number,
   temperature: number,
 ): Promise<Record<string, unknown>> {
@@ -441,8 +458,10 @@ async function callAnthropic(
       model,
       max_tokens: maxTokens,
       temperature,
-      system,
-      messages: [{ role: 'user', content: userMessage }],
+      // The system prompts here are fixed, so the same one is read from the
+      // cache by every call made within a few minutes, for any person.
+      system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+      messages: [{ role: 'user', content: userContent(userMessage) }],
     }),
   });
   if (!res.ok) {
@@ -467,7 +486,7 @@ async function callAnthropic(
 
 async function callWriter(
   env: Record<string, string>,
-  userPrompt: string,
+  userPrompt: UserMessage,
 ): Promise<Record<string, unknown>> {
   const model = env.SUMMARY_WRITER_MODEL || env.SUMMARY_FILL_MODEL || DEFAULT_WRITER_MODEL;
   return callAnthropic(env.ANTHROPIC_API_KEY, model, WRITER_SYSTEM, userPrompt, 4096, 0.4);
@@ -1279,9 +1298,11 @@ export async function writeDeck(
   let lastAttemptedRaw: unknown | null = null;
 
   for (let attempt = 1; attempt <= 2; attempt++) {
-    let userPrompt: string;
+    // The brief and facts are the same on both attempts, so they are sent as
+    // the cached part and only the rewrite guidance is new on the second.
+    let userPrompt: UserMessage;
     if (attempt === 1) {
-      userPrompt = baseUserPrompt;
+      userPrompt = { cached: baseUserPrompt };
     } else {
       const factLines: string[] = [];
       const qualityLines: string[] = [];
@@ -1291,9 +1312,9 @@ export async function writeDeck(
         qualityLines.push(`  - ${idx}: ${q.issue}`);
         qualityLines.push(`    avoid by: ${q.fix_hint}`);
       }
-      userPrompt = `${baseUserPrompt}
-
-REWRITE GUIDANCE:
+      userPrompt = {
+        cached: baseUserPrompt,
+        rest: `REWRITE GUIDANCE:
 
 A previous attempt at this deck was produced and failed evaluation. You are NOT editing that draft. You are writing the deck again from scratch against the same brief and facts above. Do not anchor on the previous attempt or attempt to make minimal edits to it. Write freshly.
 
@@ -1305,7 +1326,8 @@ ${qualityLines.length > 0 ? `Editorial defects (each must be avoided in this fre
 
 Now write the deck. Same brief, same facts, same schema. Address each defect by writing differently, not by editing the prior draft.
 
-Return only the JSON. No commentary outside the JSON.`;
+Return only the JSON. No commentary outside the JSON.`,
+      };
     }
 
     let raw: Record<string, unknown>;

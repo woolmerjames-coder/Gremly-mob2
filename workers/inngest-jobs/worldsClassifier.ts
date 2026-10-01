@@ -1053,7 +1053,11 @@ export async function classifyWorldsWeekly(
     body: JSON.stringify({
       model: MODEL,
       max_tokens: MAX_TOKENS,
-      system: SYSTEM_PROMPT,
+      // The tool and system prompt are the same for everyone (about 10k
+      // tokens), so they are cached: every run within a few minutes of another
+      // reads them at a tenth of the input price. The Sunday run starts
+      // everyone together, so most people after the first get the cached copy.
+      system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: userPrompt }],
       tools: [SUBMIT_CLASSIFIER_OUTPUT_TOOL],
       tool_choice: { type: 'tool', name: 'submit_classifier_output' },

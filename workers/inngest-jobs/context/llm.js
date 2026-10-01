@@ -24,7 +24,9 @@ export function modelFor(env, job) {
   const base = MODELS[job];
   const override = env[`CONTEXT_MODEL_${job.toUpperCase()}`];
   if (!override) return base;
-  const [provider, model] = override.includes(':') ? override.split(':') : [base.provider, override];
+  const [provider, model] = override.includes(':')
+    ? override.split(':')
+    : [base.provider, override];
   return { provider, model };
 }
 
@@ -37,7 +39,12 @@ function toOpenAI(schema) {
   if (out.type === 'object') {
     const props = {};
     for (const [k, v] of Object.entries(out.properties || {})) props[k] = toOpenAI(v);
-    out = { type: 'object', properties: props, required: Object.keys(props), additionalProperties: false };
+    out = {
+      type: 'object',
+      properties: props,
+      required: Object.keys(props),
+      additionalProperties: false,
+    };
     if (rest.description) out.description = rest.description;
   } else if (out.type === 'array') {
     out = { ...out, items: toOpenAI(out.items) };
@@ -56,14 +63,40 @@ function toOpenAI(schema) {
 // closed, every property listed as required, and nulls as type unions.
 const toStrictSchema = toOpenAI;
 
+// ── system prompts ──────────────────────────────────────────────────────────
+
+/**
+ * A system prompt is either a string or { fixed, varying }: the part that is
+ * the same for everyone, then the part about this person or this day. Anthropic
+ * caches the fixed part (cache reads cost a tenth of normal input), so it has
+ * to come first and must not change between people. Other providers get the
+ * two parts joined; OpenAI and Gemini cache a repeated start on their own.
+ */
+export function systemText(system) {
+  if (typeof system === 'string') return system;
+  return [system?.fixed, system?.varying].filter(Boolean).join('\n\n');
+}
+
+export function anthropicSystem(system) {
+  if (typeof system === 'string' || !system?.fixed) return systemText(system);
+  const blocks = [{ type: 'text', text: system.fixed, cache_control: { type: 'ephemeral' } }];
+  if (system.varying) blocks.push({ type: 'text', text: system.varying });
+  return blocks;
+}
+
 // ── single calls ────────────────────────────────────────────────────────────
 
 function parseJsonText(text, label) {
-  const t = String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
+  const t = String(text || '')
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/```\s*$/, '');
   try {
     return JSON.parse(t);
   } catch (err) {
-    throw new Error(`${label}: reply was not valid JSON (${err.message}); starts ${t.slice(0, 120)}`);
+    throw new Error(
+      `${label}: reply was not valid JSON (${err.message}); starts ${t.slice(0, 120)}`,
+    );
   }
 }
 
@@ -71,13 +104,16 @@ async function callOpenAI(env, { model, system, user, schema, maxTokens, effort 
   const body = {
     model,
     messages: [
-      { role: 'system', content: system },
+      { role: 'system', content: systemText(system) },
       { role: 'user', content: user },
     ],
     max_completion_tokens: maxTokens,
     reasoning_effort: effort || 'low',
     response_format: schema
-      ? { type: 'json_schema', json_schema: { name: 'output', strict: true, schema: toOpenAI(schema) } }
+      ? {
+          type: 'json_schema',
+          json_schema: { name: 'output', strict: true, schema: toOpenAI(schema) },
+        }
       : { type: 'json_object' },
   };
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -89,7 +125,8 @@ async function callOpenAI(env, { model, system, user, schema, maxTokens, effort 
   if (!res.ok) throw new Error(`OpenAI ${model} ${res.status}: ${text.slice(0, 300)}`);
   const data = JSON.parse(text);
   const choice = data.choices?.[0];
-  if (choice?.finish_reason === 'length') throw new Error(`OpenAI ${model}: reply cut off at ${maxTokens} tokens`);
+  if (choice?.finish_reason === 'length')
+    throw new Error(`OpenAI ${model}: reply cut off at ${maxTokens} tokens`);
   return parseJsonText(choice?.message?.content, `OpenAI ${model}`);
 }
 
@@ -106,7 +143,7 @@ async function callGoogle(env, { model, system, user, schema, maxTokens, thinkin
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: system }] },
+        systemInstruction: { parts: [{ text: systemText(system) }] },
         contents: [{ role: 'user', parts: [{ text: user }] }],
         generationConfig,
       }),
@@ -116,8 +153,12 @@ async function callGoogle(env, { model, system, user, schema, maxTokens, thinkin
   if (!res.ok) throw new Error(`Gemini ${model} ${res.status}: ${text.slice(0, 300)}`);
   const data = JSON.parse(text);
   const cand = data.candidates?.[0];
-  if (cand?.finishReason === 'MAX_TOKENS') throw new Error(`Gemini ${model}: reply cut off at ${maxTokens} tokens`);
-  const out = (cand?.content?.parts || []).filter((p) => !p.thought).map((p) => p.text || '').join('');
+  if (cand?.finishReason === 'MAX_TOKENS')
+    throw new Error(`Gemini ${model}: reply cut off at ${maxTokens} tokens`);
+  const out = (cand?.content?.parts || [])
+    .filter((p) => !p.thought)
+    .map((p) => p.text || '')
+    .join('');
   return parseJsonText(out, `Gemini ${model}`);
 }
 
@@ -131,16 +172,20 @@ export function anthropicJsonParams({ model, system, user, schema, maxTokens, ef
   return {
     model,
     max_tokens: maxTokens,
-    system,
+    system: anthropicSystem(system),
     messages: [{ role: 'user', content: user }],
     output_config: { effort, format: { type: 'json_schema', schema: toStrictSchema(schema) } },
   };
 }
 
 export function anthropicJsonResult(message) {
-  if (message?.stop_reason === 'max_tokens') throw new Error('Anthropic reply cut off at max_tokens');
+  if (message?.stop_reason === 'max_tokens')
+    throw new Error('Anthropic reply cut off at max_tokens');
   if (message?.stop_reason === 'refusal') throw new Error('Anthropic declined the request');
-  const text = (message?.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+  const text = (message?.content || [])
+    .filter((b) => b.type === 'text')
+    .map((b) => b.text)
+    .join('');
   if (!text) throw new Error('Anthropic reply had no text block');
   return parseJsonText(text, 'Anthropic');
 }
@@ -157,7 +202,10 @@ async function callAnthropic(env, { model, system, user, schema, maxTokens, effo
 }
 
 /** One structured call; tries the fallback model once if the first fails. */
-export async function jsonCall(env, { primary, fallback, system, user, schema, maxTokens = 4000, thinking, effort }) {
+export async function jsonCall(
+  env,
+  { primary, fallback, system, user, schema, maxTokens = 4000, thinking, effort },
+) {
   const attempt = (m) => {
     const args = { model: m.model, system, user, schema, maxTokens, thinking, effort };
     if (m.provider === 'openai') return callOpenAI(env, args);
@@ -170,7 +218,11 @@ export async function jsonCall(env, { primary, fallback, system, user, schema, m
   } catch (err) {
     if (!fallback) throw err;
     console.warn(`[context] ${primary.model} failed, trying ${fallback.model}: ${err.message}`);
-    return { output: await attempt(fallback), model: fallback.model, fellBackFrom: String(err.message).slice(0, 200) };
+    return {
+      output: await attempt(fallback),
+      model: fallback.model,
+      fellBackFrom: String(err.message).slice(0, 200),
+    };
   }
 }
 
@@ -196,7 +248,9 @@ export async function createBatch(env, requests) {
 }
 
 export async function getBatch(env, id) {
-  const res = await fetch(`https://api.anthropic.com/v1/messages/batches/${id}`, { headers: anthropicHeaders(env) });
+  const res = await fetch(`https://api.anthropic.com/v1/messages/batches/${id}`, {
+    headers: anthropicHeaders(env),
+  });
   const text = await res.text();
   if (!res.ok) throw new Error(`Batch get ${res.status}: ${text.slice(0, 300)}`);
   return JSON.parse(text);

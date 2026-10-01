@@ -1566,7 +1566,10 @@ export function getProviders(tier, env) {
           maxOutputTokens: 600,
           temperature: 0,
           minimalThinking: true,
-          cacheSystem: true,
+          // Not cached: this system prompt carries the classifier's note about
+          // each drop, so it is never the same twice and a cache write would
+          // only add a quarter to its price.
+          cacheSystem: false,
         },
         fallback: {
           provider: 'openai',
