@@ -100,6 +100,8 @@ export interface BriefOfferMeta extends BriefMetaBase {
   plan_from?: number;
   /** The held offer this one shows again, after the question */
   revealed_from?: string;
+  /** The plan offer this one brings back after a change made in the thread (once) */
+  brought_back_from?: string;
 }
 
 export type PlanStatus = 'proposal' | 'replaced' | 'dismissed' | 'locked';

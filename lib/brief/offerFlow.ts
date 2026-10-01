@@ -110,6 +110,29 @@ export function revealStep(held: { id: string; content: string; meta: BriefOffer
   });
 }
 
+/**
+ * The plan offer once more, after a change made in the thread took them away
+ * from it: same buttons, worded for what is left of the day.
+ */
+export function backToPlanStep(
+  offer: { id: string; meta: BriefOfferMeta },
+  nowMinutes: number,
+): BriefStep {
+  const rest: Partial<BriefOfferMeta> = { ...offer.meta };
+  delete rest.held;
+  delete rest.chosen;
+  delete rest.type;
+  delete rest.revealed_from;
+  const buttons = offer.meta.buttons.map((b) =>
+    b.action === 'plan' ? { ...b, label: planLabel(nowMinutes) } : b,
+  );
+  return offerStep(`Want to plan the rest of your ${partWord(nowMinutes)} now?`, {
+    ...(rest as Omit<BriefOfferMeta, 'type'>),
+    buttons,
+    brought_back_from: offer.id,
+  });
+}
+
 /** Return day, Catch me up: the counts, then Sweep first or Just today. */
 export function afterCatchUp(offer: BriefOfferMeta, part: DayPart): BriefStep[] {
   return [

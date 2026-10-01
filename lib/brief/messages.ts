@@ -99,3 +99,31 @@ export function liveOfferId(messages: SpaceChatMessage[]): string | null {
   }
   return null;
 }
+
+/** Gremly's question, when it is the last thing said and no one has replied to it yet. */
+export function liveQuestion(messages: SpaceChatMessage[]): SpaceChatMessage | null {
+  const id = liveOfferId(visibleThreadMessages(messages));
+  if (!id) return null;
+  const m = messages.find((x) => x.id === id) ?? null;
+  const meta = briefMetaOf(m);
+  return meta?.type === 'brief-offer' && meta.kind === 'question' && meta.question_id ? m : null;
+}
+
+/**
+ * The plan offer to bring back once a change made in the thread is done: the
+ * day's latest offer, when it offers planning, nothing was chosen on it, the
+ * thread has moved past it, no plan has been made since, and it is not itself
+ * one brought back already.
+ */
+export function planOfferToBringBack(messages: SpaceChatMessage[]): SpaceChatMessage | null {
+  const visible = visibleThreadMessages(messages);
+  if (liveOfferId(visible)) return null;
+  for (let i = visible.length - 1; i >= 0; i--) {
+    const meta = briefMetaOf(visible[i]);
+    if (meta?.type === 'brief-plan') return null;
+    if (meta?.type !== 'brief-offer') continue;
+    if (meta.chosen || meta.brought_back_from || meta.kind === 'question') return null;
+    return meta.buttons.some((b) => b.action === 'plan') ? visible[i] : null;
+  }
+  return null;
+}

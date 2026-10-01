@@ -180,3 +180,158 @@ describe('the brief’s buttons', () => {
     expect(added).toHaveLength(0);
   });
 });
+
+describe('a reply typed under the question, and the brief carrying on', () => {
+  const PLAN_HELD = msg(
+    'plan-held',
+    'assistant',
+    {
+      type: 'brief-offer',
+      kind: 'plan',
+      held: true,
+      brief_id: 'b1',
+      plan_from: 788,
+      buttons: [
+        { id: 'plan', label: 'Plan my afternoon', action: 'plan', primary: true },
+        { id: 'what_can_wait', label: 'What can wait?', action: 'what_can_wait' },
+        { id: 'not_today', label: 'Not today', action: 'not_today' },
+      ],
+    },
+    'We can plan your afternoon if you like.',
+  );
+  const PLAN_SHOWN = msg(
+    'plan-shown',
+    'assistant',
+    { ...(PLAN_HELD.metadata_json as any), held: undefined, revealed_from: 'plan-held' },
+    'We can plan your afternoon if you like.',
+  );
+  const said = (id: string, content: string) => msg(id, 'user', null as any, content);
+  const reply = (id: string, content: string) => msg(id, 'assistant', null as any, content);
+  const card = (id: string) =>
+    msg(id, 'system', { type: 'entity-card', status: 'applied' }, 'Entity card: Send the deck');
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (answerQuestion as jest.Mock).mockResolvedValue(true);
+  });
+
+  it('takes a message typed under the question as the reply to it', async () => {
+    const { hook, added, patched } = setup([QUESTION, PLAN_HELD]);
+    let question: string | null = null;
+    await act(async () => {
+      question = await hook.result.current.takeTypedReply('The appointment is cancelled');
+    });
+    expect(question).toBe('Is your haircut this Friday or Saturday?');
+    expect(patched[0]).toMatchObject({ id: 'q', patch: { chosen: { id: 'typed' } } });
+    expect(answerQuestion).toHaveBeenCalledWith('question-1', 'The appointment is cancelled');
+    // the chat replies; nothing is added here
+    expect(added).toHaveLength(0);
+  });
+
+  it('leaves a message alone when the question is not the last thing said', async () => {
+    const { hook, patched } = setup([QUESTION, said('u1', 'hello'), reply('a1', 'Hi!')]);
+    let question: string | null = 'x';
+    await act(async () => {
+      question = await hook.result.current.takeTypedReply('what about tomorrow');
+    });
+    expect(question).toBeNull();
+    expect(patched).toHaveLength(0);
+    expect(answerQuestion).not.toHaveBeenCalled();
+  });
+
+  it('shows the offer held for the question once the reply is in', async () => {
+    const answered = msg('q', 'assistant', {
+      ...(QUESTION.metadata_json as any),
+      chosen: { id: 'typed', at: 'now' },
+    });
+    const { hook, added } = setup([
+      answered,
+      PLAN_HELD,
+      said('u1', 'The appointment is cancelled'),
+      reply('a1', 'Got it, that frees up the afternoon.'),
+    ]);
+    await act(async () => {
+      await hook.result.current.continueBrief();
+    });
+    expect(added).toHaveLength(1);
+    expect(added[0]).toMatchObject({
+      role: 'assistant',
+      content: 'We can plan your afternoon if you like.',
+      meta: { type: 'brief-offer', revealed_from: 'plan-held' },
+    });
+  });
+
+  it('waits while the question is still the last thing said', async () => {
+    const { hook, added } = setup([QUESTION, PLAN_HELD]);
+    await act(async () => {
+      await hook.result.current.continueBrief();
+    });
+    expect(added).toHaveLength(0);
+  });
+
+  it('brings the plan offer back once after a change made in the thread', async () => {
+    const thread = [
+      PLAN_HELD,
+      PLAN_SHOWN,
+      said('u1', 'Move the deck to today'),
+      reply('a1', 'Is that the one you mean?'),
+      card('c1'),
+    ];
+    const { hook, added } = setup(thread);
+    await act(async () => {
+      await hook.result.current.continueBrief();
+    });
+    expect(added).toHaveLength(1);
+    expect(added[0].meta).toMatchObject({
+      type: 'brief-offer',
+      kind: 'plan',
+      brought_back_from: 'plan-shown',
+    });
+    expect(added[0].meta.revealed_from).toBeUndefined();
+    expect(added[0].meta.buttons.map((b: any) => b.action)).toEqual([
+      'plan',
+      'what_can_wait',
+      'not_today',
+    ]);
+
+    // passed by again: not brought back a second time
+    const again = [
+      ...thread,
+      msg('back', 'assistant', added[0].meta, added[0].content),
+      said('u2', 'And move the plumber to Monday'),
+      reply('a2', 'Is that the one you mean?'),
+      card('c2'),
+    ];
+    const second = setup(again);
+    await act(async () => {
+      await second.hook.result.current.continueBrief();
+    });
+    expect(second.added).toHaveLength(0);
+  });
+
+  it('does not bring the plan offer back once something was chosen on it or a plan was made', async () => {
+    const chosen = msg('plan-shown', 'assistant', {
+      ...(PLAN_SHOWN.metadata_json as any),
+      chosen: { id: 'not_today', at: 'now' },
+    });
+    const a = setup([PLAN_HELD, chosen, said('u1', 'move it'), card('c1')]);
+    await act(async () => {
+      await a.hook.result.current.continueBrief();
+    });
+    expect(a.added).toHaveLength(0);
+
+    const plan = msg('p1', 'system', { type: 'brief-plan', status: 'proposal', items: [] });
+    const b = setup([
+      PLAN_HELD,
+      PLAN_SHOWN,
+      said('u1', 'plan'),
+      plan,
+      said('u2', 'move it'),
+      card('c1'),
+    ]);
+    await act(async () => {
+      await b.hook.result.current.continueBrief();
+    });
+    expect(b.added).toHaveLength(0);
+  });
+});

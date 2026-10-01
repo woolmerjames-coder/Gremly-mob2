@@ -206,6 +206,7 @@ import { handleHabitRead } from './habitRead.js';
 import { fetchItemDetail, itemDetailText, handleItemTopics } from './itemDetail.js';
 import { configureModels, models, helperModel } from './models.js';
 import { helperFetch } from './helperClient.js';
+import { briefQuestionSection } from './briefTurn.js';
 import { relateDrop } from './minddropRelate.js';
 import {
   matchEntity,
@@ -12765,6 +12766,9 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               todayIso: todayIsoIn(userTimezone),
               detailText: itemDetailText(anchorDetail, todayIsoIn(userTimezone)),
             });
+            // today's thread: the reply to the brief's question (a card's own
+            // instructions come first when one is shown)
+            if (!entityCard) genConfig.systemPrompt += briefQuestionSection(body.briefQuestion);
 
             const chatMessages = [
               { role: 'system', content: genConfig.systemPrompt },

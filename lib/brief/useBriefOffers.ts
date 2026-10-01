@@ -8,6 +8,12 @@
  *
  * Something else turns the composer into an answer box: the next message
  * typed is the answer (answerTyped), not a chat turn.
+ *
+ * A message typed straight under the question, without Something else, is a
+ * reply to it too (takeTypedReply): it goes to the answer pipeline, and to the
+ * chat, which is told what it answers. Once that reply or a change made in the
+ * thread is done, the brief carries on (continueBrief): the offer held for the
+ * question, or the plan offer once more.
  */
 
 import { useCallback, useRef, useState } from 'react';
@@ -16,7 +22,7 @@ import { getDateService, nowTimestamp } from '../date/DateService';
 import { answerQuestion, markQuestionAsked } from '../story/storyApi';
 import { creditFirstReply } from './feeding';
 import { SWEEP_COPY } from './sweepHandoff';
-import { briefMetaOf, dayPartAt, heldOffer } from './messages';
+import { briefMetaOf, dayPartAt, heldOffer, liveQuestion, planOfferToBringBack } from './messages';
 import { scheduleDcoRefresh } from './dcoRefresh';
 import {
   afterAnswer,
@@ -24,6 +30,7 @@ import {
   afterJustToday,
   afterNotToday,
   afterSkip,
+  backToPlanStep,
   gremlyStep,
   replyStep,
   BRIEF_COPY,
@@ -69,6 +76,19 @@ export interface BriefOffers {
   /** Use a typed message as the answer. False when no answer is awaited. */
   answerTyped: (text: string) => Promise<boolean>;
   cancelAnswer: () => void;
+  /**
+   * A message typed while Gremly's question is the last thing said is the
+   * reply to it: the question loses its buttons and the words go to the answer
+   * pipeline. Returns the question, for the chat reply; null when no question
+   * is waiting.
+   */
+  takeTypedReply: (text: string) => Promise<string | null>;
+  /**
+   * After a reply or a change made in the thread: the offer held for the
+   * question, or the plan offer once more. Nothing when an offer is already
+   * waiting at the bottom.
+   */
+  continueBrief: () => Promise<void>;
   busy: boolean;
 }
 
@@ -276,11 +296,49 @@ export function useBriefOffers(deps: BriefOffersDeps): BriefOffers {
 
   const cancelAnswer = useCallback(() => setAwaiting(null), []);
 
+  const takeTypedReply = useCallback(async (text: string): Promise<string | null> => {
+    const answer = text.trim();
+    const offer = liveQuestion(depsRef.current.messages);
+    const meta = briefMetaOf(offer);
+    if (!answer || !offer || meta?.type !== 'brief-offer' || !meta.question_id) return null;
+    setAwaiting(null);
+    await depsRef.current.patchMessageMetadata(offer.id, {
+      chosen: { id: 'typed', at: nowTimestamp() },
+    });
+    // the answer pipeline reads the question and their words, and works out what changes
+    answerQuestion(meta.question_id, answer)
+      .then((saved) => {
+        if (saved) scheduleDcoRefresh();
+      })
+      .catch((err) => console.warn('[DailyBrief] could not save the typed reply:', err));
+    return offer.content;
+  }, []);
+
+  const continueBrief = useCallback(
+    () =>
+      run(async () => {
+        const msgs = depsRef.current.messages;
+        if (heldOffer(msgs)) {
+          if (liveQuestion(msgs)) return;
+          await reveal();
+          return;
+        }
+        const offer = planOfferToBringBack(msgs);
+        const meta = briefMetaOf(offer);
+        if (!offer || meta?.type !== 'brief-offer') return;
+        await pause();
+        await save([backToPlanStep({ id: offer.id, meta }, nowMinutes())]);
+      }),
+    [pause, reveal, run, save],
+  );
+
   return {
     handleOfferButton,
     awaitingAnswer: awaiting !== null,
     answerTyped,
     cancelAnswer,
+    takeTypedReply,
+    continueBrief,
     busy,
   };
 }

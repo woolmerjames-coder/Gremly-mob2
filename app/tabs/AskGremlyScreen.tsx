@@ -149,6 +149,13 @@ export const ITEM_STARTERS_WAIT_MS = 6000;
 // A brief written but not yet readable is loaded once more after this long
 const BRIEF_RELOAD_MS = 1500;
 
+/** Today's thread (Daily brief in Chat), not an earlier day's opened from history */
+function isTodaysThread(chat: SpaceChat | null | undefined): boolean {
+  if (chat?.chat_type !== 'daily') return false;
+  const day = (chat.metadata_json as Partial<DailyThreadMeta> | null | undefined)?.ritual_day;
+  return !day || day === getDateService().ritualDay();
+}
+
 type AskGremlyScreenProps = {
   /** Rendered as the Chat page inside the Gremly home, under the DROP | CHAT
    *  switch. The home's shared input box sends here; this page shows no
@@ -394,6 +401,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         lead?: string;
         /** The item this chat was opened about; read from the chat when not given */
         anchor?: ChatAnchor | null;
+        /** Today's thread: the brief's question this message replies to */
+        briefQuestion?: string | null;
       } = {},
     ) => {
       setSending(true);
@@ -413,7 +422,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
 
       // A brand new chat has no history of its own; the hook's messages can
       // still be the previous chat's for a moment, so they are not used.
-      const prior = opts.fresh ? [] : messages;
+      // (today's thread: what is shown, so an offer held back is not sent as said)
+      const prior = opts.fresh ? [] : visibleThreadMessages(messages);
       const conversationHistory = prior
         .filter((m) => m.role === 'user' || m.role === 'assistant')
         .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
@@ -460,6 +470,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
           turnId,
           // a correction made in today's thread is marked as made on the brief
           chatSurface: chat.chat_type === 'daily' ? 'brief' : 'chat',
+          briefQuestion: opts.briefQuestion ?? null,
         },
         {
           onChunk: (delta: string) => {
@@ -514,6 +525,10 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             }
             if (richResult?.entity_card) {
               await appendEntityCard(richResult.entity_card);
+            } else if (opts.briefQuestion && isTodaysThread(chat)) {
+              // the question is answered: the brief carries on (a card first
+              // waits for its tap, see entityCardHandlers)
+              void briefOffersRef.current.continueBrief();
             }
 
             // the Save items pill and any late card follow from the Worker's
@@ -580,6 +595,14 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       }
       // A typed message is a reply to the brief too (feeds Gremly once a day)
       if (isDailyThread && activeChat) void creditFirstReply(activeChat.id);
+      // Typed straight under Gremly's question, it is the reply to the question
+      if (isDailyThread && activeChat && !sending) {
+        const question = await briefOffersRef.current.takeTypedReply(trimmed);
+        if (question) {
+          await sendToChat(activeChat, trimmed, { briefQuestion: question });
+          return;
+        }
+      }
       // While a plan is open, a message that asks to change it changes it
       if (isDailyThread && planFlowRef.current.livePlan && !sending) {
         if (await planFlowRef.current.editFromText(trimmed)) return;
@@ -1075,8 +1098,13 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   const entityCardHandlers = useCallback(
     (cardMessage: SpaceChatMessage) => ({
       message: cardMessage,
-      onStatus: (status: EntityCardStatus, summary?: string) =>
-        setEntityCardStatus(cardMessage.id, status, summary),
+      onStatus: async (status: EntityCardStatus, summary?: string) => {
+        await setEntityCardStatus(cardMessage.id, status, summary);
+        // a change made in today's thread is done: the brief carries on
+        if (status === 'applied' && isTodaysThread(activeChat)) {
+          void briefOffersRef.current.continueBrief();
+        }
+      },
       onPick: (entity: EntityCardEntity) => {
         setEntityCardStatus(cardMessage.id, 'declined');
         if (activeChat) sendToChat(activeChat, `I mean ${entity.title}`);

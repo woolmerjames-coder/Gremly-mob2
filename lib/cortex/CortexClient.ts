@@ -519,6 +519,8 @@ export function callGeneralChatStreaming(
     turnId?: string;
     /** 'brief' in today's thread (Daily brief in Chat), so a correction there is marked as made on the brief */
     chatSurface?: 'brief' | 'chat';
+    /** Today's thread: the brief's question this message replies to, so the reply takes the answer in */
+    briefQuestion?: string | null;
   },
   callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
 ): { close: () => void } {
@@ -562,6 +564,7 @@ export function callGeneralChatStreaming(
       anchorEntity: opts.anchorEntity ?? null,
       turnId: opts.turnId ?? null,
       chatSurface: opts.chatSurface ?? 'chat',
+      briefQuestion: opts.briefQuestion ?? null,
       userId: opts.userId,
       currentTime: nowTimestamp(),
       timezone: getDateService().getTimezone(),

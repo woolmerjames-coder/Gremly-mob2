@@ -9,6 +9,7 @@ import {
   replyStep,
   revealStep,
   typedAnswerStep,
+  backToPlanStep,
 } from '../offerFlow';
 import { heldOffer, liveOfferId, visibleThreadMessages } from '../messages';
 import type { BriefOfferMeta } from '../types';
@@ -147,5 +148,42 @@ describe('the offer held for the question', () => {
   it('is found once only: after it has been shown again it is not held any more', () => {
     const shown = msg('h2', 'assistant', { ...RETURN_OFFER, kind: 'sweep', revealed_from: 'h' });
     expect(heldOffer([question, held, shown])).toBeNull();
+  });
+});
+
+describe('the plan offer brought back', () => {
+  const offer = {
+    id: 'plan-shown',
+    meta: {
+      type: 'brief-offer' as const,
+      kind: 'plan' as const,
+      brief_id: 'b1',
+      plan_from: 788,
+      revealed_from: 'plan-held',
+      buttons: [
+        { id: 'plan', label: 'Plan my afternoon', action: 'plan' as const, primary: true },
+        { id: 'not_today', label: 'Not today', action: 'not_today' as const },
+      ],
+    },
+  };
+
+  it('asks about what is left of the day, with the plan button for now', () => {
+    const step = backToPlanStep(offer, 18 * 60 + 5);
+    expect(step.content).toBe('Want to plan the rest of your evening now?');
+    const meta = step.meta as any;
+    expect(meta.buttons[0].label).toBe('Plan my evening');
+    expect(meta.buttons[1].label).toBe('Not today');
+    expect(meta).toMatchObject({
+      type: 'brief-offer',
+      kind: 'plan',
+      brought_back_from: 'plan-shown',
+    });
+    expect(meta.revealed_from).toBeUndefined();
+  });
+
+  it('keeps the afternoon wording in the afternoon', () => {
+    expect(backToPlanStep(offer, 14 * 60).content).toBe(
+      'Want to plan the rest of your afternoon now?',
+    );
   });
 });
