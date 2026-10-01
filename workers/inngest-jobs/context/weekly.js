@@ -411,14 +411,15 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
       skipped.push({ world_ref: w.world_ref, card_subtitle: w.card_subtitle, summary: w.summary });
       continue;
     }
-    // When the world was last lived in, from the facts the model cited: the
-    // latest thing that happened, or the last time something ongoing was recorded.
+    // When the world was last lived in, from the facts the model cited: the day
+    // the person recorded each one (a plan made is a sign of life too), and for
+    // something that happened, the day it happened.
     let lived = null;
     for (const r of w.card_fact_refs || []) {
       const f = refs.get(r);
       if (!f || f.type !== 'fact') continue;
-      const day = f.state === 'happened' ? f.about_date : f.state === 'current' ? String(f.observed_at || '').slice(0, 10) : null;
-      if (validDate(day) && day <= today && (!lived || day > lived)) lived = day;
+      const days = [String(f.observed_at || '').slice(0, 10), f.state === 'happened' ? f.about_date : null];
+      for (const day of days) if (validDate(day) && day <= today && (!lived || day > lived)) lived = day;
     }
     // A card line is glanceable: it must rest on cited facts, none of them private.
     const cardFacts = (w.card_fact_refs || []).map((r) => refs.get(r)).filter((f) => f && f.type === 'fact');
