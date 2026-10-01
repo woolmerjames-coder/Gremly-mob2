@@ -22,7 +22,7 @@ import { Clock, StickyNote, Link2, Bell, EyeOff } from 'lucide-react-native';
 import type { Note } from '../../lib/types';
 import type { CalendarEvent } from '../../lib/calendar/CalendarClient';
 import { getDateService } from '../../lib/date';
-import { EventTimePicker } from '../../app/components/morning-brief/components/EventTimePicker';
+import { EventTimePicker } from '../calendar/EventTimePicker';
 
 /* ─── unified event type ─── */
 

@@ -18,7 +18,7 @@ import type { Todo, Habit, Note } from '../../../../lib/types';
 import { useGremlyStore } from '../../../../lib/store/useGremlyStore';
 import { getDateService } from '../../../../lib/date';
 import { TaskItem, type TaskItemData } from './TaskItem';
-import { EventTimePicker } from './EventTimePicker';
+import { EventTimePicker } from '../../../../components/calendar/EventTimePicker';
 import { GapRow } from './GapRow';
 import { type TimeGap, type SlottedTask } from '../../../../lib/timeGaps';
 
