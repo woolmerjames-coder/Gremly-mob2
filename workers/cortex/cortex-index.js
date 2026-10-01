@@ -3467,6 +3467,8 @@ export default {
         'minddrop-relate',
         'item-topics',
         'not-right',
+        'daily-brief',
+        'plan-pick',
       ]);
       const AUTH_REQUIRED_LANES = new Set([
         'space_chat',
@@ -7783,6 +7785,27 @@ ${assistantMessage.substring(0, 2000)}
         }).catch(() => null);
         if (!res?.ok) return j({ error: 'could not send the correction' }, 502);
         return j(await res.json().catch(() => ({ ok: true })));
+      }
+
+      // =========================
+      // === DAILY BRIEF IN CHAT ===
+      // The app's first open when no brief was written for today, or a later
+      // first open that needs a fresh brief for this part of the day (once a
+      // day). The brief is written by inngest-jobs, beside the DCO.
+      // =========================
+      if (type === 'daily-brief') {
+        if (!env.INNGEST_WORKER_URL || !env.INNGEST_ADMIN_KEY)
+          return j({ error: 'not configured' }, 503);
+        const res = await fetchInngestWorker(env, '/api/daily-brief', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-admin-key': env.INNGEST_ADMIN_KEY },
+          body: JSON.stringify({
+            user_id: authenticatedUserId,
+            reason: body.reason === 'rewrite' ? 'rewrite' : 'first_open',
+          }),
+        }).catch(() => null);
+        if (!res) return j({ error: 'could not reach the brief writer' }, 502);
+        return j(await res.json().catch(() => ({ error: 'bad reply' })), res.ok ? 200 : 502);
       }
 
       // =========================
@@ -13201,6 +13224,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       chatId: body.chatId,
                       userId: authenticatedUserId,
                       env,
+                      surface: body.chatSurface === 'brief' ? 'brief' : 'chat',
                     }).catch((e) => {
                       console.warn('[GeneralChat] Correction check failed:', e?.message);
                       return { sent: 0 };

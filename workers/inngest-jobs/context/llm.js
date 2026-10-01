@@ -18,6 +18,11 @@ export const MODELS = {
   rewrite: { provider: 'google', model: 'gemini-3.8-flash' },
   rewriteFallback: { provider: 'openai', model: 'gpt-6-luna' },
   weekly: { provider: 'anthropic', model: 'claude-sonnet-5-5' },
+  // Daily brief in Chat: the brief sounds like chat Gremly; the plan picker is a cheap, careful pick
+  brief: { provider: 'google', model: 'gemini-3.8-flash' },
+  briefFallback: { provider: 'openai', model: 'gpt-6-luna' },
+  planPick: { provider: 'openai', model: 'gpt-6-luna' },
+  planPickFallback: { provider: 'google', model: 'gemini-3.8-flash' },
 };
 
 export function modelFor(env, job) {

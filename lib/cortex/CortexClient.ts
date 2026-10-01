@@ -6,10 +6,7 @@ import EventSource from 'react-native-sse';
 import { getDateService, nowTimestamp } from '../date/DateService';
 import { eventBus } from '../events/EventBus';
 import { getSessionToken, getSessionTokenSync } from './getSessionToken';
-import type {
-  HabitBuilderRequest,
-  HabitBuilderStreamingCallbacks,
-} from '../types';
+import type { HabitBuilderRequest, HabitBuilderStreamingCallbacks } from '../types';
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
@@ -2068,7 +2065,43 @@ export async function callNotRight(input: {
       }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok || data?.error) return { ok: false, error: String(data?.error || res.status), status: res.status };
+    if (!res.ok || data?.error)
+      return { ok: false, error: String(data?.error || res.status), status: res.status };
+    return { ok: true, data };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
+/**
+ * Daily brief in Chat: ask for today's brief to be written now. Used on the
+ * first open when the morning job has not written one, and once a day for a
+ * fresh brief when the lines were written for an earlier part of the day.
+ * The brief lands in today's thread; the reply only says what happened.
+ */
+export async function callDailyBrief(reason: 'first_open' | 'rewrite'): Promise<
+  CortexClientResult<{
+    ok?: boolean;
+    skipped?: string;
+    thread_id?: string;
+    brief_id?: string;
+    part?: string;
+    offer_kind?: string;
+  }>
+> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return { ok: false, error: '[cortex] Missing EXPO_PUBLIC_CORTEX_URL' };
+  const token = await getSessionToken();
+  if (!token) return { ok: false, error: 'not signed in' };
+  try {
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ type: 'daily-brief', reason }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.error)
+      return { ok: false, error: String(data?.error || res.status), status: res.status };
     return { ok: true, data };
   } catch (e: any) {
     return { ok: false, error: String(e?.message || e) };

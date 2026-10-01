@@ -310,7 +310,7 @@ export async function gatherWeek(env, userId, tz, periodEnd) {
       `notes?owner_id=eq.${userId}&subtype=eq.journal&${between('created_at')}&select=title,body,mood,created_at&order=created_at.asc&limit=25`,
     ),
     d.select(
-      `scope_chat_messages?user_id=eq.${userId}&role=eq.user&${between('created_at')}&select=content,created_at&order=created_at.asc&limit=120`,
+      `scope_chat_messages?user_id=eq.${userId}&role=eq.user&or=(metadata_json.is.null,metadata_json->>type.is.null,metadata_json->>type.neq.brief-reply)&${between('created_at')}&select=content,created_at&order=created_at.asc&limit=120`,
     ),
     d.select(
       `todos?owner_id=eq.${userId}&${between('created_at')}&select=id,title,due_day,created_at&order=created_at.asc&limit=80`,

@@ -28,8 +28,9 @@ import { jsonCall, modelFor } from './llm';
 import { recentCorrections } from './corrections';
 import { loadStory } from './story';
 import { invalidateChatCache } from './cache';
+import { readThreadReaction } from '../brief/reaction';
 
-export const DCO_PROMPT_VERSION = 'dco-v4-2026-10-01b';
+export const DCO_PROMPT_VERSION = 'dco-v4-2026-10-01c';
 
 function trim(text, n) {
   const s = String(text || '')
@@ -143,6 +144,7 @@ export async function gatherDay(env, userId, tz, today) {
     anyCalendar,
     story,
     recentNotes,
+    reaction,
   ] = await Promise.all([
     d.select(
       `synced_calendar_events?owner_id=eq.${userId}&archived=eq.false&start_at=gte.${encodeURIComponent(dayStart)}&start_at=lt.${encodeURIComponent(horizonEnd)}&select=id,title,location,start_at,end_at,is_all_day&order=start_at.asc&limit=200`,
@@ -179,7 +181,7 @@ export async function gatherDay(env, userId, tz, today) {
       `life_fact_changes?user_id=eq.${userId}&created_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -7)))}&select=fact_id,from_state,to_state,reason,created_at&order=created_at.desc&limit=40`,
     ),
     d.select(
-      `gremly_questions?user_id=eq.${userId}&status=in.(open,asked)&select=id,question,created_at,fact:life_facts(private)&order=created_at.asc&limit=20`,
+      `gremly_questions?user_id=eq.${userId}&status=in.(open,asked)&select=id,question,choices,created_at,fact:life_facts(private)&order=created_at.asc&limit=20`,
     ),
     d.rpc('absence_snapshot', { p_user: userId }),
     d.rpc('usage_rollup', { p_user: userId, p_grain: 'week', p_periods: 5 }),
@@ -202,6 +204,8 @@ export async function gatherDay(env, userId, tz, today) {
     d.select(
       `notes?owner_id=eq.${userId}&external_source=is.null&archived=eq.false&or=(subtype.is.null,subtype.not.in.(event,journal))&created_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -3)))}&select=id,title,body,created_at&order=created_at.asc&limit=25`,
     ),
+    // How they reacted to yesterday's brief in Chat (Daily brief in Chat)
+    readThreadReaction(env, userId, addDays(today, -1)).catch(() => null),
   ]);
   return {
     today,
@@ -228,6 +232,7 @@ export async function gatherDay(env, userId, tz, today) {
     calendarConnected: (anyCalendar || []).length > 0,
     story: story || [],
     recentNotes: recentNotes || [],
+    reaction: reaction || null,
   };
 }
 
@@ -351,7 +356,12 @@ export function renderDay(g, tz) {
     .filter((q) => !q.fact?.private)
     .slice(0, 10)
     .map((q) => {
-      const ref = addRef('q', { type: 'question', id: q.id, question: q.question });
+      const ref = addRef('q', {
+        type: 'question',
+        id: q.id,
+        question: q.question,
+        choices: Array.isArray(q.choices) ? q.choices : [],
+      });
       return `${ref} | asked ${q.created_at.slice(0, 10)} | ${trim(q.question, 200)}`;
     });
 
@@ -471,6 +481,7 @@ export function renderDay(g, tz) {
   lines.push(
     `YESTERDAY'S HEADLINE: ${g.prevDco?.dco?.brief_headline ? `"${g.prevDco.dco.brief_headline}" (${g.prevDco.date})` : '(none)'}`,
   );
+  lines.push(g.reaction || "YESTERDAY'S BRIEF: (no brief in Chat yesterday)");
 
   return {
     text: lines.join('\n'),
@@ -528,6 +539,14 @@ const DCO_SCHEMA = {
     reach_why: { type: 'string', nullable: true },
     reach_fact_refs: { type: 'array', items: { type: 'string' } },
     anchor_refs: { type: 'array', items: { type: 'string' } },
+    anchor_labels: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { ref: { type: 'string' }, short_label: { type: 'string' } },
+        required: ['ref', 'short_label'],
+      },
+    },
     question_ref: { type: 'string', nullable: true },
     return_note: { type: 'string', nullable: true },
     voice_note: { type: 'string' },
@@ -544,6 +563,7 @@ const DCO_SCHEMA = {
     'claims',
     'reach_fact_refs',
     'anchor_refs',
+    'anchor_labels',
     'return_note',
     'voice_note',
   ],
@@ -558,13 +578,15 @@ ${CARE_RULES}
 
 YOUR JOB
 - Decide what genuinely matters today and say it plainly. Weigh the calendar, what is due, habits for the week, the weekly intention, recent journal entries and the ledger.
-- headline: the notification line that opens the brief. What today looks like, in concrete terms, at most 90 characters. No counts of todos or habits, no feelings, no advice. When little is known about today, name what is true: a quiet day, something genuinely ahead, or, for someone returning after time away, a welcome back.
+- headline: the notification line that opens the brief. What today looks like, in concrete terms, at most 90 characters. No counts of todos or habits, no feelings, no advice. When little is known about today, name what is true: a quiet day or something genuinely ahead. The headline is only ever about today: it never mentions time away, a return or a welcome back, even for someone returning, because the welcome waits for the brief itself.
 - day_shape: one sentence on how full the day is and when the clear stretches are, taken from TODAY'S SHAPE. Use its times as given and never count or add up entries yourself. When no calendar is connected, say only what is due or planned, never that the day is open, clear or free, and leave it empty when nothing is due or planned.
 - lead_what and lead_why_today: the one thing that leads today and why it is today's. What leads is what matters most to the person today, which is not always what fills the most time.
 - today_focus: up to three short items, each a concrete thing from the inputs. Fewer is fine, and none is fine; never fill it with general advice. also_matters: anything else worth knowing, briefly.
 - claims: the items with a real claim on today (due today, on Today, a habit that needs today to stay on track for the week, a calendar entry). Each cites its ref and says why in a few words.
 - reach_ref and reach_why: at most one undated item worth suggesting today, only when a ledger fact gives a true reason for today; cite those facts in reach_fact_refs. Otherwise leave it empty.
 - anchor_refs: the dated ledger facts in the next 30 days that are genuinely ahead and worth keeping in mind, cited by ref. Leave out any plan that something in the inputs suggests already happened, moved or fell through, anything with an open question about it, and anything the person corrected.
+- anchor_labels: for each anchor you cite, a short name for the occasion itself as it would appear on a countdown chip on the day card: a few words, never a sentence, never about anything private.
+- Yesterday's brief tells you how they used yesterday's: what they kept, took out or moved says what fits their days. Let it inform what leads and what has a claim today. Never mention it, and never treat it as a judgement.
 - question_ref: at most one of Gremly's open questions, only if it is about something current or ahead and today is a natural day to ask it. A first morning back after time away is a natural day. Otherwise leave it empty.
 - return_note: write it when the inputs say they are returning after time away, and leave it empty otherwise. One or two warm lines welcoming them back. It may mention one true thing that is current or genuinely ahead. Never list what they missed or what is overdue, never guess why they were away, and never ask them to catch up.
 - voice_note: one line on how Gremly should sound today. On a heavy or uncertain day, Gremly can draw on what they love or on a moment they can be proud of, when one genuinely fits.
@@ -757,7 +779,11 @@ export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
     output.question_ref &&
     refs.has(output.question_ref) &&
     refs.get(output.question_ref).type === 'question'
-      ? { id: refs.get(output.question_ref).id, question: refs.get(output.question_ref).question }
+      ? {
+          id: refs.get(output.question_ref).id,
+          question: refs.get(output.question_ref).question,
+          choices: refs.get(output.question_ref).choices || [],
+        }
       : null;
   const daysAway = g.absence?.days_away_before_today ?? null;
   const ret =
@@ -783,6 +809,15 @@ export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
     .sort((a, b) => (a.about_date < b.about_date ? -1 : 1))
     .slice(0, 8);
 
+  // The chip's few words, per anchor fact (gap 1 of the brief's context handoff)
+  const shortLabels = new Map();
+  for (const a of output.anchor_labels || []) {
+    const r = refs.get(a?.ref);
+    const label = trim(a?.short_label, 40);
+    if (r?.type === 'fact' && label && !/[.!?]$/.test(label) && label.split(' ').length <= 5)
+      shortLabels.set(r.id, label);
+  }
+
   const nowIso = new Date().toISOString();
   const lead = output.lead_what
     ? { what: output.lead_what, why_today: output.lead_why_today || null, detail: output.lead_what }
@@ -798,6 +833,7 @@ export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
     voice_note: output.voice_note || null,
     also_matters: (output.also_matters || []).filter(Boolean),
     named_anchors: upcomingFacts.map((f) => ({
+      short_label: shortLabels.get(f.id) || null,
       label: f.statement,
       title: f.statement,
       type: 'fact',

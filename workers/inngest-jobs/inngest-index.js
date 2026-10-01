@@ -32,6 +32,7 @@ import { createBackfillPriorityKind } from './backfillPriorityKind';
 import { aiContext, installAiUsageLogging } from './aiUsage';
 import { CARE_RULES } from './careRules';
 import { createContextFunctions, hourlyContextEvents, contextMode } from './context/functions';
+import { createBriefFunctions, handleBriefApi } from './brief';
 import { buildDcoV4, writeDco } from './context/daily';
 import { reviewQuestions } from './context/questions';
 import { weeklySummaryContext } from './context/summaryContext';
@@ -11274,6 +11275,7 @@ const inngestHandler = serve({
     createDropAssignmentBackfill(inngest),
     createBackfillPriorityKind(inngest),
     ...createContextFunctions(inngest),
+    ...createBriefFunctions(inngest),
   ],
   servePath: '/',
 });
@@ -11379,6 +11381,12 @@ const appHandler = {
       } catch (e) {
         return corsResponse({ error: String(e?.message || e).slice(0, 200) }, 500);
       }
+    }
+
+    // Daily brief in Chat: the app's first open, or a fresh brief for a later
+    // part of the day (once a day), through cortex
+    if (url.pathname === '/api/daily-brief' && request.method === 'POST') {
+      return handleBriefApi(request, env, corsResponse);
     }
 
     if (url.pathname === '/api/force-generate-dco' && request.method === 'POST') {
