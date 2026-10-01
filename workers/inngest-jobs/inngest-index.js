@@ -1945,10 +1945,69 @@ const weeklySummaryV07Worker = inngest.createFunction(
           )
         : null;
 
-    // A comparison run (dry_run) writes nothing: it reuses the analyst
-    // observations already saved for the week and returns the deck, written by
-    // another model when writer_model is given, so two models can be compared.
-    if (event.data.dry_run === true) {
+    const dryRun = event.data.dry_run === true;
+    const skipAnalyst = dryRun && event.data.skip_analyst === true;
+
+    // Step B: run the analyst — produces week_shape and world_signal_candidate
+    // observations that loadBrief (inside generateAdaptiveSummary) needs.
+    let analystResult = null;
+    if (!skipAnalyst)
+      analystResult = await step.run('run-analyst', async () => {
+        const weeklySnapshot = buildWeeklySnapshot(snapshot);
+        if (ledgerContext) {
+          weeklySnapshot.ledger = ledgerContext;
+          weeklySnapshot.weeklySummaries = [];
+          weeklySnapshot.chatSummaries = [];
+        }
+        const lifeMap = snapshot.raw.currentLifeMap?.life_map || null;
+        return runUnifiedAnalyst(weeklySnapshot, lifeMap, week_start, week_end, env);
+      });
+
+    // Step C: persist analyst observations (replaces this user-week's prior rows).
+    if (!skipAnalyst)
+      await step.run('persist-analyst-observations', async () => {
+        const obsRows = buildAnalystObservations(analystResult.analysis, user_id, week_start);
+        await clearAnalystObservationsForWeek(user_id, week_start, env);
+        const p = await persistAnalystObservations(obsRows, env);
+        if (p.ok) {
+          console.log(
+            `[V07Worker] Persisted ${p.inserted} analyst observations for ${user_id} week ${week_start}`,
+          );
+          return { inserted: p.inserted, ok: true };
+        }
+        // Non-fatal: failed observations write must never abort the summary. Log
+        // with ALERT prefix for log-based alerting, and write a queryable failure
+        // row so a systemic problem is visible by SQL without log archaeology.
+        console.error(
+          `[ALERT][V07Worker] analyst observations persist FAILED for ${user_id} week ${week_start}: ${p.status} ${p.error || ''}`,
+        );
+        try {
+          await fetch(`${env.SUPABASE_URL}/rest/v1/events`, {
+            method: 'POST',
+            headers: { ...authHeaders, Prefer: 'return=minimal' },
+            body: JSON.stringify({
+              owner_id: user_id,
+              kind: 'analyst_observations_persist_failed',
+              payload_json: {
+                week_start,
+                status: p.status ?? null,
+                error: (p.error || '').slice(0, 500),
+              },
+            }),
+          });
+        } catch (e) {
+          console.error(
+            `[ALERT][V07Worker] could not record persist-failure event for ${user_id}: ${String(e).slice(0, 200)}`,
+          );
+        }
+        return { inserted: 0, ok: false };
+      });
+
+    // A comparison run (dry_run) saves no deck: it runs the analyst and saves its
+    // observations for the week as a real run would (skip_analyst reuses the ones
+    // already saved), then returns the deck, written by writer_model when given,
+    // so two writer models can be compared on the same observations.
+    if (dryRun) {
       const runEnv = event.data.writer_model
         ? { ...env, SUMMARY_WRITER_MODEL: String(event.data.writer_model) }
         : env;
@@ -1972,58 +2031,6 @@ const weeklySummaryV07Worker = inngest.createFunction(
         ...dry,
       };
     }
-
-    // Step B: run the analyst — produces week_shape and world_signal_candidate
-    // observations that loadBrief (inside generateAdaptiveSummary) needs.
-    const analystResult = await step.run('run-analyst', async () => {
-      const weeklySnapshot = buildWeeklySnapshot(snapshot);
-      if (ledgerContext) {
-        weeklySnapshot.ledger = ledgerContext;
-        weeklySnapshot.weeklySummaries = [];
-        weeklySnapshot.chatSummaries = [];
-      }
-      const lifeMap = snapshot.raw.currentLifeMap?.life_map || null;
-      return runUnifiedAnalyst(weeklySnapshot, lifeMap, week_start, week_end, env);
-    });
-
-    // Step C: persist analyst observations (replaces this user-week's prior rows).
-    await step.run('persist-analyst-observations', async () => {
-      const obsRows = buildAnalystObservations(analystResult.analysis, user_id, week_start);
-      await clearAnalystObservationsForWeek(user_id, week_start, env);
-      const p = await persistAnalystObservations(obsRows, env);
-      if (p.ok) {
-        console.log(
-          `[V07Worker] Persisted ${p.inserted} analyst observations for ${user_id} week ${week_start}`,
-        );
-        return { inserted: p.inserted, ok: true };
-      }
-      // Non-fatal: failed observations write must never abort the summary. Log
-      // with ALERT prefix for log-based alerting, and write a queryable failure
-      // row so a systemic problem is visible by SQL without log archaeology.
-      console.error(
-        `[ALERT][V07Worker] analyst observations persist FAILED for ${user_id} week ${week_start}: ${p.status} ${p.error || ''}`,
-      );
-      try {
-        await fetch(`${env.SUPABASE_URL}/rest/v1/events`, {
-          method: 'POST',
-          headers: { ...authHeaders, Prefer: 'return=minimal' },
-          body: JSON.stringify({
-            owner_id: user_id,
-            kind: 'analyst_observations_persist_failed',
-            payload_json: {
-              week_start,
-              status: p.status ?? null,
-              error: (p.error || '').slice(0, 500),
-            },
-          }),
-        });
-      } catch (e) {
-        console.error(
-          `[ALERT][V07Worker] could not record persist-failure event for ${user_id}: ${String(e).slice(0, 200)}`,
-        );
-      }
-      return { inserted: 0, ok: false };
-    });
 
     // Step C.5: rebuild the Life Map from this week's analyst output (incremental delta merge).
     const lifeMapRebuild = await step.run('rebuild-life-map', async () => {
