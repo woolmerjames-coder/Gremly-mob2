@@ -74,7 +74,15 @@ export function createContextFunctions(inngest) {
         const w = plan.windows[i];
         const last = i === plan.windows.length - 1;
         const c = await step.run(`read-${i}`, async () => {
-          const r = await readWindow(env, userId, plan.tz, w.from, w.to, runId);
+          // Another run for this person may already have read part of this window
+          // (steps for one person never run at the same time, so this check holds).
+          const cur = await readCursor(env, userId);
+          const from = cur?.read_through && cur.read_through > w.from ? cur.read_through : w.from;
+          if (from >= w.to) {
+            if (last) await advanceCursor(env, userId, plan.until, { backfilled: !!event.data?.backfill });
+            return { records: 0, skipped: 1 };
+          }
+          const r = await readWindow(env, userId, plan.tz, from, w.to, runId);
           await advanceCursor(env, userId, last ? plan.until : w.to, { backfilled: last && !!event.data?.backfill });
           return r;
         });

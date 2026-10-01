@@ -499,7 +499,10 @@ export async function readCursor(env, userId) {
 
 export async function advanceCursor(env, userId, throughIso, { backfilled = false } = {}) {
   const d = db(env);
-  const row = { user_id: userId, read_through: throughIso, updated_at: new Date().toISOString() };
+  // The cursor only moves forward: two runs for one person never undo each other.
+  const cur = await readCursor(env, userId);
+  if (cur?.read_through && cur.read_through >= throughIso && !backfilled) return;
+  const row = { user_id: userId, read_through: cur?.read_through && cur.read_through > throughIso ? cur.read_through : throughIso, updated_at: new Date().toISOString() };
   if (backfilled) row.backfilled_at = new Date().toISOString();
   await d.upsert('ledger_cursor', [row], 'user_id');
 }
