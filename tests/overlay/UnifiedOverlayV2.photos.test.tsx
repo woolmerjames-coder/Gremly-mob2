@@ -29,7 +29,6 @@ jest.mock('../../lib/store/useGremlyStore', () => {
     deleteLogPhoto: jest.fn().mockResolvedValue(undefined),
     updateLogPhotoPosition: jest.fn().mockResolvedValue(undefined),
     // Entity chat functions (new for chat integration)
-    getEntityChatMessageCount: jest.fn().mockReturnValue(0),
     updateEntityChatNoteChecklist: jest.fn(),
     updateEntityChatNote: jest.fn(),
     deleteEntityChatNote: jest.fn(),

@@ -1,6 +1,6 @@
 /**
  * Opening a chat from an item opens the Ask Gremly chat tied to that item,
- * with the old entity chat's props, behind ITEM_CHAT_V2.
+ * through EntityChatScreen, the name every entry point uses.
  */
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
@@ -19,15 +19,6 @@ jest.mock('../../../lib/store/useGremlyStore', () => ({
   useGremlyStore: (selector: (s: any) => unknown) => selector(mockState),
 }));
 
-let mockFlag = true;
-jest.mock('../../../lib/config/featureFlags', () => ({
-  FEATURE_FLAGS: {
-    get ITEM_CHAT_V2() {
-      return mockFlag;
-    },
-  },
-}));
-
 const mockFetchItemTopics = jest.fn();
 jest.mock('../../../lib/cortex/CortexClient', () => ({
   ...jest.requireActual('../../../lib/cortex/CortexClient'),
@@ -39,7 +30,6 @@ import { EntityChatScreen } from '../EntityChatScreen';
 
 beforeEach(() => {
   mockItemProps = null;
-  mockFlag = true;
   mockState = {
     todos: [{ id: 't1', name: 'Walk Bella', title: 'Walk Bella' }],
     habits: [{ id: 'h1', name: 'Run', title: null }],
