@@ -86,6 +86,11 @@ import type { SweepCandidate } from '../../lib/today/sweepSelectors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import type { Habit, Todo, Space, Note } from '../../lib/types';
 import { eventBus } from '../../lib/events';
+import { isBriefInChat } from '../../lib/brief/flag';
+import { useBriefUnread } from '../../lib/brief/todayThread';
+import { briefReadyLine, todayThreadParams } from '../../lib/brief/pinned';
+import { isReturnDay, readDco } from '../../lib/brief/dco';
+import { BriefReadyBubble } from '../../components/brief/BriefReadyBubble';
 import { TimeBlockSection } from '../../components/now/TimeBlockSection';
 import {
   getCurrentTimeBlock,
@@ -333,6 +338,22 @@ export default function NowScreenV1() {
 
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const isFocused = useIsFocused();
+
+  // Daily brief in Chat: Gremly's bubble says today's brief is waiting
+  const briefUnread = useBriefUnread();
+  const briefDco = useGremlyStore((s) => s.dco);
+  const briefUserName = useGremlyStore((s) => s.userName);
+  const briefReady = useMemo(
+    () =>
+      briefUnread
+        ? briefReadyLine(getDateService().ritualDay(), {
+            returnDay: isReturnDay(readDco(briefDco).brief),
+            firstName: briefUserName ? briefUserName.trim().split(/\s+/)[0] : null,
+            surface: 'today',
+          })
+        : null,
+    [briefUnread, briefDco, briefUserName],
+  );
 
   // Daily app open detection
   const { isFirstOpenToday, isChecking, markTodayOpened } = useDailyAppOpen();
@@ -631,7 +652,8 @@ export default function NowScreenV1() {
     const handleNotificationOpen = (payload: {
       type: 'morning' | 'evening' | 'weekly_summary' | 'afternoon_checkin';
     }) => {
-      if (payload.type === 'morning') {
+      // With the Daily brief in Chat on, App opens today's thread instead
+      if (payload.type === 'morning' && !isBriefInChat()) {
         console.log('[NowScreenV1] Opening Morning Brief from notification');
         navigation.navigate('MorningBrief');
       }
@@ -958,6 +980,15 @@ export default function NowScreenV1() {
         visible={showFirstVisitBubble}
         onDismiss={handleDismissFirstVisitBubble}
       />
+      {briefReady && !showFirstVisitBubble ? (
+        <BriefReadyBubble
+          lead={briefReady.lead}
+          rest={briefReady.rest}
+          onPress={() =>
+            navigation.navigate('Tabs', { screen: 'Gremly', params: todayThreadParams() })
+          }
+        />
+      ) : null}
       <WeeklySummaryBanner />
       <View style={styles.focusSectionHeader}>
         {/* Left: Section title only */}

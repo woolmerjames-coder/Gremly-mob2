@@ -16,6 +16,7 @@ import { getDateService, nowTimestamp } from '../date/DateService';
 import { answerQuestion, markQuestionAsked } from '../story/storyApi';
 import { markDailyThreadOnce } from '../repo/dailyThreadRepo';
 import { briefMetaOf, dayPartAt, heldOffer } from './messages';
+import { scheduleDcoRefresh } from './dcoRefresh';
 import {
   afterAnswer,
   afterCatchUp,
@@ -186,6 +187,7 @@ export function useBriefOffers(deps: BriefOffersDeps): BriefOffers {
                   () => false,
                 )
               : false;
+            if (saved) scheduleDcoRefresh();
             await save(afterAnswer(saved, part, offer.brief_id));
             await reveal();
             return;
@@ -232,6 +234,7 @@ export function useBriefOffers(deps: BriefOffersDeps): BriefOffers {
         setAwaiting(null);
         await reply(offerMsg, typedAnswerStep(answer, meta.brief_id), 'answer_other');
         const saved = await answerQuestion(waiting.questionId, answer).catch(() => false);
+        if (saved) scheduleDcoRefresh();
         await save(afterAnswer(saved, part, meta.brief_id));
         await reveal();
       });

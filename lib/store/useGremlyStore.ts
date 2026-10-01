@@ -5429,7 +5429,8 @@ export const useGremlyStore = create<GremlyState>()(
             .from('scope_chats')
             .select('*')
             .eq('user_id', userId)
-            .eq('chat_type', 'general')
+            // Daily brief in Chat: each day's thread sits in history beside the chats
+            .in('chat_type', ['general', 'daily'])
             .is('archived_at', null)
             .order('updated_at', { ascending: false })
             .limit(50);

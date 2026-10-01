@@ -2,13 +2,14 @@ import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { View, StyleSheet } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import type { NavigatorScreenParams } from '@react-navigation/native';
 import { useAuth } from '../providers/AuthProvider';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
 import { useNeedsOnboarding } from '../lib/store/lifecycleSelectors';
 import { useDropRecovery } from '../hooks/useDropRecovery';
 
 import LoginScreen from '../app/screens/LoginScreen';
-import TabNavigator from './TabNavigator';
+import TabNavigator, { type TabParamList } from './TabNavigator';
 import DSPreview from '../app/(dev)/DSPreview';
 import DevLogin from '../app/(dev)/DevLogin';
 import RecentItems from '../app/(dev)/RecentItems';
@@ -72,7 +73,8 @@ export type RootStackParamList = {
   TrialIntro: undefined;
   TrialEndPaywall: { source?: 'settings' | 'expiry' } | undefined;
   TrainingIntro: undefined; // kept for type compat, screen removed
-  Tabs: undefined;
+  /** The tabs; a screen and its params can be named, e.g. Gremly's Chat on today's thread */
+  Tabs: NavigatorScreenParams<TabParamList> | undefined;
   DSPreview: undefined;
   DevLogin: undefined;
   DevTools: undefined;

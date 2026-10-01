@@ -517,6 +517,8 @@ export function callGeneralChatStreaming(
     anchorEntity?: import('../types').ChatAnchor | null;
     /** This turn's id, written back with its extraction so the app knows when it has landed */
     turnId?: string;
+    /** 'brief' in today's thread (Daily brief in Chat), so a correction there is marked as made on the brief */
+    chatSurface?: 'brief' | 'chat';
   },
   callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
 ): { close: () => void } {
@@ -559,6 +561,7 @@ export function callGeneralChatStreaming(
       // the item the chat was opened about, so every turn knows what it is about
       anchorEntity: opts.anchorEntity ?? null,
       turnId: opts.turnId ?? null,
+      chatSurface: opts.chatSurface ?? 'chat',
       userId: opts.userId,
       currentTime: nowTimestamp(),
       timezone: getDateService().getTimezone(),

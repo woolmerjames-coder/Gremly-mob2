@@ -12,6 +12,7 @@ jest.mock('../../story/storyApi', () => ({
 jest.mock('../../repo/dailyThreadRepo', () => ({
   markDailyThreadOnce: jest.fn(),
 }));
+jest.mock('../dcoRefresh', () => ({ scheduleDcoRefresh: jest.fn() }));
 
 function msg(id: string, role: string, meta: Record<string, unknown>, content = id) {
   return { id, chat_id: 't1', role, content, metadata_json: meta } as unknown as SpaceChatMessage;

@@ -6,6 +6,7 @@ import {
   Pressable,
   TouchableOpacity,
   Alert,
+  AppState,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
@@ -82,6 +83,12 @@ import { useBriefOffers } from '../../lib/brief/useBriefOffers';
 import { BRIEF_COPY } from '../../lib/brief/offerFlow';
 import { callDailyBrief } from '../../lib/cortex/CortexClient';
 import { markQuestionAsked } from '../../lib/story/storyApi';
+import { isBriefUnread, useTodayThread, withinResumeWindow } from '../../lib/brief/todayThread';
+import { useBriefPlayback } from '../../lib/brief/useBriefPlayback';
+import { scheduleDcoRefresh } from '../../lib/brief/dcoRefresh';
+import { TodayPinnedCard } from '../../components/brief/TodayPinnedCard';
+import { useReducedMotion } from '../../design/animations';
+import { useMascotStore } from '../../lib/store/useMascotStore';
 import { ensureDailyThread, markDailyThreadOnce } from '../../lib/repo/dailyThreadRepo';
 import type { BriefDayCardMeta, DailyThreadMeta, OfferButton } from '../../lib/brief/types';
 
@@ -92,6 +99,12 @@ const STARTERS = [
   { icon: Target, label: 'What should I focus on today?' },
   { icon: Sparkles, label: 'Help me think through something' },
   { icon: CalendarDays, label: "What's coming up this week?" },
+];
+// With the Daily brief in Chat the brief answers the first one
+const BRIEF_STARTERS = [
+  { icon: Sparkles, label: 'Help me think through something' },
+  { icon: CalendarDays, label: "What's coming up this week?" },
+  { icon: Target, label: 'How am I doing with my habits?' },
 ];
 
 /** An item's own chat (components/chat/ItemChatScreen.tsx) */
@@ -339,6 +352,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       setSending(true);
 
       await sendUserMessage(text);
+      // something said in today's thread may correct what Gremly knows
+      if (chat.chat_type === 'daily') scheduleDcoRefresh();
 
       const streamingResult = await createStreamingMessage();
       if (!streamingResult) {
@@ -396,6 +411,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
               ? opts.anchor
               : (itemAnchorRef.current ?? (opts.fresh ? null : anchorFor(messages))),
           turnId,
+          // a correction made in today's thread is marked as made on the brief
+          chatSurface: chat.chat_type === 'daily' ? 'brief' : 'chat',
         },
         {
           onChunk: (delta: string) => {
@@ -652,21 +669,26 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   const threadRequest: 'today' | null = item ? null : (params?.thread ?? null);
   const threadKey: string | null = params?.threadKey ?? null;
   const threadKeyRef = useRef<string | null>(null);
+  const openTodayThread = useCallback(async () => {
+    try {
+      const thread = await ensureDailyThread(getDateService().ritualDay());
+      if (!thread || !mountedRef.current) return;
+      clearAbout();
+      useGremlyStore.getState().setActiveGeneralChat(thread.id);
+      setActiveChat(thread);
+      useTodayThread.getState().setThread(thread);
+    } catch (err) {
+      console.warn("[DailyBrief] could not open today's thread:", err);
+    }
+  }, [clearAbout]);
   useEffect(() => {
     if (threadRequest !== 'today' || !briefInChat || !userId) return;
     const key = threadKey ?? 'today';
     if (threadKeyRef.current === key) return;
     threadKeyRef.current = key;
-    navigation.setParams({ thread: undefined, threadKey: undefined });
-    ensureDailyThread(getDateService().ritualDay())
-      .then((thread) => {
-        if (!thread || !mountedRef.current) return;
-        clearAbout();
-        useGremlyStore.getState().setActiveGeneralChat(thread.id);
-        setActiveChat(thread);
-      })
-      .catch((err) => console.warn("[DailyBrief] could not open today's thread:", err));
-  }, [threadRequest, threadKey, briefInChat, userId, navigation, clearAbout]);
+    navigation.setParams({ thread: undefined, threadKey: undefined, step: undefined });
+    void openTodayThread();
+  }, [threadRequest, threadKey, briefInChat, userId, navigation, openTodayThread]);
 
   const handleOfferButton = useCallback(
     (message: SpaceChatMessage, button: OfferButton) =>
@@ -733,26 +755,24 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         : meta.brief_part && meta.brief_part !== part && !meta.rewrite_requested_at
           ? 'rewrite'
           : null;
-    const key = `${activeChat.id}:${due ?? 'seen'}:${part}`;
+    if (!due) return;
+    const key = `${activeChat.id}:${due}:${part}`;
     if (briefAskedRef.current === key) return;
     briefAskedRef.current = key;
     const threadId = activeChat.id;
     (async () => {
-      if (due) {
-        setBriefWriting(true);
-        const res = await callDailyBrief(due);
-        if (!res.ok) console.warn('[DailyBrief] could not write the brief:', res.error);
-        await refreshMessages();
-        if (mountedRef.current) setBriefWriting(false);
-        if (!res.ok || res.data?.skipped || !res.data?.brief_id) {
-          if (!hasBriefLines) return;
+      setBriefWriting(true);
+      const res = await callDailyBrief(due);
+      if (!res.ok) console.warn('[DailyBrief] could not write the brief:', res.error);
+      await refreshMessages();
+      // the thread's own record of the brief (written, part of the day)
+      const fresh = await useTodayThread.getState().refresh();
+      if (mountedRef.current) {
+        if (fresh && fresh.id === threadId && activeChatIdRef.current === threadId) {
+          setActiveChat(fresh);
         }
-      } else if (!hasBriefLines) {
-        return;
+        setBriefWriting(false);
       }
-      await markDailyThreadOnce(threadId, 'seen_at').catch((err) =>
-        console.warn('[DailyBrief] could not mark the brief seen:', err),
-      );
     })();
   }, [
     isDailyThread,
@@ -763,6 +783,96 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     hasBriefLines,
     refreshMessages,
   ]);
+  // The first time today's brief is on screen it plays in, Gremly waving,
+  // and then counts as seen
+  const reducedMotion = useReducedMotion();
+  const threadSeen = !!(activeChat?.metadata_json as Partial<DailyThreadMeta> | null | undefined)
+    ?.seen_at;
+  const handleBriefSeen = useCallback((threadId: string) => {
+    markDailyThreadOnce(threadId, 'seen_at')
+      .then((stamp) => {
+        if (!stamp) return;
+        useTodayThread.getState().patchMeta(threadId, { seen_at: stamp.at });
+        if (mountedRef.current && activeChatIdRef.current === threadId) {
+          setActiveChat((prev) =>
+            prev && prev.id === threadId
+              ? {
+                  ...prev,
+                  metadata_json: { ...(prev.metadata_json ?? {}), seen_at: stamp.at },
+                }
+              : prev,
+          );
+        }
+      })
+      .catch((err) => console.warn('[DailyBrief] could not mark the brief seen:', err));
+  }, []);
+  const playback = useBriefPlayback({
+    threadId: isDailyThread && activeChat ? activeChat.id : null,
+    rows,
+    seen: threadSeen,
+    ready: !!isDailyThread && !messagesLoading && chatOnScreen && !briefWriting && briefInChat,
+    reducedMotion,
+    onStart: () => useMascotStore.getState().requestMode('waving'),
+    onSeen: handleBriefSeen,
+  });
+  const shownRows = useMemo(
+    () => (playback.hiddenFrom !== null ? rows.slice(0, playback.hiddenFrom) : rows),
+    [rows, playback.hiddenFrom],
+  );
+
+  // Coming into Chat (Daily brief in Chat on): an unread brief opens today's
+  // thread; within five minutes of leaving, the chat as it was left; after
+  // longer, the fresh home with today pinned. A jump from another screen
+  // (the notification, Talk it through, a drop) brings its own chat.
+  const briefUnreadHere = useTodayThread((st) => isBriefUnread(st.thread));
+  const briefInChatRef = useRef(briefInChat);
+  briefInChatRef.current = briefInChat;
+  const jumpPending = !!(
+    params?.thread ||
+    params?.talkAbout ||
+    params?.autoSendKey ||
+    params?.prefillPrompt
+  );
+  const jumpPendingRef = useRef(jumpPending);
+  jumpPendingRef.current = jumpPending;
+  const enterChat = useCallback(() => {
+    if (!briefInChatRef.current || item || jumpPendingRef.current) return;
+    const state = useTodayThread.getState();
+    if (isBriefUnread(state.thread)) {
+      void openTodayThread();
+      return;
+    }
+    const nowMs = getDateService().now().getTime();
+    if (withinResumeWindow(state, nowMs) && state.chatLeftId === activeChatIdRef.current) return;
+    if (activeChatIdRef.current) goToEmptyState();
+  }, [item, openTodayThread, goToEmptyState]);
+  const leaveChat = useCallback(() => {
+    useTodayThread
+      .getState()
+      .noteChatLeft(activeChatIdRef.current, getDateService().now().getTime());
+  }, []);
+  const prevModeRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!embedded) return;
+    const mode = homeMode?.mode ?? null;
+    const prev = prevModeRef.current;
+    prevModeRef.current = mode;
+    if (prev === 'chat' && mode !== 'chat') leaveChat();
+    else if (mode === 'chat' && prev !== 'chat') enterChat();
+  }, [embedded, homeMode?.mode, enterChat, leaveChat]);
+  // The app going to the background counts as leaving Chat, coming back as coming in
+  useEffect(() => {
+    if (!embedded) return;
+    let last = AppState.currentState;
+    const sub = AppState.addEventListener('change', (next) => {
+      const onChat = prevModeRef.current === 'chat';
+      if (onChat && last === 'active' && next !== 'active') leaveChat();
+      if (onChat && last !== 'active' && next === 'active') enterChat();
+      last = next;
+    });
+    return () => sub.remove();
+  }, [embedded, enterChat, leaveChat]);
+
   const renderDayCard = useCallback(
     (_message: SpaceChatMessage, meta: BriefDayCardMeta) => <BriefDayCardBlock date={meta.date} />,
     [],
@@ -822,9 +932,9 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         return (
           <BriefMessage
             message={item}
-            prev={rows[index - 1]}
+            prev={shownRows[index - 1]}
             liveOfferId={offerLive}
-            interactive={!briefOffers.busy}
+            interactive={!briefOffers.busy && !playback.playing}
             onOfferButton={handleOfferButton}
             renderDayCard={renderDayCard}
           />
@@ -848,11 +958,12 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     [
       cardFor,
       entityCardHandlers,
-      rows,
+      shownRows,
       offerLive,
       handleOfferButton,
       renderDayCard,
       briefOffers.busy,
+      playback.playing,
     ],
   );
 
@@ -1012,7 +1123,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
           {inConversation ? (
             <AppFlatList
               ref={flatListRef}
-              data={rows}
+              data={shownRows}
               keyExtractor={keyExtractor}
               renderItem={renderMessage}
               style={styles.messages}
@@ -1037,7 +1148,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
               onMomentumScrollEnd={embedded ? () => homeDock?.setChatScrolling(false) : undefined}
               ListEmptyComponent={<View style={styles.flex} />}
               ListFooterComponent={
-                briefWriting && isDailyThread ? (
+                (briefWriting || playback.typing) && isDailyThread ? (
                   <View style={styles.messageContainer} testID="brief-writing">
                     <ChatBubble
                       message={
@@ -1101,6 +1212,15 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             </View>
           ) : (
             <View style={embedded ? styles.emptyStateTop : styles.emptyState}>
+              {briefInChat ? (
+                <View style={styles.pinnedToday}>
+                  <TodayPinnedCard
+                    date={getDateService().ritualDay()}
+                    unread={briefUnreadHere}
+                    onPress={() => void openTodayThread()}
+                  />
+                </View>
+              ) : null}
               <Text style={[styles.greeting, embedded && styles.greetingTop]}>{greeting}</Text>
 
               {/* Inside the Gremly home, Gremly stays perched on the input (as on
@@ -1118,7 +1238,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
               )}
 
               <View style={styles.startersContainer}>
-                {STARTERS.map(({ icon: Icon, label }) => (
+                {(briefInChat ? BRIEF_STARTERS : STARTERS).map(({ icon: Icon, label }) => (
                   <TouchableOpacity
                     key={label}
                     style={styles.starterCard}
@@ -1551,6 +1671,11 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: 'rgba(26, 51, 40, 0.12)',
     alignSelf: 'center',
+  },
+  pinnedToday: {
+    width: '100%',
+    paddingHorizontal: 24,
+    marginBottom: 18,
   },
   startersContainer: {
     width: '100%',
