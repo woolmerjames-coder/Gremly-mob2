@@ -18,6 +18,7 @@ import { ChevronLeft, MoreHorizontal } from 'lucide-react-native';
 import { SheetManager } from 'react-native-actions-sheet';
 import { format, differenceInCalendarDays } from 'date-fns';
 import { getDateService } from '../../lib/date/DateService';
+import { useAppEventOnFocus } from '../../lib/appEvents';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
 import {
@@ -49,6 +50,7 @@ export default function ChapterDetailScreen() {
   const route = useRoute<RouteT>();
   const nav = useNavigation<NavT>();
   const chapter = useChapterById(route.params.chapterId);
+  useAppEventOnFocus('chapter_view', { type: 'chapter', id: route.params.chapterId });
   const parentWorld = useWorldById(chapter?.primary_world_id ?? '');
   const worldName = parentWorld?.display_name || parentWorld?.name || 'World';
 

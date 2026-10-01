@@ -5,6 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { lightTokens } from '../../design/tokens';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { useAppEventOnFocus } from '../../lib/appEvents';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { WorldsHeader } from '../../components/worlds/WorldsHeader';
 import { ProposalBanner } from '../../components/worlds/ProposalBanner';
@@ -16,6 +17,7 @@ import { RecentClosedChaptersSection } from '../../components/worlds/RecentClose
 import { PeopleRow } from '../../components/worlds/PeopleRow';
 
 export default function WorldsScreen() {
+  useAppEventOnFocus('world_view', { type: 'worlds_tab' });
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const refreshWorldsGraph = useGremlyStore((s) => s.refreshWorldsGraph);
   const [refreshing, setRefreshing] = useState(false);

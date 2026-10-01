@@ -8,6 +8,7 @@ import { ChevronLeft } from 'lucide-react-native';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
 import { useWorldById, useCurrentChapterForWorld } from '../../lib/store/worldsSelectors';
+import { useAppEventOnFocus } from '../../lib/appEvents';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { WorldDetailHeader } from '../../components/worlds/WorldDetailHeader';
 import { ArchetypeLayoutDispatcher } from '../../components/worlds/ArchetypeLayoutDispatcher';
@@ -21,6 +22,7 @@ export default function WorldDetailScreen() {
   const route = useRoute<RouteT>();
   const nav = useNavigation<NavT>();
   const world = useWorldById(route.params.worldId);
+  useAppEventOnFocus('world_view', { type: 'world', id: route.params.worldId });
   const currentChapter = useCurrentChapterForWorld(route.params.worldId);
 
   // Must be declared before any early return (Rules of Hooks)

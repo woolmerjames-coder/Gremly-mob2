@@ -19,6 +19,7 @@ import { OverlayProvider } from './contexts/OverlayContext';
 import { OverlayHost } from './components/OverlayHost';
 import RootNavigator from './navigation/RootNavigator';
 import { supabase } from './lib/supabase/client';
+import { logAppEvent } from './lib/appEvents';
 import { runCortexProxyDiag } from './lib/cortex/diag';
 import { env } from './lib/env';
 import { useBrandFonts } from './app/theme/fonts';
@@ -197,9 +198,11 @@ function App() {
   // Start the drop pipeline queue runner
   useEffect(() => {
     void startQueueRunner();
+    void logAppEvent('app_open');
 
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
+        void logAppEvent('app_open');
         void loadQueueIntoZustand();
         void startQueueRunner();
       } else {
