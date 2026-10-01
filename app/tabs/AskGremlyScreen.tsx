@@ -245,7 +245,10 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     appendBriefMessage,
     patchMessageMetadata,
     refresh: refreshMessages,
-  } = useChatMessages(activeChat?.id, null);
+  } = useChatMessages(activeChat?.id, null, {
+    // today's thread keeps its day as its name
+    keepTitle: activeChat?.chat_type === 'daily',
+  });
   // The open chat's own messages are in: not still loading, and not the
   // last chat's left over from before the switch
   const threadLoaded = !!activeChat && loadedChatId === activeChat.id && !messagesLoading;

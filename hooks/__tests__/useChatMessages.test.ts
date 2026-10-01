@@ -248,6 +248,47 @@ describe('useChatMessages hook', () => {
     });
   });
 
+  describe('the chat title', () => {
+    beforeEach(() => {
+      const { SupabaseSpaceChatMessageRepo, SupabaseSpaceChatRepo } =
+        jest.requireMock('../../lib/repo/supabase');
+      SupabaseSpaceChatMessageRepo.mockImplementation(() => ({
+        append: mockMessageRepoAppend,
+        list: mockMessageRepoList,
+        update: mockMessageRepoUpdate,
+      }));
+      SupabaseSpaceChatRepo.mockImplementation(() => ({
+        create: mockChatRepoCreate,
+        update: mockChatRepoUpdate,
+      }));
+      mockMessageRepoList.mockResolvedValue([]);
+      mockChatRepoUpdate.mockResolvedValue(undefined);
+      mockMessageRepoAppend.mockImplementation(async (input: any) => ({
+        id: 'u1',
+        user_id: mockUserId,
+        created_at: '2026-10-01T20:18:10Z',
+        ...input,
+      }));
+    });
+
+    it('keeps the day as the name of a brief thread after the first message', async () => {
+      const { result, unmount } = renderHook(() =>
+        useChatMessages('daily-1', null, { keepTitle: true }),
+      );
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 10));
+      });
+      await act(async () => {
+        await result.current.sendUserMessage('The vet appointment is now canceled');
+      });
+      expect(mockChatRepoUpdate).toHaveBeenCalled();
+      for (const [, patch] of mockChatRepoUpdate.mock.calls) {
+        expect(patch).not.toHaveProperty('title');
+      }
+      unmount();
+    });
+  });
+
   describe('initialization', () => {
     it('returns null currentChatId when no chatId provided', async () => {
       const { result, unmount } = renderHook(() => useChatMessages(undefined, spaceId));

@@ -121,7 +121,13 @@ export interface UseChatMessagesResult {
 export function useChatMessages(
   chatId: string | undefined,
   spaceId: string | null,
+  options: {
+    /** Keep the chat's own title (a day's brief thread is named after its day) */
+    keepTitle?: boolean;
+  } = {},
 ): UseChatMessagesResult {
+  const keepTitleRef = useRef(!!options.keepTitle);
+  keepTitleRef.current = !!options.keepTitle;
   const [messages, setMessages] = useState<SpaceChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -320,7 +326,9 @@ export function useChatMessages(
         // Check if this is the first user message - auto-generate chat title
         // (Only if chat already existed - new chats get title during creation)
         const isFirstUserMessage =
-          !titleSetRef.current && messages.filter((m) => m.role === 'user').length === 0;
+          !keepTitleRef.current &&
+          !titleSetRef.current &&
+          messages.filter((m) => m.role === 'user').length === 0;
 
         if (isFirstUserMessage) {
           titleSetRef.current = true;
