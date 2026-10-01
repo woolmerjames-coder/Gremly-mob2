@@ -22,6 +22,7 @@ import { getDateService } from '../../lib/date';
 import type { Note } from '../../lib/types';
 import MascotLottie from '../../app/components/MascotLottie';
 import { useMascotMode } from '../../contexts/MascotModeContext';
+import { busyBlocks } from '../../lib/brief/dayCard';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -65,6 +66,12 @@ interface NowHeaderProps {
   remainingMinutes?: number;
   /** Event notes for today (from useEventNotesForDate) */
   eventNotes?: Note[];
+  /**
+   * Daily brief in Chat: today's timed meetings from the merged calendar
+   * (cancelled ones left out), the same list the brief's day card uses. When
+   * given, the Calendar card counts these.
+   */
+  meetings?: { title: string; start: number; end: number }[] | null;
   onPressProgress?: () => void;
   onPressWeek?: () => void;
   /** Handler for Calendar card press - navigates to CalendarScreen */
@@ -118,6 +125,7 @@ export function NowHeader({
   habitsTotal,
   remainingMinutes = 0,
   eventNotes = [],
+  meetings = null,
   onPressProgress,
   onPressWeek,
   onCalendarPress,
@@ -173,14 +181,29 @@ export function NowHeader({
     : null;
 
   // Format calendar summary text
-  const calendarLine1 =
+  let calendarLine1 =
     eventCount > 0
       ? `${eventCount} event${eventCount !== 1 ? 's' : ''}${timedEvents.length > 0 ? ` · ~${totalHours} hr${totalHours !== 1 ? 's' : ''}` : ''}`
       : 'No events today';
-  const calendarLine2 =
+  let calendarLine2 =
     upcomingEvent && minutesUntil !== null && minutesUntil > 0
       ? `Next: ${upcomingEvent.title}${minutesUntil <= 60 ? ` in ${minutesUntil} min` : ''}`
       : null;
+  if (meetings) {
+    // the real meetings, with their real lengths (overlaps counted once)
+    const busy = busyBlocks(meetings).reduce((a, [s0, e0]) => a + (e0 - s0), 0);
+    const h = Math.floor(busy / 60);
+    const m = busy % 60;
+    const length = h ? (m ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
+    calendarLine1 = meetings.length
+      ? `${meetings.length} meeting${meetings.length !== 1 ? 's' : ''} · ${length}`
+      : 'No meetings today';
+    const next = meetings.filter((x) => x.start > nowMinutes).sort((a, b) => a.start - b.start)[0];
+    const until = next ? next.start - nowMinutes : null;
+    calendarLine2 = next
+      ? `Next: ${next.title}${until !== null && until <= 60 ? ` in ${until} min` : ''}`
+      : null;
+  }
 
   const handleMascotPress = () => {
     resetInactivity();

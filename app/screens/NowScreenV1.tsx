@@ -91,6 +91,7 @@ import { useBriefUnread } from '../../lib/brief/todayThread';
 import { briefReadyLine, todayThreadParams } from '../../lib/brief/pinned';
 import { isReturnDay, readDco } from '../../lib/brief/dco';
 import { BriefReadyBubble } from '../../components/brief/BriefReadyBubble';
+import { useDayCard } from '../../lib/brief/useDayCard';
 import { TimeBlockSection } from '../../components/now/TimeBlockSection';
 import {
   getCurrentTimeBlock,
@@ -341,6 +342,8 @@ export default function NowScreenV1() {
 
   // Daily brief in Chat: Gremly's bubble says today's brief is waiting
   const briefInChatOn = useBriefInChat();
+  // the Calendar card counts the same meetings as the brief's day card
+  const todayMeetings = useDayCard(getDateService().today()).meetings;
   const briefUnread = useBriefUnread();
   const briefDco = useGremlyStore((s) => s.dco);
   const briefUserName = useGremlyStore((s) => s.userName);
@@ -989,6 +992,7 @@ export default function NowScreenV1() {
         habitsTotal={habitsUpToDate.total}
         remainingMinutes={remainingMinutes}
         eventNotes={todayEventNotes}
+        meetings={briefInChatOn ? todayMeetings : null}
         onPressProgress={() => setProgressVisible(true)}
         onPressWeek={() => navigation.navigate('Habits')}
         onCalendarPress={handleCalendarHintPress}
