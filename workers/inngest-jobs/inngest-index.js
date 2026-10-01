@@ -11221,6 +11221,50 @@ const appHandler = {
     }
 
     // Custom API endpoint: force-generate DCO for one or all users (bypasses Inngest)
+    // Context pipeline: a person said something Gremly holds about their life
+    // is wrong (from chat, a "Not right?" tap, the brief or a question). Saved
+    // and applied straight away; the hourly check picks it up if the event is lost.
+    if (url.pathname === '/api/correction' && request.method === 'POST') {
+      try {
+        const body = await request.json().catch(() => ({}));
+        const userId = typeof body.user_id === 'string' ? body.user_id : null;
+        const said = typeof body.said === 'string' ? body.said.trim().slice(0, 2000) : '';
+        const surface = ['chat', 'not_right', 'brief', 'question'].includes(body.surface) ? body.surface : 'chat';
+        if (!userId || !/^[0-9a-f-]{36}$/i.test(userId) || !said) {
+          return corsResponse({ error: 'user_id and said are required' }, 400);
+        }
+        const row = {
+          user_id: userId,
+          surface,
+          said,
+          chat_id: typeof body.chat_id === 'string' && /^[0-9a-f-]{36}$/i.test(body.chat_id) ? body.chat_id : null,
+          target_kind: typeof body.target_kind === 'string' ? body.target_kind.slice(0, 40) : null,
+          target_ref: body.target_text ? { text: String(body.target_text).slice(0, 1000), id: body.target_id || null } : null,
+          status: 'received',
+        };
+        const ins = await fetch(`${env.SUPABASE_URL}/rest/v1/user_corrections`, {
+          method: 'POST',
+          headers: {
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+            'Content-Type': 'application/json',
+            Prefer: 'return=representation',
+          },
+          body: JSON.stringify(row),
+        });
+        if (!ins.ok) return corsResponse({ error: `could not save: ${(await ins.text()).slice(0, 200)}` }, 500);
+        const [saved] = await ins.json();
+        await fetch('https://inn.gs/e/' + env.INNGEST_EVENT_KEY, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'app/correction.apply', data: { correction_id: saved.id, user_id: userId } }),
+        }).catch(() => {});
+        return corsResponse({ ok: true, correction_id: saved.id });
+      } catch (e) {
+        return corsResponse({ error: String(e?.message || e).slice(0, 200) }, 500);
+      }
+    }
+
     if (url.pathname === '/api/force-generate-dco' && request.method === 'POST') {
       try {
         const body = await request.json().catch(() => ({}));

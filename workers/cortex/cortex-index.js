@@ -162,7 +162,9 @@ import {
   fetchChapterEntities,
   formatChapterEntities,
   getLifeMapForChat,
+  lastUserText,
 } from './context/chatProjection.js';
+import { checkForCorrection } from './context/corrections.js';
 import { getUserProfile } from './context/userProfile.js';
 import { buildTodayActivity } from './context/todayActivity.js';
 import { getAgeGuidance } from './context/gremlyAge.js';
@@ -2010,7 +2012,7 @@ function formatSearchBrief(tavilyResult) {
   }
 
   brief +=
-    'INSTRUCTIONS: Use the specific findings, statistics, and expert names from these sources in your response. Cite sources by name (e.g. "according to Headspace" or "a study cited by Withinmeditation found"). Do not give generic advice — only share what these sources specifically say.';
+    'INSTRUCTIONS: Use the specific findings, statistics, and expert names from these sources in your response. Cite each source by its name. Do not give generic advice — only share what these sources specifically say.';
 
   return brief;
 }
@@ -3463,6 +3465,7 @@ export default {
         'habit-read',
         'minddrop-relate',
         'item-topics',
+        'not-right',
       ]);
       const AUTH_REQUIRED_LANES = new Set([
         'space_chat',
@@ -4104,29 +4107,24 @@ Frame as a choice: "Gremly has [feature] — you could [action]. Or [alternative
 
 **Mind Drop** — Universal capture. Users dump any thought/task/note and AI classifies it automatically.
 → Suggest when: "brain dump", "capture ideas", "write down thoughts", "be more organized"
-→ Example: "That's what Mind Drop is for — a habit like 'morning Mind Drop session' could clear your head daily."
 
 **Evening Sweep** — Nightly processing ritual. Reviews the day, processes items, includes journaling with mood tags and gratitude prompts. Designed to feel like closing mental tabs.
 → Suggest when: "journal", "reflect on my day", "process thoughts before bed", "track mood", "feel overwhelmed at night", "be more mindful"
-→ Example: "Gremly has journaling built into Evening Sweep — you could make your habit 'do my Evening Sweep' and journal as part of that."
 
 **Spaces** — Life domain containers (Fitness, Work, Family, etc.) with AI chat, goals, and grouped items.
 → Suggest when: "get better at [domain]", "organize my [area] goals", "plan a project"
-→ Example: "A Space for [domain] could be the home base — your habit would live alongside your todos and notes."
 
 **Today Page / Morning Brief** — Daily planning. Morning Brief = intention-setting ritual. Today page = daily command center. Lock In = top 3 priorities.
 → Suggest when: "organize my day", "be more intentional", "stop feeling scattered", "plan my day"
-→ Example: "Morning Brief walks you through this — a habit like 'Morning Brief with coffee' could be your grounding ritual."
 
 **Journals/Logs** — Thought capture via Mind Drop, Evening Sweep, or Entity Chat. Types: Journal, Idea, General. Mood tags available.
 → Suggest when: "gratitude practice", "write down ideas regularly"
-→ Example: "Evening Sweep already has a gratitude prompt — or you could use Mind Drop to capture gratitude moments throughout the day."
 
 **Entity Chat** — AI thinking partner on every item. After creation, the habit gets its own chat with quick actions. Mention this so users know support continues after the builder.
 
 === WHEN TO SUGGEST vs. NOT ===
 SUGGEST when the habit overlaps with a Gremly feature. It's more achievable because the tool is already in their pocket.
-DON'T FORCE when the habit is external (running, reading, cooking, etc.). Build it cleanly. You CAN mention complementary features as a bonus — e.g., "use Mind Drop after each run to log how it felt" — but keep focus on the habit they came to build.
+DON'T FORCE when the habit lives outside the app. Build it cleanly. You CAN mention a complementary feature as a bonus when it genuinely fits, but keep focus on the habit they came to build.
 
 === CONVERSATION MEMORY ===
 Every response you send must reflect EVERYTHING the user has shared so far in the conversation — their experience level, goals, constraints, preferences, context, and motivation. Re-read the full message history before each response.
@@ -4137,8 +4135,7 @@ If they shared constraints (time, injuries, other activities), factor them into 
 
 This is especially critical for tips after lock-in. The tips phase is NOT a fresh start — it's a continuation. A user who shared 5 messages of context should get tips that reflect all 5 messages, not generic starter advice.
 
-WRONG: User says "intermediate runner, training for sub-1:45 half" → tips suggest "start with 15-minute jogs"
-RIGHT: User says "intermediate runner, training for sub-1:45 half" → tips reference their race goal, training balance, and experience level
+Tips always build on the experience level, goals and constraints they have shared; advice pitched below what they told you about themselves is wrong.
 
 === THE CONFIRMATION ===
 When you have all 4 things and the conversation feels settled, ask:
@@ -4397,7 +4394,7 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
               buildChatContext(
                 authenticatedUserId,
                 'habit_builder',
-                { timezone: userTimezone, currentChatId: body.chatId || null },
+                { message: lastUserText(body), timezone: userTimezone, currentChatId: body.chatId || null },
                 env,
               ),
               getUserProfile(authenticatedUserId, env),
@@ -5242,7 +5239,7 @@ Almost never suggest creating a Space. Only if ALL true:
                     buildChatContext(
                       authenticatedUserId,
                       'entity',
-                      {
+                      { message: lastUserText(body),
                         entityTitle: entity?.title || entity?.name || null,
                         entitySpaceId: entity?.spaceId || entity?.space_id || null,
                         timezone: userTimezone,
@@ -5980,7 +5977,7 @@ Almost never suggest creating a Space. Only if ALL true:
               buildChatContext(
                 authenticatedUserId,
                 'entity',
-                {
+                { message: lastUserText(body),
                   entityTitle: entity?.title || entity?.name || null,
                   entitySpaceId: entity?.spaceId || entity?.space_id || null,
                   timezone: userTimezone,
@@ -7741,6 +7738,34 @@ ${assistantMessage.substring(0, 2000)}
       }
 
       // =========================
+      // === NOT RIGHT (context pipeline) ===
+      // The person marked something Gremly wrote about their life as wrong: a
+      // line in the brief, a World or Chapter card, their story, an answer to
+      // one of Gremly's questions. Their words go to the context pipeline,
+      // which applies the correction everywhere straight away.
+      // =========================
+      if (type === 'not-right') {
+        const said = String(body.said || '').trim().slice(0, 2000);
+        const surface = ['not_right', 'brief', 'question'].includes(body.surface) ? body.surface : 'not_right';
+        if (!said && !body.target_text) return j({ error: 'said or target_text is required' }, 400);
+        if (!env.INNGEST_WORKER_URL || !env.INNGEST_ADMIN_KEY) return j({ error: 'not configured' }, 503);
+        const res = await fetch(`${env.INNGEST_WORKER_URL}/api/correction`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-admin-key': env.INNGEST_ADMIN_KEY },
+          body: JSON.stringify({
+            user_id: authenticatedUserId,
+            said: said || `This is not right: ${String(body.target_text).slice(0, 500)}`,
+            surface,
+            target_kind: typeof body.target_kind === 'string' ? body.target_kind.slice(0, 40) : null,
+            target_text: body.target_text ? String(body.target_text).slice(0, 1000) : null,
+            target_id: typeof body.target_id === 'string' ? body.target_id.slice(0, 64) : null,
+          }),
+        }).catch(() => null);
+        if (!res?.ok) return j({ error: 'could not send the correction' }, 502);
+        return j(await res.json().catch(() => ({ ok: true })));
+      }
+
+      // =========================
       // === WEEKLY SUMMARY (v1.0) ===
       // =========================
       if (type === 'weekly-summary') {
@@ -8945,8 +8970,8 @@ VOICE:
 - Cheeky when there's an opening, warm when there isn't
 
 HARD BANS — never do these:
-- The "That [noun phrase] really [verb/adjective]" structure (e.g., "That kind of effort really shows"). This is therapist-speak.
-- "[Gerund] [abstract noun] with [abstract noun]" (e.g., "Building strength with consistent effort"). This is a motivational poster.
+- The "That [noun phrase] really [verb/adjective]" structure. This is therapist-speak.
+- The "[Gerund] [abstract noun] with [abstract noun]" structure. This is a motivational poster.
 - Restating or paraphrasing the title. If your reaction just says what the title already says in different words, you failed.
 - Therapy words: "valid", "stands out", "is familiar", "is important", "takes courage"
 - Task-management language: "noted", "captured", "queued", "tracked", "on your list", "on your radar", "scheduled", "logged", "taking care of", "got it"
@@ -11699,7 +11724,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   buildChatContext(
                     authenticatedUserId,
                     'space',
-                    {
+                    { message: lastUserText(body),
                       spaceId: body.spaceId,
                       timezone: userTimezone,
                       currentChatId: body.chatId || null,
@@ -12546,7 +12571,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   buildChatContext(
                     authenticatedUserId,
                     'general',
-                    { timezone: userTimezone, currentChatId: body.chatId || null },
+                    { message: lastUserText(body), timezone: userTimezone, currentChatId: body.chatId || null },
                     env,
                   ),
                   getUserProfile(authenticatedUserId, env),
@@ -13139,6 +13164,21 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       .map((m) => `${m.role === 'user' ? 'User' : 'Gremly'}: ${m.content}`)
                       .join('\n\n');
 
+                    // Corrections: when they say Gremly has something about their
+                    // life wrong, the context pipeline applies it straight away.
+                    const correctionCheck = checkForCorrection({
+                      conversationText,
+                      userTexts: recentMsgs
+                        .filter((m) => m.role === 'user')
+                        .map((m) => String(m.content || '')),
+                      chatId: body.chatId,
+                      userId: authenticatedUserId,
+                      env,
+                    }).catch((e) => {
+                      console.warn('[GeneralChat] Correction check failed:', e?.message);
+                      return { sent: 0 };
+                    });
+
                     const todayStr = new Intl.DateTimeFormat('en-US', {
                       weekday: 'long',
                       year: 'numeric',
@@ -13320,8 +13360,13 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
 
                       // ── Persist event extractions to user_temporal_anchors (fire-and-forget) ──
                       try {
+                        // A date to keep needs the person's own words behind it: when the
+                        // extraction carries evidence, an event without it is not kept.
                         const eventExtractions = (extractResult.extractions || []).filter(
-                          (e) => e.type === 'event' && e.title,
+                          (e) =>
+                            e.type === 'event' &&
+                            e.title &&
+                            (!('evidence' in e) || String(e.evidence || '').trim().length > 0),
                         );
                         if (eventExtractions.length > 0 && authenticatedUserId) {
                           const confidenceRank = { exact: 3, approximate: 2, unknown: 1 };
@@ -13395,7 +13440,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                                   date_range_start: evt.date_range_start || null,
                                   date_range_end: evt.date_range_end || null,
                                   source_chat_id: body.chatId || null,
-                                  source_message: lastUserMsg ? lastUserMsg.slice(0, 500) : null,
+                                  source_message: (evt.evidence || lastUserMsg || '').slice(0, 500) || null,
                                   space_id: body.spaceId || null,
                                   created_at: nowIso,
                                   updated_at: nowIso,
@@ -13416,6 +13461,10 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                           anchorErr.message,
                         );
                       }
+                    }
+                    const corrected = await correctionCheck;
+                    if (corrected?.sent) {
+                      console.log('[GeneralChat] Correction sent to the context pipeline', corrected);
                     }
                   } catch (err) {
                     console.warn('[GeneralChat] Extraction failed:', err.message);
@@ -13489,7 +13538,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               buildChatContext(
                 authenticatedUserId,
                 'space',
-                {
+                { message: lastUserText(body),
                   spaceId: body.spaceId,
                   timezone: userTimezone,
                   currentChatId: body.chatId || null,
@@ -13734,7 +13783,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               buildChatContext(
                 authenticatedUserId,
                 'world',
-                { timezone: userTimezone, currentChatId: body.chatId || null },
+                { message: lastUserText(body), timezone: userTimezone, currentChatId: body.chatId || null },
                 env,
               ),
               getUserProfile(authenticatedUserId, env),
@@ -13935,7 +13984,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               buildChatContext(
                 authenticatedUserId,
                 'chapter',
-                { timezone: userTimezone, currentChatId: body.chatId || null },
+                { message: lastUserText(body), timezone: userTimezone, currentChatId: body.chatId || null },
                 env,
               ),
               getUserProfile(authenticatedUserId, env),
@@ -14601,7 +14650,7 @@ function runScopedChatStream(
             buildChatContext(
               authenticatedUserId,
               scopeType,
-              { timezone: userTimezone, currentChatId: body.chatId || null },
+              { message: lastUserText(body), timezone: userTimezone, currentChatId: body.chatId || null },
               env,
             ),
             getUserProfile(authenticatedUserId, env),

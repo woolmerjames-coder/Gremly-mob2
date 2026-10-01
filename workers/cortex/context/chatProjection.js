@@ -21,6 +21,16 @@
  */
 import { getLifePack, recallForMessage } from './lifeContext.js';
 
+/** The person's latest message text from a chat request body. */
+export function lastUserText(body) {
+  const msgs = Array.isArray(body?.messages) ? body.messages : [];
+  const last = msgs.filter((m) => m && m.role === 'user').pop();
+  const c = last?.content;
+  if (typeof c === 'string') return c;
+  if (Array.isArray(c)) return c.map((p) => (typeof p === 'string' ? p : p?.text || '')).join(' ');
+  return '';
+}
+
 export async function getLifeMapForChat(userId, env) {
   if (!userId) return null;
 

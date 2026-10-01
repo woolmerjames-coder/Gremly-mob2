@@ -455,7 +455,7 @@ EVENT: Upcoming dates, deadlines, exams, appointments, trips, or time-bound mile
 DO NOT EXTRACT: explorations, emotional processing, unaffirmed AI suggestions, small talk, or items that match or closely paraphrase something already tracked in the system above.
 
 TEMPORAL METADATA (EVENT items only — set all to null for todo/habit/note):
-- date_text: The user's exact words about timing, preserved verbatim (e.g. "next Thursday", "sometime in June", "before the end of the semester")
+- date_text: The user's exact words about timing, preserved verbatim
 - resolved_date: Best estimate as YYYY-MM-DD. Today is ${todayStr}. For vague references, pick the midpoint of the likely range.
 - date_confidence: "exact" if user gave a specific date, "approximate" if they gave a rough timeframe, "unknown" if mentioned without any timing
 - date_range_start: Earliest plausible YYYY-MM-DD
