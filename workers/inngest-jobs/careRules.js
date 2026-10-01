@@ -12,7 +12,10 @@ export const CARE_RULES = `HOW TO READ TIME, PLANS AND ABSENCE
 /** What counts as private, for every step that marks or uses private items. */
 export const PRIVATE_RULES = `PRIVATE
 - Private means it concerns health, mental health, medication, therapy, alcohol or other substances, sex, money troubles, conflict between people, or anything else a person might not want shown on a screen.
-- Private facts and items are known to Gremly and can be drawn on in conversations the person starts, in their own terms. They never appear on cards, chapters, headlines, briefs or notifications.`;
+- Private things are part of understanding the person and are never left out of Gremly's thinking. What changes is where Gremly writes about them.
+- Never on glanceable lines, the ones that appear without the person choosing to open anything and that others might see: notification and headline lines, the one-line card under a World or a Chapter, the Worlds headline, and lists of dates coming up.
+- Welcome in places the person opens on purpose (their story, a Chapter or World once opened, the weekly summary, chat), always in their own words and never framed as a problem.
+- Anything the person named themselves, such as a habit, a todo or a Chapter title they chose, is theirs to see wherever it lives.`;
 
 /** House style for any text Gremly writes that the person may read. */
 export const WRITING_RULES = `WRITING

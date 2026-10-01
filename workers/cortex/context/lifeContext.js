@@ -6,8 +6,9 @@
  * (milestones, how things have shifted, proud moments, patterns, people),
  * Chapters, how they have used Gremly by week, month and year, the questions
  * Gremly is unsure about, the corrections they made, and today's brief.
- * Private items are included for Gremly's understanding and labelled so chat
- * only brings them up when the person does.
+ * Private items are included for Gremly's understanding and labelled: chat uses
+ * them when they bear on what the person is talking about, in their own words,
+ * and never opens with them.
  *
  * Cached in KV for 30 minutes. The pipeline deletes the cache entry whenever it
  * changes any of this, so a correction reaches chat on the next message.
@@ -52,13 +53,13 @@ function usageLine(p, label) {
 function formatStory(story) {
   if (!story) return '';
   const lines = [];
-  const item = (s) => `- ${s.from ? `${s.from}${s.to && s.to !== s.from ? ` to ${s.to}` : ''}: ` : ''}${trim(s.title, 100)}. ${trim(s.body, 320)}${s.private ? ' [private: only if they bring it up]' : ''}`;
+  const item = (s) => `- ${s.from ? `${s.from}${s.to && s.to !== s.from ? ` to ${s.to}` : ''}: ` : ''}${trim(s.title, 100)}. ${trim(s.body, 320)}${s.private ? ' [private: use when it bears on what they are talking about, in their own words; never open with it]' : ''}`;
   if (story.story_so_far) lines.push(`Their story so far: ${trim(story.story_so_far, 2500)}`);
   if (story.milestones?.length) lines.push(`Milestones:\n${story.milestones.map(item).join('\n')}`);
   if (story.shifts?.length) lines.push(`How things have shifted for them:\n${story.shifts.map(item).join('\n')}`);
   if (story.proud_moments?.length) lines.push(`Moments they can be proud of (good to recall on a hard day):\n${story.proud_moments.map(item).join('\n')}`);
   if (story.patterns?.length) {
-    lines.push(`What they love, avoid and do often or rarely:\n${story.patterns.map((p) => `- ${p.kind || 'pattern'}: ${trim(p.title, 80)}. ${trim(p.body, 220)}${p.private ? ' [private: only if they bring it up]' : ''}`).join('\n')}`);
+    lines.push(`What they love, avoid and do often or rarely:\n${story.patterns.map((p) => `- ${p.kind || 'pattern'}: ${trim(p.title, 80)}. ${trim(p.body, 220)}${p.private ? ' [private: use when it bears on what they are talking about, in their own words; never open with it]' : ''}`).join('\n')}`);
   }
   if (story.people?.length) lines.push(`People who matter:\n${story.people.map(item).join('\n')}`);
   return lines.join('\n\n');
@@ -141,7 +142,7 @@ export async function recallForMessage(userId, message, env, { limit = 10 } = {}
   try {
     const rows = await rpc(env, 'recall_life', { p_user: userId, p_query: text.slice(0, 500), p_limit: limit });
     if (!Array.isArray(rows) || !rows.length) return '';
-    const lines = rows.map((r) => `- ${r.source}${r.about_date ? ` | ${r.about_date}` : ''}${r.state ? ` | ${r.state}` : ''} | ${r.title && r.source !== 'fact' ? `${trim(r.title, 80)}: ` : ''}${trim(r.body, 280)}${r.private ? ' [private: only if they bring it up]' : ''}`);
+    const lines = rows.map((r) => `- ${r.source}${r.about_date ? ` | ${r.about_date}` : ''}${r.state ? ` | ${r.state}` : ''} | ${r.title && r.source !== 'fact' ? `${trim(r.title, 80)}: ` : ''}${trim(r.body, 280)}${r.private ? ' [private: use when it bears on what they are talking about, in their own words; never open with it]' : ''}`);
     return `=== WHAT GREMLY REMEMBERS THAT MAY RELATE TO THIS MESSAGE (from their own records; use what helps, with its date, and ignore the rest) ===\n${lines.join('\n')}`;
   } catch (error) {
     console.error('[LifeContext] recall error:', error);

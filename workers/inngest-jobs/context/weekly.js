@@ -156,7 +156,7 @@ ${CARE_RULES}
 ${WRITING_RULES}
 
 ${PRIVATE_RULES}
-- Here that means private facts and story items may shape the Life Map and the profile in the person's own terms, and never appear on a world card, world summary, priority, chapter or the Worlds headline.
+- Here that means a private fact or story item never appears on a world's card line, a chapter's card line or the Worlds headline. In a world's summary and priorities, a chapter's summary, epigraph and stage, the Life Map and the profile it may appear in the person's own words.
 
 DATES
 - Everything you write here is read for the whole week ahead. Write dates as dates (a weekday or month is fine) and never as today, tomorrow, yesterday, this week or next week.
