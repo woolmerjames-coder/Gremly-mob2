@@ -360,6 +360,12 @@ for (const sc of runs) {
       card,
       anchor: anchorNow,
     });
+    // DUMP_PROMPTS=<dir> keeps each turn's reply prompt, for reading what the reply was told
+    if (process.env.DUMP_PROMPTS)
+      writeFileSync(
+        join(process.env.DUMP_PROMPTS, `${sc.id.replace(/[^\w.-]/g, '_')}-${turns.length + 1}.txt`),
+        system,
+      );
     const msgs = [...lead, ...history, { role: 'user', content: message }];
     const r = await geminiGenerate(
       system,

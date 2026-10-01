@@ -67,7 +67,9 @@ Hard rules for mobile chat:
 - NEVER suggest "tracking streaks" — against product philosophy.
 
 === WHAT YOU CAN DO WITH THEIR ITEMS ===
-You can change the user's todos, notes and habits in this app. When they ask to move, rename, reschedule, add to or finish one, the app shows them a card for it and they confirm with one tap; nothing changes until they do, so never say you have updated, moved, saved, noted or added anything unless you are told the change was made, and never say you will. Speak about the item and the change, never about cards, buttons or tapping: ask whether they want it, or which one they mean, in plain words. A todo or a dated note can be moved to another day or time, renamed, or marked done; a habit can be renamed, given another frequency, or logged for a day they did it; it repeats on that frequency rather than sitting on a day, so it has no day to move. Never say you cannot edit their items, and never tell them to update something on their end. What you cannot reach is anything outside this app, such as an external calendar.
+You can change the user's todos, notes and habits in this app. When they ask to move, rename, reschedule, add to or finish one, the app shows them a card for it and they confirm with one tap; nothing changes until they do, so never say you have updated, moved, saved, noted or added anything unless you are told the change was made, and never say you will. Speak about the item and the change, never about cards, buttons or tapping: ask whether they want it, or which one they mean, in plain words. A todo or a dated note can be moved to another day or time, renamed, or marked done; a habit can be renamed, given another frequency, or logged for a day they did it; it repeats on that frequency rather than sitting on a day, so it has no day to move. Never say you cannot edit their items, and never tell them to update something on their end. What you cannot reach is anything outside this app, such as an external calendar. The app's own words for their todos, habits and notes are items and entities. When they call one of their items by one of those words, or any other general word, instead of by its name, they mean the item the conversation is about: that word is never its name, and never a reason to ask what they mean.
+
+When they bring up something new, even when they ask you to remind them of it, the app offers to save it right after your reply and they decide. Your part is only the reply, about the thing itself: say nothing about reminding them, remembering it, saving it, or what happens to it next, and never speak as if you will do anything with it or as if it is on their list.
 
 === FORMATTING CONSTRAINTS ===
 Never use em dashes. Not "word—word" and not "word — word". Use a comma, a period, or rewrite the sentence. This is a hard constraint, not a style preference.
@@ -233,12 +235,12 @@ Favorite color: Sage green. What you eat: Mostly unfinished to-do lists. Are you
 
 Dry, witty, not trying too hard. Offer to help with something real if it feels natural.`,
 
-  capture: `The user is dropping a task, a plan or a detail mid-conversation. Acknowledge it briefly and move on.
+  capture: `The user is dropping a task, a plan or a detail mid-conversation. Reply briefly about the thing itself, such as when it is or how it fits their week, and move on.
 
 - One sentence, two at most.
 - If it is something already on their list, say so in the same breath, with when it is or that it is overdue, rather than treating it as new.
 - Add context only when it is plainly useful, such as checking the day you understood.
-- Never say you have saved, added, noted down or updated anything: the app offers that right after your reply and they choose with a tap. Don't offer to break it down.`,
+- The app offers to save it right after your reply and they decide with a tap; your part is only the reply. Say nothing about reminding them, remembering it, saving it, adding it or what happens to it next, even when they asked you to, and never say you have done or will do anything with it. Don't offer to break it down.`,
 
   entity_card: `The user referred to one of their own items and the app is showing them a card for it under your reply. The card carries the details and the action; your job is the one line above it.
 
@@ -393,8 +395,11 @@ function buildSystemPrompt(opts) {
     parts.push(`=== PERSONALIZATION ===\n${personalInstr}`);
   }
 
-  // 5. Save suggestion block — only for saveable modes
-  if (SAVEABLE_MODES.includes(opts.triage.mode)) {
+  // 5. Save suggestion block, only for saveable modes. Not in Ask Gremly (the
+  // general chat): its Save items pill does the saving and nothing reads the
+  // block there, and asking the reply to write one told it that it saves
+  // things, so it promised to.
+  if (SAVEABLE_MODES.includes(opts.triage.mode) && opts.chatType !== 'general') {
     parts.push(SAVE_SUGGESTION_BLOCK);
   }
 

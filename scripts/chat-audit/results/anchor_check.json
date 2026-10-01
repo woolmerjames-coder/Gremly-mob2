@@ -23,7 +23,7 @@
         "known": [
           "todo \"Take Bella for a walk\", due today, Tuesday 29 September (the item this chat was opened about)"
         ],
-        "reply": "It sounds like that heavy **mental friction** where the hardest part is just getting your shoes on. When you're balancing client work and building Gremly, a walk can feel like another task to manage instead of a break.\n\nMaybe try a low bar approach. Tell yourself you'll just walk Bella to the **end of the block** and back. Usually, once you're outside in the San Francisco air, you'll want to keep going, but giving yourself permission to stop early makes starting less daunting.\n\nDoes it feel like you're short on time today, or is it more about the energy it takes to shift gears?",
+        "reply": "It's tough when a routine task feels like a heavy lift, especially in the middle of a busy day in San Francisco. Since you're building Gremly and handling client work, your brain is probably stuck in **deep focus mode**, and shifting gears to get outside feels like an interruption.\n\nTry the **shoes-on-first** trick. Don't think about the whole walk or the route yet. Just put your shoes on and stand by the door with Bella. Once you're physically ready, the mental barrier usually drops because you've already started the motion.\n\nIf you're really hitting a wall, would you want to move this to later this evening when Dave is around to help?",
         "pill": {
           "skipped": true,
           "items": [],
@@ -32,10 +32,11 @@
           "lateCardHeld": null,
           "lateCardFull": null,
           "ungrounded": 0,
-          "gated": true
+          "gated": true,
+          "ms": 0
         },
-        "ms": 3023,
-        "cardMs": 1180,
+        "ms": 3339,
+        "cardMs": 1531,
         "raw": {
           "considered": [
             "5b1e7a40"
@@ -88,7 +89,7 @@
           "gone": false
         },
         "known": [],
-        "reply": "Would you like to move this walk with Bella to Saturday morning?",
+        "reply": "Does moving this to Saturday morning work better for you and Bella?",
         "pill": {
           "lateCard": null,
           "lateCardHeld": null,
@@ -96,10 +97,11 @@
           "items": [],
           "rawNew": [],
           "ungrounded": 0,
-          "gated": false
+          "gated": false,
+          "ms": 732
         },
-        "ms": 2935,
-        "cardMs": 1161,
+        "ms": 4947,
+        "cardMs": 3307,
         "raw": {
           "considered": [
             "5b1e7a40"
@@ -155,7 +157,7 @@
           "gone": false
         },
         "known": [],
-        "reply": "Did Bella enjoy the San Francisco air, and should we mark this one as finished?",
+        "reply": "Did you and Bella have a good time out there?",
         "pill": {
           "lateCard": null,
           "lateCardHeld": null,
@@ -163,10 +165,11 @@
           "items": [],
           "rawNew": [],
           "ungrounded": 0,
-          "gated": false
+          "gated": false,
+          "ms": 1184
         },
-        "ms": 2718,
-        "cardMs": 822,
+        "ms": 2846,
+        "cardMs": 925,
         "raw": {
           "considered": [
             "5b1e7a40"
@@ -178,7 +181,7 @@
           "about": [
             "5b1e7a40"
           ],
-          "confidence": 95,
+          "confidence": 98,
           "ask": false,
           "candidates": []
         },
@@ -225,7 +228,7 @@
           "note \"Bella Vet Appointment\", Friday 2 October",
           "todo \"Submit to Apple Health\", due Sunday 4 October"
         ],
-        "reply": "That makes sense given the San Francisco rain. Since you're pushing it, do you want to move the walk to **tomorrow, Wednesday 30 September**?",
+        "reply": "San Francisco rain is no joke for a walk, and Bella probably isn't a fan of the **wet fur** situation anyway. Should we just move this to tomorrow, Wednesday 30 September?",
         "pill": {
           "lateCard": null,
           "lateCardHeld": null,
@@ -233,10 +236,11 @@
           "items": [],
           "rawNew": [],
           "ungrounded": 0,
-          "gated": false
+          "gated": false,
+          "ms": 822
         },
-        "ms": 3048,
-        "cardMs": 1282,
+        "ms": 2705,
+        "cardMs": 911,
         "raw": {
           "considered": [
             "5b1e7a40"
@@ -283,7 +287,7 @@
         "known": [
           "todo \"Arrange a Pet Sitter for Bella\", no day set"
         ],
-        "reply": "That sounds stressful, especially with a client services job and a side project like Gremly competing for your brain space. Scrambling for pet care when you have a deadline or a launch looming is a **heavy mental load**.\n\nSince you have that todo to arrange a pet sitter for Bella without a date on it yet, do you want to move it to today so you can get it sorted? \n\nFinding someone in San Francisco on short notice can be a headache, but getting the search started might make the rest of your work day feel a bit lighter.",
+        "reply": "That's a lot of pressure, especially when you're already juggling client work and building Gremly. Bella is family, so it makes sense that finding the right person feels high-stakes.\n\nSince you've got **Arrange a Pet Sitter for Bella** on your list without a date, do you want to move that to today so it's front and center while you're thinking about it?\n\nIf you're stuck on where to look, I know some folks in San Francisco swear by specific local groups or apps like Rover, but a personal recommendation from Dave might be a faster lead.",
         "pill": {
           "skipped": true,
           "items": [],
@@ -292,16 +296,15 @@
           "lateCardHeld": null,
           "lateCardFull": null,
           "ungrounded": 0,
-          "gated": true
+          "gated": true,
+          "ms": 0
         },
-        "ms": 3427,
-        "cardMs": 1384,
+        "ms": 2530,
+        "cardMs": 1013,
         "raw": {
           "considered": [
             "8a9b0c5f",
-            "5b1e7a40",
-            "2d8f3cee",
-            "321e5cff"
+            "5b1e7a40"
           ],
           "refers": true,
           "entity_id": "8a9b0c5f",
@@ -310,7 +313,7 @@
           "about": [
             "8a9b0c5f"
           ],
-          "confidence": 92,
+          "confidence": 95,
           "ask": false,
           "candidates": []
         },
@@ -340,7 +343,7 @@
           "gone": false
         },
         "known": [],
-        "reply": "Do you want to move that to Friday?",
+        "reply": "Does Friday work for getting that sorted?",
         "pill": {
           "lateCard": null,
           "lateCardHeld": null,
@@ -348,10 +351,11 @@
           "items": [],
           "rawNew": [],
           "ungrounded": 0,
-          "gated": false
+          "gated": false,
+          "ms": 1194
         },
-        "ms": 4074,
-        "cardMs": 1905,
+        "ms": 2762,
+        "cardMs": 791,
         "raw": {
           "considered": [
             "8a9b0c5f",
@@ -367,7 +371,7 @@
           "about": [
             "8a9b0c5f"
           ],
-          "confidence": 95,
+          "confidence": 98,
           "ask": false,
           "candidates": []
         },
@@ -402,7 +406,7 @@
           "note \"Bella Vet Appointment\", Friday 2 October",
           "todo \"Submit to Apple Health\", due Sunday 4 October"
         ],
-        "reply": "You should probably get that on the calendar before the client work for Sage piles up. Do you want to aim for a specific day this week?",
+        "reply": "Getting a haircut in before the **Sage Future Deck** is due on Thursday might be a good move for your headspace. Do you usually go to that place in the Mission or are you trying somewhere new?",
         "pill": {
           "lateCard": null,
           "lateCardHeld": null,
@@ -423,10 +427,11 @@
             }
           ],
           "ungrounded": 0,
-          "gated": false
+          "gated": false,
+          "ms": 2743
         },
-        "ms": 4334,
-        "cardMs": 1142,
+        "ms": 4860,
+        "cardMs": 940,
         "raw": {
           "considered": [
             "c2a314ba"
@@ -473,7 +478,7 @@
           "note \"Bella Vet Appointment\", Friday 2 October",
           "todo \"Submit to Apple Health\", due Sunday 4 October"
         ],
-        "reply": "One run is a solid start, especially since you're balancing the client work and building Gremly. It's only Tuesday, so you've got the rest of the week to find a rhythm. Do you want to log that first one for **Run 3 Times A Week** now?",
+        "reply": "One run is still a win, especially with the Sage Future deck and Bella's vet visit coming up this week. San Francisco hills make even a short loop feel like a **real workout**. Do you want to try for another one tomorrow, or just stick with the one for now?",
         "pill": {
           "lateCard": null,
           "lateCardHeld": null,
@@ -481,10 +486,11 @@
           "items": [],
           "rawNew": [],
           "ungrounded": 0,
-          "gated": false
+          "gated": false,
+          "ms": 2878
         },
-        "ms": 6548,
-        "cardMs": 4236,
+        "ms": 7430,
+        "cardMs": 3405,
         "raw": {
           "considered": [
             "f86ceed9"
@@ -533,7 +539,7 @@
           "note \"Bella Vet Appointment\", Friday 2 October",
           "todo \"Submit to Apple Health\", due Sunday 4 October"
         ],
-        "reply": "That gets you off to a strong start for the week. Since you're already out with Bella for her walk today, it's a good way to double up on the fresh air. Should we log this morning's run for **Run 3 Times A Week**?",
+        "reply": "That counts as your one for the week then. Since you're already out with Bella for her walk today, it's a good way to double up on the **fresh air**. Should I log that run for today?",
         "pill": {
           "lateCard": null,
           "lateCardHeld": null,
@@ -541,10 +547,11 @@
           "items": [],
           "rawNew": [],
           "ungrounded": 0,
-          "gated": false
+          "gated": false,
+          "ms": 3273
         },
-        "ms": 3006,
-        "cardMs": 846,
+        "ms": 5246,
+        "cardMs": 943,
         "raw": {
           "considered": [
             "f86ceed9"
@@ -595,7 +602,7 @@
           "todo \"Call Kim and Andrew\", due Friday 2 October",
           "todo \"Submit to Apple Health\", due Sunday 4 October"
         ],
-        "reply": "Since Bella is getting older, it's worth asking about her **joint health** and mobility, especially if you've noticed her slowing down on your daily walks. San Francisco has had a spike in foxtails lately, so have them check her paws and ears for any hidden ones.\n\nYou should also bring up her **dental health** to see if she's due for a cleaning. If she's been on any new supplements or meds since the last visit, make sure to confirm the dosages are still right for her weight. \n\nIs there anything specific you've noticed with her lately, like changes in her appetite or energy?",
+        "reply": "Since Bella is getting older, it's worth asking about her **joint health** and mobility, especially if you've noticed her slowing down on your daily walks. You might also want to check if her current diet still makes sense for her activity level in San Francisco.\n\nAsk about any **preventative screenings** they recommend for her age, like blood work or dental checks. It's easier to catch things early than to react later.\n\nDo you want to add these questions to your note for Friday?",
         "pill": {
           "lateCard": null,
           "lateCardHeld": null,
@@ -603,10 +610,11 @@
           "items": [],
           "rawNew": [],
           "ungrounded": 0,
-          "gated": false
+          "gated": false,
+          "ms": 851
         },
-        "ms": 4414,
-        "cardMs": 1013,
+        "ms": 3157,
+        "cardMs": 881,
         "raw": {
           "considered": [
             "2d8f3cee"
@@ -648,7 +656,7 @@
           "gone": false
         },
         "known": [],
-        "reply": "Does 4:00 PM on Friday work better for Bella's appointment?",
+        "reply": "Does 4pm on Friday work better for you and Bella?",
         "pill": {
           "lateCard": null,
           "lateCardHeld": null,
@@ -656,10 +664,11 @@
           "items": [],
           "rawNew": [],
           "ungrounded": 0,
-          "gated": false
+          "gated": false,
+          "ms": 975
         },
-        "ms": 2896,
-        "cardMs": 1148,
+        "ms": 2714,
+        "cardMs": 928,
         "raw": {
           "considered": [
             "2d8f3cee"
@@ -706,7 +715,7 @@
         "known": [
           "note \"Feeling Overwhelmed with Work and Life\" (the item this chat was opened about)"
         ],
-        "reply": "That client work can be a total drain, especially when you're trying to build Gremly at the same time. It sounds like you're feeling **stretched thin** between the two. Is it a specific project that's weighing on you, or just the sheer volume of their demands?",
+        "reply": "That makes sense. Balancing client services while building Gremly is a **heavy lift**, especially when client demands start to feel like they're crowding out your own work. Is it the volume of requests or one specific project that's weighing on you?",
         "pill": {
           "skipped": true,
           "items": [],
@@ -715,10 +724,11 @@
           "lateCardHeld": null,
           "lateCardFull": null,
           "ungrounded": 0,
-          "gated": true
+          "gated": true,
+          "ms": 0
         },
-        "ms": 2291,
-        "cardMs": 986,
+        "ms": 2098,
+        "cardMs": 957,
         "raw": {
           "considered": [
             "cf50a43a"
