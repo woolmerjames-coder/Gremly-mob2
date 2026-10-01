@@ -34,24 +34,23 @@ Either order works: the live Worker ignores the new app fields, and the new Work
 
 ## 4. What happens next, in order
 
-Updated 30 Sep, evening. Done since the first version of this list: James's phone test of the home and the anchor (all steps pass after two fixes, below); a tapped card is now always saved (step 11 of the test found it was sometimes lost, so Gremly thought nothing had changed); the Save items pill waits for its own turn instead of turning up a turn late; extraction no longer offers changes nobody asked for (a model check before any late card); one message can log several days of a habit; the reply no longer says it cannot change things; the runner uses the Worker's own prompt assembly; the keyboard opens on Talk it through; a first week line under the switch.
+Updated 1 Oct. Done since the last version: the typing fix in the shared box and the plain yes after a tapped card (both tested by James, Worker deployed through 63db86b2); then entity chat's move to Ask Gremly is finished (phases B and C) and the two chat quirks are fixed:
+
+- 6f75e783 Phase B: the reply is given what the item holds (`workers/cortex/itemDetail.js`): a note's text, a todo's notes and list, a habit's check-ins and smallest version, the changes made to it, how often Sweep put it off, what earlier chats covered. It builds on that and now and then suggests what it leaves open. A new chat about a note opens with up to four starters drawn from the note (type `item-topics`, kept until the note changes). Gate: `data/item_detail_check.json`.
+- 7653fcca The reply no longer promises to remind, keep or save anything (Ask Gremly's reply was still being asked for a save block nobody reads), and "the entity" means the item. Gate: `data/quirks_check.json` (reminder turns promising something: 12 of 12 before, 0 of 12 after), James check and anchor check rerun.
+- 5056952b The matcher knows a change they said yes to has been made, so "Did you do it?" no longer brings the same card back.
+- 19a44bb1 Phase C: every old item chat (`views.chat`) was copied into its item's chat. Applied to production on 1 Oct as migration 20261001012238: 127 chats, 701 messages, 13 people. `views.chat` is untouched as a copy; every added row carries `metadata_json.migrated_from = 'views.chat'`.
+- 92313b11 Item chats keep the item's `chat_summary` (what the context jobs read), count for training readiness (`get_training_readiness`, migration 20261001012531, applied) and feed Gremly once per opening, as the old chat did.
+- 511c6432 The old entity chat screen, its flag, its store actions and its Cortex calls are removed. Notes saved from old chats still show on the item. The Worker's `entity-chat` route stays for builds already out.
 
 Now:
 
-1. `cd workers/cortex && npx wrangler deploy` for e097fc99. The Worker is live through c156570b; e097fc99 changes what the reply is told after a tapped card (asked whether it went through, it now says yes and what the item is now; it said it was still the same and offered to move it again). Gate: `data/applied_check.json`, plus U2, V2 and X1 of the James check.
-2. James retests in the simulator: typing in the Drop and Chat box (b49bf328: letters land at the end and none are lost), and test 1 again (move an item from its chat, tap Yes, ask whether it went through). The saved line on a tapped card now names the date rather than today or tomorrow.
-3. When happy, a TestFlight build. Everything is on in every build, item chat included (ITEM_CHAT_V2 is true everywhere since eb5c6d18).
+1. `cd workers/cortex && npx wrangler deploy` (item detail, note topics, the quirk fixes, the matcher, item chat summaries). The database changes are already live.
+2. James tests in the simulator (below).
+3. When happy, a TestFlight build.
 
-Entity chat moves to the Ask Gremly experience:
+Found and not fixed (belongs to the context pipeline project, `lifemaps-context-fixes-9.30`): the weekly summary's fact extraction (`workers/inngest-jobs/inngest-index.js`, step extract-profile-facts) reads chat messages from `space_chat_messages`, a table that no longer exists (it is `scope_chat_messages`), and reads `views.chat` as a list when it never was one, so it has found no chat messages at all since the rename.
 
-4. Phase A, built and on everywhere: `components/chat/ItemChatScreen.tsx` is Ask Gremly tied to the item, one chat per item found by the anchor on its opener (no database change was needed), the item named at the top, starters per kind, and the old entity chat's props, so the overlay, both habit pages and Sweep all open it. Sweep's starter sentence is now sent as the first message. Saving onto the item is the add to card, as in any chat.
-5. Phase B: the Worker gives the reply the anchored item's full detail (body, notes, tags, estimate, habit progress, Sweep context). James's idea belongs here too: when a chat is about a note, Gremly draws on what the note already says and suggests what to talk about next, and what is settled can then be added. Corpus gate.
-6. Phase C: each item's old chat (`views.chat`, 127 items across about 15 people, last used in May) becomes the start of its new chat the first time it opens; saved notes stay on the item; point the chat summary jobs, `entity_chat_count` and the feeding gauge at anchored chats; then remove the old screen and its dead parts.
+Chat quality, parked by James: replies over-personalise (Bella, San Francisco, client work, the Sage deck in turns about something else); it is the rich context being used.
 
-Chat quality, each a prompt change through the gate:
-
-7. Replies over-personalise (Bella, San Francisco, client work, the Sage deck in turns about something else). Parked by James: it is the rich context being used.
-8. Low: a generic word for an item ("the entity") is taken as an item's name.
-9. Low: a reply sometimes says "I'll set a reminder" when the pill or a card does the saving.
-
-Other threads have their own lists: `docs/2026-09-28-minddrop-fixes.md` and the 29 Sep audits. The one dated deadline among them is the gpt-4.1-nano switch off on 23 Oct 2026, which needs the Worker deployed before then.
+Other threads have their own lists: `docs/2026-09-28-minddrop-fixes.md` and the 29 Sep audits. The one dated deadline among them is the gpt-4.1-nano switch off on 23 Oct 2026, which needs the Inngest worker deployed before then (`cd workers/inngest-jobs && npx wrangler deploy`) if it has not been.
