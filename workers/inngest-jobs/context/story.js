@@ -8,7 +8,7 @@
  * every item rests on facts it was shown, and stores it with those facts.
  */
 
-import { CARE_RULES, WRITING_RULES, personBlock } from '../careRules';
+import { CARE_RULES, WRITING_RULES, PRIVATE_RULES, personBlock } from '../careRules';
 import { db, userTimezone, localDate, relativeDay, personIdentity } from './db';
 import { anthropicJsonParams, modelFor } from './llm';
 import { recentCorrections } from './corrections';
@@ -139,8 +139,8 @@ EVIDENCE
 - Every item cites the facts it rests on by ref. A pattern needs facts from at least two different times. Nothing Gremly said is evidence, and a corrected fact is never used.
 - Leave a section short rather than stretch the evidence. Plans that never showed as happening are not milestones.
 
-PRIVATE ITEMS
-- Mark an item private when it concerns health, mental health, medication, therapy, alcohol or other substances, sex, money troubles, conflict between people, or anything else a person might not want shown on a screen. Write private items only in the person's own terms. Gremly can draw on them in conversations the person starts; they are never shown on cards or in notifications.
+${PRIVATE_RULES}
+- Mark each item private or not by that meaning; an item that rests on a fact marked private is private. Write private items only in the person's own terms.
 
 CONTINUITY
 - Keep the story steady from month to month. Carry over items from last time that still hold, revise them when the facts have moved on, and drop only what the facts no longer support.`;
@@ -150,7 +150,7 @@ CONTINUITY
 export async function gatherStory(env, userId) {
   const d = db(env);
   const [facts, corrections, chapters, weeks, usage, current] = await Promise.all([
-    d.select(`life_facts?user_id=eq.${userId}&state=in.(current,planned,happened,changed,unconfirmed)&select=id,statement,subject,about_date,about_date_end,state,observed_at&order=observed_at.asc&limit=800`),
+    d.select(`life_facts?user_id=eq.${userId}&state=in.(current,planned,happened,changed,unconfirmed)&select=id,statement,subject,about_date,about_date_end,state,observed_at,private&order=observed_at.asc&limit=800`),
     recentCorrections(env, userId, 3650),
     d.select(`chapters?owner_id=eq.${userId}&select=id,title,chapter_type,phase,start_date,end_date,summary,card_subtitle&order=start_date.asc.nullslast&limit=60`),
     d.select(`weekly_summaries?user_id=eq.${userId}&select=week_start_date,key_themes&order=week_start_date.asc&limit=80`),
@@ -168,9 +168,9 @@ export function renderStory(g, today) {
     return ref;
   };
   const factLines = g.facts.map((f) => {
-    const ref = add('f', { type: 'fact', id: f.id, statement: f.statement, about_date: f.about_date, observed_at: f.observed_at });
+    const ref = add('f', { type: 'fact', id: f.id, statement: f.statement, about_date: f.about_date, observed_at: f.observed_at, private: !!f.private });
     const when = f.about_date ? `${f.about_date}${f.about_date_end ? ` to ${f.about_date_end}` : ''}` : 'no date';
-    return `${ref} | recorded ${String(f.observed_at).slice(0, 10)} | ${f.state} | ${when} | ${trim(f.statement, 220)}`;
+    return `${ref} | recorded ${String(f.observed_at).slice(0, 10)} | ${f.state}${f.private ? ' [private]' : ''} | ${when} | ${trim(f.statement, 220)}`;
   });
   const chapterLines = g.chapters.map((c) => {
     const ref = add('c', { type: 'chapter', id: c.id });
@@ -216,7 +216,7 @@ export async function storyRequestParams(env, userId) {
     schema: STORY_SCHEMA,
     maxTokens: 32000,
   });
-  const refsSnapshot = [...refs.entries()].map(([k, v]) => [k, { type: v.type, id: v.id, about_date: v.about_date || null }]);
+  const refsSnapshot = [...refs.entries()].map(([k, v]) => [k, { type: v.type, id: v.id, about_date: v.about_date || null, private: !!v.private }]);
   return { params, refsSnapshot, today, tz, inputChars: text.length, counts: { facts: g.facts.length, chapters: g.chapters.length } };
 }
 
@@ -230,11 +230,28 @@ export function storyRows(userId, output, refsSnapshot, { runId, model, today })
   const dropped = [];
   const push = (row, refsList, minFacts = 1) => {
     const ids = factIds(refsList);
+    // An item that rests on a private fact is private, whatever the model said.
+    if ((refsList || []).some((r) => refs.get(r)?.private)) row.private = true;
     if (ids.length < minFacts || !row.title || !row.body || String(row.body).trim().length < 20) {
       dropped.push({ kind: row.kind, title: row.title, facts: ids.length });
       return;
     }
-    rows.push({ user_id: userId, state: 'current', run_id: runId, model, fact_ids: ids, ...row, title: trim(row.title, 160), body: trim(row.body, 1500) });
+    // Every row carries the same keys: PostgREST bulk inserts require it.
+    rows.push({
+      user_id: userId,
+      kind: row.kind,
+      pattern_kind: row.pattern_kind ?? null,
+      title: trim(row.title, 160),
+      body: trim(row.body, 1500),
+      period_start: row.period_start ?? null,
+      period_end: row.period_end ?? null,
+      private: !!row.private,
+      fact_ids: ids,
+      chapter_id: row.chapter_id ?? null,
+      state: 'current',
+      run_id: runId,
+      model: model ?? null,
+    });
   };
   for (const m of output.milestones || []) {
     push({ kind: 'milestone', title: m.title, body: m.body, period_start: notFuture(m.start_date), period_end: validDate(m.end_date), private: !!m.private, chapter_id: chapterId(m.chapter_ref) }, m.fact_refs);
@@ -267,8 +284,10 @@ export async function applyStory(env, userId, output, refsSnapshot, { shadow, ru
   if (!rows.length) return { applied: { ...applied, skipped: 'no items with evidence' } };
 
   const nowIso = new Date().toISOString();
-  await d.update(`story_items?user_id=eq.${userId}&state=eq.current`, { state: 'superseded', updated_at: nowIso });
+  // New items first, then the old ones step aside, so a failure never leaves
+  // the person with no story.
   await d.insertQuiet('story_items', rows);
+  await d.update(`story_items?user_id=eq.${userId}&state=eq.current&or=(run_id.is.null,run_id.neq.${runId})`, { state: 'superseded', updated_at: nowIso });
 
   // Compact copy for the Life Map: what chat and the app already read.
   const [lm] = await d.select(`user_life_map?user_id=eq.${userId}&select=id,life_map`);

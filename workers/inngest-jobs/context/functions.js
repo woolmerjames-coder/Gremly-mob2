@@ -15,6 +15,7 @@
 import { db, userTimezone, localDate, addDays } from './db';
 import { planWindows, readWindow, readCursor, advanceCursor } from './reader';
 import { applyCorrection } from './corrections';
+import { reconcileAnchors } from './anchors';
 import { buildDcoV4, writeDco } from './daily';
 import { weeklyRequestParams, applyWeekly, submitWeeklyBatch, readWeeklyBatch, WEEKLY_PROMPT_VERSION } from './weekly';
 import { anthropicJsonResult } from './llm';
@@ -78,6 +79,12 @@ export function createContextFunctions(inngest) {
           return r;
         });
         for (const k of Object.keys(c)) totals[k] = (totals[k] || 0) + c[k];
+      }
+      // Date anchors chat reads back are checked against what was just read.
+      if (totals.records > 0) {
+        totals.anchors = await step.run('anchors', () =>
+          reconcileAnchors(env, userId, plan.tz, { shadow: contextMode(env, userId) !== 'on' }),
+        );
       }
       return totals;
     },

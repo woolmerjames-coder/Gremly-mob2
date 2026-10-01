@@ -14,7 +14,7 @@
  * its Space, and builds thread evidence from the facts the model cited.
  */
 
-import { CARE_RULES, WRITING_RULES, personBlock } from '../careRules';
+import { CARE_RULES, WRITING_RULES, PRIVATE_RULES, personBlock } from '../careRules';
 import { db, userTimezone, localDate, addDays, relativeDay, weekdayName, personIdentity, identityLine } from './db';
 import { anthropicJsonParams, anthropicJsonResult, modelFor, createBatch, getBatch, getBatchResults } from './llm';
 import { recentCorrections } from './corrections';
@@ -154,6 +154,9 @@ ${CARE_RULES}
 
 ${WRITING_RULES}
 
+${PRIVATE_RULES}
+- Here that means private facts and story items may shape the Life Map and the profile in the person's own terms, and never appear on a world card, world summary, priority, chapter or the Worlds headline.
+
 DATES
 - Everything you write here is read for the whole week ahead. Write dates as dates (a weekday or month is fine) and never as today, tomorrow, yesterday, this week or next week.
 
@@ -205,8 +208,8 @@ export async function gatherWeek(env, userId, tz, periodEnd) {
   const endIso = new Date(Date.parse(`${addDays(periodEnd, 1)}T00:00:00Z`) + 14 * 3600e3).toISOString();
   const between = (col) => `${col}=gte.${encodeURIComponent(startIso)}&${col}=lt.${encodeURIComponent(endIso)}`;
   const [openFacts, recentHappened, changes, corrections, journals, chats, created, completed, habits, progress, lifeMap, worlds, links, questions, absence, usage, chapterRows, story] = await Promise.all([
-    d.select(`life_facts?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=id,statement,subject,about_date,about_date_end,state,observed_at,last_confirmed_at&order=last_confirmed_at.desc&limit=400`),
-    d.select(`life_facts?user_id=eq.${userId}&state=in.(happened,changed)&updated_at=gte.${encodeURIComponent(new Date(Date.now() - 60 * 864e5).toISOString())}&select=id,statement,subject,about_date,state,state_reason,updated_at&order=updated_at.desc&limit=150`),
+    d.select(`life_facts?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=id,statement,subject,about_date,about_date_end,state,observed_at,last_confirmed_at,private&order=last_confirmed_at.desc&limit=400`),
+    d.select(`life_facts?user_id=eq.${userId}&state=in.(happened,changed)&updated_at=gte.${encodeURIComponent(new Date(Date.now() - 60 * 864e5).toISOString())}&select=id,statement,subject,about_date,state,state_reason,updated_at,private&order=updated_at.desc&limit=150`),
     d.select(`life_fact_changes?user_id=eq.${userId}&${between('created_at')}&select=fact_id,from_state,to_state,reason,created_at&order=created_at.asc&limit=100`),
     recentCorrections(env, userId, 365),
     d.select(`notes?owner_id=eq.${userId}&subtype=eq.journal&${between('created_at')}&select=title,body,mood,created_at&order=created_at.asc&limit=25`),
@@ -248,7 +251,7 @@ export function renderWeek(g, today) {
   const factLine = (f) => {
     const ref = add('f', { type: 'fact', ...f });
     const when = f.about_date ? `${f.about_date}${f.about_date_end ? ` to ${f.about_date_end}` : ''} (${relativeDay(f.about_date, today)})` : 'no date';
-    return `${ref} | ${f.state} | ${when} | ${trim(f.statement, 220)} | recorded ${String(f.observed_at || f.updated_at).slice(0, 10)}`;
+    return `${ref} | ${f.state}${f.private ? ' [private]' : ''} | ${when} | ${trim(f.statement, 220)} | recorded ${String(f.observed_at || f.updated_at).slice(0, 10)}`;
   };
   const weekItemIds = new Set([...g.created.map((t) => t.id), ...g.completed.map((t) => t.id)]);
   const worldActivity = new Map();

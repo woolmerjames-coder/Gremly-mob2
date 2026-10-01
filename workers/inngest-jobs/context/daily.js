@@ -12,7 +12,7 @@
  * sentence it cannot ground is rewritten once, then cleared if it still fails.
  */
 
-import { CARE_RULES, WRITING_RULES, personBlock } from '../careRules';
+import { CARE_RULES, WRITING_RULES, PRIVATE_RULES, personBlock } from '../careRules';
 import { db, userTimezone, localDate, localDateTime, addDays, daysBetween, weekdayName, relativeDay, personIdentity } from './db';
 import { jsonCall, modelFor } from './llm';
 import { recentCorrections } from './corrections';
@@ -88,16 +88,16 @@ export async function gatherDay(env, userId, tz, today) {
     d.select(`daily_briefs?owner_id=eq.${userId}&date=eq.${today}&select=one_thing_id,one_thing_type`),
     d.select(`notes?owner_id=eq.${userId}&subtype=eq.journal&journal_subtype=eq.intention&created_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -7)))}&select=title,body,created_at&order=created_at.desc&limit=1`),
     d.select(`notes?owner_id=eq.${userId}&subtype=eq.journal&created_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -3)))}&select=id,title,body,mood,created_at&order=created_at.asc&limit=10`),
-    d.select(`life_facts?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=id,statement,subject,about_date,about_date_end,state,date_confidence,observed_at,last_confirmed_at&order=last_confirmed_at.desc&limit=250`),
+    d.select(`life_facts?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=id,statement,subject,about_date,about_date_end,state,date_confidence,observed_at,last_confirmed_at,private&order=last_confirmed_at.desc&limit=250`),
     d.select(`life_fact_changes?user_id=eq.${userId}&created_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -7)))}&select=fact_id,from_state,to_state,reason,created_at&order=created_at.desc&limit=40`),
-    d.select(`gremly_questions?user_id=eq.${userId}&status=in.(open,asked)&select=id,question,created_at&order=created_at.asc&limit=10`),
+    d.select(`gremly_questions?user_id=eq.${userId}&status=in.(open,asked)&select=id,question,created_at,fact:life_facts(private)&order=created_at.asc&limit=20`),
     d.rpc('absence_snapshot', { p_user: userId }),
     d.rpc('usage_rollup', { p_user: userId, p_grain: 'week', p_periods: 5 }),
     d.select(`user_life_map?user_id=eq.${userId}&select=life_map`),
     d.select(`worlds?owner_id=eq.${userId}&phase=in.(candidate,active,evolving)&select=id,display_name,name,card_subtitle,phase`),
     d.select(`user_daily_state?user_id=eq.${userId}&date=lt.${today}&dco->>pipeline=not.is.null&select=date,dco&order=date.desc&limit=1`),
     recentCorrections(env, userId),
-    d.select(`life_facts?user_id=eq.${userId}&state=in.(happened,changed)&about_date=gte.${addDays(today, -365)}&select=id,statement,about_date,state,state_reason&order=about_date.desc&limit=80`),
+    d.select(`life_facts?user_id=eq.${userId}&state=in.(happened,changed)&about_date=gte.${addDays(today, -365)}&select=id,statement,about_date,state,state_reason,private&order=about_date.desc&limit=80`),
     d.select(`synced_calendar_events?owner_id=eq.${userId}&archived=eq.false&start_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -30)))}&select=id&limit=1`),
     loadStory(env, userId, { includePrivate: false, limit: 60 }).catch(() => []),
   ]);
@@ -180,14 +180,15 @@ export function renderDay(g, tz) {
   const factLine = (f) => {
     const ref = addRef('f', { type: 'fact', id: f.id, statement: f.statement });
     const when = f.about_date ? `${f.about_date}${f.about_date_end ? ` to ${f.about_date_end}` : ''} (${relativeDay(f.about_date, today)})` : 'no date';
-    return `${ref} | ${f.state} | ${when} | ${trim(f.statement, 200)} | recorded ${f.observed_at.slice(0, 10)}, last confirmed ${f.last_confirmed_at.slice(0, 10)}`;
+    return `${ref} | ${f.state}${f.private ? ' [private]' : ''} | ${when} | ${trim(f.statement, 200)} | recorded ${f.observed_at.slice(0, 10)}, last confirmed ${f.last_confirmed_at.slice(0, 10)}`;
   };
   const factLines = [
     ...dated.filter((f) => f.about_date >= addDays(today, -14) && f.about_date <= addDays(today, 60)).map(factLine),
     ...undatedFacts.slice(0, 60).map(factLine),
   ];
 
-  const qLines = g.questions.map((q) => {
+  // Questions about private facts are for conversation, never the brief.
+  const qLines = g.questions.filter((q) => !q.fact?.private).slice(0, 10).map((q) => {
     const ref = addRef('q', { type: 'question', id: q.id, question: q.question });
     return `${ref} | asked ${q.created_at.slice(0, 10)} | ${trim(q.question, 200)}`;
   });
@@ -231,7 +232,7 @@ export function renderDay(g, tz) {
   lines.push(`JOURNAL ENTRIES, LAST 3 DAYS:\n${g.journals.map((j) => `${localDateTime(tz, j.created_at)} | "${trim(j.title, 100)}" ${trim(j.body, 900)}${j.mood?.length ? ` | mood: ${j.mood.join(', ')}` : ''}`).join('\n') || '(none)'}`);
   lines.push('');
   lines.push(`LEDGER FACTS (ref | state | date | statement | provenance):\n${factLines.join('\n') || '(none yet)'}`);
-  lines.push(`WHAT ALREADY HAPPENED OR CHANGED, LAST YEAR (date | state | statement):\n${(g.pastFacts || []).map((f) => `${f.about_date} (${relativeDay(f.about_date, today)}) | ${f.state} | ${trim(f.statement, 140)}`).join('\n') || '(none)'}`);
+  lines.push(`WHAT ALREADY HAPPENED OR CHANGED, LAST YEAR (date | state | statement):\n${(g.pastFacts || []).map((f) => `${f.about_date} (${relativeDay(f.about_date, today)}) | ${f.state}${f.private ? ' [private]' : ''} | ${trim(f.statement, 140)}`).join('\n') || '(none)'}`);
   lines.push(`RECENT CHANGES TO FACTS: ${g.changes.map((c) => `${c.created_at.slice(0, 10)} ${c.from_state} to ${c.to_state}: ${trim(c.reason, 140)}`).join('; ') || 'none'}`);
   lines.push(`CORRECTIONS THE PERSON MADE (never repeat the corrected claim): ${g.corrections.map((c) => `${c.corrected_at.slice(0, 10)}: "${trim(c.statement, 140)}" is wrong; they said "${trim(c.correction_text, 160)}"`).join('; ') || 'none'}`);
   lines.push('');
@@ -309,6 +310,9 @@ YOUR JOB
 - question_ref: at most one of Gremly's open questions, only if it is about something current or ahead and today is a natural day to ask it. Otherwise leave it empty.
 - return_note: write it when the inputs say they are returning after time away, and leave it empty otherwise. One warm line welcoming them back, without listing what they missed or what is overdue, and without guessing why they were away. Otherwise leave it empty.
 - voice_note: one line on how Gremly should sound today. On a heavy or uncertain day, Gremly can draw on what they love or on a moment they can be proud of, when one genuinely fits.
+
+${PRIVATE_RULES}
+- In the brief that means a private fact is never named in the headline, day shape, lead, focus, also matters, reach or return note, and is never a date anchor. It can quietly shape the tone.
 
 VOICE
 Warm, plain and forward-looking. Never shame or pressure, never use streak language or the word should, never tell the person how they feel.
@@ -419,11 +423,12 @@ export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
 
   // References must exist; unknown ones are dropped.
   const claims = (output.claims || [])
-    .filter((c) => c && refs.has(c.ref))
+    .filter((c) => c && refs.has(c.ref) && !(refs.get(c.ref).type === 'fact' && g.facts.some((f) => f.private && f.id === refs.get(c.ref).id)))
     .map((c) => ({ ...refs.get(c.ref), why: trim(c.why, 160) }));
   const reachObj = output.reach_ref && refs.has(output.reach_ref) && output.reach_why ? refs.get(output.reach_ref) : null;
+  const privateIds = new Set(g.facts.filter((f) => f.private).map((f) => f.id));
   const reachFacts = (output.reach_fact_refs || [])
-    .filter((r) => refs.has(r) && refs.get(r).type === 'fact')
+    .filter((r) => refs.has(r) && refs.get(r).type === 'fact' && !privateIds.has(refs.get(r).id))
     .map((r) => ({ id: refs.get(r).id, statement: refs.get(r).statement }));
   const reach = reachObj && reachFacts.length ? { ...reachObj, why: trim(output.reach_why, 200), facts: reachFacts } : null;
   const question = output.question_ref && refs.has(output.question_ref) && refs.get(output.question_ref).type === 'question'
@@ -438,7 +443,7 @@ export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
     .map((r) => refs.get(r))
     .filter((r) => r && r.type === 'fact')
     .map((r) => factById.get(r.id))
-    .filter((f) => f && f.about_date && f.about_date >= today && f.about_date <= addDays(today, 30) && ['planned', 'current'].includes(f.state))
+    .filter((f) => f && !f.private && f.about_date && f.about_date >= today && f.about_date <= addDays(today, 30) && ['planned', 'current'].includes(f.state))
     .sort((a, b) => (a.about_date < b.about_date ? -1 : 1))
     .slice(0, 8);
 

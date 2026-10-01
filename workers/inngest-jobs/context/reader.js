@@ -12,7 +12,7 @@
  * Code checks only that cited records and facts exist. All judgement is the model's.
  */
 
-import { CARE_RULES, WRITING_RULES, personBlock } from '../careRules';
+import { CARE_RULES, WRITING_RULES, PRIVATE_RULES, personBlock } from '../careRules';
 import { db, userTimezone, localDate, localDateTime, relativeDay, personIdentity } from './db';
 import { jsonCall, modelFor } from './llm';
 
@@ -39,8 +39,9 @@ const READER_SCHEMA = {
           state: { type: 'string', enum: ['current', 'planned', 'happened', 'unconfirmed'] },
           source_ref: { type: 'string' },
           quote: { type: 'string' },
+          private: { type: 'boolean' },
         },
-        required: ['statement', 'subject', 'kind', 'date_confidence', 'state', 'source_ref', 'quote'],
+        required: ['statement', 'subject', 'kind', 'date_confidence', 'state', 'source_ref', 'quote', 'private'],
       },
     },
     fact_updates: {
@@ -115,6 +116,9 @@ KEEPING THE LEDGER TRUE
 - When a record shows the same trip, event, milestone or plan as a fact the ledger holds, but at a different date or with a different outcome, the fact is no longer reliable as written. If the record makes clear it is the same thing, update the fact (changed, with the replacement). If it might be a separate occurrence, mark the fact unconfirmed and ask the person.
 - When records disagree and you cannot tell which is right, ask the person one short, friendly question instead of choosing. Ask only when the answer bears on their life now or on something still ahead, measured against today's date. Differences about things long past are recorded as they are, without a question.
 - Never mark a fact as happened just because its date has passed. Without a record, a passed plan stays as it is; it is simply no longer ahead.
+
+${PRIVATE_RULES}
+- Mark each new fact private or not by that meaning.
 
 ${WRITING_RULES}
 
@@ -242,8 +246,8 @@ export async function loadOpenFacts(env, userId, aroundIso) {
   const d = db(env);
   const lo = new Date(Date.parse(aroundIso) - 120 * 864e5).toISOString().slice(0, 10);
   const [dated, recent] = await Promise.all([
-    d.select(`life_facts?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&about_date=gte.${lo}&select=id,statement,subject,about_date,about_date_end,state,observed_at&order=about_date.asc&limit=${MAX_OPEN_FACTS}`),
-    d.select(`life_facts?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=id,statement,subject,about_date,about_date_end,state,observed_at&order=last_confirmed_at.desc&limit=${MAX_OPEN_FACTS}`),
+    d.select(`life_facts?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&about_date=gte.${lo}&select=id,statement,subject,about_date,about_date_end,state,observed_at,private&order=about_date.asc&limit=${MAX_OPEN_FACTS}`),
+    d.select(`life_facts?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=id,statement,subject,about_date,about_date_end,state,observed_at,private&order=last_confirmed_at.desc&limit=${MAX_OPEN_FACTS}`),
   ]);
   const byId = new Map();
   for (const f of [...dated, ...recent]) if (!byId.has(f.id)) byId.set(f.id, f);
@@ -308,7 +312,7 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
     const ref = `f${i + 1}`;
     factRef.set(ref, f);
     const when = f.about_date ? `${f.about_date}${f.about_date_end ? ` to ${f.about_date_end}` : ''} (${relativeDay(f.about_date, today)})` : 'no date';
-    return `${ref} | ${f.state} | ${when} | ${f.statement}`;
+    return `${ref} | ${f.state}${f.private ? ' [private]' : ''} | ${when} | ${f.statement}`;
   });
 
   const user = `FACTS THE LEDGER ALREADY HOLDS (ref | state | date | statement):
@@ -352,6 +356,7 @@ ${recordLines.join('\n')}`;
       source_table: src.table,
       source_id: src.id,
       source_quote: f.quote ? trim(f.quote, 300) : null,
+      private: !!f.private,
       observed_at: src.at,
       last_confirmed_at: src.at,
       run_id: runId,
@@ -381,6 +386,7 @@ ${recordLines.join('\n')}`;
           about_date: validDate(u.replacement_about_date),
           about_date_end: validDate(u.replacement_about_date_end),
           date_confidence: validDate(u.replacement_about_date) ? 'exact' : 'unknown',
+          private: !!fact.private,
           state: ['current', 'planned', 'happened'].includes(u.replacement_state) ? u.replacement_state : 'current',
           said_by: SAID_BY[src.table] || 'app_record',
           source_table: src.table,
