@@ -220,6 +220,9 @@ export function candidatesFor(message, items, recent, limit = MATCH_ITEMS_MAX, a
     // the item on the last card: shown, or declined when the user said it was
     // not the one (then the model is told so and must not pick it again)
     const flag = recent.status === 'declined' ? { declined: true } : { shown: true };
+    // a change they said yes to on that card has been made (the app sends it)
+    const made = recent.status === 'applied' ? appliedChangeOf(recent) : null;
+    if (made) flag.applied = changeInWords({ entity: recent, change: made });
     const shown = fresh
       ? { ...fresh, ...flag }
       : {
@@ -260,7 +263,7 @@ function withKeys(list) {
 
 export const ENTITY_MATCH_SYSTEM_PROMPT = `You decide whether a chat message in a personal productivity app is about something the user already has, and what they want done with it.
 
-You are given today's date, the message, the last few exchanges when there are any, and the user's items: their todos and notes, some with a day and time, and their habits with how often they repeat. The list is everything they have, so most of it has nothing to do with the message. Read the whole list before deciding; an item near the end counts as much as one near the top. An item marked as shown on the card in the last reply is the one the app has just shown them; one marked as not the one they meant was on the last card and they turned it down, so it is never the answer. When the message only turns that card down, what they want is still what they asked for in the exchange before it: find the other items that fit that request among everything they have, and ask which of them they mean (ask true, with their ids in candidates), or take the one that plainly fits. A short follow up takes its meaning from the exchanges before it: a pronoun or a bare yes means the item those exchanges were about unless the message plainly names something else, and a yes to an offer Gremly made is an edit with the change that offer named. An item marked as the one this chat was opened about is the one the user chose to talk about when the chat began: a pronoun, a bare reference or a message with no subject of its own means that item, unless the exchanges since have moved on to something else or the message plainly names another item or something new. Otherwise it is judged like every other item: it goes in about only when the message is about it, and anything else they bring up is found on the list as usual.
+You are given today's date, the message, the last few exchanges when there are any, and the user's items: their todos and notes, some with a day and time, and their habits with how often they repeat. The list is everything they have, so most of it has nothing to do with the message. Read the whole list before deciding; an item near the end counts as much as one near the top. An item marked as shown on the card in the last reply is the one the app has just shown them; when it is marked with a change they said yes to, that change has been made, so a message that only follows up on it asks for nothing new: intent mention, change null, unless they ask for a different change. One marked as not the one they meant was on the last card and they turned it down, so it is never the answer. When the message only turns that card down, what they want is still what they asked for in the exchange before it: find the other items that fit that request among everything they have, and ask which of them they mean (ask true, with their ids in candidates), or take the one that plainly fits. A short follow up takes its meaning from the exchanges before it: a pronoun or a bare yes means the item those exchanges were about unless the message plainly names something else, and a yes to an offer Gremly made is an edit with the change that offer named. An item marked as the one this chat was opened about is the one the user chose to talk about when the chat began: a pronoun, a bare reference or a message with no subject of its own means that item, unless the exchanges since have moved on to something else or the message plainly names another item or something new. Otherwise it is judged like every other item: it goes in about only when the message is about it, and anything else they bring up is found on the list as usual.
 
 This is a conversation first. Two different things can follow from your answer, so tell them apart: a card in the reply, which interrupts the conversation and is only for an explicit ask; and a quiet offer later, which is for things said in passing.
 
@@ -317,7 +320,12 @@ export function buildEntityMatchInput({
             : 'note, no day set';
     const tags = [];
     if (c.anchored) tags.push('this chat was opened about this item');
-    if (c.shown) tags.push('shown on the card in the last reply');
+    if (c.shown)
+      tags.push(
+        c.applied
+          ? `shown on the card in the last reply, where they said yes to ${c.applied}, which has been made`
+          : 'shown on the card in the last reply',
+      );
     else if (c.declined)
       tags.push('on the last card; the user said this was not the one they meant');
     const tag = tags.length ? ` [${tags.join('; ')}]` : '';

@@ -1787,3 +1787,39 @@ test('a tapped check-in for several days names each day', () => {
   expect(s).toContain('"Run" (daily)');
   expect(s).toContain('log it for yesterday, Tuesday 29 September and today, Wednesday 30 September');
 });
+
+test('the matcher is told a change they said yes to has been made, so a follow up asks for nothing new', () => {
+  const items = [
+    { id: 'aaaa1111-0000', type: 'todo', title: 'Plan Christmas In California', due_day: '2026-12-25' },
+    { id: 'bbbb2222-0000', type: 'todo', title: 'Call Kim and Andrew', due_day: '2026-10-02' },
+  ];
+  const recent = {
+    id: 'aaaa1111-0000',
+    type: 'todo',
+    title: 'Plan Christmas In California',
+    status: 'applied',
+    card: { kind: 'edit', change: { field: 'body_add', from: null, to: "Dave's parents are in from the 22nd" } },
+  };
+  const input = buildEntityMatchInput({
+    todayStr: 'Wednesday, September 30, 2026',
+    message: 'Did you do it?',
+    previousExchange: null,
+    exchanges: [],
+    candidates: candidatesFor('Did you do it?', items, recent),
+  });
+  expect(input).toContain(
+    "[shown on the card in the last reply, where they said yes to add to it: Dave's parents are in from the 22nd, which has been made]",
+  );
+  expect(ENTITY_MATCH_SYSTEM_PROMPT).toContain('that change has been made, so a message that only follows up on it asks for nothing new');
+  // still waiting, or from an app that sends no change: shown only
+  for (const r of [{ ...recent, status: 'pending' }, { ...recent, card: { kind: 'edit' } }]) {
+    const plain = buildEntityMatchInput({
+      todayStr: 'Wednesday, September 30, 2026',
+      message: 'Did you do it?',
+      previousExchange: null,
+      exchanges: [],
+      candidates: candidatesFor('Did you do it?', items, r),
+    });
+    expect(plain).toContain('[shown on the card in the last reply]');
+  }
+});
