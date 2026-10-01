@@ -149,6 +149,15 @@ export function spoken(min: number): string {
   return `${h % 12 || 12}${m ? `:${String(m).padStart(2, '0')}` : ''}${h >= 12 ? 'pm' : 'am'}`;
 }
 
+/** "Tomorrow" or "Friday" for a plan made for another day; null for today. */
+export function otherDayTitle(day: string, today: string): string | null {
+  if (day === today) return null;
+  const a = Date.UTC(+today.slice(0, 4), +today.slice(5, 7) - 1, +today.slice(8, 10));
+  const b = Date.UTC(+day.slice(0, 4), +day.slice(5, 7) - 1, +day.slice(8, 10));
+  if (Math.round((b - a) / 864e5) === 1) return 'Tomorrow';
+  return new Intl.DateTimeFormat('en-GB', { weekday: 'long', timeZone: 'UTC' }).format(new Date(b));
+}
+
 /** "Your day", "Your afternoon", "Your evening": from where the plan starts. */
 export function planHeading(from: number): string {
   if (from < 12 * 60) return 'Your day';

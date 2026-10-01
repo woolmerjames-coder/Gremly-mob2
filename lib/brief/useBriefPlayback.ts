@@ -83,6 +83,7 @@ export function useBriefPlayback(input: BriefPlaybackInput): BriefPlayback {
     if (playedRef.current === segKey) return;
     playedRef.current = segKey;
     let cancelled = false;
+    let completed = false;
     const timers: ReturnType<typeof setTimeout>[] = [];
     const wait = (ms: number) =>
       new Promise<void>((resolve) => {
@@ -91,6 +92,7 @@ export function useBriefPlayback(input: BriefPlaybackInput): BriefPlayback {
 
     (async () => {
       if (reducedMotion) {
+        completed = true;
         inputRef.current.onSeen(threadId);
         return;
       }
@@ -105,6 +107,7 @@ export function useBriefPlayback(input: BriefPlaybackInput): BriefPlayback {
         setState({ hiddenFrom: i + 1, typing: false, playing: true });
       }
       if (cancelled) return;
+      completed = true;
       setState({ hiddenFrom: null, typing: false, playing: false });
       inputRef.current.onSeen(threadId);
     })();
@@ -113,7 +116,7 @@ export function useBriefPlayback(input: BriefPlaybackInput): BriefPlayback {
       cancelled = true;
       timers.forEach(clearTimeout);
       // left before the end: it plays again next time
-      if (playedRef.current === segKey) playedRef.current = null;
+      if (!completed && playedRef.current === segKey) playedRef.current = null;
       setState({ hiddenFrom: null, typing: false, playing: false });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

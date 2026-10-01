@@ -33,6 +33,12 @@ describe('offer rule', () => {
     now: 465,
   };
 
+  it('does not offer to plan a day that already has a locked plan', () => {
+    expect(decideOffer({ ...base, planned: 3 }).kind).toBe('none');
+    // Sweep still comes first when it is needed
+    expect(decideOffer({ ...base, planned: 3, overdue: 2 }).kind).toBe('sweep');
+  });
+
   it('plans on a tidy day with a clear stretch ahead', () => {
     const o = decideOffer(base);
     expect(o.kind).toBe('plan');

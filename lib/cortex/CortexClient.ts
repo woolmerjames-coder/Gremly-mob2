@@ -2133,6 +2133,8 @@ export interface PlanPickRequest {
   meetings: { title: string; start: number; end: number }[];
   live_plan?: { id: string; start: number; end: number }[];
   text?: string;
+  /** The day being planned (YYYY-MM-DD); tomorrow plans without today's context */
+  for_day?: string;
 }
 
 export interface PlanPickResponse {

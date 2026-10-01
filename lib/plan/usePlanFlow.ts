@@ -11,7 +11,6 @@
 
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { SpaceChatMessage } from '../types';
-import { nowTimestamp } from '../date/DateService';
 import { callPlanPick } from '../cortex/CortexClient';
 import { patchDailyThreadMeta } from '../repo/dailyThreadRepo';
 import { useGremlyStore } from '../store/useGremlyStore';
@@ -42,9 +41,10 @@ import {
   candidateFromStore,
   lockPlanItems,
   meetingsFromStore,
-  poolFromStore,
+  poolForDay,
   saveEstimates,
 } from './storePlan';
+import { getDateService, nowTimestamp } from '../date/DateService';
 
 export interface PlanFlowDeps {
   threadId: string | null;
@@ -69,18 +69,32 @@ function planMetaOf(m: SpaceChatMessage | undefined | null): BriefPlanMeta | nul
   return meta?.type === 'brief-plan' && !meta.superseded ? (meta as BriefPlanMeta) : null;
 }
 
-/** The plan that counts: the newest proposal or locked plan. */
-export function livePlanOf(messages: SpaceChatMessage[]): SpaceChatMessage | null {
+/** The plan that counts: the newest proposal or locked plan (for a day, when given). */
+export function livePlanOf(messages: SpaceChatMessage[], day?: string): SpaceChatMessage | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const meta = planMetaOf(messages[i]);
-    if (meta && (meta.status === 'proposal' || meta.status === 'locked')) return messages[i];
+    if (meta && (meta.status === 'proposal' || meta.status === 'locked')) {
+      if (!day || meta.date === day) return messages[i];
+    }
   }
   return null;
 }
 
-/** The pool for a plan: today's candidates, plus anything the plan holds that is not one now. */
-function poolWith(entries: PlanEntry[]): Candidate[] {
-  const pool = poolFromStore();
+const isToday = (day: string) => day === getDateService().today();
+
+/** Nothing in a plan for today starts before now; a plan for another day keeps its start. */
+function fromFor(meta: BriefPlanMeta): number {
+  return isToday(meta.date)
+    ? Math.max(meta.from ?? 0, up5(minutesOfDay()))
+    : (meta.from ?? PLAN_DAY_START);
+}
+
+/** Planning another day starts at 8am. */
+export const PLAN_DAY_START = 8 * 60;
+
+/** The pool for a plan: the day's candidates, plus anything the plan holds that is not one now. */
+function poolWith(entries: PlanEntry[], day: string): Candidate[] {
+  const pool = poolForDay(day);
   const ids = new Set(pool.map((c) => c.id));
   for (const e of entries) {
     if (ids.has(e.id)) continue;
@@ -142,14 +156,14 @@ export function usePlanFlow(deps: PlanFlowDeps) {
 
   /** Add a version of the plan (and the suggestions under it). */
   const addPlan = useCallback(
-    async (fit: ReturnType<typeof fitPlan>, pool: Candidate[]) => {
+    async (fit: ReturnType<typeof fitPlan>, pool: Candidate[], day: string) => {
       const d = depsRef.current;
       const version = d.messages.filter((m) => planMetaOf(m)).length + 1;
       const meta: BriefPlanMeta = {
         type: 'brief-plan',
         version,
         status: 'proposal',
-        date: d.date,
+        date: day,
         ...fit,
       };
       const msg = await d.appendBriefMessage(
@@ -166,11 +180,12 @@ export function usePlanFlow(deps: PlanFlowDeps) {
     [offer, say],
   );
 
-  /** Earlier proposals fold away under a new one. */
-  const replaceOpen = useCallback(async (alsoLocked: boolean) => {
+  /** Earlier proposals for the same day fold away under a new one. */
+  const replaceOpen = useCallback(async (alsoLocked: boolean, day: string) => {
     const d = depsRef.current;
     for (const m of d.messages) {
       const meta = planMetaOf(m);
+      if (meta && meta.date !== day) continue;
       if (meta && (meta.status === 'proposal' || (alsoLocked && meta.status === 'locked'))) {
         await d.patchMessageMetadata(m.id, { status: 'replaced' });
       }
@@ -179,18 +194,21 @@ export function usePlanFlow(deps: PlanFlowDeps) {
 
   /** Plan my day / afternoon / evening, Plan anyway, Plan with Gremly. */
   const start = useCallback(
-    (fromOffer?: BriefOfferMeta | null) =>
+    (fromOffer?: BriefOfferMeta | null, opts: { day?: string } = {}) =>
       run(async () => {
         const d = depsRef.current;
-        const live = livePlanOf(d.messages);
+        const day = opts.day ?? getDateService().today();
+        const today = isToday(day);
+        const live = livePlanOf(d.messages, day);
         if (planMetaOf(live)?.status === 'locked') {
           await say(PLAN_COPY.alreadyLocked);
           return;
         }
-        const now = minutesOfDay();
-        const meetings = meetingsFromStore(d.date);
-        const gap =
-          fromOffer?.plan_from !== undefined && fromOffer.plan_from !== null
+        const now = today ? minutesOfDay() : PLAN_DAY_START;
+        const meetings = meetingsFromStore(day);
+        const gap = !today
+          ? PLAN_DAY_START
+          : fromOffer?.plan_from !== undefined && fromOffer.plan_from !== null
             ? Math.max(fromOffer.plan_from, now)
             : clearFrom(meetings, now);
         if (gap === null) {
@@ -198,7 +216,7 @@ export function usePlanFlow(deps: PlanFlowDeps) {
           return;
         }
         const from = up5(Math.max(gap, now));
-        const pool = poolFromStore();
+        const pool = poolForDay(day);
         if (!pool.length) {
           await say(PLAN_COPY.nothingToPlan);
           return;
@@ -217,6 +235,7 @@ export function usePlanFlow(deps: PlanFlowDeps) {
             window: c.window,
           })),
           meetings: meetings.map((m) => ({ title: m.title, start: m.start, end: m.end })),
+          for_day: day,
         });
         const byId = new Map(pool.map((c) => [c.id, c]));
         let entries: PlanEntry[] = [];
@@ -252,10 +271,10 @@ export function usePlanFlow(deps: PlanFlowDeps) {
           }
         }
         const fit = fitPlan(entries, meetings, from);
-        await replaceOpen(false);
+        await replaceOpen(false, day);
         setTyping(false);
         await say(intro);
-        await addPlan(fit, pool);
+        await addPlan(fit, pool, day);
       }),
     [addPlan, replaceOpen, run, say],
   );
@@ -270,7 +289,7 @@ export function usePlanFlow(deps: PlanFlowDeps) {
     });
     if (next) {
       await d.patchMessageMetadata(next.id, {
-        buttons: suggestions(meta, poolWith(entriesOf(meta))),
+        buttons: suggestions(meta, poolWith(entriesOf(meta), meta.date)),
       });
     }
   }, []);
@@ -282,15 +301,15 @@ export function usePlanFlow(deps: PlanFlowDeps) {
         const d = depsRef.current;
         const meta = planMetaOf(planMsg);
         if (!meta || meta.status !== 'proposal') return;
-        const from = Math.max(meta.from ?? 0, up5(minutesOfDay()));
+        const from = fromFor(meta);
         const entries = entriesOf(meta);
-        const pool = poolWith(entries);
+        const pool = poolWith(entries, meta.date);
         // something picked from Due today that is not a candidate today
         const extra = extraRef.current;
         extraRef.current = null;
         if (extra && !pool.some((c) => c.id === extra.id)) pool.push(extra);
         const next = applyOp(entries, op, pool, from, meta.items);
-        const fit = fitPlan(next, meetingsFromStore(d.date), from);
+        const fit = fitPlan(next, meetingsFromStore(meta.date), from);
         await d.patchMessageMetadata(planMsg.id, { ...fit });
         await refreshSuggestions(planMsg, { ...meta, ...fit });
         if (op.op === 'add' && !fit.items.some((x) => x.id === op.id)) {
@@ -323,14 +342,14 @@ export function usePlanFlow(deps: PlanFlowDeps) {
         const meta = planMetaOf(live);
         if (!live || !meta || !ops.length) return;
         const wasLocked = meta.status === 'locked';
-        const from = Math.max(meta.from ?? 0, up5(minutesOfDay()));
+        const from = fromFor(meta);
         let entries = entriesOf(meta);
-        const pool = poolWith(entries);
+        const pool = poolWith(entries, meta.date);
         for (const op of ops) entries = applyOp(entries, op, pool, from, meta.items);
-        const fit = fitPlan(entries, meetingsFromStore(d.date), from);
+        const fit = fitPlan(entries, meetingsFromStore(meta.date), from);
         const first = ops[0];
         const title = pool.find((c) => c.id === first.id)?.title ?? 'that';
-        await replaceOpen(true);
+        await replaceOpen(true, meta.date);
         await say(
           changeText(
             first,
@@ -339,7 +358,7 @@ export function usePlanFlow(deps: PlanFlowDeps) {
             wasLocked,
           ),
         );
-        await addPlan(fit, pool);
+        await addPlan(fit, pool, meta.date);
       }),
     [addPlan, replaceOpen, run, say],
   );
@@ -355,12 +374,12 @@ export function usePlanFlow(deps: PlanFlowDeps) {
         const earlier: PlanItem[] = [];
         for (const m of d.messages) {
           const o = planMetaOf(m);
-          if (o && o.status === 'locked' && m.id !== planMsg.id) {
+          if (o && o.status === 'locked' && o.date === meta.date && m.id !== planMsg.id) {
             earlier.push(...o.items);
             await d.patchMessageMetadata(m.id, { status: 'replaced' });
           }
         }
-        const res = await lockPlanItems(d.date, meta.items, earlier);
+        const res = await lockPlanItems(meta.date, meta.items, earlier);
         await d.patchMessageMetadata(planMsg.id, { status: 'locked', items: res.items });
         if (d.threadId) {
           const at = nowTimestamp();
@@ -411,13 +430,13 @@ export function usePlanFlow(deps: PlanFlowDeps) {
           return;
         }
         const wasLocked = meta.status === 'locked';
-        const from = Math.max(meta.from ?? 0, up5(minutesOfDay()));
+        const from = fromFor(meta);
         let entries = entriesOf(meta);
-        const pool = poolWith(entries);
+        const pool = poolWith(entries, meta.date);
         const adding = ids.filter((id) => !entries.some((e) => e.id === id));
         for (const id of adding)
           entries = applyOp(entries, { op: 'add', id, window: null }, pool, from, meta.items);
-        const fit = fitPlan(entries, meetingsFromStore(d.date), from);
+        const fit = fitPlan(entries, meetingsFromStore(meta.date), from);
         const placed = adding.filter((id) => fit.items.some((x) => x.id === id));
         const titles = (list: string[]) =>
           list.map((id) => pool.find((c) => c.id === id)?.title ?? 'that');
@@ -425,9 +444,9 @@ export function usePlanFlow(deps: PlanFlowDeps) {
           ? `Added ${namesOf(titles(placed))}.`
           : `There isn't a good gap left today, so I've left ${adding.length === 1 ? 'it' : 'them'} off.`;
         if (wasLocked) text += PLAN_COPY.relock;
-        await replaceOpen(true);
+        await replaceOpen(true, meta.date);
         await say(text);
-        await addPlan(fit, pool);
+        await addPlan(fit, pool, meta.date);
       }),
     [addPlan, replaceOpen, run, say, start],
   );
@@ -437,15 +456,15 @@ export function usePlanFlow(deps: PlanFlowDeps) {
     (fromOffer?: BriefOfferMeta | null) =>
       run(async () => {
         const d = depsRef.current;
-        const pool = poolFromStore();
+        const pool = poolForDay(getDateService().today());
         const overdue = selectOverdueTodos(useGremlyStore.getState() as any).length;
         const text = whatCanWait(pool, overdue);
         const now = minutesOfDay();
         const gap =
           fromOffer?.plan_from !== undefined && fromOffer?.plan_from !== null
             ? Math.max(fromOffer!.plan_from!, now)
-            : clearFrom(meetingsFromStore(d.date), now);
-        const hasLive = !!livePlanOf(d.messages);
+            : clearFrom(meetingsFromStore(getDateService().today()), now);
+        const hasLive = !!livePlanOf(d.messages, getDateService().today());
         const planButton: OfferButton | null =
           gap !== null && !hasLive
             ? { id: 'plan', label: planLabel(gap), action: 'plan', primary: overdue === 0 }
@@ -482,12 +501,12 @@ export function usePlanFlow(deps: PlanFlowDeps) {
       const meta = planMetaOf(live);
       if (!live || !meta) return false;
       const entries = entriesOf(meta);
-      const pool = poolWith(entries);
+      const pool = poolWith(entries, meta.date);
       setTyping(true);
       const res = await callPlanPick({
         mode: 'edit',
         now: minutesOfDay(),
-        gap_from: Math.max(meta.from ?? 0, up5(minutesOfDay())),
+        gap_from: fromFor(meta),
         pool: pool.map((c) => ({
           id: c.id,
           kind: c.kind,
@@ -496,7 +515,7 @@ export function usePlanFlow(deps: PlanFlowDeps) {
           why: c.why,
           window: c.window,
         })),
-        meetings: meetingsFromStore(d.date).map((m) => ({
+        meetings: meetingsFromStore(meta.date).map((m) => ({
           title: m.title,
           start: m.start,
           end: m.end,

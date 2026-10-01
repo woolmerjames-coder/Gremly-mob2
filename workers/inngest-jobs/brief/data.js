@@ -139,13 +139,13 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
         `calendar_events?owner_id=eq.${userId}&event_date=eq.${today}&select=id,title,event_time,duration_minutes&limit=50`,
       ),
       d.select(
-        `todos?owner_id=eq.${userId}&completed_at=is.null&archived=eq.false&select=id,title,due_day,commitment,time_estimate_minutes,created_at,skipped_in_sweep_at,resurface_at&limit=1000`,
+        `todos?owner_id=eq.${userId}&completed_at=is.null&archived=eq.false&select=id,name,title,due_day,commitment,time_estimate_minutes,created_at,skipped_in_sweep_at,resurface_at,scheduled_start_iso&limit=1000`,
       ),
       d.select(
         `notes?owner_id=eq.${userId}&archived=eq.false&external_source=is.null&swept_at=is.null&subtype=in.(idea,catchall,list,reference)&created_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -6)))}&select=id&limit=500`,
       ),
       d.select(
-        `habits?owner_id=eq.${userId}&archived=eq.false&select=id,name,title,cadence,target_per_period,days_active,subtype,start_date,end_date,time_estimate_minutes&limit=200`,
+        `habits?owner_id=eq.${userId}&archived=eq.false&select=id,name,title,cadence,target_per_period,days_active,subtype,start_date,end_date,time_estimate_minutes,scheduled_start_iso&limit=200`,
       ),
       d.select(
         `habit_progress?owner_id=eq.${userId}&occurred_day=gte.${monday}&occurred_day=lte.${today}&select=habit_id,occurred_day&limit=2000`,
@@ -191,8 +191,8 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
   meetings.sort((a, b) => a.start - b.start);
   const { busy, free } = shapeOfDay(meetings);
 
-  // Todos
-  const open = todos || [];
+  // Todos (the app writes name; older rows may only have title)
+  const open = (todos || []).map((t) => ({ ...t, title: t.name || t.title || 'Untitled' }));
   const todosDue = open.filter((t) => t.due_day === today || (t.commitment && t.due_day === today));
   const overdue = open.filter(
     (t) => t.due_day && t.due_day < today && !(t.resurface_at && t.resurface_at > today),
@@ -251,6 +251,19 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
   const ret = brief.return && (brief.return.days_away ?? 0) >= 3 ? brief.return : null;
   const reach = brief.reach || null;
   const candidates = todosDue.length + habitsForToday.length + (reach ? 1 : 0);
+  // A plan already locked in for today (Plan tomorrow, the evening before)
+  const planned = [
+    ...open.map((t) => ({ type: 'todo', id: t.id, title: t.title, iso: t.scheduled_start_iso })),
+    ...(habits || []).map((h) => ({
+      type: 'habit',
+      id: h.id,
+      title: h.name || h.title || 'Habit',
+      iso: h.scheduled_start_iso,
+    })),
+  ]
+    .filter((x) => x.iso && x.iso >= dayStart && x.iso < dayEnd)
+    .map((x) => ({ type: x.type, id: x.id, title: x.title, start: minutesIn(tz, x.iso) }))
+    .sort((a, b) => a.start - b.start);
   const reaction = await readThreadReaction(env, userId, addDays(ritualDay, -1)).catch(() => null);
 
   return {
@@ -275,6 +288,7 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
     habits: habitView,
     habitsForToday,
     candidates,
+    planned,
     question,
     reach,
     ret,

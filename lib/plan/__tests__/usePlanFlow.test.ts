@@ -1,13 +1,17 @@
 import { renderHook, act } from '@testing-library/react-native';
 import { usePlanFlow } from '../usePlanFlow';
 import { callPlanPick } from '../../cortex/CortexClient';
-import { lockPlanItems, poolFromStore, meetingsFromStore, saveEstimates } from '../storePlan';
+import { lockPlanItems, poolForDay, meetingsFromStore, saveEstimates } from '../storePlan';
 import { patchDailyThreadMeta } from '../../repo/dailyThreadRepo';
 import type { SpaceChatMessage } from '../../types';
 
 jest.mock('../../cortex/CortexClient', () => ({ callPlanPick: jest.fn() }));
+jest.mock('../../date/DateService', () => ({
+  getDateService: () => ({ today: () => '2026-09-30' }),
+  nowTimestamp: () => '2026-09-30T20:00:00Z',
+}));
 jest.mock('../storePlan', () => ({
-  poolFromStore: jest.fn(),
+  poolForDay: jest.fn(),
   meetingsFromStore: jest.fn(),
   saveEstimates: jest.fn(),
   lockPlanItems: jest.fn(),
@@ -83,7 +87,7 @@ function harness() {
 
 beforeEach(() => {
   (patchDailyThreadMeta as jest.Mock).mockResolvedValue(null);
-  (poolFromStore as jest.Mock).mockReturnValue(POOL);
+  (poolForDay as jest.Mock).mockReturnValue(POOL);
   (meetingsFromStore as jest.Mock).mockReturnValue([
     { id: 'm', title: 'Search connect', start: 720, end: 795 },
   ]);
@@ -113,6 +117,20 @@ beforeEach(() => {
 });
 
 describe('planning in the thread', () => {
+  it('plans tomorrow from 8am, for that day', async () => {
+    const { hook, messages } = harness();
+    await act(async () => {
+      await hook.result.current.start(null, { day: '2026-10-01' });
+    });
+    expect(callPlanPick).toHaveBeenCalledWith(
+      expect.objectContaining({ gap_from: 480, now: 480, for_day: '2026-10-01' }),
+    );
+    expect(poolForDay).toHaveBeenCalledWith('2026-10-01');
+    const plan = messages.find((m) => (m.metadata_json as any).type === 'brief-plan')!
+      .metadata_json as any;
+    expect(plan).toMatchObject({ date: '2026-10-01', from: 480 });
+  });
+
   it('adds Gremly’s line, the plan card and suggested changes', async () => {
     const { hook, messages } = harness();
     await act(async () => {

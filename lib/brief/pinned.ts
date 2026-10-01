@@ -97,10 +97,14 @@ let threadRequests = 0;
  * navigate('Tabs', { screen: 'Gremly', params: todayThreadParams() }).
  * Each call gets its own key, so the same request twice still opens it.
  */
-export function todayThreadParams(step?: 'plan'): {
+export function todayThreadParams(
+  step?: 'plan',
+  planDay?: 'tomorrow',
+): {
   mode: 'chat';
   thread: 'today';
   step?: 'plan';
+  planDay?: 'tomorrow';
   threadKey: string;
 } {
   threadRequests += 1;
@@ -108,6 +112,7 @@ export function todayThreadParams(step?: 'plan'): {
     mode: 'chat',
     thread: 'today',
     ...(step ? { step } : {}),
+    ...(step && planDay ? { planDay } : {}),
     threadKey: `today-${threadRequests}`,
   };
 }

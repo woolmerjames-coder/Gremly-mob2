@@ -3,6 +3,10 @@ import { fireEvent, render } from '@testing-library/react-native';
 import { PlanCard, planRows } from '../PlanCard';
 import type { BriefPlanMeta } from '../../../lib/brief/types';
 
+jest.mock('../../../lib/date/DateService', () => ({
+  getDateService: () => ({ today: () => '2026-09-30' }),
+}));
+
 const MEETINGS = [{ id: 'm1', title: 'Search connect', start: 900, end: 930 }];
 const META: BriefPlanMeta = {
   type: 'brief-plan',
@@ -72,6 +76,13 @@ describe('the plan card', () => {
     expect(queryByTestId('plan-remove-run')).toBeNull();
     fireEvent.press(getByTestId('plan-see-today'));
     expect(onSeeToday).toHaveBeenCalled();
+  });
+
+  it('names a plan made for tomorrow', () => {
+    const { getByText } = render(
+      <PlanCard meta={{ ...META, date: '2026-10-01', from: 480 }} meetings={[]} />,
+    );
+    expect(getByText('Tomorrow')).toBeTruthy();
   });
 
   it('folds earlier and put-aside plans to one line', () => {

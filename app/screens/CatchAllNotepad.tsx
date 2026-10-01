@@ -3666,7 +3666,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           }
         }}
         onNavigate={(screen, params) => {
-          navigation.navigate(screen as any, params as any);
+          // a hint into today's thread gets its own key, so every tap opens it
+          const next = params?.thread === 'today' ? todayThreadParams(params.step) : params;
+          navigation.navigate(screen as any, next as any);
         }}
       />
 

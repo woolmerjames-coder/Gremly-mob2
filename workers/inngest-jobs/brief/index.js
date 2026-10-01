@@ -82,6 +82,7 @@ export async function writeDailyBrief(env, userId, { reason = 'scheduled', at = 
     candidates: g.candidates,
     freeWindows: g.free,
     now: g.now,
+    planned: g.planned?.length ?? 0,
   });
 
   let out;

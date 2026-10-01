@@ -12,7 +12,8 @@ import { ArrowRight, Check, Clock, Lock, Plus, Repeat, X } from 'lucide-react-na
 import type { BriefPlanMeta } from '../../lib/brief/types';
 import type { DayMeeting } from '../../lib/brief/dayCard';
 import { clock, ampm } from '../../lib/brief/dayCard';
-import { duration, planHeading, planSummary } from '../../lib/plan/planFlow';
+import { duration, otherDayTitle, planHeading, planSummary } from '../../lib/plan/planFlow';
+import { getDateService } from '../../lib/date/DateService';
 import { PLAN_DAY_END } from '../../lib/plan/slotFitter';
 import { BRIEF } from './briefStyles';
 
@@ -107,7 +108,9 @@ export function PlanCard({
     <View style={styles.card} testID={locked ? 'plan-locked' : 'plan-proposal'}>
       <View style={styles.head}>
         <View style={styles.flex}>
-          <Text style={styles.title}>{planHeading(from)}</Text>
+          <Text style={styles.title}>
+            {otherDayTitle(meta.date, getDateService().today()) ?? planHeading(from)}
+          </Text>
           <Text style={styles.sub}>{planSummary(meta, busy)}</Text>
         </View>
         {locked ? (

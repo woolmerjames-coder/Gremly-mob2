@@ -37,10 +37,20 @@ export function gapsAhead(freeWindows, now) {
  * @param {number} p.candidates things that could go in a plan
  * @param {{from:number,to:number}[]} p.freeWindows clear stretches today, in minutes
  * @param {number} p.now minutes from local midnight
+ * @param {number} [p.planned] items already placed on today by a locked plan
  */
-export function decideOffer({ returnDay, overdue, unsorted, candidates, freeWindows, now }) {
+export function decideOffer({
+  returnDay,
+  overdue,
+  unsorted,
+  candidates,
+  freeWindows,
+  now,
+  planned = 0,
+}) {
   const gaps = gapsAhead(freeWindows, now);
-  const canPlan = candidates > 0 && gaps.length > 0;
+  // a plan already locked in for today (made the evening before) is not offered again
+  const canPlan = candidates > 0 && gaps.length > 0 && !(planned > 0);
   const plan = canPlan ? { label: planLabel(gaps[0].from), gapFrom: gaps[0].from } : null;
   const waiting = (overdue || 0) + (unsorted || 0);
 

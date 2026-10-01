@@ -109,6 +109,16 @@ export function renderBriefInput(g, offer) {
   L.push(
     `THE DCO'S CLAIMS ON TODAY (what has a real claim and why): ${g.claims.map((c) => `${trim(c.title, 80)}: ${trim(c.why, 120)}`).join('; ') || 'none'}`,
   );
+  if (g.planned?.length) {
+    L.push(
+      `ALREADY PLANNED FOR TODAY (locked in earlier, shown on the day card; ref | time | title):\n${g.planned
+        .map(
+          (p) =>
+            `${add('p', { type: p.type, id: p.id })} | ${clockTime(p.start)} | ${trim(p.title, 80)}`,
+        )
+        .join('\n')}`,
+    );
+  }
   if (g.reach) {
     const ref = add('r', { type: g.reach.type, id: g.reach.id });
     L.push(
@@ -146,7 +156,9 @@ function offerBrief(offer, g) {
     case 'plan':
       return `planning. "${offer.buttons[0].label}" is offered, to fit a few things into the clear stretch from ${fromTime(offer.plan.gapFrom, g.now)}${g.reach ? ', with the reach item added' : ''}.`;
     default:
-      return 'none. Nothing to offer today; Gremly signs off.';
+      return g.planned?.length
+        ? 'none. A plan for today was already locked in; Gremly can say so and signs off.'
+        : 'none. Nothing to offer today; Gremly signs off.';
   }
 }
 

@@ -96,7 +96,7 @@ import type {
   DailyThreadMeta,
   OfferButton,
 } from '../../lib/brief/types';
-import { usePlanFlow } from '../../lib/plan/usePlanFlow';
+import { livePlanOf, usePlanFlow } from '../../lib/plan/usePlanFlow';
 import { meetingsFromStore } from '../../lib/plan/storePlan';
 import { creditFirstReply } from '../../lib/brief/feeding';
 import { clearFrom } from '../../lib/brief/pinned';
@@ -728,14 +728,38 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       console.warn("[DailyBrief] could not open today's thread:", err);
     }
   }, [clearAbout]);
+  // Plan with Gremly (and Plan tomorrow): the brief shows at once, then the plan step
+  const pendingPlanRef = useRef<{ day: string } | null>(null);
+  const [skipPlayback, setSkipPlayback] = useState(false);
   useEffect(() => {
     if (threadRequest !== 'today' || !briefInChat || !userId) return;
     const key = threadKey ?? 'today';
     if (threadKeyRef.current === key) return;
     threadKeyRef.current = key;
-    navigation.setParams({ thread: undefined, threadKey: undefined, step: undefined });
+    if (params?.step === 'plan') {
+      const today = getDateService().today();
+      pendingPlanRef.current = {
+        day: params?.planDay === 'tomorrow' ? getDateService().addDays(today, 1) : today,
+      };
+      setSkipPlayback(true);
+    }
+    navigation.setParams({
+      thread: undefined,
+      threadKey: undefined,
+      step: undefined,
+      planDay: undefined,
+    });
     void openTodayThread();
-  }, [threadRequest, threadKey, briefInChat, userId, navigation, openTodayThread]);
+  }, [
+    threadRequest,
+    threadKey,
+    briefInChat,
+    userId,
+    navigation,
+    openTodayThread,
+    params?.step,
+    params?.planDay,
+  ]);
 
   const handleOfferButton = useCallback(
     (message: SpaceChatMessage, button: OfferButton) =>
@@ -858,7 +882,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     rows,
     seen: threadSeen,
     ready: !!isDailyThread && !messagesLoading && chatOnScreen && !briefWriting && briefInChat,
-    reducedMotion,
+    reducedMotion: reducedMotion || skipPlayback,
     onStart: () => useMascotStore.getState().requestMode('waving'),
     onSeen: handleBriefSeen,
   });
@@ -868,6 +892,18 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   );
   const shownRowsRef = useRef(shownRows);
   shownRowsRef.current = shownRows;
+
+  // The plan step, once today's thread is on screen with its messages
+  useEffect(() => {
+    const pending = pendingPlanRef.current;
+    if (!pending || !isDailyThread || !activeChat || messagesLoading || briefWriting) return;
+    if (messages.length && messages[0].chat_id !== activeChat.id) return;
+    pendingPlanRef.current = null;
+    setSkipPlayback(false);
+    const live = livePlanOf(messages, pending.day);
+    if (live) pendingPlanScrollRef.current = live.id;
+    else void planFlowRef.current.start(null, { day: pending.day });
+  }, [isDailyThread, activeChat, messagesLoading, briefWriting, messages]);
 
   // Coming into Chat (Daily brief in Chat on): an unread brief opens today's
   // thread; within five minutes of leaving, the chat as it was left; after

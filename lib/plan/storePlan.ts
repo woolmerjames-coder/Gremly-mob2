@@ -16,7 +16,7 @@ import { getTimeBlockBoundaries } from '../capacity/capacityHelpers';
 import { dayOfWeekNumber } from '../brief/behind';
 import { readDco } from '../brief/dco';
 import { doneSinceMonday, meetingsForDay } from '../brief/useDayCard';
-import { localMinutesToIso } from '../brief/time';
+import { localDateOf, localMinutesToIso } from '../brief/time';
 import type { DayMeeting } from '../brief/dayCard';
 import type { PlanItem } from '../brief/types';
 import type { SequencedItem } from '../types';
@@ -70,6 +70,78 @@ export function candidateFromStore(id: string, kind: 'todo' | 'habit'): Candidat
   };
 }
 
+/**
+ * The pool for another day (planning tomorrow): todos due that day, and
+ * habits on for it (daily, its weekday, or behind for the week by then). No
+ * claims or reach, which are today's.
+ */
+export function poolForDay(day: string): Candidate[] {
+  const ds = getDateService();
+  const today = ds.today();
+  if (day === today) return poolFromStore();
+  const s = useGremlyStore.getState();
+  const monday = ds.startOfWeekMonday(day);
+  const weekday = new Date(`${day}T12:00:00Z`).getUTCDay();
+  const progress = (s.habitProgress ?? []) as {
+    habit_id: string;
+    occurred_day: string;
+    count?: number;
+  }[];
+  const todosDue = s.todos.filter((t) => !t.archived && !t.completed_at && t.due_day === day);
+  const habitsOn = s.habits.filter((h) => {
+    if (h.archived || !h.start_date || h.start_date > day) return false;
+    if (h.end_date && h.end_date < day) return false;
+    if ((h.cadence ?? 'daily') === 'daily') return true;
+    return Array.isArray(h.days_active) && h.days_active.some((d) => d === weekday);
+  });
+  return buildCandidatePool({
+    today: day,
+    todosDueToday: todosDue,
+    habitsDueToday: habitsOn,
+    todos: s.todos,
+    habits: s.habits,
+    doneThisWeek: monday <= today ? doneSinceMonday(progress, monday, today) : new Map(),
+    doneToday: new Set(),
+    lockedHabitIds: new Set(),
+    daysGone: dayOfWeekNumber(day, monday),
+    claims: [],
+    reach: null,
+    blocks: s.timeBlockPreferences,
+    forToday: false,
+  });
+}
+
+/**
+ * A new day: times placed on earlier days come off their todos and habits,
+ * so yesterday's plan never shows on Today. Times placed for today (a plan
+ * locked yesterday for tomorrow) or later stay.
+ */
+export function resetStaleAssignments(today: string): number {
+  const s = useGremlyStore.getState();
+  let cleared = 0;
+  const stale = (x: { daily_block?: unknown; scheduled_start_iso?: string | null }) => {
+    if (x.scheduled_start_iso) {
+      const day = localDateOf(x.scheduled_start_iso);
+      return !!day && day < today;
+    }
+    return x.daily_block != null;
+  };
+  const clear = { daily_block: null, scheduled_start_iso: null };
+  for (const t of s.todos) {
+    if (stale(t)) {
+      void s.updateTodo(t.id, clear);
+      cleared++;
+    }
+  }
+  for (const h of s.habits) {
+    if (stale(h)) {
+      void s.updateHabit(h.id, clear);
+      cleared++;
+    }
+  }
+  return cleared;
+}
+
 export function meetingsFromStore(date: string): DayMeeting[] {
   const s = useGremlyStore.getState();
   return meetingsForDay(date, new Set(readDco(s.dco).cancelledCalendarIds));
@@ -110,6 +182,7 @@ export async function lockPlanItems(
   items: PlanItem[],
   earlier: PlanItem[],
 ): Promise<LockResult> {
+  const forToday = date === getDateService().today();
   const store = useGremlyStore.getState();
   const created: string[] = [];
   const locked: PlanItem[] = [];
@@ -146,9 +219,10 @@ export async function lockPlanItems(
     else await store.updateTodo(old.id, clear);
   }
 
-  // every locked item is a Lock In commitment for today
+  // every locked item is a Lock In commitment for today (a plan for tomorrow
+  // is not: Lock In is about today)
   const s = useGremlyStore.getState();
-  for (const x of locked) {
+  for (const x of forToday ? locked : []) {
     const already =
       x.kind === 'habit'
         ? s.habits.some((h) => h.id === x.id && isHabitLockedIn(h))
@@ -179,6 +253,8 @@ export async function lockPlanItems(
     })
     .catch((err: unknown) => console.warn('[Plan] could not save the day', err));
 
-  await withFeedAnimation(() => s.commitLockInItems(locked.length)).catch(() => undefined);
+  if (forToday) {
+    await withFeedAnimation(() => s.commitLockInItems(locked.length)).catch(() => undefined);
+  }
   return { created, items: locked };
 }

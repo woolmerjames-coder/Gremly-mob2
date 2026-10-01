@@ -76,6 +76,10 @@ export function readRequest(body) {
     : [];
   return {
     mode: body.mode === 'edit' ? 'edit' : 'pick',
+    forDay:
+      typeof body.for_day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.for_day)
+        ? body.for_day
+        : null,
     now,
     from,
     pool,
@@ -87,7 +91,11 @@ export function readRequest(body) {
 
 export function renderPlanInput(req, ctx) {
   const L = [];
-  L.push(`TIME NOW: ${clockTime(req.now)}. PLANNING FROM ${clockTime(req.from)} TO 10pm.`);
+  if (ctx.otherDay) {
+    L.push(`PLANNING ANOTHER DAY: ${ctx.otherDay}. PLANNING FROM ${clockTime(req.from)} TO 10pm.`);
+  } else {
+    L.push(`TIME NOW: ${clockTime(req.now)}. PLANNING FROM ${clockTime(req.from)} TO 10pm.`);
+  }
   L.push(
     `MEETINGS STILL AHEAD: ${
       req.meetings
@@ -261,9 +269,24 @@ export function checkOps(output, req) {
   return { isPlanChange: ops.length > 0, ops };
 }
 
-async function planContext(env, userId) {
+async function planContext(env, userId, forDay) {
   const tz = await userTimezone(env, userId);
   const today = localDate(tz);
+  if (forDay && forDay !== today) {
+    // tomorrow's plan: today's claims and reach are not about that day
+    const person = await personIdentity(env, userId);
+    const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'UTC' }).format(
+      new Date(`${forDay}T12:00:00Z`),
+    );
+    return {
+      person,
+      dayShape: null,
+      claims: [],
+      reach: null,
+      reaction: null,
+      otherDay: `${weekday} ${forDay}`,
+    };
+  }
   const [rows, person] = await Promise.all([
     db(env).select(`user_daily_state?user_id=eq.${userId}&date=eq.${today}&select=dco`),
     personIdentity(env, userId),
@@ -319,7 +342,7 @@ export async function runPlanPick(env, req, ctx) {
 export async function pickPlan(env, userId, body) {
   const req = readRequest(body);
   if (!req.pool.length) return { picks: [], intro: null, reason: 'empty pool' };
-  const ctx = await planContext(env, userId);
+  const ctx = await planContext(env, userId, req.forDay);
   const { input: _input, ...result } = await runPlanPick(env, req, ctx);
   if (result.dropped) {
     console.warn(

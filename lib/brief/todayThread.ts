@@ -16,7 +16,10 @@ import { getDailyThread, type DailyThread } from '../repo/dailyThreadRepo';
 import { getDateService } from '../date/DateService';
 import { useGremlyStore } from '../store/useGremlyStore';
 import { briefInChatOn } from './flag';
+import { resetStaleAssignments } from '../plan/storePlan';
 import type { DailyThreadMeta } from './types';
+
+let lastResetDay: string | null = null;
 
 /** Chat reopens the chat that was on screen if it was left this recently. */
 export const RESUME_WINDOW_MS = 5 * 60 * 1000;
@@ -115,6 +118,18 @@ export function useTodayThreadSync(): void {
     if (!on || !userId) return;
     void useTodayThread.getState().refresh();
   }, [on, userId, ritualDay]);
+
+  // A new day: yesterday's planned times come off Today (the old brief did
+  // this when it opened; with the brief in Chat nothing else would)
+  const loaded = useGremlyStore((s) => s.todos.length + s.habits.length > 0);
+  useEffect(() => {
+    if (!on || !userId || !loaded) return;
+    const today = getDateService().today();
+    if (lastResetDay === today) return;
+    lastResetDay = today;
+    const n = resetStaleAssignments(today);
+    if (n) console.log(`[DailyBrief] cleared ${n} planned times from earlier days`);
+  }, [on, userId, loaded, ritualDay]);
 
   useEffect(() => {
     if (!on) return;

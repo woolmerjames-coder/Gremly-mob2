@@ -86,7 +86,7 @@ import type { SweepCandidate } from '../../lib/today/sweepSelectors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import type { Habit, Todo, Space, Note } from '../../lib/types';
 import { eventBus } from '../../lib/events';
-import { isBriefInChat } from '../../lib/brief/flag';
+import { isBriefInChat, useBriefInChat } from '../../lib/brief/flag';
 import { useBriefUnread } from '../../lib/brief/todayThread';
 import { briefReadyLine, todayThreadParams } from '../../lib/brief/pinned';
 import { isReturnDay, readDco } from '../../lib/brief/dco';
@@ -340,6 +340,7 @@ export default function NowScreenV1() {
   const isFocused = useIsFocused();
 
   // Daily brief in Chat: Gremly's bubble says today's brief is waiting
+  const briefInChatOn = useBriefInChat();
   const briefUnread = useBriefUnread();
   const briefDco = useGremlyStore((s) => s.dco);
   const briefUserName = useGremlyStore((s) => s.userName);
@@ -395,6 +396,14 @@ export default function NowScreenV1() {
   // Listen for "Plan your tomorrow" from sweep completion
   useEffect(() => {
     const unsub = eventBus.on('openTomorrowBrief', () => {
+      // Daily brief in Chat: today's thread, with a plan for tomorrow
+      if (isBriefInChat()) {
+        navigation.navigate('Tabs', {
+          screen: 'Gremly',
+          params: todayThreadParams('plan', 'tomorrow'),
+        });
+        return;
+      }
       const td = getDateService().addDays(todayStr, 1);
       setBriefTargetDate(td);
       navigation.navigate('MorningBrief', { targetDate: td });
@@ -405,6 +414,8 @@ export default function NowScreenV1() {
   // Auto-open Morning Brief on first open of the day (skip for brand new users)
   const hasAutoOpenedBriefRef = useRef(false);
   useEffect(() => {
+    // Daily brief in Chat: opening Today never opens anything by itself
+    if (briefInChatOn) return;
     if (gremlyAge < 1) return; // Don't show for brand new users
     if (hasAutoOpenedBriefRef.current) return; // Already auto-opened this mount
     if (!isFocused) return; // Don't fire if user is on another screen (e.g. mid-Sweep)
@@ -426,6 +437,7 @@ export default function NowScreenV1() {
     isFocused,
     markTodayOpened,
     navigation,
+    briefInChatOn,
   ]);
 
   // Show first-visit bubble for new users
@@ -859,15 +871,23 @@ export default function NowScreenV1() {
     setQuickAddVisible(true);
   }, []);
 
-  // Handle opening Morning Brief sheet
+  // Handle opening Morning Brief sheet (with the Daily brief in Chat on:
+  // Plan with Gremly, which opens today's thread at the plan step)
+  const openPlanWithGremly = useCallback(
+    (day?: 'tomorrow') =>
+      navigation.navigate('Tabs', { screen: 'Gremly', params: todayThreadParams('plan', day) }),
+    [navigation],
+  );
   const handleOpenBrief = useCallback(() => {
     if (hasSweepedToday) {
       setShowDayPicker(true);
+    } else if (briefInChatOn) {
+      openPlanWithGremly();
     } else {
       setBriefTargetDate(undefined);
       navigation.navigate('MorningBrief');
     }
-  }, [hasSweepedToday, navigation]);
+  }, [hasSweepedToday, navigation, briefInChatOn, openPlanWithGremly]);
 
   // Add item to Today's Focus by setting due_day to today
   const handleAddToToday = useCallback(
@@ -1006,9 +1026,11 @@ export default function NowScreenV1() {
             onPress={handleOpenBrief}
             testID="header-organize"
             accessibilityRole="button"
-            accessibilityLabel="Organize your day"
+            accessibilityLabel={briefInChatOn ? 'Plan with Gremly' : 'Organize your day'}
           >
-            <Text style={styles.headerOrganizeButtonText}>Organize</Text>
+            <Text style={styles.headerOrganizeButtonText}>
+              {briefInChatOn ? 'Plan with Gremly' : 'Organize'}
+            </Text>
           </Pressable>
 
           {/* Add to Today button - sage */}
@@ -1179,6 +1201,10 @@ export default function NowScreenV1() {
               }}
               onPress={() => {
                 setShowDayPicker(false);
+                if (briefInChatOn) {
+                  openPlanWithGremly();
+                  return;
+                }
                 setBriefTargetDate(undefined);
                 navigation.navigate('MorningBrief');
               }}
@@ -1194,6 +1220,10 @@ export default function NowScreenV1() {
               }}
               onPress={() => {
                 setShowDayPicker(false);
+                if (briefInChatOn) {
+                  openPlanWithGremly('tomorrow');
+                  return;
+                }
                 const td = getDateService().addDays(todayStr, 1);
                 setBriefTargetDate(td);
                 navigation.navigate('MorningBrief', { targetDate: td });

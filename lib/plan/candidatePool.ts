@@ -53,6 +53,8 @@ export interface PoolInput {
   claims: DcoClaim[];
   reach: DcoReach | null;
   blocks: TimeBlockPreferences;
+  /** False when planning another day (tomorrow): what is on Today now is left out */
+  forToday?: boolean;
 }
 
 function titleOf(item: Todo | Habit): string {
@@ -142,9 +144,11 @@ export function buildCandidatePool(input: PoolInput): Candidate[] {
     }
   }
   // 2. Already on Today
-  for (const t of input.todos) if (t.commitment) addTodo(t, 'On Today', 'today');
-  for (const h of input.habits)
-    if (input.lockedHabitIds.has(h.id)) addHabit(h, 'On Today', 'today');
+  if (input.forToday !== false) {
+    for (const t of input.todos) if (t.commitment) addTodo(t, 'On Today', 'today');
+    for (const h of input.habits)
+      if (input.lockedHabitIds.has(h.id)) addHabit(h, 'On Today', 'today');
+  }
   // 3. Habits behind this week
   for (const h of input.habits) if (behind(h)) addHabit(h, `${weekLine(h)}, behind`, 'behind');
   // 4. Due today
