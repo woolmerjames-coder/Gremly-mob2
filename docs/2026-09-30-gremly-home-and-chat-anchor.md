@@ -42,12 +42,12 @@ Updated 1 Oct. Done since the last version: the typing fix in the shared box and
 - d3cd5601 Phase C: every old item chat (`views.chat`) was copied into its item's chat. Applied to production on 1 Oct as migration 20261001012238: 127 chats, 701 messages, 13 people. `views.chat` is untouched as a copy; every added row carries `metadata_json.migrated_from = 'views.chat'`.
 - cb859331 Item chats keep the item's `chat_summary` (what the context jobs read), count for training readiness (`get_training_readiness`, migration 20261001012531, applied) and feed Gremly once per opening, as the old chat did.
 - c424034f The old entity chat screen, its flag, its store actions and its Cortex calls are removed. Notes saved from old chats still show on the item. The Worker's `entity-chat` route stays for builds already out.
+- 2adae906 A new todo saved from the Save items pill keeps the day the user gave it (the pill was never told what a todo's day was, so Call Mum on Sunday was saved with no day and a card caught up later). Gate: `data/pill_day_check.json`. Tested by James, Worker deployed.
 
 Now:
 
-1. `cd workers/cortex && npx wrangler deploy` (item detail, note topics, the quirk fixes, the matcher, item chat summaries). The database changes are already live.
-2. James tests in the simulator (below).
-3. When happy, a TestFlight build.
+1. Done: Worker deployed and James's simulator tests pass (1 Oct).
+2. Push the branch and make a TestFlight build.
 
 Found and not fixed (belongs to the context pipeline project, `lifemaps-context-fixes-9.30`): the weekly summary's fact extraction (`workers/inngest-jobs/inngest-index.js`, step extract-profile-facts) reads chat messages from `space_chat_messages`, a table that no longer exists (it is `scope_chat_messages`), and reads `views.chat` as a list when it never was one, so it has found no chat messages at all since the rename.
 
