@@ -57,6 +57,8 @@ export function priceFor(model, at = Date.now()) {
 }
 
 function providerFor(url) {
+  // Batch calls are logged per result, with batch pricing, where results are read.
+  if (url.includes('/messages/batches')) return null;
   if (url.includes('api.anthropic.com')) return 'anthropic';
   if (url.includes('api.openai.com')) return 'openai';
   if (url.includes('generativelanguage.googleapis.com')) return 'google';
@@ -164,6 +166,30 @@ export function costUsd(u, at = Date.now(), batch = false) {
   const [pin, pcached, pwrite, pout] = p;
   const raw = (u.input * pin + u.cached * pcached + u.cacheWrite * pwrite + u.output * pout) / 1e6;
   return Math.round((batch ? raw / 2 : raw) * 1e6) / 1e6;
+}
+
+/** Usage row for one Anthropic batch result message, at batch (half) price. */
+export function batchUsageRow(message, extra = {}) {
+  const u = emptyUsage();
+  absorb('anthropic', message, u);
+  return {
+    worker: extra.worker || 'inngest-jobs',
+    job: extra.job || null,
+    user_id: extra.userId || null,
+    provider: 'anthropic',
+    model: u.model,
+    input_tokens: u.input,
+    cached_input_tokens: u.cached,
+    cache_write_tokens: u.cacheWrite,
+    output_tokens: u.output,
+    thinking_tokens: 0,
+    cost_usd: costUsd(u, Date.now(), true),
+    latency_ms: null,
+    status: 200,
+    ok: true,
+    batch: true,
+    run_id: extra.runId || null,
+  };
 }
 
 /**

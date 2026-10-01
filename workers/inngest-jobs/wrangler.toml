@@ -7,6 +7,17 @@ compatibility_flags = ["nodejs_compat"]
 # These will be overwritten by secrets
 CORTEX_WORKER_URL = "https://gentle-thunder-5854.woolmerjames.workers.dev"
 
+# Context pipeline (lifemaps-context-fixes-9.30):
+#   off     nothing new runs
+#   shadow  the fact ledger fills; DCO v4 and weekly results are written beside the live ones
+#   on      the new outputs are live: DCO v4, and the weekly synthesis owns the Life Map,
+#           the profile text and the words on each World
+# Models can be overridden per job, e.g. CONTEXT_MODEL_DAILY = "google:gemini-3.8-flash".
+CONTEXT_PIPELINE = "shadow"
+# People who get the new pipeline live while everyone else is in shadow (comma-separated user ids).
+# James first, so the morning brief on his own account is the test.
+CONTEXT_LIVE_USERS = "05a3c53d-b242-4b5f-a0db-83004c8e3892"
+
 # Add secrets via CLI:
 # npx wrangler secret put SUPABASE_URL
 # npx wrangler secret put SUPABASE_SERVICE_KEY
@@ -25,3 +36,4 @@ enabled = true
 
 [limits]
 cpu_ms = 300000
+

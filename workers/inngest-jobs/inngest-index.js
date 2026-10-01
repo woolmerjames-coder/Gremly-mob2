@@ -31,6 +31,8 @@ import { createDropAssignmentBackfill } from './dropAssignmentBackfill';
 import { createBackfillPriorityKind } from './backfillPriorityKind';
 import { aiContext, installAiUsageLogging } from './aiUsage';
 import { CARE_RULES } from './careRules';
+import { createContextFunctions, hourlyContextEvents, contextMode } from './context/functions';
+import { buildDcoV4, writeDco } from './context/daily';
 
 // Cloudflare Workers middleware to inject env bindings
 const bindings = new InngestMiddleware({
@@ -118,6 +120,10 @@ const synthesizeSingleUser = inngest.createFunction(
   { event: 'app/user.synthesize' },
   async ({ event, step, env }) => {
     const userId = event.data.user_id;
+    if (contextMode(env, userId) === 'on') {
+      // The weekly synthesis writes the profile text when the context pipeline is on.
+      return { user_id: userId, skipped: 'profile owned by weekly synthesis' };
+    }
     console.log(`[UserSynth] Starting for user: ${userId}`);
 
     const profileResult = await step.run('synthesize-profile', async () => {
@@ -320,6 +326,13 @@ const dcoDispatcher = inngest.createFunction(
       `[DCO Dispatcher] ${allUsers.length} active users, ${readyUsers.length} due a DCO now`,
     );
 
+    // Context pipeline: read new records into the ledger, and apply any
+    // correction whose event did not arrive.
+    const contextEvents = await step.run('context-events', () => hourlyContextEvents(env));
+    if (contextEvents.length > 0) {
+      await step.sendEvent('dispatch-context', contextEvents);
+    }
+
     // Step 4: Fan out DCO generation for each ready user
     if (readyUsers.length > 0) {
       await step.sendEvent(
@@ -349,13 +362,48 @@ const generateSingleUserDco = inngest.createFunction(
   async ({ event, step, env }) => {
     const userId = event.data.user_id;
     const timezone = event.data.timezone;
+    const mode = contextMode(env, userId);
 
+    // Pipeline on: DCO v4 is the live DCO.
+    // If v4 fails, the person still gets a DCO from the old path today.
+    let v4Error = null;
+    if (mode === 'on') {
+      try {
+        const built = await buildDcoV4(env, userId, { tz: timezone });
+        await writeDco(env, userId, built, { shadow: false });
+        return { user_id: userId, pipeline: 'dco-v4', date: built.today, attempts: built.attempts, review_flags: built.problems };
+      } catch (err) {
+        console.error(`[ALERT][DCO v4] Failed for user ${userId}, falling back to v3:`, err);
+        v4Error = String(err?.message || err).slice(0, 300);
+      }
+    }
+
+    let live;
     try {
-      return await generateSingleUserDcoV3(userId, timezone, env, false);
+      live = await generateSingleUserDcoV3(userId, timezone, env, false);
     } catch (error) {
       console.error(`[DCO] Failed for user ${userId}:`, error);
       throw error;
     }
+
+    if (v4Error) {
+      live.v4_fallback = { error: v4Error };
+      return live;
+    }
+
+    // Shadow: build DCO v4 beside the live row for comparison. A failure here is
+    // reported in the run output and logs, and does not undo the live DCO.
+    if (mode === 'shadow') {
+      try {
+        const built = await buildDcoV4(env, userId, { tz: timezone });
+        const written = await writeDco(env, userId, built, { shadow: true });
+        live.shadow_v4 = { ok: true, written, attempts: built.attempts, review_flags: built.problems.length };
+      } catch (err) {
+        console.error(`[DCO v4 shadow] Failed for user ${userId}:`, err);
+        live.shadow_v4 = { ok: false, error: String(err?.message || err).slice(0, 300) };
+      }
+    }
+    return live;
   },
 );
 
@@ -1915,6 +1963,10 @@ const weeklySummaryV07Worker = inngest.createFunction(
     // Step C.5: rebuild the Life Map from this week's analyst output (incremental delta merge).
     const lifeMapRebuild = await step.run('rebuild-life-map', async () => {
       const currentLifeMap = snapshot.raw.currentLifeMap?.life_map || null;
+      if (contextMode(env, user_id) === 'on') {
+        // The weekly synthesis owns the Life Map when the context pipeline is on.
+        return { skipped: true, mergedLifeMap: null, reason: 'owned by weekly synthesis' };
+      }
       if (!currentLifeMap) {
         console.warn(`[V07Worker] No existing Life Map for ${user_id}; skipping rebuild`);
         return { skipped: true, mergedLifeMap: null };
@@ -11106,6 +11158,7 @@ const inngestHandler = serve({
     createWorldsWeeklyScheduler(inngest),
     createDropAssignmentBackfill(inngest),
     createBackfillPriorityKind(inngest),
+    ...createContextFunctions(inngest),
   ],
   servePath: '/',
 });

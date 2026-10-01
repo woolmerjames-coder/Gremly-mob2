@@ -26,6 +26,10 @@ import type { ClassifierOutput } from './worldsClassifier';
 export interface WriterEnv {
   SUPABASE_URL: string;
   SUPABASE_SERVICE_KEY: string;
+  // When 'on', the weekly synthesis owns each world's words and phase, and the
+  // Worlds headline. The classifier then only adds structure (new worlds,
+  // chapters, life contexts) and velocity.
+  CONTEXT_PIPELINE?: string;
 }
 
 /**
@@ -634,10 +638,13 @@ export async function writeClassifierOutput(
       last_run_id: run_id,
       updated_at: now(),
     };
-    if (vu.recommend_dormant) {
+    const synthesisOwnsText = env.CONTEXT_PIPELINE === 'on';
+    if (vu.recommend_dormant && !synthesisOwnsText) {
       patch.phase = 'dormant';
     }
-    const worldProt = worldSourceProtection.get(vu.world_id);
+    const worldProt = synthesisOwnsText
+      ? { ...(worldSourceProtection.get(vu.world_id) || { noWorldType: false, mascot_slug_source: null }), noSummary: true, noCardSubtitle: true }
+      : worldSourceProtection.get(vu.world_id);
     if (vu.new_display_name != null && !worldProt?.noSummary) {
       patch.display_name = sanitizeAuthored(vu.new_display_name, 22) ?? vu.new_display_name;
     }
@@ -731,7 +738,7 @@ export async function writeClassifierOutput(
   }
 
   // ── Step 8b: write worlds_summary to user_daily_state ────────
-  if (output.worlds_summary) {
+  if (output.worlds_summary && env.CONTEXT_PIPELINE !== 'on') {
     // The user's own calendar date, not UTC, so it lines up with their DCO row.
     const { data: tzRow } = await db
       .from('notification_preferences')

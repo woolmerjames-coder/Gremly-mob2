@@ -25,6 +25,16 @@ export interface ProcessWindowEnv {
   ANTHROPIC_API_KEY: string;
   SUPABASE_URL: string;
   SUPABASE_SERVICE_KEY: string;
+  CONTEXT_PIPELINE?: string;
+  CONTEXT_LIVE_USERS?: string;
+}
+
+/** The context pipeline mode for one person: people on the live list get 'on' early. */
+function contextModeFor(env: ProcessWindowEnv, ownerId: string): string {
+  const mode = env.CONTEXT_PIPELINE || 'shadow';
+  if (mode === 'off' || mode === 'on') return mode;
+  const live = String(env.CONTEXT_LIVE_USERS || '').split(',').map((s) => s.trim()).filter(Boolean);
+  return live.includes(ownerId) ? 'on' : mode;
 }
 
 // ─── Return type ─────────────────────────────────────────────────────────────
@@ -184,6 +194,7 @@ export async function processWorldsWindow(params: {
   const writeResult = await writeClassifierOutput(classifierOutput, ownerId, {
     SUPABASE_URL: env.SUPABASE_URL,
     SUPABASE_SERVICE_KEY: env.SUPABASE_SERVICE_KEY,
+    CONTEXT_PIPELINE: contextModeFor(env, ownerId),
   });
 
   return {
