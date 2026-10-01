@@ -69,6 +69,34 @@ export async function patchDailyThreadMeta(
   return asThread(data);
 }
 
+/**
+ * Stamp one of the thread's moments (first seen, first reply, plan locked)
+ * with the time now, unless it already has one. Returns the stamp kept, and
+ * whether it was made by this call.
+ */
+export async function markDailyThreadOnce(
+  threadId: string,
+  field: 'seen_at' | 'answered_at' | 'plan_locked_at',
+): Promise<{ at: string; fresh: boolean } | null> {
+  const { data: current, error: readError } = await supabase
+    .from('scope_chats')
+    .select('metadata_json')
+    .eq('id', threadId)
+    .maybeSingle();
+  if (readError) throw new Error(`Failed to read the daily thread: ${readError.message}`);
+  const meta = (current?.metadata_json as DailyThreadMeta | null) ?? null;
+  if (!meta) return null;
+  const existing = meta[field];
+  if (existing) return { at: existing, fresh: false };
+  const at = nowTimestamp();
+  const { error } = await supabase
+    .from('scope_chats')
+    .update({ metadata_json: { ...meta, [field]: at }, updated_at: at })
+    .eq('id', threadId);
+  if (error) throw new Error(`Failed to update the daily thread: ${error.message}`);
+  return { at, fresh: true };
+}
+
 /** Recent daily threads for the history list, newest first. */
 export async function listDailyThreads(userId: string, limit = 30): Promise<DailyThread[]> {
   const { data, error } = await supabase

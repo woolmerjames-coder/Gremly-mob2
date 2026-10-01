@@ -29,6 +29,8 @@ export type HomeDockApi = {
   getChat: () => HomeChatApi | null;
   /** The Chat page reports when it is busy sending */
   setChatSending: (sending: boolean) => void;
+  /** The Chat page asks for different words in the empty box (null for the usual) */
+  setChatPlaceholder: (text: string | null) => void;
   /** The Chat page reports when the conversation is being scrolled */
   setChatScrolling: (scrolling: boolean) => void;
   /** Puts text into the shared box (a prompt another screen opened Chat with) */
@@ -46,6 +48,8 @@ export type HomeModeState = {
   chatSending: boolean;
   /** The conversation is being scrolled (Gremly steps aside while it is) */
   chatScrolling: boolean;
+  /** Words for the empty box in Chat mode, such as "Type your answer…"; null for the usual */
+  chatPlaceholder: string | null;
 };
 
 export const HomeDockContext = createContext<HomeDockApi | null>(null);

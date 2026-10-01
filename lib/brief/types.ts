@@ -83,6 +83,14 @@ export interface BriefOfferMeta extends BriefMetaBase {
   question_id?: string;
   /** The button tapped, once one has been; the buttons go after that */
   chosen?: { id: string; at: string } | null;
+  /** Waiting for the question to be answered or skipped; not shown until then */
+  held?: boolean;
+  /** Return day: what Catch me up says (the counts waiting in Sweep) */
+  catch_up?: string;
+  /** Minutes from local midnight where the first clear stretch starts, when planning is possible */
+  plan_from?: number;
+  /** The held offer this one shows again, after the question */
+  revealed_from?: string;
 }
 
 export type PlanStatus = 'proposal' | 'replaced' | 'dismissed' | 'locked';

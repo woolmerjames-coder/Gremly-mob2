@@ -28,11 +28,40 @@ export function isBriefMessage(m: Pick<SpaceChatMessage, 'metadata_json'>): bool
   return briefMetaOf(m) !== null;
 }
 
-/** Lines a rewrite replaced before anyone saw them are never shown. */
+/**
+ * Lines a rewrite replaced before anyone saw them are never shown, and an
+ * offer held back for the question stays hidden (a copy of it is added once
+ * the question is answered or skipped).
+ */
 export function visibleThreadMessages<T extends Pick<SpaceChatMessage, 'metadata_json'>>(
   messages: T[],
 ): T[] {
-  return messages.filter((m) => !briefMetaOf(m)?.superseded);
+  return messages.filter((m) => {
+    const meta = briefMetaOf(m);
+    if (!meta) return true;
+    if (meta.superseded) return false;
+    return !(meta.type === 'brief-offer' && meta.held);
+  });
+}
+
+/** The offer held back for the question, if it has not been shown yet. */
+export function heldOffer(messages: SpaceChatMessage[]): SpaceChatMessage | null {
+  const revealed = new Set<string>();
+  for (const m of messages) {
+    const meta = briefMetaOf(m);
+    if (meta?.type === 'brief-offer' && meta.revealed_from) revealed.add(meta.revealed_from);
+  }
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const meta = briefMetaOf(messages[i]);
+    if (
+      meta?.type === 'brief-offer' &&
+      meta.held &&
+      !meta.superseded &&
+      !revealed.has(messages[i].id)
+    )
+      return messages[i];
+  }
+  return null;
 }
 
 /** Morning until noon, afternoon until 5pm, then evening. */

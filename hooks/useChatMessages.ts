@@ -85,6 +85,17 @@ export interface UseChatMessagesResult {
   ) => Promise<void>;
   removeMessage: (messageId: string) => void;
   updateMessage: (messageId: string, updates: Partial<SpaceChatMessage>) => void;
+  /**
+   * Daily brief in Chat: save one message of the day's thread (a reply, a
+   * Gremly line, an event line or an offer) with its brief metadata.
+   */
+  appendBriefMessage: (
+    role: 'user' | 'assistant' | 'system',
+    content: string,
+    metadata: Record<string, unknown>,
+  ) => Promise<SpaceChatMessage | undefined>;
+  /** Merge fields into a message's metadata and save them. */
+  patchMessageMetadata: (messageId: string, patch: Record<string, unknown>) => Promise<void>;
   // Streaming support
   createStreamingMessage: () => Promise<{ messageId: string; chatId: string } | undefined>;
   updateStreamingContent: (messageId: string, content: string, mode?: 'append' | 'replace') => void;
@@ -714,6 +725,76 @@ export function useChatMessages(
     },
     [messageRepo],
   );
+  const appendBriefMessage = useCallback(
+    async (
+      role: 'user' | 'assistant' | 'system',
+      content: string,
+      metadata: Record<string, unknown>,
+    ): Promise<SpaceChatMessage | undefined> => {
+      const targetChatId = currentChatIdRef.current || currentChatId;
+      if (!targetChatId || !user?.id) return undefined;
+      isAddingMessageRef.current = true;
+      try {
+        const newMessage = await messageRepo.append({
+          chat_id: targetChatId,
+          scope_id: spaceId,
+          role,
+          content,
+          metadata_json: metadata,
+        });
+        messagesRef.current = [...messagesRef.current, newMessage];
+        setMessages((prev) =>
+          prev.some((m) => m.id === newMessage.id) ? prev : [...prev, newMessage],
+        );
+        if (role !== 'system' && content.trim()) {
+          chatRepo
+            .update(targetChatId, { last_message_snippet: content.trim().slice(0, 100) })
+            .catch(() => {});
+        }
+        return newMessage;
+      } catch (err) {
+        console.warn('[useChatMessages] Could not save a brief message', err);
+        return undefined;
+      } finally {
+        isAddingMessageRef.current = false;
+      }
+    },
+    [currentChatId, spaceId, user?.id, messageRepo, chatRepo],
+  );
+
+  const patchMessageMetadata = useCallback(
+    async (messageId: string, patch: Record<string, unknown>): Promise<void> => {
+      const current = messagesRef.current.find((m) => m.id === messageId);
+      if (!current) return;
+      const nextMeta = {
+        ...(current.metadata_json || {}),
+        ...patch,
+      } as SpaceChatMessage['metadata_json'];
+      messagesRef.current = messagesRef.current.map((m) =>
+        m.id === messageId ? { ...m, metadata_json: nextMeta } : m,
+      );
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? {
+                ...m,
+                metadata_json: {
+                  ...(m.metadata_json || {}),
+                  ...patch,
+                } as SpaceChatMessage['metadata_json'],
+              }
+            : m,
+        ),
+      );
+      try {
+        await messageRepo.update(messageId, { metadata_json: nextMeta as Record<string, unknown> });
+      } catch (err) {
+        console.warn('[useChatMessages] Could not save message metadata', err);
+      }
+    },
+    [messageRepo],
+  );
+
   const setEntityCardStatusRef = useRef(setEntityCardStatus);
   setEntityCardStatusRef.current = setEntityCardStatus;
 
@@ -849,6 +930,8 @@ export function useChatMessages(
     setEntityCardStatus,
     removeMessage,
     updateMessage,
+    appendBriefMessage,
+    patchMessageMetadata,
     // Streaming support
     createStreamingMessage,
     updateStreamingContent,

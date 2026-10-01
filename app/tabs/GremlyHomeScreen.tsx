@@ -87,6 +87,7 @@ export default function GremlyHomeScreen() {
   // send function. The API object never changes; see GremlyHomeDock.tsx.
   const [dock, setDock] = useState<React.ReactNode>(null);
   const [chatSending, setChatSending] = useState(false);
+  const [chatPlaceholder, setChatPlaceholder] = useState<string | null>(null);
   const [chatScrolling, setChatScrollingState] = useState(false);
   const scrollSettleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Gremly steps aside as soon as the conversation moves, and comes back a
@@ -153,6 +154,7 @@ export default function GremlyHomeScreen() {
       },
       getChat: () => chatApiRef.current,
       setChatSending,
+      setChatPlaceholder,
       setChatScrolling,
       prefillDraft: (text) => {
         if (draftSetterRef.current) draftSetterRef.current(text);
@@ -173,8 +175,8 @@ export default function GremlyHomeScreen() {
     [setChatScrolling],
   );
   const modeState = useMemo<HomeModeState>(
-    () => ({ mode, chatSending, chatScrolling }),
-    [mode, chatSending, chatScrolling],
+    () => ({ mode, chatSending, chatScrolling, chatPlaceholder }),
+    [mode, chatSending, chatScrolling, chatPlaceholder],
   );
   const switchTucked = keyboardOpen && mode === 'chat';
   const pendingModeRef = useRef<HomeMode | null>(null);

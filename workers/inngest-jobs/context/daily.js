@@ -30,7 +30,7 @@ import { loadStory } from './story';
 import { invalidateChatCache } from './cache';
 import { readThreadReaction } from '../brief/reaction';
 
-export const DCO_PROMPT_VERSION = 'dco-v4-2026-10-01c';
+export const DCO_PROMPT_VERSION = 'dco-v4-2026-10-01d';
 
 function trim(text, n) {
   const s = String(text || '')
@@ -181,7 +181,7 @@ export async function gatherDay(env, userId, tz, today) {
       `life_fact_changes?user_id=eq.${userId}&created_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -7)))}&select=fact_id,from_state,to_state,reason,created_at&order=created_at.desc&limit=40`,
     ),
     d.select(
-      `gremly_questions?user_id=eq.${userId}&status=in.(open,asked)&select=id,question,choices,created_at,fact:life_facts(private)&order=created_at.asc&limit=20`,
+      `gremly_questions?user_id=eq.${userId}&status=in.(open,asked)&select=id,question,choices,created_at,asked_at,fact:life_facts(private)&order=created_at.asc&limit=20`,
     ),
     d.rpc('absence_snapshot', { p_user: userId }),
     d.rpc('usage_rollup', { p_user: userId, p_grain: 'week', p_periods: 5 }),
@@ -352,8 +352,11 @@ export function renderDay(g, tz) {
   ];
 
   // Questions about private facts are for conversation, never the brief.
+  // A question put to them in the last three days (and skipped or left) waits
+  const askedSince = addDays(today, -3);
   const qLines = g.questions
     .filter((q) => !q.fact?.private)
+    .filter((q) => !q.asked_at || q.asked_at.slice(0, 10) < askedSince)
     .slice(0, 10)
     .map((q) => {
       const ref = addRef('q', {
@@ -362,7 +365,7 @@ export function renderDay(g, tz) {
         question: q.question,
         choices: Array.isArray(q.choices) ? q.choices : [],
       });
-      return `${ref} | asked ${q.created_at.slice(0, 10)} | ${trim(q.question, 200)}`;
+      return `${ref} | raised ${q.created_at.slice(0, 10)} | ${trim(q.question, 200)}`;
     });
 
   const a = g.absence || {};
@@ -458,7 +461,7 @@ export function renderDay(g, tz) {
   );
   lines.push('');
   lines.push(
-    `QUESTIONS GREMLY HAS FOR THE PERSON (ref | when | question):\n${qLines.join('\n') || '(none)'}`,
+    `QUESTIONS GREMLY HAS FOR THE PERSON (ref | when it was raised | question):\n${qLines.join('\n') || '(none)'}`,
   );
   lines.push('');
   const loves = (g.story || [])

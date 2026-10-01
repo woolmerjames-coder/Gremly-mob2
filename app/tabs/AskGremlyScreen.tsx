@@ -63,7 +63,7 @@ import { useCanChat, useCanCreate } from '../../lib/store/lifecycleSelectors';
 import { useWakeOnInput } from '../../hooks/useWakeOnInput';
 import { useMascotActions } from '../../hooks/useMascotActions';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
-import { useHomeDock } from '../../components/home/GremlyHomeDock';
+import { useHomeDock, useHomeMode } from '../../components/home/GremlyHomeDock';
 import { talkAboutOpener, type TalkAboutItem } from '../../lib/chat/talkAboutOpeners';
 import { anchorFor, anchorMetadata, anchorOf } from '../../lib/chat/chatAnchor';
 import { waitForExtraction } from '../../lib/chat/waitForExtraction';
@@ -71,10 +71,19 @@ import { findItemChat } from '../../lib/chat/itemChat';
 import type { ItemStarter } from '../../lib/chat/itemStarters';
 import { BriefMessage } from '../../components/brief/BriefMessage';
 import { BriefDayCardBlock } from '../../components/brief/BriefDayCardBlock';
-import { briefMetaOf, liveOfferId, visibleThreadMessages } from '../../lib/brief/messages';
+import {
+  briefMetaOf,
+  dayPartAt,
+  liveOfferId,
+  visibleThreadMessages,
+} from '../../lib/brief/messages';
 import { useBriefInChat } from '../../lib/brief/flag';
-import { ensureDailyThread } from '../../lib/repo/dailyThreadRepo';
-import type { BriefDayCardMeta, OfferButton } from '../../lib/brief/types';
+import { useBriefOffers } from '../../lib/brief/useBriefOffers';
+import { BRIEF_COPY } from '../../lib/brief/offerFlow';
+import { callDailyBrief } from '../../lib/cortex/CortexClient';
+import { markQuestionAsked } from '../../lib/story/storyApi';
+import { ensureDailyThread, markDailyThreadOnce } from '../../lib/repo/dailyThreadRepo';
+import type { BriefDayCardMeta, DailyThreadMeta, OfferButton } from '../../lib/brief/types';
 
 const MOSS = '#2E5540';
 const LINEN = '#F9F6F1';
@@ -191,6 +200,9 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     updateMessage,
     appendEntityCard,
     setEntityCardStatus,
+    appendBriefMessage,
+    patchMessageMetadata,
+    refresh: refreshMessages,
   } = useChatMessages(activeChat?.id, null);
   const openEntity = useOpenEntity();
   // entity cards live inside the reply they came with (one list row for the two)
@@ -205,6 +217,25 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     () => (isDailyThread ? liveOfferId(rows) : null),
     [isDailyThread, rows],
   );
+  // The brief's buttons: replies, the question, Catch me up, Just today, Not today.
+  // Planning (package 5) and Sweep (package 6) are handed back here.
+  const briefOffers = useBriefOffers({
+    threadId: isDailyThread && activeChat ? activeChat.id : null,
+    messages,
+    appendBriefMessage,
+    patchMessageMetadata,
+    onPlan: (_offer, button) => {
+      if (__DEV__) console.log('[DailyBrief] plan', button.label);
+    },
+    onSweep: () => {
+      if (__DEV__) console.log('[DailyBrief] sweep');
+    },
+    onWhatCanWait: () => {
+      if (__DEV__) console.log('[DailyBrief] what can wait');
+    },
+  });
+  const briefOffersRef = useRef(briefOffers);
+  briefOffersRef.current = briefOffers;
 
   // A change to an existing item that the Worker found after the reply arrives
   // through the same poll as the pill; it is shown once, under the last reply.
@@ -478,6 +509,11 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         return;
       }
       const trimmed = text.trim();
+      // Something else on Gremly's question: this message is the answer
+      if (isDailyThread && briefOffersRef.current.awaitingAnswer) {
+        await briefOffersRef.current.answerTyped(trimmed);
+        return;
+      }
       // a chat about an item feeds Gremly once each time it is opened, as the
       // old entity chat did
       if (itemAnchorRef.current && !itemFedRef.current) {
@@ -525,7 +561,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         Alert.alert('Error', 'Could not create chat');
       }
     },
-    [canChat, navigation, activeChat, sending, sendToChat, appendAssistantMessage],
+    [canChat, navigation, activeChat, sending, sendToChat, appendAssistantMessage, isDailyThread],
   );
 
   // Inside the Gremly home, the shared input box sends through handleSend.
@@ -632,10 +668,101 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       .catch((err) => console.warn("[DailyBrief] could not open today's thread:", err));
   }, [threadRequest, threadKey, briefInChat, userId, navigation, clearAbout]);
 
-  // The brief's buttons. Each package of the brief adds what its buttons do.
-  const handleOfferButton = useCallback((_message: SpaceChatMessage, button: OfferButton) => {
-    if (__DEV__) console.log('[DailyBrief] button', button.action, button.id);
-  }, []);
+  const handleOfferButton = useCallback(
+    (message: SpaceChatMessage, button: OfferButton) =>
+      briefOffersRef.current.handleOfferButton(message, button),
+    [],
+  );
+
+  // Something else: the shared box asks for the answer and opens the keyboard
+  const awaitingAnswer = isDailyThread && briefOffers.awaitingAnswer;
+  useEffect(() => {
+    if (!embedded || !homeDock) return;
+    homeDock.setChatPlaceholder(awaitingAnswer ? BRIEF_COPY.answerPlaceholder : null);
+    if (awaitingAnswer) homeDock.focusInput();
+  }, [embedded, homeDock, awaitingAnswer]);
+  useEffect(
+    () => () => {
+      if (embedded && homeDock) homeDock.setChatPlaceholder(null);
+    },
+    [embedded, homeDock],
+  );
+  // Leaving the thread lets go of a pending answer
+  const cancelAnswerRef = useRef(briefOffers.cancelAnswer);
+  cancelAnswerRef.current = briefOffers.cancelAnswer;
+  useEffect(() => {
+    cancelAnswerRef.current();
+  }, [activeChat?.id]);
+
+  // Today's brief is written on the first open when the morning job has not
+  // written one, and once a day again when the unseen lines were written for
+  // an earlier part of the day. Then the lines count as seen.
+  const homeMode = useHomeMode();
+  const chatOnScreen = !embedded || homeMode?.mode === 'chat';
+  const [briefWriting, setBriefWriting] = useState(false);
+  const briefAskedRef = useRef<string | null>(null);
+  const hasBriefLines = useMemo(
+    () => rows.some((m) => briefMetaOf(m)?.type === 'brief-text'),
+    [rows],
+  );
+  // Gremly's question counts as asked once it is on screen, so the brief
+  // leaves it for a few days if it is skipped or left
+  const askedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!isDailyThread || !chatOnScreen || briefWriting) return;
+    for (const m of rows) {
+      const meta = briefMetaOf(m);
+      if (meta?.type !== 'brief-offer' || meta.kind !== 'question' || !meta.question_id) continue;
+      if (meta.chosen || askedRef.current.has(meta.question_id)) continue;
+      askedRef.current.add(meta.question_id);
+      markQuestionAsked(meta.question_id).catch((err) =>
+        console.warn('[DailyBrief] could not mark the question asked:', err),
+      );
+    }
+  }, [isDailyThread, chatOnScreen, briefWriting, rows]);
+
+  useEffect(() => {
+    if (!isDailyThread || !activeChat || messagesLoading || !chatOnScreen || !briefInChat) return;
+    const meta = (activeChat.metadata_json ?? {}) as Partial<DailyThreadMeta>;
+    if (meta.seen_at) return;
+    const now = getDateService().now();
+    const part = dayPartAt(now.getHours());
+    const due: 'first_open' | 'rewrite' | null =
+      !hasBriefLines && !meta.brief_written_at
+        ? 'first_open'
+        : meta.brief_part && meta.brief_part !== part && !meta.rewrite_requested_at
+          ? 'rewrite'
+          : null;
+    const key = `${activeChat.id}:${due ?? 'seen'}:${part}`;
+    if (briefAskedRef.current === key) return;
+    briefAskedRef.current = key;
+    const threadId = activeChat.id;
+    (async () => {
+      if (due) {
+        setBriefWriting(true);
+        const res = await callDailyBrief(due);
+        if (!res.ok) console.warn('[DailyBrief] could not write the brief:', res.error);
+        await refreshMessages();
+        if (mountedRef.current) setBriefWriting(false);
+        if (!res.ok || res.data?.skipped || !res.data?.brief_id) {
+          if (!hasBriefLines) return;
+        }
+      } else if (!hasBriefLines) {
+        return;
+      }
+      await markDailyThreadOnce(threadId, 'seen_at').catch((err) =>
+        console.warn('[DailyBrief] could not mark the brief seen:', err),
+      );
+    })();
+  }, [
+    isDailyThread,
+    activeChat,
+    messagesLoading,
+    chatOnScreen,
+    briefInChat,
+    hasBriefLines,
+    refreshMessages,
+  ]);
   const renderDayCard = useCallback(
     (_message: SpaceChatMessage, meta: BriefDayCardMeta) => <BriefDayCardBlock date={meta.date} />,
     [],
@@ -697,6 +824,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             message={item}
             prev={rows[index - 1]}
             liveOfferId={offerLive}
+            interactive={!briefOffers.busy}
             onOfferButton={handleOfferButton}
             renderDayCard={renderDayCard}
           />
@@ -717,7 +845,15 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         </View>
       );
     },
-    [cardFor, entityCardHandlers, rows, offerLive, handleOfferButton, renderDayCard],
+    [
+      cardFor,
+      entityCardHandlers,
+      rows,
+      offerLive,
+      handleOfferButton,
+      renderDayCard,
+      briefOffers.busy,
+    ],
   );
 
   const inConversation = activeChat !== null;
@@ -900,7 +1036,22 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
               onMomentumScrollBegin={embedded ? () => homeDock?.setChatScrolling(true) : undefined}
               onMomentumScrollEnd={embedded ? () => homeDock?.setChatScrolling(false) : undefined}
               ListEmptyComponent={<View style={styles.flex} />}
-              ListFooterComponent={null}
+              ListFooterComponent={
+                briefWriting && isDailyThread ? (
+                  <View style={styles.messageContainer} testID="brief-writing">
+                    <ChatBubble
+                      message={
+                        {
+                          id: 'brief-writing',
+                          role: 'assistant',
+                          content: '',
+                          isStreaming: true,
+                        } as unknown as SpaceChatMessage
+                      }
+                    />
+                  </View>
+                ) : null
+              }
             />
           ) : item && !itemReady ? (
             <View style={styles.flex} testID="item-chat-loading" />
@@ -1041,7 +1192,11 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                 onChangeText={() => wakeOnInput()}
                 disabled={sending}
                 placeholder={
-                  inConversation || item ? 'Type a message...' : 'Ask Gremly anything...'
+                  awaitingAnswer
+                    ? BRIEF_COPY.answerPlaceholder
+                    : inConversation || item
+                      ? 'Type a message...'
+                      : 'Ask Gremly anything...'
                 }
                 initialText={autoSendKey ? undefined : prefillPrompt || undefined}
               />

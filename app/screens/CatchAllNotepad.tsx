@@ -3241,7 +3241,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           focusRequest={focusRequest}
           value={note}
           onChangeText={handleChangeText}
-          placeholder={chatMode ? 'Ask Gremly anything\u2026' : dynamicPlaceholder}
+          placeholder={
+            chatMode
+              ? (homeMode?.chatPlaceholder ?? 'Ask Gremly anything\u2026')
+              : dynamicPlaceholder
+          }
           placeholderTextColor="#757575"
           containerStyle={
             compactTyping
