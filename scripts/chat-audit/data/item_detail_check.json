@@ -1,0 +1,129 @@
+{
+  "itemsFrom": "james_check.json",
+  "todayIso": "2026-09-30",
+  "todayStr": "Wednesday, September 30, 2026",
+  "note": "Chats opened about one item, with what the item holds (itemDetail.js). What good looks like: the reply builds on what the item already says instead of asking for it, never reads it back in full, now and then suggests something it leaves open, and never claims to have added anything (a note or todo addition is offered by the pill).",
+  "items": [
+    {
+      "id": "7a1c3e52-1b4d-4f0a-9c2e-5d8b0f6a1e01",
+      "type": "note",
+      "subtype": "idea",
+      "title": "Japan Trip Plan",
+      "body": "Tokyo 4 nights then Kyoto 3. Want to see teamLab and do a food tour in Shinjuku. Not sure about an Osaka day trip. Do we need a JR pass? Book a ryokan in Kyoto with an onsen.",
+      "created_at": "2026-09-12T18:00:00Z",
+      "due_day": null,
+      "space_id": null
+    },
+    {
+      "id": "b84f2d19-6e3a-4c71-8a05-2f9d7c4e3b02",
+      "type": "todo",
+      "title": "Renew Car Insurance",
+      "notes": "Current policy ends 14 Oct. Quote from the current insurer is $820, another quote came in at $640 but with a higher excess.",
+      "list_items": [
+        { "text": "Get a third quote", "checked": false },
+        { "text": "Check the excess on each", "checked": true }
+      ],
+      "due_day": "2026-10-09",
+      "due_time": null,
+      "sweep_reschedule_count": 3,
+      "created_at": "2026-09-02T17:00:00Z",
+      "views": {
+        "change_log": [
+          { "field": "due_day", "from": "2026-09-18", "to": "2026-09-25", "was": "Fri 18 Sep", "now": "Fri 25 Sep", "at": "2026-09-17T20:00:00Z" },
+          { "field": "due_day", "from": "2026-09-25", "to": "2026-10-09", "was": "Fri 25 Sep", "now": "Fri 9 Oct", "at": "2026-09-24T20:00:00Z" }
+        ]
+      },
+      "space_id": null
+    },
+    {
+      "id": "3e9a6c27-d5f1-4b88-b6c3-9a1e4d2f7c03",
+      "type": "habit",
+      "subtype": "start_habit",
+      "title": "Morning Stretch",
+      "frequency": "daily",
+      "cadence": "daily",
+      "floor_note": "Two minutes of neck and shoulder rolls",
+      "logged_days": ["2026-09-28", "2026-09-21", "2026-09-20", "2026-09-14"],
+      "created_at": "2026-09-01T15:00:00Z",
+      "space_id": null
+    },
+    {
+      "id": "c5d2814b-7a96-4e3f-81d4-6b0c9e5a2d04",
+      "type": "note",
+      "subtype": "journal",
+      "title": "Nervous About the Board Presentation",
+      "body": "Board presentation on Thursday. I know the material but I freeze when they interrupt with questions. Last time I lost my thread on the budget slide.",
+      "mood": ["anxious"],
+      "created_at": "2026-09-29T04:00:00Z",
+      "space_id": null
+    },
+    {
+      "id": "f16b7e3d-2c58-4a9b-b7e1-8d3f5a0c6e05",
+      "type": "todo",
+      "title": "Plan Dave's Birthday Dinner",
+      "chat_summary": "Talked about booking somewhere in Mission; leaning towards a tasting menu, budget around $300, still need to check whether his sister can come.",
+      "due_day": "2026-10-10",
+      "due_time": null,
+      "created_at": "2026-09-20T17:00:00Z",
+      "space_id": null
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "ID-note-first",
+      "group": "Item detail: a note",
+      "anchor": "7a1c3e52-1b4d-4f0a-9c2e-5d8b0f6a1e01",
+      "opener": "**Japan Trip Plan**, got it. What would you like to talk through?",
+      "turns": ["What should I sort out first?"],
+      "expect": "Builds on what the note says (the ryokan, the JR pass, Osaka) without asking what the trip is or reading the note back."
+    },
+    {
+      "id": "ID-note-deeper",
+      "group": "Item detail: a note",
+      "anchor": "7a1c3e52-1b4d-4f0a-9c2e-5d8b0f6a1e01",
+      "opener": "**Japan Trip Plan**, got it. What would you like to talk through?",
+      "turns": ["Help me think deeper about this"],
+      "expect": "Goes deeper on what the note holds and may suggest something it leaves open. No list of everything in the note."
+    },
+    {
+      "id": "ID-note-settle",
+      "group": "Item detail: a note",
+      "anchor": "7a1c3e52-1b4d-4f0a-9c2e-5d8b0f6a1e01",
+      "opener": "**Japan Trip Plan**, got it. What would you like to talk through?",
+      "turns": ["Not sure about Osaka, is it worth it?", "Ok I'll skip Osaka and do a day in Nara instead"],
+      "expect": "Turn 2: the pill offers an addition to the note about Nara; the reply never says it added it."
+    },
+    {
+      "id": "ID-todo-notes",
+      "group": "Item detail: a todo",
+      "anchor": "b84f2d19-6e3a-4c71-8a05-2f9d7c4e3b02",
+      "opener": "**Renew Car Insurance**, got it. What would you like to talk through?",
+      "turns": ["What are the concrete next actions I should take?"],
+      "expect": "Uses the notes and the list: the third quote is what is left, the policy ends 14 Oct. Gentle about it having been put off, never shaming."
+    },
+    {
+      "id": "ID-habit-skip",
+      "group": "Item detail: a habit",
+      "anchor": "3e9a6c27-d5f1-4b88-b6c3-9a1e4d2f7c03",
+      "opener": "**Morning Stretch**, got it. What would you like to talk through?",
+      "turns": ["I've been struggling to stay consistent with this habit. Help me figure out what's getting in the way."],
+      "expect": "Knows the check-ins are patchy and the smallest version is two minutes of rolls; no claim to add anything to the habit."
+    },
+    {
+      "id": "ID-journal",
+      "group": "Item detail: a journal entry",
+      "anchor": "c5d2814b-7a96-4e3f-81d4-6b0c9e5a2d04",
+      "opener": "**Nervous About the Board Presentation**, got it. What would you like to talk through?",
+      "turns": ["Can we talk about this?"],
+      "expect": "Warm, picks up the freezing when interrupted and the budget slide, without reading the entry back."
+    },
+    {
+      "id": "ID-summary",
+      "group": "Item detail: earlier chats",
+      "anchor": "f16b7e3d-2c58-4a9b-b7e1-8d3f5a0c6e05",
+      "opener": "**Plan Dave's Birthday Dinner**, got it. What would you like to talk through?",
+      "turns": ["Where did we get to with this?"],
+      "expect": "Recalls the earlier chat: Mission, tasting menu, about $300, his sister still to check."
+    }
+  ]
+}

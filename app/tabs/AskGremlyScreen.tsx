@@ -89,8 +89,16 @@ export type ItemChatOptions = {
   initialPrompt?: string | null;
   /** The starters for its kind, shown under Gremly's opener */
   starters: ItemStarter[];
+  /**
+   * Starters drawn from the item itself (a note's topics), asked for only when
+   * its chat is new; none back keeps the usual starters
+   */
+  loadStarters?: () => Promise<ItemStarter[]>;
   onClose: () => void;
 };
+
+/** How long a new item chat waits for starters drawn from the item */
+export const ITEM_STARTERS_WAIT_MS = 6000;
 
 type AskGremlyScreenProps = {
   /** Rendered as the Chat page inside the Gremly home, under the DROP | CHAT
@@ -133,6 +141,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   // an item's chat sends its item with every turn, with the title as it is now
   const itemAnchorRef = useRef<ChatAnchor | null>(item?.anchor ?? null);
   itemAnchorRef.current = item?.anchor ?? null;
+  // whether this opening of an item's chat has fed the gauge yet
+  const itemFedRef = useRef(false);
   const [sending, setSending] = useState(false);
   const [saveSheetVisible, setSaveSheetVisible] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -452,6 +462,15 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         return;
       }
       const trimmed = text.trim();
+      // a chat about an item feeds Gremly once each time it is opened, as the
+      // old entity chat did
+      if (itemAnchorRef.current && !itemFedRef.current) {
+        itemFedRef.current = true;
+        useGremlyStore
+          .getState()
+          .trackSpaceChat?.()
+          ?.catch((err: unknown) => console.warn('[ItemChat] Gauge contribution failed:', err));
+      }
 
       if (activeChat) {
         if (sending) return;
@@ -522,6 +541,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   itemRef.current = item;
   const itemId = item?.anchor.id ?? null;
   const [itemReady, setItemReady] = useState(!item);
+  // starters drawn from the item: undefined until asked, null while waiting
+  const [itemStarters, setItemStarters] = useState<ItemStarter[] | null | undefined>(undefined);
   const itemLookedUpRef = useRef(false);
   const mountedRef = useRef(true);
   useEffect(
@@ -548,10 +569,31 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       aboutRef.current = { item: talk, opener };
       setAboutItem(talk);
       setAboutOpener(opener);
+      if (opened.initialPrompt) {
+        setItemReady(true);
+        handleSendRef.current(opened.initialPrompt);
+        return;
+      }
+      if (opened.loadStarters) {
+        setItemStarters(null);
+        setItemReady(true);
+        let waited: ReturnType<typeof setTimeout> | undefined;
+        const drawn = await Promise.race([
+          opened.loadStarters().catch((): ItemStarter[] => []),
+          new Promise<ItemStarter[]>((resolve) => {
+            waited = setTimeout(() => resolve([]), ITEM_STARTERS_WAIT_MS);
+          }),
+        ]);
+        clearTimeout(waited);
+        if (!mountedRef.current) return;
+        setItemStarters(drawn.length ? drawn : opened.starters);
+        return;
+      }
       setItemReady(true);
-      if (opened.initialPrompt) handleSendRef.current(opened.initialPrompt);
     })();
   }, [itemId, userId]);
+  // what shows under the opener: drawn starters once they are back, none while waiting
+  const shownStarters = item ? (itemStarters === undefined ? item.starters : itemStarters) : null;
 
   // Opened from a Mind Drop question ("Chat with Gremly" or "Ask Gremly now"):
   // send the drop straight away so Gremly replies, once per request.
@@ -811,9 +853,9 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                   } as unknown as SpaceChatMessage
                 }
               />
-              {item && !sending ? (
-                <View style={styles.itemStarters}>
-                  {item.starters.map(({ key, label, prompt, icon: Icon }) => (
+              {item && !sending && shownStarters ? (
+                <View style={styles.itemStarters} testID="item-starters">
+                  {shownStarters.map(({ key, label, prompt, icon: Icon }) => (
                     <TouchableOpacity
                       key={key}
                       style={styles.starterCard}
@@ -827,6 +869,15 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                       <Text style={styles.starterLabel}>{label}</Text>
                       <ChevronRight size={16} color="rgba(46,85,64,0.4)" strokeWidth={2} />
                     </TouchableOpacity>
+                  ))}
+                </View>
+              ) : item && !sending && itemStarters === null ? (
+                // the starters are being drawn from the item: their places, held
+                <View style={styles.itemStarters} testID="item-starters-loading">
+                  {[0, 1, 2].map((n) => (
+                    <View key={n} style={[styles.starterCard, styles.starterPlaceholder]}>
+                      <View style={styles.starterGlyph} />
+                    </View>
                   ))}
                 </View>
               ) : null}
@@ -1347,6 +1398,10 @@ const styles = StyleSheet.create({
   itemStarters: {
     marginTop: 18,
     gap: 10,
+  },
+  starterPlaceholder: {
+    opacity: 0.5,
+    height: 58,
   },
   itemHeaderLabel: {
     fontFamily: 'PlusJakartaSans-SemiBold',

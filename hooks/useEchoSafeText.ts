@@ -32,7 +32,9 @@ export function useEchoSafeText(
   // what this box reported that the parent has not passed back yet, oldest first
   const pendingRef = useRef<string[]>([]);
   const onChangeRef = useRef(onChangeText);
-  onChangeRef.current = onChangeText;
+  useLayoutEffect(() => {
+    onChangeRef.current = onChangeText;
+  });
 
   useLayoutEffect(() => {
     const pending = pendingRef.current;

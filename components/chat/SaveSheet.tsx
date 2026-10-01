@@ -9,7 +9,7 @@ import {
   Pressable,
 } from 'react-native';
 import { Check, CheckSquare, Repeat, FileText, MessageSquare, Pencil } from 'lucide-react-native';
-import { editPillTitle } from '../../lib/chat/entityCards';
+import { editPillTitle, formatDay } from '../../lib/chat/entityCards';
 
 interface SaveSheetProps {
   visible: boolean;
@@ -113,7 +113,7 @@ export function SaveSheet({
                       </Text>
                     ) : null}
                     {item.due_date ? (
-                      <Text style={styles.itemMeta}>Due: {item.due_date}</Text>
+                      <Text style={styles.itemMeta}>Due: {formatDay(item.due_date)}</Text>
                     ) : null}
                     {item.frequency ? <Text style={styles.itemMeta}>{item.frequency}</Text> : null}
                   </View>

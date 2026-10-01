@@ -220,6 +220,9 @@ export function candidatesFor(message, items, recent, limit = MATCH_ITEMS_MAX, a
     // the item on the last card: shown, or declined when the user said it was
     // not the one (then the model is told so and must not pick it again)
     const flag = recent.status === 'declined' ? { declined: true } : { shown: true };
+    // a change they said yes to on that card has been made (the app sends it)
+    const made = recent.status === 'applied' ? appliedChangeOf(recent) : null;
+    if (made) flag.applied = changeInWords({ entity: recent, change: made });
     const shown = fresh
       ? { ...fresh, ...flag }
       : {
@@ -260,7 +263,7 @@ function withKeys(list) {
 
 export const ENTITY_MATCH_SYSTEM_PROMPT = `You decide whether a chat message in a personal productivity app is about something the user already has, and what they want done with it.
 
-You are given today's date, the message, the last few exchanges when there are any, and the user's items: their todos and notes, some with a day and time, and their habits with how often they repeat. The list is everything they have, so most of it has nothing to do with the message. Read the whole list before deciding; an item near the end counts as much as one near the top. An item marked as shown on the card in the last reply is the one the app has just shown them; one marked as not the one they meant was on the last card and they turned it down, so it is never the answer. When the message only turns that card down, what they want is still what they asked for in the exchange before it: find the other items that fit that request among everything they have, and ask which of them they mean (ask true, with their ids in candidates), or take the one that plainly fits. A short follow up takes its meaning from the exchanges before it: a pronoun or a bare yes means the item those exchanges were about unless the message plainly names something else, and a yes to an offer Gremly made is an edit with the change that offer named. An item marked as the one this chat was opened about is the one the user chose to talk about when the chat began: a pronoun, a bare reference or a message with no subject of its own means that item, unless the exchanges since have moved on to something else or the message plainly names another item or something new. Otherwise it is judged like every other item: it goes in about only when the message is about it, and anything else they bring up is found on the list as usual.
+You are given today's date, the message, the last few exchanges when there are any, and the user's items: their todos and notes, some with a day and time, and their habits with how often they repeat. The list is everything they have, so most of it has nothing to do with the message. Read the whole list before deciding; an item near the end counts as much as one near the top. An item marked as shown on the card in the last reply is the one the app has just shown them; when it is marked with a change they said yes to, that change has been made, so a message that only follows up on it asks for nothing new: intent mention, change null, unless they ask for a different change. One marked as not the one they meant was on the last card and they turned it down, so it is never the answer. When the message only turns that card down, what they want is still what they asked for in the exchange before it: find the other items that fit that request among everything they have, and ask which of them they mean (ask true, with their ids in candidates), or take the one that plainly fits. A short follow up takes its meaning from the exchanges before it: a pronoun or a bare yes means the item those exchanges were about unless the message plainly names something else, and a yes to an offer Gremly made is an edit with the change that offer named. An item marked as the one this chat was opened about is the one the user chose to talk about when the chat began: a pronoun, a bare reference or a message with no subject of its own means that item, unless the exchanges since have moved on to something else or the message plainly names another item or something new. Otherwise it is judged like every other item: it goes in about only when the message is about it, and anything else they bring up is found on the list as usual.
 
 This is a conversation first. Two different things can follow from your answer, so tell them apart: a card in the reply, which interrupts the conversation and is only for an explicit ask; and a quiet offer later, which is for things said in passing.
 
@@ -317,7 +320,12 @@ export function buildEntityMatchInput({
             : 'note, no day set';
     const tags = [];
     if (c.anchored) tags.push('this chat was opened about this item');
-    if (c.shown) tags.push('shown on the card in the last reply');
+    if (c.shown)
+      tags.push(
+        c.applied
+          ? `shown on the card in the last reply, where they said yes to ${c.applied}, which has been made`
+          : 'shown on the card in the last reply',
+      );
     else if (c.declined)
       tags.push('on the last card; the user said this was not the one they meant');
     const tag = tags.length ? ` [${tags.join('; ')}]` : '';
@@ -593,7 +601,7 @@ export function habitProgressWords(h, todayIso) {
 }
 
 /** Days from a to b, both YYYY-MM-DD; positive when b is later. */
-function daysBetween(a, b) {
+export function daysBetween(a, b) {
   const [ay, am, ad] = a.split('-').map(Number);
   const [by, bm, bd] = b.split('-').map(Number);
   return Math.round((Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / 86400000);
@@ -722,7 +730,7 @@ export function theirItemsPromptSection(match, todayIso, opts = {}) {
   const anchor = opts.anchor && opts.anchor.title && !opts.anchor.gone ? opts.anchor : null;
   const parts = [
     '=== WHAT THEY HAVE ON ===',
-    "Their own items, as they stand right now. You know these exist. When one bears on what they said, say so plainly and in passing, in your own words: that it is already on their list, when it is, that it is overdue. You may offer the natural next step for the item they are talking about (moving it, marking it done) as a plain question in your own words; the app handles the confirmation, so never mention a card, a button or tapping, never say you will set anything up or get anything ready, never say a change has been made, and never offer to change several at once: one item per offer. Never offer to move something else to make room. Never offer to change an item to what it already is; when what they say matches how it is set, say that it already is. Never say something is on their list unless it is listed here and is the very thing they mean: an item that only shares a word or a subject with what they said is a different thing. If they ask for something to be done to an item you cannot see here, ask which one they mean. An item named anywhere else in what you know about them, such as their life map, earlier chats or upcoming dates, is history: it may since have been done, archived or renamed, so never say it is on their list and never offer to change it unless it is listed here. Never read the list out, never mention more than one or two, and leave them alone when the conversation is elsewhere. An overdue item is not on any particular day, so never present it as part of a day's plan. A habit line shows what has been logged; when they say they did a habit on a day that is already logged, say it is already counted, and you may speak to how the habit is going from what is logged.",
+    "Their own items, as they stand right now. You know these exist. When one bears on what they said, say so plainly and in passing, in your own words: that it is already on their list, when it is, that it is overdue. You may offer the natural next step for the item they are talking about (moving it, marking it done) as a plain question in your own words; the app handles the confirmation, so never mention a card, a button or tapping, never say you will do anything to it yourself, never say a change has been made, and never offer to change several at once: one item per offer. Never offer to move something else to make room. Never offer to change an item to what it already is; when what they say matches how it is set, say that it already is. Never say something is on their list unless it is listed here and is the very thing they mean: an item that only shares a word or a subject with what they said is a different thing. If they ask for something to be done to an item you cannot see here, ask which one they mean. An item named anywhere else in what you know about them, such as their life map, earlier chats or upcoming dates, is history: it may since have been done, archived or renamed, so never say it is on their list and never offer to change it unless it is listed here. Never read the list out, never mention more than one or two, and leave them alone when the conversation is elsewhere. An overdue item is not on any particular day, so never present it as part of a day's plan. A habit line shows what has been logged; when they say they did a habit on a day that is already logged, say it is already counted, and you may speak to how the habit is going from what is logged.",
   ];
   if (anchor) {
     parts.push(
@@ -1115,20 +1123,44 @@ export function anchorPromptSection(anchor, todayIso, opts = {}) {
   }
   const known = `The user opened this chat from their ${kind} "${title}" to talk it through, so they know it exists and is on their list: never tell them it is on their list or already tracked, never offer to add or save it, and never ask whether it is new.`;
   if (opts.mode === 'entity_card') return `${head}${known}`;
-  return `${head}${known} Until the conversation moves on, what they say is about this item: talk it through with them and help with whatever they need about it. When they move on to something else, follow them and leave this item alone.\n${itemLine(anchor, todayIso)}`;
+  const detail = opts.detailText ? `\n${opts.detailText}\n${workFromIt(anchor.type)}` : '';
+  return `${head}${known} Until the conversation moves on, what they say is about this item: talk it through with them and help with whatever they need about it. When they move on to something else, follow them and leave this item alone.\n${itemLine(anchor, todayIso)}${detail}`;
+}
+
+/**
+ * How the reply uses what the item holds: it builds on it, and now and then
+ * offers something it leaves open. What they settle can be added to a note or
+ * a todo (the Save items pill offers that after the reply); a habit holds no
+ * text to add to.
+ */
+function workFromIt(type) {
+  const add =
+    type === 'habit'
+      ? ''
+      : ' What they settle about it can be added to it: the app offers that after your reply, so never say you have added it or will.';
+  return `Work from what it already holds: build on it rather than asking them for what is already there, and never read it back to them in full. Now and then, when the moment suits it, suggest something it leaves open that they could talk through.${add}`;
 }
 
 /**
  * Everything the reply is told about the user's items for one turn, in order:
  * the card under the reply, what became of the last card, the item the chat
- * was opened about, and what they have on. The Worker's chat paths and the
+ * was opened about (with what it holds, itemDetail.js, when the caller read
+ * it), and what they have on. The Worker's chat paths and the
  * scenario runner all build it here, so the runner reads what production reads.
  */
-export function turnItemSections({ match, card, recent, anchor = null, mode, todayIso }) {
+export function turnItemSections({
+  match,
+  card,
+  recent,
+  anchor = null,
+  mode,
+  todayIso,
+  detailText = '',
+}) {
   let out = '';
   if (card) out += entityCardPromptSection(card, { anchorId: anchor?.id || null, todayIso });
   out += recentCardPromptSection(recent, todayIso);
-  out += anchorPromptSection(anchor, todayIso, { mode });
+  out += anchorPromptSection(anchor, todayIso, { mode, detailText });
   out += theirItemsPromptSection(match, todayIso, { mode, card, anchor });
   return out;
 }
@@ -1147,7 +1179,7 @@ export function entityCardPromptSection(card, opts = {}) {
       opts.anchorId && card.entity.id === opts.anchorId
         ? `offer to ${change} if they want`
         : `let them know that item is already on their list and you can ${change} if they want`;
-    return `\n\n=== ENTITY CARD ===\nBecause of what they just said, the app is showing a card under your reply for ${item}, proposing to ${change}. Nothing has changed; they decide with one tap. Reply to what they said the way you normally would, and in one clause, in your own words, ${say}. Never mention a card, a button or tapping, never say you will set anything up or get anything ready, and never say it is done or updated.`;
+    return `\n\n=== ENTITY CARD ===\nBecause of what they just said, the app is showing a card under your reply for ${item}, proposing to ${change}. Nothing has changed; they decide with one tap. Reply to what they said the way you normally would, and in one clause, in your own words, ${say}. Never mention a card, a button or tapping, never say you will do anything to it yourself, and never say it is done or updated.`;
   }
   if (card.kind === 'edit') {
     return `\n\n=== ENTITY CARD ===\nThe app is showing the user a card for ${item} proposing to ${change}. ${never} Reply with one short, warm line asking whether that is the one, and stop.`;

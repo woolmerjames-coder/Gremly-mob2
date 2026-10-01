@@ -11,7 +11,11 @@
 // A spec may take its items (and persona) from another spec with itemsFrom,
 // adding its own items to them. A scenario with anchor (an item id) is a chat
 // opened about that item ("Talk it through"): it starts with Gremly's opener
-// and every turn carries the anchor, as the app sends it.
+// and every turn carries the anchor, as the app sends it. The reply is also
+// given what the anchored item holds (itemDetail.js), built from the spec
+// item's own fields (body, notes, list_items, floor_note, chat_summary and
+// the rest, named as the database names them), as the Worker builds it from
+// the row.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { keys } from './keys.mjs';
 import { dirname, join } from 'node:path';
@@ -26,6 +30,7 @@ import {
   checkNewAgainstTracked,
 } from '../../workers/cortex/entityMatch.js';
 import { buildGeneralChatConfig } from '../../workers/cortex/gremlyPersona.js';
+import { toDetail, itemDetailText } from '../../workers/cortex/itemDetail.js';
 import { geminiGenerate } from '../../workers/cortex/geminiClient.js';
 import { helperFetch } from '../../workers/cortex/helperClient.js';
 import {
@@ -40,6 +45,7 @@ import {
   lateCardCandidate,
   newItemsOnly,
   NO_EXTRACTION_MODES,
+  withValidDays,
 } from '../../workers/cortex/chatPrompts.js';
 
 configureModels({
@@ -190,8 +196,16 @@ async function extraction(items, history, card, match, recent, shownCards, messa
     // found by the extraction, held back by the check
     lateCardHeld: offered ? null : brief(unseen),
     lateCardFull: lateCard,
-    items: newItemsOnly(news).map((e) => ({ kind: 'new', type: e.type, title: e.title, same_as: e.same_as || null })),
-    rawNew: raw.map((e) => ({ title: e.title, type: e.type, same_as: e.same_as || null })),
+    // the day a new item is for, as the app saves it (due_date for a todo, resolved_date for an event)
+    items: withValidDays(newItemsOnly(news)).map((e) => ({
+      kind: 'new',
+      type: e.type,
+      title: e.title,
+      same_as: e.same_as || null,
+      due_date: e.due_date || null,
+      resolved_date: e.resolved_date || null,
+    })),
+    rawNew: raw.map((e) => ({ title: e.title, type: e.type, same_as: e.same_as || null, due_date: e.due_date || null })),
     ungrounded: raw.length - grounded.length,
   };
 }
@@ -245,6 +259,7 @@ function applyTap(items, card) {
       return { ...i, logged_days: [...(c.days || [c.to]), ...(i.logged_days || [])] };
     if (c.field === 'name') return { ...i, title: c.to };
     if (c.field === 'due_day') return { ...i, due_day: c.to, target_date: c.to };
+    if (c.field === 'body_add') return { ...i, body: i.body ? `${i.body}\n\n${c.to}` : c.to };
     return { ...i, [c.field]: c.to };
   });
 }
@@ -325,15 +340,41 @@ for (const sc of runs) {
     const triage = applyEntityCardToTriage(triageRaw, card);
     const gen = buildGeneralChatConfig(triage, { runningSummary: '' }, null, '', persona, TZ, null);
     const anchorNow = match?.anchor || anchor;
+    // what the anchored item holds, from its row as it is now (taps applied)
+    const anchorItemNow = anchorNow && !anchorNow.gone ? items.find((i) => i.id === anchorNow.id) : null;
+    const detailText = anchorItemNow
+      ? itemDetailText(
+          toDetail(anchorItemNow, anchorItemNow.type, {
+            loggedDays: anchorItemNow.logged_days || [],
+            spaceName: anchorItemNow.space_name || null,
+            timezone: TZ,
+          }),
+          todayIso,
+        )
+      : '';
     const system =
       gen.systemPrompt +
-      turnItemSections({ match, card, recent, anchor: anchorNow, mode: triage.mode, todayIso });
+      turnItemSections({
+        match,
+        card,
+        recent,
+        anchor: anchorNow,
+        mode: triage.mode,
+        todayIso,
+        detailText,
+      });
     // what the reply was told it can see, for the results file
     const theirs = theirItemsPromptSection(match, todayIso, {
       mode: triage.mode,
       card,
       anchor: anchorNow,
     });
+    // DUMP_PROMPTS=<dir> keeps each turn's reply prompt, for reading what the reply was told
+    if (process.env.DUMP_PROMPTS)
+      writeFileSync(
+        join(process.env.DUMP_PROMPTS, `${sc.id.replace(/[^\w.-]/g, '_')}-${turns.length + 1}.txt`),
+        system,
+      );
     const msgs = [...lead, ...history, { role: 'user', content: message }];
     const r = await geminiGenerate(
       system,

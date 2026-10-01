@@ -1,7 +1,6 @@
 [
   {
     "id": "AP-plumber",
-    "base": "AP-plumber",
     "group": "Applied: did it go through",
     "expect": "Turn 1: card to move it to Thursday. Turn 2: says plainly it is now on Thursday (tomorrow); never 'still', never offers to move it again. Turn 3: talks about being slammed.",
     "note": null,
@@ -32,7 +31,7 @@
           "gone": false
         },
         "known": [],
-        "reply": "Does Thursday work better for getting the plumber out to the house?",
+        "reply": "Does Thursday work better for getting that plumber call out of the way?",
         "pill": {
           "lateCard": null,
           "lateCardHeld": null,
@@ -41,10 +40,10 @@
           "rawNew": [],
           "ungrounded": 0,
           "gated": false,
-          "ms": 1201
+          "ms": 3271
         },
-        "ms": 3977,
-        "cardMs": 1793,
+        "ms": 5218,
+        "cardMs": 997,
         "raw": {
           "considered": [
             "1c947bef"
@@ -84,7 +83,7 @@
           "note \"Bella Vet Appointment\", Friday 2 October",
           "todo \"Submit to Apple Health\", due Sunday 4 October"
         ],
-        "reply": "Yes, **Call the Plumber** is set for tomorrow, Thursday, October 1. Since you also have to send that Sage Future deck tomorrow, does that timing still work for you?",
+        "reply": "Yes, **Call the Plumber** is set for tomorrow, Thursday, October 1. Since you also have the **Sage Future Deck** due then, does that timing still feel manageable?",
         "pill": {
           "lateCard": null,
           "lateCardHeld": null,
@@ -93,22 +92,22 @@
           "rawNew": [],
           "ungrounded": 0,
           "gated": false,
-          "ms": 946
+          "ms": 1735
         },
-        "ms": 3319,
-        "cardMs": 1403,
+        "ms": 3768,
+        "cardMs": 955,
         "raw": {
           "considered": [
             "1c947bef"
           ],
           "refers": true,
           "entity_id": "1c947bef",
-          "intent": "view",
+          "intent": "mention",
           "change": null,
           "about": [
             "1c947bef"
           ],
-          "confidence": 95,
+          "confidence": 100,
           "ask": false,
           "candidates": []
         },
@@ -131,7 +130,7 @@
         "known": [
           "none of their items, as far as the app can tell"
         ],
-        "reply": "That sounds **completely draining**. Balancing the Sage Future deck with client work and trying to get someone out to the house is a lot to carry at once. \n\nWhen you're ready, do you want to push the plumber call to next week so it's not hanging over you while you're slammed?",
+        "reply": "That sounds completely overwhelming. Between the client work and getting the Gremly deck ready for Thursday, it's a lot to carry at once. If it helps, we could push the plumber call to Friday or even next week when things settle down?",
         "pill": {
           "skipped": true,
           "items": [],
@@ -143,8 +142,8 @@
           "gated": true,
           "ms": 0
         },
-        "ms": 2814,
-        "cardMs": 1711,
+        "ms": 1775,
+        "cardMs": 790,
         "raw": {
           "considered": [
             "1c947bef",
@@ -169,7 +168,6 @@
   },
   {
     "id": "AP-plain",
-    "base": "AP-plain",
     "group": "Applied: did it go through",
     "expect": "Turn 1: card to move Call Kim and Andrew to Monday 5 October. Turn 2: says plainly it is now on Monday.",
     "note": null,
@@ -206,10 +204,10 @@
           "rawNew": [],
           "ungrounded": 0,
           "gated": false,
-          "ms": 1340
+          "ms": 1197
         },
-        "ms": 3224,
-        "cardMs": 959,
+        "ms": 3107,
+        "cardMs": 1014,
         "raw": {
           "considered": [
             "2a33aa09",
@@ -255,17 +253,17 @@
           "rawNew": [],
           "ungrounded": 0,
           "gated": false,
-          "ms": 1574
+          "ms": 1397
         },
-        "ms": 4556,
-        "cardMs": 2014,
+        "ms": 3402,
+        "cardMs": 954,
         "raw": {
           "considered": [
             "2a33aa09"
           ],
           "refers": true,
           "entity_id": "2a33aa09",
-          "intent": "view",
+          "intent": "mention",
           "change": null,
           "about": [
             "2a33aa09"
@@ -284,7 +282,6 @@
   },
   {
     "id": "AP-later",
-    "base": "AP-later",
     "group": "Applied: did it go through",
     "expect": "Turn 1: card to move Send Out Sage Future Deck to Friday 2 October. Turn 3: says Friday 2 October.",
     "note": null,
@@ -312,7 +309,7 @@
         ],
         "anchor": null,
         "known": [],
-        "reply": "Would you like to move the Sage Future deck to Friday?",
+        "reply": "Do you want to move this to Friday?",
         "pill": {
           "lateCard": null,
           "lateCardHeld": null,
@@ -321,10 +318,10 @@
           "rawNew": [],
           "ungrounded": 0,
           "gated": false,
-          "ms": 851
+          "ms": 967
         },
-        "ms": 2834,
-        "cardMs": 1070,
+        "ms": 2901,
+        "cardMs": 1157,
         "raw": {
           "considered": [
             "c6f33bc9",
@@ -342,7 +339,7 @@
           "about": [
             "c6f33bc9"
           ],
-          "confidence": 95,
+          "confidence": 98,
           "ask": false,
           "candidates": []
         },
@@ -353,12 +350,14 @@
         "mode": "chit_chat",
         "modeBeforeCard": null,
         "card": null,
-        "about": [],
+        "about": [
+          "Send Out Sage Future Deck"
+        ],
         "anchor": null,
         "known": [
-          "none of their items, as far as the app can tell"
+          "todo \"Send Out Sage Future Deck\", due Friday 2 October"
         ],
-        "reply": "You're welcome, James. Good luck with the **client services** work today, and give Bella a scratch for me.",
+        "reply": "You're welcome. It's already moved to Friday, so you've got a bit more breathing room to focus on your client work today. Give Bella a scratch for me.",
         "pill": {
           "skipped": true,
           "items": [],
@@ -370,18 +369,20 @@
           "gated": true,
           "ms": 0
         },
-        "ms": 2037,
-        "cardMs": 1048,
+        "ms": 2029,
+        "cardMs": 1002,
         "raw": {
           "considered": [
             "c6f33bc9"
           ],
-          "refers": false,
-          "entity_id": null,
-          "intent": "none",
+          "refers": true,
+          "entity_id": "c6f33bc9",
+          "intent": "mention",
           "change": null,
-          "about": [],
-          "confidence": 0,
+          "about": [
+            "c6f33bc9"
+          ],
+          "confidence": 95,
           "ask": false,
           "candidates": []
         },
@@ -406,7 +407,7 @@
           "note \"Bella Vet Appointment\", Friday 2 October",
           "todo \"Submit to Apple Health\", due Sunday 4 October"
         ],
-        "reply": "It's set for this Friday, October 2. That puts it on the same day as your **Bella vet appointment** and the call with Kim and Andrew.",
+        "reply": "It's set for **Friday, October 2**. That puts it on the same day as your vet appointment for Bella and your call with Kim and Andrew.",
         "pill": {
           "lateCard": null,
           "lateCardHeld": null,
@@ -415,10 +416,10 @@
           "rawNew": [],
           "ungrounded": 0,
           "gated": false,
-          "ms": 1244
+          "ms": 1790
         },
-        "ms": 3226,
-        "cardMs": 1005,
+        "ms": 3686,
+        "cardMs": 1003,
         "raw": {
           "considered": [
             "c6f33bc9"

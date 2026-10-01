@@ -9,9 +9,11 @@ import {
   Compass,
   Lightbulb,
   ListChecks,
+  MessageCircle,
   Search,
   Sparkles,
 } from 'lucide-react-native';
+import type { ItemTopic } from '../cortex/CortexClient';
 
 export type ItemKind = 'todo' | 'habit' | 'note';
 
@@ -127,4 +129,17 @@ export function itemKindLabel(kind: ItemKind, subtype?: string | null): string {
   if (subtype === 'journal') return 'Journal';
   if (subtype === 'idea') return 'Idea';
   return 'Note';
+}
+
+/**
+ * Starters drawn from what a note says (fetchItemTopics), in the shape the
+ * chat shows; none when there are none, so the chat keeps its usual ones.
+ */
+export function startersFromTopics(topics: ItemTopic[]): ItemStarter[] {
+  return topics.map((t, i) => ({
+    key: `topic-${i}`,
+    label: t.label.trim(),
+    prompt: t.message.trim(),
+    icon: MessageCircle,
+  }));
 }

@@ -973,7 +973,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const isViewMode = displayMode === 'view' && mode === 'view';
 
   // Entity Chat: get store selectors and derive entityType
-  const getEntityChatMessageCount = useGremlyStore((s) => s.getEntityChatMessageCount);
   const updateEntityChatNoteChecklist = useGremlyStore((s) => s.updateEntityChatNoteChecklist);
   const updateEntityChatNote = useGremlyStore((s) => s.updateEntityChatNote);
   const deleteEntityChatNote = useGremlyStore((s) => s.deleteEntityChatNote);
@@ -988,11 +987,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     if (baseType === 'habit') return 'habit';
     return 'note'; // log maps to 'note'
   }, [baseType]);
-
-  const hasExistingChat = useMemo(() => {
-    if (!currentEntityId) return false;
-    return getEntityChatMessageCount(currentEntityId, entityTypeForChat) > 0;
-  }, [currentEntityId, entityTypeForChat, getEntityChatMessageCount]);
 
   // Entity Chat: get saved notes for current entity (reactive to store changes)
   const entityChatNotes = useMemo(() => {

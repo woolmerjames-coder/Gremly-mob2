@@ -200,6 +200,7 @@ import {
 } from './classifyV3.js';
 
 import { handleHabitRead } from './habitRead.js';
+import { fetchItemDetail, itemDetailText, handleItemTopics } from './itemDetail.js';
 import { configureModels, models, helperModel } from './models.js';
 import { helperFetch } from './helperClient.js';
 import { relateDrop } from './minddropRelate.js';
@@ -218,6 +219,7 @@ import {
   trackedItemsBlock,
   lateCardCandidate,
   newItemsOnly,
+  withValidDays,
   buildChatExtractionPrompt,
   buildPillPrompt,
   buildSummaryPrompt,
@@ -3460,6 +3462,7 @@ export default {
         'floor-suggest',
         'habit-read',
         'minddrop-relate',
+        'item-topics',
       ]);
       const AUTH_REQUIRED_LANES = new Set([
         'space_chat',
@@ -12571,6 +12574,14 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             const previousExchange = extractPreviousExchange(messages);
             // the item this chat was opened about ("Talk it through"), sent with every turn
             const anchorEntity = anchorFrom(body.anchorEntity);
+            // and what that item holds, read alongside triage and the matcher
+            const anchorDetailPromise =
+              authenticatedUserId && anchorEntity
+                ? fetchItemDetail(env, authenticatedUserId, anchorEntity, {
+                    todayIso: todayIsoIn(userTimezone),
+                    timezone: userTimezone,
+                  })
+                : Promise.resolve(null);
             const entityCardPromise = authenticatedUserId
               ? matchEntity({
                   env,
@@ -12610,6 +12621,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             const triage = applyEntityCardToTriage(triageFromClassifier, entityCard);
             // as it is now when the matcher ran, else as the app sent it
             const anchor = entityMatch?.anchor || anchorEntity;
+            const anchorDetail = anchor && !anchor.gone ? await anchorDetailPromise : null;
 
             console.log('[GeneralChat:Triage]', {
               mode: triage.mode,
@@ -12647,6 +12659,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               anchor,
               mode: triage.mode,
               todayIso: todayIsoIn(userTimezone),
+              detailText: itemDetailText(anchorDetail, todayIsoIn(userTimezone)),
             });
 
             const chatMessages = [
@@ -13009,6 +13022,26 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 })();
                 ctx.waitUntil(summaryPromise);
 
+                // A chat about one item keeps that item's chat summary, as the
+                // old entity chat did: what the context jobs read about chats
+                // on an item (get_recent_entity_chat_summaries) and what the
+                // reply is told earlier chats about it covered (itemDetail.js).
+                if (anchor && !anchor.gone) {
+                  ctx.waitUntil(
+                    generateEntityChatSummary(
+                      messages.filter((m) => m.role !== 'system'),
+                      fullContent,
+                      anchor.id,
+                      anchor.type,
+                      anchor.title,
+                      anchorDetail?.space || null,
+                      anchorDetail?.summary || null,
+                      env,
+                      userTimezone,
+                    ).catch((err) => console.warn('[GeneralChat] Item chat summary failed:', err.message)),
+                  );
+                }
+
                 // Background extraction (fire-and-forget)
                 const extractionV2 = models().flags.extractionV2;
                 const extractionPromise = (async () => {
@@ -13265,7 +13298,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                           Prefer: 'return=minimal',
                         },
                         body: JSON.stringify({
-                          extracted_items: extractResult.extractions || [],
+                          // a todo's day is a calendar day or nothing
+                          extracted_items: withValidDays(extractResult.extractions || []),
                           auto_title: extractResult.chat_summary?.title || null,
                           // the late card for this turn, or none; the app polls for it
                           metadata_json: {
@@ -14199,6 +14233,11 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
 
       if (type === 'habit-read') {
         return j(await handleHabitRead(body, env, authenticatedUserId, ctx));
+      }
+
+      // starters drawn from a note when its chat opens (itemDetail.js)
+      if (type === 'item-topics') {
+        return j(await handleItemTopics(body, env, authenticatedUserId));
       }
 
       // =========================

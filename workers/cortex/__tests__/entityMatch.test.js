@@ -48,6 +48,7 @@ import {
   withEditsRule,
   withEvidenceRule,
   buildChatExtractionPrompt,
+  withValidDays,
 } from '../chatPrompts.js';
 import { configureModels, models } from '../models.js';
 
@@ -1786,4 +1787,55 @@ test('a tapped check-in for several days names each day', () => {
   );
   expect(s).toContain('"Run" (daily)');
   expect(s).toContain('log it for yesterday, Tuesday 29 September and today, Wednesday 30 September');
+});
+
+test('the matcher is told a change they said yes to has been made, so a follow up asks for nothing new', () => {
+  const items = [
+    { id: 'aaaa1111-0000', type: 'todo', title: 'Plan Christmas In California', due_day: '2026-12-25' },
+    { id: 'bbbb2222-0000', type: 'todo', title: 'Call Kim and Andrew', due_day: '2026-10-02' },
+  ];
+  const recent = {
+    id: 'aaaa1111-0000',
+    type: 'todo',
+    title: 'Plan Christmas In California',
+    status: 'applied',
+    card: { kind: 'edit', change: { field: 'body_add', from: null, to: "Dave's parents are in from the 22nd" } },
+  };
+  const input = buildEntityMatchInput({
+    todayStr: 'Wednesday, September 30, 2026',
+    message: 'Did you do it?',
+    previousExchange: null,
+    exchanges: [],
+    candidates: candidatesFor('Did you do it?', items, recent),
+  });
+  expect(input).toContain(
+    "[shown on the card in the last reply, where they said yes to add to it: Dave's parents are in from the 22nd, which has been made]",
+  );
+  expect(ENTITY_MATCH_SYSTEM_PROMPT).toContain('that change has been made, so a message that only follows up on it asks for nothing new');
+  // still waiting, or from an app that sends no change: shown only
+  for (const r of [{ ...recent, status: 'pending' }, { ...recent, card: { kind: 'edit' } }]) {
+    const plain = buildEntityMatchInput({
+      todayStr: 'Wednesday, September 30, 2026',
+      message: 'Did you do it?',
+      previousExchange: null,
+      exchanges: [],
+      candidates: candidatesFor('Did you do it?', items, r),
+    });
+    expect(plain).toContain('[shown on the card in the last reply]');
+  }
+});
+
+test("the pill gives a new todo the day their words give, and a todo's day is a calendar day or nothing", () => {
+  const prompt = buildPillPrompt({ todayStr: 'Wednesday, September 30, 2026', conversationText: 'User: hi', existingItemsBlock: '' });
+  expect(prompt).toContain("WHEN, for todos: due_date is the one calendar day their words give for doing it");
+  expect(prompt).toContain('When they settle on a day later in the conversation, the day is the one they settled on.');
+  expect(
+    withValidDays([
+      { type: 'todo', title: 'Call Mum', due_date: '2026-10-04' },
+      { type: 'todo', title: 'Send the invoice', due_date: 'Friday' },
+      { type: 'todo', title: 'Pension', due_date: null },
+      { type: 'note', title: 'Idea' },
+    ]).map((e) => e.due_date ?? null),
+  ).toEqual(['2026-10-04', null, null, null]);
+  expect(withValidDays(null)).toEqual([]);
 });

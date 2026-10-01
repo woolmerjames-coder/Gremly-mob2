@@ -35,7 +35,15 @@ function NativeBox({ value, onChangeText }: { value: string; onChangeText: (t: s
   );
 }
 
-function Box({ value, onChangeText, echoSafe }: { value: string; onChangeText: (t: string) => void; echoSafe: boolean }) {
+function Box({
+  value,
+  onChangeText,
+  echoSafe,
+}: {
+  value: string;
+  onChangeText: (t: string) => void;
+  echoSafe: boolean;
+}) {
   const [text, handleChange] = useEchoSafeText(value, onChangeText);
   return echoSafe ? (
     <NativeBox value={text} onChangeText={handleChange} />
@@ -55,15 +63,21 @@ const Page = React.memo(function Page({
   clearRef: { current: (() => void) | null };
 }) {
   const [note, setNote] = useState('');
-  clearRef.current = () => setNote('');
   const element = <Box value={note} onChangeText={setNote} echoSafe={echoSafe} />;
   useLayoutEffect(() => {
+    clearRef.current = () => setNote('');
     setDock(element);
   });
   return null;
 });
 
-function Home({ echoSafe, clearRef }: { echoSafe: boolean; clearRef: { current: (() => void) | null } }) {
+function Home({
+  echoSafe,
+  clearRef,
+}: {
+  echoSafe: boolean;
+  clearRef: { current: (() => void) | null };
+}) {
   const [dock, setDock] = useState<React.ReactNode>(null);
   return (
     <>

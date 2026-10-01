@@ -61,6 +61,7 @@ const mockStoreState: any = {
   updateGeneralChatExtractions: jest.fn(async () => null),
   createGeneralChat: jest.fn(),
   dismissExtraction: jest.fn(),
+  trackSpaceChat: jest.fn(async () => {}),
 };
 jest.mock('../../../lib/store/useGremlyStore', () => {
   const useGremlyStore: any = (selector: (s: any) => unknown) => selector(mockStoreState);
@@ -157,6 +158,61 @@ describe('an item chat outside any screen', () => {
     mockFindItemChat.mockResolvedValue({ id: 'c9', title: 'Walk Bella' });
     render(<AskGremlyScreen item={item()} />);
     await waitFor(() => expect(mockStoreState.setActiveGeneralChat).toHaveBeenCalledWith('c9'));
+  });
+
+  it("a new note chat holds the starters' places, then shows the ones drawn from the note", async () => {
+    mockFindItemChat.mockResolvedValue(null);
+    let give: (s: any[]) => void = () => {};
+    const loadStarters = jest.fn(() => new Promise<any[]>((resolve) => (give = resolve)));
+    const { getByTestId, findByTestId, queryByTestId } = render(
+      <AskGremlyScreen
+        item={item({
+          anchor: { id: 'n1', type: 'note', title: 'Japan Trip Plan' },
+          label: 'Idea',
+          starters: ITEM_STARTERS.note,
+          loadStarters,
+        })}
+      />,
+    );
+    await findByTestId('item-starters-loading');
+    expect(queryByTestId('item-starter-expand')).toBeNull();
+    give([{ key: 'topic-0', label: 'JR pass', prompt: 'Do I need the JR pass?', icon: () => null }]);
+    await findByTestId('item-starter-topic-0');
+    expect(queryByTestId('item-starters-loading')).toBeNull();
+    fireEvent.press(getByTestId('item-starter-topic-0'));
+    expect(loadStarters).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the usual starters when none come back from the note', async () => {
+    mockFindItemChat.mockResolvedValue(null);
+    const { findByTestId } = render(
+      <AskGremlyScreen
+        item={item({
+          anchor: { id: 'n1', type: 'note', title: 'Packing' },
+          label: 'Note',
+          starters: ITEM_STARTERS.note,
+          loadStarters: jest.fn(async () => []),
+        })}
+      />,
+    );
+    await findByTestId('item-starter-expand');
+  });
+
+  it('a chat that carries on asks for no starters', async () => {
+    mockFindItemChat.mockResolvedValue({ id: 'c9', title: 'Japan Trip Plan' });
+    const loadStarters = jest.fn(async () => []);
+    render(<AskGremlyScreen item={item({ loadStarters })} />);
+    await waitFor(() => expect(mockStoreState.setActiveGeneralChat).toHaveBeenCalledWith('c9'));
+    expect(loadStarters).not.toHaveBeenCalled();
+  });
+
+  it('feeds Gremly once each time the item chat is opened, as the old entity chat did', async () => {
+    mockFindItemChat.mockResolvedValue(null);
+    const { findByTestId, getByTestId } = render(<AskGremlyScreen item={item()} />);
+    await findByTestId('item-starter-break_down');
+    fireEvent.press(getByTestId('item-starter-break_down'));
+    fireEvent.press(getByTestId('item-starter-break_down'));
+    await waitFor(() => expect(mockStoreState.trackSpaceChat).toHaveBeenCalledTimes(1));
   });
 
   it('close goes back to the item', () => {

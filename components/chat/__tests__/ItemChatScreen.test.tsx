@@ -1,6 +1,6 @@
 /**
  * Opening a chat from an item opens the Ask Gremly chat tied to that item,
- * with the old entity chat's props, behind ITEM_CHAT_V2.
+ * through EntityChatScreen, the name every entry point uses.
  */
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
@@ -19,13 +19,10 @@ jest.mock('../../../lib/store/useGremlyStore', () => ({
   useGremlyStore: (selector: (s: any) => unknown) => selector(mockState),
 }));
 
-let mockFlag = true;
-jest.mock('../../../lib/config/featureFlags', () => ({
-  FEATURE_FLAGS: {
-    get ITEM_CHAT_V2() {
-      return mockFlag;
-    },
-  },
+const mockFetchItemTopics = jest.fn();
+jest.mock('../../../lib/cortex/CortexClient', () => ({
+  ...jest.requireActual('../../../lib/cortex/CortexClient'),
+  fetchItemTopics: (...args: unknown[]) => mockFetchItemTopics(...args),
 }));
 
 import { ItemChatScreen } from '../ItemChatScreen';
@@ -33,7 +30,6 @@ import { EntityChatScreen } from '../EntityChatScreen';
 
 beforeEach(() => {
   mockItemProps = null;
-  mockFlag = true;
   mockState = {
     todos: [{ id: 't1', name: 'Walk Bella', title: 'Walk Bella' }],
     habits: [{ id: 'h1', name: 'Run', title: null }],
@@ -55,6 +51,18 @@ describe('ItemChatScreen', () => {
     expect(mockItemProps.starters.map((s: any) => s.key)).toContain('expand');
     mockItemProps.onClose();
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("a note's chat draws its starters from what the note says; other kinds keep theirs", async () => {
+    mockFetchItemTopics.mockResolvedValue([{ label: 'The vet', message: 'What should I ask the vet?' }]);
+    render(<ItemChatScreen entityId="n1" entityType="note" onClose={jest.fn()} />);
+    const drawn = await mockItemProps.loadStarters();
+    expect(mockFetchItemTopics).toHaveBeenCalledWith('n1');
+    expect(drawn.map((s: any) => [s.key, s.label, s.prompt])).toEqual([
+      ['topic-0', 'The vet', 'What should I ask the vet?'],
+    ]);
+    render(<ItemChatScreen entityId="t1" entityType="todo" onClose={jest.fn()} />);
+    expect(mockItemProps.loadStarters).toBeUndefined();
   });
 
   it('starts with the message a screen asked for', () => {
