@@ -30,8 +30,42 @@ describe('the brief playing in', () => {
     expect(briefSegment([msg('x', 'user', null)])).toBeNull();
   });
 
-  it('gives lines longer to arrive than cards and buttons', () => {
+  it('gives lines longer to arrive than cards, and longer lines longer still', () => {
     expect(beatBefore(BRIEF[1], false)).toBeGreaterThan(beatBefore(BRIEF[2], false));
+    const short = { ...BRIEF[1], content: 'Your afternoon is open.' } as SpaceChatMessage;
+    const long = {
+      ...BRIEF[1],
+      content:
+        'Your meetings are behind you, and the rest of the afternoon is completely open alongside your anniversary with Dave, with the plumber and Apple Calendar waiting.',
+    } as SpaceChatMessage;
+    expect(beatBefore(long, false)).toBeGreaterThan(beatBefore(short, false));
+    // never so long that it drags
+    const essay = { ...BRIEF[1], content: 'word '.repeat(400) } as SpaceChatMessage;
+    expect(beatBefore(essay, false)).toBeLessThanOrEqual(2400);
+    // a question is read like a line
+    const question = {
+      ...BRIEF[3],
+      content: "Is Bella's vet on October 1 or 2?",
+    } as SpaceChatMessage;
+    expect(beatBefore(question, false)).toBeGreaterThan(beatBefore(BRIEF[2], false));
+  });
+
+  it('keeps an unseen brief out of sight until it plays, so it never flashes in full', () => {
+    const { result, rerender } = renderHook(
+      ({ ready }: { ready: boolean }) =>
+        useBriefPlayback({
+          threadId: 't1',
+          rows: BRIEF,
+          seen: false,
+          ready,
+          reducedMotion: false,
+          onSeen: jest.fn(),
+        }),
+      { initialProps: { ready: false } },
+    );
+    expect(result.current).toMatchObject({ hiddenFrom: 0, waiting: true, playing: false });
+    rerender({ ready: true });
+    expect(result.current).toMatchObject({ hiddenFrom: 0, waiting: false, playing: true });
   });
 
   it('shows one message at a time, waves, then marks the brief seen', async () => {

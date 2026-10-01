@@ -194,6 +194,19 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   // the chat on screen right now, for work that finishes after the user may have moved on
   const activeChatIdRef = useRef<string | null>(null);
   activeChatIdRef.current = activeChat?.id ?? null;
+  // While today's brief plays in, the list stays at its first line so it is
+  // read from the top down; it follows new messages again once one is added
+  const scrollHoldRef = useRef<{ chatId: string; count: number } | null>(null);
+  const messageCountRef = useRef(0);
+  const scrollHeld = (): boolean => {
+    const hold = scrollHoldRef.current;
+    if (!hold) return false;
+    if (hold.chatId !== activeChatIdRef.current || messageCountRef.current > hold.count) {
+      scrollHoldRef.current = null;
+      return false;
+    }
+    return true;
+  };
   // an item's chat sends its item with every turn, with the title as it is now
   const itemAnchorRef = useRef<ChatAnchor | null>(item?.anchor ?? null);
   itemAnchorRef.current = item?.anchor ?? null;
@@ -346,9 +359,11 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   }, [updateStreamingContent]);
 
   // Auto-scroll on new messages
+  messageCountRef.current = messages.length;
   useEffect(() => {
     if (!activeChat) return;
     const timer = setTimeout(() => {
+      if (scrollHeld()) return;
       flatListRef.current?.scrollToEnd({ animated: true });
     }, 150);
     return () => clearTimeout(timer);
@@ -921,10 +936,20 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     rows,
     seen: threadSeen,
     ready: !!isDailyThread && threadLoaded && chatOnScreen && !briefWriting && briefInChat,
-    reducedMotion: reducedMotion || skipPlayback,
+    // (with the brief off, a day's thread opened from history shows as it is)
+    reducedMotion: reducedMotion || skipPlayback || !briefInChat,
     onStart: () => useMascotStore.getState().requestMode('waving'),
     onSeen: handleBriefSeen,
   });
+  // As it starts playing, the brief's first line comes to the top as it arrives
+  // and the list holds there (scrollHeld)
+  useEffect(() => {
+    if (!playback.playing || !activeChat) return;
+    scrollHoldRef.current = { chatId: activeChat.id, count: messages.length };
+    const first = rows[playback.hiddenFrom ?? 0];
+    if (first) pendingPlanScrollRef.current = first.id;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playback.playing]);
   const shownRows = useMemo(
     () => (playback.hiddenFrom !== null ? rows.slice(0, playback.hiddenFrom) : rows),
     [rows, playback.hiddenFrom],
@@ -1343,7 +1368,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
               initialNumToRender={15}
               onContentSizeChange={() => {
                 setTimeout(() => {
-                  // a new plan card scrolls so its top is in view
+                  // a new plan card, or the brief's first line as it plays in,
+                  // scrolls so its top is in view
                   const planId = pendingPlanScrollRef.current;
                   const index = planId
                     ? shownRowsRef.current.findIndex((m) => m.id === planId)
@@ -1353,6 +1379,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                     flatListRef.current?.scrollToIndex({ index, viewPosition: 0, animated: true });
                     return;
                   }
+                  if (scrollHeld()) return;
                   flatListRef.current?.scrollToEnd({ animated: true });
                 }, 100);
               }}
@@ -1365,7 +1392,11 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
               ListEmptyComponent={
                 // today's thread with nothing in it yet (the brief could not be
                 // written, or it is someone's first day): the day card, from the store
-                isDailyThread && threadLoaded && !briefWriting && !playback.playing ? (
+                isDailyThread &&
+                threadLoaded &&
+                !briefWriting &&
+                !playback.playing &&
+                !playback.waiting ? (
                   <View style={styles.dailyEmpty} testID="daily-thread-empty">
                     <BriefDayCardBlock date={threadDay} />
                   </View>

@@ -3,6 +3,10 @@
  * on screen, its messages arrive one at a time with Gremly typing between
  * them, and Gremly waves as it starts. Once the last one is on screen the
  * brief counts as seen. Seen briefs, and reduced motion, show at once.
+ *
+ * An unseen brief stays hidden until it plays (waiting), so it never shows
+ * in full for a moment first. The pace leaves time to read: Gremly types a
+ * line for longer the longer it is.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -10,7 +14,16 @@ import type { SpaceChatMessage } from '../types';
 import { briefMetaOf } from './messages';
 
 /** Typing time before each kind of message, in ms */
-const BEAT_MS = { first: 600, text: 1100, other: 450 } as const;
+const BEAT_MS = {
+  first: 700,
+  /** a card, the plan or an event line */
+  card: 900,
+  /** a line of words: a base, plus a little for each word, within these bounds */
+  lineBase: 900,
+  perWord: 35,
+  lineMin: 1300,
+  lineMax: 2400,
+} as const;
 
 /**
  * The run of rows that make up the newest brief: from its first message to
@@ -40,7 +53,14 @@ export function briefSegment(rows: SpaceChatMessage[]): { start: number; end: nu
 /** How long Gremly types before the row at this index arrives. */
 export function beatBefore(row: SpaceChatMessage, isFirst: boolean): number {
   if (isFirst) return BEAT_MS.first;
-  return briefMetaOf(row)?.type === 'brief-text' ? BEAT_MS.text : BEAT_MS.other;
+  const type = briefMetaOf(row)?.type;
+  const words = (row.content || '').trim().split(/\s+/).filter(Boolean).length;
+  // a line, or an offer that says something: typed for longer the longer it is
+  if (type === 'brief-text' || (type === 'brief-offer' && words > 0)) {
+    const ms = BEAT_MS.lineBase + BEAT_MS.perWord * words;
+    return Math.min(BEAT_MS.lineMax, Math.max(BEAT_MS.lineMin, ms));
+  }
+  return BEAT_MS.card;
 }
 
 export interface BriefPlaybackInput {
@@ -63,6 +83,8 @@ export interface BriefPlayback {
   /** Gremly is typing the next message */
   typing: boolean;
   playing: boolean;
+  /** An unseen brief that has not started playing yet: hidden until it does */
+  waiting: boolean;
 }
 
 export function useBriefPlayback(input: BriefPlaybackInput): BriefPlayback {
@@ -70,7 +92,7 @@ export function useBriefPlayback(input: BriefPlaybackInput): BriefPlayback {
   const inputRef = useRef(input);
   inputRef.current = input;
   const segment = useMemo(() => briefSegment(rows), [rows]);
-  const [state, setState] = useState<BriefPlayback>({
+  const [state, setState] = useState<Omit<BriefPlayback, 'waiting'>>({
     hiddenFrom: null,
     typing: false,
     playing: false,
@@ -122,5 +144,17 @@ export function useBriefPlayback(input: BriefPlaybackInput): BriefPlayback {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId, segKey, seen, ready, reducedMotion]);
 
-  return state;
+  // unseen and not played yet: kept out of sight until it plays
+  if (
+    threadId &&
+    segment &&
+    segKey &&
+    !seen &&
+    !reducedMotion &&
+    playedRef.current !== segKey &&
+    state.hiddenFrom === null
+  ) {
+    return { hiddenFrom: segment.start, typing: false, playing: false, waiting: true };
+  }
+  return { ...state, waiting: false };
 }
