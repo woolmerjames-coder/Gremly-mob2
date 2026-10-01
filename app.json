@@ -22,6 +22,9 @@
       "bundleIdentifier": "com.gremly.mob2",
       "buildNumber": "9",
       "usesAppleSignIn": true,
+      "entitlements": {
+        "com.apple.developer.usernotifications.time-sensitive": true
+      },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "GIDClientID": "81105861621-ombuvivk9f9kifkoji8pgvnfsvstovqi.apps.googleusercontent.com",

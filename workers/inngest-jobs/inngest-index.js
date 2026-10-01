@@ -33,6 +33,7 @@ import { aiContext, installAiUsageLogging } from './aiUsage';
 import { CARE_RULES } from './careRules';
 import { createContextFunctions, hourlyContextEvents, contextMode } from './context/functions';
 import { createBriefFunctions, handleBriefApi } from './brief';
+import { createNotificationFunctions } from './notifications/functions';
 import { handlePlanPickApi } from './brief/planPick';
 import { buildDcoV4, writeDco } from './context/daily';
 import { reviewQuestions } from './context/questions';
@@ -11277,6 +11278,7 @@ const inngestHandler = serve({
     createBackfillPriorityKind(inngest),
     ...createContextFunctions(inngest),
     ...createBriefFunctions(inngest),
+    ...createNotificationFunctions(inngest),
   ],
   servePath: '/',
 });
