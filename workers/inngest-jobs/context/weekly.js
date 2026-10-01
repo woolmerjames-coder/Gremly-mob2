@@ -18,6 +18,7 @@ import { CARE_RULES, WRITING_RULES, personBlock } from '../careRules';
 import { db, userTimezone, localDate, addDays, relativeDay, weekdayName, personIdentity, identityLine } from './db';
 import { anthropicJsonParams, anthropicJsonResult, modelFor, createBatch, getBatch, getBatchResults } from './llm';
 import { recentCorrections } from './corrections';
+import { loadStory, storyLines } from './story';
 import { batchUsageRow, writeUsageRow } from '../aiUsage';
 
 export const WEEKLY_PROMPT_VERSION = 'weekly-2026-09-30';
@@ -103,6 +104,32 @@ const WEEKLY_SCHEMA = {
       },
       required: ['headline', 'featured'],
     },
+    chapters: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          chapter_ref: { type: 'string' },
+          card_subtitle: { type: 'string' },
+          summary: { type: 'string' },
+          epigraph: { type: 'string', nullable: true },
+          stage: { type: 'string', nullable: true },
+          key_priorities: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                kind: { type: 'string', enum: ['action', 'commitment', 'decision', 'momentum'] },
+                text: { type: 'string' },
+                date: { type: 'string', nullable: true },
+              },
+              required: ['kind', 'text', 'date'],
+            },
+          },
+        },
+        required: ['chapter_ref', 'card_subtitle', 'summary', 'epigraph', 'stage', 'key_priorities'],
+      },
+    },
     questions: {
       type: 'array',
       items: {
@@ -113,11 +140,11 @@ const WEEKLY_SCHEMA = {
     },
     week_note: { type: 'string' },
   },
-  required: ['life_map', 'profile_text', 'worlds', 'worlds_summary', 'questions', 'week_note'],
+  required: ['life_map', 'profile_text', 'worlds', 'worlds_summary', 'chapters', 'questions', 'week_note'],
 };
 
 function weeklySystemPrompt(today, person) {
-  return `You keep Gremly's long-term understanding of one person up to date. Once a week you rewrite their Life Map, the short profile every conversation with them reads, and the cards on their Worlds screen, from what is known about their life.
+  return `You keep Gremly's long-term understanding of one person up to date. Once a week you rewrite their Life Map, the short profile every conversation with them reads, the cards on their Worlds screen and the Chapters of their life, from what is known about their life.
 
 TODAY'S DATE: ${today}
 
@@ -143,7 +170,8 @@ THE LIFE MAP
 - recent_update covers only this week; leave it empty when nothing happened.
 
 THE PROFILE
-- A short, warm paragraph or two that a companion could read before talking to them: who they are, who matters to them, what is going on now, and what is coming up. No clinical or diagnostic language, no judgements about how they are coping.
+- A few short, warm paragraphs that a companion could read before talking to them: who they are, who matters to them, what they love and do often, the milestones that shaped the last year, what is going on now, and what is coming up. Draw on their story where it is given. No clinical or diagnostic language, no judgements about how they are coping.
+- Story items marked private may shape your understanding; mention them in the profile only in the person's own terms, and never on a card, a chapter or the Worlds headline.
 - Start with the paragraph itself. Their name, pronouns, age and location are added above it separately, so do not restate their pronouns.
 
 WORLDS
@@ -152,6 +180,14 @@ WORLDS
 - Return only the worlds you have something true to say about; a world you leave out keeps its current card.
 - phase: active when the person is engaged with it now, dormant when it has gone quiet for weeks, candidate only when it is still forming.
 - worlds_summary: one line noticing what is most alive across their worlds this week. Feature up to three worlds with a short reason. In a quiet week say so kindly and feature none.
+
+CHAPTERS
+- Chapters are stretches of their life with a shape: a trip, a commitment, a season of training, a push on a project. They are kept so the person can look back on them.
+- For each chapter you are given: a card line; a summary of what the chapter was or is, with its dates; an epigraph of one or two sentences that captures it the way the person would want to remember it; a short stage label; and, only for a chapter still active, up to three priorities with their dates when they have them.
+- A closed chapter is written as a memory: what happened, what it meant to them in their words, what they did. Never tally what was not done, never list unfinished tasks, never call it stalled, failed or abandoned, and give it no priorities.
+- An active chapter that has gone quiet says when it was last active and what was happening then; its stage is a neutral label. Nothing on a chapter tells the person what they should do.
+- Setbacks, slips and health details appear only in the person's own words, and only when they recorded them as part of the chapter themselves.
+- Return every chapter you are given; one you cannot say anything true about keeps a plain summary of its dates and what it was.
 
 QUESTIONS
 - Ask about anything the records leave genuinely unclear that matters to understanding them, especially plans whose outcome is unknown. Short and friendly. Do not repeat open questions.
@@ -168,7 +204,7 @@ export async function gatherWeek(env, userId, tz, periodEnd) {
   const startIso = new Date(Date.parse(since) - 14 * 3600e3).toISOString();
   const endIso = new Date(Date.parse(`${addDays(periodEnd, 1)}T00:00:00Z`) + 14 * 3600e3).toISOString();
   const between = (col) => `${col}=gte.${encodeURIComponent(startIso)}&${col}=lt.${encodeURIComponent(endIso)}`;
-  const [openFacts, recentHappened, changes, corrections, journals, chats, created, completed, habits, progress, lifeMap, worlds, links, questions, absence, usage] = await Promise.all([
+  const [openFacts, recentHappened, changes, corrections, journals, chats, created, completed, habits, progress, lifeMap, worlds, links, questions, absence, usage, chapterRows, story] = await Promise.all([
     d.select(`life_facts?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=id,statement,subject,about_date,about_date_end,state,observed_at,last_confirmed_at&order=last_confirmed_at.desc&limit=400`),
     d.select(`life_facts?user_id=eq.${userId}&state=in.(happened,changed)&updated_at=gte.${encodeURIComponent(new Date(Date.now() - 60 * 864e5).toISOString())}&select=id,statement,subject,about_date,state,state_reason,updated_at&order=updated_at.desc&limit=150`),
     d.select(`life_fact_changes?user_id=eq.${userId}&${between('created_at')}&select=fact_id,from_state,to_state,reason,created_at&order=created_at.asc&limit=100`),
@@ -185,8 +221,20 @@ export async function gatherWeek(env, userId, tz, periodEnd) {
     d.select(`gremly_questions?user_id=eq.${userId}&status=in.(open,asked)&select=id,question,created_at&limit=20`),
     d.rpc('absence_snapshot', { p_user: userId }),
     d.rpc('usage_rollup', { p_user: userId, p_grain: 'week', p_periods: 8 }),
+    d.select(`chapters?owner_id=eq.${userId}&phase=in.(suggested,upcoming,active,closed)&select=id,title,chapter_type,phase,start_date,end_date,closed_at,card_subtitle,card_subtitle_source,summary,summary_source,epigraph,epigraph_source,key_priorities,current_phase_key,phase_labels&order=start_date.desc.nullslast&limit=60`),
+    loadStory(env, userId),
   ]);
-  return { periodStart, periodEnd, openFacts, recentHappened, changes, corrections, journals, chats, created, completed, habits, progress, lifeMap: lifeMap?.[0] || null, worlds, links, questions, absence, usage };
+  // Chapters the weekly writes: every open one, any closed in the last 120 days,
+  // and any whose words have not yet been written under these rules.
+  const recentCut = new Date(Date.now() - 120 * 864e5).toISOString();
+  const chapters = (chapterRows || []).filter((c) => {
+    const allUser = c.card_subtitle_source === 'user' && c.summary_source === 'user' && c.epigraph_source === 'user';
+    if (allUser) return false;
+    if (c.phase !== 'closed') return true;
+    if (c.closed_at && c.closed_at >= recentCut) return true;
+    return ![c.card_subtitle_source, c.summary_source, c.epigraph_source].every((s) => s === 'synthesis' || s === 'user');
+  }).slice(0, 40);
+  return { periodStart, periodEnd, openFacts, recentHappened, changes, corrections, journals, chats, created, completed, habits, progress, lifeMap: lifeMap?.[0] || null, worlds, links, questions, absence, usage, chapters, story: story || [] };
 }
 
 export function renderWeek(g, today) {
@@ -224,6 +272,13 @@ export function renderWeek(g, today) {
     return `${ref} | ${w.display_name || w.name} | phase ${w.phase} | last real activity ${w.last_signal_at ? w.last_signal_at.slice(0, 10) : 'unknown'} | items this week ${worldActivity.get(w.id) || 0} | card: "${trim(w.card_subtitle, 100)}"${w.card_subtitle_source === 'user' ? ' (set by the person, keep unless untrue)' : ''} | summary: "${trim(w.summary, 200)}" | priorities: ${kp.map((k) => trim(k, 80)).join('; ') || 'none'}`;
   });
   const qLines = g.questions.map((q) => `- ${trim(q.question, 200)} (asked ${q.created_at.slice(0, 10)})`);
+  const chapterLines = (g.chapters || []).map((c) => {
+    const ref = add('c', { type: 'chapter', id: c.id });
+    const kp = (Array.isArray(c.key_priorities) ? c.key_priorities : []).map((k) => (typeof k === 'string' ? k : k?.text)).filter(Boolean);
+    const userSet = [c.card_subtitle_source === 'user' && 'card', c.summary_source === 'user' && 'summary', c.epigraph_source === 'user' && 'epigraph'].filter(Boolean);
+    return `${ref} | ${trim(c.title, 80)} | ${c.chapter_type} | ${c.phase} | ${c.start_date || '?'} to ${c.end_date || (c.phase === 'closed' ? '?' : 'now')} | stage: ${c.current_phase_key || 'none'} | card: "${trim(c.card_subtitle, 100)}" | summary: "${trim(c.summary, 300)}" | epigraph: "${trim(c.epigraph, 200)}" | priorities: ${kp.map((k) => trim(k, 70)).join('; ') || 'none'}${userSet.length ? ` | set by the person, keep unless untrue: ${userSet.join(', ')}` : ''}`;
+  });
+  const storyText = storyLines(g.story || [], today);
 
   const text = [
     `TODAY: ${weekdayName(today)} ${today}. THIS WEEK: ${g.periodStart} to ${g.periodEnd}.`,
@@ -250,6 +305,10 @@ export function renderWeek(g, today) {
     `CURRENT WORLDS (ref | name | phase | last real activity | items this week | card | summary | priorities):\n${worldLines.join('\n') || '(none)'}`,
     '',
     `OPEN QUESTIONS ALREADY ASKED:\n${qLines.join('\n') || '(none)'}`,
+    '',
+    `CHAPTERS (ref | title | kind | phase | dates | stage | card | summary | epigraph | priorities):\n${chapterLines.join('\n') || '(none)'}`,
+    '',
+    `THEIR STORY (written monthly from the ledger; private items are marked):\n${storyText.join('\n') || '(not written yet)'}`,
   ].join('\n');
   return { text, refs };
 }
@@ -327,6 +386,7 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
     updated_at: nowIso,
     source: 'weekly_synthesis',
     domains,
+    ...(current?.life_map?.story ? { story: current.life_map.story } : {}),
   };
 
   // Worlds
@@ -347,13 +407,25 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
     .filter((f) => f.world_id);
   const worldsSummary = { headline: output.worlds_summary?.headline || null, featured, generated_at: nowIso, source: 'weekly_synthesis' };
 
-  const applied = { threads: domains.reduce((n, dm) => n + dm.threads.length, 0), worlds: worldUpdates.length, worlds_skipped: skipped, questions: 0 };
+  // Chapters
+  const chapterUpdates = [];
+  for (const c of output.chapters || []) {
+    const ref = refs.get(c.chapter_ref);
+    if (!ref || ref.type !== 'chapter') continue;
+    if (!isProse(c.card_subtitle) || !isProse(c.summary, 20)) {
+      skipped.push({ chapter_ref: c.chapter_ref, card_subtitle: c.card_subtitle, summary: c.summary });
+      continue;
+    }
+    chapterUpdates.push({ id: ref.id, c });
+  }
+
+  const applied = { threads: domains.reduce((n, dm) => n + dm.threads.length, 0), worlds: worldUpdates.length, chapters: chapterUpdates.length, worlds_skipped: skipped, questions: 0 };
   const profileOk = isProse(output.profile_text, 120);
   if (!profileOk) applied.profile_skipped = String(output.profile_text || '').slice(0, 200);
   // A Life Map with no threads is not a rewrite; keep the current one.
   const lifeMapOk = applied.threads > 0;
   if (!lifeMapOk) applied.life_map_skipped = true;
-  if (shadow) return { applied, lifeMap, worldUpdates, worldsSummary };
+  if (shadow) return { applied, lifeMap, worldUpdates, chapterUpdates, worldsSummary };
 
   // Keep what this run replaces, so a bad week can be rolled back by hand.
   const [prevProfile] = await d.select(`user_profiles?user_id=eq.${userId}&select=profile_text`);
@@ -385,6 +457,37 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
     await d.update(`worlds?id=eq.${id}&owner_id=eq.${userId}`, patch);
   }
 
+  // Chapters: the words, stage label and priorities, never the person's own edits.
+  if (chapterUpdates.length) {
+    const ids = chapterUpdates.map((u) => u.id).join(',');
+    const prevChapters = await d.select(`chapters?id=in.(${ids})&owner_id=eq.${userId}&select=id,phase,card_subtitle,card_subtitle_source,summary,summary_source,epigraph,epigraph_source,key_priorities,key_priorities_source,current_phase_key,current_phase_key_source,phase_labels,phase_labels_source`);
+    previous.chapters = prevChapters;
+    const byId = new Map(prevChapters.map((r) => [r.id, r]));
+    for (const { id, c } of chapterUpdates) {
+      const row = byId.get(id);
+      if (!row) continue;
+      const patch = { updated_at: nowIso };
+      if (row.card_subtitle_source !== 'user') Object.assign(patch, { card_subtitle: trim(c.card_subtitle, 120), card_subtitle_source: 'synthesis', card_subtitle_updated_at: nowIso });
+      if (row.summary_source !== 'user') Object.assign(patch, { summary: trim(c.summary, 900), summary_source: 'synthesis', summary_updated_at: nowIso });
+      if (row.epigraph_source !== 'user' && isProse(c.epigraph, 20)) Object.assign(patch, { epigraph: trim(c.epigraph, 250), epigraph_source: 'synthesis', epigraph_updated_at: nowIso });
+      if (row.key_priorities_source !== 'user') {
+        const kp = row.phase === 'closed' ? [] : (c.key_priorities || []).filter((k) => isProse(k.text, 3)).slice(0, 3)
+          .map((k, i) => ({ kind: k.kind || 'action', rank: i + 1, text: trim(k.text, 120), due_date: validDate(k.date) }));
+        Object.assign(patch, { key_priorities: kp, key_priorities_source: 'synthesis', key_priorities_updated_at: nowIso });
+      }
+      // The stage label replaces the current one in the chapter's arc, so the arc stays whole.
+      if (typeof c.stage === 'string' && /[a-z]{3,}/i.test(c.stage) && row.current_phase_key_source !== 'user' && row.phase_labels_source !== 'user') {
+        const stage = trim(c.stage, 40);
+        const labels = Array.isArray(row.phase_labels) ? [...row.phase_labels] : [];
+        const at = labels.indexOf(row.current_phase_key);
+        if (at >= 0) labels[at] = stage;
+        else if (!labels.includes(stage)) labels.push(stage);
+        Object.assign(patch, { current_phase_key: stage, current_phase_key_source: 'synthesis', current_phase_key_updated_at: nowIso, phase_labels: labels, phase_labels_source: 'synthesis', phase_labels_updated_at: nowIso });
+      }
+      await d.update(`chapters?id=eq.${id}&owner_id=eq.${userId}`, patch);
+    }
+  }
+
   for (const q of output.questions || []) {
     if (!q.question) continue;
     const f = q.fact_ref ? refs.get(q.fact_ref) : null;
@@ -409,7 +512,7 @@ export async function readWeeklyBatch(env, batchId, { jobByCustomId = {} } = {})
   for (const r of results) {
     if (r.result?.type === 'succeeded') {
       const meta = jobByCustomId[r.custom_id] || {};
-      await writeUsageRow(env, batchUsageRow(r.result.message, { job: 'weekly-synthesis', userId: meta.userId, runId: meta.runId })).catch(() => {});
+      await writeUsageRow(env, batchUsageRow(r.result.message, { job: meta.job || 'weekly-synthesis', userId: meta.userId, runId: meta.runId })).catch(() => {});
       try {
         out[r.custom_id] = { ok: true, output: anthropicJsonResult(r.result.message) };
       } catch (err) {

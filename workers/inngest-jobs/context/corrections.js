@@ -13,6 +13,7 @@
 import { CARE_RULES, WRITING_RULES, personBlock } from '../careRules';
 import { db, userTimezone, localDate, personIdentity } from './db';
 import { jsonCall, modelFor } from './llm';
+import { refreshLifeMapStory } from './story';
 
 export const CORRECTION_PROMPT_VERSION = 'correction-2026-09-30';
 
@@ -85,12 +86,14 @@ function trim(text, n) {
 /** Collect every Gremly-written passage that could carry the wrong claim. */
 async function loadPassages(env, userId, today) {
   const d = db(env);
-  const [dcoRows, lifeMapRows, profileRows, worlds, anchors] = await Promise.all([
+  const [dcoRows, lifeMapRows, profileRows, worlds, anchors, chapters, storyItems] = await Promise.all([
     d.select(`user_daily_state?user_id=eq.${userId}&date=gte.${today}&select=id,date,dco`),
     d.select(`user_life_map?user_id=eq.${userId}&select=id,life_map`),
     d.select(`user_profiles?user_id=eq.${userId}&select=user_id,profile_text`),
     d.select(`worlds?owner_id=eq.${userId}&phase=in.(candidate,active,evolving,dormant)&select=id,display_name,name,card_subtitle,summary,key_priorities`),
     d.select(`user_temporal_anchors?user_id=eq.${userId}&status=eq.active&select=id,title,description,resolved_date,source_message`),
+    d.select(`chapters?owner_id=eq.${userId}&select=id,title,card_subtitle,summary,epigraph&limit=80`),
+    d.select(`story_items?user_id=eq.${userId}&state=eq.current&select=id,kind,title,body,fact_ids&limit=200`),
   ]);
 
   const passages = [];
@@ -117,6 +120,7 @@ async function loadPassages(env, userId, today) {
   }
 
   const lm = lifeMapRows?.[0];
+  add('life_map', { id: lm?.id, path: ['story', 'story_so_far'] }, lm?.life_map?.story?.story_so_far);
   if (lm?.life_map?.domains) {
     lm.life_map.domains.forEach((dom, di) => {
       (dom.threads || []).forEach((t, ti) => {
@@ -137,6 +141,16 @@ async function loadPassages(env, userId, today) {
     );
   }
 
+  for (const c of chapters || []) {
+    add('chapter', { id: c.id, field: 'card_subtitle' }, c.card_subtitle);
+    add('chapter', { id: c.id, field: 'summary' }, c.summary);
+    add('chapter', { id: c.id, field: 'epigraph' }, c.epigraph);
+  }
+  for (const s of storyItems || []) {
+    add('story', { id: s.id, field: 'title' }, s.title);
+    add('story', { id: s.id, field: 'body' }, s.body);
+  }
+
   const anchorRefs = new Map();
   const anchorLines = anchors.map((a, i) => {
     const ref = `a${i + 1}`;
@@ -144,7 +158,7 @@ async function loadPassages(env, userId, today) {
     return `${ref} | ${a.resolved_date || 'no date'} | ${a.title}${a.description ? `: ${a.description}` : ''}`;
   });
 
-  return { passages, anchorRefs, anchorLines, lifeMap: lm, worlds, dcoRows };
+  return { passages, anchorRefs, anchorLines, lifeMap: lm, worlds, dcoRows, storyItems: storyItems || [] };
 }
 
 function setPath(obj, path, value) {
@@ -244,7 +258,7 @@ export async function applyCorrection(env, correctionId, runId) {
     return `${ref} | ${f.state} | ${f.about_date || 'no date'} | ${f.statement}`;
   });
 
-  const { passages, anchorRefs, anchorLines, lifeMap, worlds, dcoRows } = await loadPassages(env, userId, today);
+  const { passages, anchorRefs, anchorLines, lifeMap, worlds, dcoRows, storyItems } = await loadPassages(env, userId, today);
   const passageRefs = new Map(passages.map((p) => [p.ref, p]));
 
   const user = `WHAT THE PERSON SAID (${correction.surface}${correction.target_kind ? `, about ${correction.target_kind}` : ''}):
@@ -321,6 +335,8 @@ ${anchorLines.join('\n') || '(none)'}`;
   const lifeMapCopy = lifeMap ? JSON.parse(JSON.stringify(lifeMap.life_map)) : null;
   let lifeMapChanged = false;
   const worldPatches = new Map();
+  const chapterPatches = new Map();
+  const storyPatches = new Map();
   let profilePatch = null;
   for (const r of output.rewrites || []) {
     const p = passageRefs.get(r.passage_ref);
@@ -334,6 +350,14 @@ ${anchorLines.join('\n') || '(none)'}`;
       lifeMapChanged = true;
     } else if (p.kind === 'profile') {
       profilePatch = text || '';
+    } else if (p.kind === 'chapter') {
+      const patch = chapterPatches.get(p.locator.id) || {};
+      patch[p.locator.field] = text;
+      chapterPatches.set(p.locator.id, patch);
+    } else if (p.kind === 'story') {
+      const patch = storyPatches.get(p.locator.id) || {};
+      patch[p.locator.field] = text;
+      storyPatches.set(p.locator.id, patch);
     } else if (p.kind === 'world') {
       const w = worlds.find((x) => x.id === p.locator.id);
       if (!w) continue;
@@ -351,6 +375,33 @@ ${anchorLines.join('\n') || '(none)'}`;
       worldPatches.set(w.id, patch);
     }
     result.passages_rewritten++;
+  }
+
+  for (const [chapterId, patch] of chapterPatches) {
+    const body = { updated_at: nowIso };
+    for (const field of ['card_subtitle', 'summary', 'epigraph']) {
+      if (field in patch) Object.assign(body, { [field]: patch[field], [`${field}_source`]: 'user', [`${field}_updated_at`]: nowIso });
+    }
+    await d.update(`chapters?id=eq.${chapterId}&owner_id=eq.${userId}`, body);
+  }
+
+  // Story items: rewritten, or retired when nothing true is left, and retired
+  // when every fact they rest on was corrected.
+  let storyChanged = false;
+  const corrected = new Set(correctedIds);
+  for (const s of storyItems) {
+    const patch = storyPatches.get(s.id);
+    const allCorrected = Array.isArray(s.fact_ids) && s.fact_ids.length > 0 && s.fact_ids.every((id) => corrected.has(id));
+    if (allCorrected || (patch && (patch.title === null || patch.body === null))) {
+      await d.update(`story_items?id=eq.${s.id}&user_id=eq.${userId}`, { state: 'corrected', correction_text: trim(correction.said, 600), updated_at: nowIso });
+      storyChanged = true;
+    } else if (patch) {
+      const body = { updated_at: nowIso, correction_text: trim(correction.said, 600) };
+      if (patch.title) body.title = patch.title;
+      if (patch.body) body.body = patch.body;
+      await d.update(`story_items?id=eq.${s.id}&user_id=eq.${userId}`, body);
+      storyChanged = true;
+    }
   }
 
   const retiredTitles = [];
@@ -398,6 +449,7 @@ ${anchorLines.join('\n') || '(none)'}`;
     lifeMapCopy.updated_at = nowIso;
     await d.update(`user_life_map?id=eq.${lifeMap.id}`, { life_map: lifeMapCopy, updated_at: nowIso });
   }
+  if (storyChanged) await refreshLifeMapStory(env, userId);
   if (profilePatch !== null) {
     await d.update(`user_profiles?user_id=eq.${userId}`, { profile_text: profilePatch });
   }

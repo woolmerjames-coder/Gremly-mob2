@@ -472,7 +472,12 @@ export async function writeClassifierOutput(
     try {
       const closedAt = chapterClosedAt.get(update.chapter_id) ?? null;
       const chapter = { id: update.chapter_id, closed_at: closedAt };
-      const chapterProt = chapterSourceProtection.get(update.chapter_id);
+      // When the context pipeline is on, the weekly synthesis owns a chapter's
+      // words, stage label and priorities; the classifier keeps the structure.
+      const baseProt = chapterSourceProtection.get(update.chapter_id);
+      const chapterProt = env.CONTEXT_PIPELINE === 'on' && baseProt
+        ? { ...baseProt, noCardSubtitle: true, noSummary: true, noEpigraph: true, noKeyPriorities: true, noPhaseLabels: true, noCurrentPhaseKey: true }
+        : baseProt;
 
       const patch: Record<string, unknown> = {
         updated_at: now(),

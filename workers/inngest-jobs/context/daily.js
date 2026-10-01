@@ -16,6 +16,7 @@ import { CARE_RULES, WRITING_RULES, personBlock } from '../careRules';
 import { db, userTimezone, localDate, localDateTime, addDays, daysBetween, weekdayName, relativeDay, personIdentity } from './db';
 import { jsonCall, modelFor } from './llm';
 import { recentCorrections } from './corrections';
+import { loadStory } from './story';
 
 export const DCO_PROMPT_VERSION = 'dco-v4-2026-09-30';
 
@@ -76,7 +77,7 @@ export async function gatherDay(env, userId, tz, today) {
   const weekStart = addDays(today, -((new Date(`${today}T12:00:00Z`).getUTCDay() + 6) % 7));
   const [
     calendar, noteEvents, openTodos, doneToday, habits, progress, brief, intentions, journals,
-    facts, changes, questions, absence, usage, lifeMap, worlds, prevDco, corrections, pastFacts, anyCalendar,
+    facts, changes, questions, absence, usage, lifeMap, worlds, prevDco, corrections, pastFacts, anyCalendar, story,
   ] = await Promise.all([
     d.select(`synced_calendar_events?owner_id=eq.${userId}&archived=eq.false&start_at=gte.${encodeURIComponent(dayStart)}&start_at=lt.${encodeURIComponent(horizonEnd)}&select=id,title,location,start_at,end_at,is_all_day&order=start_at.asc&limit=200`),
     d.select(`notes?owner_id=eq.${userId}&external_source=is.null&subtype=eq.event&archived=eq.false&target_date=gte.${today}&target_date=lte.${addDays(today, 3)}&select=id,title,target_date,event_time,end_date&order=target_date.asc&limit=50`),
@@ -98,12 +99,14 @@ export async function gatherDay(env, userId, tz, today) {
     recentCorrections(env, userId),
     d.select(`life_facts?user_id=eq.${userId}&state=in.(happened,changed)&about_date=gte.${addDays(today, -365)}&select=id,statement,about_date,state,state_reason&order=about_date.desc&limit=80`),
     d.select(`synced_calendar_events?owner_id=eq.${userId}&archived=eq.false&start_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -30)))}&select=id&limit=1`),
+    loadStory(env, userId, { includePrivate: false, limit: 60 }).catch(() => []),
   ]);
   return {
     today, weekStart, calendar, noteEvents, openTodos, doneToday, habits, progress, brief: brief?.[0] || null,
     intention: intentions?.[0] || null, journals, facts, changes, questions, absence, usage,
     lifeMap: lifeMap?.[0]?.life_map || null, worlds, prevDco: prevDco?.[0] || null, corrections, pastFacts: pastFacts || [],
     calendarConnected: (anyCalendar || []).length > 0,
+    story: story || [],
   };
 }
 
@@ -234,6 +237,11 @@ export function renderDay(g, tz) {
   lines.push('');
   lines.push(`QUESTIONS GREMLY HAS FOR THE PERSON (ref | when | question):\n${qLines.join('\n') || '(none)'}`);
   lines.push('');
+  const loves = (g.story || []).filter((s) => s.kind === 'pattern').map((s) => `${s.pattern_kind || 'pattern'}: ${trim(s.title, 90)}`);
+  const proud = (g.story || []).filter((s) => s.kind === 'proud').map((s) => `${s.period_start || 'undated'}: ${trim(s.title, 90)}`);
+  lines.push(`WHAT THEY LOVE AND DO OFTEN (from their story): ${loves.slice(0, 12).join('; ') || '(not written yet)'}`);
+  lines.push(`MOMENTS THEY CAN BE PROUD OF (from their story): ${proud.slice(0, 10).join('; ') || '(not written yet)'}`);
+  lines.push('');
   lines.push(`LIFE MAP THREADS (domain / thread | state | last activity | summary):\n${threadLines.slice(0, 30).join('\n') || '(none yet)'}`);
   lines.push('');
   lines.push(`YESTERDAY'S HEADLINE: ${g.prevDco?.dco?.brief_headline ? `"${g.prevDco.dco.brief_headline}" (${g.prevDco.date})` : '(none)'}`);
@@ -300,7 +308,7 @@ YOUR JOB
 - anchor_refs: the dated ledger facts in the next 30 days that are genuinely ahead and worth keeping in mind, cited by ref. Leave out any plan that something in the inputs suggests already happened, moved or fell through, anything with an open question about it, and anything the person corrected.
 - question_ref: at most one of Gremly's open questions, only if it is about something current or ahead and today is a natural day to ask it. Otherwise leave it empty.
 - return_note: write it when the inputs say they are returning after time away, and leave it empty otherwise. One warm line welcoming them back, without listing what they missed or what is overdue, and without guessing why they were away. Otherwise leave it empty.
-- voice_note: one line on how Gremly should sound today.
+- voice_note: one line on how Gremly should sound today. On a heavy or uncertain day, Gremly can draw on what they love or on a moment they can be proud of, when one genuinely fits.
 
 VOICE
 Warm, plain and forward-looking. Never shame or pressure, never use streak language or the word should, never tell the person how they feel.

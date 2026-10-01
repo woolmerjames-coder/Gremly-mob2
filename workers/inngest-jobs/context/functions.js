@@ -18,6 +18,7 @@ import { applyCorrection } from './corrections';
 import { buildDcoV4, writeDco } from './daily';
 import { weeklyRequestParams, applyWeekly, submitWeeklyBatch, readWeeklyBatch, WEEKLY_PROMPT_VERSION } from './weekly';
 import { anthropicJsonResult } from './llm';
+import { storyRequestParams, applyStory, STORY_PROMPT_VERSION } from './story';
 import { writeUsageRow } from '../aiUsage';
 
 /**
@@ -115,87 +116,136 @@ export function createContextFunctions(inngest) {
   );
 
   // ── Weekly synthesis ─────────────────────────────────────────────────────
-  const weekly = inngest.createFunction(
-    {
-      id: 'context-weekly-synthesis',
-      name: 'Context: weekly synthesis (Life Map, profile, Worlds)',
-      concurrency: [{ key: 'event.data.user_id', limit: 1 }, { limit: 3 }],
-      retries: 2,
-    },
-    { event: 'app/synthesis.weekly' },
-    async ({ event, step, env }) => {
-      const userId = event.data?.user_id;
-      if (!userId) throw new Error('user_id is required');
-      const mode = contextMode(env, userId);
-      if (mode === 'off') return { skipped: 'pipeline off' };
-      const shadow = event.data?.shadow ?? mode !== 'on';
-      const direct = !!event.data?.direct;
+  /**
+   * One Claude synthesis job: prepare the request, run it straight away
+   * (direct) or through the half-price batch API, then apply the result.
+   * Used by the weekly synthesis and the monthly story.
+   */
+  const synthesisJob = ({ id, name, event: eventName, kind: defaultKind, prepare, apply }) =>
+    inngest.createFunction(
+      { id, name, concurrency: [{ key: 'event.data.user_id', limit: 1 }, { limit: 3 }], retries: 2 },
+      { event: eventName },
+      async ({ event, step, env }) => {
+        const userId = event.data?.user_id;
+        if (!userId) throw new Error('user_id is required');
+        const mode = contextMode(env, userId);
+        if (mode === 'off') return { skipped: 'pipeline off' };
+        const shadow = event.data?.shadow ?? mode !== 'on';
+        const direct = !!event.data?.direct;
 
-      const prepared = await step.run('prepare-and-submit', async () => {
-        const tz = await userTimezone(env, userId);
-        const periodEnd = event.data?.period_end || lastCompleteWeekEnd(tz);
-        const { params, refsSnapshot, today, inputChars } = await weeklyRequestParams(env, userId, periodEnd);
-        const d = db(env);
-        const [run] = await d.insert('synthesis_runs', [
-          {
-            user_id: userId,
-            kind: event.data?.kind || 'weekly',
-            period_start: addDays(periodEnd, -6),
-            period_end: periodEnd,
-            status: 'queued',
-            model: params.model,
-            prompt_version: WEEKLY_PROMPT_VERSION,
-            input_stats: { input_chars: inputChars, refs: refsSnapshot, today, shadow, direct },
-          },
-        ]);
-        if (direct) {
-          const res = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-            body: JSON.stringify(params),
-          });
-          const text = await res.text();
-          if (!res.ok) throw new Error(`Weekly direct call ${res.status}: ${text.slice(0, 300)}`);
-          const output = anthropicJsonResult(JSON.parse(text));
-          await d.update(`synthesis_runs?id=eq.${run.id}`, { status: 'completed', output, completed_at: new Date().toISOString() });
-          return { runId: run.id, done: true };
-        }
-        const batch = await submitWeeklyBatch(env, [{ custom_id: run.id, params }]);
-        await d.update(`synthesis_runs?id=eq.${run.id}`, { status: 'submitted', batch_id: batch.id, submitted_at: new Date().toISOString() });
-        return { runId: run.id, batchId: batch.id, done: false };
-      });
-
-      if (!prepared.done) {
-        let finished = false;
-        for (let i = 0; i < 40 && !finished; i++) {
-          await step.sleep(`wait-${i}`, i < 6 ? '10m' : '30m');
-          finished = await step.run(`poll-${i}`, async () => {
-            const r = await readWeeklyBatch(env, prepared.batchId, { jobByCustomId: { [prepared.runId]: { userId, runId: prepared.runId } } });
-            if (!r.done) return false;
-            const res = r.results[prepared.runId];
-            const d = db(env);
-            if (!res?.ok) {
-              await d.update(`synthesis_runs?id=eq.${prepared.runId}`, { status: 'failed', error: res?.error || 'missing result', completed_at: new Date().toISOString() });
-              throw new Error(`Weekly batch failed: ${res?.error || 'missing result'}`);
-            }
-            await d.update(`synthesis_runs?id=eq.${prepared.runId}`, { status: 'completed', output: res.output, completed_at: new Date().toISOString() });
-            return true;
-          });
-        }
-        if (!finished) throw new Error('Weekly batch did not finish within the polling window');
-      }
-
-      return step.run('apply', async () => {
-        const d = db(env);
-        const [run] = await d.select(`synthesis_runs?id=eq.${prepared.runId}&select=*`);
-        const result = await applyWeekly(env, userId, run.output, run.input_stats.refs, { shadow, runId: run.id, today: run.input_stats.today });
-        await d.update(`synthesis_runs?id=eq.${run.id}`, {
-          status: shadow ? 'shadow' : 'applied',
-          applied_at: shadow ? null : new Date().toISOString(),
-          output: { ...run.output, applied: result.applied, worlds_summary_resolved: result.worldsSummary, previous: result.previous || null },
+        const prepared = await step.run('prepare-and-submit', async () => {
+          const p = await prepare(env, userId, event.data || {});
+          const d = db(env);
+          const [run] = await d.insert('synthesis_runs', [
+            {
+              user_id: userId,
+              kind: event.data?.kind || defaultKind,
+              period_start: p.periodStart || null,
+              period_end: p.periodEnd || null,
+              status: 'queued',
+              model: p.params.model,
+              prompt_version: p.promptVersion,
+              input_stats: { input_chars: p.inputChars, refs: p.refsSnapshot, today: p.today, shadow, direct, ...(p.stats || {}) },
+            },
+          ]);
+          if (direct) {
+            const res = await fetch('https://api.anthropic.com/v1/messages', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+              body: JSON.stringify(p.params),
+            });
+            const text = await res.text();
+            if (!res.ok) throw new Error(`${name} direct call ${res.status}: ${text.slice(0, 300)}`);
+            const output = anthropicJsonResult(JSON.parse(text));
+            await d.update(`synthesis_runs?id=eq.${run.id}`, { status: 'completed', output, completed_at: new Date().toISOString() });
+            return { runId: run.id, done: true };
+          }
+          const batch = await submitWeeklyBatch(env, [{ custom_id: run.id, params: p.params }]);
+          await d.update(`synthesis_runs?id=eq.${run.id}`, { status: 'submitted', batch_id: batch.id, submitted_at: new Date().toISOString() });
+          return { runId: run.id, batchId: batch.id, done: false };
         });
-        return { runId: run.id, shadow, ...result.applied };
-      });
+
+        if (!prepared.done) {
+          let finished = false;
+          for (let i = 0; i < 40 && !finished; i++) {
+            await step.sleep(`wait-${i}`, i < 6 ? '10m' : '30m');
+            finished = await step.run(`poll-${i}`, async () => {
+              const r = await readWeeklyBatch(env, prepared.batchId, { jobByCustomId: { [prepared.runId]: { userId, runId: prepared.runId, job: id } } });
+              if (!r.done) return false;
+              const res = r.results[prepared.runId];
+              const d = db(env);
+              if (!res?.ok) {
+                await d.update(`synthesis_runs?id=eq.${prepared.runId}`, { status: 'failed', error: res?.error || 'missing result', completed_at: new Date().toISOString() });
+                throw new Error(`${name} batch failed: ${res?.error || 'missing result'}`);
+              }
+              await d.update(`synthesis_runs?id=eq.${prepared.runId}`, { status: 'completed', output: res.output, completed_at: new Date().toISOString() });
+              return true;
+            });
+          }
+          if (!finished) throw new Error(`${name} batch did not finish within the polling window`);
+        }
+
+        return step.run('apply', async () => {
+          const d = db(env);
+          const [run] = await d.select(`synthesis_runs?id=eq.${prepared.runId}&select=*`);
+          const result = await apply(env, userId, run, { shadow });
+          await d.update(`synthesis_runs?id=eq.${run.id}`, {
+            status: shadow ? 'shadow' : 'applied',
+            applied_at: shadow ? null : new Date().toISOString(),
+            output: { ...run.output, applied: result.applied, ...(result.extra || {}) },
+          });
+          return { runId: run.id, shadow, ...result.applied };
+        });
+      },
+    );
+
+  // ── Weekly synthesis: Life Map, profile, Worlds, Chapters ────────────────
+  const weekly = synthesisJob({
+    id: 'context-weekly-synthesis',
+    name: 'Context: weekly synthesis (Life Map, profile, Worlds, Chapters)',
+    event: 'app/synthesis.weekly',
+    kind: 'weekly',
+    prepare: async (env, userId, data) => {
+      const tz = await userTimezone(env, userId);
+      const periodEnd = data.period_end || lastCompleteWeekEnd(tz);
+      const p = await weeklyRequestParams(env, userId, periodEnd);
+      return { ...p, periodStart: addDays(periodEnd, -6), periodEnd, promptVersion: WEEKLY_PROMPT_VERSION };
+    },
+    apply: async (env, userId, run, { shadow }) => {
+      const r = await applyWeekly(env, userId, run.output, run.input_stats.refs, { shadow, runId: run.id, today: run.input_stats.today });
+      return { applied: r.applied, extra: { worlds_summary_resolved: r.worldsSummary, previous: r.previous || null } };
+    },
+  });
+
+  // ── Monthly story: milestones, shifts, proud moments, patterns, people ───
+  const story = synthesisJob({
+    id: 'context-story',
+    name: 'Context: monthly story',
+    event: 'app/story.monthly',
+    kind: 'monthly',
+    prepare: async (env, userId) => {
+      const p = await storyRequestParams(env, userId);
+      return { ...p, periodEnd: p.today, promptVersion: STORY_PROMPT_VERSION, stats: p.counts };
+    },
+    apply: async (env, userId, run, { shadow }) => {
+      const r = await applyStory(env, userId, run.output, run.input_stats.refs, { shadow, runId: run.id, model: run.model, today: run.input_stats.today });
+      return { applied: r.applied };
+    },
+  });
+
+  const storyScheduler = inngest.createFunction(
+    { id: 'context-story-scheduler', name: 'Context: monthly story scheduler' },
+    { cron: '0 12 1 * *' },
+    async ({ step, env }) => {
+      if (contextMode(env) === 'off') return { skipped: 'pipeline off' };
+      const users = await step.run('active', () => db(env).rpc('get_active_people', { active_days: 60 }));
+      if (!users.length) return { scheduled: 0 };
+      const month = new Date().toISOString().slice(0, 7);
+      await step.sendEvent(
+        'fan-out',
+        users.map((u) => ({ id: `story-${u.user_id}-${month}`, name: 'app/story.monthly', data: { user_id: u.user_id, shadow: contextMode(env, u.user_id) !== 'on' } })),
+      );
+      return { scheduled: users.length };
     },
   );
 
@@ -229,6 +279,11 @@ export function createContextFunctions(inngest) {
         data: { user_id: userId, backfill: true },
         timeout: '6h',
       });
+      const storyRun = await step.invoke('story-direct', {
+        function: story,
+        data: { user_id: userId, direct: true, shadow },
+        timeout: '1h',
+      });
       const synth = await step.invoke('weekly-direct', {
         function: weekly,
         data: { user_id: userId, direct: true, shadow, kind: 'catch_up' },
@@ -239,7 +294,7 @@ export function createContextFunctions(inngest) {
         data: { user_id: userId, shadow },
         timeout: '30m',
       });
-      return { read, synth, day, shadow };
+      return { read, story: storyRun, synth, day, shadow };
     },
   );
 
@@ -259,7 +314,7 @@ export function createContextFunctions(inngest) {
     },
   );
 
-  return [ledgerRead, correctionApply, dcoV4, weekly, weeklyScheduler, catchUpUser, catchUp];
+  return [ledgerRead, correctionApply, dcoV4, weekly, weeklyScheduler, story, storyScheduler, catchUpUser, catchUp];
 }
 
 /**
