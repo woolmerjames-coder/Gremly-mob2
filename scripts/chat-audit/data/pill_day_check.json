@@ -1,0 +1,42 @@
+{
+  "itemsFrom": "james_check.json",
+  "todayIso": "2026-09-30",
+  "todayStr": "Wednesday, September 30, 2026",
+  "note": "A new todo saved from the Save items pill keeps the day the user gave it (the Call Mum chat, 30 Sep: saved with no day, then a card caught up and offered to move it to Sunday). What good looks like: the pill's todo carries the day their words give, null when they give none or only a vague time; no late card offering the same day afterwards.",
+  "scenarios": [
+    {
+      "id": "PD-call-mum",
+      "group": "Pill: the day a new todo is for",
+      "turns": [
+        "Can you remind me to call mum on Sunday?",
+        "Ok cool, I will need to do it this weekend around anniversary stuff with Dave",
+        "Ok lets set it up for this sunday"
+      ],
+      "expect": "The pill's Call Mum todo is for Sunday 4 October from the first turn."
+    },
+    {
+      "id": "PD-invoice",
+      "group": "Pill: the day a new todo is for",
+      "turns": ["Don't let me forget to send the invoice on Friday"],
+      "expect": "Send the invoice, Friday 2 October."
+    },
+    {
+      "id": "PD-next-week",
+      "group": "Pill: the day a new todo is for",
+      "turns": ["I need to book the car service sometime next week"],
+      "expect": "Book the car service with no day: next week names no single day."
+    },
+    {
+      "id": "PD-no-day",
+      "group": "Pill: the day a new todo is for",
+      "turns": ["I should really sort out my pension at some point"],
+      "expect": "Sort out the pension with no day."
+    },
+    {
+      "id": "PD-in-days",
+      "group": "Pill: the day a new todo is for",
+      "turns": ["Remind me to water the plants in three days"],
+      "expect": "Water the plants, Saturday 3 October."
+    }
+  ]
+}

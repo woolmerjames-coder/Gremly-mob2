@@ -219,6 +219,7 @@ import {
   trackedItemsBlock,
   lateCardCandidate,
   newItemsOnly,
+  withValidDays,
   buildChatExtractionPrompt,
   buildPillPrompt,
   buildSummaryPrompt,
@@ -13297,7 +13298,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                           Prefer: 'return=minimal',
                         },
                         body: JSON.stringify({
-                          extracted_items: extractResult.extractions || [],
+                          // a todo's day is a calendar day or nothing
+                          extracted_items: withValidDays(extractResult.extractions || []),
                           auto_title: extractResult.chat_summary?.title || null,
                           // the late card for this turn, or none; the app polls for it
                           metadata_json: {

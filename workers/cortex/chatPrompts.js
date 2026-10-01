@@ -385,6 +385,19 @@ export function newItemsOnly(extractions) {
 }
 
 /**
+ * A new item's day as the app saves it: a todo's due_date is a calendar day
+ * (YYYY-MM-DD) or nothing, so a value of any other shape is left out rather
+ * than saved as a broken date.
+ */
+export function withValidDays(extractions) {
+  return (extractions || []).map((e) =>
+    e && e.due_date != null && !/^\d{4}-\d{2}-\d{2}$/.test(String(e.due_date))
+      ? { ...e, due_date: null }
+      : e,
+  );
+}
+
+/**
  * The pill's final list: new items and add-tos from reconciliation, plus the
  * extractor's own edits, with one add-to per note (the extractor's own wins)
  * and one edit per item and field. Kept for callers that still mix the two.
@@ -488,6 +501,8 @@ When the user's own words say a listed item has changed, moved, been renamed, re
 
 EVIDENCE
 For every new item and every change, evidence is the user's own words, copied exactly from one User line, that show it. Words Gremly said do not count unless the user took them up in their own words, and then the evidence is the user's words.
+
+WHEN, for todos: due_date is the one calendar day their words give for doing it, counted from today's date, as YYYY-MM-DD. Words give one day when they name a day or a date, count days or weeks from today, give a deadline as the end of a period (its last day; whether a week ends on Friday or Sunday follows from what the todo is), or give a short span of two or three days (its first day). A day of the month with no month named is the next such day after today. Words give no single day when they give a month, a season, a vague time, or a week or month without saying which day in it; then due_date is null, as it is when they give no time at all. When they settle on a day later in the conversation, the day is the one they settled on. Null for every other kind.
 
 TIMING, for events only (null for every other kind): date_text, the user's words about when, verbatim; resolved_date, the most likely day as YYYY-MM-DD, the middle of the range when they were vague; date_confidence, exact when they gave a specific day, approximate when a rough time, unknown when no timing; date_range_start and date_range_end, the earliest and latest plausible days.
 

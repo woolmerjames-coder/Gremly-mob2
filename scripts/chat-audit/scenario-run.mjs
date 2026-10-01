@@ -45,6 +45,7 @@ import {
   lateCardCandidate,
   newItemsOnly,
   NO_EXTRACTION_MODES,
+  withValidDays,
 } from '../../workers/cortex/chatPrompts.js';
 
 configureModels({
@@ -195,8 +196,16 @@ async function extraction(items, history, card, match, recent, shownCards, messa
     // found by the extraction, held back by the check
     lateCardHeld: offered ? null : brief(unseen),
     lateCardFull: lateCard,
-    items: newItemsOnly(news).map((e) => ({ kind: 'new', type: e.type, title: e.title, same_as: e.same_as || null })),
-    rawNew: raw.map((e) => ({ title: e.title, type: e.type, same_as: e.same_as || null })),
+    // the day a new item is for, as the app saves it (due_date for a todo, resolved_date for an event)
+    items: withValidDays(newItemsOnly(news)).map((e) => ({
+      kind: 'new',
+      type: e.type,
+      title: e.title,
+      same_as: e.same_as || null,
+      due_date: e.due_date || null,
+      resolved_date: e.resolved_date || null,
+    })),
+    rawNew: raw.map((e) => ({ title: e.title, type: e.type, same_as: e.same_as || null, due_date: e.due_date || null })),
     ungrounded: raw.length - grounded.length,
   };
 }

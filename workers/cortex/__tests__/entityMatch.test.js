@@ -48,6 +48,7 @@ import {
   withEditsRule,
   withEvidenceRule,
   buildChatExtractionPrompt,
+  withValidDays,
 } from '../chatPrompts.js';
 import { configureModels, models } from '../models.js';
 
@@ -1822,4 +1823,19 @@ test('the matcher is told a change they said yes to has been made, so a follow u
     });
     expect(plain).toContain('[shown on the card in the last reply]');
   }
+});
+
+test("the pill gives a new todo the day their words give, and a todo's day is a calendar day or nothing", () => {
+  const prompt = buildPillPrompt({ todayStr: 'Wednesday, September 30, 2026', conversationText: 'User: hi', existingItemsBlock: '' });
+  expect(prompt).toContain("WHEN, for todos: due_date is the one calendar day their words give for doing it");
+  expect(prompt).toContain('When they settle on a day later in the conversation, the day is the one they settled on.');
+  expect(
+    withValidDays([
+      { type: 'todo', title: 'Call Mum', due_date: '2026-10-04' },
+      { type: 'todo', title: 'Send the invoice', due_date: 'Friday' },
+      { type: 'todo', title: 'Pension', due_date: null },
+      { type: 'note', title: 'Idea' },
+    ]).map((e) => e.due_date ?? null),
+  ).toEqual(['2026-10-04', null, null, null]);
+  expect(withValidDays(null)).toEqual([]);
 });
