@@ -129,7 +129,7 @@ function StreamingBubble({ contentRef, visible, isSearching, searchQuery }: Stre
   if (isSearching && !displayContent) {
     return (
       <View style={styles.searchingContainer}>
-        <Text style={styles.searchingText}>Searching: {searchQuery}</Text>
+        <Text style={styles.searchingText}>{searchQuery}</Text>
       </View>
     );
   }

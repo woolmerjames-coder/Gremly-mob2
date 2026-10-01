@@ -7,7 +7,7 @@
  * Phase 1 — Shell + FlatList + placeholder card renderers.
  */
 
-import React, { useState, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -1716,6 +1716,12 @@ export default function WeeklySummaryV2Screen() {
   const content = summary?.content as WeeklySummaryV2Content | undefined;
   const isV07 = ((content as unknown as V07DeckType)?.content_version ?? 0) >= 4;
   const cards: WSV2Card[] = content?.cards ?? [];
+
+  useEffect(() => {
+    if (summary?.id && !summary.viewed) {
+      useGremlyStore.getState().markSummaryViewed(summary.id);
+    }
+  }, [summary?.id, summary?.viewed]);
 
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const flatListRef = useRef<FlatList>(null);

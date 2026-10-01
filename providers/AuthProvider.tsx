@@ -4,7 +4,7 @@
  */
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   GoogleSignin,
@@ -20,7 +20,11 @@ import { calendarClient } from '../lib/calendar/CalendarClient';
 import { FLAGS } from '../config/flags';
 import { nowTimestamp } from '../lib/date/DateService';
 import useDayBoundaryWatcher from '../lib/today/hooks/useDayBoundaryWatcher';
-import { registerForPushNotifications, savePushToken } from '../src/utils/notifications';
+import {
+  hasNotificationPermission,
+  registerForPushNotifications,
+  savePushToken,
+} from '../src/utils/notifications';
 import { loginUser, logoutUser } from '../lib/subscriptions/purchases';
 import * as Sentry from '@sentry/react-native';
 import type { Session, User } from '@supabase/supabase-js';
@@ -221,6 +225,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       authListener?.subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    const syncPushToken = async () => {
+      const userId = session?.user?.id;
+      if (!userId) return;
+
+      try {
+        const hasPermission = await hasNotificationPermission();
+        if (!hasPermission) return;
+
+        const token = await registerForPushNotifications();
+        if (token) {
+          await savePushToken(userId, token);
+          console.log('[AuthProvider] Foreground push token sync successful');
+        }
+      } catch (pushError) {
+        console.log('[AuthProvider] Foreground push token sync failed:', pushError);
+      }
+    };
+
+    syncPushToken();
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        syncPushToken();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [session?.user?.id]);
 
   const signInWithGoogle = async () => {
     setLoading(true);

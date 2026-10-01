@@ -37,6 +37,7 @@ import { HabitBuilderScreen } from '../screens/habits/HabitBuilderScreen';
 import { MorningBriefSheet } from '../app/components/morning-brief/MorningBriefSheet';
 import WeeklySummaryScreen from '../app/screens/WeeklySummaryScreen';
 import WeeklySummaryV2Screen from '../app/screens/WeeklySummaryV2Screen';
+import WeeklyArchiveScreen from '../app/screens/WeeklyArchiveScreen';
 import HubScreen from '../app/tabs/HubScreen';
 import WorldDetailScreen from '../app/screens/WorldDetailScreen';
 import ChapterDetailScreen from '../app/screens/ChapterDetailScreen';
@@ -111,6 +112,7 @@ export type RootStackParamList = {
   MorningBrief: { targetDate?: string } | undefined;
   WeeklySummary: { weekStartDate?: string } | undefined;
   WeeklySummaryV2: { weekStartDate?: string } | undefined;
+  WeeklyArchive: undefined;
   SweepTest: undefined; // DEV only
   HubScreen: undefined;
   WorldDetail: { worldId: string };
@@ -249,6 +251,11 @@ export default function RootNavigator() {
             name="WeeklySummaryV2"
             component={WeeklySummaryV2Screen}
             options={{ headerShown: false, presentation: 'fullScreenModal' }}
+          />
+          <Stack.Screen
+            name="WeeklyArchive"
+            component={WeeklyArchiveScreen}
+            options={{ headerShown: false, animation: 'slide_from_right' }}
           />
           <Stack.Screen
             name="ArchivedItems"

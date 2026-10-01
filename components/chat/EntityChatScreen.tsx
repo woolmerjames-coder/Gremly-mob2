@@ -1106,7 +1106,7 @@ export function EntityChatScreen({
           {isSearchingMessage ? (
             <View style={styles.searchingIndicator}>
               <ActivityIndicator size="small" color="#8B5CF6" />
-              <Text style={styles.searchingText}>Searching: {item.metadata?.searchQuery}</Text>
+              <Text style={styles.searchingText}>{item.metadata?.searchQuery}</Text>
             </View>
           ) : (
             <ChatBubble message={bubbleMessage as SpaceChatMessage} />

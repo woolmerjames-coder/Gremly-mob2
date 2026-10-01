@@ -8,7 +8,7 @@ import { Text } from '../../ui';
 export function PastSummariesLink() {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   return (
-    <Pressable onPress={() => nav.navigate('WeeklySummary', undefined)} style={styles.wrap}>
+    <Pressable onPress={() => nav.navigate('WeeklyArchive')} style={styles.wrap}>
       <Text style={styles.text}>see past weekly summaries</Text>
     </Pressable>
   );

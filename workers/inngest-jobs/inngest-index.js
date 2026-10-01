@@ -139,7 +139,61 @@ function getUserLocalDate(timezone) {
   return parts; // en-CA gives YYYY-MM-DD format
 }
 
-// Dispatcher: hourly check for users in their 5 AM window, fan out DCO generation
+// ── Timezone day-boundary helpers ──────────────────────────────────────────────
+// CANONICAL SOURCE: app DateService.ts (startOfDayUtc / endOfDayUtc).
+// Mirrored here because the inngest worker is a separate bundle and cannot import
+// the app TypeScript. If the worker later imports DateService directly, DELETE these
+// and call dateService.startOfDayUtc / endOfDayUtc instead. Keep in sync with the service.
+function startOfDayUtc(localDay, timezone) {
+  const parts = localDay.split('-').map(Number);
+  const localMidnight = new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0, 0);
+  const utcMs = localMidnight.getTime();
+  const localStr = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(new Date(utcMs));
+  const m = localStr.match(/(\d+)\/(\d+)\/(\d+),?\s+(\d+):(\d+):(\d+)/);
+  if (!m) return new Date(`${localDay}T00:00:00Z`).toISOString();
+  const formatted = new Date(+m[3], +m[1] - 1, +m[2], +m[4] === 24 ? 0 : +m[4], +m[5], +m[6]);
+  const offsetMs = formatted.getTime() - utcMs;
+  return new Date(localMidnight.getTime() - offsetMs).toISOString();
+}
+
+function endOfDayUtc(localDay, timezone) {
+  const parts = localDay.split('-').map(Number);
+  const localEnd = new Date(parts[0], parts[1] - 1, parts[2], 23, 59, 59, 999);
+  const utcMs = localEnd.getTime();
+  const localStr = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(new Date(utcMs));
+  const m = localStr.match(/(\d+)\/(\d+)\/(\d+),?\s+(\d+):(\d+):(\d+)/);
+  if (!m) return new Date(`${localDay}T23:59:59.999Z`).toISOString();
+  const formatted = new Date(+m[3], +m[1] - 1, +m[2], +m[4] === 24 ? 0 : +m[4], +m[5], +m[6]);
+  const offsetMs = formatted.getTime() - utcMs;
+  return new Date(localEnd.getTime() - offsetMs).toISOString();
+}
+
+function addLocalDays(localDay, n) {
+  const [y, mo, d] = localDay.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + n);
+  return dt.toISOString().slice(0, 10);
+}
+
+// Dispatcher: hourly check for users in their 4 AM window, fan out DCO generation
 const dcoDispatcher = inngest.createFunction(
   {
     id: 'dco-dispatcher',
@@ -237,7 +291,7 @@ const dcoDispatcher = inngest.createFunction(
       return res.json(); // [{ user_id, timezone }]
     });
 
-    // Step 3: Filter to users whose local time is in the 5:xx AM window
+    // Step 3: Filter to users whose local time is in the 4:xx AM window
     const readyUsers = await step.run('filter-by-timezone-window', async () => {
       const now = new Date();
       return allUsers.filter((u) => {
@@ -256,7 +310,7 @@ const dcoDispatcher = inngest.createFunction(
     });
 
     console.log(
-      `[DCO Dispatcher] ${allUsers.length} active users, ${readyUsers.length} in 5 AM window`,
+      `[DCO Dispatcher] ${allUsers.length} active users, ${readyUsers.length} in 4 AM window`,
     );
 
     // Step 4: Fan out DCO generation for each ready user
@@ -287,173 +341,283 @@ const generateSingleUserDco = inngest.createFunction(
     const timezone = event.data.timezone;
 
     try {
-      // Step 1: Fetch today's data + Life Map from Supabase
-      const snapshot = await step.run('fetch-snapshot', async () => {
-        return fetchUserSnapshot(userId, timezone, 7, env);
-      });
-
-      // If no Life Map exists, store a minimal DCO and exit
-      if (!snapshot.raw.currentLifeMap) {
-        console.log(`[DCO] No Life Map for user ${userId} — storing minimal DCO`);
-        await step.run('store-minimal-dco', async () => {
-          const headers = {
-            apikey: env.SUPABASE_SERVICE_KEY,
-            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-            'Content-Type': 'application/json',
-            Prefer: 'resolution=merge-duplicates',
-          };
-          const todayLocal = getUserLocalDate(timezone);
-          const now = new Date();
-          await fetch(`${env.SUPABASE_URL}/rest/v1/user_daily_state?on_conflict=user_id,date`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-              user_id: userId,
-              date: todayLocal,
-              dco: {
-                day_type: 'routine_day',
-                life_moment: null,
-                tone: 'relaxed',
-                brief_headline: null,
-                pipeline: 'no-life-map-fallback',
-                generated_at: now.toISOString(),
-              },
-              created_at: now.toISOString(),
-              updated_at: now.toISOString(),
-              expires_at: new Date(now.getTime() + 7 * 86400000).toISOString(),
-            }),
-          });
-        });
-        return { user_id: userId, success: true, pipeline: 'no-life-map-fallback' };
-      }
-
-      // Step 2: Build the world picture (formatter — no AI, no opinions)
-      const worldPicture = await step.run('build-world-picture', async () => {
-        return buildWorldPicture(snapshot);
-      });
-
-      // Step 2b: Fetch active worlds and open chapters for DCO override evaluation
-      const worldsAndChapters = await step.run('fetch-worlds-and-chapters', async () => {
-        return fetchActiveWorldsAndChapters(userId, env);
-      });
-
-      // Step 3: Flash reads the world picture, updates threads, picks daily focus
-      const flashResult = await step.run('flash-daily-update', async () => {
-        return updateLifeMapAndFocus(
-          worldPicture.lifeMap,
-          worldPicture.text,
-          env,
-          worldsAndChapters,
-        );
-      });
-
-      // Step 4: Merge Flash's thread updates back into the Life Map
-      const updatedLifeMap = await step.run('merge-updates', async () => {
-        const mapCopy = JSON.parse(JSON.stringify(worldPicture.lifeMap));
-        return mergeLifeMapUpdates(mapCopy, flashResult.thread_updates);
-      });
-
-      // Step 5: Haiku writes the headline from the lead story
-      const headline = await step.run('generate-headline', async () => {
-        return generateHeadlineFromFocus(flashResult.daily_focus, snapshot, env);
-      });
-
-      // Step 6: Assemble backward-compatible DCO
-      const dco = assembleDcoFromFocus(flashResult.daily_focus, headline, snapshot, flashResult);
-
-      // Step 6b: Apply per-world DCO overrides (before final upsert)
-      await step.run('apply-world-overrides', async () => {
-        return applyWorldOverrides(
-          flashResult.world_overrides,
-          worldsAndChapters.activeWorlds,
-          userId,
-          env,
-        );
-      });
-
-      // Step 6c: Apply per-chapter DCO overrides (before final upsert)
-      await step.run('apply-chapter-overrides', async () => {
-        return applyChapterOverrides(
-          flashResult.chapter_overrides,
-          worldsAndChapters.activeChapters,
-          userId,
-          env,
-        );
-      });
-
-      // Step 7: Store updated Life Map + DCO to Supabase
-      await step.run('store-results', async () => {
-        const headers = {
-          apikey: env.SUPABASE_SERVICE_KEY,
-          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-          'Content-Type': 'application/json',
-          Prefer: 'resolution=merge-duplicates',
-        };
-
-        const todayLocal = getUserLocalDate(timezone);
-        const now = new Date();
-        const expiresAt = new Date(now.getTime() + 7 * 86400000);
-
-        const mapRes = await fetch(
-          `${env.SUPABASE_URL}/rest/v1/user_life_map?on_conflict=user_id`,
-          {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-              user_id: userId,
-              life_map: updatedLifeMap,
-              version: snapshot.raw.currentLifeMap.version || 1,
-              updated_at: now.toISOString(),
-              last_evidence_date: extractLastEvidenceDate(updatedLifeMap),
-            }),
-          },
-        );
-        if (!mapRes.ok) {
-          console.error(`[DCO] Failed to store Life Map: ${mapRes.statusText}`);
-        }
-
-        const dcoRes = await fetch(
-          `${env.SUPABASE_URL}/rest/v1/user_daily_state?on_conflict=user_id,date`,
-          {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-              user_id: userId,
-              date: todayLocal,
-              dco,
-              extraction_raw: {
-                world_picture_length: worldPicture.text.length,
-                thread_updates_count: flashResult.thread_updates?.length || 0,
-                lead_story: flashResult.daily_focus?.lead_story || null,
-              },
-              upcoming_dates: extractUpcomingDates(dco),
-              created_at: now.toISOString(),
-              updated_at: now.toISOString(),
-              expires_at: expiresAt.toISOString(),
-            }),
-          },
-        );
-        if (!dcoRes.ok) {
-          console.error(`[DCO] Failed to store DCO: ${dcoRes.statusText}`);
-        }
-
-        console.log(`[DCO] Stored Life Map + DCO for user ${userId} (${todayLocal})`);
-      });
-
-      return {
-        user_id: userId,
-        success: true,
-        pipeline: 'life-map-v2',
-        headline: dco.brief_headline,
-        lead_story: flashResult.daily_focus?.lead_story?.thread || null,
-        life_moment: dco.life_moment,
-        tone: dco.tone,
-        day_type: dco.day_type,
-        week_recap_count: dco.week_recap?.length || 0,
-      };
+      return await generateSingleUserDcoV3(userId, timezone, env, false);
     } catch (error) {
       console.error(`[DCO] Failed for user ${userId}:`, error);
-      return { user_id: userId, success: false, error: String(error) };
+      throw error;
+    }
+  },
+);
+
+// V3 runner used by both the event worker and old-path shadow fan-out.
+async function generateSingleUserDcoV3(userId, timezone, env, shadowMode = true) {
+  const snapshot = await fetchUserSnapshot(userId, timezone, 7, env);
+
+  const supaHeaders = {
+    apikey: env.SUPABASE_SERVICE_KEY,
+    Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+    'Content-Type': 'application/json',
+  };
+
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 7 * 86400000);
+
+  const existingRes = await fetch(
+    `${env.SUPABASE_URL}/rest/v1/user_daily_state?user_id=eq.${userId}&date=eq.${snapshot.targetDate}&select=dco`,
+    { headers: supaHeaders },
+  );
+  const existingRows = existingRes.ok ? await existingRes.json() : [];
+  const existingWorldsSummary = existingRows?.[0]?.dco?.worlds_summary || null;
+
+  const writeShadowOnly = async (dcoValue) => {
+    const res = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/user_daily_state?user_id=eq.${userId}&date=eq.${snapshot.targetDate}`,
+      {
+        method: 'PATCH',
+        headers: { ...supaHeaders, Prefer: 'return=minimal' },
+        body: JSON.stringify({ dco_shadow: dcoValue, updated_at: now.toISOString() }),
+      },
+    );
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Failed to store dco_shadow: ${res.status} ${errText.slice(0, 200)}`);
+    }
+  };
+
+  if (!snapshot.raw.currentLifeMap || !snapshot.today) {
+    const minimalDco = {
+      day_type: 'quiet_day',
+      tone: 'relaxed',
+      life_moment: null,
+      brief_headline: null,
+      today_focus: [],
+      lead_story: null,
+      named_anchors: [],
+      active_today: {
+        calendar_events: [],
+        todos_due_today: 0,
+        overdue_todos: 0,
+        habit_streak_risk: [],
+        upcoming_in_7d: [],
+      },
+      week_recap: [],
+      recent_context: {},
+      worlds_summary: existingWorldsSummary,
+      review_flags: [],
+      user_id: userId,
+      date: snapshot.targetDate,
+      generated_at: now.toISOString(),
+      ttl_days: 7,
+      model_used: 'none',
+      pipeline: 'dco-v3-minimal',
+    };
+
+    if (shadowMode) {
+      await writeShadowOnly(minimalDco);
+    } else {
+      const dcoRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/user_daily_state?on_conflict=user_id,date`,
+        {
+          method: 'POST',
+          headers: { ...supaHeaders, Prefer: 'resolution=merge-duplicates' },
+          body: JSON.stringify({
+            user_id: userId,
+            date: snapshot.targetDate,
+            dco: minimalDco,
+            extraction_raw: {
+              pipeline: 'dco-v3-minimal',
+              has_life_map: !!snapshot.raw.currentLifeMap,
+              has_today_facts: !!snapshot.today,
+            },
+            upcoming_dates: extractUpcomingDates(minimalDco),
+            expires_at: expiresAt.toISOString(),
+            created_at: now.toISOString(),
+            updated_at: now.toISOString(),
+          }),
+        },
+      );
+      if (!dcoRes.ok) {
+        const errText = await dcoRes.text().catch(() => '');
+        throw new Error(`Failed to upsert minimal dco: ${dcoRes.status} ${errText.slice(0, 200)}`);
+      }
+    }
+
+    return {
+      user_id: userId,
+      success: true,
+      pipeline: 'dco-v3-minimal',
+      shadowMode,
+      targetDate: snapshot.targetDate,
+    };
+  }
+
+  const worldsAndChapters = await fetchActiveWorldsAndChapters(userId, env);
+  snapshot.activeWorlds = worldsAndChapters.activeWorlds;
+  snapshot.activeChapters = worldsAndChapters.activeChapters;
+
+  const picture = await synthesizeDailyPicture(snapshot, env);
+  const verified = await verifyDailyPicture(picture, snapshot.today.text, env);
+
+  const verifiedPicture = verified?.verified_picture || {};
+  const dco = assembleDcoFromPicture(verifiedPicture, snapshot, verified.review_flags);
+
+  const mapCopy = JSON.parse(JSON.stringify(snapshot.raw.currentLifeMap.life_map));
+  const mergeResult = mergeLifeMapUpdatesGated(mapCopy, verifiedPicture.thread_updates || []);
+  const updatedLifeMap = mergeResult.lifeMap;
+
+  const resolvedWorldsSummary =
+    verifiedPicture.worlds_summary && verifiedPicture.worlds_summary.refreshed
+      ? verifiedPicture.worlds_summary
+      : existingWorldsSummary;
+  dco.worlds_summary = resolvedWorldsSummary;
+
+  const verifiedWorldOverrides = gateOverridesByReason(
+    verifiedPicture.world_overrides,
+    'world_id',
+    'world',
+  );
+  const verifiedChapterOverrides = gateOverridesByReason(
+    verifiedPicture.chapter_overrides,
+    'chapter_id',
+    'chapter',
+  );
+
+  let worldOverrideResult = null;
+  let chapterOverrideResult = null;
+
+  if (shadowMode) {
+    worldOverrideResult = buildOverrideDryRun(
+      verifiedWorldOverrides,
+      worldsAndChapters.activeWorlds,
+      'world_id',
+      'world',
+      'card_subtitle_source',
+      'summary_source',
+    );
+    chapterOverrideResult = buildOverrideDryRun(
+      verifiedChapterOverrides,
+      worldsAndChapters.activeChapters,
+      'chapter_id',
+      'chapter',
+      'card_subtitle_source',
+      'summary_source',
+    );
+
+    await writeShadowOnly(dco);
+  } else {
+    worldOverrideResult = await applyWorldOverrides(
+      verifiedWorldOverrides,
+      worldsAndChapters.activeWorlds,
+      userId,
+      env,
+    );
+
+    chapterOverrideResult = await applyChapterOverrides(
+      verifiedChapterOverrides,
+      worldsAndChapters.activeChapters,
+      userId,
+      env,
+    );
+
+    const lifeMapRes = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/user_life_map?user_id=eq.${userId}`,
+      {
+        method: 'PATCH',
+        headers: { ...supaHeaders, Prefer: 'return=minimal' },
+        body: JSON.stringify({
+          life_map: updatedLifeMap,
+          version: snapshot.raw.currentLifeMap.version || 1,
+          updated_at: now.toISOString(),
+          last_evidence_date: extractLastEvidenceDate(updatedLifeMap),
+        }),
+      },
+    );
+    if (!lifeMapRes.ok) {
+      const errText = await lifeMapRes.text().catch(() => '');
+      throw new Error(
+        `Failed to patch user_life_map: ${lifeMapRes.status} ${errText.slice(0, 200)}`,
+      );
+    }
+
+    const dcoRes = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/user_daily_state?on_conflict=user_id,date`,
+      {
+        method: 'POST',
+        headers: { ...supaHeaders, Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify({
+          user_id: userId,
+          date: snapshot.targetDate,
+          dco,
+          extraction_raw: {
+            pipeline: 'dco-v3',
+            today_facts_length: snapshot.today?.text?.length || 0,
+            thread_updates_count: Array.isArray(verifiedPicture.thread_updates)
+              ? verifiedPicture.thread_updates.length
+              : 0,
+            lead_story: verifiedPicture.lead?.what || null,
+            review_flags_count: Array.isArray(verified.review_flags)
+              ? verified.review_flags.length
+              : 0,
+            world_overrides_applied: {
+              proposed: Array.isArray(verifiedPicture.world_overrides)
+                ? verifiedPicture.world_overrides.length
+                : 0,
+              gated: verifiedWorldOverrides.length,
+              result: worldOverrideResult,
+            },
+            chapter_overrides_applied: {
+              proposed: Array.isArray(verifiedPicture.chapter_overrides)
+                ? verifiedPicture.chapter_overrides.length
+                : 0,
+              gated: verifiedChapterOverrides.length,
+              result: chapterOverrideResult,
+            },
+          },
+          upcoming_dates: extractUpcomingDates(dco),
+          expires_at: expiresAt.toISOString(),
+          created_at: now.toISOString(),
+          updated_at: now.toISOString(),
+        }),
+      },
+    );
+    if (!dcoRes.ok) {
+      const errText = await dcoRes.text().catch(() => '');
+      throw new Error(`Failed to upsert dco: ${dcoRes.status} ${errText.slice(0, 200)}`);
+    }
+  }
+
+  return {
+    user_id: userId,
+    success: true,
+    pipeline: 'dco-v3',
+    shadowMode,
+    targetDate: snapshot.targetDate,
+    review_flags: verified.review_flags || [],
+    resolvedWorldsSummary,
+    override_apply_results: {
+      world: worldOverrideResult,
+      chapter: chapterOverrideResult,
+    },
+  };
+}
+
+// Per-user V3 worker event wrapper.
+const generateSingleUserDcoV3Worker = inngest.createFunction(
+  {
+    id: 'generate-single-user-dco-v3',
+    name: 'Generate Single User DCO V3',
+    concurrency: { limit: 5 },
+  },
+  { event: 'app/dco.generate-user-v3' },
+  async ({ event, env }) => {
+    const userId = event.data.user_id;
+    const timezone = event.data.timezone || 'UTC';
+    const shadowMode = event.data.shadowMode !== false;
+    try {
+      return await generateSingleUserDcoV3(userId, timezone, env, shadowMode);
+    } catch (error) {
+      console.error(`[DCO V3] Failed for user ${userId}:`, error);
+      throw error;
     }
   },
 );
@@ -615,6 +779,143 @@ const testLifeMapRebuild = inngest.createFunction(
       domains: rebuildResult.metadata.domains,
       threads: rebuildResult.metadata.threads,
       version: rebuildResult.metadata.version,
+    };
+  },
+);
+
+const testGatherForUser = inngest.createFunction(
+  { id: 'test-gather-for-user', name: 'TEST Gather Today Facts' },
+  { event: 'app/test.gather' },
+  async ({ event, env }) => {
+    const userId = event.data.user_id;
+    const timezone = event.data.timezone || 'America/Los_Angeles';
+    const gathered = await gatherTodayFacts(userId, timezone, env);
+    const bucketed = bucketTodayFacts(gathered);
+    const text = renderTodayFactsText(bucketed);
+    console.log('[TEST Gather]', userId.slice(0, 8), '\n' + text);
+    return { user_id: userId, targetDate: bucketed.targetDate, text, bucketed };
+  },
+);
+
+const testSynthesizeForUser = inngest.createFunction(
+  { id: 'test-synthesize-for-user', name: 'TEST Synthesize Daily Picture' },
+  { event: 'app/test.synthesize' },
+  async ({ event, env }) => {
+    const userId = event.data.user_id;
+    const timezone = event.data.timezone || 'America/Los_Angeles';
+    const snapshot = await fetchUserSnapshot(userId, timezone, 7, env);
+    const worldsAndChapters = await fetchActiveWorldsAndChapters(userId, env);
+    snapshot.activeWorlds = worldsAndChapters.activeWorlds;
+    snapshot.activeChapters = worldsAndChapters.activeChapters;
+    if (!snapshot.today) {
+      return { user_id: userId, error: 'no today facts (gather failed)' };
+    }
+    const picture = await synthesizeDailyPicture(snapshot, env);
+    console.log('[TEST Synthesize]', userId.slice(0, 8), JSON.stringify(picture, null, 2));
+    return {
+      user_id: userId,
+      targetDate: snapshot.targetDate,
+      picture,
+      facts_text: snapshot.today.text,
+    };
+  },
+);
+
+const testVerifyForUser = inngest.createFunction(
+  { id: 'test-verify-for-user', name: 'TEST Verify Daily Picture' },
+  { event: 'app/test.verify' },
+  async ({ event, env }) => {
+    const userId = event.data.user_id;
+    const timezone = event.data.timezone || 'America/Los_Angeles';
+    const snapshot = await fetchUserSnapshot(userId, timezone, 7, env);
+    const worldsAndChapters = await fetchActiveWorldsAndChapters(userId, env);
+    snapshot.activeWorlds = worldsAndChapters.activeWorlds;
+    snapshot.activeChapters = worldsAndChapters.activeChapters;
+    if (!snapshot.today) {
+      return { user_id: userId, error: 'no today facts (gather failed)' };
+    }
+    const picture = await synthesizeDailyPicture(snapshot, env);
+    const verified = await verifyDailyPicture(picture, snapshot.today.text, env);
+    console.log('[TEST Verify]', userId.slice(0, 8), JSON.stringify(verified, null, 2));
+    return {
+      user_id: userId,
+      targetDate: snapshot.targetDate,
+      picture_before: picture,
+      verified_picture: verified.verified_picture,
+      review_flags: verified.review_flags,
+      facts_text: snapshot.today.text,
+    };
+  },
+);
+
+const testAssembleForUser = inngest.createFunction(
+  { id: 'test-assemble-for-user', name: 'TEST Assemble DCO' },
+  { event: 'app/test.assemble' },
+  async ({ event, env }) => {
+    const userId = event.data.user_id;
+    const timezone = event.data.timezone || 'America/Los_Angeles';
+    const snapshot = await fetchUserSnapshot(userId, timezone, 7, env);
+    const worldsAndChapters = await fetchActiveWorldsAndChapters(userId, env);
+    snapshot.activeWorlds = worldsAndChapters.activeWorlds;
+    snapshot.activeChapters = worldsAndChapters.activeChapters;
+    if (!snapshot.today) {
+      return { user_id: userId, error: 'no today facts' };
+    }
+
+    const picture = await synthesizeDailyPicture(snapshot, env);
+    const verified = await verifyDailyPicture(picture, snapshot.today.text, env);
+    const dco = assembleDcoFromPicture(verified.verified_picture, snapshot, verified.review_flags);
+    console.log('[TEST Assemble]', userId.slice(0, 8), 'keys:', Object.keys(dco).join(','));
+
+    return {
+      user_id: userId,
+      dco,
+    };
+  },
+);
+
+const testWriteAuthorityForUser = inngest.createFunction(
+  { id: 'test-write-authority-for-user', name: 'TEST Write Authority (dry run)' },
+  { event: 'app/test.writeauth' },
+  async ({ event, env }) => {
+    const userId = event.data.user_id;
+    const timezone = event.data.timezone || 'America/Los_Angeles';
+    const snapshot = await fetchUserSnapshot(userId, timezone, 7, env);
+    const worldsAndChapters = await fetchActiveWorldsAndChapters(userId, env);
+    snapshot.activeWorlds = worldsAndChapters.activeWorlds;
+    snapshot.activeChapters = worldsAndChapters.activeChapters;
+    if (!snapshot.today) return { user_id: userId, error: 'no today facts' };
+
+    const picture = await synthesizeDailyPicture(snapshot, env);
+    await verifyDailyPicture(picture, snapshot.today.text, env);
+
+    const liveMap = snapshot.raw.currentLifeMap?.life_map || null;
+    const mapCopy = liveMap ? JSON.parse(JSON.stringify(liveMap)) : null;
+
+    let mergeResult = { changeLog: [], applied: false };
+    if (mapCopy && Array.isArray(picture.thread_updates) && picture.thread_updates.length > 0) {
+      const { lifeMap: merged, changeLog } = mergeLifeMapUpdatesGated(
+        mapCopy,
+        picture.thread_updates,
+      );
+      void merged;
+      mergeResult = {
+        changeLog,
+        applied: true,
+        thread_update_count: picture.thread_updates.length,
+      };
+    }
+
+    return {
+      user_id: userId,
+      targetDate: snapshot.targetDate,
+      thread_updates_proposed: picture.thread_updates || [],
+      slow_field_changes: mergeResult.changeLog,
+      // Phase 5b: worlds/chapters freshening (dry run - what WOULD be written)
+      world_overrides: picture.world_overrides || [],
+      chapter_overrides: picture.chapter_overrides || [],
+      worlds_summary_proposed: picture.worlds_summary || null,
+      note: 'DRY RUN: nothing written to DB',
     };
   },
 );
@@ -1601,6 +1902,64 @@ const weeklySummaryV07Worker = inngest.createFunction(
       return { inserted: 0, ok: false };
     });
 
+    // Step C.5: rebuild the Life Map from this week's analyst output (incremental delta merge).
+    const lifeMapRebuild = await step.run('rebuild-life-map', async () => {
+      const currentLifeMap = snapshot.raw.currentLifeMap?.life_map || null;
+      if (!currentLifeMap) {
+        console.warn(`[V07Worker] No existing Life Map for ${user_id}; skipping rebuild`);
+        return { skipped: true, mergedLifeMap: null };
+      }
+      const userProfile = snapshot.raw.userProfile?.profile_text || null;
+      const spaces = snapshot.raw.spaces || [];
+      const journals = (snapshot.raw.journals || []).map((j) => ({
+        title: j.title,
+        body: j.body,
+        mood: j.mood,
+        date: j.created_at ? j.created_at.split('T')[0] : null,
+      }));
+      const result = await rebuildLifeMap(
+        currentLifeMap,
+        analystResult.analysis,
+        userProfile,
+        spaces,
+        journals,
+        env,
+      );
+      const mergedLifeMap = mergeWeeklyLifeMapUpdates(
+        JSON.parse(JSON.stringify(currentLifeMap)),
+        result.delta,
+      );
+      return {
+        skipped: false,
+        mergedLifeMap,
+        currentVersion: snapshot.raw.currentLifeMap?.version || 1,
+      };
+    });
+
+    // Step C.6: persist the rebuilt Life Map (only if a rebuild happened).
+    await step.run('save-life-map', async () => {
+      if (lifeMapRebuild.skipped || !lifeMapRebuild.mergedLifeMap) {
+        return { saved: false };
+      }
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/user_life_map?on_conflict=user_id`, {
+        method: 'POST',
+        headers: { ...authHeaders, Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify({
+          user_id,
+          life_map: lifeMapRebuild.mergedLifeMap,
+          version: lifeMapRebuild.currentVersion,
+          rebuilt_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          last_evidence_date: extractLastEvidenceDate(lifeMapRebuild.mergedLifeMap),
+        }),
+      });
+      if (!res.ok) {
+        console.error(`[V07Worker] Failed to save Life Map for ${user_id}: ${res.statusText}`);
+        return { saved: false };
+      }
+      return { saved: true };
+    });
+
     // Step 1: run v0.7 generation pipeline. Publish-always: fact_errors are review flags,
     // not a publish gate. The only catastrophe guard is genuinely empty cards.
     const out = await step.run('generate-summary', async () =>
@@ -1703,6 +2062,32 @@ const weeklySummaryV07Worker = inngest.createFunction(
       polish_outcome: out.polish_outcome,
       attempts: out.attempts,
     };
+  },
+);
+
+const backfillWeeklyV07 = inngest.createFunction(
+  { id: 'backfill-weekly-v07', name: 'Backfill Weekly V07', concurrency: { limit: 1 } },
+  { event: 'app/backfill-weekly-v07.run' },
+  async ({ event, step }) => {
+    const userIds = Array.isArray(event.data?.user_ids) ? event.data.user_ids : [];
+    const weekStarts = Array.isArray(event.data?.week_starts)
+      ? [...event.data.week_starts].sort()
+      : [];
+    if (!userIds.length || !weekStarts.length) {
+      throw new Error('user_ids and week_starts are both required and must be non-empty');
+    }
+
+    const results = [];
+    for (const userId of userIds) {
+      for (const weekStart of weekStarts) {
+        const r = await step.invoke(`run-${userId.slice(0, 8)}-${weekStart}`, {
+          function: weeklySummaryV07Worker,
+          data: { user_id: userId, week_start: weekStart, timezone: 'UTC' },
+        });
+        results.push({ user_id: userId, week_start: weekStart, result: r });
+      }
+    }
+    return { processed: results.length, results };
   },
 );
 
@@ -2014,7 +2399,7 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
         .filter((p) => {
           if (!tokenMap[p.user_id]) {
             droppedNoToken++;
-            return false;
+            // Do NOT exclude: summary still generates; push is skipped downstream when token is absent.
           }
           if (!accessMap[p.user_id]) {
             droppedNoAccess++;
@@ -2027,7 +2412,7 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
           timezone: p.timezone || 'UTC',
           weekly_time: p.weekly_time,
           weekly_day: p.weekly_day ?? 0, // 0 = Sunday
-          push_token: tokenMap[p.user_id],
+          push_token: tokenMap[p.user_id] ?? null,
         }));
 
       console.log(
@@ -2104,7 +2489,7 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
             user_id: u.user_id,
             timezone: u.timezone,
             push_token: u.push_token,
-            week_key: weekKeys[u.user_id],
+            week_start: weekKeys[u.user_id],
           },
         })),
       );
@@ -6073,6 +6458,789 @@ Respond with ONLY the corrected JSON cards array. If nothing needs fixing, retur
  * @param {boolean} opts.includeProfile - fetch user profile (default true)
  * @returns {object} Canonical snapshot with raw data + computed metrics
  */
+async function gatherTodayFacts(userId, timezone, env) {
+  const headers = {
+    apikey: env.SUPABASE_SERVICE_KEY,
+    Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+    'Content-Type': 'application/json',
+  };
+
+  const targetDate = getUserLocalDate(timezone);
+  const nowIso = new Date().toISOString();
+  const startOfTodayIso = startOfDayUtc(targetDate, timezone);
+  const endOfTodayIso = endOfDayUtc(targetDate, timezone);
+  // forward window end = end of the 3rd day after today, local
+  const endOf3DaysIso = endOfDayUtc(addLocalDays(targetDate, 3), timezone);
+  const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+
+  const queries = [
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&completed_at=is.null&archived=eq.false&select=id,title,name,scheduled_date,due_day,due_date,due_time,target_date,time_window,time_estimate_minutes,duration_minutes,priority_kind,daily_block,scheduled_start_iso,locked_in,space_id,created_at,completed_at&limit=1000`,
+      { headers },
+    )
+      .then((r) => r.json())
+      .catch(() => []),
+
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&completed_at=gte.${startOfTodayIso}&completed_at=lte.${endOfTodayIso}&select=id,title,name,space_id,completed_at&order=completed_at.desc&limit=200`,
+      { headers },
+    )
+      .then((r) => r.json())
+      .catch(() => []),
+
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${userId}&archived=eq.false&select=id,name,title,frequency,frequency_json,days_active,time_window,time_estimate_minutes,scheduled_start_iso,daily_block,subtype,commitment,commitment_until,locked_in,target_per_period,cadence,space_id&limit=100`,
+      { headers },
+    )
+      .then((r) => r.json())
+      .catch(() => []),
+
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/habit_progress?owner_id=eq.${userId}&occurred_day=eq.${targetDate}&select=habit_id,occurred_day,count&limit=500`,
+      { headers },
+    )
+      .then((r) => r.json())
+      .catch(() => []),
+
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/synced_calendar_events?owner_id=eq.${userId}&archived=eq.false&start_at=gte.${startOfTodayIso}&start_at=lte.${endOf3DaysIso}&select=id,title,start_at,end_at,is_all_day,location,provider&order=start_at.asc&limit=200`,
+      { headers },
+    )
+      .then((r) => r.json())
+      .catch(() => []),
+
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?user_id=eq.${userId}&status=eq.active&select=id,title,description,category,date_text,resolved_date,date_confidence,date_range_start,date_range_end&order=resolved_date.asc.nullslast&limit=50`,
+      { headers },
+    )
+      .then((r) => r.json())
+      .catch(() => []),
+  ];
+
+  // GATHER part B inserted here
+  queries.push(
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&journal_subtype=eq.intention&archived=eq.false&select=id,title,body,created_at&order=created_at.desc&limit=3`,
+      { headers },
+    )
+      .then((r) => r.json())
+      .catch(() => []),
+  );
+
+  queries.push(
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/habit_adaptations?owner_id=eq.${userId}&period_end=gte.${targetDate}&select=id,habit_id,mode,period_start,period_end,floor_note&limit=100`,
+      { headers },
+    )
+      .then((r) => r.json())
+      .catch(() => []),
+  );
+
+  queries.push(
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/habit_plans?owner_id=eq.${userId}&week_start=gte.${weekAgo}&select=id,habit_id,planned_date,week_start,status&order=planned_date.asc&limit=200`,
+      { headers },
+    )
+      .then((r) => r.json())
+      .catch(() => []),
+  );
+
+  queries.push(
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/sweep_skip_events?owner_id=eq.${userId}&created_at=gte.${weekAgo}&select=id,target_date,todo_count,created_at&order=created_at.desc&limit=20`,
+      { headers },
+    )
+      .then((r) => r.json())
+      .catch(() => []),
+  );
+
+  queries.push(
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/daily_briefs?owner_id=eq.${userId}&date=eq.${targetDate}&select=id,one_thing_id,one_thing_type,morning_sequence,day_sequence,evening_sequence,completed_at&limit=1`,
+      { headers },
+    )
+      .then((r) => r.json())
+      .catch(() => []),
+  );
+
+  queries.push(
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/habit_floor_suggestions?owner_id=eq.${userId}&week_start=gte.${weekAgo}&select=id,habit_id,week_start,payload&limit=100`,
+      { headers },
+    )
+      .then((r) => r.json())
+      .catch(() => []),
+  );
+
+  queries.push(
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/space_milestones?owner_id=eq.${userId}&is_active=eq.true&completed=eq.false&select=id,title,name,date,space_id&order=date.asc&limit=50`,
+      { headers },
+    )
+      .then((r) => r.json())
+      .catch(() => []),
+  );
+
+  queries.push(
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&subtype=eq.journal&mood=not.is.null&created_at=gte.${weekAgo}&select=id,title,mood,created_at&order=created_at.desc&limit=20`,
+      { headers },
+    )
+      .then((r) => r.json())
+      .catch(() => []),
+  );
+
+  const results = await Promise.all(queries);
+
+  const safeArr = (v) => (Array.isArray(v) ? v : []);
+
+  const todos = safeArr(results[0]);
+  const completedToday = safeArr(results[1]);
+  const habits = safeArr(results[2]);
+  const habitProgressToday = safeArr(results[3]);
+  const syncedEvents = safeArr(results[4]);
+  const anchors = safeArr(results[5]);
+  const intentionNotes = safeArr(results[6]);
+  const habitAdaptations = safeArr(results[7]);
+  const habitPlans = safeArr(results[8]);
+  const skipEvents = safeArr(results[9]);
+  const dailyBriefRows = safeArr(results[10]);
+  const dailyBrief = dailyBriefRows[0] || null;
+  const floorSuggestions = safeArr(results[11]);
+  const milestones = safeArr(results[12]);
+  const moodNotes = safeArr(results[13]);
+
+  console.log(`[Gather] Built for ${userId.slice(0, 8)} (${targetDate}):`, {
+    nowIso,
+    weekAgo,
+    todos: todos.length,
+    completedToday: completedToday.length,
+    habits: habits.length,
+    habitProgressToday: habitProgressToday.length,
+    syncedEvents: syncedEvents.length,
+    anchors: anchors.length,
+    intentionNotes: intentionNotes.length,
+    habitAdaptations: habitAdaptations.length,
+    habitPlans: habitPlans.length,
+    skipEvents: skipEvents.length,
+    dailyBrief: dailyBrief ? 1 : 0,
+    floorSuggestions: floorSuggestions.length,
+    milestones: milestones.length,
+    moodNotes: moodNotes.length,
+  });
+
+  return {
+    targetDate,
+    todos,
+    completedToday,
+    habits,
+    habitProgressToday,
+    syncedEvents,
+    anchors,
+    intentionNotes,
+    habitAdaptations,
+    habitPlans,
+    skipEvents,
+    dailyBrief,
+    floorSuggestions,
+    milestones,
+    moodNotes,
+  };
+}
+
+function bucketTodayFacts(gathered) {
+  const {
+    targetDate,
+    todos,
+    completedToday,
+    habits,
+    habitProgressToday,
+    syncedEvents,
+    anchors,
+    intentionNotes,
+    habitAdaptations,
+    habitPlans,
+    skipEvents,
+    dailyBrief,
+    floorSuggestions,
+    milestones,
+    moodNotes,
+  } = gathered;
+
+  const safeArr = (v) => (Array.isArray(v) ? v : []);
+  const todosArr = safeArr(todos);
+  const completedTodayRaw = safeArr(completedToday);
+  const habitsArr = safeArr(habits);
+  const habitProgressArr = safeArr(habitProgressToday);
+  const syncedEventsArr = safeArr(syncedEvents);
+  const anchorsArr = safeArr(anchors);
+  const intentionNotesArr = safeArr(intentionNotes);
+  const habitAdaptationsArr = safeArr(habitAdaptations);
+  const habitPlansArr = safeArr(habitPlans);
+  const skipEventsArr = safeArr(skipEvents);
+  const floorSuggestionsArr = safeArr(floorSuggestions);
+  const milestonesArr = safeArr(milestones);
+  const moodNotesArr = safeArr(moodNotes);
+
+  const todoDay = (t) => t?.scheduled_date || t?.due_day || t?.target_date || null;
+
+  const projectTodo = (t) => ({
+    title: t.title || t.name,
+    day: todoDay(t),
+    time_window: t.time_window || null,
+    due_time: t.due_time || null,
+    est_minutes: t.time_estimate_minutes ?? t.duration_minutes ?? null,
+    priority_kind: t.priority_kind || null,
+    daily_block: t.daily_block || null,
+    locked_in: !!t.locked_in,
+  });
+
+  // completed_at is the source of truth for done-state in this DB.
+  const openTodosArr = todosArr.filter((t) => t?.completed_at == null);
+
+  const dueToday = openTodosArr.filter((t) => todoDay(t) === targetDate).map(projectTodo);
+  const overdue = openTodosArr
+    .filter((t) => {
+      const day = todoDay(t);
+      return day !== null && day < targetDate;
+    })
+    .map(projectTodo);
+  const lockedIn = openTodosArr.filter((t) => t.locked_in === true).map(projectTodo);
+  const untimedCount = openTodosArr.filter((t) => todoDay(t) === null).length;
+  const totalActive = openTodosArr.length;
+
+  const doneSet = new Set(habitProgressArr.map((hp) => hp?.habit_id).filter(Boolean));
+
+  const adaptationMap = {};
+  for (const a of habitAdaptationsArr) {
+    if (!a?.habit_id) continue;
+    adaptationMap[a.habit_id] = {
+      mode: a.mode || null,
+      floor_note: a.floor_note || null,
+      period_end: a.period_end || null,
+    };
+  }
+
+  const planTodayMap = {};
+  for (const p of habitPlansArr) {
+    if (!p?.habit_id) continue;
+    if (p.planned_date === targetDate) {
+      planTodayMap[p.habit_id] = p.status || null;
+    }
+  }
+
+  const projectHabit = (h) => ({
+    id: h.id,
+    name: h.name || h.title,
+    done_today: doneSet.has(h.id),
+    time_window: h.time_window || null,
+    scheduled_start_iso: h.scheduled_start_iso || null,
+    daily_block: h.daily_block || null,
+    locked_in: !!h.locked_in,
+    adaptation: adaptationMap[h.id] || null,
+    planned_today: planTodayMap[h.id] || null,
+  });
+
+  const projectedHabits = habitsArr.map(projectHabit);
+
+  const scheduledToday = projectedHabits.filter(
+    (h) =>
+      (h.time_window && String(h.time_window).toLowerCase() !== 'any') ||
+      !!h.scheduled_start_iso ||
+      !!h.daily_block ||
+      !!h.planned_today,
+  );
+  const other = projectedHabits.filter(
+    (h) =>
+      !(
+        (h.time_window && String(h.time_window).toLowerCase() !== 'any') ||
+        !!h.scheduled_start_iso ||
+        !!h.daily_block ||
+        !!h.planned_today
+      ),
+  );
+
+  const adaptedHabitIds = new Set(
+    habitAdaptationsArr
+      .filter((a) => a?.habit_id && (a.mode === 'pause' || a.mode === 'floor'))
+      .map((a) => a.habit_id),
+  );
+
+  const targetStart = new Date(targetDate + 'T00:00:00Z');
+  const plus3Date = new Date(targetStart);
+  plus3Date.setUTCDate(plus3Date.getUTCDate() + 3);
+  const plus3DateStr = plus3Date.toISOString().slice(0, 10);
+
+  const filteredSyncedEvents = syncedEventsArr.filter((e) => {
+    const title = String(e?.title || '')
+      .trim()
+      .toLowerCase();
+    return !(title.startsWith('canceled:') || title.startsWith('cancelled:'));
+  });
+
+  const seenEventKeys = new Set();
+  const dedupedSyncedEvents = [];
+  for (const e of filteredSyncedEvents) {
+    const key = `${String(e?.title || '')
+      .trim()
+      .toLowerCase()}|${e?.start_at || ''}`;
+    if (seenEventKeys.has(key)) continue;
+    seenEventKeys.add(key);
+    dedupedSyncedEvents.push(e);
+  }
+
+  const calendarToday = dedupedSyncedEvents
+    .filter((e) => {
+      const day = e?.start_at ? String(e.start_at).slice(0, 10) : null;
+      return day === targetDate;
+    })
+    .map((e) => ({
+      title: e.title || null,
+      start_at: e.start_at,
+      end_at: e.end_at || null,
+      is_all_day: !!e.is_all_day,
+      location: e.location || null,
+      provider: e.provider || null,
+    }));
+
+  const calendarComingUpRaw = dedupedSyncedEvents
+    .filter((e) => {
+      const day = e?.start_at ? String(e.start_at).slice(0, 10) : null;
+      return day !== null && day > targetDate && day <= plus3DateStr;
+    })
+    .map((e) => ({
+      title: e.title || null,
+      date: String(e.start_at).slice(0, 10),
+      start_at: e.start_at,
+      is_all_day: !!e.is_all_day,
+      location: e.location || null,
+    }));
+
+  const calendarByTitle = new Map();
+  for (const entry of calendarComingUpRaw) {
+    const titleKey = String(entry?.title || '')
+      .trim()
+      .toLowerCase();
+    if (!calendarByTitle.has(titleKey)) {
+      calendarByTitle.set(titleKey, []);
+    }
+    calendarByTitle.get(titleKey).push(entry);
+  }
+
+  const calendarComingUpMixed = [];
+  for (const entries of calendarByTitle.values()) {
+    const days = [...new Set(entries.map((e) => e?.date).filter(Boolean))].sort();
+    if (days.length <= 1) {
+      calendarComingUpMixed.push(...entries);
+      continue;
+    }
+
+    const sortedEntries = [...entries].sort((a, b) => {
+      const aStart = String(a?.start_at || '');
+      const bStart = String(b?.start_at || '');
+      return aStart.localeCompare(bStart);
+    });
+    const first = sortedEntries[0] || entries[0];
+    calendarComingUpMixed.push({
+      title: first?.title || null,
+      recurring: true,
+      days,
+      first_start_at: first?.start_at || null,
+      location: first?.location || null,
+    });
+  }
+
+  const calendarComingUp = calendarComingUpMixed.sort((a, b) => {
+    const aDay = a?.recurring ? String(a?.days?.[0] || '') : String(a?.date || '');
+    const bDay = b?.recurring ? String(b?.days?.[0] || '') : String(b?.date || '');
+    if (aDay !== bDay) return aDay.localeCompare(bDay);
+
+    const aStart = a?.recurring ? String(a?.first_start_at || '') : String(a?.start_at || '');
+    const bStart = b?.recurring ? String(b?.first_start_at || '') : String(b?.start_at || '');
+    return aStart.localeCompare(bStart);
+  });
+
+  const anchorsActive = anchorsArr.map((a) => ({
+    title: a.title,
+    category: a.category,
+    date_text: a.date_text || null,
+    resolved_date: a.resolved_date || null,
+    date_confidence: a.date_confidence,
+    range_start: a.date_range_start || null,
+    range_end: a.date_range_end || null,
+  }));
+
+  const weeklyIntention = intentionNotesArr[0]
+    ? {
+        text: intentionNotesArr[0].title || intentionNotesArr[0].body,
+        set_at: intentionNotesArr[0].created_at,
+      }
+    : null;
+
+  const projectedSkipEvents = skipEventsArr
+    .filter((s) => Number(s?.todo_count) > 0)
+    .map((s) => ({
+      target_date: s.target_date,
+      todo_count: s.todo_count,
+      created_at: s.created_at,
+    }));
+
+  const projectedDailyBrief = dailyBrief
+    ? {
+        one_thing_id: dailyBrief.one_thing_id,
+        one_thing_type: dailyBrief.one_thing_type,
+        has_morning: (dailyBrief.morning_sequence?.length || 0) > 0,
+        has_day: (dailyBrief.day_sequence?.length || 0) > 0,
+        has_evening: (dailyBrief.evening_sequence?.length || 0) > 0,
+        completed: !!dailyBrief.completed_at,
+      }
+    : null;
+
+  const floorCount = floorSuggestionsArr.length;
+
+  const projectedMilestones = milestonesArr.map((m) => ({
+    title: m.title || m.name,
+    date: m.date,
+    space_id: m.space_id,
+  }));
+
+  const recentMood = moodNotesArr.map((n) => ({
+    date: n.created_at,
+    moods: safeArr(n.mood),
+  }));
+
+  const commitmentHabits = habitsArr
+    .filter((h) => {
+      if (h.commitment !== true) return false;
+      if (!h.commitment_until) return true;
+      const untilDate = String(h.commitment_until).slice(0, 10);
+      return untilDate >= targetDate;
+    })
+    .map((h) => ({
+      name: h.name || h.title,
+      until: h.commitment_until || null,
+    }));
+
+  const completedTodayProjected = completedTodayRaw.map((t) => ({
+    title: t.title || t.name,
+    completed_at: t.completed_at,
+    space_id: t.space_id || null,
+  }));
+
+  return {
+    targetDate,
+    weeklyIntention,
+    todos: {
+      dueToday,
+      overdue,
+      lockedIn,
+      untimedCount,
+      totalActive,
+    },
+    habits: {
+      scheduledToday,
+      other,
+      doneTodayCount: doneSet.size,
+      adaptedHabitIds: [...adaptedHabitIds],
+      commitments: commitmentHabits,
+    },
+    calendarToday,
+    calendarComingUp,
+    anchorsActive,
+    completedToday: completedTodayProjected,
+    recentMood,
+    deliberate: {
+      skipEvents: projectedSkipEvents,
+      dailyBrief: projectedDailyBrief,
+      floorCount,
+      milestones: projectedMilestones,
+    },
+  };
+}
+
+function renderTodayFactsText(bucketed) {
+  const parts = [];
+
+  const safeArr = (v) => (Array.isArray(v) ? v : []);
+  const targetDate = bucketed?.targetDate || 'unknown';
+  const weeklyIntention = bucketed?.weeklyIntention || null;
+
+  const todosDueToday = safeArr(bucketed?.todos?.dueToday);
+  const todosOverdue = safeArr(bucketed?.todos?.overdue);
+  const todosLockedIn = safeArr(bucketed?.todos?.lockedIn);
+  const completedToday = safeArr(bucketed?.completedToday);
+  const untimedCount = Number.isFinite(bucketed?.todos?.untimedCount)
+    ? bucketed.todos.untimedCount
+    : 0;
+  const totalActive = Number.isFinite(bucketed?.todos?.totalActive)
+    ? bucketed.todos.totalActive
+    : 0;
+
+  const habitsScheduled = safeArr(bucketed?.habits?.scheduledToday);
+  const habitsOther = safeArr(bucketed?.habits?.other);
+  const allHabits = [...habitsScheduled, ...habitsOther];
+  const adaptedHabits = allHabits.filter((h) => h?.adaptation?.mode);
+  const calendarToday = safeArr(bucketed?.calendarToday);
+  const calendarComingUp = safeArr(bucketed?.calendarComingUp);
+  const anchorsActive = safeArr(bucketed?.anchorsActive);
+  const milestones = safeArr(bucketed?.deliberate?.milestones);
+  const recentMood = safeArr(bucketed?.recentMood);
+  const commitments = safeArr(bucketed?.habits?.commitments);
+  const skipEvents = safeArr(bucketed?.deliberate?.skipEvents);
+  const dailyBrief = bucketed?.deliberate?.dailyBrief || null;
+  const floorCount = Number.isFinite(bucketed?.deliberate?.floorCount)
+    ? bucketed.deliberate.floorCount
+    : 0;
+
+  parts.push("=== THIS WEEK'S INTENTION (set by user in Sweep) ===");
+  if (weeklyIntention?.text) {
+    const setAt = weeklyIntention?.set_at || 'unknown';
+    parts.push(`"${weeklyIntention.text}" (set ${setAt})`);
+    parts.push(
+      "This is the user's stated focus for the week. Treat it as a strong lens on today, but today's concrete reality or emotional state can take precedence when warranted.",
+    );
+  } else {
+    parts.push('(no weekly intention set)');
+  }
+
+  parts.push('');
+  parts.push(`=== TODOS DUE TODAY (${targetDate}) ===`);
+  if (todosDueToday.length === 0) {
+    parts.push('(none)');
+  } else {
+    for (const t of todosDueToday) {
+      const title = t?.title || 'Untitled';
+      const timeWindow = t?.time_window || 'any';
+      const est = t?.est_minutes ?? '?';
+      const priority = t?.priority_kind || 'none';
+      const block = t?.daily_block || 'none';
+      const lockedSuffix = t?.locked_in ? ', LOCKED IN' : '';
+      parts.push(
+        `- "${title}" [window: ${timeWindow}, est: ${est}m, priority: ${priority}, block: ${block}]${lockedSuffix}`,
+      );
+    }
+  }
+
+  parts.push('');
+  parts.push('=== OVERDUE TODOS ===');
+  if (todosOverdue.length === 0) {
+    parts.push('(none)');
+  } else {
+    for (const t of todosOverdue) {
+      const title = t?.title || 'Untitled';
+      const day = t?.day || 'unknown';
+      const priority = t?.priority_kind || 'none';
+      parts.push(`- "${title}" (was ${day}) [priority: ${priority}]`);
+    }
+  }
+
+  parts.push('');
+  parts.push("=== LOCKED IN (user's explicit priorities) ===");
+  if (todosLockedIn.length === 0) {
+    parts.push('(none)');
+  } else {
+    for (const t of todosLockedIn) {
+      const title = t?.title || 'Untitled';
+      const day = t?.day || null;
+      let label = '(no date)';
+      if (day === targetDate) {
+        label = '(today)';
+      } else if (day && day > targetDate) {
+        label = `(locked for ${day})`;
+      }
+      parts.push(`- "${title}" ${label}`);
+    }
+  }
+
+  parts.push('');
+  parts.push('=== TODOS (other) ===');
+  parts.push(`${untimedCount} untimed, ${totalActive} active total`);
+
+  parts.push('');
+  parts.push('=== COMPLETED TODAY ===');
+  if (completedToday.length === 0) {
+    parts.push('(none)');
+  } else {
+    for (const t of completedToday) {
+      const title = t?.title || 'Untitled';
+      parts.push(`- "${title}"`);
+    }
+  }
+  parts.push(
+    'These were completed today and are evidence of momentum. Use them when judging thread state changes.',
+  );
+
+  parts.push('');
+  parts.push('=== HABITS SCHEDULED TODAY ===');
+  if (habitsScheduled.length === 0) {
+    parts.push('(none)');
+  } else {
+    for (const h of habitsScheduled) {
+      const name = h?.name || 'Untitled habit';
+      const startIso = h?.scheduled_start_iso || null;
+      const startTime =
+        startIso && String(startIso).length >= 16 ? String(startIso).slice(11, 16) : null;
+      const dailyBlock = h?.daily_block || null;
+      const timeWindow = h?.time_window || null;
+      const resolvedTime = startTime
+        ? `at ${startTime}`
+        : dailyBlock
+          ? String(dailyBlock)
+          : timeWindow && String(timeWindow).toLowerCase() !== 'any'
+            ? String(timeWindow)
+            : 'anytime';
+      const done = h?.done_today ? 'yes' : 'no';
+      const planned = h?.planned_today || 'none';
+      let line = `- "${name}" [${resolvedTime}, done_today: ${done}, planned: ${planned}]`;
+      if (h?.adaptation?.mode) {
+        const floorNote = h?.adaptation?.floor_note ? `, floor: ${h.adaptation.floor_note}` : '';
+        line += ` | ADAPTED: ${h.adaptation.mode}${floorNote}`;
+      }
+      parts.push(line);
+    }
+  }
+
+  parts.push('');
+  parts.push('=== HABITS (other active) ===');
+  if (habitsOther.length === 0) {
+    parts.push('(none)');
+  } else {
+    for (const h of habitsOther) {
+      const name = h?.name || 'Untitled habit';
+      const done = h?.done_today ? 'yes' : 'no';
+      let line = `- "${name}" [done_today: ${done}]`;
+      if (h?.adaptation?.mode) {
+        line += ` | ADAPTED: ${h.adaptation.mode}`;
+      }
+      parts.push(line);
+    }
+  }
+
+  parts.push('');
+  parts.push('=== HABIT ADAPTATIONS THIS WEEK (deliberate keep/floor/pause) ===');
+  if (adaptedHabits.length === 0) {
+    parts.push('(none)');
+  } else {
+    for (const h of adaptedHabits) {
+      const name = h?.name || 'Untitled habit';
+      const mode = h?.adaptation?.mode || 'unknown';
+      const floorNote = h?.adaptation?.floor_note ? `, floor: ${h.adaptation.floor_note}` : '';
+      parts.push(`- "${name}" mode: ${mode}${floorNote}`);
+    }
+    parts.push(
+      'These are deliberate choices; habits marked pause or floor must NOT be treated as streak risks.',
+    );
+  }
+
+  parts.push('');
+  parts.push(`=== CALENDAR TODAY (${targetDate}) ===`);
+  if (calendarToday.length === 0) {
+    parts.push('(none)');
+  } else {
+    for (const e of calendarToday) {
+      const title = e?.title || 'Untitled';
+      const startAt =
+        e?.start_at && String(e.start_at).length >= 16 ? String(e.start_at).slice(11, 16) : '??:??';
+      const endAt =
+        e?.end_at && String(e.end_at).length >= 16 ? String(e.end_at).slice(11, 16) : 'open';
+      const timing = e?.is_all_day ? 'all day' : 'timed';
+      const locationPart = e?.location ? `, at ${e.location}` : '';
+      parts.push(`- "${title}" ${startAt} to ${endAt} [${timing}]${locationPart}`);
+    }
+  }
+
+  parts.push('');
+  parts.push('=== COMING UP (next 3 days) ===');
+  if (calendarComingUp.length === 0) {
+    parts.push('(none)');
+  } else {
+    for (const e of calendarComingUp) {
+      const title = e?.title || 'Untitled';
+      const locationPart = e?.location ? `, at ${e.location}` : '';
+      if (e?.recurring === true) {
+        const days = Array.isArray(e?.days) ? e.days.join(', ') : 'unknown';
+        parts.push(`- "${title}" (recurring: ${days})${locationPart}`);
+        continue;
+      }
+
+      const date = e?.date || 'unknown';
+      const startVal = e?.is_all_day
+        ? 'all day'
+        : e?.start_at && String(e.start_at).length >= 16
+          ? String(e.start_at).slice(11, 16)
+          : '??:??';
+      const normalLocationPart = e?.location ? ` | at ${e.location}` : '';
+      parts.push(`- ${date}: "${title}" ${startVal}${normalLocationPart}`);
+    }
+  }
+
+  parts.push('');
+  parts.push('=== DATED ANCHORS (active, from conversations) ===');
+  if (anchorsActive.length === 0) {
+    parts.push('(none)');
+  } else {
+    for (const a of anchorsActive) {
+      const title = a?.title || 'Untitled';
+      const category = a?.category || 'unknown';
+      const dateVal = a?.resolved_date || a?.date_text || 'unknown';
+      const confidence = a?.date_confidence ?? 'unknown';
+      parts.push(`- "${title}" [${category}] date: ${dateVal}, confidence: ${confidence}`);
+    }
+  }
+
+  parts.push('');
+  parts.push('=== MILESTONES (active, dated targets) ===');
+  if (milestones.length === 0) {
+    parts.push('(none)');
+  } else {
+    for (const m of milestones) {
+      const title = m?.title || 'Untitled';
+      const date = m?.date || 'none';
+      parts.push(`- "${title}" target: ${date}`);
+    }
+  }
+
+  parts.push('');
+  parts.push("=== THIS WEEK'S SHAPE ===");
+  const briefState = dailyBrief ? 'set today' : 'not set today';
+  const oneThingPart = dailyBrief?.one_thing_id ? ', one_thing present' : '';
+  parts.push(`Daily Brief: ${briefState}${oneThingPart}`);
+  if (skipEvents.length > 0) {
+    for (const s of skipEvents) {
+      parts.push(`Bulk-skipped ${s.todo_count} todos to ${s.target_date}`);
+    }
+  } else {
+    parts.push('Sweep skips last 7d: (none)');
+  }
+  parts.push(`Floor suggestions active: ${floorCount}`);
+
+  parts.push('');
+  parts.push('=== RECENT MOOD (last 7d, user-logged) ===');
+  if (recentMood.length === 0) {
+    parts.push('(none logged)');
+  } else {
+    for (const m of recentMood) {
+      const date = m?.date || 'unknown';
+      const moods = safeArr(m?.moods);
+      parts.push(`- ${date}: ${moods.length > 0 ? moods.join(', ') : 'none'}`);
+    }
+  }
+
+  parts.push('');
+  parts.push('=== ACTIVE COMMITMENTS (habits user formally committed to) ===');
+  if (commitments.length === 0) {
+    parts.push('(none)');
+  } else {
+    for (const c of commitments) {
+      const name = c?.name || 'Untitled habit';
+      const untilPart = c?.until ? `, until ${c.until}` : '';
+      parts.push(`- "${name}"${untilPart}`);
+    }
+  }
+
+  return parts.join('\n');
+}
+
 async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
   const headers = {
     apikey: env.SUPABASE_SERVICE_KEY,
@@ -6082,8 +7250,8 @@ async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
 
   // --- Date math ---
   const targetDate = opts.targetDate || getUserLocalDate(timezone);
-  const target = new Date(targetDate + 'T00:00:00Z');
-  const targetEndOfDay = new Date(targetDate + 'T23:59:59.999Z');
+  const target = new Date(startOfDayUtc(targetDate, timezone));
+  const targetEndOfDay = new Date(endOfDayUtc(targetDate, timezone));
 
   const windowStart = new Date(target);
   windowStart.setUTCDate(windowStart.getUTCDate() - windowDays);
@@ -6365,6 +7533,16 @@ async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
     },
   );
 
+  // Phase 1 GATHER: typed today-facts block (additive, shadow)
+  let todayFacts = null;
+  try {
+    const gathered = await gatherTodayFacts(userId, timezone, env);
+    const bucketed = bucketTodayFacts(gathered);
+    todayFacts = { bucketed, text: renderTodayFactsText(bucketed) };
+  } catch (e) {
+    console.error('[Gather] failed (non-fatal Phase 1):', e?.message || e);
+  }
+
   return {
     userId,
     targetDate,
@@ -6406,6 +7584,8 @@ async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
       upcomingEvents,
       spaceKeyDates,
     },
+
+    today: todayFacts,
   };
 }
 
@@ -7995,6 +9175,713 @@ function buildWorldPicture(snapshot) {
   return { text, lifeMap };
 }
 
+function renderSoftContextForSynthesis(snapshot) {
+  const raw = snapshot?.raw || {};
+  const activeWorlds = Array.isArray(snapshot?.activeWorlds) ? snapshot.activeWorlds : [];
+  const activeChapters = Array.isArray(snapshot?.activeChapters) ? snapshot.activeChapters : [];
+  const lifeMap = raw.currentLifeMap?.life_map || null;
+
+  if (!lifeMap?.domains || lifeMap.domains.length === 0) {
+    return '(no life map yet)';
+  }
+
+  const truncate = (value, max) => {
+    const str = String(value || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!str) return '';
+    if (str.length <= max) return str;
+    return `${str.slice(0, max)}...`;
+  };
+
+  const parts = [];
+
+  for (const domain of lifeMap.domains) {
+    parts.push(`DOMAIN: ${domain?.name || 'Unknown'}`);
+    const threads = Array.isArray(domain?.threads) ? domain.threads : [];
+    for (const thread of threads) {
+      parts.push(
+        `THREAD: ${thread?.name || 'Unknown'} | status: ${thread?.status || 'unknown'} | momentum: ${thread?.momentum || 'unknown'} | importance: ${thread?.importance || 'unknown'} | attention: ${thread?.attention || 'unknown'} | last_activity: ${thread?.last_activity || 'unknown'}`,
+      );
+      parts.push(`recent_update: ${truncate(thread?.recent_update || '(none)', 240)}`);
+      const summary = truncate(thread?.summary || '', 240);
+      if (summary) {
+        parts.push(`summary: ${summary}...`);
+      }
+    }
+    parts.push('');
+  }
+
+  const weeklySummaries = Array.isArray(raw.weeklySummaries) ? raw.weeklySummaries : [];
+  if (weeklySummaries.length > 0) {
+    const latestWeekly = [...weeklySummaries]
+      .sort((a, b) => {
+        const aDate = String(a?.week_end || a?.date || a?.created_at || '');
+        const bDate = String(b?.week_end || b?.date || b?.created_at || '');
+        return bDate.localeCompare(aDate);
+      })
+      .at(0);
+
+    parts.push('=== MOST RECENT WEEKLY SUMMARY ===');
+
+    const keyThemes = Array.isArray(latestWeekly?.key_themes) ? latestWeekly.key_themes : [];
+    if (keyThemes.length > 0) {
+      parts.push(`key_themes: ${keyThemes.join(', ')}`);
+    }
+
+    const contentCandidate =
+      latestWeekly?.narrative ||
+      latestWeekly?.content ||
+      latestWeekly?.summary ||
+      latestWeekly?.brief ||
+      latestWeekly?.body ||
+      latestWeekly?.week_summary ||
+      '';
+    const excerpt = truncate(contentCandidate, 240);
+    if (excerpt) {
+      parts.push(`excerpt: ${excerpt}`);
+    }
+
+    parts.push('');
+  }
+
+  const spaceChats = Array.isArray(raw.spaceChatSummaries) ? raw.spaceChatSummaries : [];
+  const entityChats = Array.isArray(raw.entityChatSummaries) ? raw.entityChatSummaries : [];
+
+  const recentChatRows = [];
+  for (const c of spaceChats) {
+    recentChatRows.push({
+      title: c?.title || c?.scope || c?.space_name || c?.space_id || 'Space chat',
+      summary: c?.running_summary || c?.summary || '',
+      updatedAt: c?.updated_at || c?.created_at || '',
+    });
+  }
+  for (const c of entityChats) {
+    recentChatRows.push({
+      title: c?.title || c?.scope || c?.entity_title || c?.entity_type || 'Entity chat',
+      summary: c?.running_summary || c?.chat_summary || c?.summary || '',
+      updatedAt: c?.updated_at || c?.chat_summary_at || c?.created_at || '',
+    });
+  }
+
+  const recentChats = recentChatRows
+    .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))
+    .slice(0, 5);
+
+  if (recentChats.length > 0) {
+    parts.push('=== RECENT CHAT GISTS ===');
+    for (const chat of recentChats) {
+      const title = chat?.title || 'Chat';
+      const summary = truncate(chat?.summary || '', 200);
+      if (!summary) continue;
+      parts.push(`- ${title}: ${summary}`);
+    }
+  }
+
+  const formatPriorities = (kp) => {
+    if (!Array.isArray(kp) || kp.length === 0) return '(none)';
+    return kp
+      .slice(0, 5)
+      .map((p) => {
+        const date = p?.due_date ? ` due ${p.due_date}` : '';
+        const ref = p?.entity_ref ? ` ref:${p.entity_ref}` : '';
+        return `#${p?.rank ?? '?'} [${p?.kind ?? '?'}] ${p?.text || ''}${date}${ref}`;
+      })
+      .join(' ; ');
+  };
+
+  if (activeWorlds.length > 0) {
+    parts.push('=== ACTIVE WORLDS (CURRENT AUTHORED STATE) ===');
+    for (const w of activeWorlds) {
+      parts.push(
+        `- id: ${w?.id || 'unknown'} | name: ${w?.display_name || w?.name || 'Unknown'} | phase: ${w?.phase || 'unknown'}`,
+      );
+      parts.push(`  card_subtitle: ${w?.card_subtitle || '(none)'}`);
+      parts.push(`  card_subtitle_source: ${w?.card_subtitle_source || '(unset)'}`);
+      parts.push(`  summary: ${truncate(w?.summary || '(none)', 220)}`);
+      parts.push(`  summary_source: ${w?.summary_source || '(unset)'}`);
+      parts.push(`  key_priorities: ${formatPriorities(w?.key_priorities)}`);
+    }
+    parts.push('');
+  }
+
+  if (activeChapters.length > 0) {
+    parts.push('=== ACTIVE CHAPTERS (CURRENT AUTHORED STATE) ===');
+    for (const c of activeChapters) {
+      const phaseLadder =
+        Array.isArray(c?.phase_labels) && c.phase_labels.length > 0
+          ? c.phase_labels.join(' -> ')
+          : '(none)';
+      parts.push(
+        `- id: ${c?.id || 'unknown'} | title: ${c?.title || 'Unknown'} | phase: ${c?.phase || 'unknown'}`,
+      );
+      parts.push(`  card_subtitle: ${c?.card_subtitle || '(none)'}`);
+      parts.push(`  card_subtitle_source: ${c?.card_subtitle_source || '(unset)'}`);
+      parts.push(`  target: ${c?.target_summary || '(none)'}`);
+      parts.push(
+        `  phase_info: ${phaseLadder}${c?.current_phase_key ? ` (current: ${c.current_phase_key})` : ''}`,
+      );
+      parts.push(`  summary: ${truncate(c?.summary || '(none)', 220)}`);
+      parts.push(`  summary_source: ${c?.summary_source || '(unset)'}`);
+      parts.push(`  key_priorities: ${formatPriorities(c?.key_priorities)}`);
+    }
+    parts.push('');
+  }
+
+  return parts.join('\n').trim();
+}
+
+async function synthesizeDailyPicture(snapshot, env) {
+  const t0 = Date.now();
+
+  const todayFactsText = snapshot?.today?.text || '(no today facts)';
+  const softContextText = renderSoftContextForSynthesis(snapshot);
+  const targetDate = snapshot?.targetDate || 'unknown';
+
+  const systemPrompt = `You produce the forward-looking daily picture for a person using Gremly, an ADHD-informed, shame-free companion app. This runs at the start of their day.
+
+You have two layers of input.
+
+Layer 1 is TODAY'S FACTS, a hard-record block. It contains concrete truths such as todos due today, scheduled habits, calendar entries, the weekly intention set in Sweep, deliberate adaptations, mood, and milestones. Treat these records as true. Only make concrete claims from this layer.
+
+Layer 2 is CONTEXT, including Life Map interpretive fields and recent summaries. Use this to understand state and voice. Do not invent concrete facts from context.
+
+Your core job is to decide what genuinely matters today and frame it forward. Weigh concrete obligations and timing against emotional state and momentum. Some days lead with the tangible list. Some days lead with the person's state. Choose based on the data.
+
+The weekly intention is a strong lens but not an override. If today's facts or the person's state indicate a different lead, choose that lead and keep the intention as context.
+
+Voice requirements:
+Warm, encouraging, and forward-looking by default.
+Never shame, pressure, use streak language, or use the word should.
+Encouragement must be credible and matched to real state from context such as momentum, recent_update, mood, and status.
+If state is hard, keep voice gentle and permission-giving. Acknowledge reality lightly and honestly, then point forward.
+Do not use relentless cheerleading when signals indicate strain or stall.
+
+Forward-only requirement:
+Frame what is ahead today. Do not recap what already happened. Do not narrate the past week.
+
+Fact honesty requirement:
+Every concrete claim about tasks, meetings, times, names, or dates must come from TODAY'S FACTS.
+If it is not in TODAY'S FACTS, do not assert it.
+
+Output requirement:
+Return the daily picture. The required structure is enforced by the response schema.
+
+Reasoning order requirement:
+Decide interpretive text fields first. Then assign tone and day_type labels that best fit that interpretation, rather than deciding labels first.
+
+Optional thread update requirement:
+You may optionally report updates to the person's Life Map threads, but only for threads that today's facts genuinely touch.
+For each such thread:
+- You may append new_evidence: a dated observation grounded in today's facts (a completed habit, a due item, a calendar event that bears on this thread). Evidence is always welcome and low-stakes.
+- You may refresh recent_update: a single current line for the thread.
+- You may change a thread's momentum or status only when something in today's facts (a completed habit, a due or completed item, a calendar event, a logged mood, the week's intention) directly contradicts what the Life Map currently says about that thread. The justification must point to a specific item in today's facts, not to the Life Map's own existing description. Restating or re-interpreting what the Life Map already says is not a state change. If today's facts do not contain a concrete item that contradicts the standing momentum or status, set state_change to false and leave momentum and status alone, even if the thread feels like it is shifting. A feeling of shift sourced from prior context is not a state change. Only a contradiction grounded in a today's-facts item is.
+- When state_change is true, state_change_reason must name the specific today's-facts item that creates the contradiction, so the change is auditable against today's records.
+- Match domain and thread names exactly to those in the provided Life Map context. If you cannot match a thread by name, do not invent one. Skip it.
+
+Be conservative. Most days have no state change. Evidence and recent_update are the normal outputs. Momentum and status changes are rare and must be earned by a real contradiction in today's facts.
+
+Worlds and chapters override rules:
+Default is NOT to override. Weekly classifier card_subtitle and key_priorities are authored from the full multi-week window and assumed correct.
+Override card_subtitle ONLY when today's facts add a grounded trigger the classifier could not have known: completion, passed or changed deadline, phase transition, or new event.
+Cosmetic rewrites are NOT overrides. If no concrete trigger, return null for that field.
+Never strip a valid temporal anchor without replacing it with an equally or more specific one.
+If today contradicts a prior anchor (deadline moved, event passed), update to the new reality.
+key_priorities override only to rerank or when a new priority genuinely outranks an existing one. Do not invent priorities. If existing ranking still holds, return null.
+For each override you make, change_reason must reference the specific today's-facts item that justifies it.
+For worlds_summary: if a classifier worlds_summary exists this week, you may refresh headline and featured but keep spirit and named anchors unless today materially shifted the picture.
+Set refreshed=true only when you actually changed it based on today's facts. If today does not move it, omit worlds_summary entirely.
+Match world_id and chapter_id exactly to provided ACTIVE lists. Do not invent ids.
+Be conservative. Most days produce no overrides.`;
+
+  const userMessage = [
+    `TODAY IS: ${targetDate}`,
+    '',
+    "=== TODAY'S FACTS ===",
+    todayFactsText,
+    '',
+    '=== CONTEXT ===',
+    softContextText,
+  ].join('\n');
+
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${env.GEMINI_API_KEY}`;
+  const requestBody = {
+    systemInstruction: { parts: [{ text: systemPrompt }] },
+    contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+    generationConfig: {
+      temperature: 0.5,
+      maxOutputTokens: 16384,
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: 'object',
+        properties: {
+          life_moment: { type: 'string', nullable: true },
+          tone: {
+            type: 'string',
+            enum: ['relaxed', 'focused', 'stretched', 'recovering', 'celebratory'],
+          },
+          day_type: {
+            type: 'string',
+            enum: [
+              'event_day',
+              'work_day',
+              'milestone_day',
+              'routine_day',
+              'quiet_day',
+              'transition_day',
+            ],
+          },
+          headline: { type: 'string' },
+          lead: {
+            type: 'object',
+            properties: {
+              what: { type: 'string' },
+              why_today: { type: 'string' },
+            },
+            required: ['what', 'why_today'],
+          },
+          also_matters: { type: 'array', items: { type: 'string' } },
+          today_focus: { type: 'array', items: { type: 'string' } },
+          voice_note: { type: 'string' },
+          thread_updates: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                domain: { type: 'string' },
+                thread: { type: 'string' },
+                new_evidence: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      date: { type: 'string' },
+                      signal: { type: 'string' },
+                      salience: { type: 'string', enum: ['low', 'medium', 'high'] },
+                    },
+                    required: ['date', 'signal'],
+                  },
+                },
+                recent_update: { type: 'string', nullable: true },
+                state_change: { type: 'boolean' },
+                state_change_reason: { type: 'string', nullable: true },
+                new_momentum: { type: 'string', nullable: true },
+                new_status: { type: 'string', nullable: true },
+              },
+              required: ['domain', 'thread', 'state_change'],
+            },
+          },
+          worlds_summary: {
+            type: 'object',
+            nullable: true,
+            properties: {
+              headline: { type: 'string' },
+              featured: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    world_id: { type: 'string', nullable: true },
+                    reason: { type: 'string' },
+                  },
+                  required: ['reason'],
+                },
+              },
+              refreshed: { type: 'boolean' },
+            },
+          },
+          world_overrides: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                world_id: { type: 'string' },
+                card_subtitle: { type: 'string', nullable: true },
+                key_priorities: {
+                  type: 'array',
+                  nullable: true,
+                  items: {
+                    type: 'object',
+                    properties: {
+                      rank: { type: 'integer' },
+                      text: { type: 'string' },
+                      kind: {
+                        type: 'string',
+                        enum: ['action', 'date', 'blocker', 'momentum', 'decision'],
+                      },
+                      entity_ref: { type: 'string', nullable: true },
+                      due_date: { type: 'string', nullable: true },
+                      confidence: { type: 'number' },
+                    },
+                    required: ['rank', 'text', 'kind'],
+                  },
+                },
+                change_reason: { type: 'string', nullable: true },
+              },
+              required: ['world_id'],
+            },
+          },
+          chapter_overrides: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                chapter_id: { type: 'string' },
+                card_subtitle: { type: 'string', nullable: true },
+                key_priorities: {
+                  type: 'array',
+                  nullable: true,
+                  items: {
+                    type: 'object',
+                    properties: {
+                      rank: { type: 'integer' },
+                      text: { type: 'string' },
+                      kind: {
+                        type: 'string',
+                        enum: ['action', 'date', 'blocker', 'momentum', 'decision'],
+                      },
+                      entity_ref: { type: 'string', nullable: true },
+                      due_date: { type: 'string', nullable: true },
+                      confidence: { type: 'number' },
+                    },
+                    required: ['rank', 'text', 'kind'],
+                  },
+                },
+                change_reason: { type: 'string', nullable: true },
+              },
+              required: ['chapter_id'],
+            },
+          },
+        },
+        required: ['tone', 'day_type', 'headline', 'lead', 'today_focus', 'voice_note'],
+        propertyOrdering: [
+          'life_moment',
+          'headline',
+          'lead',
+          'voice_note',
+          'also_matters',
+          'today_focus',
+          'thread_updates',
+          'worlds_summary',
+          'world_overrides',
+          'chapter_overrides',
+          'tone',
+          'day_type',
+        ],
+      },
+    },
+  };
+  let content = '';
+  let lastErr = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const resp = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!resp.ok) {
+        const errBody = await resp.text().catch(() => '');
+        throw new Error(`Synthesize daily picture failed: ${resp.status} ${errBody.slice(0, 300)}`);
+      }
+
+      const data = await resp.json();
+      content = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+      let jsonStr = content.trim();
+      if (jsonStr.startsWith('```')) {
+        jsonStr = jsonStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+      }
+
+      const parsed = JSON.parse(jsonStr);
+      console.log('[Synthesize] ok attempt', attempt, 'target_date:', targetDate);
+      return parsed;
+    } catch (err) {
+      lastErr = err;
+      console.warn(`[Synthesize] attempt ${attempt} failed: ${err.message}`);
+      if (attempt === 2) {
+        console.error('[Synthesize] both attempts failed. Full raw:', content);
+        throw new Error(`Synthesize parse error: ${err.message}`);
+      }
+    }
+  }
+  throw new Error(`Synthesize parse error: ${lastErr?.message || 'unknown error'}`);
+}
+
+async function verifyDailyPicture(picture, factsText, env) {
+  const t0 = Date.now();
+
+  const systemPrompt = `You are a grounding verifier for a daily picture produced by another AI for a Gremly user.
+
+Your task is to ensure concrete claims are grounded in today's facts while preserving warmth and personal context.
+
+You receive two inputs:
+1. A structured picture.
+2. TODAY'S FACTS, which are the only ground truth for concrete claims.
+
+Evaluate each claim in the picture and classify:
+
+GROUNDED:
+If concrete content appears in today's facts, leave it unchanged.
+
+UNGROUNDABLE HARD FACT:
+If a specific concrete claim about today's reality is not supported by facts, strip it.
+If it is in a list item, remove that item.
+If it is in prose, rewrite only enough to remove unsupported specificity.
+
+UNGROUNDABLE SOFT INTERPRETATION:
+If warmth, emotional interpretation, or a person or relationship reference is plausible context but is stated as a definite present-tense fact about today without factual support, downgrade it rather than deleting.
+Keep the person or relationship context present.
+Soften unsupported present-tense specificity.
+
+Critical distinction:
+A named person or relationship from broader context is not automatically false and should not be removed by default.
+Only unsupported present-tense concrete assertions should be softened.
+
+Preserve voice:
+Keep ADHD-informed, shame-free warmth.
+Use the lightest edit needed.
+Prefer downgrade over strip for soft interpretation.
+Prefer unchanged when grounded.
+
+Output:
+Return corrected picture with the same structure, plus review_flags.
+Each review_flag must capture one actual change with field, action, and note.
+Keep each review_flags note under 15 words. State only what was unsupported, not lengthy justification.
+If nothing changed, return an empty review_flags array.
+All string values in your output must be a single line. Never include a raw line break inside any string value. If you need a pause, use a sentence break, not a newline.
+
+Also verify worlds and chapters overrides:
+- world_overrides and chapter_overrides asserting a concrete change must be grounded in today's facts.
+- worlds_summary refresh must be grounded in today's facts when refreshed=true.
+- change_reason must reference a today's-facts item. If it only restates prior prose, treat as ungrounded.
+- For ungrounded overrides, strip that override entry and add a review_flag.
+- Pass through grounded overrides unchanged.`;
+
+  const userMessage =
+    '=== THE PICTURE TO VERIFY ===\n' +
+    JSON.stringify(picture, null, 2) +
+    "\n\n=== TODAY'S FACTS (the only ground truth for concrete claims) ===\n" +
+    (factsText || '(no facts)');
+
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${env.GEMINI_API_KEY}`;
+  const requestBody = {
+    systemInstruction: { parts: [{ text: systemPrompt }] },
+    contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+    generationConfig: {
+      temperature: 0.2,
+      maxOutputTokens: 16384,
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: 'object',
+        properties: {
+          verified_picture: {
+            type: 'object',
+            properties: {
+              life_moment: { type: 'string', nullable: true },
+              tone: { type: 'string' },
+              day_type: { type: 'string' },
+              headline: { type: 'string' },
+              lead: {
+                type: 'object',
+                properties: {
+                  what: { type: 'string' },
+                  why_today: { type: 'string' },
+                },
+                required: ['what', 'why_today'],
+              },
+              also_matters: { type: 'array', items: { type: 'string' } },
+              today_focus: { type: 'array', items: { type: 'string' } },
+              voice_note: { type: 'string' },
+              thread_updates: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    domain: { type: 'string' },
+                    thread: { type: 'string' },
+                    new_evidence: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          date: { type: 'string' },
+                          signal: { type: 'string' },
+                          salience: { type: 'string', enum: ['low', 'medium', 'high'] },
+                        },
+                        required: ['date', 'signal'],
+                      },
+                    },
+                    recent_update: { type: 'string', nullable: true },
+                    state_change: { type: 'boolean' },
+                    state_change_reason: { type: 'string', nullable: true },
+                    new_momentum: { type: 'string', nullable: true },
+                    new_status: { type: 'string', nullable: true },
+                  },
+                  required: ['domain', 'thread', 'state_change'],
+                },
+              },
+              worlds_summary: {
+                type: 'object',
+                nullable: true,
+                properties: {
+                  headline: { type: 'string' },
+                  featured: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        world_id: { type: 'string', nullable: true },
+                        reason: { type: 'string' },
+                      },
+                      required: ['reason'],
+                    },
+                  },
+                  refreshed: { type: 'boolean' },
+                },
+              },
+              world_overrides: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    world_id: { type: 'string' },
+                    card_subtitle: { type: 'string', nullable: true },
+                    key_priorities: {
+                      type: 'array',
+                      nullable: true,
+                      items: {
+                        type: 'object',
+                        properties: {
+                          rank: { type: 'integer' },
+                          text: { type: 'string' },
+                          kind: {
+                            type: 'string',
+                            enum: ['action', 'date', 'blocker', 'momentum', 'decision'],
+                          },
+                          entity_ref: { type: 'string', nullable: true },
+                          due_date: { type: 'string', nullable: true },
+                          confidence: { type: 'number' },
+                        },
+                        required: ['rank', 'text', 'kind'],
+                      },
+                    },
+                    change_reason: { type: 'string', nullable: true },
+                  },
+                  required: ['world_id'],
+                },
+              },
+              chapter_overrides: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    chapter_id: { type: 'string' },
+                    card_subtitle: { type: 'string', nullable: true },
+                    key_priorities: {
+                      type: 'array',
+                      nullable: true,
+                      items: {
+                        type: 'object',
+                        properties: {
+                          rank: { type: 'integer' },
+                          text: { type: 'string' },
+                          kind: {
+                            type: 'string',
+                            enum: ['action', 'date', 'blocker', 'momentum', 'decision'],
+                          },
+                          entity_ref: { type: 'string', nullable: true },
+                          due_date: { type: 'string', nullable: true },
+                          confidence: { type: 'number' },
+                        },
+                        required: ['rank', 'text', 'kind'],
+                      },
+                    },
+                    change_reason: { type: 'string', nullable: true },
+                  },
+                  required: ['chapter_id'],
+                },
+              },
+            },
+            required: ['tone', 'day_type', 'headline', 'lead', 'today_focus', 'voice_note'],
+          },
+          review_flags: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                field: { type: 'string' },
+                action: { type: 'string', enum: ['strip', 'downgrade'] },
+                note: { type: 'string' },
+              },
+              required: ['field', 'action', 'note'],
+            },
+          },
+        },
+        required: ['verified_picture', 'review_flags'],
+      },
+    },
+  };
+  let content = '';
+  let lastErr = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const resp = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!resp.ok) {
+        const errBody = await resp.text().catch(() => '');
+        throw new Error(`Verify daily picture failed: ${resp.status} ${errBody.slice(0, 300)}`);
+      }
+
+      const data = await resp.json();
+      const cand = data?.candidates?.[0];
+      const finishReason = cand?.finishReason || 'none';
+      content = cand?.content?.parts?.[0]?.text || '';
+      if (!content) {
+        console.error(
+          '[Verify] EMPTY response. finishReason:',
+          finishReason,
+          '| promptFeedback:',
+          JSON.stringify(data?.promptFeedback || {}),
+          '| full data:',
+          JSON.stringify(data).slice(0, 1000),
+        );
+      }
+
+      if (finishReason === 'MAX_TOKENS' || !content) {
+        if (attempt === 2) {
+          throw new Error(`Verify empty response (finishReason: ${finishReason})`);
+        }
+        throw new Error(
+          `Verify retryable empty/truncated response (finishReason: ${finishReason})`,
+        );
+      }
+
+      let jsonStr = content.trim();
+      if (jsonStr.startsWith('```')) {
+        jsonStr = jsonStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+      }
+
+      const parsed = JSON.parse(jsonStr);
+      console.log('[Verify] ok attempt', attempt, 'flags:', parsed.review_flags?.length || 0);
+      return parsed;
+    } catch (err) {
+      lastErr = err;
+      console.warn(`[Verify] attempt ${attempt} failed: ${err.message}`);
+      if (attempt === 2) {
+        console.error('[Verify] both attempts failed. Full raw:', content);
+        throw new Error(`Verify parse error: ${err.message}`);
+      }
+    }
+  }
+  throw new Error(`Verify parse error: ${lastErr?.message || 'unknown error'}`);
+}
+
 async function updateLifeMapAndFocus(lifeMap, worldPictureText, env, context = {}) {
   const { activeWorlds = [], activeChapters = [] } = context;
   const t0 = Date.now();
@@ -8108,7 +9995,7 @@ Pick the MOST MEANINGFUL entries, not an exhaustive list. Cap at 8-10 entries fo
 Also produce a week_mood_arc: a single sentence describing how the user's emotional state shifted across the week, based on journal moods, chat emotional signals, and any other sentiment data. If insufficient emotional data exists, return null.
 
 JOB 4 - WORLDS SUMMARY
-Produce a worlds_summary block with two fields: headline and featured.
+Produce a worlds_summary block with three fields: headline, featured, and refreshed.
 
 headline is a single line, maximum 120 characters, written in Gremly's voice. Gremly is a sharp, warm companion who observes the user's life matter-of-factly without performing emotion. The headline is Gremly noticing the dominant force in play across the user's worlds today, not announcing a theme, not summarizing categories. Third-person observational stance. Never use "you", "your", "we", or "our".
 
@@ -8122,7 +10009,7 @@ Forbidden tone: exclamatory punctuation, celebratory adjectives, dramatic adject
 
 Structure preference: one main clause naming the dominant force today, optionally followed by a short second clause naming what's meeting it. Avoid chaining three or more ideas with "and" or "as" or "while".
 
-featured is 2 to 3 worlds to spotlight with a one-clause reason each, maximum 60 characters per reason, following the same voice rules. Use world ids from the ACTIVE WORLDS list where available; otherwise use the Life Map domain name. If the world picture contains a classifier worlds_summary seeded this week, you may refresh the headline but keep its spirit and its named anchors intact unless today's data has materially shifted the picture.
+featured is 2 to 3 worlds to spotlight with a one-clause reason each, maximum 60 characters per reason, following the same voice rules. Use world ids from the ACTIVE WORLDS list where available; otherwise use the Life Map domain name. If the world picture contains a classifier worlds_summary seeded this week, you may refresh the headline but keep its spirit and its named anchors intact unless today's data has materially shifted the picture. Set refreshed=true only when you materially changed worlds_summary based on today's facts.
 Style rules for worlds_summary text. Maximum 120 characters for headline. Never use em dashes, en dashes, or double hyphens. Never use ampersands except inside literal proper nouns.
 
 JOB 5 - PER-WORLD AND CHAPTER OVERRIDES
@@ -8144,9 +10031,11 @@ When deciding to override, consult the authored context shown for each world and
 
 A key_priorities override requires that today's activity changed the correct ranking order of existing priorities, or a new priority became genuinely more important than an existing one. Only rerank; do not invent new priorities. If the existing ranking still reflects reality, return null.
 
-Emit a world_overrides array with entries containing world_id (from ACTIVE WORLDS), card_subtitle (new subtitle string or null), and key_priorities (reranked array or null). Omit entries where both fields are null.
+Every world/chapter override you emit must include change_reason with a concrete today's-facts item that justifies the override.
 
-For each chapter in ACTIVE CHAPTERS, apply the same strict evaluation. Emit a chapter_overrides array with entries containing chapter_id, card_subtitle (nullable), and key_priorities (nullable). Omit entries where both fields are null.
+Emit a world_overrides array with entries containing world_id (from ACTIVE WORLDS), card_subtitle (new subtitle string or null), key_priorities (reranked array or null), and change_reason (nullable string). Omit entries where both fields are null.
+
+For each chapter in ACTIVE CHAPTERS, apply the same strict evaluation. Emit a chapter_overrides array with entries containing chapter_id, card_subtitle (nullable), key_priorities (nullable), and change_reason (nullable string). Omit entries where both fields are null.
 
 key_priorities items each have rank (integer 1-5), text (up to 100 characters), kind (one of: action, date, blocker, momentum, decision), optional entity_ref string, optional due_date ISO date string, and confidence (0-1 number).
 
@@ -8215,20 +10104,23 @@ OUTPUT — return ONLY this JSON:
   "week_mood_arc": "single sentence about emotional trajectory this week, or null",
   "worlds_summary": {
     "headline": "single sentence up to 120 characters",
-    "featured": [{"world_id": "world id from ACTIVE WORLDS or Life Map domain name", "reason": "one-clause reason"}]
+    "featured": [{"world_id": "world id from ACTIVE WORLDS or Life Map domain name", "reason": "one-clause reason"}],
+    "refreshed": true
   },
   "world_overrides": [
     {
       "world_id": "id from ACTIVE WORLDS",
       "card_subtitle": "new subtitle or null",
-      "key_priorities": null
+      "key_priorities": null,
+      "change_reason": "specific today's-facts trigger"
     }
   ],
   "chapter_overrides": [
     {
       "chapter_id": "id from ACTIVE CHAPTERS",
       "card_subtitle": "new subtitle or null",
-      "key_priorities": null
+      "key_priorities": null,
+      "change_reason": "specific today's-facts trigger"
     }
   ]
 }`;
@@ -8355,6 +10247,113 @@ function mergeLifeMapUpdates(lifeMap, threadUpdates) {
   lifeMap.updated_at = new Date().toISOString();
 
   return lifeMap;
+}
+
+function mergeLifeMapUpdatesGated(lifeMap, threadUpdates) {
+  if (!lifeMap?.domains || !Array.isArray(threadUpdates)) {
+    return { lifeMap, changeLog: [] };
+  }
+
+  let anyChanged = false;
+  const changeLog = [];
+
+  for (const update of threadUpdates) {
+    const domain = lifeMap.domains.find((d) => d.name === update.domain);
+    if (!domain) {
+      console.warn(`[LifeMap:MergeGated] Domain not found: "${update.domain}"`);
+      continue;
+    }
+
+    const thread = (domain.threads || []).find((t) => t.name === update.thread);
+    if (!thread) {
+      console.warn(
+        `[LifeMap:MergeGated] Thread not found: "${update.domain}" -> "${update.thread}"`,
+      );
+      continue;
+    }
+
+    let evidenceAdded = 0;
+    if (Array.isArray(update.new_evidence)) {
+      if (!thread.evidence) thread.evidence = [];
+      for (const e of update.new_evidence) {
+        const isDuplicate = thread.evidence.some(
+          (existing) => existing.date === e.date && existing.signal === e.signal,
+        );
+        if (!isDuplicate) {
+          thread.evidence.push({
+            type: e.type || 'drop',
+            source: e.source || null,
+            date: e.date,
+            signal: e.signal,
+            salience: e.salience || 'medium',
+          });
+          evidenceAdded++;
+          anyChanged = true;
+        }
+      }
+    }
+
+    const nextRecentUpdate =
+      typeof update.recent_update === 'string' ? update.recent_update.trim() : '';
+    let refreshedRecentUpdate = false;
+    if (nextRecentUpdate) {
+      if (thread.recent_update !== nextRecentUpdate) {
+        thread.recent_update = nextRecentUpdate;
+        anyChanged = true;
+      }
+      refreshedRecentUpdate = true;
+    }
+
+    if (update.state_change === true) {
+      const stateChangeReason =
+        typeof update.state_change_reason === 'string' ? update.state_change_reason.trim() : '';
+      if (stateChangeReason.length < 20) {
+        console.warn(
+          `[LifeMap:Gated] state_change with no/weak reason, skipping slow-field write for "${update.domain}/${update.thread}"`,
+        );
+        console.log(
+          `[LifeMap:MergeGated] ${update.domain} -> ${update.thread}: no state change, refreshed evidence/recent_update only`,
+          { evidence_added: evidenceAdded, refreshed_recent_update: refreshedRecentUpdate },
+        );
+        continue;
+      }
+
+      const fieldChanges = {};
+
+      const nextMomentum =
+        typeof update.new_momentum === 'string' ? update.new_momentum.trim() : '';
+      if (nextMomentum && thread.momentum !== nextMomentum) {
+        thread.momentum = nextMomentum;
+        fieldChanges.momentum = nextMomentum;
+        anyChanged = true;
+      }
+
+      const nextStatus = typeof update.new_status === 'string' ? update.new_status.trim() : '';
+      if (nextStatus && thread.status !== nextStatus) {
+        thread.status = nextStatus;
+        fieldChanges.status = nextStatus;
+        anyChanged = true;
+      }
+
+      changeLog.push({
+        domain: update.domain,
+        thread: update.thread,
+        field_changes: fieldChanges,
+        reason: stateChangeReason,
+      });
+    } else {
+      console.log(
+        `[LifeMap:MergeGated] ${update.domain} -> ${update.thread}: no state change, refreshed evidence/recent_update only`,
+        { evidence_added: evidenceAdded, refreshed_recent_update: refreshedRecentUpdate },
+      );
+    }
+  }
+
+  if (anyChanged) {
+    lifeMap.updated_at = new Date().toISOString();
+  }
+
+  return { lifeMap, changeLog };
 }
 
 // ── DCO helper: fetch active worlds and open chapters for a user ───────────────────
@@ -8495,6 +10494,109 @@ async function applyChapterOverrides(overrides, activeChapters, userId, env) {
   return { updated, skipped, errors };
 }
 
+function hasGroundedReason(text) {
+  return typeof text === 'string' && text.trim().length >= 20;
+}
+
+function gateOverridesByReason(overrides, idField, label) {
+  if (!Array.isArray(overrides) || overrides.length === 0) {
+    return [];
+  }
+  const kept = [];
+  for (const override of overrides) {
+    const hasChangePayload = override?.card_subtitle != null || override?.key_priorities != null;
+    if (!hasChangePayload) continue;
+    if (!hasGroundedReason(override?.change_reason)) {
+      console.log(
+        `[DCO:Override] skipped ${label} ${override?.[idField] || 'unknown'} - no grounded reason`,
+      );
+      continue;
+    }
+    kept.push(override);
+  }
+  return kept;
+}
+
+function resolveDailyWorldsSummary(existingWorldsSummary, proposedWorldsSummary) {
+  const hasExisting =
+    existingWorldsSummary &&
+    typeof existingWorldsSummary === 'object' &&
+    !!existingWorldsSummary.headline;
+  const hasProposed =
+    proposedWorldsSummary &&
+    typeof proposedWorldsSummary === 'object' &&
+    !!proposedWorldsSummary.headline;
+
+  if (hasProposed && proposedWorldsSummary.refreshed === true) {
+    return {
+      ...proposedWorldsSummary,
+      updated_at: new Date().toISOString(),
+      source: 'dco',
+    };
+  }
+
+  if (hasExisting) {
+    return existingWorldsSummary;
+  }
+
+  if (hasProposed) {
+    return {
+      ...proposedWorldsSummary,
+      updated_at: new Date().toISOString(),
+      source: 'dco',
+    };
+  }
+
+  return null;
+}
+
+function buildOverrideDryRun(
+  overrides,
+  activeEntities,
+  idField,
+  label,
+  subtitleSourceField,
+  summarySourceField,
+) {
+  const result = {
+    proposed: Array.isArray(overrides) ? overrides.length : 0,
+    would_update: 0,
+    skipped: 0,
+    would_patch: [],
+  };
+
+  if (!Array.isArray(overrides) || overrides.length === 0) {
+    return result;
+  }
+
+  for (const override of overrides) {
+    const id = override?.[idField];
+    const entity = Array.isArray(activeEntities) ? activeEntities.find((e) => e?.id === id) : null;
+    if (!entity) {
+      result.skipped++;
+      continue;
+    }
+
+    const patch = { id, label, fields: [] };
+    if (override.card_subtitle != null && entity?.[subtitleSourceField] !== 'user') {
+      patch.fields.push('card_subtitle');
+    }
+    if (override.key_priorities != null && entity?.[summarySourceField] !== 'user') {
+      patch.fields.push('key_priorities');
+    }
+
+    if (patch.fields.length === 0) {
+      result.skipped++;
+      continue;
+    }
+
+    result.would_update++;
+    result.would_patch.push(patch);
+  }
+
+  return result;
+}
+
 // ============================================================================
 // Phase 2: Backward-compatible DCO assembly + simplified headline
 // ============================================================================
@@ -8588,6 +10690,95 @@ function assembleDcoFromFocus(dailyFocus, headline, snapshot, flashResult) {
     ttl_days: 7,
     model_used: 'gemini-2.5-flash',
     pipeline: 'life-map-v2',
+  };
+}
+
+function buildRecentContext(bucketed) {
+  const b = bucketed || {};
+  return {
+    bulk_skips: (b.deliberate?.skipEvents || []).map((s) => ({
+      target_date: s.target_date,
+      todo_count: s.todo_count,
+    })),
+    recent_mood: (b.recentMood || []).slice(0, 3),
+    active_milestones: (b.deliberate?.milestones || []).map((m) => ({
+      title: m.title,
+      date: m.date,
+    })),
+    intention: b.weeklyIntention || null,
+    daily_brief_set: !!b.deliberate?.dailyBrief,
+  };
+}
+
+function assembleDcoFromPicture(verifiedPicture, snapshot, reviewFlags) {
+  const b = snapshot.today?.bucketed || {};
+  const p = verifiedPicture || {};
+
+  const activeToday = {
+    calendar_events: (b.calendarToday || []).map((e) => e.title),
+    todos_due_today: (b.todos?.dueToday || []).length,
+    overdue_todos: (b.todos?.overdue || []).length,
+    habit_streak_risk: [],
+    upcoming_in_7d: (b.calendarComingUp || []).slice(0, 5).map((e) => ({
+      date: e.date || (e.days && e.days[0]) || null,
+      title: e.title,
+    })),
+  };
+
+  const leadStory = p.lead
+    ? {
+        what: p.lead.what,
+        why_today: p.lead.why_today,
+        detail: p.lead.what,
+      }
+    : null;
+
+  return {
+    day_type: p.day_type || null,
+    tone: p.tone || null,
+    life_moment: p.life_moment || null,
+    life_moment_confidence: p.life_moment ? 'high' : 'low',
+    brief_headline: p.headline || null,
+    today_focus: Array.isArray(p.today_focus) ? p.today_focus.slice(0, 3) : [],
+    lead_story: leadStory,
+    voice_note: p.voice_note || null,
+    also_matters: Array.isArray(p.also_matters) ? p.also_matters : [],
+
+    named_anchors: (b.anchorsActive || []).map((a) => ({
+      label: a.title,
+      title: a.title,
+      type: a.category || null,
+      date: a.resolved_date || a.date_text || null,
+      confidence: a.date_confidence || null,
+    })),
+    active_today: activeToday,
+    weekly_intention: b.weeklyIntention || null,
+
+    daily_focus: {
+      day_type: p.day_type || null,
+      tone: p.tone || null,
+      life_moment: p.life_moment || null,
+      today_focus: Array.isArray(p.today_focus) ? p.today_focus.slice(0, 3) : [],
+      lead_story: leadStory,
+      secondary:
+        Array.isArray(p.also_matters) && p.also_matters.length > 0 ? p.also_matters[0] : null,
+      named_anchors: (b.anchorsActive || []).map((a) => a.title),
+    },
+
+    week_recap: [],
+    recent_context: buildRecentContext(b),
+    worlds_summary: p.worlds_summary
+      ? { ...p.worlds_summary, updated_at: new Date().toISOString(), source: 'dco' }
+      : null,
+
+    review_flags: Array.isArray(reviewFlags) ? reviewFlags : [],
+
+    user_id: snapshot.userId,
+    date: snapshot.targetDate,
+    generated_at: new Date().toISOString(),
+    ttl_days: 7,
+    model_used: 'gemini-3-flash-preview',
+    pipeline: 'dco-v3',
   };
 }
 
@@ -8902,11 +11093,17 @@ const inngestHandler = serve({
     synthesizeSingleUser,
     dcoDispatcher,
     generateSingleUserDco,
+    generateSingleUserDcoV3Worker,
     bootstrapSingleUserLifeMap,
     handleChallengeCompletion,
     detectChallengeCompletion,
     testUnifiedAnalyst,
     testLifeMapRebuild,
+    testGatherForUser,
+    testSynthesizeForUser,
+    testVerifyForUser,
+    testAssembleForUser,
+    testWriteAuthorityForUser,
     testWeeklySummaryV2,
     testAnalystDualRun,
     testWorldsBundleEquivalence,
@@ -8914,6 +11111,7 @@ const inngestHandler = serve({
     backfillAnalystForWeek,
     runShadowSummaryForWeek,
     weeklySummaryV07Worker,
+    backfillWeeklyV07,
     testWorldsOutputDualRun,
     testSummaryV05,
     weeklySummaryV2Dispatcher,
@@ -9042,21 +11240,46 @@ export default {
               flashResult,
             );
 
-            await applyWorldOverrides(
+            const now = new Date();
+            const todayLocal = getUserLocalDate(u.timezone);
+            const existingTodayRes = await fetch(
+              `${env.SUPABASE_URL}/rest/v1/user_daily_state?user_id=eq.${u.user_id}&date=eq.${todayLocal}&select=dco&limit=1`,
+              { headers: supaHeaders },
+            );
+            const existingTodayRows = existingTodayRes.ok
+              ? await existingTodayRes.json().catch(() => [])
+              : [];
+            const existingTodayDco = existingTodayRows?.[0]?.dco || null;
+
+            dco.worlds_summary = resolveDailyWorldsSummary(
+              existingTodayDco?.worlds_summary || null,
+              flashResult?.worlds_summary || null,
+            );
+
+            const verifiedWorldOverrides = gateOverridesByReason(
               flashResult.world_overrides,
+              'world_id',
+              'world',
+            );
+            const verifiedChapterOverrides = gateOverridesByReason(
+              flashResult.chapter_overrides,
+              'chapter_id',
+              'chapter',
+            );
+
+            const worldOverrideResult = await applyWorldOverrides(
+              verifiedWorldOverrides,
               worldsAndChapters.activeWorlds,
               u.user_id,
               env,
             );
-            await applyChapterOverrides(
-              flashResult.chapter_overrides,
+            const chapterOverrideResult = await applyChapterOverrides(
+              verifiedChapterOverrides,
               worldsAndChapters.activeChapters,
               u.user_id,
               env,
             );
 
-            const now = new Date();
-            const todayLocal = getUserLocalDate(u.timezone);
             const expiresAt = new Date(now.getTime() + 7 * 86400000);
 
             await fetch(`${env.SUPABASE_URL}/rest/v1/user_life_map?on_conflict=user_id`, {
@@ -9081,6 +11304,20 @@ export default {
                 extraction_raw: {
                   world_picture_length: worldPicture.text.length,
                   lead_story: flashResult.daily_focus?.lead_story || null,
+                  world_overrides_applied: {
+                    proposed: Array.isArray(flashResult.world_overrides)
+                      ? flashResult.world_overrides.length
+                      : 0,
+                    gated: verifiedWorldOverrides.length,
+                    result: worldOverrideResult,
+                  },
+                  chapter_overrides_applied: {
+                    proposed: Array.isArray(flashResult.chapter_overrides)
+                      ? flashResult.chapter_overrides.length
+                      : 0,
+                    gated: verifiedChapterOverrides.length,
+                    result: chapterOverrideResult,
+                  },
                 },
                 upcoming_dates: extractUpcomingDates(dco),
                 created_at: now.toISOString(),
@@ -9101,6 +11338,10 @@ export default {
               lead_story: flashResult.daily_focus?.lead_story || null,
               tone: dco.tone,
               day_type: dco.day_type,
+              override_apply_results: {
+                world: worldOverrideResult,
+                chapter: chapterOverrideResult,
+              },
             });
           } catch (userErr) {
             console.error(`[API] DCO failed for ${u.user_id}:`, userErr);
