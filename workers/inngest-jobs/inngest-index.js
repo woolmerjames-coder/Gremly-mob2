@@ -1928,6 +1928,37 @@ const weeklySummaryV07Worker = inngest.createFunction(
       return { success: true, skipped: true, reason: 'summary_already_exists' };
     }
 
+    // A week with nothing recorded gets no deck: there is nothing to say about
+    // it, and a deck about a blank week only tells the person the app was
+    // quiet. Opening the app counts as nothing recorded.
+    const weekRecords = await step.run('count-week-records', async () => {
+      const days = await runRpc('user_activity_days', {
+        p_user: user_id,
+        p_from: week_start,
+        p_to: week_end,
+      });
+      return (days || []).reduce(
+        (n, d) =>
+          n +
+          (d.drops || 0) +
+          (d.journals || 0) +
+          (d.todos_done || 0) +
+          (d.habit_checkins || 0) +
+          (d.chat_messages || 0) +
+          (d.sweeps || 0),
+        0,
+      );
+    });
+    if (weekRecords === 0) {
+      return {
+        success: true,
+        skipped: true,
+        reason: 'nothing_recorded_this_week',
+        user_id,
+        week_start,
+      };
+    }
+
     // Step A: fetch a snapshot so the analyst has raw data.
     // Pass targetDate: week_end so backfill/historical runs anchor to the requested week,
     // not to today.
