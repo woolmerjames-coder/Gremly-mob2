@@ -123,7 +123,10 @@ describe('cancelled meetings', () => {
   const none = new Set<string>();
   it('leaves out a meeting whose title says it was cancelled', () => {
     expect(isCancelledMeeting('Canceled: iProspect Town Hall', ['x'], none)).toBe(true);
-    expect(isCancelledMeeting('CANCELLED - Attribution touchbase', ['x'], none)).toBe(true);
+    expect(isCancelledMeeting('CANCELLED: Attribution touchbase', ['x'], none)).toBe(true);
+    // only the "Canceled:" form calendars use; anything else is the DCO reader's call
+    expect(isCancelledMeeting('Cancelled flights review', ['x'], none)).toBe(false);
+    expect(isCancelledMeeting('Canceled - maybe', ['x'], none)).toBe(false);
     expect(isCancelledMeeting('Social connect', ['x'], none)).toBe(false);
     expect(isCancelledMeeting('Cancellation policy review', ['x'], none)).toBe(false);
   });

@@ -174,15 +174,10 @@ export function planSummary(meta: BriefPlanMeta, meetings: Busy[]): string {
   return `${n} ${n === 1 ? 'thing' : 'things'}, ${duration(planned)}, still ${duration(free)} free`;
 }
 
-function lower(title: string): string {
-  return title.length > 1 && title[1] !== title[1].toUpperCase()
-    ? title[0].toLowerCase() + title.slice(1)
-    : title;
-}
-
 /** Names in a sentence: "a, b and c". */
 export function namesOf(titles: string[]): string {
-  const t = titles.map(lower);
+  // titles as the person typed them: changing case by rule gets names wrong
+  const t = titles;
   if (t.length <= 1) return t.join('');
   return `${t.slice(0, -1).join(', ')} and ${t[t.length - 1]}`;
 }
@@ -201,7 +196,7 @@ export function suggestions(meta: BriefPlanMeta, pool: Candidate[]): OfferButton
   if (movable) {
     out.push({
       id: `move-${movable.id}`,
-      label: `Move ${lower(movable.title)} after 6`,
+      label: `Move ${movable.title} after 6`,
       action: 'plan_edit',
       value: JSON.stringify({ op: 'move', id: movable.id, window: [18 * 60, PLAN_DAY_END] }),
     });
@@ -210,7 +205,7 @@ export function suggestions(meta: BriefPlanMeta, pool: Candidate[]): OfferButton
   if (left) {
     out.push({
       id: `add-${left.id}`,
-      label: `Add ${lower(left.title)}`,
+      label: `Add ${left.title}`,
       action: 'plan_edit',
       value: JSON.stringify({ op: 'add', id: left.id, window: null }),
     });
@@ -219,7 +214,7 @@ export function suggestions(meta: BriefPlanMeta, pool: Candidate[]): OfferButton
   if (last && meta.items.length > 1) {
     out.push({
       id: `skip-${last.id}`,
-      label: `Skip ${lower(last.title)} today`,
+      label: `Skip ${last.title} today`,
       action: 'plan_edit',
       value: JSON.stringify({ op: 'remove', id: last.id, window: null }),
     });
@@ -258,7 +253,7 @@ export function changeText(
   placed: PlanItem | undefined,
   wasLocked: boolean,
 ): string {
-  const name = lower(title);
+  const name = title;
   let text: string;
   if (op.op === 'remove') text = `Taken ${name} out for today. Everything else stays where it was.`;
   else if (op.op === 'add')
@@ -295,20 +290,23 @@ export function lockText(created: string[]): string {
  * habits behind for the week are named as the ones to pick back up.
  */
 export function whatCanWait(pool: Candidate[], overdue: number): string {
+  // what is simply due (no claim on today, not behind for the week) can wait;
+  // nothing is called urgent or not, since only the context knows that
   const canWait = pool.filter((c) => c.source === 'due' || c.source === 'habit').slice(0, 3);
   const behind = pool.filter((c) => c.source === 'behind').map((c) => c.title);
+  const cap = (t: string) => t.replace(/^./, (x) => x.toUpperCase());
   const waitLine = canWait.length
-    ? `${namesOf(canWait.map((c) => c.title)).replace(/^./, (x) => x.toUpperCase())} can wait until tomorrow.`
+    ? `${cap(namesOf(canWait.map((c) => c.title)))} can wait until tomorrow.`
     : '';
   if (overdue > 0) {
     const n = overdue === 1 ? 'one past its date is' : `${overdue} past their dates are`;
-    return `Nothing due today is urgent. The ${n} the ones to decide on, and Sweep is the quickest way to do that.${waitLine ? ` ${waitLine}` : ''}`;
+    return `The ${n} the ones to decide on, and Sweep is the quickest way to do that.${waitLine ? ` ${waitLine}` : ''}`;
   }
   const behindLine = behind.length
-    ? ` ${namesOf(behind).replace(/^./, (x) => x.toUpperCase())} ${behind.length === 1 ? 'is the one' : 'are the ones'} to pick back up this week.`
-    : ' Everything is on track for the week.';
+    ? ` ${cap(namesOf(behind))} ${behind.length === 1 ? 'is the one' : 'are the ones'} to pick back up this week.`
+    : '';
   if (!canWait.length) {
     return `Everything on today's list has a reason to be today.${behindLine}`;
   }
-  return `Nothing on today's list is urgent. ${waitLine.replace(/\.$/, '')} without putting the week off track.${behindLine}`;
+  return `${waitLine.replace(/\.$/, '')} without putting the week off track.${behindLine}`;
 }

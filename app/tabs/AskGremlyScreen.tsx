@@ -910,6 +910,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   // longer, the fresh home with today pinned. A jump from another screen
   // (the notification, Talk it through, a drop) brings its own chat.
   const briefUnreadHere = useTodayThread((st) => isBriefUnread(st.thread));
+  // the brief starts on the second day of training, so the pinned card does too
+  const gremlyAge = useGremlyStore((st) => st.gremlyAge);
   const briefInChatRef = useRef(briefInChat);
   briefInChatRef.current = briefInChat;
   const jumpPending = !!(
@@ -1316,7 +1318,17 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
               onScrollEndDrag={embedded ? () => homeDock?.setChatScrolling(false) : undefined}
               onMomentumScrollBegin={embedded ? () => homeDock?.setChatScrolling(true) : undefined}
               onMomentumScrollEnd={embedded ? () => homeDock?.setChatScrolling(false) : undefined}
-              ListEmptyComponent={<View style={styles.flex} />}
+              ListEmptyComponent={
+                // today's thread with nothing in it yet (the brief could not be
+                // written, or it is someone's first day): the day card, from the store
+                isDailyThread && !messagesLoading && !briefWriting && !playback.playing ? (
+                  <View style={styles.dailyEmpty} testID="daily-thread-empty">
+                    <BriefDayCardBlock date={threadDay} />
+                  </View>
+                ) : (
+                  <View style={styles.flex} />
+                )
+              }
               ListFooterComponent={
                 (briefWriting || playback.typing || planFlow.typing) && isDailyThread ? (
                   <View style={styles.messageContainer} testID="brief-writing">
@@ -1382,7 +1394,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             </View>
           ) : (
             <View style={embedded ? styles.emptyStateTop : styles.emptyState}>
-              {briefInChat ? (
+              {briefInChat && gremlyAge >= 1 ? (
                 <View style={styles.pinnedToday}>
                   <TodayPinnedCard
                     date={getDateService().ritualDay()}
@@ -1841,6 +1853,10 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: 'rgba(26, 51, 40, 0.12)',
     alignSelf: 'center',
+  },
+  dailyEmpty: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
   },
   pinnedToday: {
     width: '100%',

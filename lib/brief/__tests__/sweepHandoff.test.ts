@@ -42,7 +42,7 @@ describe('handing Sweep back to the thread', () => {
     const kept = { swept: 3, kept: [{ id: 'oat', title: 'Buy Oat Milk' }], allDone: true };
     const noPlan = sweepFollowUp(kept, { livePlan: false, planFrom: 795 });
     expect(noPlan.text).toBe(
-      'Nice, all sorted. You kept buy Oat Milk for today. Want me to fit it in with the rest?',
+      'Nice, all sorted. You kept Buy Oat Milk for today. Want me to fit it in with the rest?',
     );
     expect(noPlan.buttons.map((b) => b.label)).toEqual(['Plan my afternoon', 'Not now']);
     const withPlan = sweepFollowUp(kept, { livePlan: true, planFrom: 795 });

@@ -116,9 +116,8 @@ export function sweepEventText(o: SweepOutcome): string {
 }
 
 function names(titles: string[]): string {
-  const t = titles.map((x) =>
-    x.length > 1 && x[1] !== x[1].toUpperCase() ? x[0].toLowerCase() + x.slice(1) : x,
-  );
+  // titles as the person typed them (changing case by rule gets names wrong)
+  const t = titles;
   return t.length <= 1 ? t.join('') : `${t.slice(0, -1).join(', ')} and ${t[t.length - 1]}`;
 }
 

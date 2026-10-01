@@ -12,7 +12,7 @@
 import { CARE_RULES, WRITING_RULES, PRIVATE_RULES, personBlock } from '../careRules';
 import { jsonCall, modelFor } from '../context/llm';
 
-export const BRIEF_PROMPT_VERSION = 'brief-2026-10-01c';
+export const BRIEF_PROMPT_VERSION = 'brief-2026-10-01d';
 
 function trim(text, n) {
   const s = String(text || '')
@@ -206,7 +206,7 @@ WHAT YOU WRITE
 - catch_up: on a return day only, one or two kind sentences saying what is waiting, using the counts in WAITING IN SWEEP as given, and that nothing has been lost. It is shown only if they ask. Otherwise empty.
 
 VOICE
-Warm, plain and brief, like a friend who knows their day. Suggest, never instruct. Never use the word should, never shame or pressure, never tell them how they feel.
+Warm, plain and brief, like a friend who knows their day. Suggest, never instruct: never tell them what they ought to do, never shame or pressure, never tell them how they feel.
 
 ${PRIVATE_RULES}
 

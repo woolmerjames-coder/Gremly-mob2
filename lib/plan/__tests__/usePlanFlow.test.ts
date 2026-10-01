@@ -187,7 +187,7 @@ describe('planning in the thread', () => {
     expect(lockPlanItems).toHaveBeenCalledWith('2026-09-30', expect.any(Array), []);
     expect((planMsg.metadata_json as any).status).toBe('locked');
     expect(messages[messages.length - 1].content).toBe(
-      "Locked in. It's all on Today, with plenty of room left. I've added book the car service as a todo too.",
+      "Locked in. It's all on Today, with plenty of room left. I've added Book the car service as a todo too.",
     );
   });
 

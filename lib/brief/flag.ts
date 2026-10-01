@@ -1,9 +1,10 @@
 /**
  * briefInChat: the one switch for the Daily brief in Chat project.
  *
- * Per person, from cortex_preferences.brief_in_chat, so it can go on for one
- * person first and then for everyone without a new build. A build can force
- * it with EXPO_PUBLIC_BRIEF_IN_CHAT=on or off (local testing).
+ * Per person, from cortex_preferences.brief_in_chat. On for everyone since
+ * 1 Oct 2026 (the column defaults to true); setting it to false for one
+ * person returns them to the old morning brief without a new build. A build
+ * can force it with EXPO_PUBLIC_BRIEF_IN_CHAT=on or off (local testing).
  *
  * While it is off for someone, the old morning brief behaves exactly as before.
  */

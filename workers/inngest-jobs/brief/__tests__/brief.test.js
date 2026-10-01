@@ -373,6 +373,7 @@ describe('cancelled calendar entries', () => {
       true,
     );
     expect(isCancelledEntry({ id: 'row-3', title: 'Cancellation policy review' }, ids)).toBe(false);
+    expect(isCancelledEntry({ id: 'row-5', title: 'Cancelled flights review' }, ids)).toBe(false);
     expect(isCancelledEntry({ id: 'row-4', title: 'Search connect' }, undefined)).toBe(false);
   });
 });

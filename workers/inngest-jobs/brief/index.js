@@ -25,17 +25,29 @@ import {
 export const BRIEF_LEAD_MINUTES = 20;
 
 /** Words for the offer when the writer's own could not be used (logged as such). */
-export function fallbackOffer(kind) {
+export function fallbackOffer(kind, part = 'morning') {
   switch (kind) {
     case 'return':
-      return "A few things piled up while you were away. A quick sweep would help, and it's fine to skip it.";
+      return "A quick sweep would help, and it's fine to skip it today.";
     case 'sweep':
       return 'A few things are waiting in Sweep. Want to sweep first?';
     case 'plan':
       return 'Want me to fit a few things into the clear time today?';
     default:
-      return 'Have a good day.';
+      return part === 'evening' ? 'Have a good evening.' : 'Have a good day.';
   }
+}
+
+/**
+ * Gremly's opening line when the writer could not be used (both models
+ * failed, or every line failed the ID check). Fixed words, so the brief still
+ * arrives: this line, the day card and the offer.
+ */
+export function fallbackLine(part, returnDay) {
+  if (returnDay) return "Good to see you. Here's today.";
+  if (part === 'afternoon') return "Here's the rest of today.";
+  if (part === 'evening') return "Here's the rest of your evening.";
+  return "Here's your day.";
 }
 
 function uuid() {
@@ -86,20 +98,26 @@ export async function writeDailyBrief(env, userId, { reason = 'scheduled', at = 
   });
 
   let out;
+  let writerError = null;
   try {
     out = await writeBrief(env, g, offer);
   } catch (err) {
-    await logRun(env, {
-      user_id: userId,
-      ritual_day: g.ritualDay,
-      part: g.part,
-      reason,
-      offer_kind: offer.kind,
-      error: String(err?.message || err).slice(0, 500),
-      prompt_version: BRIEF_PROMPT_VERSION,
-      dco_built: g.dcoBuilt,
-    });
-    throw err;
+    writerError = String(err?.message || err).slice(0, 500);
+    console.warn(`[ALERT][DailyBrief] the writer failed for ${userId}: ${writerError}`);
+  }
+  // Without usable lines the brief still arrives, in fixed words
+  if (!out || !out.lines.length) {
+    out = {
+      model: out?.model ?? null,
+      lines: [{ text: fallbackLine(g.part, !!g.ret), ids: [] }],
+      dropped: out?.dropped ?? [],
+      offer: out?.offer ?? null,
+      offerDropped: out?.offerDropped ?? null,
+      questionLine: g.question && !g.ret ? out?.questionLine || g.question.question : null,
+      questionChoices: out?.questionChoices ?? [],
+      catchUp: out?.catchUp ?? null,
+    };
+    writerError = writerError || 'no lines passed the ID check';
   }
 
   const existing = await threadMessages(env, thread.id);
@@ -141,7 +159,8 @@ export async function writeDailyBrief(env, userId, { reason = 'scheduled', at = 
   }
   // With no offer the last message is only a sign-off; when the writer gave
   // none, the lines end the brief on their own.
-  const offerText = out.offer || (offer.kind === 'none' ? null : fallbackOffer(offer.kind));
+  const offerText =
+    out.offer || (offer.kind === 'none' && !writerError ? null : fallbackOffer(offer.kind, g.part));
   if (offerText)
     rows.push({
       role: 'assistant',
@@ -182,6 +201,8 @@ export async function writeDailyBrief(env, userId, { reason = 'scheduled', at = 
     model: out.model,
     prompt_version: BRIEF_PROMPT_VERSION,
     dco_built: g.dcoBuilt,
+    // set when the fixed words were used instead of the writer's
+    error: writerError,
   });
   if (out.dropped.length || out.offerDropped) {
     console.warn(

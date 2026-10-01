@@ -119,12 +119,19 @@ export function poolForDay(day: string): Candidate[] {
 export function resetStaleAssignments(today: string): number {
   const s = useGremlyStore.getState();
   let cleared = 0;
-  const stale = (x: { daily_block?: unknown; scheduled_start_iso?: string | null }) => {
+  const stale = (x: {
+    daily_block?: unknown;
+    scheduled_start_iso?: string | null;
+    updated_at?: string | null;
+  }) => {
     if (x.scheduled_start_iso) {
       const day = localDateOf(x.scheduled_start_iso);
       return !!day && day < today;
     }
-    return x.daily_block != null;
+    // a block with no time (the old organize): stale once it was set before today
+    if (x.daily_block == null) return false;
+    const touched = x.updated_at ? localDateOf(x.updated_at) : null;
+    return !touched || touched < today;
   };
   const clear = { daily_block: null, scheduled_start_iso: null };
   for (const t of s.todos) {

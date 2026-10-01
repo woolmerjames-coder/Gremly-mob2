@@ -19,8 +19,12 @@ export interface DayPlanned {
   kind: 'todo' | 'habit';
 }
 
-/** Calendars that keep a cancelled meeting usually say so at the start of the title. */
-const CANCELLED_TITLE = /^\s*(canceled|cancelled)\b/i;
+/**
+ * Google and Outlook keep a cancelled meeting with "Canceled: " at the start of
+ * its title. Only that exact form counts here; anything else is left to the
+ * DCO's calendar reader (its cancelled ids).
+ */
+const CANCELLED_TITLE = /^\s*(canceled|cancelled)\s*:/i;
 
 /**
  * A meeting that is cancelled but still on the calendar: the DCO's reader

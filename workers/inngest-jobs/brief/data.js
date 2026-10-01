@@ -12,8 +12,12 @@ import { readThreadReaction } from './reaction';
 export const PLAN_DAY_START = 8 * 60;
 export const PLAN_DAY_END = 22 * 60;
 
-/** Calendars that keep a cancelled meeting usually say so at the start of the title. */
-export const CANCELLED_TITLE = /^\s*(canceled|cancelled)\b/i;
+/**
+ * Google and Outlook keep a cancelled meeting with "Canceled: " at the start of
+ * its title. Only that exact form counts here; anything else is left to the
+ * DCO's calendar reader.
+ */
+export const CANCELLED_TITLE = /^\s*(canceled|cancelled)\s*:/i;
 
 /** Cancelled entries stay on some calendars; they are not part of the day. */
 export function isCancelledEntry(e, cancelledIds) {

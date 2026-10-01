@@ -17,7 +17,7 @@ import { jsonCall, modelFor } from '../context/llm';
 import { db, userTimezone, localDate, personIdentity } from '../context/db';
 import { noDashes, stripRefs, clockTime } from './writer';
 
-export const PLAN_PICK_PROMPT_VERSION = 'plan-pick-2026-10-01b';
+export const PLAN_PICK_PROMPT_VERSION = 'plan-pick-2026-10-01c';
 const DAY_END = 22 * 60;
 
 function trim(text, n) {
@@ -182,19 +182,19 @@ const EDIT_SCHEMA = {
 
 function pickSystem(person) {
   return {
-    fixed: `You help Gremly, a warm, shame-free companion, suggest a light plan for the rest of someone's day. Code places each item at an exact time afterwards, so you only choose what goes in and roughly when.
+    fixed: `You help Gremly, a warm, shame-free companion, suggest a light plan for someone's day: the rest of today, or a whole day ahead when the input says so. Code places each item at an exact time afterwards, so you only choose what goes in and roughly when.
 
 ${CARE_RULES}
 
 WHAT YOU RETURN
 - picks: a few candidates worth doing today, most important first, chosen only from CANDIDATES by ref. Prefer what has a real claim on today, then habits behind for the week, then what is simply due. The suggestion from what they said goes in only when the reason for it fits today. Leave at least half of the time between PLANNING FROM and 10pm empty once meetings are counted, so the day has room if it runs over. Fewer is better than crowded.
-- after and before: the time-of-day window each pick fits, as 24-hour HH:MM, inside the planning hours. Use the usual time of day when one is given, and common sense for the rest (exercise not straight after a large block of meetings, errands while shops are open, winding-down habits in the evening).
+- after and before: the time-of-day window each pick fits, as 24-hour HH:MM, inside the planning hours. Use the usual time of day when one is given. Otherwise judge from what the item is and what surrounds it: when in the day it can realistically be done, and how the meetings around it leave the person.
 - minutes: how long it takes. Use the minutes given; when unknown, estimate a realistic length.
 - reason: a few words on why it is in the plan, taken from why it is a candidate. Never invent a fact.
 - intro: one or two short chat sentences in Gremly's voice that come before the plan card, about the plan only: what it makes room for, the suggestion from what they said with its reason if you picked it, and that the rest is kept light. Mention no times and no meetings, and do not list the items; the card shows them. Talk about a todo or habit the way a person would say it, rather than pasting its title in as a noun.
 
 VOICE
-Warm, plain and brief. Suggest, never instruct. Never use the word should.
+Warm, plain and brief. Suggest, never instruct: never tell them what they ought to do.
 
 ${PRIVATE_RULES}
 
@@ -205,10 +205,10 @@ ${WRITING_RULES}`,
 
 function editSystem(person) {
   return {
-    fixed: `A plan for the rest of someone's day is on screen in their chat with Gremly, and they typed a message. Decide whether the message asks to change that plan, and if so, how.
+    fixed: `A plan for someone's day is on screen in their chat with Gremly, and they typed a message. Decide whether the message asks to change that plan, and if so, how.
 
 WHAT YOU RETURN
-- is_plan_change: true only when the message asks to take something out of the plan, put something in, or move something to another time. Anything else (a question, a correction about their life, small talk) is false, with no ops.
+- is_plan_change: true only when the message asks to take something out of the plan, put something in, or move something to another time. Any other message is false, with no ops; it goes on to Gremly's chat.
 - ops: one entry per change, naming the item by ref from CANDIDATES. remove takes it out. add puts in a candidate that is not in the plan. move keeps it in the plan at another time. after and before give the window they asked for as 24-hour HH:MM (after only, before only, or both); leave both empty when they gave no time, and for remove.
 - Never name anything that is not in CANDIDATES.`,
     varying: personBlock(person),
