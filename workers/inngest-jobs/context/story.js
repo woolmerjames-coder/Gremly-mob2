@@ -97,7 +97,7 @@ const STORY_SCHEMA = {
         type: 'object',
         properties: {
           name: { type: 'string' },
-          relationship: { type: 'string' },
+          relationship: { type: 'string', nullable: true },
           body: { type: 'string' },
           private: { type: 'boolean' },
           fact_refs: REFS,
@@ -136,7 +136,7 @@ WHAT TO WRITE
 - shifts: how their attitude, feelings, priorities or relationships around something have changed over time. Each one sets what they said or did at one time beside what they said or did later, with both dates, in their own words. Describe the change; never judge it, explain it or diagnose it.
 - proud_moments: things they did, finished, kept to or got through, as they described them, that would be good to be reminded of on a hard day. Never frame one against something they did not do.
 - patterns: what they love, what they avoid, what they do often or rarely, and the rhythms of their life, each resting on several facts across time. Their app use counts only as how they used Gremly, never as how their life went.
-- people: the people who matter in their life, how they are related, and what has happened with them.
+- people: the people who matter in their life, how they are related, and what has happened with them. Give the relationship only as their records state it, and leave it empty when they do not say.
 
 EVIDENCE
 - Every item cites the facts it rests on by ref. A pattern needs facts from at least two different times. Nothing Gremly said is evidence, and a corrected fact is never used.
@@ -171,7 +171,7 @@ export function renderStory(g, today) {
     return ref;
   };
   const factLines = g.facts.map((f) => {
-    const ref = add('f', { type: 'fact', id: f.id, statement: f.statement, about_date: f.about_date, observed_at: f.observed_at, private: !!f.private });
+    const ref = add('f', { type: 'fact', id: f.id, statement: f.statement, about_date: f.about_date, observed_at: f.observed_at, private: !!f.private, state: f.state });
     const when = f.about_date ? `${f.about_date}${f.about_date_end ? ` to ${f.about_date_end}` : ''}` : 'no date';
     return `${ref} | recorded ${String(f.observed_at).slice(0, 10)} | ${f.state}${f.private ? ' [private]' : ''} | ${when} | ${trim(f.statement, 220)}`;
   });
@@ -219,7 +219,7 @@ export async function storyRequestParams(env, userId) {
     schema: STORY_SCHEMA,
     maxTokens: 32000,
   });
-  const refsSnapshot = [...refs.entries()].map(([k, v]) => [k, { type: v.type, id: v.id, about_date: v.about_date || null, private: !!v.private }]);
+  const refsSnapshot = [...refs.entries()].map(([k, v]) => [k, { type: v.type, id: v.id, about_date: v.about_date || null, private: !!v.private, state: v.state || null }]);
   return { params, refsSnapshot, today, tz, inputChars: text.length, counts: { facts: g.facts.length, chapters: g.chapters.length } };
 }
 
@@ -231,8 +231,14 @@ export function storyRows(userId, output, refsSnapshot, { runId, model, today })
   const notFuture = (s) => (validDate(s) && s <= today ? s : null);
   const rows = [];
   const dropped = [];
-  const push = (row, refsList, minFacts = 1) => {
+  const push = (row, refsList, minFacts = 1, { lived = false } = {}) => {
     const ids = factIds(refsList);
+    // Milestones and proud moments are things that took place: at least one cited
+    // fact must say it happened or is so now. A plan alone is not one.
+    if (lived && !(refsList || []).some((r) => ['happened', 'current'].includes(refs.get(r)?.state))) {
+      dropped.push({ kind: row.kind, title: row.title, facts: ids.length, reason: ids.length ? 'only plans cited' : 'no facts' });
+      return;
+    }
     // An item that rests on a private fact is private, whatever the model said.
     if ((refsList || []).some((r) => refs.get(r)?.private)) row.private = true;
     if (ids.length < minFacts || !row.title || !row.body || String(row.body).trim().length < 20) {
@@ -257,13 +263,13 @@ export function storyRows(userId, output, refsSnapshot, { runId, model, today })
     });
   };
   for (const m of output.milestones || []) {
-    push({ kind: 'milestone', title: m.title, body: m.body, period_start: notFuture(m.start_date), period_end: validDate(m.end_date), private: !!m.private, chapter_id: chapterId(m.chapter_ref) }, m.fact_refs);
+    push({ kind: 'milestone', title: m.title, body: m.body, period_start: notFuture(m.start_date), period_end: validDate(m.end_date), private: !!m.private, chapter_id: chapterId(m.chapter_ref) }, m.fact_refs, 1, { lived: true });
   }
   for (const s of output.shifts || []) {
     push({ kind: 'shift', title: s.title, body: s.body, period_start: notFuture(s.start_date), period_end: notFuture(s.end_date), private: !!s.private }, s.fact_refs, 2);
   }
   for (const p of output.proud_moments || []) {
-    push({ kind: 'proud', title: p.title, body: p.body, period_start: notFuture(p.date), private: !!p.private }, p.fact_refs);
+    push({ kind: 'proud', title: p.title, body: p.body, period_start: notFuture(p.date), private: !!p.private }, p.fact_refs, 1, { lived: true });
   }
   for (const p of output.patterns || []) {
     push({ kind: 'pattern', pattern_kind: ['loves', 'avoids', 'often', 'rarely', 'rhythm'].includes(p.kind) ? p.kind : null, title: p.title, body: p.body, private: !!p.private }, p.fact_refs, 2);

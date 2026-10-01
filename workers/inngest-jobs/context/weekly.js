@@ -22,7 +22,7 @@ import { loadStory, storyLines } from './story';
 import { invalidateChatCache } from './cache';
 import { batchUsageRow, writeUsageRow } from '../aiUsage';
 
-export const WEEKLY_PROMPT_VERSION = 'weekly-2026-09-30';
+export const WEEKLY_PROMPT_VERSION = 'weekly-2026-10-01';
 
 function trim(text, n) {
   const s = String(text || '').replace(/\s+/g, ' ').trim();
@@ -86,9 +86,10 @@ const WEEKLY_SCHEMA = {
               required: ['text'],
             },
           },
+          card_fact_refs: { type: 'array', items: { type: 'string' } },
           fact_refs: { type: 'array', items: { type: 'string' } },
         },
-        required: ['world_ref', 'phase', 'card_subtitle', 'summary', 'key_priorities', 'fact_refs'],
+        required: ['world_ref', 'phase', 'card_subtitle', 'summary', 'key_priorities', 'card_fact_refs', 'fact_refs'],
       },
     },
     worlds_summary: {
@@ -128,8 +129,10 @@ const WEEKLY_SCHEMA = {
               required: ['kind', 'text', 'date'],
             },
           },
+          card_fact_refs: { type: 'array', items: { type: 'string' } },
+          fact_refs: { type: 'array', items: { type: 'string' } },
         },
-        required: ['chapter_ref', 'card_subtitle', 'summary', 'epigraph', 'stage', 'key_priorities'],
+        required: ['chapter_ref', 'card_subtitle', 'summary', 'epigraph', 'stage', 'key_priorities', 'card_fact_refs', 'fact_refs'],
       },
     },
     questions: {
@@ -184,7 +187,7 @@ WORLDS
 - Never put a passed date, a plan that has gone by, or a count of things not done on a card. When a world has been quiet, the card describes the last real state with its month, or what is next if something is genuinely ahead.
 - Return only the worlds you have something true to say about; a world you leave out keeps its current card.
 - phase: active when the person is engaged with it now, dormant when it has gone quiet for weeks, candidate only when it is still forming.
-- Cite the facts each world's card and summary rest on. The most recent of them that happened is taken as when the world was last active, so the app does not show a living world as gone quiet.
+- Cite the facts each world's card line rests on in card_fact_refs, and the facts its summary rests on in fact_refs. A card line resting on a private fact is not used. The most recent fact that happened is taken as when the world was last active, so the app does not show a living world as gone quiet.
 - worlds_summary: one line noticing what is most alive across their worlds this week. Feature up to three worlds with a short reason. In a quiet week say so kindly and feature none.
 
 CHAPTERS
@@ -193,7 +196,8 @@ CHAPTERS
 - A closed chapter is written as a memory: what happened, what it meant to them in their words, what they did. Never tally what was not done, never list unfinished tasks, never call it stalled, failed or abandoned, and give it no priorities.
 - An active chapter that has gone quiet says when it was last active and what was happening then; its stage is a neutral label. Nothing on a chapter tells the person what they should do.
 - Setbacks, slips and health details appear only in the person's own words, and only when they recorded them as part of the chapter themselves.
-- Return every chapter you are given; one you cannot say anything true about keeps a plain summary of its dates and what it was.
+- Cite the facts each chapter rests on in fact_refs, and the facts its card line rests on in card_fact_refs. Say only what those facts show: when the records do not show how a chapter ended, say what it was and when, and leave the outcome out. A chapter with no facts behind it keeps what it has.
+- Return every chapter you are given; one you cannot say anything true about keeps a plain summary of its dates and what it was. An epigraph you cannot ground in their words is left empty.
 
 QUESTIONS
 - Ask about anything the records leave genuinely unclear that bears on their life now or on something still ahead, especially plans whose outcome is unknown. Differences about things long past are left as they are. Short and friendly. Do not repeat open questions.
@@ -332,7 +336,7 @@ export async function weeklyRequestParams(env, userId, periodEnd) {
     schema: WEEKLY_SCHEMA,
     maxTokens: 24000,
   });
-  return { params, refsSnapshot: [...refs.entries()].map(([k, v]) => [k, { type: v.type, id: v.id, statement: v.statement, about_date: v.about_date, observed_at: v.observed_at, state: v.state }]), today, tz, g, inputChars: text.length };
+  return { params, refsSnapshot: [...refs.entries()].map(([k, v]) => [k, { type: v.type, id: v.id, statement: v.statement, about_date: v.about_date, observed_at: v.observed_at, state: v.state, private: !!v.private }]), today, tz, g, inputChars: text.length };
 }
 
 function validDate(s) {
@@ -415,7 +419,11 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
       const day = f.state === 'happened' ? f.about_date : f.state === 'current' ? String(f.observed_at || '').slice(0, 10) : null;
       if (validDate(day) && day <= today && (!lived || day > lived)) lived = day;
     }
-    worldUpdates.push({ id: ref.id, w, lived });
+    // A card line is glanceable: it must rest on cited facts, none of them private.
+    const cardFacts = (w.card_fact_refs || []).map((r) => refs.get(r)).filter((f) => f && f.type === 'fact');
+    const cardOk = cardFacts.length > 0 && !cardFacts.some((f) => f.private);
+    if (!cardOk) skipped.push({ world_ref: w.world_ref, card_subtitle: w.card_subtitle, reason: cardFacts.length ? 'card rests on a private fact' : 'card cites no facts' });
+    worldUpdates.push({ id: ref.id, w, lived, cardOk });
   }
   const featured = (output.worlds_summary?.featured || [])
     .map((f) => ({ world_id: refs.get(f.world_ref)?.type === 'world' ? refs.get(f.world_ref).id : null, reason: f.reason }))
@@ -431,7 +439,16 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
       skipped.push({ chapter_ref: c.chapter_ref, card_subtitle: c.card_subtitle, summary: c.summary });
       continue;
     }
-    chapterUpdates.push({ id: ref.id, c });
+    // A chapter's words must rest on cited facts; its card line, on facts none of which is private.
+    const chFacts = (c.fact_refs || []).map((r) => refs.get(r)).filter((f) => f && f.type === 'fact');
+    if (!chFacts.length) {
+      skipped.push({ chapter_ref: c.chapter_ref, card_subtitle: c.card_subtitle, reason: 'cites no facts' });
+      continue;
+    }
+    const chCard = (c.card_fact_refs || []).map((r) => refs.get(r)).filter((f) => f && f.type === 'fact');
+    const cardOk = chCard.length > 0 && !chCard.some((f) => f.private);
+    if (!cardOk) skipped.push({ chapter_ref: c.chapter_ref, card_subtitle: c.card_subtitle, reason: chCard.length ? 'card rests on a private fact' : 'card cites no facts' });
+    chapterUpdates.push({ id: ref.id, c, cardOk });
   }
 
   const applied = { threads: domains.reduce((n, dm) => n + dm.threads.length, 0), worlds: worldUpdates.length, chapters: chapterUpdates.length, worlds_skipped: skipped, questions: 0 };
@@ -444,7 +461,7 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
 
   // Keep what this run replaces, so a bad week can be rolled back by hand.
   const [prevProfile] = await d.select(`user_profiles?user_id=eq.${userId}&select=profile_text`);
-  const prevWorlds = await d.select(`worlds?owner_id=eq.${userId}&select=id,phase,card_subtitle,card_subtitle_source,summary,summary_source,key_priorities`);
+  const prevWorlds = await d.select(`worlds?owner_id=eq.${userId}&select=id,phase,card_subtitle,card_subtitle_source,summary,summary_source,key_priorities,last_signal_at`);
   const previous = { life_map: current?.life_map || null, profile_text: prevProfile?.profile_text ?? null, worlds: prevWorlds };
 
   if (lifeMapOk && current) {
@@ -464,11 +481,11 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
 
   const [worldRows] = [await d.select(`worlds?owner_id=eq.${userId}&select=id,card_subtitle_source,summary_source,last_signal_at`)];
   const sources = new Map(worldRows.map((r) => [r.id, r]));
-  for (const { id, w, lived } of worldUpdates) {
+  for (const { id, w, lived, cardOk } of worldUpdates) {
     const src = sources.get(id) || {};
     const patch = { phase: w.phase, updated_at: nowIso, key_priorities: (w.key_priorities || []).slice(0, 5).map((k) => ({ text: k.text, date: validDate(k.date) })) };
     if (lived && (!src.last_signal_at || String(src.last_signal_at).slice(0, 10) < lived)) patch.last_signal_at = `${lived}T12:00:00Z`;
-    if (src.card_subtitle_source !== 'user') Object.assign(patch, { card_subtitle: w.card_subtitle, card_subtitle_source: 'synthesis', card_subtitle_updated_at: nowIso });
+    if (cardOk && src.card_subtitle_source !== 'user') Object.assign(patch, { card_subtitle: w.card_subtitle, card_subtitle_source: 'synthesis', card_subtitle_updated_at: nowIso });
     if (src.summary_source !== 'user') Object.assign(patch, { summary: w.summary, summary_source: 'synthesis', summary_updated_at: nowIso });
     await d.update(`worlds?id=eq.${id}&owner_id=eq.${userId}`, patch);
   }
@@ -479,13 +496,15 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
     const prevChapters = await d.select(`chapters?id=in.(${ids})&owner_id=eq.${userId}&select=id,phase,card_subtitle,card_subtitle_source,summary,summary_source,epigraph,epigraph_source,key_priorities,key_priorities_source,current_phase_key,current_phase_key_source,phase_labels,phase_labels_source`);
     previous.chapters = prevChapters;
     const byId = new Map(prevChapters.map((r) => [r.id, r]));
-    for (const { id, c } of chapterUpdates) {
+    for (const { id, c, cardOk } of chapterUpdates) {
       const row = byId.get(id);
       if (!row) continue;
       const patch = { updated_at: nowIso };
-      if (row.card_subtitle_source !== 'user') Object.assign(patch, { card_subtitle: trim(c.card_subtitle, 120), card_subtitle_source: 'synthesis', card_subtitle_updated_at: nowIso });
+      if (cardOk && row.card_subtitle_source !== 'user') Object.assign(patch, { card_subtitle: trim(c.card_subtitle, 120), card_subtitle_source: 'synthesis', card_subtitle_updated_at: nowIso });
       if (row.summary_source !== 'user') Object.assign(patch, { summary: trim(c.summary, 900), summary_source: 'synthesis', summary_updated_at: nowIso });
       if (row.epigraph_source !== 'user' && isProse(c.epigraph, 20)) Object.assign(patch, { epigraph: trim(c.epigraph, 250), epigraph_source: 'synthesis', epigraph_updated_at: nowIso });
+      // The model left the epigraph empty: older machine-written words do not stay behind.
+      else if (row.epigraph_source !== 'user' && !c.epigraph) Object.assign(patch, { epigraph: null, epigraph_source: 'synthesis', epigraph_updated_at: nowIso });
       if (row.key_priorities_source !== 'user') {
         const kp = row.phase === 'closed' ? [] : (c.key_priorities || []).filter((k) => isProse(k.text, 3)).slice(0, 3)
           .map((k, i) => ({ kind: k.kind || 'action', rank: i + 1, text: trim(k.text, 120), due_date: validDate(k.date) }));
