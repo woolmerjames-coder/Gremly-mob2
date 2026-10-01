@@ -23,7 +23,9 @@ import {
   afterJustToday,
   afterNotToday,
   afterSkip,
+  gremlyStep,
   replyStep,
+  BRIEF_COPY,
   revealStep,
   typedAnswerStep,
   type BriefStep,
@@ -48,6 +50,8 @@ export interface BriefOffersDeps {
   onSweep?: (offer: SpaceChatMessage, button: OfferButton) => void;
   /** What can wait? */
   onWhatCanWait?: (offer: SpaceChatMessage, button: OfferButton) => void;
+  /** A suggested change under the plan */
+  onPlanEdit?: (offer: SpaceChatMessage, button: OfferButton) => void;
   /** The first reply of the day (feeding) */
   onFirstReply?: () => void;
   /** Pause between the lines Gremly adds; 0 in tests */
@@ -172,6 +176,11 @@ export function useBriefOffers(deps: BriefOffersDeps): BriefOffers {
             await reply(message, replyStep(button, offer.brief_id), button.id);
             d.onWhatCanWait?.(message, button);
           });
+        case 'plan_edit':
+          return run(async () => {
+            await reply(message, replyStep(button, offer.brief_id), button.id);
+            d.onPlanEdit?.(message, button);
+          });
           return;
         default:
           break;
@@ -209,6 +218,9 @@ export function useBriefOffers(deps: BriefOffersDeps): BriefOffers {
             return;
           case 'not_today':
             await save(afterNotToday(part, offer.brief_id));
+            return;
+          case 'thanks':
+            await save([gremlyStep(BRIEF_COPY.thanks, part, offer.brief_id)]);
             return;
           default:
             if (__DEV__) console.log('[DailyBrief] no handler yet for', button.action);

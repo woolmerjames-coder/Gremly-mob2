@@ -25,6 +25,7 @@ export const BRIEF_COPY = {
   saved: 'Saved your answer',
   skipped: "No problem, I'll ask another time.",
   notToday: "No problem. I'm here if you change your mind.",
+  thanks: 'Any time.',
   justToday: "Then let's keep it to today.",
   catchUpFallback: "Everything that was waiting is still in Sweep, and nothing's been lost.",
   answerPlaceholder: 'Type your answer…',

@@ -48,7 +48,14 @@ export interface BriefDayCardMeta extends BriefMetaBase {
  * Gremly's questions, answered with its choices. follow_up: Gremly's line
  * after Sweep or a reply. none: Gremly signs off.
  */
-export type OfferKind = 'plan' | 'sweep' | 'return' | 'question' | 'follow_up' | 'none';
+export type OfferKind =
+  | 'plan'
+  | 'sweep'
+  | 'return'
+  | 'question'
+  | 'follow_up'
+  | 'plan_edit'
+  | 'none';
 
 /** What tapping a button does. */
 export type OfferAction =
@@ -63,7 +70,9 @@ export type OfferAction =
   | 'skip' // skip the question
   | 'add_kept' // add what Sweep kept to the plan already there
   | 'leave_plan' // leave the plan as it is
-  | 'reach_yes'; // add the reach item to today and plan
+  | 'reach_yes' // add the reach item to today and plan
+  | 'plan_edit' // a suggested change under the plan (value: the change)
+  | 'thanks'; // "Thanks, Gremly": Gremly says any time
 
 export interface OfferButton {
   id: string;
@@ -103,6 +112,22 @@ export interface PlanItem {
   start: number;
   end: number;
   reason?: string | null;
+  /** The window it may go in and how long it takes, so taps can re-fit it */
+  window?: [number, number];
+  minutes?: number;
+  /** A reach that is a fact: it becomes a todo at Lock it in */
+  fromFact?: boolean;
+}
+
+/** An item the picker chose that had no gap, kept so a change can try again. */
+export interface UnplacedItem {
+  id: string;
+  title: string;
+  kind?: 'todo' | 'habit' | 'reach';
+  window?: [number, number];
+  minutes?: number;
+  reason?: string | null;
+  fromFact?: boolean;
 }
 
 export interface BriefPlanMeta extends BriefMetaBase {
@@ -113,7 +138,11 @@ export interface BriefPlanMeta extends BriefMetaBase {
   date: string;
   items: PlanItem[];
   /** Items the picker chose that had no gap that fits */
-  unplaced: { id: string; title: string }[];
+  unplaced: UnplacedItem[];
+  /** Nothing is placed before this (minutes from midnight) */
+  from?: number;
+  /** Item ids in the picker's order (placing order when re-fitting) */
+  order?: string[];
 }
 
 /** One line such as "Swept 7 things, 3 kept for today". */

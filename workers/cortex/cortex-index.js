@@ -7809,6 +7809,33 @@ ${assistantMessage.substring(0, 2000)}
       }
 
       // =========================
+      // === PLAN PICK (Daily brief in Chat) ===
+      // Plan my day / afternoon / evening, and changes typed while a plan is
+      // open. The app sends today's candidates (a data rule) and places the
+      // picks itself; inngest-jobs chooses and words them.
+      // =========================
+      if (type === 'plan-pick') {
+        if (!env.INNGEST_WORKER_URL || !env.INNGEST_ADMIN_KEY)
+          return j({ error: 'not configured' }, 503);
+        const res = await fetchInngestWorker(env, '/api/plan-pick', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-admin-key': env.INNGEST_ADMIN_KEY },
+          body: JSON.stringify({
+            user_id: authenticatedUserId,
+            mode: body.mode === 'edit' ? 'edit' : 'pick',
+            now: body.now,
+            gap_from: body.gap_from,
+            pool: Array.isArray(body.pool) ? body.pool.slice(0, 40) : [],
+            meetings: Array.isArray(body.meetings) ? body.meetings.slice(0, 40) : [],
+            live_plan: Array.isArray(body.live_plan) ? body.live_plan.slice(0, 40) : [],
+            text: typeof body.text === 'string' ? body.text.slice(0, 500) : '',
+          }),
+        }).catch(() => null);
+        if (!res) return j({ error: 'could not reach the plan picker' }, 502);
+        return j(await res.json().catch(() => ({ error: 'bad reply' })), res.ok ? 200 : 502);
+      }
+
+      // =========================
       // === WEEKLY SUMMARY (v1.0) ===
       // =========================
       if (type === 'weekly-summary') {

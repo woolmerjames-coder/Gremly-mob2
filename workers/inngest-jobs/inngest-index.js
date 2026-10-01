@@ -33,6 +33,7 @@ import { aiContext, installAiUsageLogging } from './aiUsage';
 import { CARE_RULES } from './careRules';
 import { createContextFunctions, hourlyContextEvents, contextMode } from './context/functions';
 import { createBriefFunctions, handleBriefApi } from './brief';
+import { handlePlanPickApi } from './brief/planPick';
 import { buildDcoV4, writeDco } from './context/daily';
 import { reviewQuestions } from './context/questions';
 import { weeklySummaryContext } from './context/summaryContext';
@@ -11387,6 +11388,11 @@ const appHandler = {
     // part of the day (once a day), through cortex
     if (url.pathname === '/api/daily-brief' && request.method === 'POST') {
       return handleBriefApi(request, env, corsResponse);
+    }
+
+    // Daily brief in Chat: the plan picker (Plan my day, typed changes to a plan), through cortex
+    if (url.pathname === '/api/plan-pick' && request.method === 'POST') {
+      return handlePlanPickApi(request, env, corsResponse);
     }
 
     if (url.pathname === '/api/force-generate-dco' && request.method === 'POST') {

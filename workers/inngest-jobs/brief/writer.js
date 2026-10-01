@@ -222,7 +222,7 @@ export function checkRefs(output, refs) {
 }
 
 // A ref the model wrote into the text by mistake, such as "[c1, c2]" or "(t1)"
-const REFS_IN_TEXT = /\s*[[(]\s*[cthr]\d+(?:\s*,\s*[cthr]\d+)*\s*[\])]/g;
+const REFS_IN_TEXT = /\s*[[(]\s*[cthrp]\d+(?:\s*,\s*[cthrp]\d+)*\s*[\])]/g;
 export function stripRefs(s) {
   return s ? String(s).replace(REFS_IN_TEXT, '').trim() : s;
 }

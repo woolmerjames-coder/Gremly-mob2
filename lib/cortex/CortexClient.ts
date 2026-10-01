@@ -2110,3 +2110,62 @@ export async function callDailyBrief(reason: 'first_open' | 'rewrite'): Promise<
     return { ok: false, error: String(e?.message || e) };
   }
 }
+
+/**
+ * Daily brief in Chat: the plan picker. 'pick' chooses which of today's
+ * candidates go in a plan (each with a time-of-day window and a reason) and
+ * words Gremly's line before the card; 'edit' reads a change typed while a
+ * plan is open. The app places everything itself (lib/plan/slotFitter.ts).
+ */
+export interface PlanPickRequest {
+  mode: 'pick' | 'edit';
+  /** Minutes from local midnight */
+  now: number;
+  gap_from: number;
+  pool: {
+    id: string;
+    kind: 'todo' | 'habit' | 'reach';
+    title: string;
+    minutes: number | null;
+    why: string;
+    window: [number, number] | null;
+  }[];
+  meetings: { title: string; start: number; end: number }[];
+  live_plan?: { id: string; start: number; end: number }[];
+  text?: string;
+}
+
+export interface PlanPickResponse {
+  intro?: string | null;
+  picks?: {
+    id: string;
+    window: [number, number];
+    minutes: number;
+    estimated: boolean;
+    reason: string | null;
+  }[];
+  isPlanChange?: boolean;
+  ops?: { op: 'remove' | 'add' | 'move'; id: string; window: [number, number] | null }[];
+}
+
+export async function callPlanPick(
+  req: PlanPickRequest,
+): Promise<CortexClientResult<PlanPickResponse>> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return { ok: false, error: '[cortex] Missing EXPO_PUBLIC_CORTEX_URL' };
+  const token = await getSessionToken();
+  if (!token) return { ok: false, error: 'not signed in' };
+  try {
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ type: 'plan-pick', ...req }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.error)
+      return { ok: false, error: String(data?.error || res.status), status: res.status };
+    return { ok: true, data };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}

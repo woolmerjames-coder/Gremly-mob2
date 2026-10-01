@@ -69,6 +69,38 @@ export interface DayCardData {
   };
 }
 
+/**
+ * The day's timed meetings from the merged calendar (synced, Gremly events and
+ * quick events), cancelled ones left out, in minutes from local midnight.
+ * Read outside React too (the plan picker's input).
+ */
+export function meetingsForDay(date: string, cancelled: ReadonlySet<string>): DayMeeting[] {
+  return getEventsForDate(date)
+    .filter(
+      (e) =>
+        !e.isAllDay &&
+        (e.source === 'synced' || e.source === 'gremly_event' || e.source === 'user_calendar') &&
+        !isCancelledMeeting(
+          e.title,
+          [e.originalId, (e.sourceData?.record as { id?: string } | undefined)?.id],
+          cancelled,
+        ),
+    )
+    .map((e) => {
+      const start = e.startAt ? minutesOfDay(e.startAt) : hhmmToMinutes(e.startTime);
+      const end = e.endAt ? minutesOfDay(e.endAt) : hhmmToMinutes(e.endTime);
+      if (start === null) return null;
+      return {
+        id: e.originalId || e.id,
+        title: e.title,
+        start,
+        end: end !== null && end > start ? end : start + 30,
+      };
+    })
+    .filter((m): m is DayMeeting => m !== null)
+    .sort((a, b) => a.start - b.start);
+}
+
 /** Planned items: todos and habits Lock it in placed on this day. */
 export function plannedForDay(todos: Todo[], habits: Habit[], date: string): DayPlanned[] {
   const out: DayPlanned[] = [];
@@ -124,34 +156,12 @@ export function useDayCard(date: string): DayCardData {
   const notes = useGremlyStore((s) => s.notes);
 
   const cancelledKey = useMemo(() => readDco(dco).cancelledCalendarIds.join(','), [dco]);
-  const meetings = useMemo<DayMeeting[]>(() => {
-    const cancelled = new Set(cancelledKey ? cancelledKey.split(',') : []);
-    return getEventsForDate(date)
-      .filter(
-        (e) =>
-          !e.isAllDay &&
-          (e.source === 'synced' || e.source === 'gremly_event' || e.source === 'user_calendar') &&
-          !isCancelledMeeting(
-            e.title,
-            [e.originalId, (e.sourceData?.record as { id?: string } | undefined)?.id],
-            cancelled,
-          ),
-      )
-      .map((e) => {
-        const start = e.startAt ? minutesOfDay(e.startAt) : hhmmToMinutes(e.startTime);
-        const end = e.endAt ? minutesOfDay(e.endAt) : hhmmToMinutes(e.endTime);
-        if (start === null) return null;
-        return {
-          id: e.originalId || e.id,
-          title: e.title,
-          start,
-          end: end !== null && end > start ? end : start + 30,
-        };
-      })
-      .filter((m): m is DayMeeting => m !== null)
-      .sort((a, b) => a.start - b.start);
+  const meetings = useMemo<DayMeeting[]>(
+    () => meetingsForDay(date, new Set(cancelledKey ? cancelledKey.split(',') : [])),
+    // the merged calendar reads the store itself; these say when it changed
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date, syncedToday, userEvents, notes, cancelledKey]);
+    [date, syncedToday, userEvents, notes, cancelledKey],
+  );
 
   const planned = useMemo(() => plannedForDay(todos, habits, date), [todos, habits, date]);
 

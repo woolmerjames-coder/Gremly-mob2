@@ -90,7 +90,15 @@ import { TodayPinnedCard } from '../../components/brief/TodayPinnedCard';
 import { useReducedMotion } from '../../design/animations';
 import { useMascotStore } from '../../lib/store/useMascotStore';
 import { ensureDailyThread, markDailyThreadOnce } from '../../lib/repo/dailyThreadRepo';
-import type { BriefDayCardMeta, DailyThreadMeta, OfferButton } from '../../lib/brief/types';
+import type {
+  BriefDayCardMeta,
+  BriefPlanMeta,
+  DailyThreadMeta,
+  OfferButton,
+} from '../../lib/brief/types';
+import { usePlanFlow } from '../../lib/plan/usePlanFlow';
+import { opFromButton } from '../../lib/plan/planFlow';
+import { BriefPlanBlock } from '../../components/brief/BriefPlanBlock';
 
 const MOSS = '#2E5540';
 const LINEN = '#F9F6F1';
@@ -230,21 +238,44 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     () => (isDailyThread ? liveOfferId(rows) : null),
     [isDailyThread, rows],
   );
-  // The brief's buttons: replies, the question, Catch me up, Just today, Not today.
-  // Planning (package 5) and Sweep (package 6) are handed back here.
+  // Planning in today's thread: the plan card, its changes and Lock it in
+  const threadDay =
+    (activeChat?.metadata_json as Partial<DailyThreadMeta> | null | undefined)?.ritual_day ??
+    getDateService().ritualDay();
+  const pendingPlanScrollRef = useRef<string | null>(null);
+  const planFlow = usePlanFlow({
+    threadId: isDailyThread && activeChat ? activeChat.id : null,
+    date: threadDay,
+    messages,
+    appendBriefMessage,
+    patchMessageMetadata,
+    onNewPlan: (id) => {
+      pendingPlanScrollRef.current = id;
+    },
+  });
+  const planFlowRef = useRef(planFlow);
+  planFlowRef.current = planFlow;
+  // The brief's buttons: replies, the question, Catch me up, Just today, Not
+  // today, planning and What can wait. Sweep (package 6) is handed back here.
   const briefOffers = useBriefOffers({
     threadId: isDailyThread && activeChat ? activeChat.id : null,
     messages,
     appendBriefMessage,
     patchMessageMetadata,
-    onPlan: (_offer, button) => {
-      if (__DEV__) console.log('[DailyBrief] plan', button.label);
+    onPlan: (offerMsg) => {
+      const meta = briefMetaOf(offerMsg);
+      void planFlowRef.current.start(meta?.type === 'brief-offer' ? meta : null);
     },
     onSweep: () => {
       if (__DEV__) console.log('[DailyBrief] sweep');
     },
-    onWhatCanWait: () => {
-      if (__DEV__) console.log('[DailyBrief] what can wait');
+    onWhatCanWait: (offerMsg) => {
+      const meta = briefMetaOf(offerMsg);
+      void planFlowRef.current.answerWhatCanWait(meta?.type === 'brief-offer' ? meta : null);
+    },
+    onPlanEdit: (_offerMsg, button) => {
+      const op = opFromButton(button);
+      if (op) void planFlowRef.current.applySuggestion(op);
     },
   });
   const briefOffersRef = useRef(briefOffers);
@@ -530,6 +561,10 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       if (isDailyThread && briefOffersRef.current.awaitingAnswer) {
         await briefOffersRef.current.answerTyped(trimmed);
         return;
+      }
+      // While a plan is open, a message that asks to change it changes it
+      if (isDailyThread && planFlowRef.current.livePlan && !sending) {
+        if (await planFlowRef.current.editFromText(trimmed)) return;
       }
       // a chat about an item feeds Gremly once each time it is opened, as the
       // old entity chat did
@@ -819,6 +854,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     () => (playback.hiddenFrom !== null ? rows.slice(0, playback.hiddenFrom) : rows),
     [rows, playback.hiddenFrom],
   );
+  const shownRowsRef = useRef(shownRows);
+  shownRowsRef.current = shownRows;
 
   // Coming into Chat (Daily brief in Chat on): an unread brief opens today's
   // thread; within five minutes of leaving, the chat as it was left; after
@@ -874,8 +911,25 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   }, [embedded, enterChat, leaveChat]);
 
   const renderDayCard = useCallback(
-    (_message: SpaceChatMessage, meta: BriefDayCardMeta) => <BriefDayCardBlock date={meta.date} />,
+    (_message: SpaceChatMessage, meta: BriefDayCardMeta) => (
+      <BriefDayCardBlock date={meta.date} inPlan={planFlowRef.current.inPlanIds} />
+    ),
     [],
+  );
+  const renderPlan = useCallback(
+    (message: SpaceChatMessage, meta: BriefPlanMeta) => (
+      <BriefPlanBlock
+        meta={meta}
+        interactive={!planFlowRef.current.typing}
+        onRemove={(id) => void planFlowRef.current.removeItem(message, id)}
+        onAdd={(id, kind) => void planFlowRef.current.addItem(message, id, kind)}
+        onLock={() => void planFlowRef.current.lock(message)}
+        onDismiss={() => void planFlowRef.current.dismiss(message)}
+        onShowAgain={() => void planFlowRef.current.showAgain(message)}
+        onSeeToday={() => navigation.navigate('Tabs', { screen: 'Today' })}
+      />
+    ),
+    [navigation],
   );
 
   // Opened from a Mind Drop question ("Chat with Gremly" or "Ask Gremly now"):
@@ -937,6 +991,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             interactive={!briefOffers.busy && !playback.playing}
             onOfferButton={handleOfferButton}
             renderDayCard={renderDayCard}
+            renderPlan={renderPlan}
           />
         );
       }
@@ -962,6 +1017,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       offerLive,
       handleOfferButton,
       renderDayCard,
+      renderPlan,
       briefOffers.busy,
       playback.playing,
     ],
@@ -1138,9 +1194,20 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
               initialNumToRender={15}
               onContentSizeChange={() => {
                 setTimeout(() => {
+                  // a new plan card scrolls so its top is in view
+                  const planId = pendingPlanScrollRef.current;
+                  const index = planId
+                    ? shownRowsRef.current.findIndex((m) => m.id === planId)
+                    : -1;
+                  if (index >= 0) {
+                    pendingPlanScrollRef.current = null;
+                    flatListRef.current?.scrollToIndex({ index, viewPosition: 0, animated: true });
+                    return;
+                  }
                   flatListRef.current?.scrollToEnd({ animated: true });
                 }, 100);
               }}
+              onScrollToIndexFailed={() => flatListRef.current?.scrollToEnd({ animated: true })}
               // Inside the Gremly home, Gremly steps aside while you scroll
               onScrollBeginDrag={embedded ? () => homeDock?.setChatScrolling(true) : undefined}
               onScrollEndDrag={embedded ? () => homeDock?.setChatScrolling(false) : undefined}
@@ -1148,7 +1215,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
               onMomentumScrollEnd={embedded ? () => homeDock?.setChatScrolling(false) : undefined}
               ListEmptyComponent={<View style={styles.flex} />}
               ListFooterComponent={
-                (briefWriting || playback.typing) && isDailyThread ? (
+                (briefWriting || playback.typing || planFlow.typing) && isDailyThread ? (
                   <View style={styles.messageContainer} testID="brief-writing">
                     <ChatBubble
                       message={
