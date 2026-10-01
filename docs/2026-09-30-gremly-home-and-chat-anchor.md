@@ -36,12 +36,12 @@ Either order works: the live Worker ignores the new app fields, and the new Work
 
 Updated 1 Oct. Done since the last version: the typing fix in the shared box and the plain yes after a tapped card (both tested by James, Worker deployed through 63db86b2); then entity chat's move to Ask Gremly is finished (phases B and C) and the two chat quirks are fixed:
 
-- 6f75e783 Phase B: the reply is given what the item holds (`workers/cortex/itemDetail.js`): a note's text, a todo's notes and list, a habit's check-ins and smallest version, the changes made to it, how often Sweep put it off, what earlier chats covered. It builds on that and now and then suggests what it leaves open. A new chat about a note opens with up to four starters drawn from the note (type `item-topics`, kept until the note changes). Gate: `data/item_detail_check.json`.
-- 7653fcca The reply no longer promises to remind, keep or save anything (Ask Gremly's reply was still being asked for a save block nobody reads), and "the entity" means the item. Gate: `data/quirks_check.json` (reminder turns promising something: 12 of 12 before, 0 of 12 after), James check and anchor check rerun.
-- 5056952b The matcher knows a change they said yes to has been made, so "Did you do it?" no longer brings the same card back.
-- 19a44bb1 Phase C: every old item chat (`views.chat`) was copied into its item's chat. Applied to production on 1 Oct as migration 20261001012238: 127 chats, 701 messages, 13 people. `views.chat` is untouched as a copy; every added row carries `metadata_json.migrated_from = 'views.chat'`.
-- 92313b11 Item chats keep the item's `chat_summary` (what the context jobs read), count for training readiness (`get_training_readiness`, migration 20261001012531, applied) and feed Gremly once per opening, as the old chat did.
-- 511c6432 The old entity chat screen, its flag, its store actions and its Cortex calls are removed. Notes saved from old chats still show on the item. The Worker's `entity-chat` route stays for builds already out.
+- 1d5c5ae4 Phase B: the reply is given what the item holds (`workers/cortex/itemDetail.js`): a note's text, a todo's notes and list, a habit's check-ins and smallest version, the changes made to it, how often Sweep put it off, what earlier chats covered. It builds on that and now and then suggests what it leaves open. A new chat about a note opens with up to four starters drawn from the note (type `item-topics`, kept until the note changes). Gate: `data/item_detail_check.json`.
+- beafc318 The reply no longer promises to remind, keep or save anything (Ask Gremly's reply was still being asked for a save block nobody reads), and "the entity" means the item. Gate: `data/quirks_check.json` (reminder turns promising something: 12 of 12 before, 0 of 12 after), James check and anchor check rerun.
+- dfa2222b The matcher knows a change they said yes to has been made, so "Did you do it?" no longer brings the same card back.
+- d3cd5601 Phase C: every old item chat (`views.chat`) was copied into its item's chat. Applied to production on 1 Oct as migration 20261001012238: 127 chats, 701 messages, 13 people. `views.chat` is untouched as a copy; every added row carries `metadata_json.migrated_from = 'views.chat'`.
+- cb859331 Item chats keep the item's `chat_summary` (what the context jobs read), count for training readiness (`get_training_readiness`, migration 20261001012531, applied) and feed Gremly once per opening, as the old chat did.
+- c424034f The old entity chat screen, its flag, its store actions and its Cortex calls are removed. Notes saved from old chats still show on the item. The Worker's `entity-chat` route stays for builds already out.
 
 Now:
 
