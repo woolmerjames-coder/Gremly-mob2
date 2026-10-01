@@ -69,6 +69,11 @@ import { anchorFor, anchorMetadata, anchorOf } from '../../lib/chat/chatAnchor';
 import { waitForExtraction } from '../../lib/chat/waitForExtraction';
 import { findItemChat } from '../../lib/chat/itemChat';
 import type { ItemStarter } from '../../lib/chat/itemStarters';
+import { BriefMessage } from '../../components/brief/BriefMessage';
+import { briefMetaOf, liveOfferId, visibleThreadMessages } from '../../lib/brief/messages';
+import { useBriefInChat } from '../../lib/brief/flag';
+import { ensureDailyThread } from '../../lib/repo/dailyThreadRepo';
+import type { OfferButton } from '../../lib/brief/types';
 
 const MOSS = '#2E5540';
 const LINEN = '#F9F6F1';
@@ -188,7 +193,17 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   } = useChatMessages(activeChat?.id, null);
   const openEntity = useOpenEntity();
   // entity cards live inside the reply they came with (one list row for the two)
-  const { rows, cardFor } = useMemo(() => foldEntityCards(messages), [messages]);
+  const { rows, cardFor } = useMemo(
+    () => foldEntityCards(visibleThreadMessages(messages)),
+    [messages],
+  );
+  // Daily brief in Chat: today's thread is a chat of its own (chat_type 'daily')
+  const briefInChat = useBriefInChat();
+  const isDailyThread = activeChat?.chat_type === 'daily';
+  const offerLive = useMemo(
+    () => (isDailyThread ? liveOfferId(rows) : null),
+    [isDailyThread, rows],
+  );
 
   // A change to an existing item that the Worker found after the reply arrives
   // through the same poll as the pill; it is shown once, under the last reply.
@@ -595,6 +610,32 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   // what shows under the opener: drawn starters once they are back, none while waiting
   const shownStarters = item ? (itemStarters === undefined ? item.starters : itemStarters) : null;
 
+  // Daily brief in Chat: the notification and Plan with Gremly open today's
+  // thread. It is made here if the brief job has not made it yet.
+  const threadRequest: 'today' | null = item ? null : (params?.thread ?? null);
+  const threadKey: string | null = params?.threadKey ?? null;
+  const threadKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (threadRequest !== 'today' || !briefInChat || !userId) return;
+    const key = threadKey ?? 'today';
+    if (threadKeyRef.current === key) return;
+    threadKeyRef.current = key;
+    navigation.setParams({ thread: undefined, threadKey: undefined });
+    ensureDailyThread(getDateService().ritualDay())
+      .then((thread) => {
+        if (!thread || !mountedRef.current) return;
+        clearAbout();
+        useGremlyStore.getState().setActiveGeneralChat(thread.id);
+        setActiveChat(thread);
+      })
+      .catch((err) => console.warn("[DailyBrief] could not open today's thread:", err));
+  }, [threadRequest, threadKey, briefInChat, userId, navigation, clearAbout]);
+
+  // The brief's buttons. Each package of the brief adds what its buttons do.
+  const handleOfferButton = useCallback((_message: SpaceChatMessage, button: OfferButton) => {
+    if (__DEV__) console.log('[DailyBrief] button', button.action, button.id);
+  }, []);
+
   // Opened from a Mind Drop question ("Chat with Gremly" or "Ask Gremly now"):
   // send the drop straight away so Gremly replies, once per request.
   const autoSendKey: string | null = params?.autoSendKey || null;
@@ -644,7 +685,17 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   );
 
   const renderMessage = useCallback(
-    ({ item }: { item: SpaceChatMessage }) => {
+    ({ item, index }: { item: SpaceChatMessage; index: number }) => {
+      if (briefMetaOf(item)) {
+        return (
+          <BriefMessage
+            message={item}
+            prev={rows[index - 1]}
+            liveOfferId={offerLive}
+            onOfferButton={handleOfferButton}
+          />
+        );
+      }
       if (isEntityCardMessage(item)) {
         // a card with no reply before it (should not happen, but never lose one)
         return <EntityCardBubble standalone {...entityCardHandlers(item)} />;
@@ -660,7 +711,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         </View>
       );
     },
-    [cardFor, entityCardHandlers],
+    [cardFor, entityCardHandlers, rows, offerLive, handleOfferButton],
   );
 
   const inConversation = activeChat !== null;
@@ -721,7 +772,16 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
               <Clock size={20} color={MOSS} />
             </TouchableOpacity>
             <View style={styles.embeddedHeaderCenter}>
-              {inConversation && autoTitle ? (
+              {isDailyThread ? (
+                <>
+                  <Text style={styles.embeddedHeaderTitle} numberOfLines={1}>
+                    {activeChat?.title}
+                  </Text>
+                  <Text style={styles.embeddedHeaderSubtitle} numberOfLines={1}>
+                    Today with Gremly
+                  </Text>
+                </>
+              ) : inConversation && autoTitle ? (
                 <Text style={styles.embeddedHeaderTitle} numberOfLines={1}>
                   {autoTitle}
                 </Text>
@@ -1244,6 +1304,12 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Medium',
     fontSize: 14,
     color: 'rgba(26, 51, 40, 0.75)',
+  },
+  embeddedHeaderSubtitle: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 11.5,
+    color: 'rgba(26, 51, 40, 0.5)',
+    marginTop: 1,
   },
   embeddedHeaderRight: { flexDirection: 'row', alignItems: 'center' },
 
