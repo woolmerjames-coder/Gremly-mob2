@@ -111,7 +111,13 @@ export function identityLine(person) {
   if (name) parts.push(`Name: ${name}`);
   if (person?.pronouns) parts.push(`Pronouns: ${person.pronouns}`);
   else if (id.gender) parts.push(`Gender: ${id.gender}`);
-  if (id.age) parts.push(`Age: ${id.age}`);
+  // An age is a snapshot from when they gave it; say when, so a later birthday in their records wins.
+  if (id.age) {
+    const at = typeof id.extracted_at === 'string' && /^\d{4}-\d{2}/.test(id.extracted_at)
+      ? new Date(`${id.extracted_at.slice(0, 7)}-01T12:00:00Z`).toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+      : null;
+    parts.push(`Age: ${id.age}${at ? ` when they told Gremly in ${at}` : ''}`);
+  }
   if (id.location) parts.push(`Location: ${String(id.location).replace(/^live\s+/i, '')}`);
   const partner = typeof id.partner === 'object' && id.partner ? id.partner.name : id.partner;
   if (partner) parts.push(`Partner: ${partner}`);
