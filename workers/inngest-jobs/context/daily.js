@@ -76,7 +76,7 @@ export async function gatherDay(env, userId, tz, today) {
   const weekStart = addDays(today, -((new Date(`${today}T12:00:00Z`).getUTCDay() + 6) % 7));
   const [
     calendar, noteEvents, openTodos, doneToday, habits, progress, brief, intentions, journals,
-    facts, changes, questions, absence, usage, lifeMap, worlds, prevDco, corrections, pastFacts,
+    facts, changes, questions, absence, usage, lifeMap, worlds, prevDco, corrections, pastFacts, anyCalendar,
   ] = await Promise.all([
     d.select(`synced_calendar_events?owner_id=eq.${userId}&archived=eq.false&start_at=gte.${encodeURIComponent(dayStart)}&start_at=lt.${encodeURIComponent(horizonEnd)}&select=id,title,location,start_at,end_at,is_all_day&order=start_at.asc&limit=200`),
     d.select(`notes?owner_id=eq.${userId}&external_source=is.null&subtype=eq.event&archived=eq.false&target_date=gte.${today}&target_date=lte.${addDays(today, 3)}&select=id,title,target_date,event_time,end_date&order=target_date.asc&limit=50`),
@@ -97,11 +97,13 @@ export async function gatherDay(env, userId, tz, today) {
     d.select(`user_daily_state?user_id=eq.${userId}&date=lt.${today}&dco->>pipeline=not.is.null&select=date,dco&order=date.desc&limit=1`),
     recentCorrections(env, userId),
     d.select(`life_facts?user_id=eq.${userId}&state=in.(happened,changed)&about_date=gte.${addDays(today, -365)}&select=id,statement,about_date,state,state_reason&order=about_date.desc&limit=80`),
+    d.select(`synced_calendar_events?owner_id=eq.${userId}&archived=eq.false&start_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -30)))}&select=id&limit=1`),
   ]);
   return {
     today, weekStart, calendar, noteEvents, openTodos, doneToday, habits, progress, brief: brief?.[0] || null,
     intention: intentions?.[0] || null, journals, facts, changes, questions, absence, usage,
     lifeMap: lifeMap?.[0]?.life_map || null, worlds, prevDco: prevDco?.[0] || null, corrections, pastFacts: pastFacts || [],
+    calendarConnected: (anyCalendar || []).length > 0,
   };
 }
 
@@ -202,10 +204,15 @@ export function renderDay(g, tz) {
 
   lines.push(`TODAY: ${weekdayName(today)} ${today}, timezone ${tz}.`);
   lines.push('');
+  const away = a.days_away_before_today ?? 0;
+  lines.push(`RETURNING AFTER TIME AWAY: ${away >= 3 ? `yes, ${away} days away from the app before today` : 'no'}.`);
   lines.push(`TIME AWAY (counted from app activity): last active before today ${a.last_active_day_before_today || 'never'}; days away before today: ${a.days_away_before_today ?? 'unknown'}; active today so far: ${a.active_today ? 'yes' : 'no'}; active days in the last 7: ${a.active_days_last_7 ?? 0}, last 30: ${a.active_days_last_30 ?? 0}.`);
   lines.push(`APP USE THIS WEEK: ${thisWeek ? `${thisWeek.active_days} active days, ${thisWeek.drops} drops, ${thisWeek.todos_done} todos done, ${thisWeek.habit_checkins} habit check-ins, ${thisWeek.journals} journal entries, ${thisWeek.chat_messages} chat messages, ${thisWeek.sweeps} sweeps, ${thisWeek.fed_days} fed days` : 'none'}. Previous weeks' active days: ${lastWeeks.map((p) => p.active_days).join(', ') || 'none'}.`);
   lines.push('');
-  lines.push(`CALENDAR, TODAY AND NEXT 3 DAYS (ref | relative | when | title | place):\n${calLines.join('\n') || '(nothing on the calendar)'}`);
+  const calendarNote = g.calendarConnected === false && !calLines.length
+    ? '(no calendar is connected, so nothing is known about their meetings or plans for the day)'
+    : '(nothing on the calendar)';
+  lines.push(`CALENDAR, TODAY AND NEXT 3 DAYS (ref | relative | when | title | place):\n${calLines.join('\n') || calendarNote}`);
   lines.push('');
   lines.push(`ON TODAY OR DUE TODAY (ref | title | note):\n${dueLines.join('\n') || '(none)'}`);
   lines.push(`PAST THEIR DATE (${overdue.length} in total; first ${overdueLines.length} shown):\n${overdueLines.join('\n') || '(none)'}`);
@@ -272,7 +279,7 @@ const DCO_SCHEMA = {
     return_note: { type: 'string', nullable: true },
     voice_note: { type: 'string' },
   },
-  required: ['headline', 'day_shape', 'tone', 'day_type', 'lead_what', 'lead_why_today', 'today_focus', 'also_matters', 'claims', 'reach_fact_refs', 'anchor_refs', 'voice_note'],
+  required: ['headline', 'day_shape', 'tone', 'day_type', 'lead_what', 'lead_why_today', 'today_focus', 'also_matters', 'claims', 'reach_fact_refs', 'anchor_refs', 'return_note', 'voice_note'],
 };
 
 function dcoSystemPrompt(person) {
@@ -285,14 +292,14 @@ ${CARE_RULES}
 YOUR JOB
 - Decide what genuinely matters today and say it plainly. Weigh the calendar, what is due, habits for the week, the weekly intention, recent journal entries and the ledger.
 - headline: the notification line that opens the brief. What today looks like, in concrete terms, at most 90 characters. No counts of todos or habits, no feelings, no advice.
-- day_shape: one sentence on the shape of the day from the calendar entries given: how full it is and when the clear stretches are. Entries the calendar marks as cancelled are not busy time.
+- day_shape: one sentence on the shape of the day from the calendar entries given: how full it is and when the clear stretches are. Entries the calendar marks as cancelled are not busy time. When no calendar is connected, describe the day from what is due and planned instead and do not mention a calendar or free time.
 - lead_what and lead_why_today: the one thing that leads today and why it is today's.
 - today_focus: up to three short items. also_matters: anything else worth knowing, briefly.
 - claims: the items with a real claim on today (due today, on Today, a habit that needs today to stay on track for the week, a calendar entry). Each cites its ref and says why in a few words.
 - reach_ref and reach_why: at most one undated item worth suggesting today, only when a ledger fact gives a true reason for today; cite those facts in reach_fact_refs. Otherwise leave it empty.
 - anchor_refs: the dated ledger facts in the next 30 days that are genuinely ahead and worth keeping in mind, cited by ref. Leave out any plan that something in the inputs suggests already happened, moved or fell through, anything with an open question about it, and anything the person corrected.
-- question_ref: at most one of Gremly's open questions, only if today is a natural day to ask it. Otherwise leave it empty.
-- return_note: only when the person has been away three or more days before today. One warm line welcoming them back, without listing what they missed or what is overdue, and without guessing why they were away. Otherwise leave it empty.
+- question_ref: at most one of Gremly's open questions, only if it is about something current or ahead and today is a natural day to ask it. Otherwise leave it empty.
+- return_note: write it when the inputs say they are returning after time away, and leave it empty otherwise. One warm line welcoming them back, without listing what they missed or what is overdue, and without guessing why they were away. Otherwise leave it empty.
 - voice_note: one line on how Gremly should sound today.
 
 VOICE
@@ -395,6 +402,11 @@ export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
     model = retry.model;
     problems = await checkDay(env, text, output, person);
     for (const p of problems) clearField(output, p.field);
+    // The brief always needs a headline: fall back to a sound line the checker passed.
+    if (!output.headline) {
+      const fallback = [output.day_shape, output.lead_what].find((t) => typeof t === 'string' && t.trim());
+      output.headline = fallback ? trim(fallback, 120) : null;
+    }
   }
 
   // References must exist; unknown ones are dropped.

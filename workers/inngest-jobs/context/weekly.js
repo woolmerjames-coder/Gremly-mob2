@@ -144,11 +144,12 @@ THE LIFE MAP
 
 THE PROFILE
 - A short, warm paragraph or two that a companion could read before talking to them: who they are, who matters to them, what is going on now, and what is coming up. No clinical or diagnostic language, no judgements about how they are coping.
-- Start with the paragraph itself. Their name, pronouns, age and location are added above it separately.
+- Start with the paragraph itself. Their name, pronouns, age and location are added above it separately, so do not restate their pronouns.
 
 WORLDS
 - For each world: a card line in the present tense naming one concrete, current thing; a one or two sentence summary; up to five key priorities, each with its date when it has one.
 - Never put a passed date, a plan that has gone by, or a count of things not done on a card. When a world has been quiet, the card describes the last real state with its month, or what is next if something is genuinely ahead.
+- Return only the worlds you have something true to say about; a world you leave out keeps its current card.
 - phase: active when the person is engaged with it now, dormant when it has gone quiet for weeks, candidate only when it is still forming.
 - worlds_summary: one line noticing what is most alive across their worlds this week. Feature up to three worlds with a short reason. In a quiet week say so kindly and feature none.
 
@@ -273,6 +274,11 @@ function validDate(s) {
   return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
 }
 
+/** Real prose, not a placeholder: a few words with letters in them. */
+function isProse(s, minChars = 8) {
+  return typeof s === 'string' && s.trim().length >= minChars && /[a-z]{3,}/i.test(s) && s.trim().split(/\s+/).length >= 2;
+}
+
 /** Apply a weekly result. In shadow mode nothing user-facing changes. */
 export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, runId, today }) {
   const d = db(env);
@@ -290,7 +296,7 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
       source: prior?.source || 'ai_detected',
       space_id: prior?.space_id || null,
       attention: dm.attention,
-      threads: (dm.threads || []).map((t) => {
+      threads: (dm.threads || []).filter((t) => isProse(t?.name, 3) || isProse(t?.summary, 20)).map((t) => {
         const evidence = (t.fact_refs || [])
           .map((r) => refs.get(r))
           .filter((f) => f && f.type === 'fact')
@@ -325,9 +331,15 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
 
   // Worlds
   const worldUpdates = [];
+  const skipped = [];
   for (const w of output.worlds || []) {
     const ref = refs.get(w.world_ref);
     if (!ref || ref.type !== 'world') continue;
+    // A placeholder card or summary leaves that world as it is this week.
+    if (!isProse(w.card_subtitle) || !isProse(w.summary, 20)) {
+      skipped.push({ world_ref: w.world_ref, card_subtitle: w.card_subtitle, summary: w.summary });
+      continue;
+    }
     worldUpdates.push({ id: ref.id, w });
   }
   const featured = (output.worlds_summary?.featured || [])
@@ -335,7 +347,12 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
     .filter((f) => f.world_id);
   const worldsSummary = { headline: output.worlds_summary?.headline || null, featured, generated_at: nowIso, source: 'weekly_synthesis' };
 
-  const applied = { threads: domains.reduce((n, dm) => n + dm.threads.length, 0), worlds: worldUpdates.length, questions: 0 };
+  const applied = { threads: domains.reduce((n, dm) => n + dm.threads.length, 0), worlds: worldUpdates.length, worlds_skipped: skipped, questions: 0 };
+  const profileOk = isProse(output.profile_text, 120);
+  if (!profileOk) applied.profile_skipped = String(output.profile_text || '').slice(0, 200);
+  // A Life Map with no threads is not a rewrite; keep the current one.
+  const lifeMapOk = applied.threads > 0;
+  if (!lifeMapOk) applied.life_map_skipped = true;
   if (shadow) return { applied, lifeMap, worldUpdates, worldsSummary };
 
   // Keep what this run replaces, so a bad week can be rolled back by hand.
@@ -343,9 +360,9 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
   const prevWorlds = await d.select(`worlds?owner_id=eq.${userId}&select=id,phase,card_subtitle,card_subtitle_source,summary,summary_source,key_priorities`);
   const previous = { life_map: current?.life_map || null, profile_text: prevProfile?.profile_text ?? null, worlds: prevWorlds };
 
-  if (current) {
+  if (lifeMapOk && current) {
     await d.update(`user_life_map?id=eq.${current.id}`, { life_map: lifeMap, version: (current.version || 1) + 1, rebuilt_at: nowIso, updated_at: nowIso, last_evidence_date: lastEvidence });
-  } else {
+  } else if (lifeMapOk) {
     await d.insertQuiet('user_life_map', [{ user_id: userId, life_map: lifeMap, version: 1, rebuilt_at: nowIso, updated_at: nowIso, last_evidence_date: lastEvidence }]);
   }
 
@@ -355,8 +372,8 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
   const profileText = [idLine, String(output.profile_text || '').trim()].filter(Boolean).join('\n\n');
   const [profileRow] = await d.select(`user_profiles?user_id=eq.${userId}&select=user_id,signals`);
   const signals = { ...(profileRow?.signals || {}), source: 'weekly_synthesis', synthesized_at: nowIso };
-  if (profileRow) await d.update(`user_profiles?user_id=eq.${userId}`, { profile_text: profileText, signals, generated_at: nowIso, model_used: 'weekly_synthesis' });
-  else await d.insertQuiet('user_profiles', [{ user_id: userId, profile_text: profileText, signals, generated_at: nowIso, model_used: 'weekly_synthesis' }]);
+  if (profileOk && profileRow) await d.update(`user_profiles?user_id=eq.${userId}`, { profile_text: profileText, signals, generated_at: nowIso, model_used: 'weekly_synthesis' });
+  else if (profileOk) await d.insertQuiet('user_profiles', [{ user_id: userId, profile_text: profileText, signals, generated_at: nowIso, model_used: 'weekly_synthesis' }]);
 
   const [worldRows] = [await d.select(`worlds?owner_id=eq.${userId}&select=id,card_subtitle_source,summary_source`)];
   const sources = new Map(worldRows.map((r) => [r.id, r]));
