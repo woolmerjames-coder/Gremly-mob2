@@ -141,6 +141,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   // an item's chat sends its item with every turn, with the title as it is now
   const itemAnchorRef = useRef<ChatAnchor | null>(item?.anchor ?? null);
   itemAnchorRef.current = item?.anchor ?? null;
+  // whether this opening of an item's chat has fed the gauge yet
+  const itemFedRef = useRef(false);
   const [sending, setSending] = useState(false);
   const [saveSheetVisible, setSaveSheetVisible] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -460,6 +462,15 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         return;
       }
       const trimmed = text.trim();
+      // a chat about an item feeds Gremly once each time it is opened, as the
+      // old entity chat did
+      if (itemAnchorRef.current && !itemFedRef.current) {
+        itemFedRef.current = true;
+        useGremlyStore
+          .getState()
+          .trackSpaceChat?.()
+          ?.catch((err: unknown) => console.warn('[ItemChat] Gauge contribution failed:', err));
+      }
 
       if (activeChat) {
         if (sending) return;

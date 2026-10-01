@@ -61,6 +61,7 @@ const mockStoreState: any = {
   updateGeneralChatExtractions: jest.fn(async () => null),
   createGeneralChat: jest.fn(),
   dismissExtraction: jest.fn(),
+  trackSpaceChat: jest.fn(async () => {}),
 };
 jest.mock('../../../lib/store/useGremlyStore', () => {
   const useGremlyStore: any = (selector: (s: any) => unknown) => selector(mockStoreState);
@@ -203,6 +204,15 @@ describe('an item chat outside any screen', () => {
     render(<AskGremlyScreen item={item({ loadStarters })} />);
     await waitFor(() => expect(mockStoreState.setActiveGeneralChat).toHaveBeenCalledWith('c9'));
     expect(loadStarters).not.toHaveBeenCalled();
+  });
+
+  it('feeds Gremly once each time the item chat is opened, as the old entity chat did', async () => {
+    mockFindItemChat.mockResolvedValue(null);
+    const { findByTestId, getByTestId } = render(<AskGremlyScreen item={item()} />);
+    await findByTestId('item-starter-break_down');
+    fireEvent.press(getByTestId('item-starter-break_down'));
+    fireEvent.press(getByTestId('item-starter-break_down'));
+    await waitFor(() => expect(mockStoreState.trackSpaceChat).toHaveBeenCalledTimes(1));
   });
 
   it('close goes back to the item', () => {

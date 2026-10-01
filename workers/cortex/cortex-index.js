@@ -13021,6 +13021,26 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 })();
                 ctx.waitUntil(summaryPromise);
 
+                // A chat about one item keeps that item's chat summary, as the
+                // old entity chat did: what the context jobs read about chats
+                // on an item (get_recent_entity_chat_summaries) and what the
+                // reply is told earlier chats about it covered (itemDetail.js).
+                if (anchor && !anchor.gone) {
+                  ctx.waitUntil(
+                    generateEntityChatSummary(
+                      messages.filter((m) => m.role !== 'system'),
+                      fullContent,
+                      anchor.id,
+                      anchor.type,
+                      anchor.title,
+                      anchorDetail?.space || null,
+                      anchorDetail?.summary || null,
+                      env,
+                      userTimezone,
+                    ).catch((err) => console.warn('[GeneralChat] Item chat summary failed:', err.message)),
+                  );
+                }
+
                 // Background extraction (fire-and-forget)
                 const extractionV2 = models().flags.extractionV2;
                 const extractionPromise = (async () => {
