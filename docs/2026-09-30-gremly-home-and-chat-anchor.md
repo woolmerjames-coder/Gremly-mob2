@@ -38,13 +38,13 @@ Updated 30 Sep, evening. Done since the first version of this list: James's phon
 
 Now:
 
-1. Corpus gate on the latest Worker (c156570b and after), then `cd workers/cortex && npx wrangler deploy`.
-2. James tries the item chat in the simulator (it is on in development builds only): open a todo, habit or note, tap Chat with Gremly. It should open the Ask Gremly chat about that item; closing and opening it again should carry on the same chat, including one started from Talk it through.
-3. When happy, a TestFlight build (ITEM_CHAT_V2 stays off in production builds until switched on).
+1. `cd workers/cortex && npx wrangler deploy` for e097fc99. The Worker is live through c156570b; e097fc99 changes what the reply is told after a tapped card (asked whether it went through, it now says yes and what the item is now; it said it was still the same and offered to move it again). Gate: `data/applied_check.json`, plus U2, V2 and X1 of the James check.
+2. James retests in the simulator: typing in the Drop and Chat box (b49bf328: letters land at the end and none are lost), and test 1 again (move an item from its chat, tap Yes, ask whether it went through). The saved line on a tapped card now names the date rather than today or tomorrow.
+3. When happy, a TestFlight build. Everything is on in every build, item chat included (ITEM_CHAT_V2 is true everywhere since eb5c6d18).
 
 Entity chat moves to the Ask Gremly experience:
 
-4. Phase A, built (behind ITEM_CHAT_V2): `components/chat/ItemChatScreen.tsx` is Ask Gremly tied to the item, one chat per item found by the anchor on its opener (no database change was needed), the item named at the top, starters per kind, and the old entity chat's props, so the overlay, both habit pages and Sweep all open it. Sweep's starter sentence is now sent as the first message. Saving onto the item is the add to card, as in any chat.
+4. Phase A, built and on everywhere: `components/chat/ItemChatScreen.tsx` is Ask Gremly tied to the item, one chat per item found by the anchor on its opener (no database change was needed), the item named at the top, starters per kind, and the old entity chat's props, so the overlay, both habit pages and Sweep all open it. Sweep's starter sentence is now sent as the first message. Saving onto the item is the add to card, as in any chat.
 5. Phase B: the Worker gives the reply the anchored item's full detail (body, notes, tags, estimate, habit progress, Sweep context). James's idea belongs here too: when a chat is about a note, Gremly draws on what the note already says and suggests what to talk about next, and what is settled can then be added. Corpus gate.
 6. Phase C: each item's old chat (`views.chat`, 127 items across about 15 people, last used in May) becomes the start of its new chat the first time it opens; saved notes stay on the item; point the chat summary jobs, `entity_chat_count` and the feeding gauge at anchored chats; then remove the old screen and its dead parts.
 
