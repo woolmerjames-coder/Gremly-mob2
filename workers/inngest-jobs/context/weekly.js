@@ -22,7 +22,7 @@ import { loadStory, storyLines } from './story';
 import { invalidateChatCache } from './cache';
 import { batchUsageRow, writeUsageRow } from '../aiUsage';
 
-export const WEEKLY_PROMPT_VERSION = 'weekly-2026-10-01';
+export const WEEKLY_PROMPT_VERSION = 'weekly-2026-10-01b';
 
 function trim(text, n) {
   const s = String(text || '').replace(/\s+/g, ' ').trim();
@@ -53,9 +53,9 @@ const WEEKLY_SCHEMA = {
                     lifecycle: { type: 'string', enum: ['active', 'dormant', 'concluded'] },
                     importance: { type: 'string', enum: ['high', 'medium', 'low'] },
                     attention: { type: 'string', enum: ['front_of_mind', 'active', 'background'] },
-                    last_activity: { type: 'string', nullable: true },
+                    last_activity: { type: 'string' },
                     summary: { type: 'string' },
-                    recent_update: { type: 'string', nullable: true },
+                    recent_update: { type: 'string' },
                     fact_refs: { type: 'array', items: { type: 'string' } },
                   },
                   required: ['name', 'status', 'momentum', 'lifecycle', 'importance', 'attention', 'summary', 'fact_refs'],
@@ -82,14 +82,13 @@ const WEEKLY_SCHEMA = {
             type: 'array',
             items: {
               type: 'object',
-              properties: { text: { type: 'string' }, date: { type: 'string', nullable: true } },
-              required: ['text'],
+              properties: { text: { type: 'string' }, date: { type: 'string' } },
+              required: ['text', 'date'],
             },
           },
           card_fact_refs: { type: 'array', items: { type: 'string' } },
-          fact_refs: { type: 'array', items: { type: 'string' } },
         },
-        required: ['world_ref', 'phase', 'card_subtitle', 'summary', 'key_priorities', 'card_fact_refs', 'fact_refs'],
+        required: ['world_ref', 'phase', 'card_subtitle', 'summary', 'key_priorities', 'card_fact_refs'],
       },
     },
     worlds_summary: {
@@ -115,8 +114,8 @@ const WEEKLY_SCHEMA = {
           chapter_ref: { type: 'string' },
           card_subtitle: { type: 'string' },
           summary: { type: 'string' },
-          epigraph: { type: 'string', nullable: true },
-          stage: { type: 'string', nullable: true },
+          epigraph: { type: 'string' },
+          stage: { type: 'string' },
           key_priorities: {
             type: 'array',
             items: {
@@ -124,23 +123,22 @@ const WEEKLY_SCHEMA = {
               properties: {
                 kind: { type: 'string', enum: ['action', 'commitment', 'decision', 'momentum'] },
                 text: { type: 'string' },
-                date: { type: 'string', nullable: true },
+                date: { type: 'string' },
               },
               required: ['kind', 'text', 'date'],
             },
           },
           card_fact_refs: { type: 'array', items: { type: 'string' } },
-          fact_refs: { type: 'array', items: { type: 'string' } },
         },
-        required: ['chapter_ref', 'card_subtitle', 'summary', 'epigraph', 'stage', 'key_priorities', 'card_fact_refs', 'fact_refs'],
+        required: ['chapter_ref', 'card_subtitle', 'summary', 'epigraph', 'stage', 'key_priorities', 'card_fact_refs'],
       },
     },
     questions: {
       type: 'array',
       items: {
         type: 'object',
-        properties: { question: { type: 'string' }, fact_ref: { type: 'string', nullable: true } },
-        required: ['question'],
+        properties: { question: { type: 'string' }, fact_ref: { type: 'string' } },
+        required: ['question', 'fact_ref'],
       },
     },
     week_note: { type: 'string' },
@@ -161,6 +159,9 @@ ${WRITING_RULES}
 
 ${PRIVATE_RULES}
 - Here that means a private fact or story item never appears on a world's card line, a chapter's card line or the Worlds headline. In a world's summary and priorities, a chapter's summary, epigraph and stage, the Life Map and the profile it may appear in the person's own words.
+
+EMPTY FIELDS
+- A field with nothing true to say is an empty string: a date that is not known, an epigraph you cannot ground in their words, a stage, a recent update, a question's fact.
 
 DATES
 - Everything you write here is read for the whole week ahead. Write dates as dates (a weekday or month is fine) and never as today, tomorrow, yesterday, this week or next week.
@@ -187,7 +188,7 @@ WORLDS
 - Never put a passed date, a plan that has gone by, or a count of things not done on a card. When a world has been quiet, the card describes the last real state with its month, or what is next if something is genuinely ahead.
 - Return only the worlds you have something true to say about; a world you leave out keeps its current card.
 - phase: active when the person is engaged with it now, dormant when it has gone quiet for weeks, candidate only when it is still forming.
-- Cite the facts each world's card line rests on in card_fact_refs, and the facts its summary rests on in fact_refs. A card line resting on a private fact is not used. The most recent fact that happened is taken as when the world was last active, so the app does not show a living world as gone quiet.
+- Cite the facts each world's card line rests on in card_fact_refs. A card line resting on a private fact is not used. The most recent of them that happened is taken as when the world was last active, so the app does not show a living world as gone quiet.
 - worlds_summary: one line noticing what is most alive across their worlds this week. Feature up to three worlds with a short reason. In a quiet week say so kindly and feature none.
 
 CHAPTERS
@@ -196,7 +197,7 @@ CHAPTERS
 - A closed chapter is written as a memory: what happened, what it meant to them in their words, what they did. Never tally what was not done, never list unfinished tasks, never call it stalled, failed or abandoned, and give it no priorities.
 - An active chapter that has gone quiet says when it was last active and what was happening then; its stage is a neutral label. Nothing on a chapter tells the person what they should do.
 - Setbacks, slips and health details appear only in the person's own words, and only when they recorded them as part of the chapter themselves.
-- Cite the facts each chapter rests on in fact_refs, and the facts its card line rests on in card_fact_refs. Say only what those facts show: when the records do not show how a chapter ended, say what it was and when, and leave the outcome out. A chapter with no facts behind it keeps what it has.
+- Cite the facts each chapter's card line rests on in card_fact_refs, and write the whole chapter from what the facts show: when the records do not show how a chapter ended, say what it was and when, and leave the outcome out. A chapter with no facts behind it keeps what it has, and a card line resting on a private fact is not used.
 - Return every chapter you are given; one you cannot say anything true about keeps a plain summary of its dates and what it was. An epigraph you cannot ground in their words is left empty.
 
 QUESTIONS
@@ -413,7 +414,7 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
     // When the world was last lived in, from the facts the model cited: the
     // latest thing that happened, or the last time something ongoing was recorded.
     let lived = null;
-    for (const r of w.fact_refs || []) {
+    for (const r of w.card_fact_refs || []) {
       const f = refs.get(r);
       if (!f || f.type !== 'fact') continue;
       const day = f.state === 'happened' ? f.about_date : f.state === 'current' ? String(f.observed_at || '').slice(0, 10) : null;
@@ -440,14 +441,13 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
       continue;
     }
     // A chapter's words must rest on cited facts; its card line, on facts none of which is private.
-    const chFacts = (c.fact_refs || []).map((r) => refs.get(r)).filter((f) => f && f.type === 'fact');
-    if (!chFacts.length) {
+    const chCard = (c.card_fact_refs || []).map((r) => refs.get(r)).filter((f) => f && f.type === 'fact');
+    if (!chCard.length) {
       skipped.push({ chapter_ref: c.chapter_ref, card_subtitle: c.card_subtitle, reason: 'cites no facts' });
       continue;
     }
-    const chCard = (c.card_fact_refs || []).map((r) => refs.get(r)).filter((f) => f && f.type === 'fact');
-    const cardOk = chCard.length > 0 && !chCard.some((f) => f.private);
-    if (!cardOk) skipped.push({ chapter_ref: c.chapter_ref, card_subtitle: c.card_subtitle, reason: chCard.length ? 'card rests on a private fact' : 'card cites no facts' });
+    const cardOk = !chCard.some((f) => f.private);
+    if (!cardOk) skipped.push({ chapter_ref: c.chapter_ref, card_subtitle: c.card_subtitle, reason: 'card rests on a private fact' });
     chapterUpdates.push({ id: ref.id, c, cardOk });
   }
 
