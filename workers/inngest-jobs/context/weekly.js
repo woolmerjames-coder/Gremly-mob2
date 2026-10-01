@@ -127,6 +127,9 @@ ${CARE_RULES}
 
 ${WRITING_RULES}
 
+DATES
+- Everything you write here is read for the whole week ahead. Write dates as dates (a weekday or month is fine) and never as today, tomorrow, yesterday, this week or next week.
+
 WHAT YOU ARE GIVEN
 - The fact ledger: what is known about their life, each fact with its date, state and when it was last confirmed. Corrections the person made are listed separately and always win.
 - The week's own words: journal entries and what they said in chat. These carry the texture the ledger summarises.
@@ -140,7 +143,7 @@ THE LIFE MAP
 - recent_update covers only this week; leave it empty when nothing happened.
 
 THE PROFILE
-- A short, warm paragraph or two that a companion could read before talking to them: who they are, who matters to them, what is going on now, and what is coming up. Every date relative to today. No clinical or diagnostic language, no judgements about how they are coping.
+- A short, warm paragraph or two that a companion could read before talking to them: who they are, who matters to them, what is going on now, and what is coming up. No clinical or diagnostic language, no judgements about how they are coping.
 - Start with the paragraph itself. Their name, pronouns, age and location are added above it separately.
 
 WORLDS
