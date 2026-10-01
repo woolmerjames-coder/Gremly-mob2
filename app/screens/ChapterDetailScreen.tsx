@@ -18,6 +18,8 @@ import { ChevronLeft, MoreHorizontal } from 'lucide-react-native';
 import { SheetManager } from 'react-native-actions-sheet';
 import { format, differenceInCalendarDays } from 'date-fns';
 import { getDateService } from '../../lib/date/DateService';
+import { useAppEventOnFocus } from '../../lib/appEvents';
+import { NotRightLink, NotRightSheet } from '../../components/story/NotRightSheet';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
 import {
@@ -49,6 +51,8 @@ export default function ChapterDetailScreen() {
   const route = useRoute<RouteT>();
   const nav = useNavigation<NavT>();
   const chapter = useChapterById(route.params.chapterId);
+  useAppEventOnFocus('chapter_view', { type: 'chapter', id: route.params.chapterId });
+  const [notRightOpen, setNotRightOpen] = useState(false);
   const parentWorld = useWorldById(chapter?.primary_world_id ?? '');
   const worldName = parentWorld?.display_name || parentWorld?.name || 'World';
 
@@ -106,6 +110,7 @@ export default function ChapterDetailScreen() {
             parentWorld ? nav.navigate('WorldDetail', { worldId: parentWorld.id }) : undefined
           }
         />
+        <NotRightLink onPress={() => setNotRightOpen(true)} />
       </ScrollView>
       <WorldActionButtons
         worldName={chapter.title}
@@ -117,6 +122,11 @@ export default function ChapterDetailScreen() {
             scopeName: chapter.title,
           })
         }
+      />
+      <NotRightSheet
+        visible={notRightOpen}
+        target={notRightOpen ? { text: '', kind: 'chapter', id: chapter.id } : null}
+        onClose={() => setNotRightOpen(false)}
       />
     </SafeAreaView>
   );

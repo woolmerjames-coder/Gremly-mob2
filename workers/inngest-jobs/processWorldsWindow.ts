@@ -25,6 +25,20 @@ export interface ProcessWindowEnv {
   ANTHROPIC_API_KEY: string;
   SUPABASE_URL: string;
   SUPABASE_SERVICE_KEY: string;
+  CONTEXT_PIPELINE?: string;
+  CONTEXT_LIVE_USERS?: string;
+  WORLDS_CLASSIFIER_MODEL?: string;
+}
+
+/** The context pipeline mode for one person: people on the live list get 'on' early. */
+function contextModeFor(env: ProcessWindowEnv, ownerId: string): string {
+  const mode = env.CONTEXT_PIPELINE || 'shadow';
+  if (mode === 'off' || mode === 'on') return mode;
+  const live = String(env.CONTEXT_LIVE_USERS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return live.includes(ownerId) ? 'on' : mode;
 }
 
 // ─── Return type ─────────────────────────────────────────────────────────────
@@ -121,7 +135,8 @@ export async function processWorldsWindow(params: {
     // Find the user's most recent analyst observed_for_week.
     const latestRes = await fetch(
       `${env.SUPABASE_URL}/rest/v1/observations` +
-        `?user_id=eq.${ownerId}&stage=eq.analyst` +
+        `?user_id=eq.${ownerId}&stage=eq.analyst&superseded_at=is.null` +
+        `&observed_for_week=gte.${new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10)}` +
         `&select=observed_for_week&order=observed_for_week.desc&limit=1`,
       { headers },
     );
@@ -131,7 +146,7 @@ export async function processWorldsWindow(params: {
     if (latestWeek) {
       const obsRes = await fetch(
         `${env.SUPABASE_URL}/rest/v1/observations` +
-          `?user_id=eq.${ownerId}&stage=eq.analyst&observed_for_week=eq.${latestWeek}` +
+          `?user_id=eq.${ownerId}&stage=eq.analyst&superseded_at=is.null&observed_for_week=eq.${latestWeek}` +
           `&kind=in.(world_signal_candidate,temporal_observation)` +
           `&select=kind,evidence_snapshot`,
         { headers },
@@ -153,7 +168,10 @@ export async function processWorldsWindow(params: {
     activeWorlds,
     activeChapters,
     activeLifeContexts,
-    { ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY },
+    {
+      ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
+      WORLDS_CLASSIFIER_MODEL: env.WORLDS_CLASSIFIER_MODEL,
+    },
     analystObservations,
   );
 
@@ -183,6 +201,7 @@ export async function processWorldsWindow(params: {
   const writeResult = await writeClassifierOutput(classifierOutput, ownerId, {
     SUPABASE_URL: env.SUPABASE_URL,
     SUPABASE_SERVICE_KEY: env.SUPABASE_SERVICE_KEY,
+    CONTEXT_PIPELINE: contextModeFor(env, ownerId),
   });
 
   return {

@@ -33,9 +33,12 @@
  */
 
 import type { SignalBundle } from './signalCollector';
+import { CARE_RULES } from './careRules';
 
 export interface ClassifierEnv {
   ANTHROPIC_API_KEY: string;
+  /** Overrides the model, for comparison runs. */
+  WORLDS_CLASSIFIER_MODEL?: string;
 }
 
 // ─── Enums and constants ─────────────────────────────────────────────────────
@@ -269,6 +272,8 @@ export interface Evidence {
 export interface ActiveWorldInput {
   id: string;
   name: string;
+  /** candidate, active, evolving or dormant; a dormant world can be reactivated. */
+  phase?: string;
   description: string | null;
   archetypes: ArchetypeWeight[];
   first_signal_at: string | null;
@@ -496,7 +501,9 @@ export interface ClassifierOutput {
 
 // ─── System prompt ───────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are the signal-first classifier for Gremly's Worlds & Chapters system. You read a user's raw signal (journals, notes, todos, habits, chat running summaries, temporal anchors, profile overrides, daily ritual progress, photo-accompanying note bodies, a calendar summary digest, plus in live mode the most recent Daily Context Objects and weekly summaries) and produce eight outputs by calling the submit_classifier_output tool exactly once.
+const SYSTEM_PROMPT = `${CARE_RULES}
+
+You are the signal-first classifier for Gremly's Worlds & Chapters system. You read a user's raw signal (journals, notes, todos, habits, chat running summaries, temporal anchors, profile overrides, daily ritual progress, photo-accompanying note bodies, a calendar summary digest, plus in live mode the most recent Daily Context Objects and weekly summaries) and produce eight outputs by calling the submit_classifier_output tool exactly once.
 
 What a World is. A World is an active, long-lived domain of the user's life where the user is engaged, reflecting, or growing. A domain has recurring signal across multiple signal types; journals, todos, habits, and chats often all touch it. It names a region of someone's life, not a single activity or feeling. One-off tasks, single moods, and isolated thoughts are not Worlds.
 
@@ -579,7 +586,7 @@ Authored content for new World candidates. For each new_world_candidate you emit
 
 Authored content for new Chapter candidates. For each new_chapter_candidate you emit, you must also author the following fields. target_summary is a single clause, maximum 90 characters, describing what this chapter is working toward, or null for season-type chapters without a defined target. card_subtitle is a single anchor statement, maximum 60 characters, written in present tense. It names one concrete focal element of the chapter's current arc: the most imminent dated commitment from the chapter's key_priorities, or when no dated commitment exists, the chapter's current central undertaking. Comma-separated enumerations are forbidden. If the chapter's top-ranked key_priority has a due_date within the next 14 days, or if the chapter's target_summary contains a date reference within 30 days, the subtitle must reference that temporal context. Items whose date lies in the past relative to today must never appear. summary is 2 to 3 short sentences, maximum 180 characters total, describing the chapter's arc, its current moment, and what completing or progressing it means for the user. Write in second person. key_priorities follows the same structure as World key_priorities. phase_labels is an ordered list of 3 to 5 short phase name strings describing the arc's stages, labelled from the arc's current vantage point. current_phase_key is the string from phase_labels that best describes where this chapter sits right now.
 
-Cross-world summary. You must include a worlds_summary block at the top level of your output. worlds_summary has two fields: headline and featured.
+Cross-world summary. You must include a worlds_summary block at the top level of your output. worlds_summary has two fields: headline and featured. When the window holds little or no signal, featured may be empty and the headline says plainly and kindly that it has been a quiet stretch in the app, without reading anything into it.
 
 headline is a single line, maximum 120 characters, written in Gremly's voice. Gremly is a sharp, warm thinking partner who observes the user's life without performing emotion about it. The headline is Gremly noticing the dominant force in play across the user's worlds this week, not announcing a theme, not summarizing categories, not rallying the user toward action. Written from a third-person observational stance. Never address the user as "you" or include possessives like "your". Never use "we" or "our".
 
@@ -690,7 +697,7 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
           headline: { type: 'string', maxLength: 120 },
           featured: {
             type: 'array',
-            minItems: 2,
+            minItems: 0,
             maxItems: 3,
             items: {
               type: 'object',
@@ -1014,7 +1021,19 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
 
 // ─── Classifier invoke ───────────────────────────────────────────────────────
 
-const MODEL = 'claude-sonnet-4-6';
+// Stays on Sonnet 4.6 for now: in the 1 Oct comparison Sonnet 5.5 was about a
+// third cheaper with similar decisions, but one reply in three came back
+// without the tool call. WORLDS_CLASSIFIER_MODEL switches it once 5.5 has run
+// cleanly in more comparisons.
+const DEFAULT_MODEL = 'claude-sonnet-4-6';
+
+// Claude 5 models reject forced tool use and think before answering by default.
+// For them the tool is offered with tool_choice auto (it is the only tool, and
+// the request asks for it), and up-front thinking is off, which matches how
+// Sonnet 4.6 ran this job.
+function isClaude5(model: string): boolean {
+  return /^claude-(sonnet|opus|fable|mythos)-5/.test(model);
+}
 const MAX_TOKENS = 16000;
 
 export interface AnalystObservationsInput {
@@ -1040,90 +1059,118 @@ export async function classifyWorldsWeekly(
     analystObservations,
   );
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': env.ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: MAX_TOKENS,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userPrompt }],
-      tools: [SUBMIT_CLASSIFIER_OUTPUT_TOOL],
-      tool_choice: { type: 'tool', name: 'submit_classifier_output' },
-      stream: true,
-    }),
-  });
+  const model = env.WORLDS_CLASSIFIER_MODEL || DEFAULT_MODEL;
+  const claude5 = isClaude5(model);
+  // Claude 5 cannot be told it must use the tool, so the request ends by asking
+  // for it, and if a reply still comes back without the tool call it is asked
+  // once more (the system prompt is read from the cache the second time).
+  const toolAsk = 'Reply only by calling submit_classifier_output once, with the full output.';
+  const callOnce = async (content: string) => {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: MAX_TOKENS,
+        // The tool and system prompt are the same for everyone (about 10k
+        // tokens), so they are cached: every run within a few minutes of another
+        // reads them at a tenth of the input price. The Sunday run starts
+        // everyone together, so most people after the first get the cached copy.
+        system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
+        messages: [{ role: 'user', content }],
+        tools: [SUBMIT_CLASSIFIER_OUTPUT_TOOL],
+        ...(claude5
+          ? { tool_choice: { type: 'auto' }, thinking: { type: 'between_tools' } }
+          : { tool_choice: { type: 'tool', name: 'submit_classifier_output' } }),
+        stream: true,
+      }),
+    });
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`classifyWorldsWeekly: Anthropic API ${res.status} ${res.statusText}\n${body}`);
-  }
-  if (!res.body) {
-    throw new Error('classifyWorldsWeekly: Anthropic stream had no body');
-  }
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(
+        `classifyWorldsWeekly: Anthropic API ${res.status} ${res.statusText}\n${body}`,
+      );
+    }
+    if (!res.body) {
+      throw new Error('classifyWorldsWeekly: Anthropic stream had no body');
+    }
 
-  // Accumulate the streamed tool_use input. Anthropic streaming emits:
-  //   message_start         → input_tokens in usage
-  //   content_block_start   → tool name (for type=tool_use)
-  //   content_block_delta   → partial_json fragments (for type=input_json_delta)
-  //   message_delta         → stop_reason, output_tokens
-  //   message_stop
-  let toolName = '';
-  let toolInputJson = '';
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let stopReason: string | null = null;
+    // Accumulate the streamed tool_use input. Anthropic streaming emits:
+    //   message_start         → input_tokens in usage
+    //   content_block_start   → tool name (for type=tool_use)
+    //   content_block_delta   → partial_json fragments (for type=input_json_delta)
+    //   message_delta         → stop_reason, output_tokens
+    //   message_stop
+    let toolName = '';
+    let toolInputJson = '';
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let stopReason: string | null = null;
 
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
 
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
 
-    // SSE events are separated by a blank line (\n\n).
-    let sep = buffer.indexOf('\n\n');
-    while (sep !== -1) {
-      const chunk = buffer.slice(0, sep);
-      buffer = buffer.slice(sep + 2);
-      sep = buffer.indexOf('\n\n');
+      // SSE events are separated by a blank line (\n\n).
+      let sep = buffer.indexOf('\n\n');
+      while (sep !== -1) {
+        const chunk = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        sep = buffer.indexOf('\n\n');
 
-      const dataLine = chunk.split('\n').find((l) => l.startsWith('data: '));
-      if (!dataLine) continue;
-      const payload = dataLine.slice(6);
-      if (payload === '[DONE]') continue;
+        const dataLine = chunk.split('\n').find((l) => l.startsWith('data: '));
+        if (!dataLine) continue;
+        const payload = dataLine.slice(6);
+        if (payload === '[DONE]') continue;
 
-      try {
-        const evt = JSON.parse(payload) as {
-          type: string;
-          message?: { usage?: { input_tokens: number } };
-          content_block?: { type: string; name?: string };
-          delta?: { type?: string; partial_json?: string; stop_reason?: string };
-          usage?: { output_tokens: number };
-        };
+        try {
+          const evt = JSON.parse(payload) as {
+            type: string;
+            message?: { usage?: { input_tokens: number } };
+            content_block?: { type: string; name?: string };
+            delta?: { type?: string; partial_json?: string; stop_reason?: string };
+            usage?: { output_tokens: number };
+          };
 
-        if (evt.type === 'message_start') {
-          inputTokens = evt.message?.usage?.input_tokens ?? 0;
-        } else if (evt.type === 'content_block_start' && evt.content_block?.type === 'tool_use') {
-          toolName = evt.content_block.name ?? '';
-        } else if (evt.type === 'content_block_delta' && evt.delta?.type === 'input_json_delta') {
-          toolInputJson += evt.delta.partial_json ?? '';
-        } else if (evt.type === 'message_delta') {
-          if (evt.delta?.stop_reason) stopReason = evt.delta.stop_reason;
-          if (evt.usage?.output_tokens) outputTokens = evt.usage.output_tokens;
+          if (evt.type === 'message_start') {
+            inputTokens = evt.message?.usage?.input_tokens ?? 0;
+          } else if (evt.type === 'content_block_start' && evt.content_block?.type === 'tool_use') {
+            toolName = evt.content_block.name ?? '';
+          } else if (evt.type === 'content_block_delta' && evt.delta?.type === 'input_json_delta') {
+            toolInputJson += evt.delta.partial_json ?? '';
+          } else if (evt.type === 'message_delta') {
+            if (evt.delta?.stop_reason) stopReason = evt.delta.stop_reason;
+            if (evt.usage?.output_tokens) outputTokens = evt.usage.output_tokens;
+          }
+        } catch {
+          // Ignore malformed event payloads (keepalives, partial frames).
         }
-      } catch {
-        // Ignore malformed event payloads (keepalives, partial frames).
       }
     }
+    return { toolName, toolInputJson, inputTokens, outputTokens, stopReason };
+  };
+
+  let call = await callOnce(claude5 ? `${userPrompt}\n\n${toolAsk}` : userPrompt);
+  if (claude5 && call.toolName !== 'submit_classifier_output') {
+    const first = call;
+    call = await callOnce(
+      `${userPrompt}\n\nYour last reply did not call submit_classifier_output. ${toolAsk}`,
+    );
+    call.inputTokens += first.inputTokens;
+    call.outputTokens += first.outputTokens;
   }
+  const { toolName, toolInputJson, inputTokens, outputTokens, stopReason } = call;
 
   if (toolName !== 'submit_classifier_output') {
     throw new Error(
@@ -1149,7 +1196,7 @@ export async function classifyWorldsWeekly(
 
   return {
     run_metadata: {
-      model: MODEL,
+      model,
       bundle_mode: bundle.mode,
       window_start: bundle.mode === 'backfill' ? bundle.windowStart : null,
       window_end: bundle.mode === 'backfill' ? bundle.windowEnd : null,

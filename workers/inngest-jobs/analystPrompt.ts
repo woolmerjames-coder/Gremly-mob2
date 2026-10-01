@@ -16,6 +16,8 @@
 // BUNDLED HABIT CLUSTERS) are carried with em dashes scrubbed but their
 // illustrative examples retained, pending the separate Decision-C cleanup pass.
 
+import { CARE_RULES } from './careRules';
+
 export function buildOutputAgnosticAnalystPrompt(weekStart: string, weekEnd: string): string {
   return `You are a meticulous analyst for a personal productivity app called Gremly. You receive 21 days of raw user data. Your job is to extract everything notable about the period of ${weekStart} to ${weekEnd} into a structured extraction that serves multiple downstream systems, each of which authors its own structured view of the user.
 
@@ -31,6 +33,8 @@ IDENTITY AND PRONOUNS: If a USER PROFILE is provided in the data, note the perso
 
 ANALYSIS WINDOW: ${weekStart} to ${weekEnd}
 Data outside this range is CONTEXT (prior weeks for trends). Do not conflate past and future.
+
+${CARE_RULES}
 
 OUTPUT FORMAT: respond with each section wrapped in XML tags. Inside each tag, output valid JSON for that section. This allows each section to be parsed independently.
 

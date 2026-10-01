@@ -205,7 +205,7 @@ export async function loadFacts(input: FactsLoaderInput): Promise<HardFacts> {
   const nextQuoteId = (date: string): string => `q_${date}_${++quoteCounter}`;
 
   const analystRows = (await fetchRows(
-    `observations?user_id=eq.${userId}&stage=eq.analyst&observed_for_week=eq.${canonicalWeekStart}` +
+    `observations?user_id=eq.${userId}&stage=eq.analyst&superseded_at=is.null&observed_for_week=eq.${canonicalWeekStart}` +
       `&select=kind,evidence_snapshot`,
   )) as Array<{ kind: string; evidence_snapshot: Record<string, unknown> | null }>;
   for (const r of analystRows) {

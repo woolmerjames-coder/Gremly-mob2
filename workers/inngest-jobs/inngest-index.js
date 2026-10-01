@@ -29,6 +29,12 @@ import { createWorldsWeeklyRun } from './worldsWeeklyRun';
 import { createWorldsWeeklyScheduler } from './worldsWeeklyScheduler';
 import { createDropAssignmentBackfill } from './dropAssignmentBackfill';
 import { createBackfillPriorityKind } from './backfillPriorityKind';
+import { aiContext, installAiUsageLogging } from './aiUsage';
+import { CARE_RULES } from './careRules';
+import { createContextFunctions, hourlyContextEvents, contextMode } from './context/functions';
+import { buildDcoV4, writeDco } from './context/daily';
+import { reviewQuestions } from './context/questions';
+import { weeklySummaryContext } from './context/summaryContext';
 
 // Cloudflare Workers middleware to inject env bindings
 const bindings = new InngestMiddleware({
@@ -116,6 +122,10 @@ const synthesizeSingleUser = inngest.createFunction(
   { event: 'app/user.synthesize' },
   async ({ event, step, env }) => {
     const userId = event.data.user_id;
+    if (contextMode(env, userId) === 'on') {
+      // The weekly synthesis writes the profile text when the context pipeline is on.
+      return { user_id: userId, skipped: 'profile owned by weekly synthesis' };
+    }
     console.log(`[UserSynth] Starting for user: ${userId}`);
 
     const profileResult = await step.run('synthesize-profile', async () => {
@@ -272,52 +282,72 @@ const dcoDispatcher = inngest.createFunction(
       return exactCount + approxCount + unknownCount;
     });
 
-    // Step 2: Get all users who need a DCO today
-    const allUsers = await step.run('get-users-needing-dco', async () => {
-      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/get_users_needing_dco`, {
+    // Step 2: Everyone active in the last 30 days, with the date of their last real DCO.
+    // Activity covers chats, sweeps and habit check-ins as well as new items.
+    const allUsers = await step.run('get-users-for-dco', async () => {
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/get_users_for_dco`, {
         method: 'POST',
         headers: {
           apikey: env.SUPABASE_SERVICE_KEY,
           Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ active_days: 30 }),
       });
 
       if (!res.ok) {
-        throw new Error(`Failed to get users needing DCO: ${res.statusText}`);
+        throw new Error(`Failed to get users for DCO: ${res.status} ${res.statusText}`);
       }
 
-      return res.json(); // [{ user_id, timezone }]
+      return res.json(); // [{ user_id, timezone, last_dco_date }]
     });
 
-    // Step 3: Filter to users whose local time is in the 4:xx AM window
-    const readyUsers = await step.run('filter-by-timezone-window', async () => {
+    // Step 3: Generate once per local day, from 4am local onwards. A run missed in the
+    // 4am hour is picked up the next hour instead of skipping the day.
+    const readyUsers = await step.run('filter-by-local-day', async () => {
       const now = new Date();
-      return allUsers.filter((u) => {
+      const ready = [];
+      for (const u of allUsers) {
         try {
-          const userTime = new Intl.DateTimeFormat('en-US', {
-            hour: 'numeric',
-            hour12: false,
-            timeZone: u.timezone,
-          }).format(now);
-          const hour = parseInt(userTime, 10);
-          return hour === 4; // Generate DCO at 4:xx AM — always ready before morning notifications
+          const tz = u.timezone || 'America/Los_Angeles';
+          const hour = parseInt(
+            new Intl.DateTimeFormat('en-US', {
+              hour: 'numeric',
+              hour12: false,
+              timeZone: tz,
+            }).format(now),
+            10,
+          );
+          const localDay = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(now);
+          const due = !u.last_dco_date || u.last_dco_date < localDay;
+          if (hour >= 4 && hour !== 24 && due)
+            ready.push({ user_id: u.user_id, timezone: tz, local_day: localDay });
         } catch {
-          return false;
+          // an unknown timezone is skipped rather than guessed
         }
-      });
+      }
+      return ready;
     });
 
     console.log(
-      `[DCO Dispatcher] ${allUsers.length} active users, ${readyUsers.length} in 4 AM window`,
+      `[DCO Dispatcher] ${allUsers.length} active users, ${readyUsers.length} due a DCO now`,
     );
+
+    // Context pipeline: read new records into the ledger, and apply any
+    // correction whose event did not arrive.
+    const contextEvents = await step.run('context-events', () => hourlyContextEvents(env));
+    if (contextEvents.length > 0) {
+      await step.sendEvent('dispatch-context', contextEvents);
+    }
 
     // Step 4: Fan out DCO generation for each ready user
     if (readyUsers.length > 0) {
       await step.sendEvent(
         'dispatch-dco-users',
         readyUsers.map((u) => ({
+          // One event per user per local day: Inngest drops repeats with the same id,
+          // so a failing user is retried by Inngest, not re-sent every hour.
+          id: `dco-${u.user_id}-${u.local_day}`,
           name: 'app/dco.generate-user',
           data: { user_id: u.user_id, timezone: u.timezone },
         })),
@@ -339,13 +369,63 @@ const generateSingleUserDco = inngest.createFunction(
   async ({ event, step, env }) => {
     const userId = event.data.user_id;
     const timezone = event.data.timezone;
+    const mode = contextMode(env, userId);
 
+    // Pipeline on: DCO v4 is the live DCO.
+    // If v4 fails, the person still gets a DCO from the old path today.
+    let v4Error = null;
+    if (mode === 'on') {
+      // Questions that have gone out of date are retired before the brief can ask one.
+      await reviewQuestions(env, userId, timezone, { shadow: false }).catch((err) =>
+        console.error(`[Questions] review failed for ${userId}:`, err),
+      );
+      try {
+        const built = await buildDcoV4(env, userId, { tz: timezone });
+        await writeDco(env, userId, built, { shadow: false });
+        return {
+          user_id: userId,
+          pipeline: 'dco-v4',
+          date: built.today,
+          attempts: built.attempts,
+          review_flags: built.problems,
+        };
+      } catch (err) {
+        console.error(`[ALERT][DCO v4] Failed for user ${userId}, falling back to v3:`, err);
+        v4Error = String(err?.message || err).slice(0, 300);
+      }
+    }
+
+    let live;
     try {
-      return await generateSingleUserDcoV3(userId, timezone, env, false);
+      live = await generateSingleUserDcoV3(userId, timezone, env, false);
     } catch (error) {
       console.error(`[DCO] Failed for user ${userId}:`, error);
       throw error;
     }
+
+    if (v4Error) {
+      live.v4_fallback = { error: v4Error };
+      return live;
+    }
+
+    // Shadow: build DCO v4 beside the live row for comparison. A failure here is
+    // reported in the run output and logs, and does not undo the live DCO.
+    if (mode === 'shadow') {
+      try {
+        const built = await buildDcoV4(env, userId, { tz: timezone });
+        const written = await writeDco(env, userId, built, { shadow: true });
+        live.shadow_v4 = {
+          ok: true,
+          written,
+          attempts: built.attempts,
+          review_flags: built.problems.length,
+        };
+      } catch (err) {
+        console.error(`[DCO v4 shadow] Failed for user ${userId}:`, err);
+        live.shadow_v4 = { ok: false, error: String(err?.message || err).slice(0, 300) };
+      }
+    }
+    return live;
   },
 );
 
@@ -1844,8 +1924,39 @@ const weeklySummaryV07Worker = inngest.createFunction(
       const rows = await res.json();
       return Array.isArray(rows) && rows.length > 0;
     });
-    if (alreadyExists) {
+    if (alreadyExists && event.data.dry_run !== true) {
       return { success: true, skipped: true, reason: 'summary_already_exists' };
+    }
+
+    // A week with nothing recorded gets no deck: there is nothing to say about
+    // it, and a deck about a blank week only tells the person the app was
+    // quiet. Opening the app counts as nothing recorded.
+    const weekRecords = await step.run('count-week-records', async () => {
+      const days = await runRpc('user_activity_days', {
+        p_user: user_id,
+        p_from: week_start,
+        p_to: week_end,
+      });
+      return (days || []).reduce(
+        (n, d) =>
+          n +
+          (d.drops || 0) +
+          (d.journals || 0) +
+          (d.todos_done || 0) +
+          (d.habit_checkins || 0) +
+          (d.chat_messages || 0) +
+          (d.sweeps || 0),
+        0,
+      );
+    });
+    if (weekRecords === 0) {
+      return {
+        success: true,
+        skipped: true,
+        reason: 'nothing_recorded_this_week',
+        user_id,
+        week_start,
+      };
     }
 
     // Step A: fetch a snapshot so the analyst has raw data.
@@ -1855,56 +1966,110 @@ const weeklySummaryV07Worker = inngest.createFunction(
       fetchUserSnapshot(user_id, timezone, 21, env, { targetDate: week_end }),
     );
 
+    // Context pipeline: for people on it, the week is read against the fact
+    // ledger and their story instead of raw milestones, old summaries and chat
+    // summaries (Gremly's own words, which are never evidence).
+    const ledgerContext =
+      contextMode(env, user_id) === 'on'
+        ? await step.run('ledger-context', () =>
+            weeklySummaryContext(env, user_id, week_start, week_end),
+          )
+        : null;
+
+    const dryRun = event.data.dry_run === true;
+    const skipAnalyst = dryRun && event.data.skip_analyst === true;
+
     // Step B: run the analyst — produces week_shape and world_signal_candidate
     // observations that loadBrief (inside generateAdaptiveSummary) needs.
-    const analystResult = await step.run('run-analyst', async () => {
-      const weeklySnapshot = buildWeeklySnapshot(snapshot);
-      const lifeMap = snapshot.raw.currentLifeMap?.life_map || null;
-      return runUnifiedAnalyst(weeklySnapshot, lifeMap, week_start, week_end, env);
-    });
+    let analystResult = null;
+    if (!skipAnalyst)
+      analystResult = await step.run('run-analyst', async () => {
+        const weeklySnapshot = buildWeeklySnapshot(snapshot);
+        if (ledgerContext) {
+          weeklySnapshot.ledger = ledgerContext;
+          weeklySnapshot.weeklySummaries = [];
+          weeklySnapshot.chatSummaries = [];
+        }
+        const lifeMap = snapshot.raw.currentLifeMap?.life_map || null;
+        return runUnifiedAnalyst(weeklySnapshot, lifeMap, week_start, week_end, env);
+      });
 
     // Step C: persist analyst observations (replaces this user-week's prior rows).
-    await step.run('persist-analyst-observations', async () => {
-      const obsRows = buildAnalystObservations(analystResult.analysis, user_id, week_start);
-      await clearAnalystObservationsForWeek(user_id, week_start, env);
-      const p = await persistAnalystObservations(obsRows, env);
-      if (p.ok) {
-        console.log(
-          `[V07Worker] Persisted ${p.inserted} analyst observations for ${user_id} week ${week_start}`,
-        );
-        return { inserted: p.inserted, ok: true };
-      }
-      // Non-fatal: failed observations write must never abort the summary. Log
-      // with ALERT prefix for log-based alerting, and write a queryable failure
-      // row so a systemic problem is visible by SQL without log archaeology.
-      console.error(
-        `[ALERT][V07Worker] analyst observations persist FAILED for ${user_id} week ${week_start}: ${p.status} ${p.error || ''}`,
-      );
-      try {
-        await fetch(`${env.SUPABASE_URL}/rest/v1/events`, {
-          method: 'POST',
-          headers: { ...authHeaders, Prefer: 'return=minimal' },
-          body: JSON.stringify({
-            owner_id: user_id,
-            kind: 'analyst_observations_persist_failed',
-            payload_json: {
-              week_start,
-              status: p.status ?? null,
-              error: (p.error || '').slice(0, 500),
-            },
-          }),
-        });
-      } catch (e) {
+    if (!skipAnalyst)
+      await step.run('persist-analyst-observations', async () => {
+        const obsRows = buildAnalystObservations(analystResult.analysis, user_id, week_start);
+        await clearAnalystObservationsForWeek(user_id, week_start, env);
+        const p = await persistAnalystObservations(obsRows, env);
+        if (p.ok) {
+          console.log(
+            `[V07Worker] Persisted ${p.inserted} analyst observations for ${user_id} week ${week_start}`,
+          );
+          return { inserted: p.inserted, ok: true };
+        }
+        // Non-fatal: failed observations write must never abort the summary. Log
+        // with ALERT prefix for log-based alerting, and write a queryable failure
+        // row so a systemic problem is visible by SQL without log archaeology.
         console.error(
-          `[ALERT][V07Worker] could not record persist-failure event for ${user_id}: ${String(e).slice(0, 200)}`,
+          `[ALERT][V07Worker] analyst observations persist FAILED for ${user_id} week ${week_start}: ${p.status} ${p.error || ''}`,
         );
-      }
-      return { inserted: 0, ok: false };
-    });
+        try {
+          await fetch(`${env.SUPABASE_URL}/rest/v1/events`, {
+            method: 'POST',
+            headers: { ...authHeaders, Prefer: 'return=minimal' },
+            body: JSON.stringify({
+              owner_id: user_id,
+              kind: 'analyst_observations_persist_failed',
+              payload_json: {
+                week_start,
+                status: p.status ?? null,
+                error: (p.error || '').slice(0, 500),
+              },
+            }),
+          });
+        } catch (e) {
+          console.error(
+            `[ALERT][V07Worker] could not record persist-failure event for ${user_id}: ${String(e).slice(0, 200)}`,
+          );
+        }
+        return { inserted: 0, ok: false };
+      });
+
+    // A comparison run (dry_run) saves no deck: it runs the analyst and saves its
+    // observations for the week as a real run would (skip_analyst reuses the ones
+    // already saved), then returns the deck, written by writer_model when given,
+    // so two writer models can be compared on the same observations.
+    if (dryRun) {
+      const runEnv = event.data.writer_model
+        ? { ...env, SUMMARY_WRITER_MODEL: String(event.data.writer_model) }
+        : env;
+      const dry = await step.run('generate-summary-dry-run', async () =>
+        generateAdaptiveSummary({
+          userId: user_id,
+          weekStart: week_start,
+          weekEnd: week_end,
+          label: `${user_id.slice(0, 8)} · ${week_start} · dry run`,
+          env: runEnv,
+          runRpc,
+          fetchRows,
+          ledgerContext,
+        }),
+      );
+      return {
+        dry_run: true,
+        user_id,
+        week_start,
+        writer_model: runEnv.SUMMARY_WRITER_MODEL || 'default',
+        ...dry,
+      };
+    }
 
     // Step C.5: rebuild the Life Map from this week's analyst output (incremental delta merge).
     const lifeMapRebuild = await step.run('rebuild-life-map', async () => {
       const currentLifeMap = snapshot.raw.currentLifeMap?.life_map || null;
+      if (contextMode(env, user_id) === 'on') {
+        // The weekly synthesis owns the Life Map when the context pipeline is on.
+        return { skipped: true, mergedLifeMap: null, reason: 'owned by weekly synthesis' };
+      }
       if (!currentLifeMap) {
         console.warn(`[V07Worker] No existing Life Map for ${user_id}; skipping rebuild`);
         return { skipped: true, mergedLifeMap: null };
@@ -1971,6 +2136,7 @@ const weeklySummaryV07Worker = inngest.createFunction(
         env,
         runRpc,
         fetchRows,
+        ledgerContext,
       }),
     );
 
@@ -2348,7 +2514,7 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
     name: 'Weekly Summary V2 Dispatcher',
   },
   [
-    { cron: '*/5 * * * *' }, // Every 5 minutes — matches notifications cron cadence
+    { cron: '0 * * * *' }, // Hourly: each user's weekly slot is matched to the hour
     { event: 'app/weekly-summary-v2.dispatch' }, // Manual trigger
   ],
   async ({ step, env }) => {
@@ -2365,31 +2531,26 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
           { headers },
         ),
         fetch(`${env.SUPABASE_URL}/rest/v1/push_tokens?select=user_id,token`, { headers }),
-        fetch(
-          `${env.SUPABASE_URL}/rest/v1/cortex_preferences?select=owner_id,is_tester,is_subscribed,trial_started_at,challenge_completed_at`,
-          { headers },
-        ),
+        fetch(`${env.SUPABASE_URL}/rest/v1/rpc/get_active_people`, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ active_days: 30 }),
+        }),
       ]);
 
       if (!prefsRes.ok) throw new Error(`Failed to fetch weekly prefs: ${prefsRes.statusText}`);
       const prefs = await prefsRes.json();
       const tokens = tokensRes.ok ? await tokensRes.json() : [];
-      const accessPrefs = accessRes.ok ? await accessRes.json() : [];
+      if (!accessRes.ok) throw new Error(`Failed to fetch active users: ${accessRes.status}`);
+      const accessPrefs = await accessRes.json();
 
       const tokenMap = {};
       for (const t of tokens) tokenMap[t.user_id] = t.token;
 
-      // Build access map and filter function
-      const ceilingMs = 14 * 24 * 60 * 60 * 1000;
-      const now = Date.now();
+      // Anyone active in the last 30 days gets a weekly summary, whatever their tier.
+      // The challenge no longer affects access.
       const accessMap = {};
-      for (const p of accessPrefs) {
-        const inFreeWindow =
-          p.challenge_completed_at === null &&
-          p.trial_started_at !== null &&
-          new Date(p.trial_started_at).getTime() + ceilingMs > now;
-        accessMap[p.owner_id] = p.is_tester === true || p.is_subscribed === true || inFreeWindow;
-      }
+      for (const p of accessPrefs) accessMap[p.user_id] = true;
 
       const total = prefs.length;
       let droppedNoToken = 0;
@@ -2422,7 +2583,7 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
       return filtered;
     });
 
-    // Step 2: Filter to users whose local time is within the 5-minute window of their configured weekly time AND it's their configured day
+    // Step 2: Filter to users whose local day and hour match their configured weekly slot
     const readyUsers = await step.run('filter-by-timezone-window', async () => {
       const now = new Date();
       return usersAndTokens.filter((u) => {
@@ -2447,12 +2608,9 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
           const userHour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0');
           const userMin = parseInt(parts.find((p) => p.type === 'minute')?.value || '0');
 
-          const [targetHour, targetMin] = u.weekly_time.split(':').map(Number);
-          const currentTotal = userHour * 60 + userMin;
-          const targetTotal = targetHour * 60 + (targetMin || 0);
-          const diff = Math.abs(currentTotal - targetTotal);
-          const wrappedDiff = Math.min(diff, 1440 - diff);
-          return wrappedDiff <= 5;
+          const [targetHour] = u.weekly_time.split(':').map(Number);
+          void userMin;
+          return userHour % 24 === targetHour;
         } catch {
           return false;
         }
@@ -2471,10 +2629,12 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
           const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: u.timezone }).format(
             new Date(),
           );
+          // The last complete Monday to Sunday week: this week on a Sunday,
+          // otherwise the week before, so a summary never covers days still to come.
           const today = new Date(todayStr + 'T00:00:00Z');
           const dayOfWeek = today.getUTCDay();
           const monday = new Date(today);
-          monday.setUTCDate(today.getUTCDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+          monday.setUTCDate(today.getUTCDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1 + 7));
           weekKeys[u.user_id] = formatDateOnly(monday);
         } catch {
           weekKeys[u.user_id] = 'unknown';
@@ -2484,6 +2644,7 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
       await step.sendEvent(
         'dispatch-weekly-users',
         readyUsers.map((u) => ({
+          id: `weekly-${u.user_id}-${weekKeys[u.user_id]}`,
           name: 'app/weekly-summary-v07.run',
           data: {
             user_id: u.user_id,
@@ -3531,52 +3692,16 @@ const handleChallengeCompletion = inngest.createFunction(
       });
     }
 
-    // Step 3: Compute week_key (Monday of current week in user's timezone)
-    const weekKey = await step.run('compute-week-key', () => {
-      const now = new Date();
-      const userTz = timezone || 'UTC';
-      const dateInTz = new Intl.DateTimeFormat('en-CA', { timeZone: userTz }).format(now);
-      const d = new Date(dateInTz + 'T00:00:00Z');
-      const dayOfWeek = d.getUTCDay(); // 0 = Sunday, 1 = Monday, ...
-      const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-      d.setUTCDate(d.getUTCDate() - daysFromMonday);
-      return formatDateOnly(d);
-    });
-
-    // Step 4: Fetch user's push token for weekly summary push notification
-    const pushToken = await step.run('fetch-push-token', async () => {
-      const response = await fetch(
-        `${env.SUPABASE_URL}/rest/v1/push_tokens?user_id=eq.${userId}&select=token&limit=1`,
-        {
-          headers: {
-            apikey: env.SUPABASE_SERVICE_KEY,
-            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-          },
-        },
-      );
-      if (!response.ok) return null;
-      const rows = await response.json();
-      return rows[0]?.token ?? null;
-    });
-
-    // Step 5: Fire the weekly summary generation (v07 pipeline).
-    // weeklySummaryV07Worker has its own idempotency check (user_id + week_start).
-    await step.sendEvent('trigger-weekly-summary', {
-      name: 'app/weekly-summary-v07.run',
-      data: {
-        user_id: userId,
-        timezone: timezone || 'UTC',
-        push_token: pushToken,
-        week_key: weekKey,
-      },
-    });
+    // The challenge no longer triggers a weekly summary: weekly summaries run on the
+    // weekly schedule for everyone active, and the challenge is being redesigned.
+    void completed_at;
+    void timezone;
 
     return {
       success: true,
       userId,
       completed_at,
       bootstrapped_life_map: !lifeMapExists,
-      week_key: weekKey,
     };
   },
 );
@@ -4411,7 +4536,11 @@ async function bootstrapLifeMap(snapshot, env) {
     .map((s) => `"${s.name}" (id: ${s.id})`)
     .join(', ');
 
-  const systemPrompt = `You are building the initial Life Map for a user of Gremly, a productivity companion app. This is a ONE-TIME bootstrap from their full history (~2 months of data). The Life Map is a structured model of what matters in this person's life, organized into domains and threads.
+  const systemPrompt = `You are building the initial Life Map for a user of Gremly, a productivity companion app. This is a ONE-TIME bootstrap from their full history. The Life Map is a structured model of what matters in this person's life, organized into domains and threads.
+
+TODAY'S DATE: ${new Date().toISOString().slice(0, 10)}
+
+${CARE_RULES}
 
 TASK: Analyze ALL the data provided and produce a complete Life Map JSON document.
 
@@ -4679,9 +4808,16 @@ async function rebuildLifeMap(
     ? `- Include an update for EVERY existing thread you matched a cluster to that had activity this week.`
     : `- Include an update for EVERY thread the analyst flagged with activity this week.`;
 
+  const rebuildToday = opts.today || new Date().toISOString().slice(0, 10);
   const systemPrompt = `You are updating a Life Map — a structured model of what matters in a person's life. ${analystFraming} Your job: decide what changed and output ONLY THE CHANGES.
 
+TODAY'S DATE: ${rebuildToday}
+
 KEY PRINCIPLE: Output deltas, not the full Life Map. Unchanged threads should NOT appear in your output. Code will merge your changes into the existing Life Map.
+
+${CARE_RULES}
+- A thread whose summary or recent_update describes a past plan as still ahead, or carries clinical or diagnostic language, must be updated now so it reads correctly as of today, even if it had no activity this week.
+- Evidence dates are the dates things happened. Never date evidence in the future.
 
 USER'S ACTIVE SPACES: ${spaceList}
 
@@ -8534,11 +8670,20 @@ Prior weekly summaries are provided under "PRIOR WEEKLY SUMMARIES." Use them to:
     }
   }
 
-  dataLines.push('\n=== MILESTONES ===');
-  if ((weeklySnapshot.milestones || []).length === 0) {
+  if (weeklySnapshot.ledger) {
+    // Context pipeline: the fact ledger already accounts for milestones, with
+    // what happened to each one. Raw milestone dates are not shown.
+    dataLines.push(
+      '\n=== WHAT GREMLY KNOWS (fact ledger with states; the source for plans, dates and outcomes) ===',
+    );
+    dataLines.push(weeklySnapshot.ledger);
+  } else {
+    dataLines.push('\n=== MILESTONES ===');
+  }
+  if (!weeklySnapshot.ledger && (weeklySnapshot.milestones || []).length === 0) {
     dataLines.push('  No active milestones.');
   }
-  for (const m of weeklySnapshot.milestones || []) {
+  for (const m of weeklySnapshot.ledger ? [] : weeklySnapshot.milestones || []) {
     const status = m.completed ? ' [COMPLETED]' : '';
     const days =
       m.daysFromTarget !== null
@@ -8673,7 +8818,9 @@ Prior weekly summaries are provided under "PRIOR WEEKLY SUMMARIES." Use them to:
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 20000,
       stream: true,
-      system: systemPrompt,
+      // The analyst prompt is the same for everyone in a given week, so it is
+      // cached for the Sunday runs (Haiku caches prompts of 4,096 tokens or more).
+      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
       messages: [
         {
           role: 'user',
@@ -9342,7 +9489,9 @@ async function synthesizeDailyPicture(snapshot, env) {
 
 You have two layers of input.
 
-Layer 1 is TODAY'S FACTS, a hard-record block. It contains concrete truths such as todos due today, scheduled habits, calendar entries, the weekly intention set in Sweep, deliberate adaptations, mood, and milestones. Treat these records as true. Only make concrete claims from this layer.
+Layer 1 is TODAY'S FACTS, a hard-record block. It contains concrete records such as todos due today, scheduled habits, calendar entries, the weekly intention set in Sweep, deliberate adaptations, mood, and milestones. These records exist, but a record is not proof that its plan is still current. Only make concrete claims from this layer.
+
+${CARE_RULES}
 
 Layer 2 is CONTEXT, including Life Map interpretive fields and recent summaries. Use this to understand state and voice. Do not invent concrete facts from context.
 
@@ -10976,7 +11125,7 @@ const detectChallengeCompletion = inngest.createFunction(
     concurrency: { limit: 1 },
     retries: 2,
   },
-  [{ cron: '*/5 * * * *' }, { event: 'app/challenge-completion.detect' }],
+  [{ cron: '0 * * * *' }, { event: 'app/challenge-completion.detect' }],
   async ({ step, env }) => {
     const nowIso = new Date().toISOString();
     const trialWindowMs = 14 * 24 * 60 * 60 * 1000;
@@ -11124,17 +11273,27 @@ const inngestHandler = serve({
     createWorldsWeeklyScheduler(inngest),
     createDropAssignmentBackfill(inngest),
     createBackfillPriorityKind(inngest),
+    ...createContextFunctions(inngest),
   ],
   servePath: '/',
 });
 
-export default {
+const appHandler = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
     // Handle CORS preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
+    }
+
+    // Every custom /api route needs the admin key. challenge-completed already
+    // checks it itself below; the Inngest serve path at / is signed by Inngest.
+    if (url.pathname.startsWith('/api/') && url.pathname !== '/api/challenge-completed') {
+      const adminKey = request.headers.get('x-admin-key');
+      if (!env.INNGEST_ADMIN_KEY || adminKey !== env.INNGEST_ADMIN_KEY) {
+        return corsResponse({ error: 'unauthorized' }, 401);
+      }
     }
 
     // CVE-2026-42047: reject methods serve() doesn't use
@@ -11155,6 +11314,73 @@ export default {
     }
 
     // Custom API endpoint: force-generate DCO for one or all users (bypasses Inngest)
+    // Context pipeline: a person said something Gremly holds about their life
+    // is wrong (from chat, a "Not right?" tap, the brief or a question). Saved
+    // and applied straight away; the hourly check picks it up if the event is lost.
+    if (url.pathname === '/api/correction' && request.method === 'POST') {
+      try {
+        const body = await request.json().catch(() => ({}));
+        const userId = typeof body.user_id === 'string' ? body.user_id : null;
+        const said = typeof body.said === 'string' ? body.said.trim().slice(0, 2000) : '';
+        const surface = ['chat', 'not_right', 'brief', 'question'].includes(body.surface)
+          ? body.surface
+          : 'chat';
+        if (!userId || !/^[0-9a-f-]{36}$/i.test(userId) || !said) {
+          return corsResponse({ error: 'user_id and said are required' }, 400);
+        }
+        const row = {
+          user_id: userId,
+          surface,
+          said,
+          chat_id:
+            typeof body.chat_id === 'string' && /^[0-9a-f-]{36}$/i.test(body.chat_id)
+              ? body.chat_id
+              : null,
+          target_kind: typeof body.target_kind === 'string' ? body.target_kind.slice(0, 40) : null,
+          // What they marked, the id it came from (a question when answering one), and
+          // what they chose on the Not right sheet: wrong, changed, done or private.
+          target_ref:
+            body.target_text || body.target_id || body.kind
+              ? {
+                  text: body.target_text ? String(body.target_text).slice(0, 1000) : null,
+                  id: typeof body.target_id === 'string' ? body.target_id.slice(0, 64) : null,
+                  kind: ['wrong', 'changed', 'done', 'private'].includes(body.kind)
+                    ? body.kind
+                    : null,
+                }
+              : null,
+          status: 'received',
+        };
+        const ins = await fetch(`${env.SUPABASE_URL}/rest/v1/user_corrections`, {
+          method: 'POST',
+          headers: {
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+            'Content-Type': 'application/json',
+            Prefer: 'return=representation',
+          },
+          body: JSON.stringify(row),
+        });
+        if (!ins.ok)
+          return corsResponse(
+            { error: `could not save: ${(await ins.text()).slice(0, 200)}` },
+            500,
+          );
+        const [saved] = await ins.json();
+        await fetch('https://inn.gs/e/' + env.INNGEST_EVENT_KEY, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: 'app/correction.apply',
+            data: { correction_id: saved.id, user_id: userId },
+          }),
+        }).catch(() => {});
+        return corsResponse({ ok: true, correction_id: saved.id });
+      } catch (e) {
+        return corsResponse({ error: String(e?.message || e).slice(0, 200) }, 500);
+      }
+    }
+
     if (url.pathname === '/api/force-generate-dco' && request.method === 'POST') {
       try {
         const body = await request.json().catch(() => ({}));
@@ -12121,6 +12347,35 @@ export default {
 
     // Pass through to Inngest handler for all other routes
     return inngestHandler(request, env, ctx);
+  },
+};
+
+// Every request runs inside an AI usage context, so each model call the request
+// makes is logged against the Inngest function (or API route) and the user.
+export default {
+  async fetch(request, env, ctx) {
+    installAiUsageLogging();
+    const url = new URL(request.url);
+    let userId = null;
+    if (request.method === 'POST') {
+      try {
+        const body = await request.clone().json();
+        userId =
+          body?.event?.data?.user_id || body?.events?.[0]?.data?.user_id || body?.user_id || null;
+      } catch {
+        userId = null;
+      }
+    }
+    const store = {
+      env,
+      ctx,
+      worker: 'inngest-jobs',
+      job: url.searchParams.get('fnId') || url.pathname,
+      userId,
+      runId: url.searchParams.get('runId') || null,
+    };
+    globalThis.__aiUsageFallbackStore = { env, ctx, worker: 'inngest-jobs' };
+    return aiContext.run(store, () => appHandler.fetch(request, env, ctx));
   },
 };
 

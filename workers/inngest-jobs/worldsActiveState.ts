@@ -19,7 +19,9 @@ export interface ActiveStateEnv {
  * shapes them into the classifier's ActiveWorldInput / ActiveChapterInput
  * types.
  *
- * Active worlds:   phase in ('candidate', 'active', 'evolving')
+ * Active worlds:   phase in ('candidate', 'active', 'evolving', 'dormant'). Dormant
+ *                  worlds are included, with their phase, so the classifier can
+ *                  propose reactivating one instead of creating a duplicate.
  * Active chapters: phase in ('suggested', 'upcoming', 'active')
  */
 export async function loadActiveState(
@@ -37,10 +39,10 @@ export async function loadActiveState(
   const { data: worlds, error: wErr } = await db
     .from('worlds')
     .select(
-      'id, name, description, archetypes, first_signal_at, last_signal_at, mascot_slug, mascot_slug_source, world_type, world_type_source',
+      'id, name, phase, description, archetypes, first_signal_at, last_signal_at, mascot_slug, mascot_slug_source, world_type, world_type_source',
     )
     .eq('owner_id', ownerId)
-    .in('phase', ['candidate', 'active', 'evolving']);
+    .in('phase', ['candidate', 'active', 'evolving', 'dormant']);
   if (wErr) throw wErr;
 
   const { data: chapters, error: cErr } = await db
@@ -65,6 +67,7 @@ export async function loadActiveState(
     activeWorlds: (worlds ?? []).map((w: any) => ({
       id: w.id as string,
       name: w.name as string,
+      phase: w.phase as string,
       description: w.description as string,
       archetypes: w.archetypes,
       first_signal_at: w.first_signal_at as string,

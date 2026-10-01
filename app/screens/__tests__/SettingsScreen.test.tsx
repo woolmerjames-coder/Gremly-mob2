@@ -123,7 +123,7 @@ describe('SettingsScreen', () => {
       expect(getByText('Morning Brief, Evening Sweep, Day Boundary')).toBeTruthy();
       expect(getByText('Morning, Afternoon, Evening ranges')).toBeTruthy();
       expect(getByText('Outlook, Google, Calendar links')).toBeTruthy();
-      expect(getByText('View and edit what Gremly has learned about you')).toBeTruthy();
+      expect(getByText('Your story, and what Gremly has learned about you')).toBeTruthy();
     });
 
     it('hides the navigation header', () => {
@@ -163,10 +163,10 @@ describe('SettingsScreen', () => {
       expect(mockNavigate).toHaveBeenCalledWith('CalendarSettings');
     });
 
-    it('navigates to WhatGremlyKnows when What Gremly Knows row is pressed', () => {
+    it('navigates to YourStory when What Gremly Knows row is pressed', () => {
       const { getByText } = render(<SettingsScreen />);
       fireEvent.press(getByText('What Gremly Knows'));
-      expect(mockNavigate).toHaveBeenCalledWith('WhatGremlyKnows');
+      expect(mockNavigate).toHaveBeenCalledWith('YourStory');
     });
   });
 

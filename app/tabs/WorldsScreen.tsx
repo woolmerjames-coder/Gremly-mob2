@@ -5,6 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { lightTokens } from '../../design/tokens';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { useAppEventOnFocus } from '../../lib/appEvents';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { WorldsHeader } from '../../components/worlds/WorldsHeader';
 import { ProposalBanner } from '../../components/worlds/ProposalBanner';
@@ -14,8 +15,10 @@ import { ContextsChipRow } from '../../components/worlds/ContextsChipRow';
 import { OpenChaptersSection } from '../../components/worlds/OpenChaptersSection';
 import { RecentClosedChaptersSection } from '../../components/worlds/RecentClosedChaptersSection';
 import { PeopleRow } from '../../components/worlds/PeopleRow';
+import { StoryHeroCard } from '../../components/worlds/StoryHeroCard';
 
 export default function WorldsScreen() {
+  useAppEventOnFocus('world_view', { type: 'worlds_tab' });
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const refreshWorldsGraph = useGremlyStore((s) => s.refreshWorldsGraph);
   const [refreshing, setRefreshing] = useState(false);
@@ -71,6 +74,7 @@ export default function WorldsScreen() {
         }
       >
         <WorldsHeader />
+        <StoryHeroCard onPress={() => nav.navigate('YourStory')} />
         <ProposalBanner onPress={handlePressProposals} />
         <WeeklySummaryCard
           onPressNew={handlePressWeeklySummary}

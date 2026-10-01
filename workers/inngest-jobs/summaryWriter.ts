@@ -33,6 +33,7 @@
  */
 
 import { jsonrepair } from 'jsonrepair';
+import { CARE_RULES } from './careRules';
 import type {
   HardFacts,
   SummaryBrief,
@@ -51,12 +52,14 @@ import type {
   QualityIssue,
 } from './summaryTypes';
 
-const DEFAULT_WRITER_MODEL = 'claude-sonnet-4-6';
+const DEFAULT_WRITER_MODEL = 'claude-sonnet-5-5';
 const DEFAULT_CHECKER_MODEL = 'claude-haiku-4-5-20251001';
 
 // ── Writer system prompt ───────────────────────────────────────────────────
 
 const WRITER_SYSTEM = `You write the entire weekly summary deck for a single user of Gremly, an AI-powered life companion app.
+
+${CARE_RULES}
 
 The deck is ONE coherent narrative: a hero card naming the week's character, 2 to 5 middle cards illustrating the arc, and a closing letter that weaves the named threads. You decide which cards exist, what shape each card is, and how the through-line builds.
 
@@ -289,6 +292,15 @@ ${JSON.stringify(facts.week.date_lookup, null, 0)}`,
 ${JSON.stringify(facts.entities, null, 2)}`,
   );
 
+  if (facts.ledger_context) {
+    sections.push(
+      `WHAT GREMLY KNOWS ABOUT THEIR LIFE (from the fact ledger and their story):
+A plan, trip, date or outcome you mention must appear in this week's records or here, with its state. A plan whose date has passed is not upcoming, a corrected fact is never used, and nothing here is a card's evidence on its own: cite the week's records or hard facts as usual.
+
+${facts.ledger_context}`,
+    );
+  }
+
   if (brief.week_shape) {
     sections.push(
       `WEEK_SHAPE BRIEF (the analyst's editorial direction):
@@ -410,11 +422,35 @@ ${JSON.stringify(brief.prior_surfaced, null, 0)}`,
 
 // ── API calls ──────────────────────────────────────────────────────────────
 
+/**
+ * A user message as one string, or as a part that repeats across calls
+ * (`cached`) and a part that does not (`rest`). The repeated part is marked
+ * for Anthropic's prompt cache: the writer's second attempt sends the same
+ * brief and facts again, and cache reads cost a tenth of normal input.
+ */
+type UserMessage = string | { cached: string; rest?: string };
+
+function userContent(message: UserMessage) {
+  if (typeof message === 'string') return message;
+  const blocks: Record<string, unknown>[] = [
+    { type: 'text', text: message.cached, cache_control: { type: 'ephemeral' } },
+  ];
+  if (message.rest) blocks.push({ type: 'text', text: message.rest });
+  return blocks;
+}
+
+// Claude 5 models reject a temperature setting and think before answering by
+// default; for them the temperature is left out and up-front thinking is off,
+// which matches how Sonnet 4.6 wrote these decks.
+function isClaude5(model: string): boolean {
+  return /^claude-(sonnet|opus|fable|mythos)-5/.test(model);
+}
+
 async function callAnthropic(
   apiKey: string,
   model: string,
   system: string,
-  userMessage: string,
+  userMessage: UserMessage,
   maxTokens: number,
   temperature: number,
 ): Promise<Record<string, unknown>> {
@@ -428,9 +464,11 @@ async function callAnthropic(
     body: JSON.stringify({
       model,
       max_tokens: maxTokens,
-      temperature,
-      system,
-      messages: [{ role: 'user', content: userMessage }],
+      ...(isClaude5(model) ? { thinking: { type: 'between_tools' } } : { temperature }),
+      // The system prompts here are fixed, so the same one is read from the
+      // cache by every call made within a few minutes, for any person.
+      system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+      messages: [{ role: 'user', content: userContent(userMessage) }],
     }),
   });
   if (!res.ok) {
@@ -455,7 +493,7 @@ async function callAnthropic(
 
 async function callWriter(
   env: Record<string, string>,
-  userPrompt: string,
+  userPrompt: UserMessage,
 ): Promise<Record<string, unknown>> {
   const model = env.SUMMARY_WRITER_MODEL || env.SUMMARY_FILL_MODEL || DEFAULT_WRITER_MODEL;
   return callAnthropic(env.ANTHROPIC_API_KEY, model, WRITER_SYSTEM, userPrompt, 4096, 0.4);
@@ -1267,9 +1305,11 @@ export async function writeDeck(
   let lastAttemptedRaw: unknown | null = null;
 
   for (let attempt = 1; attempt <= 2; attempt++) {
-    let userPrompt: string;
+    // The brief and facts are the same on both attempts, so they are sent as
+    // the cached part and only the rewrite guidance is new on the second.
+    let userPrompt: UserMessage;
     if (attempt === 1) {
-      userPrompt = baseUserPrompt;
+      userPrompt = { cached: baseUserPrompt };
     } else {
       const factLines: string[] = [];
       const qualityLines: string[] = [];
@@ -1279,9 +1319,9 @@ export async function writeDeck(
         qualityLines.push(`  - ${idx}: ${q.issue}`);
         qualityLines.push(`    avoid by: ${q.fix_hint}`);
       }
-      userPrompt = `${baseUserPrompt}
-
-REWRITE GUIDANCE:
+      userPrompt = {
+        cached: baseUserPrompt,
+        rest: `REWRITE GUIDANCE:
 
 A previous attempt at this deck was produced and failed evaluation. You are NOT editing that draft. You are writing the deck again from scratch against the same brief and facts above. Do not anchor on the previous attempt or attempt to make minimal edits to it. Write freshly.
 
@@ -1293,7 +1333,8 @@ ${qualityLines.length > 0 ? `Editorial defects (each must be avoided in this fre
 
 Now write the deck. Same brief, same facts, same schema. Address each defect by writing differently, not by editing the prior draft.
 
-Return only the JSON. No commentary outside the JSON.`;
+Return only the JSON. No commentary outside the JSON.`,
+      };
     }
 
     let raw: Record<string, unknown>;

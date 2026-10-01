@@ -25,7 +25,7 @@ export async function loadBrief(
 ): Promise<SummaryBrief> {
   // ── All analyst observations for the week ────────────────────────────────
   const rawObs = (await fetchRows(
-    `observations?user_id=eq.${userId}&stage=eq.analyst&observed_for_week=eq.${weekStart}` +
+    `observations?user_id=eq.${userId}&stage=eq.analyst&superseded_at=is.null&observed_for_week=eq.${weekStart}` +
       `&select=id,kind,claim_summary,evidence_snapshot,observed_for_week`,
   )) as Array<{
     id: string;
