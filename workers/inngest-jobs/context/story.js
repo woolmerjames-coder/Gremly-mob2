@@ -12,6 +12,7 @@ import { CARE_RULES, WRITING_RULES, PRIVATE_RULES, personBlock } from '../careRu
 import { db, userTimezone, localDate, relativeDay, personIdentity } from './db';
 import { anthropicJsonParams, modelFor } from './llm';
 import { recentCorrections } from './corrections';
+import { invalidateChatCache } from './cache';
 
 export const STORY_PROMPT_VERSION = 'story-2026-10-01';
 
@@ -307,6 +308,7 @@ export async function applyStory(env, userId, output, refsSnapshot, { shadow, ru
     };
     await d.update(`user_life_map?id=eq.${lm.id}`, { life_map: { ...(lm.life_map || {}), story }, updated_at: nowIso });
   }
+  await invalidateChatCache(env, userId);
   return { applied };
 }
 

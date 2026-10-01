@@ -17,6 +17,7 @@ import { db, userTimezone, localDate, localDateTime, addDays, daysBetween, weekd
 import { jsonCall, modelFor } from './llm';
 import { recentCorrections } from './corrections';
 import { loadStory } from './story';
+import { invalidateChatCache } from './cache';
 
 export const DCO_PROMPT_VERSION = 'dco-v4-2026-09-30';
 
@@ -515,5 +516,6 @@ export async function writeDco(env, userId, built, { shadow }) {
     [{ user_id: userId, date: built.today, dco, extraction_raw: { pipeline: 'dco-v4', attempts: built.attempts, input_chars: built.inputChars, review_flags: built.problems.length }, expires_at: new Date(Date.now() + 7 * 864e5).toISOString(), updated_at: nowIso }],
     'user_id,date',
   );
+  await invalidateChatCache(env, userId);
   return { written: true, shadow: false };
 }

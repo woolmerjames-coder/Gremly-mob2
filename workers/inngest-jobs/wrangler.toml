@@ -37,3 +37,10 @@ enabled = true
 [limits]
 cpu_ms = 300000
 
+
+# Chat's context cache (shared with the cortex worker): the context pipeline
+# drops a person's cached profile, Life Map, DCO and anchors after it changes
+# them, so chat reads the new version straight away.
+[[kv_namespaces]]
+binding = "CONTEXT_CACHE"
+id = "d97644351d99456da19eb66f52d0189e"

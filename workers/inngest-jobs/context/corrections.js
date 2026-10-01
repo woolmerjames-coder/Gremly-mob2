@@ -14,6 +14,7 @@ import { CARE_RULES, WRITING_RULES, personBlock } from '../careRules';
 import { db, userTimezone, localDate, personIdentity } from './db';
 import { jsonCall, modelFor } from './llm';
 import { refreshLifeMapStory } from './story';
+import { invalidateChatCache } from './cache';
 
 export const CORRECTION_PROMPT_VERSION = 'correction-2026-09-30';
 
@@ -469,6 +470,8 @@ ${anchorLines.join('\n') || '(none)'}`;
     await d.update(`worlds?id=eq.${worldId}&owner_id=eq.${userId}`, body);
   }
 
+  // Chat reads the corrected versions from its very next message.
+  await invalidateChatCache(env, userId);
   await d.update(`user_corrections?id=eq.${correction.id}`, {
     status: 'applied',
     applied_at: nowIso,

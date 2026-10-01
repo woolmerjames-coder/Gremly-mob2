@@ -19,6 +19,7 @@ import { db, userTimezone, localDate, addDays, relativeDay, weekdayName, personI
 import { anthropicJsonParams, anthropicJsonResult, modelFor, createBatch, getBatch, getBatchResults } from './llm';
 import { recentCorrections } from './corrections';
 import { loadStory, storyLines } from './story';
+import { invalidateChatCache } from './cache';
 import { batchUsageRow, writeUsageRow } from '../aiUsage';
 
 export const WEEKLY_PROMPT_VERSION = 'weekly-2026-09-30';
@@ -497,6 +498,7 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
     await d.insertQuiet('gremly_questions', [{ user_id: userId, question: trim(q.question, 300), status: 'open', about_fact_id: f?.type === 'fact' ? f.id : null, run_id: runId }]);
     applied.questions++;
   }
+  await invalidateChatCache(env, userId);
   return { applied, worldsSummary, previous };
 }
 

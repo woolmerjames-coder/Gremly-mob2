@@ -13,6 +13,7 @@ import { db, localDate, relativeDay, personIdentity } from './db';
 import { jsonCall, modelFor } from './llm';
 import { recentCorrections } from './corrections';
 import { CARE_RULES, personBlock } from '../careRules';
+import { invalidateChatCache } from './cache';
 
 function trim(text, n) {
   const s = String(text || '').replace(/\s+/g, ' ').trim();
@@ -122,5 +123,6 @@ CORRECTIONS THE PERSON MADE: ${corrections.map((c) => `"${trim(c.statement, 140)
       if (!shadow) await d.update(`user_temporal_anchors?id=eq.${a.id}&user_id=eq.${userId}`, { resolved_date: dcs.new_date, date_confidence: 'exact', updated_at: nowIso });
     }
   }
+  if (!shadow && (result.retired.length || result.redated.length)) await invalidateChatCache(env, userId);
   return result;
 }

@@ -19,6 +19,8 @@
 /**
  * Fetch the user's Life Map. KV cached 2 hours.
  */
+import { getLifePack, recallForMessage } from './lifeContext.js';
+
 export async function getLifeMapForChat(userId, env) {
   if (!userId) return null;
 
@@ -429,12 +431,14 @@ export async function buildChatContext(userId, lane, opts, env) {
     const currentChatId = opts?.currentChatId;
 
     // Fetch all context in parallel
-    const [lifeMap, dailyFocus, recentDelta, temporalAnchors, chatSummaries] = await Promise.all([
+    const [lifeMap, dailyFocus, recentDelta, temporalAnchors, chatSummaries, lifePack, recall] = await Promise.all([
       getLifeMapForChat(userId, env),
       getDailyFocusForChat(userId, env),
       fetchRecentActivityDelta(userId, env),
       fetchTemporalAnchors(userId, timezone, env),
       fetchRecentChatSummaries(userId, currentChatId, env),
+      getLifePack(userId, env),
+      opts?.message ? recallForMessage(userId, opts.message, env) : Promise.resolve(''),
     ]);
 
     const todayStr = new Intl.DateTimeFormat('en-CA', {
@@ -466,17 +470,24 @@ export async function buildChatContext(userId, lane, opts, env) {
     const deltaStr = formatRecentDelta(recentDelta);
     if (deltaStr) parts.push(deltaStr);
 
-    // 5. Life Map threads (tiered by lane relevance — background context)
+    // 5. What Gremly remembers that bears on this message (context pipeline)
+    if (recall) parts.push(recall);
+
+    // 6. Life Map threads (tiered by lane relevance — background context)
     const lifeMapStr = formatLifeMapForChat(lifeMap, lane, opts);
     if (lifeMapStr) parts.push(lifeMapStr);
 
+    // 7. The full picture: story, chapters, app use, open questions, corrections
+    if (lifePack) parts.push(lifePack);
+
     const result = parts.join('\n\n');
 
-    // Token safety — generous limits since Life Map summaries are dense and valuable
+    // Token safety. The life pack is the person's whole story, so the limits
+    // leave room for it; truncation cuts from the end.
     const MAX_CONTEXT_CHARS =
-      lane === 'general' ? 12000
-      : lane === 'space' || lane === 'world' || lane === 'chapter' ? 10000
-      : 6000;
+      lane === 'general' ? 26000
+      : lane === 'space' || lane === 'world' || lane === 'chapter' ? 20000
+      : 12000;
     if (result.length > MAX_CONTEXT_CHARS) {
       console.warn(
         `[ChatProjection] Context truncated for ${userId.slice(0, 8)}: ${result.length} → ${MAX_CONTEXT_CHARS} chars`,
