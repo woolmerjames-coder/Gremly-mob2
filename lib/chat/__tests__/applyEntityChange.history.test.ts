@@ -9,6 +9,7 @@ jest.mock('../../store/useGremlyStore', () => ({
 
 import { applyEntityChange } from '../entityCards';
 import { changeLogOf, originalTextOf } from '../changeHistory';
+import { getDateService } from '../../date/DateService';
 
 const DROP = 'Dentist appointment booked for Friday at 10am';
 
@@ -43,6 +44,17 @@ const note = () => mockState.notes[0];
 
 describe('the history an applied change leaves', () => {
   beforeEach(reset);
+
+  it('the closing line kept on the card names the date, so it is still true tomorrow', async () => {
+    const ds = getDateService();
+    const todo = { id: 't1', type: 'todo' as const, title: 'Car MOT', due_day: null };
+    const applied = await applyEntityChange(todo, { field: 'due_day', from: null, to: ds.tomorrow() });
+    expect(applied.summary).not.toMatch(/tomorrow|today/i);
+    expect(applied.summary).toMatch(/^Car MOT is now (Sun|Mon|Tue|Wed|Thu|Fri|Sat) \d{1,2} [A-Z][a-z]{2}\.$/);
+    const habit = { id: 'h1', type: 'habit' as const, title: 'Run', frequency: 'weekly' };
+    const logged = await applyEntityChange(habit, { field: 'logged', from: null, to: ds.today() });
+    expect(logged.summary).not.toMatch(/today/i);
+  });
 
   it('a check-in for several days logs each of them, and Undo takes each back out', async () => {
     const habit = { id: 'h1', type: 'habit' as const, title: 'Run', frequency: 'weekly' };

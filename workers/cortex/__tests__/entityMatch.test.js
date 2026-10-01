@@ -1729,3 +1729,61 @@ test('a late card is offered only when the check says their words asked for it',
   expect(await offerLateCard({ ...args, card: null })).toBe(false);
   delete globalThis.fetch;
 });
+
+test('a tapped card says what it changed, from how the item was, with days in words', () => {
+  const recent = {
+    id: '1c947bef-0959-42f6-8844-6d65a693b539',
+    type: 'todo',
+    title: 'Call the Plumber',
+    due_day: null,
+    status: 'applied',
+    summary: 'Done. Call the Plumber is now Tomorrow.',
+    turns_ago: 1,
+    card: { kind: 'edit', change: { field: 'due_day', from: null, to: '2026-10-01' } },
+  };
+  const s = recentCardPromptSection(recent, '2026-09-30');
+  expect(s).toContain('=== LAST CARD ===');
+  expect(s).toContain('"Call the Plumber" (no day set)');
+  expect(s).toContain('move it to tomorrow, Thursday 1 October');
+  expect(s).toContain('tapped Yes');
+  expect(s).toContain('answer that yes');
+  expect(s).toContain('how it was before');
+  // the app's closing line was written when they tapped; the change itself is said instead
+  expect(s).not.toContain('is now Tomorrow');
+  // the same through the sections every chat path builds
+  const all = turnItemSections({ match: null, card: null, recent, anchor: null, mode: 'general', todayIso: '2026-09-30' });
+  expect(all).toContain('move it to tomorrow, Thursday 1 October');
+});
+
+test('a tapped card from an older app, or with a change that cannot be right, uses the app’s words', () => {
+  const base = {
+    id: 't1',
+    type: 'todo',
+    title: 'Call the Plumber',
+    due_day: null,
+    status: 'applied',
+    summary: 'Done. Call the Plumber is now Thu 1 Oct.',
+  };
+  for (const card of [undefined, { kind: 'edit' }, { kind: 'edit', change: { field: 'due_day', to: 'Thursday' } }, { kind: 'edit', change: { field: 'colour', to: 'red' } }]) {
+    const s = recentCardPromptSection({ ...base, card }, '2026-09-30');
+    expect(s).toContain('Thu 1 Oct');
+    expect(s).toContain('answer that yes');
+    expect(s).not.toContain('proposing to');
+  }
+});
+
+test('a tapped check-in for several days names each day', () => {
+  const s = recentCardPromptSection(
+    {
+      id: 'h1',
+      type: 'habit',
+      title: 'Run',
+      frequency: 'daily',
+      status: 'applied',
+      card: { kind: 'edit', change: { field: 'logged', from: null, to: '2026-09-30', days: ['2026-09-29', '2026-09-30'] } },
+    },
+    '2026-09-30',
+  );
+  expect(s).toContain('"Run" (daily)');
+  expect(s).toContain('log it for yesterday, Tuesday 29 September and today, Wednesday 30 September');
+});

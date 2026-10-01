@@ -57,7 +57,7 @@
         "recentIn": null
       },
       {
-        "message": "Don\u2019t I already have an entity about calling them? Can\u2019t I add a deadline?",
+        "message": "Don’t I already have an entity about calling them? Can’t I add a deadline?",
         "mode": "app_help",
         "modeBeforeCard": null,
         "card": {
@@ -316,7 +316,7 @@
         "recentIn": null
       },
       {
-        "message": "It has been such a busy summer, I\u2019ve had to deprioritize Gremly and now work is so busy I don\u2019t know if I will ever have time to recommit to it but I really want to",
+        "message": "It has been such a busy summer, I’ve had to deprioritize Gremly and now work is so busy I don’t know if I will ever have time to recommit to it but I really want to",
         "mode": "emotional",
         "modeBeforeCard": null,
         "card": null,
@@ -705,14 +705,14 @@
   {
     "id": "J-262f",
     "base": "J-262f",
-    "group": "James real chat: Move Bella\u2019s Appointment",
+    "group": "James real chat: Move Bella’s Appointment",
     "expect": null,
     "note": null,
     "anchor": null,
     "lead": null,
     "turns": [
       {
-        "message": "I am now really busy tomorrow and I don\u2019t have time for Bellas appointment",
+        "message": "I am now really busy tomorrow and I don’t have time for Bellas appointment",
         "mode": "accountability",
         "modeBeforeCard": null,
         "card": null,
@@ -865,7 +865,7 @@
   {
     "id": "J-19fd",
     "base": "J-19fd",
-    "group": "James real chat: Reschedule Bella\u2019s Vet Appointment",
+    "group": "James real chat: Reschedule Bella’s Vet Appointment",
     "expect": null,
     "note": null,
     "anchor": null,
@@ -978,7 +978,7 @@
   {
     "id": "J-f4e6",
     "base": "J-f4e6",
-    "group": "James real chat: Reschedule Bella\u2019s Vet Appointment (earlier)",
+    "group": "James real chat: Reschedule Bella’s Vet Appointment (earlier)",
     "expect": null,
     "note": null,
     "anchor": null,
@@ -1031,7 +1031,7 @@
         "recentIn": null
       },
       {
-        "message": "Let\u2019s move it to Friday",
+        "message": "Let’s move it to Friday",
         "mode": "action_ready",
         "modeBeforeCard": null,
         "card": null,
@@ -1298,7 +1298,7 @@
     "lead": null,
     "turns": [
       {
-        "message": "Can we push Jen\u2019s 40th party note to the 25th",
+        "message": "Can we push Jen’s 40th party note to the 25th",
         "mode": "entity_card",
         "modeBeforeCard": "quick_ask",
         "card": {
@@ -1423,7 +1423,7 @@
     "lead": null,
     "turns": [
       {
-        "message": "Thinking about the widget, I probably won\u2019t get to it until next Friday",
+        "message": "Thinking about the widget, I probably won’t get to it until next Friday",
         "mode": "update",
         "modeBeforeCard": null,
         "card": {
@@ -1926,7 +1926,7 @@
     "lead": null,
     "turns": [
       {
-        "message": "Hey, what\u2019s a good film to watch tonight",
+        "message": "Hey, what’s a good film to watch tonight",
         "mode": "research",
         "modeBeforeCard": null,
         "card": null,
@@ -1976,7 +1976,7 @@
     "lead": null,
     "turns": [
       {
-        "message": "What\u2019s the difference between Oaxaca and Puerto Escondido for a first visit",
+        "message": "What’s the difference between Oaxaca and Puerto Escondido for a first visit",
         "mode": "research",
         "modeBeforeCard": null,
         "card": null,
@@ -2162,7 +2162,7 @@
         ],
         "anchor": null,
         "known": [],
-        "reply": "Should I add that note about Dave's parents to your Christmas plan?",
+        "reply": "Should I add that detail about Dave's parents to your Christmas plan?",
         "pill": {
           "lateCard": null,
           "lateCardHeld": null,
@@ -2170,10 +2170,11 @@
           "items": [],
           "rawNew": [],
           "ungrounded": 0,
-          "gated": false
+          "gated": false,
+          "ms": 784
         },
-        "ms": 4259,
-        "cardMs": 978,
+        "ms": 2989,
+        "cardMs": 1354,
         "raw": {
           "considered": [
             "e6fdc1b7",
@@ -2197,7 +2198,7 @@
       },
       {
         "message": "Did you do it?",
-        "mode": "accountability",
+        "mode": "quick_ask",
         "modeBeforeCard": null,
         "card": null,
         "about": [
@@ -2211,7 +2212,7 @@
           "note \"Bella Vet Appointment\", Friday 2 October",
           "todo \"Submit to Apple Health\", due Sunday 4 October"
         ],
-        "reply": "It's done. I've added that Dave's parents are in from the 22nd to your **Plan Christmas In California** todo.",
+        "reply": "Yes, I've added that Dave's parents are in from the 22nd to your **Plan Christmas In California** todo.",
         "pill": {
           "lateCard": null,
           "lateCardHeld": null,
@@ -2219,10 +2220,11 @@
           "items": [],
           "rawNew": [],
           "ungrounded": 0,
-          "gated": false
+          "gated": false,
+          "ms": 1368
         },
-        "ms": 3478,
-        "cardMs": 857,
+        "ms": 3262,
+        "cardMs": 1041,
         "raw": {
           "considered": [
             "e6fdc1b7"
@@ -2511,7 +2513,7 @@
         ],
         "anchor": null,
         "known": [],
-        "reply": "Should we move the calendar entry fix to Friday?",
+        "reply": "Do you want to move the calendar entry fix to Friday?",
         "pill": {
           "lateCard": null,
           "lateCardHeld": null,
@@ -2519,16 +2521,17 @@
           "items": [],
           "rawNew": [],
           "ungrounded": 0,
-          "gated": false
+          "gated": false,
+          "ms": 765
         },
-        "ms": 3127,
-        "cardMs": 1133,
+        "ms": 2792,
+        "cardMs": 1298,
         "raw": {
           "considered": [
             "ff06f998",
+            "0582b5d7",
             "47de4470",
-            "b0457ced",
-            "0582b5d7"
+            "b0457ced"
           ],
           "refers": true,
           "entity_id": "ff06f998",
@@ -2548,19 +2551,26 @@
       },
       {
         "message": "Not that one",
-        "mode": "update",
-        "modeBeforeCard": null,
-        "card": null,
-        "about": [],
-        "anchor": null,
-        "known": [
-          "none of their items, as far as the app can tell",
-          "todo \"Send Out Sage Future Deck\", due Thursday 1 October",
-          "todo \"Call Kim and Andrew\", due Friday 2 October",
-          "note \"Bella Vet Appointment\", Friday 2 October",
-          "todo \"Submit to Apple Health\", due Sunday 4 October"
+        "mode": "entity_card",
+        "modeBeforeCard": "quick_ask",
+        "card": {
+          "kind": "edit",
+          "inPassing": false,
+          "title": "Sort All Calendar Service Issues Properly",
+          "change": {
+            "field": "due_day",
+            "from": "2026-07-20",
+            "to": "2026-10-02"
+          },
+          "intent": null,
+          "already": false
+        },
+        "about": [
+          "Sort All Calendar Service Issues Properly"
         ],
-        "reply": "Which one did you mean? I don't see another calendar task on your list right now, so let me know if it's a **new item** or if it's under a different name.",
+        "anchor": null,
+        "known": [],
+        "reply": "Should we move the task for sorting all calendar service issues to Friday instead?",
         "pill": {
           "lateCard": null,
           "lateCardHeld": null,
@@ -2568,11 +2578,32 @@
           "items": [],
           "rawNew": [],
           "ungrounded": 0,
-          "gated": false
+          "gated": false,
+          "ms": 979
         },
-        "ms": 7019,
-        "cardMs": 4774,
-        "raw": null,
+        "ms": 2806,
+        "cardMs": 1040,
+        "raw": {
+          "considered": [
+            "0582b5d7",
+            "47de4470",
+            "b0457ced",
+            "ff73a6f5"
+          ],
+          "refers": true,
+          "entity_id": "0582b5d7",
+          "intent": "edit",
+          "change": {
+            "field": "due_day",
+            "value": "2026-10-02"
+          },
+          "about": [
+            "0582b5d7"
+          ],
+          "confidence": 85,
+          "ask": false,
+          "candidates": []
+        },
         "recentIn": {
           "title": "Fix Calendar Entry Field",
           "status": "declined",
@@ -2754,7 +2785,7 @@
         ],
         "anchor": null,
         "known": [],
-        "reply": "Does Thursday work for getting that email over to Sage?",
+        "reply": "Does Thursday work for getting that email to Sage?",
         "pill": {
           "lateCard": null,
           "lateCardHeld": null,
@@ -2762,10 +2793,11 @@
           "items": [],
           "rawNew": [],
           "ungrounded": 0,
-          "gated": false
+          "gated": false,
+          "ms": 1032
         },
-        "ms": 2819,
-        "cardMs": 1098,
+        "ms": 3006,
+        "cardMs": 1134,
         "raw": {
           "considered": [
             "bf53ff91",
@@ -2808,7 +2840,7 @@
         ],
         "anchor": null,
         "known": [],
-        "reply": "Should we shift the Sage Future deck to Wednesday instead?",
+        "reply": "Does moving the Sage deck to Wednesday help clear your plate for the rest of the week?",
         "pill": {
           "lateCard": null,
           "lateCardHeld": null,
@@ -2816,14 +2848,14 @@
           "items": [],
           "rawNew": [],
           "ungrounded": 0,
-          "gated": false
+          "gated": false,
+          "ms": 1377
         },
-        "ms": 3586,
-        "cardMs": 1264,
+        "ms": 3871,
+        "cardMs": 1505,
         "raw": {
           "considered": [
             "c6f33bc9",
-            "bf53ff91",
             "576749e2",
             "cd4359e8"
           ],
@@ -2850,11 +2882,11 @@
       {
         "message": "Not that one",
         "mode": "entity_card",
-        "modeBeforeCard": "update",
+        "modeBeforeCard": "emotional",
         "card": {
           "kind": "choose",
           "inPassing": false,
-          "title": "Create Two Sage Case Studies / Sage Future On April 28",
+          "title": "Sage Future On April 28 / Create Two Sage Case Studies",
           "change": null,
           "intent": null,
           "already": false
@@ -2862,7 +2894,7 @@
         "about": [],
         "anchor": null,
         "known": [],
-        "reply": "Which one did you have in mind for Wednesday?",
+        "reply": "Which one did you have in mind?",
         "pill": {
           "lateCard": null,
           "lateCardHeld": null,
@@ -2870,15 +2902,16 @@
           "items": [],
           "rawNew": [],
           "ungrounded": 0,
-          "gated": false
+          "gated": false,
+          "ms": 641
         },
-        "ms": 2477,
-        "cardMs": 770,
+        "ms": 2585,
+        "cardMs": 1040,
         "raw": {
           "considered": [
             "c6f33bc9",
-            "576749e2",
-            "cd4359e8"
+            "cd4359e8",
+            "576749e2"
           ],
           "refers": false,
           "entity_id": null,
@@ -2909,7 +2942,7 @@
           "note \"Bella Vet Appointment\", Friday 2 October",
           "todo \"Submit to Apple Health\", due Sunday 4 October"
         ],
-        "reply": "I don't see Justin Slides on your list right now. Is that a new one you're working on, or is it under a different name?",
+        "reply": "I don't see Justin Slides on your list right now. Is that a new task, or is it under a different name?",
         "pill": {
           "lateCard": null,
           "lateCardHeld": null,
@@ -2930,10 +2963,11 @@
             }
           ],
           "ungrounded": 0,
-          "gated": false
+          "gated": false,
+          "ms": 2924
         },
-        "ms": 3906,
-        "cardMs": 891,
+        "ms": 4672,
+        "cardMs": 880,
         "raw": {
           "considered": [],
           "refers": false,
@@ -2949,7 +2983,7 @@
       },
       {
         "message": "Yes",
-        "mode": "update",
+        "mode": "quick_ask",
         "modeBeforeCard": null,
         "card": null,
         "about": [],
@@ -2961,7 +2995,7 @@
           "note \"Bella Vet Appointment\", Friday 2 October",
           "todo \"Submit to Apple Health\", due Sunday 4 October"
         ],
-        "reply": "Got it. Since it's new, do you want to get those slides finished today or is that for later in the week?",
+        "reply": "Got it. Since it's new, do you want to get those slides done today or is there a different **deadline** in mind?",
         "pill": {
           "lateCard": null,
           "lateCardHeld": null,
@@ -2982,10 +3016,11 @@
             }
           ],
           "ungrounded": 0,
-          "gated": false
+          "gated": false,
+          "ms": 2486
         },
-        "ms": 5171,
-        "cardMs": 1025,
+        "ms": 6042,
+        "cardMs": 847,
         "raw": {
           "considered": [],
           "refers": false,

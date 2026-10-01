@@ -740,6 +740,8 @@ export interface RecentEntity extends EntityCardEntity {
     kind: 'edit' | 'view';
     intent?: 'edit' | 'view' | 'confirm' | null;
     already?: boolean;
+    /** An edit card's change, so a tapped one is told in the item's own days */
+    change?: EntityCardChange;
   };
   /** User messages sent after that card, before this one; 0 when this is the first. */
   turns_ago?: number;

@@ -1032,16 +1032,44 @@ function cardItem(e, todayIso = null) {
   return e.type === 'todo' ? `${named} (no day set)` : named;
 }
 
+// What a tapped card may have changed, as the app sends it.
+const APPLIED_FIELDS = new Set([...Object.values(FIELDS).flat(), 'completed', 'body']);
+
+/** The change the user said yes to, from what the app sent, or null (older apps send none). */
+function appliedChangeOf(recent) {
+  const c = recent?.card?.kind === 'edit' ? recent.card.change : null;
+  if (!c || !APPLIED_FIELDS.has(c.field)) return null;
+  const to = c.to == null ? '' : String(c.to).slice(0, 300);
+  if (!to && c.field !== 'completed') return null;
+  if (c.field === 'due_day' && !ISO_DAY.test(to)) return null;
+  const days = Array.isArray(c.days) ? c.days.filter((d) => ISO_DAY.test(String(d))) : [];
+  return {
+    field: c.field,
+    from: c.from == null ? null : String(c.from).slice(0, 300),
+    to,
+    ...(days.length ? { days } : {}),
+  };
+}
+
 /**
  * What became of the last card in this chat, so a follow up such as "did you
  * change it?" gets a truthful answer. The app sends the item with its status.
  */
-export function recentCardPromptSection(recent) {
+export function recentCardPromptSection(recent, todayIso = null) {
   if (!recent || !recent.id || !recent.title || !ENTITY_TYPES.has(recent.type)) return '';
   const item = `their ${recent.type} "${String(recent.title).slice(0, 120)}"`;
   if (recent.status === 'applied') {
-    const what = recent.summary ? ` ${String(recent.summary).slice(0, 160)}` : '';
-    return `\n\n=== LAST CARD ===\nEarlier in this chat the app showed the user a card for ${item}; they tapped Yes and the change was made.${what} It is done: if they ask, say so plainly, and do not tell them to tap or confirm anything.`;
+    const done =
+      'If they ask about that change, answer that yes, it was made, and say what the item is now, without mentioning the card or tapping. Never offer to make it again, and do not tell them to tap or confirm anything.';
+    const change = appliedChangeOf(recent);
+    if (change) {
+      // the item as the card showed it (before), and the change they said yes to
+      const card = { entity: recent, change };
+      return `\n\n=== LAST CARD ===\nEarlier in this chat the app showed the user a card for ${cardItem(recent, todayIso)}, proposing to ${changeInWords(card, todayIso)}. They tapped Yes, so that change has been made: what this says about the item is how it was before; wherever else this prompt shows the item, it shows it as it is now, after the change. ${done}`;
+    }
+    // older apps send the closing line the app showed, written when they tapped
+    const what = recent.summary ? ` The app told them then: ${String(recent.summary).slice(0, 160)}` : '';
+    return `\n\n=== LAST CARD ===\nEarlier in this chat the app showed the user a card for ${item}; they tapped Yes, so that change has been made.${what} Wherever else this prompt shows the item, it shows it as it is now, after the change. ${done}`;
   }
   if (recent.status === 'undone') {
     return `\n\n=== LAST CARD ===\nEarlier in this chat the app showed the user a card for ${item}; they confirmed a change and then undid it, so the item is as it was.`;
@@ -1099,7 +1127,7 @@ export function anchorPromptSection(anchor, todayIso, opts = {}) {
 export function turnItemSections({ match, card, recent, anchor = null, mode, todayIso }) {
   let out = '';
   if (card) out += entityCardPromptSection(card, { anchorId: anchor?.id || null, todayIso });
-  out += recentCardPromptSection(recent);
+  out += recentCardPromptSection(recent, todayIso);
   out += anchorPromptSection(anchor, todayIso, { mode });
   out += theirItemsPromptSection(match, todayIso, { mode, card, anchor });
   return out;

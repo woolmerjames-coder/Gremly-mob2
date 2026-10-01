@@ -25,21 +25,30 @@ import type {
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+export interface DayWordsOptions {
+  /**
+   * "Today" and "Tomorrow" when they apply (the default). Off for words that
+   * are kept, such as the closing line saved on a tapped card, which would
+   * otherwise be wrong the next day.
+   */
+  relative?: boolean;
+}
+
 /** "Thu 1 Oct" from YYYY-MM-DD, "Today" and "Tomorrow" when they apply. */
-export function formatDay(dateStr: string | null | undefined): string {
+export function formatDay(dateStr: string | null | undefined, opts: DayWordsOptions = {}): string {
   if (!dateStr) return '';
   const ds = getDateService();
-  if (ds.isToday(dateStr)) return 'Today';
-  if (ds.isTomorrow(dateStr)) return 'Tomorrow';
+  if (opts.relative !== false && ds.isToday(dateStr)) return 'Today';
+  if (opts.relative !== false && ds.isTomorrow(dateStr)) return 'Tomorrow';
   const d = ds.fromLocalDate(dateStr);
   if (!d) return dateStr;
   return `${WEEKDAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
 }
 
 /** Several days in one phrase: "Mon 28 Sep and today". */
-export function formatDays(days: string[]): string {
+export function formatDays(days: string[], opts: DayWordsOptions = {}): string {
   const words = days.map((d, i) => {
-    const w = formatDay(d);
+    const w = formatDay(d, opts);
     return i > 0 && (w === 'Today' || w === 'Tomorrow') ? w.toLowerCase() : w;
   });
   if (words.length < 2) return words[0] || '';
@@ -96,20 +105,22 @@ export function entitySubtitle(
 export function describeChange(
   entity: EntityCardEntity,
   change: EntityCardChange,
+  opts: DayWordsOptions = {},
 ): { from: string; to: string; label: string } {
+  const dayWords = (d: string | null | undefined) => formatDay(d, opts);
   switch (change.field) {
     case 'due_day': {
       // keep the time with the day, as the mock does, so the row reads as a whole
       const time = formatTime(entity.due_time);
       const withTime = (day: string) => (day && time ? `${day}, ${time}` : day);
       return {
-        from: withTime(formatDay(change.from)) || 'No day',
-        to: withTime(formatDay(change.to)),
+        from: withTime(dayWords(change.from)) || 'No day',
+        to: withTime(dayWords(change.to)),
         label: 'Change to',
       };
     }
     case 'due_time': {
-      const day = formatDay(entity.due_day ?? entity.target_date);
+      const day = dayWords(entity.due_day ?? entity.target_date);
       const withDay = (t: string) => (day && t ? `${day}, ${t}` : t);
       return {
         from: withDay(formatTime(change.from)) || 'No time',
@@ -134,7 +145,7 @@ export function describeChange(
     case 'completed':
       return { from: 'Open', to: 'Done', label: 'Mark as' };
     case 'logged':
-      return { from: 'Not logged', to: formatDays(loggedDaysOf(change)), label: 'Log for' };
+      return { from: 'Not logged', to: formatDays(loggedDaysOf(change), opts), label: 'Log for' };
     default:
       return { from: change.from || '', to: change.to, label: 'Change to' };
   }
@@ -224,7 +235,8 @@ export async function applyEntityChange(
 ): Promise<AppliedChange> {
   const store = useGremlyStore.getState();
   const source = opts.source ?? 'chat';
-  const words = describeChange(entity, change);
+  // the closing line is kept on the card, so its days are dates, not today or tomorrow
+  const words = describeChange(entity, change, { relative: false });
   const after = entityAfterChange(entity, change);
 
   if (entity.type === 'todo') {
@@ -294,7 +306,7 @@ export async function applyEntityChange(
           const now = useGremlyStore.getState();
           for (const day of days) await now.removeHabitCompletionForDate(habit.id, day);
         },
-        summary: `Logged ${habit.name} for ${formatDays(days)}.`,
+        summary: `Logged ${habit.name} for ${formatDays(days, { relative: false })}.`,
         entity: after,
       };
     }
@@ -454,7 +466,7 @@ export function recentEntityFor(messages: SpaceChatMessage[]): RecentEntity | nu
       ),
       card:
         meta.card.kind === 'edit'
-          ? { kind: 'edit' }
+          ? { kind: 'edit', change: meta.card.change }
           : {
               kind: 'view',
               intent: meta.card.intent ?? null,

@@ -17,6 +17,7 @@ import {
   lateCardAlreadyShown,
 } from '../../../lib/chat/entityCards';
 import type { EntityCard, SpaceChatMessage } from '../../../lib/types';
+import { getDateService } from '../../../lib/date/DateService';
 
 const dentist = {
   id: 't1',
@@ -55,6 +56,12 @@ describe('entity card wording', () => {
   test('formatDay and formatTime read like the mockup', () => {
     expect(formatDay('2031-10-01')).toBe('Wed 1 Oct');
     expect(formatDay(null)).toBe('');
+    // words that are kept say the date, never today or tomorrow
+    const ds = getDateService();
+    expect(formatDay(ds.today())).toBe('Today');
+    expect(formatDay(ds.tomorrow())).toBe('Tomorrow');
+    expect(formatDay(ds.today(), { relative: false })).toMatch(/^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) \d{1,2} [A-Z][a-z]{2}$/);
+    expect(formatDay(ds.tomorrow(), { relative: false })).not.toBe('Tomorrow');
     expect(formatTime('14:00')).toBe('2:00pm');
     expect(formatTime('14:00:00')).toBe('2:00pm');
     expect(formatTime('09:05')).toBe('9:05am');
@@ -195,7 +202,8 @@ describe('cards in the chat list', () => {
       status: 'pending',
       summary: null,
       turns_ago: 1,
-      card: { kind: 'edit' },
+      // the change goes with it, so a tapped card is told in the item's own days
+      card: { kind: 'edit', change: { field: 'due_day', from: null, to: '2031-10-02' } },
     });
     expect(recentEntityFor([msg('a1', 'assistant'), card('c1', 'applied')])).toMatchObject({
       id: 't1',

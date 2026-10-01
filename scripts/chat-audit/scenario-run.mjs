@@ -63,6 +63,7 @@ const outPath = process.argv[3];
 const only = process.argv[4] && process.argv[4] !== 'all' ? new Set(process.argv[4].split(',')) : null;
 const SPLIT = process.env.PILL_SPLIT === 'on';
 const REPEAT = Number(process.env.REPEAT || 1);
+const OLD_APP = process.env.OLD_APP === 'on';
 const spec = JSON.parse(readFileSync(file, 'utf8'));
 if (spec.itemsFrom) {
   const base = JSON.parse(readFileSync(join(dirname(file), spec.itemsFrom), 'utf8'));
@@ -205,6 +206,31 @@ function lateCardAlreadyShown(shown, card) {
       c.change.field === card.change.field &&
       (card.change.field === 'body_add' || String(c.change.to) === String(card.change.to)),
   );
+}
+
+/**
+ * The closing line saved on a tapped card, as builds before the change was
+ * sent wrote it (Today and Tomorrow when they applied). Newer builds send the
+ * change itself and the Worker words it, so this only matters with OLD_APP=on.
+ */
+function appSummary(card, todayIso) {
+  const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const MO = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const day = (iso) => {
+    if (!iso) return '';
+    const d = new Date(`${iso}T12:00:00Z`);
+    const t = new Date(`${todayIso}T12:00:00Z`);
+    const diff = Math.round((d - t) / 86400000);
+    if (diff === 0) return 'Today';
+    if (diff === 1) return 'Tomorrow';
+    return `${WD[d.getUTCDay()]} ${d.getUTCDate()} ${MO[d.getUTCMonth()]}`;
+  };
+  const c = card.change;
+  const title = card.entity.title;
+  if (c.field === 'due_day') return `Done. ${title} is now ${day(c.to)}.`;
+  if (c.field === 'logged') return `Done. Logged ${title} for ${(c.days || [c.to]).map(day).join(' and ')}.`;
+  if (c.field === 'completed') return `Done. ${title} is marked done.`;
+  return `Done. ${title} is now ${c.to}.`;
 }
 
 /** Apply a tapped card to the item list (what the app would write). */
@@ -359,10 +385,16 @@ for (const sc of runs) {
       recent = {
         ...card.entity,
         status: tapped ? 'applied' : 'pending',
-        summary: tapped ? `Done. ${card.entity.title} is now ${card.change.to}.` : null,
-        change: card.change ? { field: card.change.field, to: card.change.to } : null,
-        // what the card was for, as the app sends it (recentEntityFor)
-        card: { kind: card.kind, intent: card.intent || null, already: !!card.already },
+        summary: tapped ? appSummary(card, todayIso) : null,
+        // what the card was for, as the app sends it (recentEntityFor): an
+        // edit card carries the change, a view card what it was shown for
+        // (OLD_APP=on sends what builds before the change was sent: the kind only)
+        card:
+          card.kind === 'edit'
+            ? OLD_APP
+              ? { kind: 'edit' }
+              : { kind: 'edit', change: card.change }
+            : { kind: card.kind, intent: card.intent || null, already: !!card.already },
         turns_ago: 0,
       };
     } else if (card && card.kind === 'choose') {
