@@ -52,7 +52,7 @@ import type {
   QualityIssue,
 } from './summaryTypes';
 
-const DEFAULT_WRITER_MODEL = 'claude-sonnet-4-6';
+const DEFAULT_WRITER_MODEL = 'claude-sonnet-5-5';
 const DEFAULT_CHECKER_MODEL = 'claude-haiku-4-5-20251001';
 
 // ── Writer system prompt ───────────────────────────────────────────────────
@@ -439,6 +439,13 @@ function userContent(message: UserMessage) {
   return blocks;
 }
 
+// Claude 5 models reject a temperature setting and think before answering by
+// default; for them the temperature is left out and up-front thinking is off,
+// which matches how Sonnet 4.6 wrote these decks.
+function isClaude5(model: string): boolean {
+  return /^claude-(sonnet|opus|fable|mythos)-5/.test(model);
+}
+
 async function callAnthropic(
   apiKey: string,
   model: string,
@@ -457,7 +464,7 @@ async function callAnthropic(
     body: JSON.stringify({
       model,
       max_tokens: maxTokens,
-      temperature,
+      ...(isClaude5(model) ? { thinking: { type: 'between_tools' } } : { temperature }),
       // The system prompts here are fixed, so the same one is read from the
       // cache by every call made within a few minutes, for any person.
       system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],

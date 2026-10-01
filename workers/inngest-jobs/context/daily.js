@@ -29,7 +29,7 @@ import { recentCorrections } from './corrections';
 import { loadStory } from './story';
 import { invalidateChatCache } from './cache';
 
-export const DCO_PROMPT_VERSION = 'dco-v4-2026-10-01';
+export const DCO_PROMPT_VERSION = 'dco-v4-2026-10-01b';
 
 function trim(text, n) {
   const s = String(text || '')
@@ -77,6 +77,20 @@ function hhmm(min) {
   const h = Math.floor(min / 60);
   const m = min % 60;
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+/** Timed events merged into busy blocks, in order. */
+export function busyBlocks(timedEvents) {
+  const sorted = timedEvents
+    .map((e) => [e.start, Math.max(e.start, e.end)])
+    .sort((x, y) => x[0] - y[0]);
+  const merged = [];
+  for (const b of sorted) {
+    if (merged.length && b[0] <= merged[merged.length - 1][1])
+      merged[merged.length - 1][1] = Math.max(merged[merged.length - 1][1], b[1]);
+    else merged.push([...b]);
+  }
+  return merged.map(([a, b]) => ({ from: hhmm(a), to: hhmm(b) }));
 }
 
 /** Free windows between timed events, 08:00 to 21:00 local, of 45 minutes or more. */
@@ -237,11 +251,12 @@ export function renderDay(g, tz) {
     const when = c.is_all_day
       ? `${startDay} all day`
       : `${localDateTime(tz, c.start_at)} to ${localDateTime(tz, c.end_at).slice(11)}`;
+    const cancelled = g.cancelledIds?.has(c.id);
     calLines.push(
-      `${ref} | ${relativeDay(startDay, today)} | ${when} | ${trim(c.title, 120)}${c.location ? ` | ${trim(c.location, 60)}` : ''}`,
+      `${ref} | ${relativeDay(startDay, today)} | ${when} | ${trim(c.title, 120)}${c.location ? ` | ${trim(c.location, 60)}` : ''}${cancelled ? ' | cancelled' : ''}`,
     );
-    // The calendar sync does not record cancellations; the title is the only sign, so the model judges.
-    if (!c.is_all_day && startDay === today) {
+    // Cancelled entries were picked out by readTodayCalendar; they are not busy time.
+    if (!c.is_all_day && startDay === today && !cancelled) {
       todayTimed.push({
         start: minutesOfDay(tz, c.start_at),
         end: minutesOfDay(tz, c.end_at) || 1439,
@@ -374,6 +389,17 @@ export function renderDay(g, tz) {
       : '(nothing on the calendar)';
   lines.push(
     `CALENDAR, TODAY AND NEXT 3 DAYS (ref | relative | when | title | place):\n${calLines.join('\n') || calendarNote}`,
+  );
+  // Worked out in code so the brief never has to count or add up times itself.
+  const blocks = busyBlocks(todayTimed);
+  lines.push(
+    `TODAY'S SHAPE, WORKED OUT FROM THE CALENDAR: ${
+      g.calendarConnected === false
+        ? 'no calendar is connected, so nothing is known about their meetings, and the day cannot be called open or free'
+        : todayTimed.length
+          ? `${todayTimed.length} timed ${todayTimed.length === 1 ? 'entry' : 'entries'} (cancelled ones left out); busy ${blocks.map((b) => `${b.from} to ${b.to}`).join(', ')}; clear stretches of 45 minutes or more between 08:00 and 21:00: ${free.map((w) => `${w.from} to ${w.to}`).join(', ') || 'none'}`
+          : 'nothing timed on the calendar today'
+    }.`,
   );
   lines.push('');
   lines.push(`ON TODAY OR DUE TODAY (ref | title | note):\n${dueLines.join('\n') || '(none)'}`);
@@ -533,8 +559,8 @@ ${CARE_RULES}
 YOUR JOB
 - Decide what genuinely matters today and say it plainly. Weigh the calendar, what is due, habits for the week, the weekly intention, recent journal entries and the ledger.
 - headline: the notification line that opens the brief. What today looks like, in concrete terms, at most 90 characters. No counts of todos or habits, no feelings, no advice. When little is known about today, name what is true: a quiet day, something genuinely ahead, or, for someone returning after time away, a welcome back.
-- day_shape: one sentence on the shape of the day from the calendar entries given: how full it is and when the clear stretches are. Entries the calendar marks as cancelled are not busy time. When no calendar is connected, describe the day from what is due and planned instead and do not mention a calendar or free time.
-- lead_what and lead_why_today: the one thing that leads today and why it is today's.
+- day_shape: one sentence on how full the day is and when the clear stretches are, taken from TODAY'S SHAPE. Use its times as given and never count or add up entries yourself. When no calendar is connected, say only what is due or planned, never that the day is open, clear or free, and leave it empty when nothing is due or planned.
+- lead_what and lead_why_today: the one thing that leads today and why it is today's. What leads is what matters most to the person today, which is not always what fills the most time.
 - today_focus: up to three short items, each a concrete thing from the inputs. Fewer is fine, and none is fine; never fill it with general advice. also_matters: anything else worth knowing, briefly.
 - claims: the items with a real claim on today (due today, on Today, a habit that needs today to stay on track for the week, a calendar entry). Each cites its ref and says why in a few words.
 - reach_ref and reach_why: at most one undated item worth suggesting today, only when a ledger fact gives a true reason for today; cite those facts in reach_fact_refs. Otherwise leave it empty.
@@ -616,7 +642,50 @@ function clearField(o, field) {
   if (field === 'reach_why') o.reach_ref = null;
 }
 
-/** Generate, check, retry once, assemble. Returns the DCO object and run notes. */
+const CANCELLED_SCHEMA = {
+  type: 'object',
+  properties: { cancelled_refs: { type: 'array', items: { type: 'string' } } },
+  required: ['cancelled_refs'],
+};
+
+/**
+ * Some calendars keep a cancelled meeting and only mark it in the title. A
+ * small model picks those out of today's timed entries, so code can work out
+ * the shape of the day without counting them as busy.
+ */
+export async function readTodayCalendar(env, g, tz, today) {
+  const timed = g.calendar.filter(
+    (c) => !c.is_all_day && localDate(tz, new Date(c.start_at)) === today,
+  );
+  if (!timed.length) return new Set();
+  const byRef = new Map(timed.map((c, i) => [`e${i + 1}`, c.id]));
+  const lines = timed.map(
+    (c, i) =>
+      `e${i + 1} | ${localDateTime(tz, c.start_at).slice(11)} to ${localDateTime(tz, c.end_at).slice(11)} | ${trim(c.title, 160)}`,
+  );
+  try {
+    const { output } = await jsonCall(env, {
+      primary: modelFor(env, 'reader'),
+      fallback: modelFor(env, 'readerFallback'),
+      system:
+        "Some calendars keep a meeting after it has been cancelled and show that only in the entry itself. From today's calendar entries, list the refs of the ones that are cancelled and will not happen. When unsure, leave an entry out.",
+      user: `TODAY'S TIMED CALENDAR ENTRIES (ref | when | title):\n${lines.join('\n')}`,
+      schema: CANCELLED_SCHEMA,
+      maxTokens: 1500,
+      effort: 'low',
+    });
+    return new Set((output.cancelled_refs || []).map((r) => byRef.get(r)).filter(Boolean));
+  } catch (err) {
+    console.warn(`[DCO v4] calendar read failed: ${err.message}`);
+    return new Set();
+  }
+}
+
+// A brief is written again only when one of these fails the check; any other
+// field that fails is dropped instead, so most days need one draft.
+const MUST_PASS = new Set(['headline', 'lead_what']);
+
+/** Generate, check, retry once if needed, assemble. Returns the DCO object and run notes. */
 export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
   const tz = tzIn || (await userTimezone(env, userId));
   const today = localDate(tz);
@@ -624,6 +693,7 @@ export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
     gatherDay(env, userId, tz, today),
     personIdentity(env, userId),
   ]);
+  g.cancelledIds = await readTodayCalendar(env, g, tz, today);
   const { text, refs, computed } = renderDay(g, tz);
 
   const gen = async (extra) =>
@@ -641,7 +711,7 @@ export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
   let { output, model } = await gen();
   let problems = await checkDay(env, text, output, person);
   let attempts = 1;
-  if (problems.length) {
+  if (problems.some((p) => MUST_PASS.has(p.field))) {
     attempts = 2;
     const retry = await gen(
       `A checker found these problems in your first draft. Write the brief again and fix them:\n${problems.map((p) => `- ${p.field}: ${p.problem}`).join('\n')}`,
@@ -649,14 +719,14 @@ export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
     output = retry.output;
     model = retry.model;
     problems = await checkDay(env, text, output, person);
-    for (const p of problems) clearField(output, p.field);
-    // The brief always needs a headline: fall back to a sound line the checker passed.
-    if (!output.headline) {
-      const fallback = [output.day_shape, output.lead_what].find(
-        (t) => typeof t === 'string' && t.trim(),
-      );
-      output.headline = fallback ? trim(fallback, 120) : null;
-    }
+  }
+  for (const p of problems) clearField(output, p.field);
+  // The brief always needs a headline: fall back to a sound line the checker passed.
+  if (!output.headline) {
+    const fallback = [output.day_shape, output.lead_what].find(
+      (t) => typeof t === 'string' && t.trim(),
+    );
+    output.headline = fallback ? trim(fallback, 120) : null;
   }
 
   // References must exist; unknown ones are dropped.

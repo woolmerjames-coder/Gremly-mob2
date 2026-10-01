@@ -1924,7 +1924,7 @@ const weeklySummaryV07Worker = inngest.createFunction(
       const rows = await res.json();
       return Array.isArray(rows) && rows.length > 0;
     });
-    if (alreadyExists) {
+    if (alreadyExists && event.data.dry_run !== true) {
       return { success: true, skipped: true, reason: 'summary_already_exists' };
     }
 
@@ -1944,6 +1944,34 @@ const weeklySummaryV07Worker = inngest.createFunction(
             weeklySummaryContext(env, user_id, week_start, week_end),
           )
         : null;
+
+    // A comparison run (dry_run) writes nothing: it reuses the analyst
+    // observations already saved for the week and returns the deck, written by
+    // another model when writer_model is given, so two models can be compared.
+    if (event.data.dry_run === true) {
+      const runEnv = event.data.writer_model
+        ? { ...env, SUMMARY_WRITER_MODEL: String(event.data.writer_model) }
+        : env;
+      const dry = await step.run('generate-summary-dry-run', async () =>
+        generateAdaptiveSummary({
+          userId: user_id,
+          weekStart: week_start,
+          weekEnd: week_end,
+          label: `${user_id.slice(0, 8)} · ${week_start} · dry run`,
+          env: runEnv,
+          runRpc,
+          fetchRows,
+          ledgerContext,
+        }),
+      );
+      return {
+        dry_run: true,
+        user_id,
+        week_start,
+        writer_model: runEnv.SUMMARY_WRITER_MODEL || 'default',
+        ...dry,
+      };
+    }
 
     // Step B: run the analyst — produces week_shape and world_signal_candidate
     // observations that loadBrief (inside generateAdaptiveSummary) needs.

@@ -37,6 +37,8 @@ import { CARE_RULES } from './careRules';
 
 export interface ClassifierEnv {
   ANTHROPIC_API_KEY: string;
+  /** Overrides the model, for comparison runs. */
+  WORLDS_CLASSIFIER_MODEL?: string;
 }
 
 // ─── Enums and constants ─────────────────────────────────────────────────────
@@ -1017,7 +1019,15 @@ const SUBMIT_CLASSIFIER_OUTPUT_TOOL = {
 
 // ─── Classifier invoke ───────────────────────────────────────────────────────
 
-const MODEL = 'claude-sonnet-4-6';
+const DEFAULT_MODEL = 'claude-sonnet-5-5';
+
+// Claude 5 models reject forced tool use and think before answering by default.
+// For them the tool is offered with tool_choice auto (it is the only tool, and
+// the request says to call it), and up-front thinking is off, which matches how
+// Sonnet 4.6 ran this job.
+function isClaude5(model: string): boolean {
+  return /^claude-(sonnet|opus|fable|mythos)-5/.test(model);
+}
 const MAX_TOKENS = 16000;
 
 export interface AnalystObservationsInput {
@@ -1043,6 +1053,8 @@ export async function classifyWorldsWeekly(
     analystObservations,
   );
 
+  const model = env.WORLDS_CLASSIFIER_MODEL || DEFAULT_MODEL;
+  const claude5 = isClaude5(model);
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -1051,16 +1063,28 @@ export async function classifyWorldsWeekly(
       'content-type': 'application/json',
     },
     body: JSON.stringify({
-      model: MODEL,
+      model,
       max_tokens: MAX_TOKENS,
       // The tool and system prompt are the same for everyone (about 10k
       // tokens), so they are cached: every run within a few minutes of another
       // reads them at a tenth of the input price. The Sunday run starts
       // everyone together, so most people after the first get the cached copy.
-      system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
+      system: [
+        { type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
+        ...(claude5
+          ? [
+              {
+                type: 'text',
+                text: 'Reply only by calling submit_classifier_output once, with the full output.',
+              },
+            ]
+          : []),
+      ],
       messages: [{ role: 'user', content: userPrompt }],
       tools: [SUBMIT_CLASSIFIER_OUTPUT_TOOL],
-      tool_choice: { type: 'tool', name: 'submit_classifier_output' },
+      ...(claude5
+        ? { tool_choice: { type: 'auto' }, thinking: { type: 'between_tools' } }
+        : { tool_choice: { type: 'tool', name: 'submit_classifier_output' } }),
       stream: true,
     }),
   });
@@ -1156,7 +1180,7 @@ export async function classifyWorldsWeekly(
 
   return {
     run_metadata: {
-      model: MODEL,
+      model,
       bundle_mode: bundle.mode,
       window_start: bundle.mode === 'backfill' ? bundle.windowStart : null,
       window_end: bundle.mode === 'backfill' ? bundle.windowEnd : null,

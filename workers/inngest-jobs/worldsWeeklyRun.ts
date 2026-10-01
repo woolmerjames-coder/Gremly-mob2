@@ -27,17 +27,28 @@ export function createWorldsWeeklyRun(inngest: Inngest<{ id: 'gremly' }>) {
         .toISOString()
         .slice(0, 10);
 
+      // A comparison run (dry_run) classifies without writing anything, and can
+      // name the model to use, so two models can be compared on the same window.
+      const dryRun = event.data?.dry_run === true;
+      const runEnv = event.data?.classifier_model
+        ? { ...env, WORLDS_CLASSIFIER_MODEL: String(event.data.classifier_model) }
+        : env;
+
       // ── Step 1: process the window ───────────────────────────────
-      const { classifierCounts, writeResult } = await step.run(
+      const { classifierCounts, writeResult, classifierOutput } = await step.run(
         'process-window',
         async () =>
           processWorldsWindow({
             ownerId: userId,
             windowStart,
             windowEnd,
-            env,
+            env: runEnv,
+            opts: dryRun ? { dryRun: true } : undefined,
           }),
       );
+      if (dryRun) {
+        return { dry_run: true, user_id: userId, classifierCounts, classifierOutput };
+      }
 
       // ── Step 2: record completion event in Supabase ──────────────
       await step.run('write-completed-event', async () => {

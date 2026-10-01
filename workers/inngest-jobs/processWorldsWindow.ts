@@ -27,13 +27,17 @@ export interface ProcessWindowEnv {
   SUPABASE_SERVICE_KEY: string;
   CONTEXT_PIPELINE?: string;
   CONTEXT_LIVE_USERS?: string;
+  WORLDS_CLASSIFIER_MODEL?: string;
 }
 
 /** The context pipeline mode for one person: people on the live list get 'on' early. */
 function contextModeFor(env: ProcessWindowEnv, ownerId: string): string {
   const mode = env.CONTEXT_PIPELINE || 'shadow';
   if (mode === 'off' || mode === 'on') return mode;
-  const live = String(env.CONTEXT_LIVE_USERS || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const live = String(env.CONTEXT_LIVE_USERS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
   return live.includes(ownerId) ? 'on' : mode;
 }
 
@@ -164,7 +168,10 @@ export async function processWorldsWindow(params: {
     activeWorlds,
     activeChapters,
     activeLifeContexts,
-    { ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY },
+    {
+      ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
+      WORLDS_CLASSIFIER_MODEL: env.WORLDS_CLASSIFIER_MODEL,
+    },
     analystObservations,
   );
 
