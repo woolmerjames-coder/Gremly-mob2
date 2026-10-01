@@ -306,7 +306,9 @@ comment on table public.user_engagement is
 -- next_fire_at (null means "needs planning") and sends.
 create table if not exists public.reminder_schedule (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users (id) on delete cascade,
+  -- no foreign key: items are not tied to auth.users either, and items left by
+  -- deleted accounts must never make a save fail
+  user_id uuid not null,
   entity_type text not null check (entity_type in ('todo', 'habit', 'note', 'person')),
   entity_id uuid not null,
   reminder_id text not null,
@@ -346,6 +348,10 @@ begin
   end if;
 
   v_new := to_jsonb(new);
+  -- an item without an owner has nobody to remind
+  if v_new ->> 'owner_id' is null then
+    return new;
+  end if;
   v_reminders := case when jsonb_typeof(v_new -> 'reminders_json') = 'array'
                       then v_new -> 'reminders_json' else '[]'::jsonb end;
   v_closed := coalesce((v_new ->> 'archived')::boolean, false)
@@ -403,20 +409,24 @@ select t.owner_id, 'todo', t.id, r ->> 'id', r,
        case when coalesce(t.archived, false) or t.completed_at is not null then 'closed' else 'active' end
   from public.todos t, jsonb_array_elements(case when jsonb_typeof(t.reminders_json) = 'array' then t.reminders_json else '[]'::jsonb end) r
  where r ->> 'id' is not null and t.owner_id is not null
+   and exists (select 1 from auth.users u where u.id = t.owner_id)
 union all
 select h.owner_id, 'habit', h.id, r ->> 'id', r,
        case when coalesce(h.archived, false) or h.completed_at is not null then 'closed' else 'active' end
   from public.habits h, jsonb_array_elements(case when jsonb_typeof(h.reminders_json) = 'array' then h.reminders_json else '[]'::jsonb end) r
  where r ->> 'id' is not null and h.owner_id is not null
+   and exists (select 1 from auth.users u where u.id = h.owner_id)
 union all
 select n.owner_id, 'note', n.id, r ->> 'id', r,
        case when coalesce(n.archived, false) then 'closed' else 'active' end
   from public.notes n, jsonb_array_elements(case when jsonb_typeof(n.reminders_json) = 'array' then n.reminders_json else '[]'::jsonb end) r
  where r ->> 'id' is not null and n.owner_id is not null
+   and exists (select 1 from auth.users u where u.id = n.owner_id)
 union all
 select p.owner_id, 'person', p.id, r ->> 'id', r, 'active'
   from public.people p, jsonb_array_elements(case when jsonb_typeof(p.reminders_json) = 'array' then p.reminders_json else '[]'::jsonb end) r
  where r ->> 'id' is not null and p.owner_id is not null
+   and exists (select 1 from auth.users u where u.id = p.owner_id)
 on conflict (entity_type, entity_id, reminder_id) do nothing;
 
 -- ─── Simulations ────────────────────────────────────────────────────────────
