@@ -73,6 +73,8 @@ interface NowHeaderProps {
   onNotesPress?: () => void;
   /** Handler for mascot press - opens help */
   onMascotPress?: () => void;
+  /** Opens Settings (account, notifications, sign out) */
+  onSettingsPress?: () => void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -121,6 +123,7 @@ export function NowHeader({
   onCalendarPress,
   onNotesPress,
   onMascotPress,
+  onSettingsPress,
 }: NowHeaderProps) {
   const styles = useStyles();
   const { resetInactivity } = useMascotMode();
@@ -194,6 +197,19 @@ export function NowHeader({
           {/* Partial divider under date - brand accent */}
           <View style={styles.headerDivider} />
         </View>
+        {onSettingsPress ? (
+          <TouchableOpacity
+            onPress={onSettingsPress}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Settings"
+            hitSlop={10}
+            style={styles.settingsButton}
+            testID="now-header-settings"
+          >
+            <Icon name="Settings" size="sm" color={INK_SUBTLE} strokeWidth={1.8} />
+          </TouchableOpacity>
+        ) : null}
         <View style={styles.mascotColumn}>
           <TouchableOpacity
             onPress={handleMascotPress}
@@ -294,6 +310,14 @@ const useStyles = makeStyles((t) => ({
   greetingColumn: {
     flex: 1,
     justifyContent: 'flex-start',
+  },
+  settingsButton: {
+    width: 36,
+    height: 36,
+    marginTop: 6,
+    marginLeft: t.spacing[2],
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   mascotColumn: {
     marginLeft: t.spacing[3],

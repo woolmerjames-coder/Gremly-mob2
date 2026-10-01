@@ -70,6 +70,7 @@ import { triggerLight } from '../../lib/haptics';
 import { getDateService } from '../../lib/date';
 // Zustand store - used for all Sweep data operations
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import type { ClarificationWhen } from '../../lib/minddrop/clarification';
 import { useWeekDays } from '../../lib/store/weekGridSelectors';
 import { useNeedsMindDropTutorial, useCanCreate } from '../../lib/store/lifecycleSelectors';
 import {
@@ -84,6 +85,12 @@ import { env, getEnv } from '../../lib/env';
 import { getSessionToken } from '../../lib/cortex/getSessionToken';
 import { markSweepCompleted } from '../../lib/sweep/engine';
 import { computeSweepCardMeta } from '../../lib/sweep/computeSweepCardMeta';
+import {
+  entityNow,
+  goneSinceStart,
+  orderSweepCards,
+  sweepCardNow,
+} from '../../lib/sweep/sweepOrder';
 import type {
   SweepCandidate,
   SweepCandidateTodo,
@@ -147,6 +154,8 @@ import { SweepCompletedModal } from '../../components/sweep/SweepCompletedModal'
 import { SweepEndCard } from '../../components/sweep/SweepEndCard';
 import { SweepEndItemList } from '../../components/sweep/SweepEndItemList';
 import { ClarificationPopup } from '../../components/minddrop/ClarificationPopup';
+import { RelationPopup, type RelationResolution } from '../../components/minddrop/RelationPopup';
+import { relationOf } from '../../lib/minddrop/dropRelation';
 import { sweepLog } from '../../lib/debug/sweepLogger';
 
 // Gremly mascot for summary step
@@ -1713,17 +1722,12 @@ function SweepDecisionStep({
     storeIsLoading,
   );
 
-  // Sort candidates: todos first, then events, then notes
-  const candidatesWithMeta = useMemo(() => {
-    const todos = unsortedCandidatesWithMeta.filter((c) => c.candidate.kind === 'todo');
-    const events = unsortedCandidatesWithMeta.filter(
-      (c) => c.candidate.kind === 'note' && c.meta.noteCardType === 'event',
-    );
-    const notes = unsortedCandidatesWithMeta.filter(
-      (c) => c.candidate.kind === 'note' && c.meta.noteCardType !== 'event',
-    );
-    return [...todos, ...events, ...notes];
-  }, [unsortedCandidatesWithMeta]);
+  // Cards with a question first (their answers can change other cards), then
+  // todos, events and notes (lib/sweep/sweepOrder.ts)
+  const candidatesWithMeta = useMemo(
+    () => orderSweepCards(unsortedCandidatesWithMeta),
+    [unsortedCandidatesWithMeta],
+  );
 
   // Store mutations for sweep actions
   const updateTodo = useGremlyStore((state) => state.updateTodo);
@@ -1733,6 +1737,7 @@ function SweepDecisionStep({
   const _updateHabit = useGremlyStore((state) => state.updateHabit);
   const archiveHabit = useGremlyStore((state) => state.archiveHabit);
   const resolveEntityClarification = useGremlyStore((state) => state.resolveEntityClarification);
+  const ensureEntityClarification = useGremlyStore((state) => state.ensureEntityClarification);
 
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
@@ -1814,6 +1819,11 @@ function SweepDecisionStep({
   const [clarificationSuccess, setClarificationSuccess] = useState<string | null>(null);
   const [cardFlipKey, setCardFlipKey] = useState(0); // Used to trigger card re-render after clarification
   const [isClarified, setIsClarified] = useState(false); // Triggers flip animation after clarification
+  // Held drops ("is this one you already have?") already asked on this sweep
+  const [relationHandledIds, setRelationHandledIds] = useState<Set<string>>(() => new Set());
+  // The popup steps aside while its item is open in the overlay, then comes back
+  const [relationParked, setRelationParked] = useState(false);
+  const { openItemThenReturn } = useGlobalOverlay();
 
   // Track item details for summary display
   const itemDetailsRef = useRef<Map<string, { name: string; kind: 'todo' | 'habit' | 'note' }>>(
@@ -2317,10 +2327,25 @@ function SweepDecisionStep({
     const storedQuestion = views?.clarification_question || rawAny?.clarification_question;
     const storedOptions = views?.clarification_options || rawAny?.clarification_options;
 
+    let cancelled = false;
     if (needsClarificationFlag && storedQuestion && storedOptions) {
       setClarificationQuestion(storedQuestion);
       setClarificationOptions(storedOptions);
       setShowClarification(true);
+    } else if (needsClarificationFlag && candidate?.id) {
+      // Saved without options (older drops): fetch them now so the question
+      // can be answered during Sweep instead of being silently skipped.
+      setShowClarification(false);
+      setClarificationQuestion(null);
+      setClarificationOptions(null);
+      ensureEntityClarification(candidate.id)
+        .then((res) => {
+          if (cancelled || !res) return;
+          setClarificationQuestion(res.question);
+          setClarificationOptions(res.options);
+          setShowClarification(true);
+        })
+        .catch(() => {});
     } else {
       setShowClarification(false);
       setClarificationQuestion(null);
@@ -2329,7 +2354,10 @@ function SweepDecisionStep({
 
     // Reset success state when moving to new card
     setClarificationSuccess(null);
-  }, [currentIndex, candidatesWithMeta]);
+    return () => {
+      cancelled = true;
+    };
+  }, [currentIndex, candidatesWithMeta, ensureEntityClarification]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Unified Outcome Handler
@@ -3170,14 +3198,14 @@ function SweepDecisionStep({
    * Clarification Selection Handler - User picks an option to clarify ambiguous item
    */
   const handleClarificationSelect = useCallback(
-    async (optionId: string) => {
+    async (optionId: string, when?: ClarificationWhen) => {
       const candidate = candidatesWithMeta[currentIndex]?.candidate;
       if (!candidate) return;
 
       setIsSubmittingClarification(true);
       try {
         // Call the store function to resolve clarification
-        await resolveEntityClarification(candidate.id, optionId);
+        await resolveEntityClarification(candidate.id, optionId, false, when ?? null);
 
         // Show success briefly
         setClarificationSuccess('Got it!');
@@ -3212,6 +3240,63 @@ function SweepDecisionStep({
     setShowClarification(false);
   }, []);
 
+  // A held drop on the current card asks "is this one you already have?",
+  // like a question or a split. The candidates are a snapshot, so what was
+  // asked is tracked here rather than read back from the card.
+  const relationCandidate = candidatesWithMeta[currentIndex]?.candidate;
+  const relationHeld =
+    relationCandidate?.kind === 'note' ? relationOf(relationCandidate.raw?.views) : null;
+  const relationNoteId =
+    relationCandidate &&
+    relationHeld?.status === 'pending' &&
+    !relationHandledIds.has(relationCandidate.id)
+      ? relationCandidate.id
+      : null;
+
+  const markRelationHandled = useCallback((id: string | null) => {
+    if (!id) return;
+    setRelationHandledIds((prev) => new Set(prev).add(id));
+  }, []);
+
+  const handleRelationResolved = useCallback(
+    (outcome: RelationResolution, targetId?: string) => {
+      markRelationHandled(relationNoteId);
+      if (outcome === 'applied') {
+        // Sweep saves its decisions at the end; an earlier one on the item
+        // just changed would undo what the user said yes to
+        if (targetId) decisionsRef.current.delete(targetId);
+        // the drop was only the ask (or a journal entry that stays): next card
+        handleOutcome('changed');
+        return;
+      }
+      const c = relationHeld?.classified;
+      if (outcome === 'clarify' && c?.clarificationQuestion && c.clarificationOptions) {
+        // it was unclear before it was held: its question comes back now
+        setClarificationQuestion(c.clarificationQuestion);
+        setClarificationOptions(c.clarificationOptions as any[]);
+        setShowClarification(true);
+        return;
+      }
+      // filed as it was classified: refresh the card the way an answered question does
+      setCardFlipKey((prev) => prev + 1);
+      setIsClarified(true);
+      setTimeout(() => setIsClarified(false), 850);
+    },
+    [markRelationHandled, relationNoteId, relationHeld, handleOutcome],
+  );
+
+  // A card whose item an earlier answer cleared (removed, merged away, ticked
+  // off) is passed over, in the direction the user was going
+  const lastIndexRef = useRef(currentIndex);
+  useEffect(() => {
+    const step = Math.sign(currentIndex - lastIndexRef.current);
+    lastIndexRef.current = currentIndex;
+    if (isLoading || step === 0) return;
+    const card = candidatesWithMeta[currentIndex]?.candidate;
+    if (!card || !goneSinceStart(card, { todos, notes, habits })) return;
+    setCurrentIndex(currentIndex + step < 0 ? currentIndex + 1 : currentIndex + step);
+  }, [currentIndex, isLoading, candidatesWithMeta, todos, notes, habits]);
+
   // Auto-advance to summary when all cards are processed (fallback)
   useEffect(() => {
     if (!isLoading && candidatesWithMeta.length > 0 && currentIndex >= candidatesWithMeta.length) {
@@ -3229,7 +3314,15 @@ function SweepDecisionStep({
       return null;
     }
 
-    const base = candidatesWithMeta[currentIndex];
+    // The card as its item is now: an answer earlier in this Sweep may have
+    // moved or renamed it since the snapshot was taken
+    const snap = candidatesWithMeta[currentIndex];
+    const base = sweepCardNow(
+      snap,
+      allCandidates,
+      entityNow(snap.candidate, { todos, notes, habits }),
+      spaces,
+    );
 
     // Check if this candidate was just converted (e.g., note -> todo, note -> habit)
     if (convertedCandidate && base.candidate.id === convertedCandidate.originalId) {
@@ -3309,7 +3402,16 @@ function SweepDecisionStep({
     }
 
     return base;
-  }, [currentIndex, candidatesWithMeta, convertedCandidate, todos, habits, notes, spaces]);
+  }, [
+    currentIndex,
+    candidatesWithMeta,
+    convertedCandidate,
+    todos,
+    habits,
+    notes,
+    spaces,
+    allCandidates,
+  ]);
 
   // Loading state
   if (isLoading) {
@@ -3483,6 +3585,25 @@ function SweepDecisionStep({
               onClose={handleClarificationSkip}
               isSubmitting={isSubmittingClarification}
               successMessage={clarificationSuccess}
+            />
+
+            {/* "Is this one you already have?" - shown when the current card is a held drop */}
+            <RelationPopup
+              key={relationNoteId ?? 'none'}
+              visible={!!relationNoteId && !relationParked}
+              noteId={relationNoteId}
+              onClose={() => markRelationHandled(relationNoteId)}
+              onResolved={handleRelationResolved}
+              onOpenItem={
+                openItemThenReturn
+                  ? (entity) => {
+                      setRelationParked(true);
+                      openItemThenReturn({ id: entity.id, type: entity.type }, () =>
+                        setRelationParked(false),
+                      );
+                    }
+                  : undefined
+              }
             />
           </>
         )}

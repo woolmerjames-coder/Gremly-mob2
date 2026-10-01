@@ -669,6 +669,102 @@ export type MessageRole =
   | 'action-confirmation'
   | 'entry-card';
 
+/**
+ * Entity card in chat. The worker matches a mention in the user's message to an
+ * item they already have and proposes what to do; nothing changes until the
+ * user taps. Mockup is spec: Gremly shows the card and asks "Is this the one?".
+ */
+export type EntityCardEntityType = 'todo' | 'habit' | 'note';
+export type EntityCardField =
+  | 'due_day'
+  | 'due_time'
+  | 'name'
+  | 'frequency'
+  | 'body'
+  | 'body_add'
+  | 'completed'
+  /** habits: log a day they did it (the day as YYYY-MM-DD) */
+  | 'logged';
+export interface EntityCardEntity {
+  id: ID;
+  type: EntityCardEntityType;
+  title: string;
+  due_day?: string | null;
+  due_time?: string | null;
+  frequency?: string | null;
+  target_date?: string | null;
+  space_id?: ID | null;
+}
+export interface EntityCardChange {
+  field: EntityCardField;
+  from: string | null;
+  to: string;
+  /**
+   * A habit check-in for several days: every day, oldest first. `to` is the
+   * latest of them, so an app that knows only one day still logs that one.
+   */
+  days?: string[];
+}
+export type EntityCard =
+  | {
+      kind: 'edit';
+      entity: EntityCardEntity;
+      change: EntityCardChange;
+      confidence?: number;
+      /** found by the extraction after the reply, shown once under it */
+      late?: boolean;
+      /** offered under a normal reply rather than taking it over */
+      inPassing?: boolean;
+    }
+  /** intent 'edit': the user wants to change it but has not said what to; Gremly asks. 'confirm': it may be the one they mean; Gremly checks. */
+  | {
+      kind: 'view';
+      entity: EntityCardEntity;
+      intent?: 'edit' | 'view' | 'confirm';
+      /** the item was just saved from the pill; the card is its receipt */
+      saved?: boolean;
+      /** they asked for a change it already had; nothing needed to change */
+      already?: boolean;
+    }
+  | { kind: 'choose'; candidates: EntityCardEntity[] };
+export type EntityCardStatus = 'pending' | 'applied' | 'declined' | 'undone';
+/** The item on the last card in a chat, with what became of it, sent with the next turn. */
+export interface RecentEntity extends EntityCardEntity {
+  status: EntityCardStatus;
+  summary?: string | null;
+  /**
+   * What the card was for: a change waiting on a tap (edit), or showing the
+   * item (view), so "did you change it?" is answered truthfully.
+   */
+  card?: {
+    kind: 'edit' | 'view';
+    intent?: 'edit' | 'view' | 'confirm' | null;
+    already?: boolean;
+    /** An edit card's change, so a tapped one is told in the item's own days */
+    change?: EntityCardChange;
+  };
+  /** User messages sent after that card, before this one; 0 when this is the first. */
+  turns_ago?: number;
+}
+/**
+ * The item a chat was opened about ("Talk it through with Gremly" on a drop).
+ * Saved on Gremly's opener and sent with every turn of that chat.
+ */
+export interface ChatAnchor {
+  id: string;
+  type: 'todo' | 'habit' | 'note';
+  title: string;
+}
+/** Where a chat turn's time went; shown under the reply in dev builds only. */
+export interface ChatTurnTiming {
+  /** From send to the first word on screen, on the phone. */
+  first_ms: number;
+  /** From send to the done event, on the phone. */
+  total_ms: number;
+  /** The Worker's own clock for the same turn, when it sent one. */
+  server?: { triage_ms: number; card_ms: number; pre_ms: number; reply_ms: number } | null;
+}
+
 export interface SpaceChatMessage {
   id: ID;
   chat_id: ID;
@@ -677,7 +773,13 @@ export interface SpaceChatMessage {
   role: MessageRole;
   content: string;
   metadata_json?: {
-    type?: 'action-confirmation' | 'entry-card' | 'multi-intent' | 'saved-item';
+    type?:
+      | 'action-confirmation'
+      | 'entry-card'
+      | 'multi-intent'
+      | 'saved-item'
+      | 'entity-card'
+      | 'chat-anchor';
     actionType?: string;
     actionId?: string;
     entryId?: string;
@@ -740,7 +842,13 @@ export interface SpaceChatMessageInsert {
   role: MessageRole;
   content: string;
   metadata_json?: {
-    type?: 'action-confirmation' | 'entry-card' | 'multi-intent' | 'saved-item';
+    type?:
+      | 'action-confirmation'
+      | 'entry-card'
+      | 'multi-intent'
+      | 'saved-item'
+      | 'entity-card'
+      | 'chat-anchor';
     actionType?: string;
     actionId?: string;
     entryId?: string;
@@ -1008,108 +1116,6 @@ export type EntityChatPreset =
   | 'setup' // NEW: habit setup
   | 'why_skipping' // NEW: habit troubleshooting
   | 'make_easier'; // NEW: habit optimization
-
-/**
- * Request payload for entity chat to Cortex
- */
-export interface EntityChatRequest {
-  type: 'entity-chat';
-  stream?: boolean;
-  userId?: string;
-  entity: {
-    id: string;
-    type: 'todo' | 'habit' | 'note';
-    title: string;
-    body?: string;
-    tags?: string[];
-    due_date?: string;
-    frequency?: string;
-    time_estimate?: number;
-    space_name?: string;
-    created_at: string;
-    times_swept?: number;
-    days_since_created?: number;
-    // Enriched fields
-    subtype?: string;
-    energy_type?: string;
-    time_window?: string;
-    notes?: string;
-    commitment?: boolean;
-    commitment_note?: string;
-    triggers?: string[];
-    replacement_text?: string;
-    mood?: string[];
-    is_favorite?: boolean;
-    // Habit completion stats (only present for habits)
-    habitStats?: {
-      completionsLast7Days: number;
-      completionsLast14Days: number;
-      targetPerWeek: number;
-      currentStreak: number;
-      lastCompletedAt: string | null;
-      daysSinceLastCompletion: number | null;
-      completionRate7Day: number; // 0.0 to 1.0
-    };
-  };
-  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
-  preset?: EntityChatPreset;
-  sweepContext?: {
-    times_moved: number;
-    days_unscheduled: number;
-    is_overdue: boolean;
-  };
-  accountCreatedAt?: string | null;
-  currentTime?: string; // ISO timestamp of when message was sent
-  timezone?: string; // IANA timezone e.g. 'America/New_York'
-  siblingContext?: {
-    sameSpace?: Array<{
-      type: 'todo' | 'habit' | 'note';
-      title: string;
-      frequency?: string;
-      completed_at?: string;
-      last_completed_at?: string;
-    }>;
-    otherHabits?: Array<{
-      title: string;
-      frequency: string;
-      last_completed_at?: string;
-      time_window?: string;
-      completionsLast7Days?: number;
-    }>;
-    recentCompletions?: Array<{
-      title: string;
-      completed_at: string;
-    }>;
-  };
-}
-
-/**
- * Response from Cortex for entity chat
- */
-export interface EntityChatResponse {
-  content: string;
-  saveable?: {
-    detected: boolean;
-    type: 'note' | 'checklist';
-    checklist_items?: string[];
-    has_save_suggestion?: boolean;
-  };
-  promotion?: {
-    suggested: boolean;
-    reason?: string;
-  };
-  /** Save suggestion payload from Cortex (if any) */
-  save_suggestion?: any | null;
-  latency_ms: number;
-  /** Web search sources from Tavily (if web search was used) */
-  sources?: Array<{ title: string; url: string }>;
-  /** Images from web search (if visual query) */
-  images?: string[];
-  /** The search query used for web search (if web search was used) */
-  search_query?: string;
-  /** Fetched URL info from Tavily Extract (if URL was fetched) */
-  fetchedUrl?: { url: string; title: string } | null;
-}
 
 /**
  * Helper functions

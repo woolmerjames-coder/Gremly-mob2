@@ -27,6 +27,13 @@ jest.mock('../phase1', () => ({
     confidence: 0.95,
     source: 'ai',
   }),
+  // v3 unavailable by default in these tests: exercises the v2 fallback path
+  runClassifyV3: jest.fn().mockResolvedValue(null),
+}));
+jest.mock('../../config/featureFlags', () => ({
+  // v3 is off by default in the app; these tests exercise both paths, with
+  // runClassifyV3 returning null (v2 fallback) unless a test says otherwise.
+  FEATURE_FLAGS: { CLASSIFY_V3_ENABLED: true, HEURISTIC_LOGGING_ENABLED: false },
 }));
 jest.mock('../dropSync', () => ({
   syncDropToSupabase: jest
@@ -66,7 +73,7 @@ import {
   handleClassified,
   handleEnriched,
 } from '../dropPhases';
-import { runPhase1 } from '../phase1';
+import { runPhase1, runClassifyV3 } from '../phase1';
 import { detectMulti } from '../detectMulti';
 import { syncDropToSupabase, syncMultiDropToSupabase } from '../dropSync';
 import { eventBus } from '../../events/EventBus';
@@ -503,5 +510,354 @@ describe('handleClassified — drop:reaction_ready emission', () => {
     const result = await handleClassified(drop);
 
     expect(result.smartTitle).toBe('Buy groceries for the week ahead');
+  });
+});
+
+// ── handleQueued / handleClassified — Phase 1.5 clarification (stall fix) ──
+//
+// Regression cover for the "Gremly has a question" card stalling on
+// "Thinking...": clarification is now fetched inside the pipeline, before
+// sync, and always resolves to usable options.
+
+function routeFetch(handlers: Record<string, () => any>) {
+  return jest.fn().mockImplementation((_url: string, init: any) => {
+    const body = JSON.parse(init?.body || '{}');
+    const h = handlers[body.type];
+    if (!h) return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    return h();
+  });
+}
+
+const phase15aOk = () =>
+  Promise.resolve({
+    ok: true,
+    json: () =>
+      Promise.resolve({
+        smart_title: 'Dentist Tuesday',
+        confirmation_message: 'Got it',
+        speech_message: 'Got it',
+      }),
+  });
+
+describe('handleQueued — ambiguity type defaulting', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('defaults ambiguityType to bucket when Phase 1 flags ambiguity without a type', async () => {
+    (runPhase1 as jest.Mock).mockResolvedValueOnce({
+      bucket: 'log',
+      subtype: 'general',
+      habitSubtype: null,
+      confidence: 0.6,
+      source: 'api',
+      is_ambiguous: true,
+      ambiguity_type: null,
+    });
+    const result = await handleQueued(makeDrop({ text: 'Text Mandy' }));
+    expect(result.needsClarification).toBe(true);
+    expect(result.ambiguityType).toBe('bucket');
+  });
+
+  it('keeps a valid ambiguity type from Phase 1', async () => {
+    (runPhase1 as jest.Mock).mockResolvedValueOnce({
+      bucket: 'log',
+      subtype: 'general',
+      habitSubtype: null,
+      confidence: 0.5,
+      source: 'api',
+      is_ambiguous: true,
+      ambiguity_type: 'date_type',
+    });
+    const result = await handleQueued(makeDrop({ text: 'Dentist Tuesday' }));
+    expect(result.ambiguityType).toBe('date_type');
+  });
+
+  it('carries inline clarification from classify-v3 onto the drop', async () => {
+    (runPhase1 as jest.Mock).mockResolvedValueOnce({
+      bucket: 'log',
+      subtype: 'general',
+      habitSubtype: null,
+      confidence: 0.5,
+      source: 'api',
+      is_ambiguous: true,
+      ambiguity_type: 'date_type',
+      clarification_question: 'Is the dentist booked already?',
+      clarification_options: [
+        { id: 'opt_1', label: 'Yes, booked', action: { bucket: 'log', subtype: 'event' } },
+        { id: 'opt_2', label: 'Need to book it', action: { bucket: 'todo', subtype: null } },
+      ],
+    });
+    const result = await handleQueued(makeDrop({ text: 'Dentist Tuesday' }));
+    expect(result.clarificationQuestion).toBe('Is the dentist booked already?');
+    expect(result.clarificationOptions).toHaveLength(2);
+  });
+
+  it('does not set ambiguityType for clear drops', async () => {
+    (runPhase1 as jest.Mock).mockResolvedValueOnce({
+      bucket: 'todo',
+      subtype: null,
+      habitSubtype: null,
+      confidence: 0.95,
+      source: 'api',
+    });
+    const result = await handleQueued(makeDrop({ text: 'Buy milk' }));
+    expect(result.needsClarification).toBe(false);
+    expect(result.ambiguityType).toBeUndefined();
+  });
+});
+
+describe('handleClassified — Phase 1.5 clarification (stall fix)', () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    eventBus.clear();
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('puts worker question and options on the drop before it moves on', async () => {
+    global.fetch = routeFetch({
+      'enrich-phase1-5a': phase15aOk,
+      'clarify-ambiguity': () =>
+        Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              success: true,
+              clarification_question: 'Is the dentist booked already?',
+              options: [
+                {
+                  id: 'opt_1',
+                  label: 'Yes, it is booked',
+                  bucket: 'log',
+                  subtype: 'event',
+                  dateField: 'target_date',
+                },
+                {
+                  id: 'opt_2',
+                  label: 'No, I need to book it',
+                  bucket: 'todo',
+                  subtype: null,
+                  dateField: 'target_date',
+                },
+                { id: 'opt_3', label: 'Just holding the date', bucket: 'log', subtype: 'event' },
+              ],
+            }),
+        }),
+    });
+
+    const result = await handleClassified(
+      makeDrop({
+        phase: 'classified',
+        bucket: 'log',
+        subtype: 'general',
+        text: 'Dentist Tuesday',
+        needsClarification: true,
+        ambiguityType: 'date_type',
+      }),
+    );
+
+    expect(result.phase).toBe('titled');
+    expect(result.clarificationQuestion).toBe('Is the dentist booked already?');
+    expect(result.clarificationOptions).toHaveLength(3);
+    expect(result.clarificationOptions![1].action).toMatchObject({
+      bucket: 'todo',
+      target_date: true,
+    });
+  });
+
+  it('falls back to fixed options when the worker errors (never leaves the card empty)', async () => {
+    global.fetch = routeFetch({
+      'enrich-phase1-5a': phase15aOk,
+      'clarify-ambiguity': () => Promise.resolve({ ok: false, status: 500, json: () => ({}) }),
+    });
+
+    const result = await handleClassified(
+      makeDrop({
+        phase: 'classified',
+        bucket: 'log',
+        text: 'Vitamins',
+        needsClarification: true,
+        ambiguityType: 'bucket',
+      }),
+    );
+
+    expect(result.clarificationQuestion).toBeTruthy();
+    expect(result.clarificationOptions!.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('falls back when the worker returns fewer than two options', async () => {
+    global.fetch = routeFetch({
+      'enrich-phase1-5a': phase15aOk,
+      'clarify-ambiguity': () =>
+        Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({ success: true, clarification_question: 'Hmm?', options: [] }),
+        }),
+    });
+
+    const result = await handleClassified(
+      makeDrop({
+        phase: 'classified',
+        bucket: 'log',
+        text: 'Yoga',
+        needsClarification: true,
+        ambiguityType: 'habit_or_todo',
+      }),
+    );
+
+    expect(result.clarificationOptions).toHaveLength(2);
+    expect(result.clarificationOptions![0].action.bucket).toBe('todo');
+    expect(result.clarificationOptions![1].action.bucket).toBe('habit');
+  });
+
+  it('falls back when the worker throws', async () => {
+    global.fetch = routeFetch({
+      'enrich-phase1-5a': phase15aOk,
+      'clarify-ambiguity': () => Promise.reject(new Error('network down')),
+    });
+
+    const result = await handleClassified(
+      makeDrop({
+        phase: 'classified',
+        bucket: 'log',
+        text: 'Text Mandy',
+        needsClarification: true,
+      }),
+    );
+
+    expect(result.clarificationOptions!.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('does not call clarify-ambiguity when inline options already exist', async () => {
+    const fetchMock = routeFetch({ 'enrich-phase1-5a': phase15aOk });
+    global.fetch = fetchMock;
+
+    await handleClassified(
+      makeDrop({
+        phase: 'classified',
+        bucket: 'log',
+        text: 'Dentist Tuesday',
+        needsClarification: true,
+        ambiguityType: 'date_type',
+        clarificationQuestion: 'Is the dentist booked already?',
+        clarificationOptions: [
+          { id: 'opt_1', label: 'Yes', action: { bucket: 'log', subtype: 'event' } },
+          { id: 'opt_2', label: 'No', action: { bucket: 'todo', subtype: null } },
+        ] as any,
+      }),
+    );
+
+    const types = fetchMock.mock.calls.map((c: any[]) => JSON.parse(c[1].body).type);
+    expect(types).not.toContain('clarify-ambiguity');
+  });
+
+  it('does not call clarify-ambiguity for clear drops', async () => {
+    const fetchMock = routeFetch({ 'enrich-phase1-5a': phase15aOk });
+    global.fetch = fetchMock;
+
+    const result = await handleClassified(
+      makeDrop({
+        phase: 'classified',
+        bucket: 'todo',
+        text: 'Buy milk',
+        needsClarification: false,
+      }),
+    );
+
+    const types = fetchMock.mock.calls.map((c: any[]) => JSON.parse(c[1].body).type);
+    expect(types).not.toContain('clarify-ambiguity');
+    expect(result.clarificationOptions).toBeUndefined();
+  });
+});
+
+// ── handleQueued — classify-v3 single call with v2 fallback ─────────────────
+
+describe('handleQueued — classify-v3', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('uses the v3 result and skips detect-multi and Phase 1 v2', async () => {
+    (runClassifyV3 as jest.Mock).mockResolvedValueOnce({
+      phase1: {
+        bucket: 'todo',
+        subtype: null,
+        habitSubtype: null,
+        confidence: 0.9,
+        source: 'api',
+        engine: 'v3',
+        is_multi: false,
+      },
+      multi: { is_multi: false },
+      latencyMs: 1500,
+    });
+
+    const result = await handleQueued(makeDrop({ text: 'Text Mandy, about dinner' }));
+
+    expect(result.phase).toBe('classified');
+    expect(result.bucket).toBe('todo');
+    expect(result.classifyEngine).toBe('v3');
+    expect(runPhase1).not.toHaveBeenCalled();
+    expect(detectMulti).not.toHaveBeenCalled();
+  });
+
+  it('routes a v3 multi split to multi_detected with classified segments', async () => {
+    (runClassifyV3 as jest.Mock).mockResolvedValueOnce({
+      phase1: {
+        bucket: 'todo',
+        subtype: null,
+        habitSubtype: null,
+        confidence: 0.9,
+        source: 'api',
+        is_multi: false,
+      },
+      multi: {
+        is_multi: true,
+        segments: [
+          { text: 'text sarah about dinner', bucket: 'todo', subtype: null, habitSubtype: null },
+          {
+            text: 'drink more water every day',
+            bucket: 'habit',
+            subtype: null,
+            habitSubtype: 'start_habit',
+          },
+        ],
+        summary: 'text sarah about dinner. also drink more water every day',
+        dominant_bucket: 'todo',
+      },
+      latencyMs: 1800,
+    });
+
+    const result = await handleQueued(
+      makeDrop({ text: 'text sarah about dinner. also drink more water every day' }),
+    );
+
+    expect(result.phase).toBe('multi_detected');
+    expect(result.classifyEngine).toBe('v3');
+    expect(result.multiSegments).toHaveLength(2);
+    expect(detectMulti).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the v2 path when v3 returns null', async () => {
+    (runClassifyV3 as jest.Mock).mockResolvedValueOnce(null);
+    (runPhase1 as jest.Mock).mockResolvedValueOnce({
+      bucket: 'log',
+      subtype: 'journal',
+      habitSubtype: null,
+      confidence: 0.9,
+      source: 'api',
+    });
+
+    const result = await handleQueued(makeDrop({ text: 'feeling great today' }));
+
+    expect(runPhase1).toHaveBeenCalledTimes(1);
+    expect(result.bucket).toBe('log');
+    expect(result.classifyEngine).toBe('v2');
   });
 });

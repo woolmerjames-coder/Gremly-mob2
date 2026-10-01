@@ -36,7 +36,8 @@ export function getTrainingHints(data: UserTrainingData): TrainingHint[] {
     hints.push({
       text: 'Aim for 3+ drops a day. Everything counts.',
       icon: 'ArrowDownToLine',
-      navigateTo: 'MindDrop',
+      navigateTo: 'Gremly',
+      navigateParams: { mode: 'drop' },
       priority: 1,
     });
   }
@@ -45,7 +46,8 @@ export function getTrainingHints(data: UserTrainingData): TrainingHint[] {
     hints.push({
       text: 'Drop thoughts whenever they hit you. Every day counts.',
       icon: 'ArrowDownToLine',
-      navigateTo: 'MindDrop',
+      navigateTo: 'Gremly',
+      navigateParams: { mode: 'drop' },
       priority: 2.5,
     });
   }
@@ -63,7 +65,8 @@ export function getTrainingHints(data: UserTrainingData): TrainingHint[] {
     hints.push({
       text: 'Tap any drop and chat with Gremly about it.',
       icon: 'MessageCircle',
-      navigateTo: 'AskGremly',
+      navigateTo: 'Gremly',
+      navigateParams: { mode: 'chat' },
       priority: 3,
     });
   }
@@ -90,7 +93,8 @@ export function getTrainingHints(data: UserTrainingData): TrainingHint[] {
     hints.push({
       text: "Try dropping a habit or how you're feeling.",
       icon: 'Repeat',
-      navigateTo: 'MindDrop',
+      navigateTo: 'Gremly',
+      navigateParams: { mode: 'drop' },
       priority: 6,
     });
   }
@@ -108,7 +112,8 @@ export function getTrainingHints(data: UserTrainingData): TrainingHint[] {
     hints.push({
       text: 'Drop something a few days in a row.',
       icon: 'ArrowDownToLine',
-      navigateTo: 'MindDrop',
+      navigateTo: 'Gremly',
+      navigateParams: { mode: 'drop' },
       priority: 8,
     });
   }

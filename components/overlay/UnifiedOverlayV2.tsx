@@ -88,6 +88,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { getDateService, getTodayDayString } from '../../lib/date';
 import { lightTokens, darkTokens, spacing as tokenSpacing } from '../../design/tokens';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import type { ClarificationWhen } from '../../lib/minddrop/clarification';
 import { selectItemById, useActiveSpaces, useSpaceHasEvents } from '../../lib/store/selectors';
 import { useChaptersForEntity } from '../../lib/store/chaptersSelectors';
 import { useWorldsForEntity } from '../../lib/store/worldsSelectors';
@@ -156,6 +157,14 @@ import { TypePill, TypePickerDropdown, deriveEntityType, getTypeConfig } from '.
 import { HabitModeToggle, habitSubtypeToMode, habitModeToSubtype } from './HabitModeToggle';
 import { PhotoStrip } from './PhotoStrip';
 import { ExpandableRow, StaticRow } from './ExpandableRow';
+import { ChangeHistoryCard, OriginalTextLabel, ORIGINAL_TEXT_COLOR } from './ChangeHistoryCard';
+import {
+  changeLogOf,
+  createdDay,
+  dateStillUpdated,
+  originalLabelWords,
+  showsOriginalLabel,
+} from '../../lib/chat/changeHistory';
 import { ToggleSwitch } from './ToggleSwitch';
 
 const BASE_LABEL: Record<BaseType, string> = { log: 'Note', todo: 'To-Do', habit: 'Habit' };
@@ -861,10 +870,46 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       fullEntity?.clarification_needed === true) &&
     fullEntity?.views?.clarification_resolved !== true &&
     fullEntity?.clarification_resolved !== true;
+  // Options fetched on demand when the entity was saved without them (see
+  // ensureEntityClarification). The entity here is a one-shot snapshot, so the
+  // healed copy is held locally.
+  const [healedClarification, setHealedClarification] = useState<{
+    entityId: string;
+    question: string;
+    options: any[];
+  } | null>(null);
+  const healedForThisEntity =
+    healedClarification && healedClarification.entityId === fullEntity?.id
+      ? healedClarification
+      : null;
   const clarificationQuestion =
-    fullEntity?.views?.clarification_question ?? fullEntity?.clarification_question ?? null;
+    fullEntity?.views?.clarification_question ??
+    fullEntity?.clarification_question ??
+    healedForThisEntity?.question ??
+    null;
   const clarificationOptions =
-    fullEntity?.views?.clarification_options ?? fullEntity?.clarification_options ?? null;
+    fullEntity?.views?.clarification_options ??
+    fullEntity?.clarification_options ??
+    healedForThisEntity?.options ??
+    null;
+  const ensureEntityClarification = useGremlyStore((s) => s.ensureEntityClarification);
+  const clarificationEntityId: string | null = fullEntity?.id ?? null;
+  const clarificationMissing =
+    needsClarification && !(clarificationQuestion && clarificationOptions?.length >= 2);
+  useEffect(() => {
+    if (!visible || !clarificationMissing || !clarificationEntityId) return;
+    let cancelled = false;
+    ensureEntityClarification(clarificationEntityId)
+      .then((res) => {
+        if (!cancelled && res) {
+          setHealedClarification({ entityId: clarificationEntityId, ...res });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, clarificationMissing, clarificationEntityId, ensureEntityClarification]);
   const clarificationType =
     fullEntity?.views?.clarification_type ?? fullEntity?.clarification_type ?? null;
 
@@ -884,6 +929,25 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // World and chapter links for Worlds chip row
   const entityChapters = useChaptersForEntity(currentEntityId);
   const entityWorlds = useWorldsForEntity(currentEntityId);
+
+  // The item's history: what chat and Mind Drop changed, read live from the
+  // store so a change made while the overlay was closed shows when it opens
+  const liveViews = useGremlyStore((s) =>
+    currentEntityId
+      ? (s.todos.find((t) => t.id === currentEntityId)?.views ??
+        s.notes.find((n) => n.id === currentEntityId)?.views ??
+        s.habits.find((h) => h.id === currentEntityId)?.views)
+      : undefined,
+  );
+  const historyViews = liveViews ?? (fullEntity as any)?.views;
+  const changeHistory = useMemo(() => changeLogOf(historyViews), [historyViews]);
+  const historyOrigin = (fullEntity as any)?.origin ?? (initialEntity as any)?.origin ?? null;
+  const historyCreatedAt =
+    (fullEntity as any)?.created_at ?? (initialEntity as any)?.created_at ?? null;
+  const originalLabel = originalLabelWords(
+    historyOrigin,
+    (fullEntity as any)?.drop_id ?? (initialEntity as any)?.drop_id ?? null,
+  );
 
   // Initialize store when overlay opens
   useEffect(() => {
@@ -909,7 +973,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const isViewMode = displayMode === 'view' && mode === 'view';
 
   // Entity Chat: get store selectors and derive entityType
-  const getEntityChatMessageCount = useGremlyStore((s) => s.getEntityChatMessageCount);
   const updateEntityChatNoteChecklist = useGremlyStore((s) => s.updateEntityChatNoteChecklist);
   const updateEntityChatNote = useGremlyStore((s) => s.updateEntityChatNote);
   const deleteEntityChatNote = useGremlyStore((s) => s.deleteEntityChatNote);
@@ -924,11 +987,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     if (baseType === 'habit') return 'habit';
     return 'note'; // log maps to 'note'
   }, [baseType]);
-
-  const hasExistingChat = useMemo(() => {
-    if (!currentEntityId) return false;
-    return getEntityChatMessageCount(currentEntityId, entityTypeForChat) > 0;
-  }, [currentEntityId, entityTypeForChat, getEntityChatMessageCount]);
 
   // Entity Chat: get saved notes for current entity (reactive to store changes)
   const entityChatNotes = useMemo(() => {
@@ -1014,7 +1072,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const resolveEntityClarification = useGremlyStore((s) => s.resolveEntityClarification);
   const resolveSkippedClarification = useGremlyStore((s) => s.resolveSkippedClarification);
   const handleClarificationSelect = useCallback(
-    async (optionId: string) => {
+    async (optionId: string, when?: ClarificationWhen) => {
       // Get the entity ID from fullEntity (which combines props.entity and initialEntity)
       const entityId = fullEntity?.id;
 
@@ -1028,7 +1086,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       setClarificationLoading(true);
 
       try {
-        await resolveEntityClarification(entityId, optionId);
+        await resolveEntityClarification(entityId, optionId, false, when ?? null);
 
         // Haptic feedback
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -1837,6 +1895,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       : baseType === 'todo'
         ? state.todo.details
         : state.habit.notes;
+
+  // "Your original drop" sits over the words only while they are untouched,
+  // and the date row says Updated while the last day or time change holds
+  const showOriginal = showsOriginalLabel(historyViews, currentText);
+  const dateUpdated = dateStillUpdated(
+    changeHistory,
+    baseType === 'todo'
+      ? { day: state.todo.due_day, time: state.todo.due_time }
+      : { day: state.log.target_date, time: state.log.event_time },
+  );
 
   function pushUndoEntry(kind: 'type' | 'tag' | 'commitment', prev: Partial<any>) {
     undoStackRef.current = [...undoStackRef.current, { kind, prev }];
@@ -3015,6 +3083,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
     const bodyHasContent =
       entityBody && entityBody.trim() && entityBody.trim() !== entityTitle.trim();
+    const bodyIsOriginal = showsOriginalLabel(historyViews, entityBody);
 
     // Build schedule summary for todo/habit metadata card
     const scheduleParts: string[] = [];
@@ -3131,6 +3200,23 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             );
           })()}
 
+        {/* What chat or Mind Drop changed, then the first words, labelled */}
+        {changeHistory.length > 0 && (
+          <ChangeHistoryCard
+            entries={changeHistory}
+            origin={historyOrigin}
+            createdAt={historyCreatedAt}
+            style={{ marginBottom: 12 }}
+          />
+        )}
+        {bodyHasContent && bodyIsOriginal && (
+          <OriginalTextLabel
+            label={originalLabel}
+            day={createdDay(historyCreatedAt)}
+            style={{ marginTop: 0, marginBottom: 6 }}
+          />
+        )}
+
         {/* Body in subtle card */}
         {bodyHasContent && (
           <View
@@ -3145,7 +3231,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             }}
           >
             {renderFormattedContent(entityBody, {
-              textColor: '#333',
+              textColor: bodyIsOriginal ? ORIGINAL_TEXT_COLOR : '#333',
               fontSize: 15,
               lineHeight: 23,
             })}
@@ -3673,6 +3759,19 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       paddingTop: 0,
                     }}
                   >
+                    {/* What chat or Mind Drop changed, then the first words, labelled */}
+                    {changeHistory.length > 0 && (
+                      <ChangeHistoryCard
+                        entries={changeHistory}
+                        origin={historyOrigin}
+                        createdAt={historyCreatedAt}
+                        style={{ marginTop: 4 }}
+                      />
+                    )}
+                    {showOriginal && (
+                      <OriginalTextLabel label={originalLabel} day={createdDay(historyCreatedAt)} />
+                    )}
+
                     {/* Main text field - moved above tags */}
                     <Box style={{ marginBottom: 16 }}>
                       {isPreviewMode ? (
@@ -3691,7 +3790,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               nestedScrollEnabled={true}
                             >
                               {renderFormattedContent(currentText, {
-                                textColor: tokens.colors.text,
+                                textColor: showOriginal ? ORIGINAL_TEXT_COLOR : tokens.colors.text,
                                 fontSize: 14,
                                 lineHeight: 14 * 1.65,
                               })}
@@ -3757,8 +3856,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             style={{
                               fontSize: 14,
                               lineHeight: 14 * 1.65,
-                              color: tokens.colors.text,
-                              maxHeight: 72,
+                              color: showOriginal ? ORIGINAL_TEXT_COLOR : tokens.colors.text,
+                              // six lines before the expand control is needed, so a line
+                              // added from chat is visible without opening the full editor
+                              maxHeight: 14 * 1.65 * 6,
                               paddingVertical: 8,
                               paddingHorizontal: 0,
                               paddingRight: 36,
@@ -3849,6 +3950,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           <ExpandableRow
                             icon={Calendar}
                             label="Schedule"
+                            badge={dateUpdated ? 'Updated' : undefined}
                             summary={(() => {
                               const parts: string[] = [];
                               if (state.todo.target_date)
@@ -5272,6 +5374,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             <ExpandableRow
                               icon={CalendarDays}
                               label="Date & time"
+                              badge={dateUpdated ? 'Updated' : undefined}
                               summary={
                                 state.log.target_date
                                   ? `${formatDueDay(state.log.target_date)}${state.log.event_time ? ' · ' + state.log.event_time : ''}`

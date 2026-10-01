@@ -9,7 +9,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
 import {
   Animated,
+  Dimensions,
   Easing,
+  StyleSheet,
   Alert,
   Platform,
   Pressable,
@@ -20,9 +22,14 @@ import {
   UIManager,
 } from 'react-native';
 import { AppScrollView } from '../../components/common/AppScrollView';
+import * as Haptics from 'expo-haptics';
 import { Text } from '../../ui/Text';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
-import { useHasCompletedFirstDrop, useCanCreate } from '../../lib/store/lifecycleSelectors';
+import {
+  useHasCompletedFirstDrop,
+  useCanCreate,
+  useNeedsMindDropTutorial,
+} from '../../lib/store/lifecycleSelectors';
 import type { QueuedDrop } from '../../lib/minddrop/dropQueue';
 import type { UnifiedDrop } from '../../types/UnifiedDrop';
 import {
@@ -59,7 +66,16 @@ import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 import { eventBus } from '../../lib/events/EventBus';
 import { deriveCompactTitle } from '../../lib/text/compactTitle';
-import { Lock, Camera, Clock, User, ChevronDown, Calendar, Bell } from 'lucide-react-native';
+import {
+  Lock,
+  Camera,
+  Clock,
+  User,
+  ChevronDown,
+  ChevronRight,
+  Calendar,
+  Bell,
+} from 'lucide-react-native';
 import { getDateService, nowTimestamp } from '../../lib/date/DateService';
 import {
   truncateText,
@@ -74,6 +90,7 @@ import {
   getDisplayKindForDrop,
 } from '../../lib/minddrop/cardHelpers';
 import { env } from '../../lib/env';
+import { heldKindOf, relationLine, relationOf } from '../../lib/minddrop/dropRelation';
 import { getSessionToken } from '../../lib/cortex/getSessionToken';
 import { MOOD_CONFIG, type Mood } from '../../lib/shared/moods';
 import { makeStyles } from './CatchAllNotepad';
@@ -477,105 +494,240 @@ const UnifiedCardWrapper = React.memo<{
   dropId?: string | null;
   isPending: boolean;
   children: React.ReactNode;
-}>(({ itemId, dropId, isPending, children }) => {
-  console.log('[RENDER_CHECK] UnifiedCardWrapper rendered');
-  // DEBUG: Track wrapper mount/unmount (disabled to reduce Metro noise)
-  // React.useEffect(() => {
-  //   console.log('[DEBUG:Wrapper] UnifiedCardWrapper MOUNTED:', { itemId, dropId, isPending });
-  //   return () => {
-  //     console.log('[DEBUG:Wrapper] UnifiedCardWrapper UNMOUNTED:', { itemId, dropId });
-  //   };
-  // }, []);
+  /** the card is going (a yes cleared it, it was ticked off, archived or deleted):
+   * it slides away to the right, then leaves */
+  leaving?: boolean;
+  onLeft?: (itemId: string) => void;
+  /** the card is coming back after an Undo: it slides back in from the right */
+  returning?: boolean;
+  onReturned?: (itemId: string) => void;
+}>(
+  ({
+    itemId,
+    dropId,
+    isPending,
+    children,
+    leaving = false,
+    onLeft,
+    returning = false,
+    onReturned,
+  }) => {
+    console.log('[RENDER_CHECK] UnifiedCardWrapper rendered');
+    // DEBUG: Track wrapper mount/unmount (disabled to reduce Metro noise)
+    // React.useEffect(() => {
+    //   console.log('[DEBUG:Wrapper] UnifiedCardWrapper MOUNTED:', { itemId, dropId, isPending });
+    //   return () => {
+    //     console.log('[DEBUG:Wrapper] UnifiedCardWrapper UNMOUNTED:', { itemId, dropId });
+    //   };
+    // }, []);
 
-  // DEBUG: Track isPending changes (disabled to reduce Metro noise)
-  // React.useEffect(() => {
-  //   console.log('[DEBUG:Wrapper] isPending changed:', { itemId, dropId, isPending });
-  // }, [isPending, itemId, dropId]);
+    // DEBUG: Track isPending changes (disabled to reduce Metro noise)
+    // React.useEffect(() => {
+    //   console.log('[DEBUG:Wrapper] isPending changed:', { itemId, dropId, isPending });
+    // }, [isPending, itemId, dropId]);
 
-  // Track animation state - starts true if was pending, then transitions
-  const [wasPending, setWasPending] = React.useState(isPending);
-  const [layoutEnabled, setLayoutEnabled] = React.useState(false);
+    // Track animation state - starts true if was pending, then transitions
+    const [wasPending, setWasPending] = React.useState(isPending);
+    const [layoutEnabled, setLayoutEnabled] = React.useState(false);
 
-  // Animation values for depth emergence (pending items)
-  const hasAnimated = animatedInItemIds.has(itemId);
-  const scale = React.useMemo(() => new Animated.Value(hasAnimated ? 1 : 0.65), []);
-  const opacity = React.useMemo(() => new Animated.Value(hasAnimated ? 1 : 0.2), []);
+    // Animation values for depth emergence (pending items)
+    const hasAnimated = animatedInItemIds.has(itemId);
+    const scale = React.useMemo(() => new Animated.Value(hasAnimated ? 1 : 0.65), []);
+    const opacity = React.useMemo(() => new Animated.Value(hasAnimated ? 1 : 0.2), []);
 
-  // Handle pending→real transition
-  React.useEffect(() => {
-    if (wasPending && !isPending) {
-      // Item just transitioned from pending to real
-      // Mark that transition happened so we can skip Layout animation
-      if (dropId) {
-        recentlyPromotedDropIds.add(dropId);
+    // Leaving: a small gather (the card draws back a touch and settles), then it
+    // glides away to the right, picking up speed with a slight tilt and fading at
+    // the end. The list closes the gap once it has gone (the Layout transition
+    // below). Coming back after an Undo runs the glide in reverse.
+    const leaveGather = React.useMemo(() => new Animated.Value(0), []);
+    const leaveGlide = React.useMemo(() => new Animated.Value(returning ? 1 : 0), []);
+    React.useEffect(() => {
+      if (!leaving) {
+        if (!returning) {
+          leaveGather.setValue(0);
+          leaveGlide.setValue(0);
+        }
+        return;
       }
-      setWasPending(false);
-    }
-  }, [isPending, wasPending, dropId]);
-
-  // Pending item animation (depth emergence)
-  React.useEffect(() => {
-    if (!isPending || hasAnimated) return;
-
-    animatedInItemIds.add(itemId);
-
-    const timeout = setTimeout(() => {
-      Animated.parallel([
-        Animated.timing(scale, {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      const anim = Animated.sequence([
+        Animated.timing(leaveGather, {
           toValue: 1,
-          duration: 750,
-          easing: Easing.out(Easing.cubic),
+          duration: 140,
+          easing: Easing.out(Easing.quad),
           useNativeDriver: true,
         }),
-        Animated.timing(opacity, {
+        Animated.timing(leaveGlide, {
           toValue: 1,
-          duration: 750,
-          easing: Easing.out(Easing.cubic),
+          duration: 420,
+          easing: Easing.bezier(0.45, 0, 0.7, 0.2),
           useNativeDriver: true,
         }),
-      ]).start();
-    }, 200);
+      ]);
+      anim.start(({ finished }) => {
+        if (finished) onLeft?.(itemId);
+      });
+      return () => anim.stop();
+    }, [leaving, returning, itemId, onLeft, leaveGather, leaveGlide]);
+    React.useEffect(() => {
+      if (!returning) return;
+      leaveGather.setValue(0);
+      const anim = Animated.timing(leaveGlide, {
+        toValue: 0,
+        duration: 420,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      });
+      anim.start(({ finished }) => {
+        if (finished) onReturned?.(itemId);
+      });
+      return () => anim.stop();
+    }, [returning, itemId, onReturned, leaveGather, leaveGlide]);
+    const glideWidth = Dimensions.get('window').width + 48;
+    const leaveStyle = {
+      opacity: leaveGlide.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 0.9, 0] }),
+      transform: [
+        {
+          translateX: Animated.add(
+            leaveGather.interpolate({ inputRange: [0, 1], outputRange: [0, -10] }),
+            leaveGlide.interpolate({ inputRange: [0, 1], outputRange: [0, glideWidth] }),
+          ),
+        },
+        {
+          scale: Animated.add(
+            leaveGather.interpolate({ inputRange: [0, 1], outputRange: [1, 0.975] }),
+            leaveGlide.interpolate({ inputRange: [0, 1], outputRange: [0, -0.03] }),
+          ),
+        },
+        { rotate: leaveGlide.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '4deg'] }) },
+      ],
+    };
 
-    return () => clearTimeout(timeout);
-  }, [itemId, isPending, hasAnimated, scale, opacity]);
+    // Handle pending→real transition
+    React.useEffect(() => {
+      if (wasPending && !isPending) {
+        // Item just transitioned from pending to real
+        // Mark that transition happened so we can skip Layout animation
+        if (dropId) {
+          recentlyPromotedDropIds.add(dropId);
+        }
+        setWasPending(false);
+      }
+    }, [isPending, wasPending, dropId]);
 
-  // Real item Layout animation (slide-down)
-  React.useEffect(() => {
-    if (isPending) return;
+    // Pending item animation (depth emergence)
+    React.useEffect(() => {
+      if (!isPending || hasAnimated) return;
 
-    const wasRecentlyPromoted = dropId && recentlyPromotedDropIds.has(dropId);
-    const delay = wasRecentlyPromoted ? 2000 : 500;
+      animatedInItemIds.add(itemId);
 
-    if (wasRecentlyPromoted && dropId) {
-      recentlyPromotedDropIds.delete(dropId);
+      const timeout = setTimeout(() => {
+        Animated.parallel([
+          Animated.timing(scale, {
+            toValue: 1,
+            duration: 750,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+          Animated.timing(opacity, {
+            toValue: 1,
+            duration: 750,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+        ]).start();
+      }, 200);
+
+      return () => clearTimeout(timeout);
+    }, [itemId, isPending, hasAnimated, scale, opacity]);
+
+    // Real item Layout animation (slide-down)
+    React.useEffect(() => {
+      if (isPending) return;
+
+      const wasRecentlyPromoted = dropId && recentlyPromotedDropIds.has(dropId);
+      const delay = wasRecentlyPromoted ? 2000 : 500;
+
+      if (wasRecentlyPromoted && dropId) {
+        recentlyPromotedDropIds.delete(dropId);
+      }
+
+      const timeout = setTimeout(() => {
+        setLayoutEnabled(true);
+      }, delay);
+      return () => clearTimeout(timeout);
+    }, [isPending, dropId]);
+
+    // Pending items: use Animated.View with scale/opacity
+    if (isPending && !hasAnimated) {
+      return <Animated.View style={{ opacity, transform: [{ scale }] }}>{children}</Animated.View>;
     }
 
-    const timeout = setTimeout(() => {
-      setLayoutEnabled(true);
-    }, delay);
-    return () => clearTimeout(timeout);
-  }, [isPending, dropId]);
+    // Real items with Layout enabled: use Reanimated.View
+    if (!isPending && layoutEnabled) {
+      return (
+        <Reanimated.View
+          layout={Layout.duration(450).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
+        >
+          <Animated.View style={leaveStyle}>{children}</Animated.View>
+        </Reanimated.View>
+      );
+    }
 
-  // Pending items: use Animated.View with scale/opacity
-  if (isPending && !hasAnimated) {
-    return <Animated.View style={{ opacity, transform: [{ scale }] }}>{children}</Animated.View>;
-  }
-
-  // Real items with Layout enabled: use Reanimated.View
-  if (!isPending && layoutEnabled) {
-    return (
-      <Reanimated.View
-        layout={Layout.duration(450).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
-      >
-        {children}
-      </Reanimated.View>
-    );
-  }
-
-  // Default: plain View (pending after animation, or real before Layout enabled)
-  return <View>{children}</View>;
-});
+    // Default: plain View (pending after animation, or real before Layout enabled)
+    return <Animated.View style={leaveStyle}>{children}</Animated.View>;
+  },
+);
 UnifiedCardWrapper.displayName = 'UnifiedCardWrapper';
+
+// The question, split and "one you already have" lines: set line heights (the
+// Text default is much taller than 13pt type), so the card sits close to a
+// normal card's height
+const ASK_ROW = { flexDirection: 'row' as const, alignItems: 'center' as const, marginTop: 2 };
+const ASK_AVATAR = { width: 22, height: 22, marginRight: 8, borderRadius: 11 };
+const ASK_TEXT = {
+  flex: 1,
+  fontSize: 13,
+  lineHeight: 17,
+  color: '#4A7C59',
+  fontWeight: '600' as const,
+};
+const ASK_HELPER = { flex: 1, fontSize: 12, lineHeight: 15, color: '#657865', marginLeft: 30 };
+// "Talk it through with Gremly" on the newest drop, under a hairline
+const TALK_ROW = {
+  flexDirection: 'row' as const,
+  alignItems: 'center' as const,
+  marginTop: 10,
+  paddingTop: 9,
+  borderTopWidth: StyleSheet.hairlineWidth,
+  borderTopColor: 'rgba(46, 85, 64, 0.14)',
+};
+/** How long after a drop its "Talk it through" link stays on the card */
+export const TALK_WINDOW_MS = 10 * 60 * 1000;
+/** Drops whose "Talk it through" link has been used this session */
+const talkUsedIds = new Set<string>();
+
+/**
+ * Which drop, if any, offers "Talk it through with Gremly": only the newest
+ * one, only once it is sorted, only for TALK_WINDOW_MS after it was made, not
+ * during the first-week training, and not again once the link has been used.
+ * Card-level states (a question, a split, a held drop, a failed load) are
+ * checked on the card, where they already live.
+ */
+export function talkItemIdFor(
+  items: Array<{ id: string; drop_id?: string | null; created_at: string }>,
+  opts: { pendingIds: Set<string>; nowMs: number; inTraining: boolean; used: Set<string> },
+): string | null {
+  if (opts.inTraining) return null;
+  const top = items[0];
+  if (!top) return null;
+  if (opts.pendingIds.has(top.drop_id || top.id)) return null;
+  if (opts.used.has(top.id)) return null;
+  const age = opts.nowMs - new Date(top.created_at).getTime();
+  if (!(age >= 0 && age < TALK_WINDOW_MS)) return null;
+  return top.id;
+}
+const ASK_TIME = { lineHeight: 15 };
 
 /**
  * ClarifyBadge - Static badge for items needing clarification
@@ -586,17 +738,18 @@ const ClarifyBadge: React.FC = () => {
   return (
     <View
       style={{
-        paddingHorizontal: 8,
-        paddingVertical: 3,
+        paddingHorizontal: 7,
+        paddingVertical: 2,
         borderRadius: 8,
         backgroundColor: 'rgba(255, 243, 224, 0.9)',
-        borderWidth: 1,
-        borderColor: 'rgba(180, 140, 80, 0.25)',
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: 'rgba(180, 140, 80, 0.35)',
       }}
     >
       <Text
         style={{
           fontSize: 10,
+          lineHeight: 14,
           fontWeight: '600',
           color: '#8B6914',
           fontFamily: 'Inter-Medium',
@@ -833,7 +986,7 @@ const AnimatedBadgeTransition: React.FC<{
  * 2. All chips get the SAME animation
  * 3. No flickering from partial data
  */
-const Row3Chips: React.FC<{
+export const Row3Chips: React.FC<{
   item: UnifiedDrop;
   effectiveKind: 'todo' | 'habit' | 'note';
   styles: any;
@@ -923,6 +1076,25 @@ const Row3Chips: React.FC<{
     multiTypeLabel = labels.join(' + ') || 'Multiple Items';
   }
 
+  // Tags fill the third line of notes, ideas and journals without moods.
+  // @mentions are left out: the People chip shows those.
+  const renderTags = () => {
+    const displayTags = getDisplayTagsForRecentDrop(item).filter((t) => !t.startsWith('@'));
+    if (displayTags.length === 0) return null;
+    const visibleTags = displayTags.slice(0, 3);
+    const overflow = displayTags.length - visibleTags.length;
+    return (
+      <>
+        {visibleTags.map((tag) => (
+          <View key={tag} style={styles.recentContextPillContainer}>
+            <Text style={styles.recentContextPill}>#{tag}</Text>
+          </View>
+        ))}
+        {overflow > 0 && <Text style={styles.moodOverflow}>+{overflow}</Text>}
+      </>
+    );
+  };
+
   // Render context chip based on item type
   const renderContextChip = () => {
     // Multi-entity: show combined type label
@@ -934,9 +1106,9 @@ const Row3Chips: React.FC<{
       );
     }
 
-    // Journal: show mood chips only (subtype now in badge)
+    // Journal: its moods; without any, its tags, so the line is never empty
     if (isJournal) {
-      if (!hasMoods) return null;
+      if (!hasMoods) return renderTags();
       return (
         <>
           {item.mood!.slice(0, 2).map((m: Mood, idx: number) => (
@@ -954,35 +1126,11 @@ const Row3Chips: React.FC<{
       );
     }
 
-    // Event with target date: show date chip (subtype now in badge)
-    if (isEvent && contextMeta) {
-      return (
-        <View style={styles.recentContextPillContainer}>
-          <Text style={styles.recentContextPill}>{contextMeta}</Text>
-        </View>
-      );
-    }
-
     // Idea / General note: show tags to fill the otherwise-empty metadata line
-    if (isIdea || isGeneralNote) {
-      // Strip @mentions - they're already rendered by the People chip below
-      const displayTags = getDisplayTagsForRecentDrop(item).filter((t) => !t.startsWith('@'));
-      if (displayTags.length === 0) return null;
-      const visibleTags = displayTags.slice(0, 3);
-      const overflow = displayTags.length - visibleTags.length;
-      return (
-        <>
-          {visibleTags.map((tag) => (
-            <View key={tag} style={styles.recentContextPillContainer}>
-              <Text style={styles.recentContextPill}>#{tag}</Text>
-            </View>
-          ))}
-          {overflow > 0 && <Text style={styles.moodOverflow}>+{overflow}</Text>}
-        </>
-      );
-    }
+    if (isIdea || isGeneralNote) return renderTags();
 
-    // Event without target date: no chip needed (subtype shown in badge)
+    // Event: its day and time are the calendar chip alone (subtype in the badge),
+    // so the day is not shown twice
     if (isEvent) {
       return null;
     }
@@ -1006,6 +1154,8 @@ const Row3Chips: React.FC<{
     (effectiveKind === 'todo' || effectiveKind === 'note') &&
     (item.target_date || item.views?.target_date);
   const targetDateValue = item.target_date || item.views?.target_date;
+  // an event says when it starts beside its day: "Mon, 3PM"
+  const eventTime = isEvent ? (item.event_time ?? item.views?.event_time ?? null) : null;
 
   return (
     <AnimatedChipsTransition
@@ -1054,7 +1204,10 @@ const Row3Chips: React.FC<{
             {hasTargetDate && targetDateValue && (
               <View style={styles.targetDateChip}>
                 <Calendar size={10} color="#5d7a5d" strokeWidth={2} />
-                <Text style={styles.targetDateText}>{formatDateForChip(targetDateValue)}</Text>
+                <Text style={styles.targetDateText}>
+                  {formatDateForChip(targetDateValue)}
+                  {eventTime ? `, ${formatTime12h(eventTime)}` : ''}
+                </Text>
               </View>
             )}
 
@@ -1689,6 +1842,10 @@ const AnimatedMindDropCard = React.memo<{
     options: Array<{ id: string; label: string; action: any }> | null; // null = loading
     originalText?: string | null; // The original drop text to show context
   }) => void;
+  // "Is this one you already have?" for a held drop (lib/minddrop/dropRelation.ts)
+  openRelationPopup?: (options: { entityId: string }) => void;
+  // Set only on the newest drop while it offers "Talk it through with Gremly"
+  onTalk?: (item: UnifiedDrop) => void;
 }>(
   ({
     item,
@@ -1707,6 +1864,8 @@ const AnimatedMindDropCard = React.memo<{
     onSplitSelected,
     onOpenModal,
     openClarificationPopup,
+    openRelationPopup,
+    onTalk,
   }) => {
     console.log('[RENDER_CHECK] AnimatedMindDropCard COMPLETE rendered');
     // Capture render time in a ref (initialized once on mount)
@@ -1723,6 +1882,10 @@ const AnimatedMindDropCard = React.memo<{
       (item.views?.needs_clarification || item.needs_clarification) &&
       !item.clarification_resolved &&
       !item.views?.clarification_resolved;
+
+    // A drop that may be one they already have waits for a tap, like a question
+    const heldRelation = item.kind === 'note' ? relationOf(item.views) : null;
+    const relationPending = heldRelation?.status === 'pending';
 
     // Tracking for badge animation (uses trackingId declared below)
     const bucketConfirmed = item.views?.bucket_confirmed !== false; // true for real entities
@@ -1786,8 +1949,15 @@ const AnimatedMindDropCard = React.memo<{
         return;
       }
 
-      // Clarification bounce: happens when needsClarification becomes true
-      if (needsClarification && !clarificationBounceAnimatedIds.has(bounceTrackingId)) {
+      // Question bounce: when the finished question card first shows (not while
+      // the drop is still being worked on behind a skeleton), for a new drop only
+      const askingShown =
+        (needsClarification || relationPending) &&
+        item.views?.clarification_processing !== true &&
+        item.views?.ai_pending !== true;
+      const isFresh =
+        getDateService().now().getTime() - new Date(item.created_at).getTime() < 2 * 60 * 1000;
+      if (askingShown && isFresh && !clarificationBounceAnimatedIds.has(bounceTrackingId)) {
         clarificationBounceAnimatedIds.add(bounceTrackingId);
 
         // Same pronounced bounce as multi: 1.0 → 1.10 → 0.96 → 1.0
@@ -1801,7 +1971,16 @@ const AnimatedMindDropCard = React.memo<{
 
       // NOTE: Phase 1 bounce removed - regular cards no longer bounce
       // Only multi-drop cards get the attention-grabbing bounce
-    }, [isMulti, needsClarification, bounceTrackingId, bounceScale]);
+    }, [
+      isMulti,
+      needsClarification,
+      relationPending,
+      item.views?.clarification_processing,
+      item.views?.ai_pending,
+      item.created_at,
+      bounceTrackingId,
+      bounceScale,
+    ]);
 
     const bounceStyle = useAnimatedStyle(() => ({
       transform: [{ scale: bounceScale.value }],
@@ -1953,8 +2132,21 @@ const AnimatedMindDropCard = React.memo<{
     // CLARIFICATION ITEMS: Skip animation states UNLESS processing
     // - needsClarification && !processing → show clarify card (skip skeleton)
     // - needsClarification && processing → show skeleton (user just selected option)
-    if (needsClarification && !clarificationProcessing) {
+    if ((needsClarification || relationPending) && !clarificationProcessing) {
       // Fall through to complete card render below
+    } else if ((needsClarification || relationPending) && visualState !== 'pending') {
+      // A drop that will ask a question stays a quiet skeleton until its
+      // question card is ready: no title and note typing in, then being replaced
+      return (
+        <EnrichingSkeleton
+          item={item}
+          effectiveKind={effectiveKind}
+          badgeStyleKey={badgeStyleKey}
+          styles={styles}
+          c={c}
+          index={index}
+        />
+      );
     } else if (isMulti) {
       // Fall through to complete card render below (skip skeleton states)
     } else {
@@ -2017,6 +2209,11 @@ const AnimatedMindDropCard = React.memo<{
         return;
       }
 
+      if (relationPending && openRelationPopup) {
+        openRelationPopup({ entityId: item.id });
+        return;
+      }
+
       // Check if this item needs clarification
       const needsClarification =
         (item as any)?.needs_clarification || (item.views as any)?.needs_clarification;
@@ -2061,7 +2258,7 @@ const AnimatedMindDropCard = React.memo<{
           style={[
             styles.recentCard,
             // Both multi and clarification cards get the same green background
-            (isMulti || needsClarification) && { backgroundColor: '#F4F9F4' },
+            (isMulti || needsClarification || relationPending) && { backgroundColor: '#F4F9F4' },
           ]}
           onPress={handleCardPress}
           accessibilityRole="button"
@@ -2070,7 +2267,9 @@ const AnimatedMindDropCard = React.memo<{
               ? 'Tap to decide what to do with multiple items'
               : needsClarification
                 ? 'Tap to answer a quick question'
-                : `Edit ${item.title || item.text || 'item'}`
+                : relationPending
+                  ? 'Tap to check whether this is one you already have'
+                  : `Edit ${item.title || item.text || 'item'}`
           }
         >
           {/* Row 1: Title (left) + Chip (right) */}
@@ -2110,6 +2309,7 @@ const AnimatedMindDropCard = React.memo<{
           {!isFailed &&
           !isMulti &&
           !needsClarification &&
+          !relationPending &&
           sessionCardNotes.get(item.drop_id || item.id) ? (
             <Text style={styles.recentConfirmation} numberOfLines={1}>
               {sessionCardNotes.get(item.drop_id || item.id)}
@@ -2141,36 +2341,30 @@ const AnimatedMindDropCard = React.memo<{
               </Text>
             </Pressable>
           ) : isMulti ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: -2 }}>
+            <View style={ASK_ROW}>
               <Animated.Image
                 source={require('../../assets/buttonforHP.png')}
-                style={{
-                  width: 26,
-                  height: 26,
-                  marginRight: 8,
-                  borderRadius: 13,
-                  transform: [{ scale: gremlyPulseScale }],
-                }}
+                style={[ASK_AVATAR, { transform: [{ scale: gremlyPulseScale }] }]}
               />
-              <Text style={{ fontSize: 13, color: '#4A7C59', fontWeight: '600' }}>
-                Should I split these? Tap to decide.
+              <Text style={ASK_TEXT}>Should I split these? Tap to decide.</Text>
+            </View>
+          ) : relationPending && heldRelation ? (
+            <View style={ASK_ROW}>
+              <Animated.Image
+                source={require('../../assets/buttonforHP.png')}
+                style={[ASK_AVATAR, { transform: [{ scale: gremlyPulseScale }] }]}
+              />
+              <Text style={ASK_TEXT} numberOfLines={2} testID={`minddrop-relation-line-${item.id}`}>
+                {relationLine(heldRelation)}
               </Text>
             </View>
           ) : needsClarification ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: -2 }}>
+            <View style={ASK_ROW}>
               <Animated.Image
                 source={require('../../assets/buttonforHP.png')}
-                style={{
-                  width: 26,
-                  height: 26,
-                  marginRight: 8,
-                  borderRadius: 13,
-                  transform: [{ scale: gremlyPulseScale }],
-                }}
+                style={[ASK_AVATAR, { transform: [{ scale: gremlyPulseScale }] }]}
               />
-              <Text style={{ fontSize: 13, color: '#4A7C59', fontWeight: '600' }}>
-                Gremly has a question, tap to clarify
-              </Text>
+              <Text style={ASK_TEXT}>Gremly has a question, tap to clarify</Text>
             </View>
           ) : null}
 
@@ -2178,7 +2372,7 @@ const AnimatedMindDropCard = React.memo<{
           {/* Hide chips when card needs clarification - show only timestamp */}
           <View style={styles.recentMetaRow}>
             {/* Left side: Chips (hidden during clarification/multi) */}
-            {!needsClarification && !isMulti && (
+            {!needsClarification && !isMulti && !relationPending && (
               <Row3Chips
                 item={item}
                 effectiveKind={effectiveKind}
@@ -2188,17 +2382,45 @@ const AnimatedMindDropCard = React.memo<{
               />
             )}
             {/* Left side helper text when clarification or multi */}
-            {(needsClarification || isMulti) && (
-              <Text style={{ flex: 1, fontSize: 12, color: '#657865', marginLeft: 34 }}>
-                no pressure, can sweep it later
-              </Text>
+            {(needsClarification || isMulti || relationPending) && (
+              <Text style={ASK_HELPER}>no pressure, can sweep it later</Text>
             )}
             {/* Right side: photo icon + timestamp */}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               {item.hasPhotos && <Camera size={14} color="#888" strokeWidth={1.5} />}
-              <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
+              <Text
+                style={[
+                  styles.recentMetaTime,
+                  (needsClarification || isMulti || relationPending) && ASK_TIME,
+                ]}
+              >
+                {relativeTime(item.created_at)}
+              </Text>
             </View>
           </View>
+
+          {/* Row 4: "Talk it through with Gremly", newest drop only, once sorted
+              and when Gremly is not already asking something here */}
+          {onTalk &&
+          !isFailed &&
+          !isMulti &&
+          !needsClarification &&
+          !relationPending &&
+          item.views?.ai_pending !== true &&
+          item.views?.clarification_processing !== true ? (
+            <Pressable
+              onPress={() => onTalk(item)}
+              style={TALK_ROW}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel="Talk it through with Gremly"
+              testID={`minddrop-talk-${item.id}`}
+            >
+              <Animated.Image source={require('../../assets/buttonforHP.png')} style={ASK_AVATAR} />
+              <Text style={ASK_TEXT}>Talk it through with Gremly</Text>
+              <ChevronRight size={16} color="#4A7C59" strokeWidth={2} />
+            </Pressable>
+          ) : null}
         </Pressable>
       </Reanimated.View>
     );
@@ -2232,6 +2454,12 @@ const AnimatedMindDropCard = React.memo<{
     )
       return false;
     if (prevProps.item.time_estimate_minutes !== nextProps.item.time_estimate_minutes) return false;
+    // A held drop's question appears and goes with its status
+    if (
+      (prevProps.item.views as any)?.relation?.status !==
+      (nextProps.item.views as any)?.relation?.status
+    )
+      return false;
     // Reminders - re-render when reminders array changes (for bell chip)
     const prevReminders = prevProps.item.reminders;
     const nextReminders = nextProps.item.reminders;
@@ -2241,6 +2469,7 @@ const AnimatedMindDropCard = React.memo<{
     if (prevProps.item.cadence !== nextProps.item.cadence) return false; // Habit cadence
     if (prevProps.isPending !== nextProps.isPending) return false;
     if (prevProps.effectiveKind !== nextProps.effectiveKind) return false;
+    if (prevProps.onTalk !== nextProps.onTalk) return false;
     // Tags comparison (shallow array check)
     const prevTags = prevProps.item.tags || [];
     const nextTags = nextProps.item.tags || [];
@@ -2274,7 +2503,7 @@ export type GlobalOverlayController = Pick<
   | 'close'
   | 'openClarificationPopup'
   | 'closeClarificationPopup'
->;
+> & { openRelationPopup?: OverlayContextValue['openRelationPopup'] };
 
 export const noopOverlayController: GlobalOverlayController = {
   openCreate: () => {},
@@ -2402,6 +2631,88 @@ const RecentDrops: React.FC<{
   const [open, setOpen] = React.useState(initiallyOpen); // open by default for inline confirmation
   const [loading, setLoading] = React.useState(false);
   const [items, setItems] = React.useState<UnifiedDrop[]>([]);
+
+  // Cards that are going (a yes cleared them, or they were ticked off, archived
+  // or deleted): they slide away, then leave the list. A popup that is still
+  // showing its confirmation holds them until it has gone (or asks for a
+  // delay), so the slide is seen on its own. What they looked like is kept so
+  // an Undo can slide them back in.
+  const leavingRef = React.useRef<Set<string>>(new Set());
+  const [leavingIds, setLeavingIds] = React.useState<Set<string>>(() => new Set());
+  const [returningIds, setReturningIds] = React.useState<Set<string>>(() => new Set());
+  const leftSnapshots = React.useRef<Map<string, UnifiedDrop>>(new Map());
+  const leaveTimers = React.useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  const startLeaving = React.useCallback((ids: string[], delayMs = 0, hold = false) => {
+    ids.forEach((id) => leavingRef.current.add(id));
+    // held: marked as going, so nothing else moves them, until told to go
+    if (hold) return;
+    const show = () =>
+      setLeavingIds((prev) => {
+        const next = new Set(prev);
+        ids.forEach((id) => leavingRef.current.has(id) && next.add(id));
+        return next;
+      });
+    if (delayMs > 0) leaveTimers.current.push(setTimeout(show, delayMs));
+    else show();
+  }, []);
+
+  useEffect(() => {
+    const timers = leaveTimers.current;
+    const unsubLeaving = eventBus.on('minddrop:cards_leaving', ({ ids, delayMs, hold }) => {
+      startLeaving(ids, delayMs, hold);
+    });
+    const unsubGo = eventBus.on('minddrop:cards_go', ({ ids }) => {
+      const still = ids.filter((id) => leavingRef.current.has(id));
+      if (still.length) startLeaving(still);
+    });
+    const unsubStay = eventBus.on('minddrop:cards_stay', ({ ids }) => {
+      ids.forEach((id) => leavingRef.current.delete(id));
+      setLeavingIds((prev) => {
+        const next = new Set(prev);
+        ids.forEach((id) => next.delete(id));
+        return next;
+      });
+    });
+    return () => {
+      unsubLeaving();
+      unsubGo();
+      unsubStay();
+      timers.forEach(clearTimeout);
+    };
+  }, [startLeaving]);
+
+  const handleCardReturned = React.useCallback((id: string) => {
+    setReturningIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const handleCardLeft = React.useCallback((id: string) => {
+    leavingRef.current.delete(id);
+    setLeavingIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    // Only a card that really went leaves (a change that did not go through keeps it)
+    const s = useGremlyStore.getState();
+    const note = s.notes.find((n) => n.id === id) as any;
+    const todo = s.todos.find((t) => t.id === id) as any;
+    const habit = s.habits.find((h) => h.id === id) as any;
+    const entity = note || todo || habit;
+    const gone = !entity || entity.archived === true || (!!todo && !!todo.completed_at);
+    if (!gone) return;
+    setItems((prev) => {
+      const item = prev.find((i) => i.id === id);
+      if (item) leftSnapshots.current.set(id, item);
+      return prev.filter((i) => i.id !== id);
+    });
+  }, []);
   const [todayCount, setTodayCount] = React.useState(0); // Track today's drop count for toggle label
   const [olderCount, setOlderCount] = React.useState(0); // Track older drops count
   const [filter, setFilter] = React.useState<'today' | 'older'>('today'); // Filter selection
@@ -2549,6 +2860,8 @@ const RecentDrops: React.FC<{
             clarification_question: drop.clarificationQuestion,
             clarification_options: drop.clarificationOptions,
             clarification_resolved: false,
+            // "Is this one you already have?" once the pipeline has asked (dropRelation.ts)
+            relation: drop.relation ?? undefined,
           },
           time_estimate_minutes: drop.timeEstimateMinutes ?? null,
           frequency: drop.extractedFrequency ?? null,
@@ -2613,6 +2926,46 @@ const RecentDrops: React.FC<{
     });
     return { combinedItems: deduped, pendingIdSet: pending };
   }, [pendingItems, filteredItems]);
+
+  // "Talk it through with Gremly" on the newest drop (rules in talkItemIdFor)
+  const inTraining = useNeedsMindDropTutorial();
+  const [talkClock, setTalkClock] = React.useState(0);
+  const talkItemId = React.useMemo(
+    () =>
+      filter === 'today'
+        ? talkItemIdFor(combinedItems, {
+            pendingIds: pendingIdSet,
+            nowMs: getDateService().now().getTime(),
+            inTraining,
+            used: talkUsedIds,
+          })
+        : null,
+    // talkClock re-checks when the window ends or the link is used
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [combinedItems, pendingIdSet, filter, inTraining, talkClock],
+  );
+  const talkItemCreatedAt = talkItemId ? combinedItems[0]?.created_at : null;
+  React.useEffect(() => {
+    if (!talkItemCreatedAt) return;
+    const endsIn =
+      new Date(talkItemCreatedAt).getTime() + TALK_WINDOW_MS - getDateService().now().getTime();
+    const timer = setTimeout(() => setTalkClock((n) => n + 1), Math.max(endsIn, 0) + 250);
+    return () => clearTimeout(timer);
+  }, [talkItemCreatedAt]);
+  // Opens the Chat page with this drop attached and Gremly's opener; nothing
+  // is sent (and nothing costs) until the user replies
+  const handleTalk = React.useCallback((drop: UnifiedDrop) => {
+    talkUsedIds.add(drop.id);
+    setTalkClock((n) => n + 1);
+    const title = String(drop.title || drop.text || '').trim();
+    if (!title) return;
+    eventBus.emit('minddrop:talk_about', {
+      id: drop.id,
+      type: drop.kind,
+      title,
+      label: getDisplayKindForChip(drop.kind, drop),
+    });
+  }, []);
 
   // Keep modal item synced with latest version from items/pendingItems
   // (in case Phase 1 updates segments while modal is open)
@@ -2863,6 +3216,7 @@ const RecentDrops: React.FC<{
             reminders: noteAny?.reminders ?? null,
             // Date Intelligence fields (for notes with event dates)
             target_date: noteAny?.target_date ?? null,
+            event_time: noteAny?.event_time ?? noteAny?.views?.event_time ?? null,
             // Multi-entity support: extract from views to top level
             is_multi: noteAny?.views?.is_multi === true,
             multi_items: noteAny?.views?.multi_items ?? undefined,
@@ -3216,6 +3570,13 @@ const RecentDrops: React.FC<{
         //   type: event.type,
         //   source: event.source,
         // });
+        // A card on screen slides away; a clarification that turns it into
+        // another kind replaces it in place, so that one goes at once
+        if (leavingRef.current.has(event.id)) return;
+        if (event.source !== 'clarification-bucket-change') {
+          startLeaving([event.id]);
+          return;
+        }
         // Remove the item immediately from local state
         setItems((prev) => {
           const filtered = prev.filter((item) => item.id !== event.id);
@@ -3230,6 +3591,20 @@ const RecentDrops: React.FC<{
       'entity:created',
       (payload: { entity: any; type: string; spaceId?: string | null; source?: string }) => {
         const dropId = payload.entity?.drop_id;
+        // A card still sliding away for this drop gives way to its replacement
+        if (dropId) {
+          setItems((prev) => {
+            const stale = prev.filter(
+              (item) =>
+                item.drop_id === dropId &&
+                item.id !== payload.entity?.id &&
+                leavingRef.current.has(item.id),
+            );
+            if (!stale.length) return prev;
+            stale.forEach((item) => leavingRef.current.delete(item.id));
+            return prev.filter((item) => !stale.includes(item));
+          });
+        }
         // console.log('[CatchAllNotepad] entity:created received', {
         //   dropId,
         //   type: payload.type,
@@ -3275,6 +3650,7 @@ const RecentDrops: React.FC<{
             due_date: entity.due_date ?? entity.due_at ?? null,
             due_day: entity.due_day ?? null,
             due_time: entity.due_time ?? null,
+            event_time: entity.event_time ?? entity.views?.event_time ?? null,
             noteSubtype: entityType === 'note' ? (entity.subtype ?? 'catchall') : undefined,
             mood: entityType === 'note' ? (entity.mood ?? null) : undefined,
             time_estimate_minutes: entity.time_estimate_minutes ?? null,
@@ -3415,8 +3791,8 @@ const RecentDrops: React.FC<{
       'ItemCompleted',
       (payload: { id: string; type: 'habit' | 'todo' }) => {
         // console.debug('[RecentDrops] ItemCompleted event:', payload.id, payload.type);
-        // Remove the item immediately from local state
-        setItems((prev) => prev.filter((item) => item.id !== payload.id));
+        // Ticked off: the card slides away (and leaves when its slide ends)
+        if (!leavingRef.current.has(payload.id)) startLeaving([payload.id]);
         // Note: Pending items are managed by Zustand pendingDrops - no cleanup needed here
       },
     );
@@ -3444,6 +3820,36 @@ const RecentDrops: React.FC<{
         }
 
         const views = (entity as any).views || {};
+
+        // Archived or ticked off: it leaves the list, as it would on a reload
+        // (a card sliding out after a yes leaves when its slide ends)
+        const gone =
+          (entity as any).archived === true ||
+          (entityType === 'todo' && !!(entity as any).completed_at);
+        if (gone) {
+          if (!leavingRef.current.has(payload.id)) startLeaving([payload.id]);
+          return;
+        }
+
+        // Put back by an Undo after a yes: it returns as it was, with what changed since
+        const snapshot = leftSnapshots.current.get(payload.id);
+        if (snapshot) {
+          leftSnapshots.current.delete(payload.id);
+          setReturningIds((prev) => new Set(prev).add(payload.id));
+          setItems((prev) =>
+            prev.some((item) => item.id === payload.id)
+              ? prev
+              : [
+                  ...prev,
+                  {
+                    ...snapshot,
+                    title: (entity as any).title ?? (entity as any).name ?? snapshot.title,
+                    views,
+                  },
+                ],
+          );
+          return;
+        }
 
         // CRITICAL: If clarification_processing just started, reset animation tracking
         // so the card shows fresh shimmer animation
@@ -3480,6 +3886,12 @@ const RecentDrops: React.FC<{
               views: views,
               due_date: (entity as any).due_date ?? (entity as any).due_at ?? item.due_date,
               due_day: (entity as any).due_day ?? item.due_day,
+              // A day or time changed from a card (chat or Mind Drop) shows straight away
+              due_time: 'due_time' in (entity as any) ? (entity as any).due_time : item.due_time,
+              target_date:
+                'target_date' in (entity as any) ? (entity as any).target_date : item.target_date,
+              event_time:
+                'event_time' in (entity as any) ? (entity as any).event_time : item.event_time,
               // Note subtype - CRITICAL for correct chip after clarification resolution
               noteSubtype:
                 entityType === 'note'
@@ -3544,7 +3956,7 @@ const RecentDrops: React.FC<{
       unsubItemUpdated();
       clearInterval(stuckCardInterval);
     };
-  }, [load]);
+  }, [load, startLeaving]);
 
   // Listen for enrichment retry events from failed cards
   React.useEffect(() => {
@@ -4391,7 +4803,10 @@ const RecentDrops: React.FC<{
               {/* a pending item is promoted to a real item (prevents modal from closing) */}
               {combinedItems.map((item) => {
                 const itemIsPending = pendingIdSet.has(item.drop_id || item.id);
-                const effectiveKind = item.optimisticKind ?? item.kind;
+                // A held drop shows the kind it will become, not the note it waits as
+                const held = item.kind === 'note' ? relationOf(item.views) : null;
+                const heldKind = held?.status === 'pending' ? heldKindOf(held).kind : null;
+                const effectiveKind = heldKind ?? item.optimisticKind ?? item.kind;
                 const displayKind = getDisplayKindForDrop(item, canonicalTypesOn);
                 const showLegacyUnsortedBadge =
                   !canonicalTypesOn && effectiveKind === 'note' && (item as any).unsorted;
@@ -4423,6 +4838,10 @@ const RecentDrops: React.FC<{
                     itemId={item.id}
                     dropId={item.drop_id}
                     isPending={itemIsPending}
+                    leaving={leavingIds.has(item.id)}
+                    onLeft={handleCardLeft}
+                    returning={returningIds.has(item.id)}
+                    onReturned={handleCardReturned}
                   >
                     <AnimatedMindDropCard
                       item={item}
@@ -4440,6 +4859,8 @@ const RecentDrops: React.FC<{
                       onSplitSelected={handleSplitSelected}
                       onOpenModal={handleOpenModal}
                       openClarificationPopup={overlay.openClarificationPopup}
+                      openRelationPopup={overlay.openRelationPopup}
+                      onTalk={item.id === talkItemId ? handleTalk : undefined}
                     />
                   </UnifiedCardWrapper>
                 );

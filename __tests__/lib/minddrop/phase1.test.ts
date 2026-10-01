@@ -2,7 +2,7 @@
  * Phase 1 Classification Tests
  */
 
-import { runPhase1 } from '../../../lib/minddrop/phase1';
+import { runPhase1, runClassifyV3 } from '../../../lib/minddrop/phase1';
 
 // Mock env module
 jest.mock('../../../lib/env', () => ({
@@ -430,5 +430,89 @@ describe('runPhase1', () => {
       expect(result.items![0].habitSubtype).toBe('start_habit');
       expect(result.items![1].habitSubtype).toBe('break_habit');
     });
+  });
+});
+
+describe('runClassifyV3', () => {
+  beforeEach(() => {
+    global.fetch = mockFetch;
+    mockFetch.mockReset();
+  });
+
+  test('maps an ambiguous v3 response including clarification options', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        bucket: 'log',
+        subtype: 'general',
+        habitSubtype: null,
+        confidence: 0.5,
+        is_ambiguous: true,
+        ambiguity_type: 'date_type',
+        clarification_question: 'Is the dentist booked for Tuesday?',
+        clarification_options: [
+          { id: 'opt_1', label: 'Yes', bucket: 'log', subtype: 'event', dateField: 'target_date' },
+          { id: 'opt_2', label: 'No', bucket: 'todo', subtype: null, dateField: 'target_date' },
+          { id: 'opt_3', label: 'Just the date', bucket: 'log', subtype: 'event' },
+        ],
+        is_multi: false,
+        model: 'claude-sonnet-5-5',
+        latency_ms: 1600,
+      }),
+    });
+
+    const r = await runClassifyV3('Dentist Tuesday');
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.type).toBe('classify-v3');
+    expect(r!.phase1).toMatchObject({
+      bucket: 'log',
+      engine: 'v3',
+      is_ambiguous: true,
+      needs_clarification: true,
+      ambiguity_type: 'date_type',
+      clarification_question: 'Is the dentist booked for Tuesday?',
+    });
+    expect(r!.phase1.clarification_options).toHaveLength(3);
+    expect(r!.phase1.clarification_options![1].action).toMatchObject({
+      bucket: 'todo',
+      target_date: true,
+    });
+    expect(r!.multi.is_multi).toBe(false);
+  });
+
+  test('maps a multi split', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        bucket: 'todo',
+        is_multi: true,
+        segments: [
+          { text: 'text sarah', bucket: 'todo', subtype: null, habitSubtype: null },
+          {
+            text: 'walk every evening',
+            bucket: 'habit',
+            subtype: null,
+            habitSubtype: 'start_habit',
+          },
+        ],
+        summary: 'text sarah, walk every evening',
+        dominant_bucket: 'todo',
+      }),
+    });
+    const r = await runClassifyV3('text sarah, walk every evening');
+    expect(r!.multi.is_multi).toBe(true);
+    expect(r!.multi.segments).toHaveLength(2);
+  });
+
+  test('returns null when the worker is disabled or errors', async () => {
+    mockFetch.mockResolvedValue({ ok: false, status: 503, json: async () => ({}) });
+    expect(await runClassifyV3('buy milk')).toBeNull();
+    mockFetch.mockRejectedValue(new Error('offline'));
+    expect(await runClassifyV3('buy milk')).toBeNull();
+  });
+
+  test('returns null on a bad shape', async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ bucket: 'banana' }) });
+    expect(await runClassifyV3('buy milk')).toBeNull();
   });
 });

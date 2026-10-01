@@ -1,0 +1,615 @@
+[
+ {
+  "chat": "16096259",
+  "by": "adjudicator",
+  "items": [],
+  "borderline": [
+   {
+    "id": "i1",
+    "type": "note",
+    "gist": "GLTF gay tennis club, Free For All mixers",
+    "why": "adjudicator: either"
+   }
+  ],
+  "unsure": [
+   "i1"
+  ]
+ },
+ {
+  "chat": "67907205",
+  "by": "adjudicator",
+  "items": [],
+  "borderline": [],
+  "unsure": []
+ },
+ {
+  "chat": "9206f430",
+  "by": "adjudicator",
+  "items": [
+   {
+    "id": "i1",
+    "type": "todo",
+    "gist": "Cancel Hulu subscription through husband"
+   },
+   {
+    "id": "i2",
+    "type": "event",
+    "gist": "Sister's family visiting from UK for four nights"
+   }
+  ],
+  "borderline": [
+   {
+    "id": "i3",
+    "type": "todo",
+    "gist": "Plan itinerary for sister's family visit",
+    "why": "adjudicator: either"
+   },
+   {
+    "id": "i4",
+    "type": "note",
+    "gist": "Tunnel Tops and Crissy Field for sister's visit",
+    "why": "adjudicator: either"
+   },
+   {
+    "id": "Bx_2",
+    "type": "todo",
+    "gist": "Plan and organize itinerary for sister's family visit",
+    "why": "B left it out as borderline"
+   }
+  ],
+  "unsure": [
+   "i4"
+  ]
+ },
+ {
+  "chat": "99f036d3",
+  "by": "adjudicator",
+  "items": [
+   {
+    "id": "i1",
+    "type": "event",
+    "gist": "Dave's birthday on April 27"
+   },
+   {
+    "id": "i2",
+    "type": "event",
+    "gist": "Berlin trip May 1 to 6"
+   },
+   {
+    "id": "i4",
+    "type": "note",
+    "gist": "Vabali spa in Berlin for Dave's birthday"
+   },
+   {
+    "id": "i3",
+    "type": "event",
+    "gist": "In London the days before Berlin",
+    "by": "adjudicator"
+   }
+  ],
+  "borderline": [
+   {
+    "id": "i5",
+    "type": "todo",
+    "gist": "Plan Dave's birthday celebration during Berlin trip",
+    "why": "adjudicator: either"
+   },
+   {
+    "id": "Ax_2",
+    "type": "todo",
+    "gist": "Book Vabali spa ahead for May 1",
+    "why": "A left it out as borderline"
+   },
+   {
+    "id": "Bx_3",
+    "type": "todo",
+    "gist": "Book Vabali spa ahead for May 1 holiday",
+    "why": "B left it out as borderline"
+   }
+  ],
+  "unsure": []
+ },
+ {
+  "chat": "af2b665e",
+  "by": "adjudicator",
+  "items": [
+   {
+    "id": "i1",
+    "type": "habit",
+    "gist": "Bodyweight pushups or core/legs on non-strength days",
+    "by": "adjudicator"
+   }
+  ],
+  "borderline": [],
+  "unsure": []
+ },
+ {
+  "chat": "fc156c1a",
+  "by": "adjudicator",
+  "items": [
+   {
+    "id": "i1",
+    "type": "habit",
+    "gist": "Take NAC nightly at 8:30pm",
+    "by": "adjudicator"
+   }
+  ],
+  "borderline": [],
+  "unsure": [
+   "i1"
+  ]
+ },
+ {
+  "chat": "73b8ac32",
+  "by": "adjudicator",
+  "items": [
+   {
+    "id": "i3",
+    "type": "event",
+    "gist": "Zipolite trip planned for June"
+   },
+   {
+    "id": "i1",
+    "type": "event",
+    "gist": "Bay to Breakers race, next Sunday",
+    "by": "adjudicator"
+   },
+   {
+    "id": "i2",
+    "type": "event",
+    "gist": "Solo Palm Springs trip, leaving now",
+    "by": "adjudicator"
+   },
+   {
+    "id": "B_i2",
+    "type": "event",
+    "gist": "Palm Springs trip instead of Zipolite",
+    "by": "adjudicator"
+   }
+  ],
+  "borderline": [
+   {
+    "id": "i4",
+    "type": "todo",
+    "gist": "Discuss cutting back alcohol with Dave when home",
+    "why": "adjudicator: either"
+   },
+   {
+    "id": "Ax_4",
+    "type": "note",
+    "gist": "Goal to raise VO2 max from 48 to 50",
+    "why": "A left it out as borderline"
+   },
+   {
+    "id": "Bx_5",
+    "type": "note",
+    "gist": "Goal to raise VO2 max from 48 to 50",
+    "why": "B left it out as borderline"
+   }
+  ],
+  "unsure": []
+ },
+ {
+  "chat": "adb3c923",
+  "by": "adjudicator",
+  "items": [
+   {
+    "id": "i1",
+    "type": "todo",
+    "gist": "Book something for Dave's birthday",
+    "by": "adjudicator"
+   }
+  ],
+  "borderline": [
+   {
+    "id": "i2",
+    "type": "event",
+    "gist": "Dave's birthday, April 27",
+    "why": "adjudicator: either"
+   },
+   {
+    "id": "Bx_2",
+    "type": "todo",
+    "gist": "Book something for Dave's birthday",
+    "why": "B left it out as borderline"
+   },
+   {
+    "id": "Bx_3",
+    "type": "event",
+    "gist": "Dave's birthday on April 27",
+    "why": "B left it out as borderline"
+   }
+  ],
+  "unsure": []
+ },
+ {
+  "chat": "659b6cc1",
+  "by": "adjudicator",
+  "items": [
+   {
+    "id": "i1",
+    "type": "event",
+    "gist": "Zipolite trip, arriving Sunday via Mexico City"
+   }
+  ],
+  "borderline": [
+   {
+    "id": "i2",
+    "type": "note",
+    "gist": "Decided to fly direct to Mexico City tomorrow",
+    "why": "adjudicator: either"
+   },
+   {
+    "id": "Ax_1",
+    "type": "note",
+    "gist": "Fly Huatulco rather than Puerto Escondido",
+    "why": "A left it out as borderline"
+   },
+   {
+    "id": "Ax_2",
+    "type": "note",
+    "gist": "Xoma recommended as Mexico City hotel",
+    "why": "A left it out as borderline"
+   },
+   {
+    "id": "Bx_3",
+    "type": "note",
+    "gist": "Xoma recommended for Mexico City hotel night",
+    "why": "B left it out as borderline"
+   }
+  ],
+  "unsure": []
+ },
+ {
+  "chat": "195783bd",
+  "by": "adjudicator",
+  "items": [
+   {
+    "id": "B_i1",
+    "type": "habit",
+    "gist": "Call Mum weekly on Saturdays",
+    "by": "adjudicator"
+   }
+  ],
+  "borderline": [],
+  "unsure": []
+ },
+ {
+  "chat": "839a2bfc",
+  "by": "adjudicator",
+  "items": [],
+  "borderline": [
+   {
+    "id": "i1",
+    "type": "note",
+    "gist": "Target about 2,650 calories a day for deficit",
+    "why": "adjudicator: either"
+   },
+   {
+    "id": "Ax_1",
+    "type": "habit",
+    "gist": "Eat about 2,650 calories daily",
+    "why": "A left it out as borderline"
+   }
+  ],
+  "unsure": []
+ },
+ {
+  "chat": "2053140b",
+  "by": "adjudicator",
+  "items": [
+   {
+    "id": "i1",
+    "type": "event",
+    "gist": "Birthday party in Palo Alto tomorrow"
+   },
+   {
+    "id": "B_i2",
+    "type": "todo",
+    "gist": "Send morning text saying leaving party early",
+    "by": "adjudicator"
+   }
+  ],
+  "borderline": [
+   {
+    "id": "Ax_1",
+    "type": "note",
+    "gist": "Set hard exit time, leave party after two hours",
+    "why": "A left it out as borderline"
+   }
+  ],
+  "unsure": []
+ },
+ {
+  "chat": "f370765c",
+  "by": "adjudicator",
+  "items": [],
+  "borderline": [
+   {
+    "id": "i1",
+    "type": "note",
+    "gist": "Pause when 'not fair' flares; choose principled over safety kindness",
+    "why": "adjudicator: either"
+   },
+   {
+    "id": "Bx_1",
+    "type": "note",
+    "gist": "Principled kindness versus safety kindness distinction",
+    "why": "B left it out as borderline"
+   },
+   {
+    "id": "Bx_2",
+    "type": "todo",
+    "gist": "Pause when unfairness flares, ask if feeling unseen",
+    "why": "B left it out as borderline"
+   },
+   {
+    "id": "Bx_3",
+    "type": "event",
+    "gist": "Solo trip in May",
+    "why": "B left it out as borderline"
+   }
+  ],
+  "unsure": [
+   "i1"
+  ]
+ },
+ {
+  "chat": "771cb6a3",
+  "by": "adjudicator",
+  "items": [],
+  "borderline": [
+   {
+    "id": "i1",
+    "type": "habit",
+    "gist": "Go to office three days a week, commute with Dave",
+    "why": "adjudicator: either"
+   },
+   {
+    "id": "Ax_1",
+    "type": "event",
+    "gist": "Sister's family visiting this week, staying at hotel",
+    "why": "A left it out as borderline"
+   },
+   {
+    "id": "Bx_2",
+    "type": "event",
+    "gist": "Sister and family visiting this week, staying in hotel",
+    "why": "B left it out as borderline"
+   }
+  ],
+  "unsure": []
+ },
+ {
+  "chat": "c8d02a8a",
+  "by": "adjudicator",
+  "items": [
+   {
+    "id": "i1",
+    "type": "todo",
+    "gist": "Strength session in the gap after 6:30am call"
+   },
+   {
+    "id": "i2",
+    "type": "todo",
+    "gist": "Trial a coworking space for rest of the day",
+    "by": "adjudicator"
+   },
+   {
+    "id": "B_i2",
+    "type": "todo",
+    "gist": "Trial a coworking space for rest of tomorrow",
+    "by": "adjudicator"
+   }
+  ],
+  "borderline": [
+   {
+    "id": "B_i3",
+    "type": "event",
+    "gist": "6:30am call tomorrow morning",
+    "why": "adjudicator: either"
+   },
+   {
+    "id": "Ax_3",
+    "type": "todo",
+    "gist": "Pack laptop bag tonight for coworking",
+    "why": "A left it out as borderline"
+   },
+   {
+    "id": "Ax_4",
+    "type": "event",
+    "gist": "6:30am call tomorrow morning",
+    "why": "A left it out as borderline"
+   },
+   {
+    "id": "Bx_5",
+    "type": "todo",
+    "gist": "Pack coworking bag tonight",
+    "why": "B left it out as borderline"
+   }
+  ],
+  "unsure": []
+ },
+ {
+  "chat": "4a6d929e",
+  "by": "adjudicator",
+  "items": [],
+  "borderline": [
+   {
+    "id": "Ax_1",
+    "type": "event",
+    "gist": "Park outing with Dave and Bella this weekend",
+    "why": "A left it out as borderline"
+   },
+   {
+    "id": "Bx_2",
+    "type": "event",
+    "gist": "Outdoor weekend outing with Dave and Bella",
+    "why": "B left it out as borderline"
+   }
+  ],
+  "unsure": []
+ },
+ {
+  "chat": "f9391ba5",
+  "by": "adjudicator",
+  "items": [],
+  "borderline": [
+   {
+    "id": "i1",
+    "type": "event",
+    "gist": "Ocean Beach bonfire with family tonight, arriving 5pm",
+    "why": "adjudicator: either"
+   }
+  ],
+  "unsure": []
+ },
+ {
+  "chat": "9ae4e17f",
+  "by": "adjudicator",
+  "items": [
+   {
+    "id": "i1",
+    "type": "note",
+    "gist": "Possible Mexico trip soon as Gremly launch sprint",
+    "by": "adjudicator"
+   }
+  ],
+  "borderline": [],
+  "unsure": []
+ },
+ {
+  "chat": "16a196bd",
+  "by": "adjudicator",
+  "items": [],
+  "borderline": [
+   {
+    "id": "i1",
+    "type": "event",
+    "gist": "Saturday park day, Golden Gate Park and Haight with family",
+    "why": "adjudicator: either"
+   },
+   {
+    "id": "i2",
+    "type": "todo",
+    "gist": "Solid Gremly deep work block on Sunday",
+    "why": "adjudicator: either"
+   },
+   {
+    "id": "Ax_2",
+    "type": "event",
+    "gist": "Becca and family leave on Sunday",
+    "why": "A left it out as borderline"
+   },
+   {
+    "id": "Bx_3",
+    "type": "event",
+    "gist": "Becca and family leave on Sunday",
+    "why": "B left it out as borderline"
+   }
+  ],
+  "unsure": []
+ },
+ {
+  "chat": "ac3adeaf",
+  "by": "adjudicator",
+  "items": [],
+  "borderline": [
+   {
+    "id": "i1",
+    "type": "event",
+    "gist": "Closest friend Liv leaves SF to travel in two weeks",
+    "why": "adjudicator: either"
+   }
+  ],
+  "unsure": [
+   "i1"
+  ]
+ },
+ {
+  "chat": "940bb7f7",
+  "by": "adjudicator",
+  "items": [],
+  "borderline": [
+   {
+    "id": "i1",
+    "type": "todo",
+    "gist": "Find coworking space close to a good fitness spot",
+    "why": "adjudicator: either"
+   }
+  ],
+  "unsure": []
+ },
+ {
+  "chat": "2e2cc38b",
+  "by": "adjudicator",
+  "items": [
+   {
+    "id": "i1",
+    "type": "habit",
+    "gist": "Sort out one box a day from retirement shed",
+    "by": "adjudicator"
+   }
+  ],
+  "borderline": [],
+  "unsure": []
+ },
+ {
+  "chat": "73cf2f82",
+  "by": "adjudicator",
+  "items": [],
+  "borderline": [
+   {
+    "id": "Bx_1",
+    "type": "note",
+    "gist": "Nightly stack: 5-HTP, ALA, magnesium, inositol, ashwagandha",
+    "why": "B left it out as borderline"
+   }
+  ],
+  "unsure": [
+   "i1"
+  ]
+ },
+ {
+  "chat": "bc3baa13",
+  "by": "adjudicator",
+  "items": [],
+  "borderline": [
+   {
+    "id": "i1",
+    "type": "event",
+    "gist": "Meet sister's family at Dolores Park this afternoon",
+    "why": "adjudicator: either"
+   },
+   {
+    "id": "Ax_1",
+    "type": "note",
+    "gist": "Also visit Alamo Square with sister before they leave",
+    "why": "A left it out as borderline"
+   },
+   {
+    "id": "Bx_2",
+    "type": "note",
+    "gist": "Maybe also visit Alamo Square before family leaves",
+    "why": "B left it out as borderline"
+   }
+  ],
+  "unsure": []
+ },
+ {
+  "chat": "e9abd620",
+  "by": "adjudicator",
+  "items": [],
+  "borderline": [
+   {
+    "id": "i1",
+    "type": "event",
+    "gist": "Leaving Provincetown tomorrow",
+    "why": "adjudicator: either"
+   }
+  ],
+  "unsure": [
+   "i1"
+  ]
+ }
+]

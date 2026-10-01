@@ -9,6 +9,7 @@
 // ============================================================================
 
 import { geminiGenerate, geminiStream, parseGeminiChunk } from './geminiClient.js';
+import { DEFAULTS, resolveModels } from './models.js';
 
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
@@ -20,6 +21,53 @@ const TIMEOUT = {
 };
 
 const RETRY_DELAY_MS = 2500; // delay before same-provider retry in background mode
+
+// ── Model registry ──
+// gpt-4.1-nano is removed from the OpenAI API on 2026-10-23 (announced
+// 2026-04-22). gemini-3.1-flash-lite-preview was shut down on 2026-05-25.
+// Every tier below can be overridden with a Worker var (wrangler.toml [vars])
+// so a model swap never needs a code change. Defaults are models that are
+// live and use the same request shape as before.
+export const RETIRED_MODEL_REPLACEMENTS = {
+  'gpt-4.1-nano': DEFAULTS.helper,
+  'gpt-4.1-nano-2025-04-14': DEFAULTS.helper,
+  'gemini-3.1-flash-lite-preview': DEFAULTS.geminiFlashLite,
+};
+
+/**
+ * Map a retired model id to its live replacement. Used for model names that
+ * arrive from app builds already in users' hands.
+ */
+export function resolveModel(model, env) {
+  if (!model || typeof model !== 'string') return DEFAULTS.helper;
+  if (model.startsWith('gpt-4.1-nano'))
+    return env?.NANO_MODEL || RETIRED_MODEL_REPLACEMENTS[model] || DEFAULTS.helper;
+  return RETIRED_MODEL_REPLACEMENTS[model] || model;
+}
+
+// Newer Claude models reject sampling parameters ("temperature is deprecated
+// for this model") and think by default, which adds seconds to a realtime call.
+function isNextGenClaude(model) {
+  return (
+    /^claude-(opus|sonnet|fable|mythos)-5/.test(model || '') ||
+    /^claude-opus-4-[7-9]/.test(model || '')
+  );
+}
+
+// Lowest thinking setting per model (checked against the API on 2026-09-28):
+// Sonnet 5.5 accepts only `between_tools`; Sonnet 5, Opus 5 and Opus 4.8
+// accept `disabled`; Opus 5.5 and Fable 5.1 accept neither, so the field is
+// left out. callAnthropic also retries once without temperature/thinking if
+// the API still rejects them, so an unknown model falls back to its defaults
+// instead of failing every call.
+function minimalThinkingParam(model) {
+  const m = model || '';
+  if (/^claude-sonnet-5-5/.test(m)) return { type: 'between_tools' };
+  if (/^claude-(sonnet|opus)-5(-\d{8})?$/.test(m) || /^claude-opus-4-8/.test(m)) {
+    return { type: 'disabled' };
+  }
+  return null;
+}
 
 const CIRCUIT_CONFIG = {
   failureThreshold: 5,
@@ -204,13 +252,33 @@ async function recordFailure(provider, reason, env) {
 
 // ── Provider Adapters — Non-Streaming ──
 
+// OpenAI reasoning families (GPT-5, GPT-5.x, GPT-6, o-series) reject
+// `temperature` and `max_tokens`, and think by default. For classification we
+// send the lowest reasoning setting each family accepts. Older models
+// (GPT-4.1, GPT-4o) keep temperature. `max_completion_tokens` works for both.
+export function isOpenAIReasoningModel(model) {
+  return /^(gpt-5|gpt-6|o\d)/.test(model || '');
+}
+
+export function openAIMinimalEffort(model) {
+  const m = model || '';
+  if (/^gpt-5(-mini|-nano)?(-\d{4}-\d{2}-\d{2})?$/.test(m)) return 'minimal';
+  if (/^(gpt-5\.\d|gpt-6)/.test(m)) return 'none';
+  return null;
+}
+
 async function callOpenAI(systemPrompt, messages, config, signal) {
   const body = {
     model: config.model,
     messages: [{ role: 'system', content: systemPrompt }, ...messages],
-    temperature: config.temperature ?? 0.1,
-    max_tokens: config.maxOutputTokens ?? 500,
+    max_completion_tokens: config.maxOutputTokens ?? 500,
   };
+  if (isOpenAIReasoningModel(config.model)) {
+    const effort = config.reasoningEffort ?? openAIMinimalEffort(config.model);
+    if (effort) body.reasoning_effort = effort;
+  } else {
+    body.temperature = config.temperature ?? 0.1;
+  }
 
   // OpenAI JSON mode
   if (config.responseFormat === 'json') {
@@ -300,9 +368,26 @@ async function callGeminiNonStream(systemPrompt, messages, config) {
       thinkingLevel: config.thinkingLevel || 'low',
       tools: config.geminiTools || undefined, // Gemini-native tool format
       model: config.model,
+      responseMimeType:
+        config.responseFormat === 'json' && !config.geminiTools ? 'application/json' : undefined,
     },
     config.apiKey,
   );
+
+  // Gemini models differ in which thinking levels they accept (3.8 Flash
+  // rejects "minimal"). Retry once at "low" rather than failing over.
+  if (
+    !result.ok &&
+    result.status === 400 &&
+    !config._thinkingRetry &&
+    /thinking level/i.test(String(result.error || ''))
+  ) {
+    return callGeminiNonStream(systemPrompt, messages, {
+      ...config,
+      thinkingLevel: 'low',
+      _thinkingRetry: true,
+    });
+  }
 
   return {
     ok: result.ok,
@@ -325,12 +410,21 @@ async function callAnthropic(systemPrompt, messages, config, signal) {
   const body = {
     model: config.model,
     max_tokens: config.maxOutputTokens ?? 500,
-    system: systemPrompt,
+    // cacheSystem: mark the (static) system prompt cacheable. Cuts cost and
+    // time to first token for prompts over the model's cache minimum.
+    system: config.cacheSystem
+      ? [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }]
+      : systemPrompt,
     messages: mappedMessages,
   };
 
-  if (config.temperature !== undefined) {
+  const nextGen = isNextGenClaude(config.model);
+  if (config.temperature !== undefined && !nextGen) {
     body.temperature = config.temperature;
+  }
+  if (config.minimalThinking) {
+    const thinking = minimalThinkingParam(config.model);
+    if (thinking) body.thinking = thinking;
   }
 
   // Anthropic tools
@@ -382,6 +476,25 @@ async function callAnthropic(systemPrompt, messages, config, signal) {
 
   if (!res.ok) {
     const errText = await res.text().catch(() => 'unknown error');
+    // A model that rejects temperature or the thinking setting: retry once
+    // without them rather than failing the call.
+    if (
+      res.status === 400 &&
+      !config._paramRetry &&
+      (body.temperature !== undefined || body.thinking) &&
+      /temperature|thinking/i.test(errText)
+    ) {
+      console.warn('[callAnthropic] retrying without temperature/thinking', {
+        model: config.model,
+        error: errText.substring(0, 160),
+      });
+      return callAnthropic(
+        systemPrompt,
+        messages,
+        { ...config, temperature: undefined, minimalThinking: false, _paramRetry: true },
+        signal,
+      );
+    }
     return {
       ok: false,
       content: '',
@@ -392,7 +505,19 @@ async function callAnthropic(systemPrompt, messages, config, signal) {
     };
   }
 
-  const data = await res.json();
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    return {
+      ok: false,
+      content: '',
+      functionCalls: [],
+      usage: {},
+      error: 'bad_json',
+      status: res.status,
+    };
+  }
   let content = '';
   const functionCalls = [];
 
@@ -700,15 +825,66 @@ function classifyError(result) {
   return 'network';
 }
 
+// Hard cap for a fallback call in realtime mode. The fallback used to run
+// with no timeout at all, so a slow fallback provider could hold a user
+// facing request open indefinitely.
+const FALLBACK_REALTIME_TIMEOUT_MS = 8000;
+
+async function callWithDeadline(provider, systemPrompt, messages, providerConfig, mode, timeoutMs) {
+  if (mode !== 'realtime') {
+    return callProviderNonStream(provider, systemPrompt, messages, providerConfig, null);
+  }
+  const controller = new AbortController();
+  let timer;
+  const deadline = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      resolve({
+        ok: false,
+        content: '',
+        functionCalls: [],
+        usage: {},
+        error: 'timeout',
+        status: null,
+      });
+    }, timeoutMs || FALLBACK_REALTIME_TIMEOUT_MS);
+  });
+  const call = callProviderNonStream(
+    provider,
+    systemPrompt,
+    messages,
+    providerConfig,
+    controller.signal,
+  );
+  // If the deadline wins, a late rejection from the aborted call must not
+  // surface as an unhandled rejection.
+  call.catch(() => {});
+  try {
+    return await Promise.race([call, deadline]);
+  } catch (err) {
+    return {
+      ok: false,
+      content: '',
+      functionCalls: [],
+      usage: {},
+      error: String(err?.message || err),
+      status: null,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ── Exported Functions ──
 
 async function _attemptFallbackNonStream(config, t0, reason) {
-  const fallbackResult = await callProviderNonStream(
+  const fallbackResult = await callWithDeadline(
     config.fallback.provider,
     config.systemPrompt,
     config.messages,
     config.fallback,
-    null, // no timeout on fallback
+    config.mode,
+    config.fallbackTimeoutMs,
   );
 
   const result = {
@@ -743,6 +919,99 @@ async function _attemptFallbackNonStream(config, t0, reason) {
   return result;
 }
 
+function failedResult(err) {
+  return {
+    ok: false,
+    content: '',
+    functionCalls: [],
+    usage: {},
+    error: String(err?.message || err),
+    status: null,
+  };
+}
+
+// Resolves with the first tagged result that passes `isGood`; when none do,
+// with the fallback's result (or the only one there is). Inputs never reject.
+function firstGood(tagged, isGood) {
+  return new Promise((resolve) => {
+    const done = [];
+    for (const p of tagged) {
+      p.then((t) => {
+        if (isGood(t.r)) return resolve(t);
+        done.push(t);
+        if (done.length === tagged.length) {
+          resolve(done.find((d) => d.who === 'fallback') || done[0]);
+        }
+      });
+    }
+  });
+}
+
+async function hedgedRace(config, primaryCall, deadline, t0) {
+  const isGood = (r) => !!r && r.ok && (!config.validate || config.validate(r.content).valid);
+  const primary = Promise.race([primaryCall, deadline])
+    .catch(failedResult)
+    .then((r) => ({ who: 'primary', r }));
+
+  let hedgeTimer;
+  const hedge = new Promise((resolve) => {
+    hedgeTimer = setTimeout(() => resolve({ who: 'hedge' }), config.hedgeAfterMs);
+  });
+  const first = await Promise.race([primary, hedge]);
+  clearTimeout(hedgeTimer);
+
+  if (first.who === 'primary') {
+    if (isGood(first.r)) {
+      await recordSuccess(config.primary.provider, config.env);
+      return {
+        ...first.r,
+        provider: config.primary.provider,
+        model: config.primary.model,
+        wasFallback: false,
+        fallbackReason: null,
+        latency_ms: Date.now() - t0,
+      };
+    }
+    // Primary failed before the hedge point: ordinary fallback.
+    const reason = first.r.ok ? 'validation' : classifyError(first.r);
+    await recordFailure(config.primary.provider, reason, config.env);
+    return _attemptFallbackNonStream(config, t0, reason);
+  }
+
+  // Primary is slow: race it against the fallback.
+  const fallback = callWithDeadline(
+    config.fallback.provider,
+    config.systemPrompt,
+    config.messages,
+    config.fallback,
+    config.mode,
+    config.fallbackTimeoutMs,
+  )
+    .catch(failedResult)
+    .then((r) => ({ who: 'fallback', r }));
+  const winner = await firstGood([primary, fallback], isGood);
+  const fromPrimary = winner.who === 'primary';
+  if (fromPrimary) await recordSuccess(config.primary.provider, config.env);
+  logFallback({
+    endpoint: config.endpoint,
+    mode: config.mode,
+    primaryProvider: config.primary.provider,
+    primaryModel: config.primary.model,
+    fallbackProvider: config.fallback.provider,
+    fallbackModel: config.fallback.model,
+    reason: fromPrimary ? 'hedge_primary_won' : 'hedge_fallback_won',
+    primaryLatency: Date.now() - t0,
+  });
+  return {
+    ...winner.r,
+    provider: fromPrimary ? config.primary.provider : config.fallback.provider,
+    model: fromPrimary ? config.primary.model : config.fallback.model,
+    wasFallback: !fromPrimary,
+    fallbackReason: fromPrimary ? null : 'hedge',
+    latency_ms: Date.now() - t0,
+  };
+}
+
 export async function aiGenerate(config) {
   const t0 = Date.now();
 
@@ -760,12 +1029,13 @@ export async function aiGenerate(config) {
       reason: 'circuit_open',
     });
 
-    const fallbackResult = await callProviderNonStream(
+    const fallbackResult = await callWithDeadline(
       config.fallback.provider,
       config.systemPrompt,
       config.messages,
       config.fallback,
-      null,
+      config.mode,
+      config.fallbackTimeoutMs,
     );
 
     if (fallbackResult.ok && config.validate) {
@@ -786,20 +1056,65 @@ export async function aiGenerate(config) {
   // --- Attempt primary ---
   let signal = null;
   let timeout = null;
+  let deadline = null;
 
   if (config.mode === 'realtime') {
     const controller = new AbortController();
     signal = controller.signal;
-    timeout = setTimeout(() => controller.abort(), TIMEOUT.nonStreaming);
+    // The race also covers adapters that ignore the abort signal (Gemini).
+    deadline = new Promise((resolve) => {
+      timeout = setTimeout(() => {
+        controller.abort();
+        resolve({
+          ok: false,
+          content: '',
+          functionCalls: [],
+          usage: {},
+          error: 'timeout',
+          status: null,
+        });
+      }, config.primaryTimeoutMs || TIMEOUT.nonStreaming);
+    });
   }
 
-  const primaryResult = await callProviderNonStream(
+  const primaryCall = callProviderNonStream(
     config.primary.provider,
     config.systemPrompt,
     config.messages,
     config.primary,
     signal,
   );
+  primaryCall.catch(() => {}); // late rejection after the deadline wins
+
+  // --- Hedged request (opt in, realtime only) ---
+  // When the primary has not answered within hedgeAfterMs, the fallback is
+  // started as well and whichever returns a valid answer first is used. This
+  // cuts the slow tail without waiting for the full primary timeout.
+  if (
+    deadline &&
+    config.hedgeAfterMs > 0 &&
+    config.hedgeAfterMs < (config.primaryTimeoutMs || TIMEOUT.nonStreaming)
+  ) {
+    try {
+      return await hedgedRace(config, primaryCall, deadline, t0);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  }
+
+  let primaryResult;
+  try {
+    primaryResult = deadline ? await Promise.race([primaryCall, deadline]) : await primaryCall;
+  } catch (err) {
+    primaryResult = {
+      ok: false,
+      content: '',
+      functionCalls: [],
+      usage: {},
+      error: String(err?.message || err),
+      status: null,
+    };
+  }
 
   if (timeout) clearTimeout(timeout);
 
@@ -1090,18 +1405,24 @@ export async function aiClassify(config) {
 }
 
 export function getProviders(tier, env) {
+  const googleKey = env.GOOGLE_API_KEY || env.GEMINI_API_KEY;
+  // Defaults and var names live in models.js.
+  const tiers = resolveModels(env).tiers;
+  const geminiFlash = tiers.geminiFlash;
+  const nanoModel = tiers.nano;
+  const miniModel = tiers.mini;
   switch (tier) {
     case 'nano':
       return {
         primary: {
           provider: 'openai',
-          model: 'gpt-4.1-nano',
+          model: nanoModel,
           apiKey: env.OPENAI_API_KEY,
         },
         fallback: {
           provider: 'gemini',
-          model: 'gemini-3-flash-preview',
-          apiKey: env.GOOGLE_API_KEY || env.GEMINI_API_KEY,
+          model: geminiFlash,
+          apiKey: googleKey,
           thinkingLevel: 'minimal',
         },
       };
@@ -1109,13 +1430,13 @@ export function getProviders(tier, env) {
       return {
         primary: {
           provider: 'openai',
-          model: 'gpt-4.1-mini',
+          model: miniModel,
           apiKey: env.OPENAI_API_KEY,
         },
         fallback: {
           provider: 'gemini',
-          model: 'gemini-3-flash-preview',
-          apiKey: env.GOOGLE_API_KEY || env.GEMINI_API_KEY,
+          model: geminiFlash,
+          apiKey: googleKey,
           thinkingLevel: 'none',
         },
       };
@@ -1123,13 +1444,13 @@ export function getProviders(tier, env) {
       return {
         primary: {
           provider: 'gemini',
-          model: 'gemini-3-flash-preview',
-          apiKey: env.GOOGLE_API_KEY || env.GEMINI_API_KEY,
+          model: geminiFlash,
+          apiKey: googleKey,
           thinkingLevel: 'low',
         },
         fallback: {
           provider: 'openai',
-          model: 'gpt-4.1-mini',
+          model: miniModel,
           apiKey: env.OPENAI_API_KEY,
         },
       };
@@ -1137,13 +1458,14 @@ export function getProviders(tier, env) {
       return {
         primary: {
           provider: 'anthropic',
-          model: 'claude-haiku-4-5-20251001',
+          model: tiers.haiku,
           apiKey: env.ANTHROPIC_API_KEY,
         },
         fallback: {
           provider: 'gemini',
-          model: 'gemini-3.1-flash-lite-preview',
-          apiKey: env.GOOGLE_API_KEY || env.GEMINI_API_KEY,
+          // was gemini-3.1-flash-lite-preview (shut down 2026-05-25)
+          model: tiers.geminiFlashLite,
+          apiKey: googleKey,
           thinkingLevel: 'low',
         },
       };
@@ -1151,16 +1473,143 @@ export function getProviders(tier, env) {
       return {
         primary: {
           provider: 'anthropic',
-          model: 'claude-sonnet-4-6',
+          model: tiers.sonnet,
           apiKey: env.ANTHROPIC_API_KEY,
         },
         fallback: {
           provider: 'gemini',
-          model: 'gemini-3-flash-preview',
-          apiKey: env.GOOGLE_API_KEY || env.GEMINI_API_KEY,
+          model: geminiFlash,
+          apiKey: googleKey,
           thinkingLevel: 'medium',
         },
       };
+    case 'classify': {
+      // Single-call Mind Drop classifier (classify-v3). The model is chosen by
+      // the model audit (docs/2026-09-29-minddrop-model-audit.md) and set with
+      // Worker vars, so switching needs no code change:
+      //   CLASSIFY_PROVIDER         openai | gemini | anthropic
+      //   CLASSIFY_MODEL            model id
+      //   CLASSIFY_REASONING_EFFORT OpenAI reasoning models (none, minimal, low ...)
+      //   CLASSIFY_THINKING_LEVEL   Gemini (minimal, low ...)
+      //   CLASSIFY_MAX_OUTPUT_TOKENS output budget; thinking tokens count
+      //                             towards it on Gemini and OpenAI reasoning models
+      //   CLASSIFY_FALLBACK_PROVIDER / CLASSIFY_FALLBACK_MODEL
+      // Until a model is picked the default is GPT-4.1 mini (cheap, known
+      // request shape).
+      const keyFor = (p) =>
+        p === 'anthropic' ? env.ANTHROPIC_API_KEY : p === 'gemini' ? googleKey : env.OPENAI_API_KEY;
+      const classifyProvider = env.CLASSIFY_PROVIDER || 'openai';
+      const classifyDefaultModel = {
+        anthropic: tiers.haiku,
+        openai: miniModel,
+        gemini: tiers.geminiFlashLite,
+      };
+      const fallbackProvider = env.CLASSIFY_FALLBACK_PROVIDER || 'openai';
+      const fallbackModel =
+        env.CLASSIFY_FALLBACK_MODEL || classifyDefaultModel[fallbackProvider] || miniModel;
+      const maxOut = Number(env.CLASSIFY_MAX_OUTPUT_TOKENS) || 1500;
+      const common = {
+        cacheSystem: true,
+        responseFormat: 'json',
+        maxOutputTokens: maxOut,
+        temperature: 0,
+      };
+      return {
+        primary: {
+          provider: classifyProvider,
+          model: env.CLASSIFY_MODEL || classifyDefaultModel[classifyProvider] || miniModel,
+          apiKey: keyFor(classifyProvider),
+          ...common,
+          minimalThinking: true,
+          ...(env.CLASSIFY_REASONING_EFFORT
+            ? { reasoningEffort: env.CLASSIFY_REASONING_EFFORT }
+            : {}),
+          thinkingLevel: env.CLASSIFY_THINKING_LEVEL || 'minimal',
+        },
+        fallback: {
+          provider: fallbackProvider,
+          model: fallbackModel,
+          apiKey: keyFor(fallbackProvider),
+          ...common,
+          minimalThinking: true,
+          thinkingLevel: 'minimal',
+        },
+      };
+    }
+    case 'clarify_writer': {
+      // Writes the words of a clarifying question once the classifier has
+      // decided a question is needed and which kind. The audit found Claude
+      // Sonnet 5.5 writes the best questions (docs/2026-09-29-minddrop-model-audit.md);
+      // it only runs for the few drops that need a question. Falls back to
+      // the Mini tier model. CLARIFY_WRITER_PROVIDER / CLARIFY_WRITER_MODEL.
+      const provider =
+        env.CLARIFY_WRITER_PROVIDER || (env.ANTHROPIC_API_KEY ? 'anthropic' : 'openai');
+      const model =
+        env.CLARIFY_WRITER_MODEL ||
+        (provider === 'anthropic'
+          ? env.SONNET_MODEL || 'claude-sonnet-5-5'
+          : provider === 'gemini'
+            ? 'gemini-3.8-flash'
+            : miniModel);
+      const key =
+        provider === 'anthropic'
+          ? env.ANTHROPIC_API_KEY
+          : provider === 'gemini'
+            ? googleKey
+            : env.OPENAI_API_KEY;
+      return {
+        primary: {
+          provider,
+          model,
+          apiKey: key,
+          responseFormat: 'json',
+          maxOutputTokens: 600,
+          temperature: 0,
+          minimalThinking: true,
+          cacheSystem: true,
+        },
+        fallback: {
+          provider: 'openai',
+          model: miniModel,
+          apiKey: env.OPENAI_API_KEY,
+          responseFormat: 'json',
+          maxOutputTokens: 400,
+          temperature: 0,
+        },
+      };
+    }
+    case 'second_opinion': {
+      // Only used when SECOND_OPINION_MODEL is set: when the classifier wants
+      // to ask, this model decides whether a question is really needed.
+      const provider = env.SECOND_OPINION_PROVIDER || 'gemini';
+      const key =
+        provider === 'anthropic'
+          ? env.ANTHROPIC_API_KEY
+          : provider === 'gemini'
+            ? googleKey
+            : env.OPENAI_API_KEY;
+      return {
+        primary: {
+          provider,
+          model: env.SECOND_OPINION_MODEL,
+          apiKey: key,
+          responseFormat: 'json',
+          maxOutputTokens: Number(env.CLASSIFY_MAX_OUTPUT_TOKENS) || 1500,
+          temperature: 0,
+          minimalThinking: true,
+          thinkingLevel: env.SECOND_OPINION_THINKING_LEVEL || 'low',
+          cacheSystem: true,
+        },
+        fallback: {
+          provider: 'openai',
+          model: miniModel,
+          apiKey: env.OPENAI_API_KEY,
+          responseFormat: 'json',
+          maxOutputTokens: 700,
+          temperature: 0,
+        },
+      };
+    }
     default:
       throw new Error(`[aiProvider] Unknown tier: ${tier}`);
   }

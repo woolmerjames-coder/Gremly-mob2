@@ -18,7 +18,7 @@ export function SaveIndicatorPill({ count, onPress, visible, style }: Props) {
         <View style={styles.dot}>
           <Text style={styles.dotText}>{count}</Text>
         </View>
-        <Text style={styles.label}>Save items</Text>
+        <Text style={styles.label}>{count === 1 ? 'new item to save' : 'new items to save'}</Text>
       </TouchableOpacity>
     </Animated.View>
   );

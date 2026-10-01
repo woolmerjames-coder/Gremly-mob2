@@ -4,6 +4,65 @@ compatibility_date = "2024-01-01"
 
 [vars]
 INNGEST_WORKER_URL = "https://gremly-inngest-jobs.woolmerjames.workers.dev"
+# Mind Drop one call classifier (classify-v3). Chosen by the model audit in
+# docs/2026-09-29-minddrop-model-audit.md: Gemini 3.8 Flash, GPT-6 Luna backup.
+# Questions are worded by Claude Sonnet when ANTHROPIC_API_KEY is set.
+# CLASSIFY_V3_ENABLED = "false" sends every app build back to the v2 chain.
+CLASSIFY_V3_ENABLED = "true"
+CLASSIFY_PROVIDER = "gemini"
+CLASSIFY_MODEL = "gemini-3.8-flash"
+CLASSIFY_THINKING_LEVEL = "low"
+CLASSIFY_FALLBACK_PROVIDER = "openai"
+CLASSIFY_FALLBACK_MODEL = "gpt-6-luna"
+# Mind Drop: after a drop is classified, ask whether it is about something the user
+# already has (a repeat, a change, a done todo, a habit they did). It runs on the chat
+# matcher's model (MODEL_ENTITY_MATCH). On for James's hands-on test (30 Sep 2026),
+# after the replay in docs/minddrop-relate.md. "false" turns it off with no app build;
+# the app then files drops as before.
+MINDDROP_RELATE_ENABLED = "true"
+
+# Every other model the Worker calls is chosen in models.js; a var here overrides
+# its default. To move a model, set the var and deploy; the corpus gate comes first.
+#   CHAT_MODEL                the Gemini model behind every chat surface (default gemini-3-flash-preview)
+#   HELPER_MODEL              the small model behind triage, loading message, summaries,
+#                             extraction, habit pre parse and so on (default gpt-4.1-mini)
+#   MODEL_<JOB>               one helper job on its own, for example MODEL_TRIAGE_MODE or
+#                             MODEL_CHAT_EXTRACTION; the full list is HELPER_JOB_VARS in models.js
+#   APP_HELPER_MODEL          the generic non streaming path app builds call (default gpt-4o-mini)
+#   LEGACY_OPENAI_CHAT_MODEL  non streaming OpenAI fallback for Space, World, Chapter (default gpt-4.1)
+#   WEEKLY_SUMMARY_MODEL      weekly summary (default claude-sonnet-4-5-20250929)
+#   HELPER_FALLBACK_MODEL     retry a failed helper call once on this model (default none)
+#   TRIAGE_ONE_CALL           on: one triage call instead of two (default off)
+#   CHAT_EXTRACTION_V2        on: evidence rule, 2,000 cap, JSON mode, skipped on
+#                             chit chat, playful, app help, venting, emotional,
+#                             celebration turns (default off)
+#   SEARCH_REQUIRED_FORCES    off: a required search attaches the tool and lets the
+#                             reply model decide (default on, forces a search)
+#   ENTITY_CARDS              on: match a mention to one of the user's items and show
+#                             its card with a proposed change to confirm (default off)
+#   CHAT_PILL_SPLIT           on: the Save items pill is its own focused call (new and
+#                             changed only) and the chat title a separate small call,
+#                             both after the reply (default off, the single four-job call)
+
+# The split from docs/2026-09-29-chat-helper-model-audit.md, live since 29 Sep 2026.
+# James judges the chat tone in the app rather than by a replay (his call).
+# The reply path (chat model and triage) is back on the models it ran on before
+# 29 Sep: the live test found the tone had changed, and that change was never
+# put through the corpus gate. Helpers that do not shape the reply stay on Luna.
+CHAT_MODEL = "gemini-3-flash-preview"
+HELPER_MODEL = "gpt-6-luna"
+HELPER_FALLBACK_MODEL = "gemini-3.8-flash"
+MODEL_TRIAGE_MODE = "gpt-4.1-mini"
+MODEL_TRIAGE_SIGNALS = "gpt-4.1-mini"
+MODEL_LOADING_MESSAGE = "gpt-4.1-mini"
+TRIAGE_ONE_CALL = "off"
+CHAT_EXTRACTION_V2 = "on"
+SEARCH_REQUIRED_FORCES = "off"
+ENTITY_CARDS = "on"
+CHAT_PILL_SPLIT = "on"
+# The matcher reads the whole item list; on a 140 item list Gemini 3.8 Flash found the
+# item every time where Luna missed one in two, at the same speed (scenario gate, 30 Sep 2026).
+MODEL_ENTITY_MATCH = "gemini-3.8-flash"
 
 [observability]
 enabled = true
@@ -14,6 +73,8 @@ invocation_logs = true
 
 # Secrets (set via `wrangler secret put <NAME>`):
 # - OPENAI_API_KEY
+# - GEMINI_API_KEY (or GOOGLE_API_KEY): Mind Drop classifier
+# - ANTHROPIC_API_KEY: clarifying question wording
 # - SUPABASE_URL
 # - SUPABASE_SERVICE_KEY
 

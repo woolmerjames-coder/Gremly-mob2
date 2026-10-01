@@ -1,0 +1,1202 @@
+[
+ {
+  "id": "d000",
+  "raw": "Pick somewhere for dinner",
+  "stored_kind": "todo",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d001",
+  "raw": "Call mom tomorrow",
+  "stored_kind": "todo",
+  "user": "04f18e"
+ },
+ {
+  "id": "d002",
+  "raw": "today i need to finish the report and prep for tomorrow's meeting",
+  "stored_kind": "todo",
+  "user": "04f18e"
+ },
+ {
+  "id": "d003",
+  "raw": "Had a great 10km run with George and Dave",
+  "stored_kind": "note",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d004",
+  "raw": "Reminder that Trader Joe’s has those pumpkin bars in autumn",
+  "stored_kind": "note",
+  "user": "72dcd0"
+ },
+ {
+  "id": "d005",
+  "raw": "Set up times with Sage stakeholders in prep for TRR",
+  "stored_kind": "todo",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d006",
+  "raw": "Pick up wine for Issam",
+  "stored_kind": "todo",
+  "user": "6c43ed"
+ },
+ {
+  "id": "d007",
+  "raw": "Find a new book",
+  "stored_kind": "todo",
+  "user": "67bff9"
+ },
+ {
+  "id": "d008",
+  "raw": "What if the weekly summary had a completely different tone each time?",
+  "stored_kind": "note",
+  "user": "9f54d3"
+ },
+ {
+  "id": "d009",
+  "raw": "Submit my Q2 forecast",
+  "stored_kind": "todo",
+  "user": "e14cdf"
+ },
+ {
+  "id": "d010",
+  "raw": "Play tennis with Dave",
+  "stored_kind": "todo",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d011",
+  "raw": "Bella weighs 28kg as of last Tuesday",
+  "stored_kind": "note",
+  "user": "84237a"
+ },
+ {
+  "id": "d012",
+  "raw": "Book F 45 for next week",
+  "stored_kind": "todo",
+  "user": "f5bd69"
+ },
+ {
+  "id": "d013",
+  "raw": "Do a face mask with Dave in the morning",
+  "stored_kind": "todo",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d014",
+  "raw": "maybe get a standing desk, also call mom",
+  "stored_kind": "note",
+  "user": "04f18e"
+ },
+ {
+  "id": "d015",
+  "raw": "start going to the gym consistently again, maybe 3 times a week to begin with",
+  "stored_kind": "habit",
+  "user": "ddc1c6"
+ },
+ {
+  "id": "d016",
+  "raw": "Charge Garmin",
+  "stored_kind": "todo",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d017",
+  "raw": "return the library books",
+  "stored_kind": "todo",
+  "user": "c728c5"
+ },
+ {
+  "id": "d018",
+  "raw": "I need to break down this project into smaller tasks",
+  "stored_kind": "todo",
+  "user": "e98720"
+ },
+ {
+  "id": "d019",
+  "raw": "Get birthday card for Hayward",
+  "stored_kind": "todo",
+  "user": "0aa695"
+ },
+ {
+  "id": "d020",
+  "raw": "Work on test",
+  "stored_kind": "note",
+  "user": "e98720"
+ },
+ {
+  "id": "d021",
+  "raw": "Pick up my prescription at CVS",
+  "stored_kind": "note",
+  "user": "73030f"
+ },
+ {
+  "id": "d022",
+  "raw": "Sort out sports bags",
+  "stored_kind": "todo",
+  "user": "0aa695"
+ },
+ {
+  "id": "d023",
+  "raw": "that thing for work",
+  "stored_kind": "note",
+  "user": "e98720"
+ },
+ {
+  "id": "d024",
+  "raw": "felt kind of off today, hard to explain but just not fully there",
+  "stored_kind": "note",
+  "user": "ddc1c6"
+ },
+ {
+  "id": "d025",
+  "raw": "Fix the app",
+  "stored_kind": "todo",
+  "user": "02146c"
+ },
+ {
+  "id": "d026",
+  "raw": "sarahs birthday is march 15",
+  "stored_kind": "note",
+  "user": "e98720"
+ },
+ {
+  "id": "d027",
+  "raw": "Trying to make sense of my goals",
+  "stored_kind": "note",
+  "user": "73030f"
+ },
+ {
+  "id": "d028",
+  "raw": "Laminate the kids artwork before it gets damaged",
+  "stored_kind": "todo",
+  "user": "c852a7"
+ },
+ {
+  "id": "d029",
+  "raw": "stressed about work, also book dentist",
+  "stored_kind": "todo",
+  "user": "04f18e"
+ },
+ {
+  "id": "d030",
+  "raw": "ugh so tired today, also need to reschedule the dentist",
+  "stored_kind": "note",
+  "user": "04f18e"
+ },
+ {
+  "id": "d031",
+  "raw": "Stop overthinking",
+  "stored_kind": "note",
+  "user": "04f18e"
+ },
+ {
+  "id": "d032",
+  "raw": "Floss once a day",
+  "stored_kind": "habit",
+  "user": "0aa695"
+ },
+ {
+  "id": "d033",
+  "raw": "Actually really enjoying the evening sweep ritual lately",
+  "stored_kind": "note",
+  "user": "88ff48"
+ },
+ {
+  "id": "d034",
+  "raw": "run 5k every Saturday",
+  "stored_kind": "habit",
+  "user": "e98720"
+ },
+ {
+  "id": "d035",
+  "raw": "Exercise 30 mins every day",
+  "stored_kind": "habit",
+  "user": "72dcd0"
+ },
+ {
+  "id": "d036",
+  "raw": "Pick up dry cleaning, also I've been feeling really burnt out lately",
+  "stored_kind": "todo",
+  "user": "04f18e"
+ },
+ {
+  "id": "d037",
+  "raw": "run every morning at 7am",
+  "stored_kind": "habit",
+  "user": "e98720"
+ },
+ {
+  "id": "d038",
+  "raw": "Wrap Xmas presents",
+  "stored_kind": "todo",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d039",
+  "raw": "massage therapist",
+  "stored_kind": "note",
+  "user": "e98720"
+ },
+ {
+  "id": "d040",
+  "raw": "feeling really conflicted about the conversation with my manager today, like she said all the right things but something felt off and I can't shake it",
+  "stored_kind": "note",
+  "user": "e98720"
+ },
+ {
+  "id": "d041",
+  "raw": "ok genuinely considering quitting my day job. not yet but the thought is getting louder",
+  "stored_kind": "note",
+  "user": "88ff48"
+ },
+ {
+  "id": "d042",
+  "raw": "do 10 minutes of stretching before bed",
+  "stored_kind": "habit",
+  "user": "9ae333"
+ },
+ {
+  "id": "d043",
+  "raw": "call mom and start meditating daily",
+  "stored_kind": "note",
+  "user": "04f18e"
+ },
+ {
+  "id": "d044",
+  "raw": "Remove habit cards from the sweep and build out habit page",
+  "stored_kind": "note",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d045",
+  "raw": "Tell Dave I love him",
+  "stored_kind": "note",
+  "user": "22f3a3"
+ },
+ {
+  "id": "d046",
+  "raw": "maybe work on the project",
+  "stored_kind": "note",
+  "user": "e98720"
+ },
+ {
+  "id": "d047",
+  "raw": "Wash rest of soft toys",
+  "stored_kind": "todo",
+  "user": "0aa695"
+ },
+ {
+  "id": "d048",
+  "raw": "could be cool to learn guitar",
+  "stored_kind": "note",
+  "user": "e98720"
+ },
+ {
+  "id": "d049",
+  "raw": "Book ferry to PTown",
+  "stored_kind": "todo",
+  "user": "f5bd69"
+ },
+ {
+  "id": "d050",
+  "raw": "Do strength exercises",
+  "stored_kind": "todo",
+  "user": "0aa695"
+ },
+ {
+  "id": "d051",
+  "raw": "Finish housework",
+  "stored_kind": "todo",
+  "user": "0aa695"
+ },
+ {
+  "id": "d052",
+  "raw": "Buy anal douche for the shower",
+  "stored_kind": "todo",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d053",
+  "raw": "Would it be worth adding haptic feedback to the swipe gestures?",
+  "stored_kind": "note",
+  "user": "88ff48"
+ },
+ {
+  "id": "d054",
+  "raw": "a simple weekly check-in to see where my time actually went",
+  "stored_kind": "habit",
+  "user": "9ae333"
+ },
+ {
+  "id": "d055",
+  "raw": "Fix the mind drop",
+  "stored_kind": "note",
+  "user": "e98720"
+ },
+ {
+  "id": "d056",
+  "raw": "I have a sports massage this afternoon",
+  "stored_kind": "note",
+  "user": "0aa695"
+ },
+ {
+  "id": "d057",
+  "raw": "I really need to stop saying yes to everything",
+  "stored_kind": "note",
+  "user": "88ff48"
+ },
+ {
+  "id": "d058",
+  "raw": "Meet with EBC and Vasant at Commotion",
+  "stored_kind": "todo",
+  "user": "f5bd69"
+ },
+ {
+  "id": "d059",
+  "raw": "Do some form of exercise today",
+  "stored_kind": "todo",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d060",
+  "raw": "Wire the new light fitting in the bathroom",
+  "stored_kind": "todo",
+  "user": "c852a7"
+ },
+ {
+  "id": "d061",
+  "raw": "No snacking after dinner",
+  "stored_kind": "todo",
+  "user": "88ff48"
+ },
+ {
+  "id": "d062",
+  "raw": "team meeting tomorrow at 10am",
+  "stored_kind": "todo",
+  "user": "9ae333"
+ },
+ {
+  "id": "d063",
+  "raw": "be less stressed",
+  "stored_kind": "note",
+  "user": "194015"
+ },
+ {
+  "id": "d064",
+  "raw": "Note to self: the wifi password at Jake's place is sunflower99",
+  "stored_kind": "note",
+  "user": "04f18e"
+ },
+ {
+  "id": "d065",
+  "raw": "Book flight to Berlin",
+  "stored_kind": "todo",
+  "user": "f5bd69"
+ },
+ {
+  "id": "d066",
+  "raw": "Stop Smoking",
+  "stored_kind": "habit",
+  "user": "04f18e"
+ },
+ {
+  "id": "d067",
+  "raw": "Dave’s birthday is April 27",
+  "stored_kind": "note",
+  "user": "e98720"
+ },
+ {
+  "id": "d068",
+  "raw": "Going to a ZEDD concert on Sunday",
+  "stored_kind": "note",
+  "user": "f5bd69"
+ },
+ {
+  "id": "d069",
+  "raw": "kick the habit of stress eating when I'm anxious",
+  "stored_kind": "note",
+  "user": "88ff48"
+ },
+ {
+  "id": "d070",
+  "raw": "find a new place to go on vacation, needs to be hot and fun and close and not too much money. want to go in September whilst the schools arent out",
+  "stored_kind": "todo",
+  "user": "04f18e"
+ },
+ {
+  "id": "d071",
+  "raw": "Text Becca about seeing them this week",
+  "stored_kind": "todo",
+  "user": "0aa695"
+ },
+ {
+  "id": "d072",
+  "raw": "Send Dave a new weekly summary",
+  "stored_kind": "todo",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d073",
+  "raw": "Find a film to watch on sunday",
+  "stored_kind": "todo",
+  "user": "d45a72"
+ },
+ {
+  "id": "d074",
+  "raw": "Empty dishwasher",
+  "stored_kind": "todo",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d075",
+  "raw": "Send T&E request for Uk trip",
+  "stored_kind": "todo",
+  "user": "7e7522"
+ },
+ {
+  "id": "d076",
+  "raw": "Get cheese from SayCheese",
+  "stored_kind": "todo",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d077",
+  "raw": "Book yoga for Thursday",
+  "stored_kind": "todo",
+  "user": "f5bd69"
+ },
+ {
+  "id": "d078",
+  "raw": "okay I really need to get my shit together, book that dentist appointment I've been putting off for 6 months, start actually using the gym membership I'm paying for, meal prep on sundays would be good too, basically just be a functional adult for once, why is this so hard",
+  "stored_kind": "note",
+  "user": "04f18e"
+ },
+ {
+  "id": "d079",
+  "raw": "Weird day",
+  "stored_kind": "note",
+  "user": "84237a"
+ },
+ {
+  "id": "d080",
+  "raw": "journal every evening for at least 5 minutes",
+  "stored_kind": "habit",
+  "user": "72dcd0"
+ },
+ {
+  "id": "d081",
+  "raw": "Sort the garden out",
+  "stored_kind": "todo",
+  "user": "0aa695"
+ },
+ {
+  "id": "d082",
+  "raw": "Investigate why the app thinks Becca and family arrive today",
+  "stored_kind": "todo",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d083",
+  "raw": "Measure the bedroom window for new blinds",
+  "stored_kind": "todo",
+  "user": "88ff48"
+ },
+ {
+  "id": "d084",
+  "raw": "Create traveling route for January/feb trip",
+  "stored_kind": "note",
+  "user": "72dcd0"
+ },
+ {
+  "id": "d085",
+  "raw": "submit the report by friday",
+  "stored_kind": "todo",
+  "user": "d45a72"
+ },
+ {
+  "id": "d086",
+  "raw": "walk 10000 steps a day",
+  "stored_kind": "habit",
+  "user": "88ff48"
+ },
+ {
+  "id": "d087",
+  "raw": "Tenant viewing for the flat is Saturday at noon",
+  "stored_kind": "note",
+  "user": "c852a7"
+ },
+ {
+  "id": "d088",
+  "raw": "Consider packing slippers or indoor shoes to wear on long haul flights",
+  "stored_kind": "todo",
+  "user": "0aa695"
+ },
+ {
+  "id": "d089",
+  "raw": "No phone calls after 9pm",
+  "stored_kind": "habit",
+  "user": "88ff48"
+ },
+ {
+  "id": "d090",
+  "raw": "have more energy during the day",
+  "stored_kind": "note",
+  "user": "c11714"
+ },
+ {
+  "id": "d091",
+  "raw": "stop scrolling for hours at night, it’s ruining my sleep",
+  "stored_kind": "habit",
+  "user": "ddc1c6"
+ },
+ {
+  "id": "d092",
+  "raw": "dr appointment March 15",
+  "stored_kind": "note",
+  "user": "e98720"
+ },
+ {
+  "id": "d093",
+  "raw": "Reduce caffeine intake",
+  "stored_kind": "todo",
+  "user": "04f18e"
+ },
+ {
+  "id": "d094",
+  "raw": "Prepare slides for presentation",
+  "stored_kind": "note",
+  "user": "73030f"
+ },
+ {
+  "id": "d095",
+  "raw": "try not to check my phone first thing tomorrow",
+  "stored_kind": "habit",
+  "user": "194015"
+ },
+ {
+  "id": "d096",
+  "raw": "Find out if the local pool does adult lane swimming on weekday mornings",
+  "stored_kind": "note",
+  "user": "84237a"
+ },
+ {
+  "id": "d097",
+  "raw": "What if we added voice memos?",
+  "stored_kind": "note",
+  "user": "88ff48"
+ },
+ {
+  "id": "d098",
+  "raw": "Short runs in Tokyo (2x per week)",
+  "stored_kind": "note",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d099",
+  "raw": "Put soft toys on Vinted",
+  "stored_kind": "todo",
+  "user": "0aa695"
+ },
+ {
+  "id": "d100",
+  "raw": "Confirm final bonus that I’ll receive on Friday",
+  "stored_kind": "todo",
+  "user": "f5bd69"
+ },
+ {
+  "id": "d101",
+  "raw": "What if we changed the chip size",
+  "stored_kind": "note",
+  "user": "d45a72"
+ },
+ {
+  "id": "d102",
+  "raw": "today was a good day honestly",
+  "stored_kind": "note",
+  "user": "28c8bc"
+ },
+ {
+  "id": "d103",
+  "raw": "Pack Bellas food",
+  "stored_kind": "todo",
+  "user": "67bff9"
+ },
+ {
+  "id": "d104",
+  "raw": "quit biting my nails",
+  "stored_kind": "habit",
+  "user": "e98720"
+ },
+ {
+  "id": "d105",
+  "raw": "Takeaway menu for the Thai place is on the fridge",
+  "stored_kind": "note",
+  "user": "84237a"
+ },
+ {
+  "id": "d106",
+  "raw": "got the promotion but honestly feeling overwhelmed by the new responsibilities",
+  "stored_kind": "note",
+  "user": "04f18e"
+ },
+ {
+  "id": "d107",
+  "raw": "Testing the mind drop",
+  "stored_kind": "note",
+  "user": "e92011"
+ },
+ {
+  "id": "d108",
+  "raw": "Get more minoxidil before heading to Tahoe",
+  "stored_kind": "note",
+  "user": "22f3a3"
+ },
+ {
+  "id": "d109",
+  "raw": "dentist on the 15th and I should really start flossing daily",
+  "stored_kind": "note",
+  "user": "88ff48"
+ },
+ {
+  "id": "d110",
+  "raw": "Grocery list:\n- eggs\n- milk\n- bread",
+  "stored_kind": "note",
+  "user": "73030f"
+ },
+ {
+  "id": "d111",
+  "raw": "Learn how to AI code",
+  "stored_kind": "note",
+  "user": "6f4337"
+ },
+ {
+  "id": "d112",
+  "raw": "Back in need of some pain relief",
+  "stored_kind": "note",
+  "user": "cc39cd"
+ },
+ {
+  "id": "d113",
+  "raw": "Book uk flights for wilderness",
+  "stored_kind": "todo",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d114",
+  "raw": "ugh so tired, might just skip the gym and rest",
+  "stored_kind": "note",
+  "user": "04f18e"
+ },
+ {
+  "id": "d115",
+  "raw": "call mom monday",
+  "stored_kind": "todo",
+  "user": "e98720"
+ },
+ {
+  "id": "d116",
+  "raw": "Create temporary time block tags to items. Permanent preferences can still be assigned",
+  "stored_kind": "todo",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d117",
+  "raw": "meditate on Tuesdays, Wednesdays, Thursdays and Fridays",
+  "stored_kind": "habit",
+  "user": "04f18e"
+ },
+ {
+  "id": "d118",
+  "raw": "Email accountant about LLC setup",
+  "stored_kind": "todo",
+  "user": "e98720"
+ },
+ {
+  "id": "d119",
+  "raw": "Read the two articles in the Decagon day one onboarding email",
+  "stored_kind": "todo",
+  "user": "f5bd69"
+ },
+ {
+  "id": "d120",
+  "raw": "Call mum and dad",
+  "stored_kind": "todo",
+  "user": "67bff9"
+ },
+ {
+  "id": "d121",
+  "raw": "10000 steps a day",
+  "stored_kind": "habit",
+  "user": "cc39cd"
+ },
+ {
+  "id": "d122",
+  "raw": "feeling really grateful for my team today",
+  "stored_kind": "note",
+  "user": "d45a72"
+ },
+ {
+  "id": "d123",
+  "raw": "Test mind drop",
+  "stored_kind": "note",
+  "user": "c852a7"
+ },
+ {
+  "id": "d124",
+  "raw": "Prepare swimming bits for the weekend",
+  "stored_kind": "todo",
+  "user": "0aa695"
+ },
+ {
+  "id": "d125",
+  "raw": "Reply to Becca’s email",
+  "stored_kind": "todo",
+  "user": "0aa695"
+ },
+ {
+  "id": "d126",
+  "raw": "Make plans for the weekend",
+  "stored_kind": "todo",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d127",
+  "raw": "Maybe buy groceries",
+  "stored_kind": "todo",
+  "user": "e98720"
+ },
+ {
+  "id": "d128",
+  "raw": "Read for 30 minutes before bed",
+  "stored_kind": "habit",
+  "user": "04f18e"
+ },
+ {
+  "id": "d129",
+  "raw": "Do abs exercises and yoga",
+  "stored_kind": "note",
+  "user": "0aa695"
+ },
+ {
+  "id": "d130",
+  "raw": "Meditate daily at",
+  "stored_kind": "note",
+  "user": "73030f"
+ },
+ {
+  "id": "d131",
+  "raw": "Check if DCO is actually working for the app",
+  "stored_kind": "todo",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d132",
+  "raw": "stop scrolling before bed",
+  "stored_kind": "todo",
+  "user": "c728c5"
+ },
+ {
+  "id": "d133",
+  "raw": "meeting got moved to thursday 3pm",
+  "stored_kind": "note",
+  "user": "e98720"
+ },
+ {
+  "id": "d134",
+  "raw": "The adherence to habits is not correct on the habit sweep card",
+  "stored_kind": "note",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d135",
+  "raw": "Gym",
+  "stored_kind": "todo",
+  "user": "04f18e"
+ },
+ {
+  "id": "d136",
+  "raw": "What if we added small animations for mascot on the Mind Drop page",
+  "stored_kind": "note",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d137",
+  "raw": "I’m grateful for how calm I felt today",
+  "stored_kind": "note",
+  "user": "67bff9"
+ },
+ {
+  "id": "d138",
+  "raw": "Exercise",
+  "stored_kind": "todo",
+  "user": "04f18e"
+ },
+ {
+  "id": "d139",
+  "raw": "Groceries:\n- eggs\n- rice\n- yogurt",
+  "stored_kind": "todo",
+  "user": "67bff9"
+ },
+ {
+  "id": "d140",
+  "raw": "Figure out the overlay situation",
+  "stored_kind": "note",
+  "user": "bc3282"
+ },
+ {
+  "id": "d141",
+  "raw": "Need a way to add to space from a mind drop. Can be reviewed in sweep",
+  "stored_kind": "note",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d142",
+  "raw": "Pressing add to space, none, doesn’t work. Needs to be fixed",
+  "stored_kind": "todo",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d143",
+  "raw": "Read 10 pages every morning",
+  "stored_kind": "note",
+  "user": "73030f"
+ },
+ {
+  "id": "d144",
+  "raw": "Call ski spirit and dentist about appointments",
+  "stored_kind": "note",
+  "user": "f5bd69"
+ },
+ {
+  "id": "d145",
+  "raw": "Swap the batteries in the smoke detectors",
+  "stored_kind": "todo",
+  "user": "84c153"
+ },
+ {
+  "id": "d146",
+  "raw": "Sort through the old photos on the hard drive",
+  "stored_kind": "todo",
+  "user": "88ff48"
+ },
+ {
+  "id": "d147",
+  "raw": "Sat in the car for ten minutes after getting home just decompressing",
+  "stored_kind": "note",
+  "user": "84c153"
+ },
+ {
+  "id": "d148",
+  "raw": "Prune the roses along the back fence",
+  "stored_kind": "todo",
+  "user": "c852a7"
+ },
+ {
+  "id": "d149",
+  "raw": "Make sure calendar is swipe able",
+  "stored_kind": "todo",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d150",
+  "raw": "Text Michelle",
+  "stored_kind": "note",
+  "user": "e98720"
+ },
+ {
+  "id": "d151",
+  "raw": "read before bed instead of going on my phone",
+  "stored_kind": "habit",
+  "user": "9ae333"
+ },
+ {
+  "id": "d152",
+  "raw": "finally submitted the expense report",
+  "stored_kind": "todo",
+  "user": "e98720"
+ },
+ {
+  "id": "d153",
+  "raw": "Call parents this weekend",
+  "stored_kind": "todo",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d154",
+  "raw": "Our energy supplier switches to the off-peak tariff after 11pm",
+  "stored_kind": "note",
+  "user": "c852a7"
+ },
+ {
+  "id": "d155",
+  "raw": "Send thank you note to Gong team tomorrow",
+  "stored_kind": "todo",
+  "user": "f5bd69"
+ },
+ {
+  "id": "d156",
+  "raw": "Figure out Xmas in California for next year",
+  "stored_kind": "todo",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d157",
+  "raw": "Do F45 workout",
+  "stored_kind": "todo",
+  "user": "f5bd69"
+ },
+ {
+  "id": "d158",
+  "raw": "cut out sugary drinks during the week",
+  "stored_kind": "habit",
+  "user": "6dad43"
+ },
+ {
+  "id": "d159",
+  "raw": "Not quite so hot today! Managed a run",
+  "stored_kind": "note",
+  "user": "0aa695"
+ },
+ {
+  "id": "d160",
+  "raw": "run 5k three times a week",
+  "stored_kind": "habit",
+  "user": "e98720"
+ },
+ {
+  "id": "d161",
+  "raw": "Clean the house",
+  "stored_kind": "todo",
+  "user": "72dcd0"
+ },
+ {
+  "id": "d162",
+  "raw": "Excited about Gremly and thankful for Kim and Andrew offering their help with lawyers and security",
+  "stored_kind": "note",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d163",
+  "raw": "Call Mum about the oven repair situation",
+  "stored_kind": "note",
+  "user": "22f3a3"
+ },
+ {
+  "id": "d164",
+  "raw": "got the promotion but honestly feeling overwhelmed",
+  "stored_kind": "note",
+  "user": "04f18e"
+ },
+ {
+  "id": "d165",
+  "raw": "Drink at Ben Fiddich",
+  "stored_kind": "todo",
+  "user": "f5bd69"
+ },
+ {
+  "id": "d166",
+  "raw": "What if we built a drone delivery app",
+  "stored_kind": "note",
+  "user": "22f3a3"
+ },
+ {
+  "id": "d167",
+  "raw": "Make a start on the website",
+  "stored_kind": "todo",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d168",
+  "raw": "Do abs exercises",
+  "stored_kind": "todo",
+  "user": "0aa695"
+ },
+ {
+  "id": "d169",
+  "raw": "Maybe I should call mom later",
+  "stored_kind": "note",
+  "user": "22f3a3"
+ },
+ {
+  "id": "d170",
+  "raw": "Ditch the afternoon energy drink habit",
+  "stored_kind": "todo",
+  "user": "84c153"
+ },
+ {
+  "id": "d171",
+  "raw": "Buy milk, call Katie, book dentist",
+  "stored_kind": "note",
+  "user": "02146c"
+ },
+ {
+  "id": "d172",
+  "raw": "Add notifications to the app",
+  "stored_kind": "todo",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d173",
+  "raw": "stop catastrophising about things that haven't happened yet",
+  "stored_kind": "habit",
+  "user": "88ff48"
+ },
+ {
+  "id": "d174",
+  "raw": "Get Dave’s present for Christmas",
+  "stored_kind": "todo",
+  "user": "67bff9"
+ },
+ {
+  "id": "d175",
+  "raw": "I don’t even know where to start",
+  "stored_kind": "note",
+  "user": "73030f"
+ },
+ {
+  "id": "d176",
+  "raw": "Book evening meal for Sunday",
+  "stored_kind": "todo",
+  "user": "0aa695"
+ },
+ {
+  "id": "d177",
+  "raw": "Add a sweep option within spaces",
+  "stored_kind": "todo",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d178",
+  "raw": "Focus on Gremly the mind drop persistence of dates",
+  "stored_kind": "todo",
+  "user": "b60564"
+ },
+ {
+  "id": "d179",
+  "raw": "Start list for things that we need to get from Bookers",
+  "stored_kind": "todo",
+  "user": "0aa695"
+ },
+ {
+  "id": "d180",
+  "raw": "Test simulator with an android to see how it works. Do a full audit via Claude code to get a sense of what needs to change for android",
+  "stored_kind": "note",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d181",
+  "raw": "feel more in control",
+  "stored_kind": "note",
+  "user": "c11714"
+ },
+ {
+  "id": "d182",
+  "raw": "Not getting space entity recommendations",
+  "stored_kind": "note",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d183",
+  "raw": "honestly I don't even know why I bother sometimes",
+  "stored_kind": "note",
+  "user": "e98720"
+ },
+ {
+  "id": "d184",
+  "raw": "feeling anxious about the move, need to pack boxes, and cancel the gym membership",
+  "stored_kind": "note",
+  "user": "d45a72"
+ },
+ {
+  "id": "d185",
+  "raw": "Could the evening review pull in data from Apple Health?",
+  "stored_kind": "note",
+  "user": "84237a"
+ },
+ {
+  "id": "d186",
+  "raw": "track spending properly this month",
+  "stored_kind": "todo",
+  "user": "194015"
+ },
+ {
+  "id": "d187",
+  "raw": "Sarah’s coffee order: oat latte, extra hot, no foam.",
+  "stored_kind": "note",
+  "user": "73030f"
+ },
+ {
+  "id": "d188",
+  "raw": "Add photo function to the sweep cards",
+  "stored_kind": "todo",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d189",
+  "raw": "Buy Christmas tree at Guardsmen today",
+  "stored_kind": "note",
+  "user": "bc3282"
+ },
+ {
+  "id": "d190",
+  "raw": "Email back to Cathy",
+  "stored_kind": "todo",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d191",
+  "raw": "Text family about camping",
+  "stored_kind": "note",
+  "user": "0aa695"
+ },
+ {
+  "id": "d192",
+  "raw": "the meeting went really well",
+  "stored_kind": "note",
+  "user": "e92011"
+ },
+ {
+  "id": "d193",
+  "raw": "Message everyone back on WhatsApp",
+  "stored_kind": "todo",
+  "user": "a47683"
+ },
+ {
+  "id": "d194",
+  "raw": "Mum's eye specialist appointment is April 29 at 3pm",
+  "stored_kind": "note",
+  "user": "84c153"
+ },
+ {
+  "id": "d195",
+  "raw": "Walk Oakley",
+  "stored_kind": "note",
+  "user": "02146c"
+ },
+ {
+  "id": "d196",
+  "raw": "What is this app about?",
+  "stored_kind": "note",
+  "user": "1a86b7"
+ },
+ {
+  "id": "d197",
+  "raw": "Mom's address is 123 Oak Street",
+  "stored_kind": "note",
+  "user": "e98720"
+ },
+ {
+  "id": "d198",
+  "raw": "Respond to gaelle",
+  "stored_kind": "todo",
+  "user": "0a1c90"
+ },
+ {
+  "id": "d199",
+  "raw": "ugh today was brutal, back to back meetings all day and my boss dropped a huge project on me at 4pm that's due friday, I haven't even started the other thing I promised to finish this week, feeling like I'm drowning and honestly considering if this job is even worth it anymore, need to update my resume at some point",
+  "stored_kind": "note",
+  "user": "04f18e"
+ }
+]

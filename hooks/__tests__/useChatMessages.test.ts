@@ -17,13 +17,14 @@ const mockMessageRepoAppend = jest.fn();
 const mockMessageRepoList = jest.fn();
 const mockChatRepoCreate = jest.fn();
 const mockChatRepoUpdate = jest.fn();
+const mockMessageRepoUpdate = jest.fn();
 
 // Mock repo implementations
 jest.mock('../../lib/repo/supabase', () => ({
   SupabaseSpaceChatMessageRepo: jest.fn().mockImplementation(() => ({
     append: mockMessageRepoAppend,
     list: mockMessageRepoList,
-    update: jest.fn(), // For streaming finalization
+    update: mockMessageRepoUpdate, // streaming finalization, card status
   })),
   SupabaseSpaceChatRepo: jest.fn().mockImplementation(() => ({
     create: mockChatRepoCreate,
@@ -100,6 +101,64 @@ describe('generateChatTitleFromMessage (pure function)', () => {
 
 describe('useChatMessages hook', () => {
   const spaceId = 'test-space-456';
+
+  describe('entity card status', () => {
+    const card = (id: string) => ({
+      id,
+      chat_id: 'chat-1',
+      scope_id: null,
+      user_id: mockUserId,
+      role: 'system',
+      content: 'Entity card',
+      created_at: '2026-09-30T10:00:00Z',
+      metadata_json: {
+        type: 'entity-card',
+        status: 'pending',
+        card: { kind: 'edit', entity: { id: 't1', type: 'todo', title: 'Walk Bella' } },
+      },
+    });
+
+    it('saves every status, even when two land before React renders', async () => {
+      // the jest config resets mock implementations before each test
+      const { SupabaseSpaceChatMessageRepo } = jest.requireMock('../../lib/repo/supabase');
+      SupabaseSpaceChatMessageRepo.mockImplementation(() => ({
+        append: mockMessageRepoAppend,
+        list: mockMessageRepoList,
+        update: mockMessageRepoUpdate,
+      }));
+      mockMessageRepoList.mockResolvedValue([card('c1'), card('c2')]);
+      mockMessageRepoUpdate.mockResolvedValue(undefined);
+      const { result, unmount } = renderHook(() => useChatMessages('chat-1', null));
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 10));
+      });
+      expect(result.current.messages).toHaveLength(2);
+      await act(async () => {
+        // no render between the two, so the second one's state updater is queued
+        const a = result.current.setEntityCardStatus(
+          'c1',
+          'applied',
+          'Walk Bella is now Sat 3 Oct.',
+        );
+        const b = result.current.setEntityCardStatus('c2', 'declined');
+        await Promise.all([a, b]);
+      });
+      expect(mockMessageRepoUpdate).toHaveBeenCalledWith('c1', {
+        metadata_json: expect.objectContaining({
+          status: 'applied',
+          summary: 'Walk Bella is now Sat 3 Oct.',
+        }),
+      });
+      expect(mockMessageRepoUpdate).toHaveBeenCalledWith('c2', {
+        metadata_json: expect.objectContaining({ status: 'declined' }),
+      });
+      expect(result.current.messages.map((m) => (m.metadata_json as any).status)).toEqual([
+        'applied',
+        'declined',
+      ]);
+      unmount();
+    });
+  });
 
   beforeEach(() => {
     jest.clearAllMocks();

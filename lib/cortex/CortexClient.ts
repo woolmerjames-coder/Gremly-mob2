@@ -7,8 +7,6 @@ import { getDateService, nowTimestamp } from '../date/DateService';
 import { eventBus } from '../events/EventBus';
 import { getSessionToken, getSessionTokenSync } from './getSessionToken';
 import type {
-  EntityChatRequest,
-  EntityChatResponse,
   HabitBuilderRequest,
   HabitBuilderStreamingCallbacks,
 } from '../types';
@@ -46,12 +44,17 @@ export interface StreamingCallbacks {
 export interface SpaceChatStreamingResult {
   content: string;
   save_suggestion?: any | null;
+  entity_card?: import('../types').EntityCard | null;
+  /** The Worker's clock for this turn: triage, card, time before the reply, reply */
+  timing?: { triage_ms: number; card_ms: number; pre_ms: number; reply_ms: number } | null;
   saveable?: any | null;
   promotion?: any | null;
   latency_ms?: number;
   sources?: Array<{ title: string; url: string }>;
   search_query?: string;
   fetchedUrl?: { url: string; title: string } | null;
+  /** Whether the Save items pill and a late card may follow this turn (general chat) */
+  extraction?: 'running' | 'skipped';
 }
 
 /**
@@ -383,7 +386,13 @@ export async function callSpaceChat(
  */
 export function callSpaceChatStreaming(
   messages: ChatMessage[],
-  opts: { spaceId: string; chatId: string; userId?: string; systemPrompt?: string },
+  opts: {
+    spaceId: string;
+    chatId: string;
+    userId?: string;
+    systemPrompt?: string;
+    recentEntity?: import('../types').RecentEntity | null;
+  },
   callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
 ): { close: () => void } {
   const baseUrl = readCortexUrl();
@@ -421,6 +430,8 @@ export function callSpaceChatStreaming(
       stream: true,
       spaceId: opts.spaceId,
       chatId: opts.chatId,
+      // the item on the last entity card in this chat, so "move it" can mean it
+      recentEntity: opts.recentEntity ?? null,
       userId: opts.userId,
       currentTime: nowTimestamp(),
       timezone: getDateService().getTimezone(),
@@ -463,6 +474,8 @@ export function callSpaceChatStreaming(
         const richResult: SpaceChatStreamingResult = {
           content: finalContent,
           save_suggestion: data.save_suggestion ?? null,
+          entity_card: data.entity_card ?? null,
+          timing: data.timing ?? null,
           saveable: data.saveable ?? null,
           promotion: data.promotion ?? null,
           latency_ms: data.latency_ms,
@@ -498,7 +511,16 @@ export function callSpaceChatStreaming(
  */
 export function callGeneralChatStreaming(
   messages: ChatMessage[],
-  opts: { chatId: string; userId?: string; systemPrompt?: string },
+  opts: {
+    chatId: string;
+    userId?: string;
+    systemPrompt?: string;
+    recentEntity?: import('../types').RecentEntity | null;
+    /** The item this chat was opened about, if any (Talk it through) */
+    anchorEntity?: import('../types').ChatAnchor | null;
+    /** This turn's id, written back with its extraction so the app knows when it has landed */
+    turnId?: string;
+  },
   callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
 ): { close: () => void } {
   const baseUrl = readCortexUrl();
@@ -535,6 +557,11 @@ export function callGeneralChatStreaming(
       lane: 'general_chat',
       stream: true,
       chatId: opts.chatId,
+      // the item on the last entity card in this chat, so "move it" can mean it
+      recentEntity: opts.recentEntity ?? null,
+      // the item the chat was opened about, so every turn knows what it is about
+      anchorEntity: opts.anchorEntity ?? null,
+      turnId: opts.turnId ?? null,
       userId: opts.userId,
       currentTime: nowTimestamp(),
       timezone: getDateService().getTimezone(),
@@ -572,12 +599,15 @@ export function callGeneralChatStreaming(
         const richResult: SpaceChatStreamingResult = {
           content: finalContent,
           save_suggestion: data.save_suggestion ?? null,
+          entity_card: data.entity_card ?? null,
+          timing: data.timing ?? null,
           saveable: data.saveable ?? null,
           promotion: data.promotion ?? null,
           latency_ms: data.latency_ms,
           sources: data.sources,
           search_query: data.search_query,
           fetchedUrl: data.fetchedUrl ?? null,
+          extraction: data.extraction,
         };
         log('GENERAL_CHAT_STREAM_DONE', { contentLength: finalContent.length });
         (callbacks.onComplete as any)(finalContent, richResult);
@@ -601,7 +631,13 @@ export function callGeneralChatStreaming(
  */
 export function callWorldChatStreaming(
   messages: ChatMessage[],
-  opts: { scopeId: string; scopeName: string; chatId: string; userId?: string },
+  opts: {
+    scopeId: string;
+    scopeName: string;
+    chatId: string;
+    userId?: string;
+    recentEntity?: import('../types').RecentEntity | null;
+  },
   callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
 ): { close: () => void } {
   const baseUrl = readCortexUrl();
@@ -633,6 +669,8 @@ export function callWorldChatStreaming(
       scopeId: opts.scopeId,
       scopeName: opts.scopeName,
       chatId: opts.chatId,
+      // the item on the last entity card in this chat, so "move it" can mean it
+      recentEntity: opts.recentEntity ?? null,
       userId: opts.userId,
       currentTime: nowTimestamp(),
       timezone: getDateService().getTimezone(),
@@ -670,6 +708,8 @@ export function callWorldChatStreaming(
         const richResult: SpaceChatStreamingResult = {
           content: finalContent,
           save_suggestion: data.save_suggestion ?? null,
+          entity_card: data.entity_card ?? null,
+          timing: data.timing ?? null,
           saveable: data.saveable ?? null,
           promotion: data.promotion ?? null,
           latency_ms: data.latency_ms,
@@ -699,7 +739,13 @@ export function callWorldChatStreaming(
  */
 export function callChapterChatStreaming(
   messages: ChatMessage[],
-  opts: { scopeId: string; scopeName: string; chatId: string; userId?: string },
+  opts: {
+    scopeId: string;
+    scopeName: string;
+    chatId: string;
+    userId?: string;
+    recentEntity?: import('../types').RecentEntity | null;
+  },
   callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
 ): { close: () => void } {
   const baseUrl = readCortexUrl();
@@ -731,6 +777,8 @@ export function callChapterChatStreaming(
       scopeId: opts.scopeId,
       scopeName: opts.scopeName,
       chatId: opts.chatId,
+      // the item on the last entity card in this chat, so "move it" can mean it
+      recentEntity: opts.recentEntity ?? null,
       userId: opts.userId,
       currentTime: nowTimestamp(),
       timezone: getDateService().getTimezone(),
@@ -768,6 +816,8 @@ export function callChapterChatStreaming(
         const richResult: SpaceChatStreamingResult = {
           content: finalContent,
           save_suggestion: data.save_suggestion ?? null,
+          entity_card: data.entity_card ?? null,
+          timing: data.timing ?? null,
           saveable: data.saveable ?? null,
           promotion: data.promotion ?? null,
           latency_ms: data.latency_ms,
@@ -1548,263 +1598,46 @@ export async function callChatFullSummary(chatId: string): Promise<{ summary: st
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// ENTITY CHAT - Chat within entity overlays and sweep cards
+// ITEM TOPICS - What to talk about when a chat about a note opens
 // ═══════════════════════════════════════════════════════════════════════════════
 
+export type ItemTopic = { label: string; message: string };
+
 /**
- * Call the Cortex proxy for Entity Chat (non-streaming).
- * Used for quick single-turn responses in overlay/sweep chat.
- *
- * @param request - The entity chat request payload
- * @returns The entity chat response with content, saveable detection, and promotion
+ * Up to four starters drawn from one of their notes (the Worker reads the note
+ * and keeps the answer until it changes). An empty list on any failure, so
+ * the chat shows its usual starters.
  */
-export async function callEntityChat(request: EntityChatRequest): Promise<EntityChatResponse> {
+export async function fetchItemTopics(itemId: string, timeoutMs = 8000): Promise<ItemTopic[]> {
   const baseUrl = readCortexUrl();
-
-  if (!baseUrl) {
-    log('CONFIG_MISSING', 'Missing CORTEX_URL for entity chat');
-    return {
-      content: "I'm having trouble connecting right now. Please try again.",
-      latency_ms: 0,
-    };
-  }
-
-  if (isAiDisabled()) {
-    return {
-      content: 'AI features are currently disabled.',
-      latency_ms: 0,
-    };
-  }
-
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (!baseUrl || isAiDisabled()) return [];
   const sessionToken = await getSessionToken();
-  if (sessionToken) {
-    headers.Authorization = `Bearer ${sessionToken}`;
-  }
-
-  const timeoutMs = toMs(env.cortex.timeoutMs);
+  if (!sessionToken) return [];
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  const startTime = getDateService().now().getTime();
-
   try {
-    log('ENTITY_CHAT', 'Calling entity chat', {
-      entityType: request.entity.type,
-      entityId: request.entity.id,
-      messageCount: request.messages.length,
-      preset: request.preset,
-    });
-
     const res = await fetch(baseUrl, {
       method: 'POST',
-      headers,
-      body: JSON.stringify({
-        ...request,
-        type: 'entity-chat',
-        stream: false,
-      }),
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionToken}` },
+      body: JSON.stringify({ type: 'item-topics', itemId, itemType: 'note' }),
       signal: controller.signal,
     });
-
-    const latency_ms = getDateService().now().getTime() - startTime;
-
-    if (!res.ok) {
-      if (res.status === 403) {
-        try {
-          const body = await res.clone().json();
-          if (body?.error === 'read_only') {
-            eventBus.emit('cortex:read_only', {});
-            return { content: '', latency_ms };
-          }
-        } catch {
-          /* fall through */
-        }
-      }
-      const errorText = await res.text().catch(() => '');
-      log('ENTITY_CHAT_ERROR', res.status, errorText);
-      return {
-        content: "Something went wrong. Let's try that again.",
-        latency_ms,
-      };
-    }
-
+    if (!res.ok) return [];
     const data = await res.json();
-    log('ENTITY_CHAT_RESPONSE', {
-      contentLength: data.content?.length || 0,
-      hasSaveable: !!data.saveable,
-      hasPromotion: !!data.promotion,
-      hasSaveSuggestion: data.save_suggestion != null,
-    });
-
-    return {
-      content: data.content || '',
-      saveable: data.saveable,
-      promotion: data.promotion,
-      save_suggestion: data.save_suggestion ?? null,
-      latency_ms: data.latency_ms ?? latency_ms,
-    };
-  } catch (e: any) {
-    const latency_ms = getDateService().now().getTime() - startTime;
-    if (e?.name === 'AbortError') {
-      log('ENTITY_CHAT_TIMEOUT', 'Request timed out');
-      return {
-        content: 'Request timed out. Please try again.',
-        latency_ms,
-      };
-    }
-    log('ENTITY_CHAT_EXCEPTION', e?.message || e);
-    return {
-      content: "I'm having trouble right now. Please try again.",
-      latency_ms,
-    };
+    const topics: unknown[] = Array.isArray(data?.topics) ? data.topics : [];
+    return topics.filter(
+      (t): t is ItemTopic =>
+        !!t &&
+        typeof (t as ItemTopic).label === 'string' &&
+        typeof (t as ItemTopic).message === 'string' &&
+        !!(t as ItemTopic).label.trim() &&
+        !!(t as ItemTopic).message.trim(),
+    );
+  } catch {
+    return [];
   } finally {
     clearTimeout(timeout);
   }
-}
-
-/**
- * Entity chat streaming callbacks
- */
-export interface EntityChatStreamingCallbacks {
-  onDelta: (delta: string) => void;
-  onComplete: (response: EntityChatResponse) => void;
-  onError: (error: Error) => void;
-  onSearching?: (query: string, isLoadingHint?: boolean) => void;
-  onFetching?: (isFetching: boolean, fetchingUrl: string | null) => void;
-  onReset?: () => void;
-  onLoadingMessage?: (message: string) => void;
-}
-
-/**
- * Call the Cortex proxy for Entity Chat with streaming support using EventSource (SSE).
- * Returns an object with a close() method to cancel the request.
- *
- * @param request - The entity chat request payload
- * @param callbacks - Callbacks for streaming events (onDelta, onComplete, onError)
- * @returns Object with close() method to cancel the stream
- */
-export function callEntityChatStreaming(
-  request: EntityChatRequest,
-  callbacks: EntityChatStreamingCallbacks,
-): { close: () => void } {
-  const baseUrl = readCortexUrl();
-
-  if (!baseUrl) {
-    callbacks.onError(new Error('Missing CORTEX_URL'));
-    return { close: () => {} };
-  }
-
-  if (isAiDisabled()) {
-    callbacks.onError(new Error('AI disabled'));
-    return { close: () => {} };
-  }
-
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const sessionToken = getSessionTokenSync();
-  if (sessionToken) {
-    headers.Authorization = `Bearer ${sessionToken}`;
-  }
-
-  let fullContent = '';
-  const startTime = getDateService().now().getTime();
-
-  log('ENTITY_CHAT_STREAM', 'Starting streaming entity chat', {
-    entityType: request.entity.type,
-    entityId: request.entity.id,
-    messageCount: request.messages.length,
-    preset: request.preset,
-  });
-
-  const es = new EventSource(baseUrl, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      ...request,
-      type: 'entity-chat',
-      stream: true,
-    }),
-    lineEndingCharacter: '\n',
-  });
-
-  es.addEventListener('message', (event: any) => {
-    try {
-      const data = JSON.parse(event.data);
-
-      // Handle read_only access denial
-      if (data.error === 'read_only') {
-        eventBus.emit('cortex:read_only', {});
-        es.close();
-        return;
-      }
-
-      // Handle error in stream
-      if (data.error) {
-        callbacks.onError(new Error(data.error));
-        es.close();
-        return;
-      }
-
-      // Handle searching event
-      if (data.searching && data.query) {
-        callbacks.onSearching?.(data.query, data.isLoadingHint || false);
-        return;
-      }
-
-      // Handle fetching event
-      if (data.fetching !== undefined) {
-        callbacks.onFetching?.(data.fetching, data.fetchingUrl || null);
-        return;
-      }
-
-      // Handle reset — clear accumulated content (e.g., before search follow-up)
-      if (data.reset) {
-        fullContent = '';
-        callbacks.onReset?.();
-        return;
-      }
-
-      // Handle delta (partial content)
-      if (data.delta) {
-        fullContent += data.delta;
-        callbacks.onDelta(data.delta);
-      }
-
-      // Handle completion
-      if (data.done) {
-        const latency_ms = data.latency_ms ?? getDateService().now().getTime() - startTime;
-        log('ENTITY_CHAT_STREAM_DONE', {
-          contentLength: (data.full_content || fullContent).length,
-          hasSaveable: !!data.saveable,
-          hasPromotion: !!data.promotion,
-          hasSaveSuggestion: data.save_suggestion != null,
-        });
-        callbacks.onComplete({
-          content: data.full_content || fullContent,
-          saveable: data.saveable,
-          promotion: data.promotion,
-          save_suggestion: data.save_suggestion ?? null,
-          latency_ms,
-          sources: data.sources,
-          images: data.images,
-          search_query: data.search_query,
-          fetchedUrl: data.fetchedUrl,
-        });
-        es.close();
-      }
-    } catch (parseError) {
-      // Ignore parse errors for individual chunks
-      log('ENTITY_CHAT_STREAM_PARSE_ERROR', parseError);
-    }
-  });
-
-  es.addEventListener('error', (event: any) => {
-    const errorMessage = event.message || 'Stream error';
-    log('ENTITY_CHAT_STREAM_ERROR', errorMessage);
-    callbacks.onError(new Error(errorMessage));
-    es.close();
-  });
-
-  return { close: () => es.close() };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -2198,8 +2031,6 @@ export const CortexClient = {
   callEnrichPhase2,
   callEnrichPhase2Streaming,
   callTranscribe,
-  callEntityChat,
-  callEntityChatStreaming,
   callHabitBuilderStreaming,
   callJournalAnalyze,
   callHabitInsight,

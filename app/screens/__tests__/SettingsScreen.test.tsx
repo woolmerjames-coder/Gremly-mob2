@@ -41,8 +41,15 @@ jest.mock('lucide-react-native', () => {
     Brain: (props: any) => <View testID="icon-brain" {...props} />,
     Palette: (props: any) => <View testID="icon-palette" {...props} />,
     Crown: (props: any) => <View testID="icon-crown" {...props} />,
+    LogOut: (props: any) => <View testID="icon-log-out" {...props} />,
   };
 });
+
+// Mock auth (sign out moved here from the MindDrop header)
+const mockSignOut = jest.fn();
+jest.mock('../../../providers/AuthProvider', () => ({
+  useAuth: () => ({ signOut: mockSignOut }),
+}));
 
 // Mock gremlyPalettes
 jest.mock('../../../lib/constants/gremlyPalettes', () => ({
@@ -82,6 +89,7 @@ jest.mock('../../../lib/subscriptions/useSubscriptionStatus', () => ({
 jest.mock('../../../lib/weeklySummary', () => ({ generateWeeklySummary: jest.fn() }));
 jest.mock('../../../lib/store/selectors', () => ({ useCurrentWeekSummary: () => null }));
 
+import { Alert } from 'react-native';
 import SettingsScreen from '../SettingsScreen';
 
 describe('SettingsScreen', () => {
@@ -159,6 +167,37 @@ describe('SettingsScreen', () => {
       const { getByText } = render(<SettingsScreen />);
       fireEvent.press(getByText('What Gremly Knows'));
       expect(mockNavigate).toHaveBeenCalledWith('WhatGremlyKnows');
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Sign out
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('sign out', () => {
+    it('asks before signing out, and signs out when confirmed', async () => {
+      const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      const { getByTestId } = render(<SettingsScreen />);
+
+      fireEvent.press(getByTestId('settings-sign-out'));
+      expect(alertSpy).toHaveBeenCalledTimes(1);
+      expect(mockSignOut).not.toHaveBeenCalled();
+
+      const buttons = alertSpy.mock.calls[0][2] as { text: string; onPress?: () => unknown }[];
+      await buttons.find((b) => b.text === 'Sign Out')?.onPress?.();
+      expect(mockSignOut).toHaveBeenCalledTimes(1);
+      alertSpy.mockRestore();
+    });
+
+    it('does not sign out when cancelled', () => {
+      const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      const { getByTestId } = render(<SettingsScreen />);
+
+      fireEvent.press(getByTestId('settings-sign-out'));
+      const buttons = alertSpy.mock.calls[0][2] as { text: string; onPress?: () => unknown }[];
+      buttons.find((b) => b.text === 'Cancel')?.onPress?.();
+      expect(mockSignOut).not.toHaveBeenCalled();
+      alertSpy.mockRestore();
     });
   });
 });

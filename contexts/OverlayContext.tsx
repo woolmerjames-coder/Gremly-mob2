@@ -2,10 +2,13 @@
  * OverlayContext - Global overlay controller
  * Ensures only one overlay instance exists across all screens
  */
-import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import type { AppRecord, CanonicalType, LogSubtype } from '../lib/types';
 import { persistedNoteSubtypeToLogSubtype } from '../lib/logSubtypes';
 import { ClarificationPopup } from '../components/minddrop/ClarificationPopup';
+import { RelationPopup } from '../components/minddrop/RelationPopup';
+import { RelationToastHost } from '../components/minddrop/RelationToast';
+import type { ClarificationWhen } from '../lib/minddrop/clarification';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
 import * as Haptics from 'expo-haptics';
 
@@ -95,6 +98,16 @@ interface OverlayContextValue {
   // Clarification popup methods
   openClarificationPopup: (options: ClarificationPopupOptions) => void;
   closeClarificationPopup: () => void;
+  /** "Is this one you already have?" for a held drop (lib/minddrop/dropRelation.ts) */
+  openRelationPopup: (options: { entityId: string }) => void;
+  /**
+   * Open one of the user's items in the overlay, then call onReturn once the
+   * overlay has closed (a question popup that stepped aside comes back).
+   */
+  openItemThenReturn: (
+    target: { id: string; type: 'todo' | 'habit' | 'note' },
+    onReturn: () => void,
+  ) => void;
 }
 
 const OverlayContext = createContext<OverlayContextValue | undefined>(undefined);
@@ -116,6 +129,8 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
     originalText: null,
   });
   const [clarificationLoading, setClarificationLoading] = useState(false);
+  // The held drop whose relation question is open, if any
+  const [relationNoteId, setRelationNoteId] = useState<string | null>(null);
   const [clarificationSuccess, setClarificationSuccess] = useState<string | null>(null);
 
   const isOpeningRef = useRef(false);
@@ -124,6 +139,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
   // Get store actions for resolving clarification
   const resolveEntityClarification = useGremlyStore((s) => s.resolveEntityClarification);
   const resolveSkippedClarification = useGremlyStore((s) => s.resolveSkippedClarification);
+  const ensureEntityClarification = useGremlyStore((s) => s.ensureEntityClarification);
 
   // Subscribe to entities to get fresh clarification data when Phase 1.5 completes
   // This handles the race condition where popup opens before Phase 1.5 finishes
@@ -241,6 +257,38 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
     habits,
   ]);
 
+  // Self-heal: if the popup is open but the entity has no usable options
+  // (saved before Phase 1.5 landed, or an older drop), fetch them now. The
+  // store call always resolves to options (worker or fixed fallback) within
+  // its timeout, so the popup can never sit on "Thinking..." indefinitely.
+  const popupEntityId = clarificationPopup.visible ? clarificationPopup.entityId : null;
+  const popupNeedsOptions =
+    !!popupEntityId &&
+    !(
+      effectiveClarificationData.question &&
+      Array.isArray(effectiveClarificationData.options) &&
+      effectiveClarificationData.options.length >= 2
+    );
+  useEffect(() => {
+    if (!popupEntityId || !popupNeedsOptions) return;
+    let cancelled = false;
+    ensureEntityClarification(popupEntityId)
+      .then((res) => {
+        if (cancelled || !res) return;
+        setClarificationPopup((prev) =>
+          prev.visible && prev.entityId === popupEntityId
+            ? { ...prev, question: res.question, options: res.options }
+            : prev,
+        );
+      })
+      .catch((err) => {
+        console.warn('[GlobalOverlay] ensureEntityClarification failed', err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [popupEntityId, popupNeedsOptions, ensureEntityClarification]);
+
   // Clarification popup methods
   const openClarificationPopup = useCallback(
     ({ entityId, entityType, question, options, originalText }: ClarificationPopupOptions) => {
@@ -257,6 +305,11 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  const openRelationPopup = useCallback(({ entityId }: { entityId: string }) => {
+    setRelationNoteId(entityId);
+  }, []);
+  const closeRelationPopup = useCallback(() => setRelationNoteId(null), []);
+
   const closeClarificationPopup = useCallback(() => {
     setClarificationPopup({
       visible: false,
@@ -271,7 +324,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const handleClarificationSelect = useCallback(
-    (optionId: string) => {
+    (optionId: string, when?: ClarificationWhen) => {
       if (!clarificationPopup.entityId) return;
 
       // Check if this is free text input (prefixed with "freetext:")
@@ -287,11 +340,14 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       // Fire and forget - don't await
       // The popup shows instant success and dismisses itself
       // The card shows processing animation and updates progressively
-      resolveEntityClarification(clarificationPopup.entityId, selectionValue, isFreeText).catch(
-        (error) => {
-          console.error('[GlobalOverlay] Clarification resolution failed:', error);
-        },
-      );
+      resolveEntityClarification(
+        clarificationPopup.entityId,
+        selectionValue,
+        isFreeText,
+        when ?? null,
+      ).catch((error) => {
+        console.error('[GlobalOverlay] Clarification resolution failed:', error);
+      });
 
       // Note: Popup dismisses itself after showing "Great, on it"
       // We don't close it here anymore
@@ -489,6 +545,90 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
     }, 600);
   }, []);
 
+  // Opening an item from a question popup or the toast. The overlay is not a
+  // modal, so a popup steps aside while it is open and comes back after.
+  const returnAfterOverlay = useRef<(() => void) | null>(null);
+  const overlayVisibleRef = useRef(state.visible);
+  useEffect(() => {
+    overlayVisibleRef.current = state.visible;
+    if (state.visible || !returnAfterOverlay.current) return;
+    const onReturn = returnAfterOverlay.current;
+    returnAfterOverlay.current = null;
+    // let the overlay finish closing first
+    const t = setTimeout(onReturn, 250);
+    return () => clearTimeout(t);
+  }, [state.visible]);
+
+  const openStoreItem = useCallback(
+    (target: { id: string; type: 'todo' | 'habit' | 'note' }): boolean => {
+      const s = useGremlyStore.getState();
+      const list: Array<{ id: string }> =
+        target.type === 'todo' ? s.todos : target.type === 'habit' ? s.habits : s.notes;
+      const record = list.find((r) => r.id === target.id) as Record<string, unknown> | undefined;
+      if (!record) return false;
+      openEdit({
+        record: { ...record, type: target.type } as unknown as AppRecord,
+        spaceId: (record.space_id as string | null | undefined) ?? null,
+      });
+      return true;
+    },
+    [openEdit],
+  );
+
+  const openItemThenReturn = useCallback(
+    (target: { id: string; type: 'todo' | 'habit' | 'note' }, onReturn: () => void) => {
+      returnAfterOverlay.current = onReturn;
+      if (!openStoreItem(target)) {
+        returnAfterOverlay.current = null;
+        onReturn();
+        return;
+      }
+      // If the overlay did not open (another open was already under way), come back anyway
+      setTimeout(() => {
+        if (!overlayVisibleRef.current && returnAfterOverlay.current === onReturn) {
+          returnAfterOverlay.current = null;
+          onReturn();
+        }
+      }, 900);
+    },
+    [openStoreItem],
+  );
+
+  // Kept as new, and the drop was unclear: its own question opens next (the
+  // relation popup calls this once it has faded), so one tap on the card
+  // answers both
+  const openNextQuestion = useCallback(
+    (id: string) => {
+      const note = useGremlyStore.getState().notes.find((n) => n.id === id);
+      if (!note || note.archived) return;
+      type Held = {
+        clarification_question?: string | null;
+        clarification_options?: ClarificationPopupOptions['options'];
+        text?: string | null;
+      };
+      const views = (note.views || {}) as Held;
+      const raw = note as unknown as Held;
+      openClarificationPopup({
+        entityId: id,
+        entityType: 'note',
+        question: raw.clarification_question || views.clarification_question || null,
+        options: raw.clarification_options || views.clarification_options || null,
+        originalText: raw.text || views.text || note.body || note.title || null,
+      });
+    },
+    [openClarificationPopup],
+  );
+
+  const openRelationItem = useCallback(
+    (entity: { id: string; type: 'todo' | 'habit' | 'note' }) => {
+      const noteId = relationNoteId;
+      if (!noteId) return;
+      setRelationNoteId(null);
+      openItemThenReturn({ id: entity.id, type: entity.type }, () => setRelationNoteId(noteId));
+    },
+    [relationNoteId, openItemThenReturn],
+  );
+
   const close = useCallback(() => {
     setState({
       visible: false,
@@ -518,6 +658,8 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
         close,
         openClarificationPopup,
         closeClarificationPopup,
+        openRelationPopup,
+        openItemThenReturn,
       }}
     >
       {children}
@@ -533,6 +675,17 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
         isSubmitting={clarificationLoading}
         successMessage={clarificationSuccess}
       />
+      {/* "Is this one you already have?", opened from a held drop's card */}
+      <RelationPopup
+        key={relationNoteId ?? 'none'}
+        visible={!!relationNoteId}
+        noteId={relationNoteId}
+        onClose={closeRelationPopup}
+        onNextQuestion={openNextQuestion}
+        onOpenItem={openRelationItem}
+      />
+      {/* What a yes did, with Undo; tapping its words opens the item (over Mind Drop and Sweep) */}
+      <RelationToastHost onOpen={openStoreItem} />
     </OverlayContext.Provider>
   );
 }

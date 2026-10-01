@@ -1,0 +1,3203 @@
+{
+ "persona": "IDENTITY: James, he/him. Builds Gremly alongside a client services job. Lives in San Francisco with Dave and their dog Bella.",
+ "timezone": "America/Los_Angeles",
+ "todayIso": "2026-09-29",
+ "todayStr": "Tuesday, September 29, 2026",
+ "items": [
+  {
+   "id": "7b88e114-4a96-4a4c-85dd-f5f2a5a1e2b6",
+   "type": "note",
+   "title": "Clarify Mexico trip plans",
+   "subtype": null,
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "321e5cff-0143-48c0-893d-e6b5c73b0358",
+   "type": "todo",
+   "title": "Order More of Bella’s Food",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "8a9b0c5f-931b-4cb0-8106-360ae48263cd",
+   "type": "todo",
+   "title": "Arrange a Pet Sitter for Bella",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "3fc9ffb4-c69b-45da-b961-c6a11495a9e2",
+   "type": "todo",
+   "title": "App Security Audit",
+   "due_day": "2026-10-20",
+   "due_time": null,
+   "space_id": "6a5ebdc2-89bc-4bcb-b863-39c6a046e1e1"
+  },
+  {
+   "id": "cb0b513a-19b2-41e3-8c4d-de7fb3f99f37",
+   "type": "note",
+   "title": "Plan for Silly Onboarding Messages",
+   "subtype": "idea",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "0c828d5c-c3ff-4d14-a371-a5d1cbc332c6",
+   "type": "habit",
+   "title": "Social Media Posts",
+   "frequency": "2x/week",
+   "cadence": "weekly",
+   "target_per_period": 3,
+   "period_unit": "day",
+   "space_id": null,
+   "logged_days": []
+  },
+  {
+   "id": "0df4c7ad-e262-409e-acd1-e8a4b6b39bad",
+   "type": "todo",
+   "title": "Submit to Apple Health",
+   "due_day": "2026-10-04",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "f614ad2b-5de4-48ac-bc6b-39aad5c80f93",
+   "type": "todo",
+   "title": "Schedule the Qbr",
+   "due_day": "2026-10-08",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "911e2aba-63af-45fd-916a-6c986f401f10",
+   "type": "todo",
+   "title": "Book Hotel for Oaxaca Day of the Dead",
+   "due_day": "2026-10-15",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "c6f33bc9-6ebb-4696-8de2-6447f0566773",
+   "type": "todo",
+   "title": "Send Out Sage Future Deck",
+   "due_day": "2026-10-01",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "2a33aa09-68d0-4ca0-b9d3-556f94f77e4f",
+   "type": "todo",
+   "title": "Call Kim and Andrew",
+   "due_day": "2026-10-02",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "2d8f3cee-145f-44c0-be11-b10fefdd5866",
+   "type": "note",
+   "title": "Bella Vet Appointment",
+   "subtype": "event",
+   "due_day": "2026-10-02",
+   "due_time": null,
+   "space_id": null,
+   "target_date": "2026-10-02"
+  },
+  {
+   "id": "818686e8-352d-4116-a640-65ea7e19e3aa",
+   "type": "note",
+   "title": "Doctors Appointment Noted",
+   "subtype": "general",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "a1a144bc-ad06-4a45-88d3-7ffb15268abc",
+   "type": "note",
+   "title": "Hello",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "b85e2698-c75f-432f-8b7c-c89f250fa738",
+   "type": "todo",
+   "title": "Meet Kim and Andrew",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "bf53ff91-5866-48b1-8e05-aff500072642",
+   "type": "todo",
+   "title": "Send Email to Sage",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "47de4470-0728-4258-9064-60d54a0032c8",
+   "type": "todo",
+   "title": "Sort the Microsoft Calendar Submission",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "5aa20084-25d0-4fff-95c1-f7e2df502ad5",
+   "type": "todo",
+   "title": "Fix Third Line Showing in Journal Date",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "5d2d3b1b-80d0-4287-8ea2-b37b97aabe2f",
+   "type": "todo",
+   "title": "Check why mind drop is saying minus seconds for th",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "c41c261b-d84a-4973-934a-67591b8b163c",
+   "type": "todo",
+   "title": "Set Up Ring Doorbell",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "fc96839f-29fb-4d73-a39d-b82fb3794a85",
+   "type": "todo",
+   "title": "Book Uk Flights for Wilderness",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "f6886505-c02c-45fa-aa39-d4799f5781e0",
+   "type": "todo",
+   "title": "Do Washing",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "88674092-d317-4236-ab8f-99b209fd1fae",
+   "type": "habit",
+   "title": "Strength Training Sessions",
+   "frequency": "weekly",
+   "cadence": "weekly",
+   "target_per_period": 3,
+   "period_unit": "day",
+   "space_id": "ed5a7cdc-29ae-47b4-9482-57c2cecb9b5f",
+   "logged_days": []
+  },
+  {
+   "id": "09c01ddd-255d-4462-aa5d-3e09bc67d371",
+   "type": "todo",
+   "title": "Add Logos to Website",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "b340be5a-1231-476e-aded-ffabf2e8e945",
+   "type": "todo",
+   "title": "Fix the Stalling Entities After Splitting",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "0b8e8c60-579d-421c-bae0-6d94476d0f5e",
+   "type": "todo",
+   "title": "Build Better Bulk Move Forward Page",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "c7f3cbeb-ff20-4d89-8391-e3818da39931",
+   "type": "todo",
+   "title": "Reframe Website Based on Claude Chat",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "d7bfabe2-1e2a-41d9-a15e-24a85a7cf921",
+   "type": "todo",
+   "title": "Change the Color of the Gremly on Other Pages",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "6ebd2678-2cc2-4e59-9dc9-d5939767d6ab",
+   "type": "todo",
+   "title": "Send W2 Out",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "77305574-fc25-46ec-a395-9b537ed38188",
+   "type": "todo",
+   "title": "Change Minddrop Logo with Add to Today Popup",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "58dc060f-222f-462b-80a7-5b8865cc69ce",
+   "type": "todo",
+   "title": "Check in on the Speed of the Mind Drop",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "68a3da3e-19fa-457b-b008-ddf33c345440",
+   "type": "todo",
+   "title": "Check If Dco Is Actually Working",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "11c8325d-38cd-4cdd-88a7-d631f58890a8",
+   "type": "todo",
+   "title": "Fix the Dco Headline on the Ask Gremly Page",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "9d3a0321-5a50-4e7f-98ef-f24eb4421570",
+   "type": "todo",
+   "title": "Get Sadie Promo Into Par",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "0ea8de3d-ba86-4529-bf25-da675d8ba871",
+   "type": "todo",
+   "title": "Respond to Liv",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "394c5f33-b71e-452d-a60f-9af34d6aca31",
+   "type": "todo",
+   "title": "Make Plans for the Weekend",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "80579c29-61fd-45cb-a403-cb650cf354be",
+   "type": "habit",
+   "title": "Weekly Cycling Routine",
+   "frequency": "weekly",
+   "cadence": "weekly",
+   "target_per_period": 2,
+   "period_unit": "day",
+   "space_id": "ed5a7cdc-29ae-47b4-9482-57c2cecb9b5f",
+   "logged_days": []
+  },
+  {
+   "id": "80407b1a-b7b0-4ff9-bf37-01993632de88",
+   "type": "habit",
+   "title": "Stop drinking alcohol",
+   "frequency": "daily",
+   "cadence": "daily",
+   "target_per_period": 1,
+   "period_unit": "day",
+   "space_id": "ed5a7cdc-29ae-47b4-9482-57c2cecb9b5f",
+   "logged_days": []
+  },
+  {
+   "id": "36edb14f-d0b6-4e6a-943a-2eca64bd50ae",
+   "type": "habit",
+   "title": "Messaging People Back",
+   "frequency": "daily",
+   "cadence": "daily",
+   "target_per_period": 1,
+   "period_unit": "day",
+   "space_id": null,
+   "logged_days": []
+  },
+  {
+   "id": "326376b2-8861-4e84-a8c6-8745410797ca",
+   "type": "habit",
+   "title": "Do 15 Minutes of Blinkist",
+   "frequency": "5x/week",
+   "cadence": "weekly",
+   "target_per_period": 5,
+   "period_unit": "day",
+   "space_id": null,
+   "logged_days": [
+    "2026-09-29"
+   ]
+  },
+  {
+   "id": "bba4c172-a827-4155-acd5-ef2fa0e82bc7",
+   "type": "todo",
+   "title": "Add Goals to Workday",
+   "due_day": "2026-07-20",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "ff06f998-a4ea-420e-a5d1-4a850a12c457",
+   "type": "todo",
+   "title": "Fix Calendar Entry Field",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "309690f0-1c63-439c-bc92-d78af21438d8",
+   "type": "todo",
+   "title": "Set Up New App Store Connect Account",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "576749e2-6b62-46e3-b24c-e600f3a058db",
+   "type": "todo",
+   "title": "Create Two Sage Case Studies",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "8add4dff-be20-411f-9e9f-bbffb1012867",
+   "type": "todo",
+   "title": "Respond to New Friend",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "921164bc-b1ae-429e-892d-6baad310604d",
+   "type": "todo",
+   "title": "Fix the Tap",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "c2a314ba-60f3-4aa3-a33f-f978a0538f23",
+   "type": "todo",
+   "title": "Book Appointment",
+   "due_day": "2026-07-17",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "9022ab4c-f9ce-4338-8561-9bf387266793",
+   "type": "note",
+   "title": "England Lost in World Cup Semi Final",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "96ed2483-7a9d-4d23-bd72-4327f000b4fd",
+   "type": "todo",
+   "title": "Add Place to See and Reverse Completed Tasks",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "41943f6e-5cf6-4cf8-95a9-eee6a70fc157",
+   "type": "todo",
+   "title": "Overlay Strips Details During Sweep Conversion",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "7b10679f-a661-41d4-8a45-041f84b9e154",
+   "type": "todo",
+   "title": "Fix Monday Morning Plan Deadline",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "3cc72682-2b2d-4421-8a2e-6193dfc44693",
+   "type": "todo",
+   "title": "Evening Sweep Recommendation",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "bce65f0d-eb52-48ec-9904-7c266e03fbe7",
+   "type": "todo",
+   "title": "Finding Therapist and Psychiatrist",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "081bfbf6-9499-48c4-994c-aed6eb891da0",
+   "type": "todo",
+   "title": "Journal View Overlay Addition",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "7756003f-99e4-453a-87d6-3216704302f9",
+   "type": "todo",
+   "title": "Filters and Tabs for Today Page",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "58b99bab-5f73-4001-a15f-2b38f167799b",
+   "type": "todo",
+   "title": "Reddit Alert Setup",
+   "due_day": "2026-07-20",
+   "due_time": null,
+   "space_id": "6a5ebdc2-89bc-4bcb-b863-39c6a046e1e1"
+  },
+  {
+   "id": "a419c073-3007-4f62-b988-8af81b7b951b",
+   "type": "todo",
+   "title": "Confirmation Message for Summary",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": "6a5ebdc2-89bc-4bcb-b863-39c6a046e1e1"
+  },
+  {
+   "id": "58b64261-a7a9-46e2-9db7-487ee60eddb2",
+   "type": "todo",
+   "title": "Multi Daily Habits Integration",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": "6a5ebdc2-89bc-4bcb-b863-39c6a046e1e1"
+  },
+  {
+   "id": "1e1e6f5d-a9f5-4680-80bd-57c77c6ddeb5",
+   "type": "note",
+   "title": "Feeling Scattered but Excited for Routine",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "27c6acee-4b2b-473d-a2f1-f2e7e4bf96ea",
+   "type": "todo",
+   "title": "Make weekly summaries be a specific day + Make weekly sum...",
+   "due_day": "2026-07-20",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "b40586b0-14ca-4764-a3d4-863192c2e02b",
+   "type": "todo",
+   "title": "Test Plan Function",
+   "due_day": "2026-07-20",
+   "due_time": null,
+   "space_id": "6a5ebdc2-89bc-4bcb-b863-39c6a046e1e1"
+  },
+  {
+   "id": "94ef62b9-f466-4733-a543-2f522655cb07",
+   "type": "habit",
+   "title": "Alternate Pushups with Core Exercises",
+   "frequency": "weekly",
+   "cadence": "weekly",
+   "target_per_period": 2,
+   "period_unit": "day",
+   "space_id": null,
+   "logged_days": []
+  },
+  {
+   "id": "f86ceed9-7d9d-408f-a63c-fef5fb782f43",
+   "type": "habit",
+   "title": "Run 3 Times A Week",
+   "frequency": "weekly",
+   "cadence": "weekly",
+   "target_per_period": 1,
+   "period_unit": "day",
+   "space_id": "ed5a7cdc-29ae-47b4-9482-57c2cecb9b5f",
+   "logged_days": []
+  },
+  {
+   "id": "cc005148-988c-4b0e-99e9-e50c1391df4b",
+   "type": "note",
+   "title": "Feeling Focused and Reflecting on Ptown",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "e6c04701-f1a0-453e-8420-698eb88df979",
+   "type": "note",
+   "title": "Listened to Talking to Strangers on Blinkist",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "b51f94d2-1089-4802-a6c2-d956d8840564",
+   "type": "habit",
+   "title": "Change of Scenery",
+   "frequency": "daily",
+   "cadence": "daily",
+   "target_per_period": 1,
+   "period_unit": "day",
+   "space_id": null,
+   "logged_days": []
+  },
+  {
+   "id": "b0457ced-6471-421d-978d-8e086a7d5258",
+   "type": "todo",
+   "title": "Submit to Apple Calendar",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "ee63da6e-de5f-4a26-8fb3-c336bbfee471",
+   "type": "todo",
+   "title": "Change Getting Greener to Getting Fuller",
+   "due_day": "2026-07-17",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "a466c4b3-dc8a-40ce-9e8c-14b8e7cfe12a",
+   "type": "todo",
+   "title": "Get Back to Michelle About Linkedin",
+   "due_day": "2026-07-28",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "4822cc37-3ec5-45bf-a136-274d08359f1a",
+   "type": "todo",
+   "title": "Make Busiest Gremly Week Part of Summary",
+   "due_day": "2026-07-17",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "22854aba-4396-471e-8d3b-fe84ac43765a",
+   "type": "note",
+   "title": "Not lose focus of all the changes I am trying to make and why. To stay disciplin",
+   "subtype": "journal",
+   "due_day": "2026-07-13",
+   "due_time": null,
+   "space_id": null,
+   "target_date": "2026-07-13"
+  },
+  {
+   "id": "669adaa2-9a29-4f5f-b6c7-894a75616f1d",
+   "type": "note",
+   "title": "Today Page Redesign Idea",
+   "subtype": "idea",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "9f6aca4c-0afe-4a85-b1f7-ce6685a684a3",
+   "type": "note",
+   "title": "People Profiles Design Idea",
+   "subtype": "idea",
+   "due_day": null,
+   "due_time": null,
+   "space_id": "6a5ebdc2-89bc-4bcb-b863-39c6a046e1e1",
+   "target_date": null
+  },
+  {
+   "id": "9fb54bc7-2f0f-4dfe-9222-5bdeeb20ae82",
+   "type": "todo",
+   "title": "Plan a Fun Weekend with Cycling and Glamping",
+   "due_day": "2026-07-17",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "6bd0761d-0d09-467f-8dc6-4769dcbdc8af",
+   "type": "todo",
+   "title": "Help Mum with Busheng Email Address Creation",
+   "due_day": "2026-07-17",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "512d0bc5-7f1e-432a-9283-49ae276ec0cf",
+   "type": "todo",
+   "title": "Add Habit Should Offer Chat or Manual Options",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "0582b5d7-0c5d-4cef-9bfb-4083f57e2b6c",
+   "type": "todo",
+   "title": "Sort All Calendar Service Issues Properly",
+   "due_day": "2026-07-20",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "eb91edbd-20a5-45a3-a3c5-879da38bbc59",
+   "type": "todo",
+   "title": "Technical App Audit Contractor",
+   "due_day": "2026-07-22",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "59c46dea-4216-4e0b-8f91-283db09c269d",
+   "type": "todo",
+   "title": "Full Audit Using Claude Code",
+   "due_day": "2026-07-16",
+   "due_time": null,
+   "space_id": "6a5ebdc2-89bc-4bcb-b863-39c6a046e1e1"
+  },
+  {
+   "id": "b3db46a6-3050-4e51-9e99-3e94c95b20fe",
+   "type": "todo",
+   "title": "Android Test Simulator",
+   "due_day": "2026-07-27",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "25112ef8-e89e-4640-922f-7cdef5a8d607",
+   "type": "todo",
+   "title": "Fallback Wrapper for Ai Models",
+   "due_day": "2026-07-21",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "c19b9c16-6a1f-47a8-897e-588bd8fca16f",
+   "type": "todo",
+   "title": "Achieve Ada Compliance",
+   "due_day": "2026-07-22",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "d8cb288f-5d5e-475f-8845-ccac66448470",
+   "type": "todo",
+   "title": "Watch Strap Adjustment",
+   "due_day": "2026-07-17",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "34f26cf3-4a3e-4b29-b808-710dccf382e6",
+   "type": "todo",
+   "title": "Surrogacy Agencies Research",
+   "due_day": "2026-08-25",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "3b20a989-4a49-4e19-9ab7-c05c31523154",
+   "type": "todo",
+   "title": "Release the App",
+   "due_day": "2026-07-31",
+   "due_time": null,
+   "space_id": "6a5ebdc2-89bc-4bcb-b863-39c6a046e1e1"
+  },
+  {
+   "id": "54f34291-f894-4356-9c70-4a51293f8d59",
+   "type": "todo",
+   "title": "Gremly Vacation Mode Activation",
+   "due_day": "2026-07-27",
+   "due_time": null,
+   "space_id": "6a5ebdc2-89bc-4bcb-b863-39c6a046e1e1"
+  },
+  {
+   "id": "596434ae-e1ac-46bc-9ae3-09a530b9efa1",
+   "type": "todo",
+   "title": "Add Habit Buddy",
+   "due_day": "2026-07-27",
+   "due_time": null,
+   "space_id": "6a5ebdc2-89bc-4bcb-b863-39c6a046e1e1"
+  },
+  {
+   "id": "236e02dd-4d58-42e3-8bcb-c70b62bdc57f",
+   "type": "todo",
+   "title": "Audit Photo Drops",
+   "due_day": "2026-07-27",
+   "due_time": null,
+   "space_id": "6a5ebdc2-89bc-4bcb-b863-39c6a046e1e1"
+  },
+  {
+   "id": "1f8cd645-a0da-43b5-b599-72c5c7a458a2",
+   "type": "todo",
+   "title": "Build Mind Drop Widget",
+   "due_day": "2026-07-27",
+   "due_time": null,
+   "space_id": "6a5ebdc2-89bc-4bcb-b863-39c6a046e1e1"
+  },
+  {
+   "id": "225b390a-ac14-4ee3-997f-804e2eb9eeaf",
+   "type": "note",
+   "title": "Feeling Changed and Productive After Ptown",
+   "subtype": "journal",
+   "due_day": "2026-07-12",
+   "due_time": null,
+   "space_id": null,
+   "target_date": "2026-07-12"
+  },
+  {
+   "id": "7780f20d-d714-4ffb-9a33-b808822c49da",
+   "type": "note",
+   "title": "Glad Meeting with Justin Got Pushed",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "844b295f-1056-4502-acc8-f96b44815567",
+   "type": "note",
+   "title": "Productive Day Working on Gremly and Fitness",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "2a7050c5-02e4-4235-9466-83ae53f61dbc",
+   "type": "note",
+   "title": "Feeling Anxious but Thankful for Dave",
+   "subtype": "journal",
+   "due_day": "2026-07-02",
+   "due_time": null,
+   "space_id": null,
+   "target_date": "2026-07-02"
+  },
+  {
+   "id": "eded1883-4081-4376-84ca-76a65022100c",
+   "type": "note",
+   "title": "Sort out my health and get back on it with Gremly",
+   "subtype": "journal",
+   "due_day": "2026-06-22",
+   "due_time": null,
+   "space_id": null,
+   "target_date": "2026-06-22"
+  },
+  {
+   "id": "ce2f5581-6f4b-48c6-9083-749c3fc9ea1f",
+   "type": "note",
+   "title": "Stay on top of Gremly",
+   "subtype": "journal",
+   "due_day": "2026-06-08",
+   "due_time": null,
+   "space_id": null,
+   "target_date": "2026-06-08"
+  },
+  {
+   "id": "554d9078-3b86-4423-a6c4-f046595df56a",
+   "type": "note",
+   "title": "Nina Biggs",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "8f7ed8a6-07f5-40d2-808d-b2cc314ec96d",
+   "type": "note",
+   "title": "Feeling Good About Mental Abilities",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "69038253-6e3b-44b9-9088-9a07c1aa2e4b",
+   "type": "note",
+   "title": "Trying Melatonin Hours Before Bed",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "46607bc7-0e71-47ce-9c00-00bbb534f726",
+   "type": "note",
+   "title": "Grand Lake Kitchen in Noe Valley",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "68fe56f4-bc3f-4aef-a660-d31ed815591d",
+   "type": "note",
+   "title": "Progress on Data Architecture Pipeline",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "e5d20eed-23c4-4744-8485-be6cf18d840e",
+   "type": "note",
+   "title": "Jen's 40th Party in London",
+   "subtype": "event",
+   "due_day": "2026-10-24",
+   "due_time": null,
+   "space_id": null,
+   "target_date": "2026-10-24"
+  },
+  {
+   "id": "e0da416d-602f-478e-9138-13aa970a33c7",
+   "type": "note",
+   "title": "Half Marathon",
+   "subtype": "event",
+   "due_day": "2026-09-22",
+   "due_time": null,
+   "space_id": "ed5a7cdc-29ae-47b4-9482-57c2cecb9b5f",
+   "target_date": "2026-09-22"
+  },
+  {
+   "id": "192c48e4-7670-4b09-8ad5-c09ee8187e16",
+   "type": "note",
+   "title": "Upset That Parents Show Little Interest",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "2fdc5832-c17e-44d9-a27e-a913eeb1c137",
+   "type": "note",
+   "title": "Presented and Led Na Qbr for Sage",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "6310bcb9-1a54-4254-8b0d-79b7ae5c1a0e",
+   "type": "note",
+   "title": "Reflections After Berlin Trip",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "cf50a43a-d301-4adf-bfe0-db7e982c48b3",
+   "type": "note",
+   "title": "Feeling Overwhelmed with Work and Life",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "540908e5-94b3-48af-a661-1e71905c6261",
+   "type": "note",
+   "title": "Busy Day with Dave and Berlin Plans",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "90c02f8e-11df-40fc-8398-18f57e1fe4b4",
+   "type": "note",
+   "title": "Enjoyed Seeing People Despite Busy Weekend",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "103cc3e6-bc57-4189-8f47-46c87ddccaca",
+   "type": "note",
+   "title": "I Love Dave and Our Night Outs",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "3abe24c4-a681-415c-868d-206c2317ec7a",
+   "type": "note",
+   "title": "Tag Line for Marketing You Are My World",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "695c80aa-205a-42fa-a35a-141d9757e42a",
+   "type": "note",
+   "title": "bay to breakers",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "deea6389-5089-4b20-bdc3-7e15c83dd374",
+   "type": "note",
+   "title": "parent SF dates",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "2a3a6824-0f2b-491d-8fe1-74c9096968b7",
+   "type": "note",
+   "title": "Add flights",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "fc4847f4-f411-449a-bab8-a01c17500628",
+   "type": "note",
+   "title": "English Dinner and Gremly Progress",
+   "subtype": "journal",
+   "due_day": "2026-04-22",
+   "due_time": null,
+   "space_id": null,
+   "target_date": "2026-04-22"
+  },
+  {
+   "id": "dd9da23c-5f11-4af1-94fc-8c2ba7d12200",
+   "type": "note",
+   "title": "Had a Really Productive Day with Gremly",
+   "subtype": "journal",
+   "due_day": "2026-04-22",
+   "due_time": null,
+   "space_id": null,
+   "target_date": "2026-04-22"
+  },
+  {
+   "id": "033e217c-eb90-4d3e-8755-aea8643bf662",
+   "type": "note",
+   "title": "Got a Lot Done Despite Feeling Tired",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "afc32d6b-cc63-412f-b610-3fab3e0548df",
+   "type": "note",
+   "title": "Maximize Time with Parents Next Visit",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "48cc3087-fd2a-4171-a242-1954677074ce",
+   "type": "note",
+   "title": "Big Weekend of Partying and Confidence Boost",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "bb630be8-5b78-4dd2-a1de-0b71b2f7ab47",
+   "type": "note",
+   "title": "Jj",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "0b09ee6d-f84f-44a3-85f2-e2c75c654139",
+   "type": "note",
+   "title": "Dave's Birthday Celebration",
+   "subtype": "general",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "29b74049-2049-4c9b-bca3-815322962755",
+   "type": "note",
+   "title": "Great Afternoon with Becca and Family",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "3a4565ce-14f1-4152-b18c-98932b5bcabd",
+   "type": "note",
+   "title": "Multitasking with Becca and Family",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "4742000d-7f32-480d-afa0-c5020402c8db",
+   "type": "note",
+   "title": "Family Time and Fitness Boost",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "a8f7ff47-791b-4d9f-8654-e7e09746b2f8",
+   "type": "note",
+   "title": "Support From Kim and Andrew",
+   "subtype": "journal",
+   "due_day": "2026-04-14",
+   "due_time": null,
+   "space_id": null,
+   "target_date": "2026-04-14"
+  },
+  {
+   "id": "5961d0c6-9f22-442a-a971-0cb2186ed26f",
+   "type": "note",
+   "title": "Bike Performance and Anxiety",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "c5fc9245-8530-4e0f-bb18-2b4f92b8155b",
+   "type": "note",
+   "title": "She/her Button Issue",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "f894a9a5-70b0-41cc-97dd-e4f31e30fcb8",
+   "type": "note",
+   "title": "Navigating social identity and trust",
+   "subtype": "general",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "2949a808-d7bc-487d-8b8a-16f26240f52c",
+   "type": "note",
+   "title": "Sunday Success Plan",
+   "subtype": "general",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "3c03b2fd-6950-4d88-9653-2a602b23d813",
+   "type": "note",
+   "title": "Morning Greeting to Gremly",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "a82a87ea-1d60-4377-bf64-55711411317c",
+   "type": "note",
+   "title": "Reflections on Anxiety and Alcohol",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "deed89a2-1d89-4c94-8ebd-d2302b94a382",
+   "type": "note",
+   "title": "Hydration and Health",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "5b6af113-3d6d-4c5d-9348-63cc8be19890",
+   "type": "note",
+   "title": "Walk with Bella",
+   "subtype": "journal",
+   "due_day": "2026-04-10",
+   "due_time": null,
+   "space_id": null,
+   "target_date": "2026-04-10"
+  },
+  {
+   "id": "3ec6c477-d9c9-46bd-8cfa-6c52c5ebc6fa",
+   "type": "note",
+   "title": "Lunch and Concert with Friends",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "996d39c7-60e9-4566-ab56-c467af902531",
+   "type": "note",
+   "title": "Temporary Dental Filling",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "2078203b-827d-40b0-b719-f5c9b942c07b",
+   "type": "note",
+   "title": "Anxiety and Sleep Struggles",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "7ae6609b-f8ad-4ee7-b031-de0c1c8dcb36",
+   "type": "note",
+   "title": "English Dinner and Gremly Progress",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "c106c601-4526-4cf3-95a6-f213f16c946a",
+   "type": "note",
+   "title": "Gremly App Progress and Dave's News",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "46976617-343c-4189-a728-634eb9d7ab00",
+   "type": "note",
+   "title": "Low Energy and Anxiety",
+   "subtype": "journal",
+   "due_day": "2026-04-07",
+   "due_time": null,
+   "space_id": null,
+   "target_date": "2026-04-07"
+  },
+  {
+   "id": "baf18d2a-aaac-4f28-bba6-ae91b57051f8",
+   "type": "note",
+   "title": "Tool for Revisiting Lost Thoughts",
+   "subtype": "idea",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "6f99e01f-0916-4d01-be93-dbd9f460b1ce",
+   "type": "note",
+   "title": "Work Stress and Sleep Struggles",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "b96e42b7-9a27-46c6-9d98-d920b47e2001",
+   "type": "note",
+   "title": "Gremly Social Media Progress",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "797428f6-c4c8-4840-b826-eaa488447899",
+   "type": "note",
+   "title": "Weekend Reflection and Friendships",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "79c7fa26-9156-464d-bafb-d7cccc4da72c",
+   "type": "note",
+   "title": "Dinner Party with Friends",
+   "subtype": "journal",
+   "due_day": "2026-04-05",
+   "due_time": null,
+   "space_id": null,
+   "target_date": "2026-04-05"
+  },
+  {
+   "id": "25c6242f-41ab-4af3-afc6-84fd5b3b932d",
+   "type": "note",
+   "title": "Chat with Dave About Family",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "53fb56df-fadc-4a22-958c-80e212b9b756",
+   "type": "note",
+   "title": "Bonfire at Ocean Beach",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "8a0d6189-f32e-4936-87e9-8bac7603fc62",
+   "type": "note",
+   "title": "Memoir or Historybook Idea",
+   "subtype": "idea",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "d7aced17-0ef3-4093-b397-a2f402dee49b",
+   "type": "note",
+   "title": "Frustration with Model Performance",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "00c2d229-8a0b-40cf-92a2-fbeba180312d",
+   "type": "note",
+   "title": "Multi Fire Frequency Control",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "a2074f4e-e747-4ab1-918f-697bca388779",
+   "type": "note",
+   "title": "Work Conflict with Rachel",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "9ecd7f77-3340-484e-8ec0-c605c42040a7",
+   "type": "note",
+   "title": "Morning Routine and Coworking Plan",
+   "subtype": "general",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "f43ea6a3-ac02-4b15-b620-eb80851ca72c",
+   "type": "note",
+   "title": "Insecurities About Dave",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "c2e20668-636b-4021-b9c6-1098ba738e27",
+   "type": "note",
+   "title": "Housewarming and Birthday Party",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "b4ca415e-f5cc-44fc-bc83-aebbb716d559",
+   "type": "note",
+   "title": "Prioritize fitness and workspace",
+   "subtype": "general",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "13faf277-381b-4f7f-aa2d-f89f22cfc3a1",
+   "type": "note",
+   "title": "Dinner at Californios and Anxiety",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "155b708d-c43c-4d99-b7e3-99a084a2c694",
+   "type": "note",
+   "title": "Productive Day with Gremly",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "8f72d86a-8495-45b8-b202-1911704d891a",
+   "type": "note",
+   "title": "Dave's New Job Celebration",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "c3102782-5ac9-46cd-b687-e44b665aacb5",
+   "type": "note",
+   "title": "Catching Up with Liv",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "ef733c77-c858-4c03-879f-4a8b63650a46",
+   "type": "note",
+   "title": "Liv's Cats Max and Calvin",
+   "subtype": null,
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "f8814893-9245-4193-a267-256b2a410645",
+   "type": "habit",
+   "title": "Weekly Yoga Practice",
+   "frequency": "weekly",
+   "cadence": "weekly",
+   "target_per_period": 1,
+   "period_unit": "day",
+   "space_id": "ed5a7cdc-29ae-47b4-9482-57c2cecb9b5f",
+   "logged_days": []
+  },
+  {
+   "id": "810c00ef-ee38-46e7-8f3c-72c460c30185",
+   "type": "note",
+   "title": "Day Reflections and Health Wins",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "93eb497b-512f-439b-b165-22db40354aa2",
+   "type": "note",
+   "title": "Feeling Overwhelmed with Gremly",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "c4c9e771-9f99-42d8-8bad-a92898106b63",
+   "type": "note",
+   "title": "Reflections on Returning Home",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "92a4419d-55d9-4338-802d-4a6d828116ed",
+   "type": "note",
+   "title": "Flight Back From Tahiti",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "9ed01b61-d55e-465d-9050-dc50c9e7ed8a",
+   "type": "note",
+   "title": "Gratitude and New Beginnings",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "4b7e0ee9-3fe3-4ea0-8ff9-812888c1be95",
+   "type": "note",
+   "title": "Reunion with Bella",
+   "subtype": "journal",
+   "due_day": "2026-03-24",
+   "due_time": null,
+   "space_id": null,
+   "target_date": "2026-03-24"
+  },
+  {
+   "id": "a95d4c94-100d-40f1-8f81-254f22d13f38",
+   "type": "note",
+   "title": "Balancing Work, Travel, and Focus",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "5d8a6a71-2102-4dce-b6c5-a29515316c61",
+   "type": "note",
+   "title": "Reflections on Work and Tahaa",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "c03bab1c-42a9-497e-a7bb-2cd2efec0f13",
+   "type": "note",
+   "title": "Work and Time in Tahaa",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "ea393fbd-e9e5-45d8-959a-f6e711672332",
+   "type": "note",
+   "title": "Early Work Call on Island",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "277a67cc-077f-411f-97de-e624609e211b",
+   "type": "note",
+   "title": "Work and Relaxation in Bora Bora",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "8aeeac02-1666-4319-840c-9b2a018d8495",
+   "type": "note",
+   "title": "Vacation in Bora Bora",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "83b3d5cf-9b6b-4b17-9f32-7074473601ba",
+   "type": "note",
+   "title": "Vacation Reflections in Bora Bora",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "d72a6fb4-21ba-4162-80fc-bd13a00d7585",
+   "type": "note",
+   "title": "Active Day in Bora Bora",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "004f3b58-3f25-4dbb-a740-980f28cd7376",
+   "type": "note",
+   "title": "Gratitude for Japan and Honeymoon",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "0530eda7-46c3-4170-bb7b-e1014cf24a9e",
+   "type": "note",
+   "title": "Exploring Shinjuku and Tokyo Connections",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "afdb907c-0cb5-48e2-9344-58293f866a2c",
+   "type": "note",
+   "title": "Perfect Day Exploring Tokyo",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "cc809d27-9950-4938-9faf-547baaae8dc6",
+   "type": "note",
+   "title": "First Day in Tokyo",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "4ff2d314-39ba-41bd-a63a-ed6e09172b23",
+   "type": "note",
+   "title": "Honeymoon Preparation Checklist",
+   "subtype": null,
+   "due_day": null,
+   "due_time": null,
+   "space_id": "44414226-3d35-45b1-ae86-645d5e6e3688",
+   "target_date": null
+  },
+  {
+   "id": "513e9556-ec84-4ca8-974b-3a25ec6fea06",
+   "type": "note",
+   "title": "Interval Training Plan For 1:40 Half Marathon",
+   "subtype": null,
+   "due_day": null,
+   "due_time": null,
+   "space_id": "ed5a7cdc-29ae-47b4-9482-57c2cecb9b5f",
+   "target_date": null
+  },
+  {
+   "id": "6750c331-cd49-46dc-ab5c-107a19ac9c02",
+   "type": "note",
+   "title": "Smoothie Nutritional Breakdown",
+   "subtype": null,
+   "due_day": null,
+   "due_time": null,
+   "space_id": "ed5a7cdc-29ae-47b4-9482-57c2cecb9b5f",
+   "target_date": null
+  },
+  {
+   "id": "645ddf28-2232-4bcc-9b9a-2408f086c23d",
+   "type": "note",
+   "title": "Reflections on Progress and Family",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "58797172-ab70-4064-a58b-5f3c4bd590f8",
+   "type": "note",
+   "title": "Pre-honeymoon Productivity and Anxiety",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "8c66e61c-37e5-4824-ad4d-1caa659c2fb1",
+   "type": "note",
+   "title": "Why Mind Drop Goes to General Note",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": "6a5ebdc2-89bc-4bcb-b863-39c6a046e1e1",
+   "target_date": null
+  },
+  {
+   "id": "9b9b756c-0421-45d0-9443-2b71965fe6e7",
+   "type": "note",
+   "title": "Updating Ai Models Experience",
+   "subtype": "journal",
+   "due_day": "2026-02-24",
+   "due_time": null,
+   "space_id": null,
+   "target_date": "2026-02-24"
+  },
+  {
+   "id": "b3d2a3d4-5542-48b2-946e-cc3fe6a87eb7",
+   "type": "note",
+   "title": "Confirm Merkury Data Costs",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "e30f79b2-534b-4fdd-ae75-7f5fed2f2527",
+   "type": "note",
+   "title": "Balancing Work and Quality Sleep",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "181dbb59-ba53-42a5-b7ac-e973efec8bcd",
+   "type": "note",
+   "title": "Gratitude Amidst Work Anxiety",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "2da51b2d-a6f6-48b1-aaf4-686510766023",
+   "type": "note",
+   "title": "Balancing Health and Social Life",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "36434811-0dda-46eb-b582-7f80c209cc05",
+   "type": "note",
+   "title": "Balancing Productivity and Self-care",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "61b508fe-0c11-4121-9635-0a2cfea0966d",
+   "type": "note",
+   "title": "Frustrations and Fatigue Today",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "9c76b472-d0ca-47c8-b1d9-41f4e7c2e9f6",
+   "type": "note",
+   "title": "Progress on Gremly and Stress",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "f5b7e30b-02ca-4537-89bd-2abf3e4d4f77",
+   "type": "note",
+   "title": "Reflections on a Weekend Away",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "f3e9ea55-0ef8-4d28-ae69-4bb92e264560",
+   "type": "note",
+   "title": "Reflections on a Rest Day",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "f8d2c981-657a-4ad3-a7fc-c2fd5ae625a7",
+   "type": "note",
+   "title": "Yoga Session",
+   "subtype": "catchall",
+   "due_day": "2026-02-12",
+   "due_time": null,
+   "space_id": "ed5a7cdc-29ae-47b4-9482-57c2cecb9b5f",
+   "target_date": "2026-02-12"
+  },
+  {
+   "id": "fbd0718b-0bcd-42fe-89d1-4cbefd01e109",
+   "type": "note",
+   "title": "Planning for App Launch and Balance",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "e8f5ea55-1116-4cbb-9a29-3bcc68b0ef8b",
+   "type": "note",
+   "title": "Maintaining Healthy Sleep Habits",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "111535f3-bcd5-40e4-a8af-3cc2e874f9ac",
+   "type": "note",
+   "title": "Chill Day and Focused Workouts",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "78773514-e365-4db7-aac2-abcee3dfaaa3",
+   "type": "note",
+   "title": "Had a very chill day. Need to get back on it a little bit tomorrow. And keep to habits and Gremly and fix the house",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "346c006f-2eca-4aa0-ba21-0deb8fa847bc",
+   "type": "note",
+   "title": "Lower confidence percentages for categories vs ambiguous. To",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": "6a5ebdc2-89bc-4bcb-b863-39c6a046e1e1",
+   "target_date": null
+  },
+  {
+   "id": "8ac4ce69-6ed5-4726-9740-617b0c0d2821",
+   "type": "note",
+   "title": "Trip To Bora Bora In March",
+   "subtype": "general",
+   "due_day": "2026-03-01",
+   "due_time": null,
+   "space_id": "44414226-3d35-45b1-ae86-645d5e6e3688",
+   "target_date": "2026-03-01"
+  },
+  {
+   "id": "dc86dd93-1b1a-46a8-99be-679065912e47",
+   "type": "note",
+   "title": "Evening reflection",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "8a7e237f-aeea-436a-a30d-ca614879f359",
+   "type": "note",
+   "title": "Have the best holiday ever",
+   "subtype": "event",
+   "due_day": "2026-02-18",
+   "due_time": null,
+   "space_id": "44414226-3d35-45b1-ae86-645d5e6e3688",
+   "target_date": "2026-02-18"
+  },
+  {
+   "id": "1b97ce3d-5934-41af-8dc0-c0f0d09ddbf3",
+   "type": "note",
+   "title": "Feel as though the lack of alcohol is helping me have a clearer mind which feels quite liberating. Definitely need to have a conversation with Dave about it.\nWork motivation is super slow but Gremly motivation is high. Proud of the additions this past day.",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "d04d0f88-6134-4af1-bff1-330ad248bb55",
+   "type": "note",
+   "title": "Prepare for Bora Bora trip",
+   "subtype": null,
+   "due_day": null,
+   "due_time": null,
+   "space_id": "44414226-3d35-45b1-ae86-645d5e6e3688",
+   "target_date": null
+  },
+  {
+   "id": "b0c5141b-96ef-4bd7-aedf-a93fdd075385",
+   "type": "note",
+   "title": "Feeling good about exercise. Need to stay focused on gremly",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "c2bab1d3-db78-4953-b0e3-05908857351d",
+   "type": "note",
+   "title": "Really liking how much exercise I am doing and how focused I am about not drinking and not eating sweets and my new habit to try and not masturbate. Feel like Gremly improvement are coming along too. Getting excited to release it but feels like there’s so much polish still to do.\nGrateful for Dave and Bella and the fact I can do these things",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "aa4b8da9-36ac-4780-b0ba-99d2e0c246ae",
+   "type": "note",
+   "title": "Why Do Mid-morning Treat Urges Arise?",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "670fcdd8-82e7-45b6-bf1d-e2af84eb05f2",
+   "type": "note",
+   "title": "Feeling weird after watching the Heated Rivalry finale. It was so so so beautiful, and it’s made me just realize I’m not 25 anymore. And I miss professional sports and I feel like that window has closed. But I’m working through it.\n\nBuilding Gremly is giving me focus and for that I am grateful",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "3124ec25-c8c7-4348-90d3-3e794ba831b7",
+   "type": "note",
+   "title": "When having negative thoughts, I try",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "b9dc2f50-e6e0-44bc-b200-4ef7dc77ee93",
+   "type": "note",
+   "title": "Gremly being very annoying. But proud of staying sober and keeping tonit",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "b129dfc2-cccc-4f39-859b-af23fb198670",
+   "type": "note",
+   "title": "Feeling like the app could be amazing. The context work has blow my mind. Weights and yoga were also great. Feeling concerned I’m doing too many things at the moment.\n\nWant to continue not drinking",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "da130811-2fa8-425d-8acb-620362530674",
+   "type": "note",
+   "title": "Feeling weirdly hopeful and inspired at the moment. Almost as if I can feel a change happening. Not sure if it’s Gremly or not drinking or something but I feel like I can make a difference and become the person I want to be. It’s a really nice feeling that I want to maintain",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "4f1c25b0-7263-4b1b-931f-1530c6fa7264",
+   "type": "note",
+   "title": "Gremly has been frustrating but I’m proud of powering through and of the improvements I made to the mind drop process and how much trust it will hopefully bring to users. Still some polish to sort through but overall it’s in a good spot",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "b16639aa-aa1c-43df-a603-219866178421",
+   "type": "note",
+   "title": "Enjoyed the run and feel really good about the trajectory of my vo2 max and HRV. Have enjoyed not drinking and want to continue because of the benefits I’m feeling. Need to finish the app before the end of the month so I have a full month of testing.\nFeeling solid with Dave but sex is definitely on my mind",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "f906089b-718d-4b7f-a830-444bfa16aef5",
+   "type": "note",
+   "title": "Frustrated with work but very focused on Gremly. Tennis was good. Feeling guilty for not giving Dave enough attention but I hope he understand. Want to get the app done before our amazing honeymoon in March",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "9fc8fdac-2ee6-46f2-8b55-959d57b92753",
+   "type": "note",
+   "title": "Today has been nice. Got a lot done with Gremly and today it really feels like it’s coming together. My interval run was good too, super hard though. But I can feel myself getting stronger. Also proud that I haven’t had a drink so far thisyear",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "97402e29-aa59-421b-87fe-187adea32da1",
+   "type": "note",
+   "title": "Yoga was good. Liking the tweaks I’m making to the app. Feeling good",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "471b92bd-2547-4b82-a0bb-5dd1fd79afac",
+   "type": "note",
+   "title": "First Screen Improvement Ideas",
+   "subtype": "idea",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "48d7dbb0-aa2c-429d-894a-b36c57cd0500",
+   "type": "note",
+   "title": "Todo View Mode Considerations",
+   "subtype": "idea",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "b145a2c3-f857-4f7c-ace8-9c0b551a9651",
+   "type": "note",
+   "title": "Gremly is coming along, just need to speed it up a little bit",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "dc2602d4-a884-4308-bd70-3252f935ee37",
+   "type": "note",
+   "title": "Persistent Todo Investigation",
+   "subtype": "idea",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "95716963-f205-42b4-a41f-ec8d315ca0c5",
+   "type": "note",
+   "title": "Steps Before Leaving Rented Place",
+   "subtype": null,
+   "due_day": null,
+   "due_time": null,
+   "space_id": "83359740-2053-48f2-bd6b-57b2f6c2c4e7",
+   "target_date": null
+  },
+  {
+   "id": "1888cfcb-b5e7-452e-aadb-2b17b2e5962c",
+   "type": "note",
+   "title": "Finding A New Home Near Sf",
+   "subtype": null,
+   "due_day": null,
+   "due_time": null,
+   "space_id": "83359740-2053-48f2-bd6b-57b2f6c2c4e7",
+   "target_date": null
+  },
+  {
+   "id": "458bee6f-8d63-42ae-96fc-d77dd5592258",
+   "type": "note",
+   "title": "App Functionality Issues + User Experience Feedback",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "07e56eb6-1bba-428f-a838-81b49c3af076",
+   "type": "note",
+   "title": "Hub Date Issues",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "8c5dfb3d-0456-41e5-9260-cc6f09ad9abb",
+   "type": "note",
+   "title": "Frustrated as I think about the last few days with Emily and Nick. They aren’t my people.\n\nWork has been a big focus and trying to get Gremly in as best way as possible. But I’m very stressed about trying to get it ready for launch asap",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "ff73a6f5-808b-4278-9ed3-64b9d7cd93a9",
+   "type": "note",
+   "title": "Calendar Features + Notification Ideas",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "dbb70533-e5d8-4f81-8d1d-4545e56dafb3",
+   "type": "note",
+   "title": "Habit Sweep Card Issues",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "641a5dbe-6049-4e24-833d-43453b031eca",
+   "type": "note",
+   "title": "Still finding hang time with Emily and nick more exhausting and negative than positive. They just aren’t very nice to talk with and are so self centered. Been a great weekend with Dave though and so glad we booked the holiday, feeling very grateful for that. And grateful for Bella",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "29b3d559-2ea1-4a37-85ae-af8ad4f725b9",
+   "type": "note",
+   "title": "Nighttime Stack For Adhd And Restless Legs",
+   "subtype": null,
+   "due_day": null,
+   "due_time": null,
+   "space_id": "ed5a7cdc-29ae-47b4-9482-57c2cecb9b5f",
+   "target_date": null
+  },
+  {
+   "id": "835918e6-5a25-41c9-9190-cf03587c27fc",
+   "type": "note",
+   "title": "Felt frustrated with Gremly today. AI has made thing super challenging and I feel like I’m losing focus on what I need to do. Considering moving launch to March",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "d968bc6e-a942-4c8c-969e-51f5457bbc65",
+   "type": "note",
+   "title": "Ai Insights For Aging Up Modal",
+   "subtype": "idea",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "0fc999ba-4e31-4937-9b57-a4c6e042d3d6",
+   "type": "note",
+   "title": "Had a nice calm day. Need to make sure I get focused on what actually needs to happen with Gremly so I stay focused on getting it ready for launch",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "60afd8f8-5ad0-43ce-a04a-14a28dd66332",
+   "type": "note",
+   "title": "Issam's Birthday Reminder",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "8d4ddad7-114f-4f9d-9f46-68a3144e26fc",
+   "type": "note",
+   "title": "Very focused on speeding up the mind drop today. Feel like it’s getting there",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "d466b6ef-d5f2-4757-b38e-9fe9e860da0f",
+   "type": "note",
+   "title": "Explore Onboarding And Aging Concepts",
+   "subtype": "idea",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "d78714d4-582a-4866-87c8-3d5da94618ff",
+   "type": "note",
+   "title": "Been a busy day with work and haven’t had chance to do much with Gremly but it’s all good. Saw Emily and nick - I still resent them and think they are rude, but trying for Save. Excited to book a holiday with Dave for March though",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "86bbf615-5cfa-4c8c-a3cd-0a29d62b7d8c",
+   "type": "note",
+   "title": "Feeling Great",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "84923a35-fc56-4b81-95f5-812d583a3183",
+   "type": "note",
+   "title": "Frustrated with work but focused on Gremly and working out. Can’t wait to catch up on sleep and go on holiday",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "2a2afe17-3d3b-4377-9be5-ab9c51d3a499",
+   "type": "note",
+   "title": "Been a busy day and I’m stressed with work. I keep being put in a position that’s unfair and for things I have no experience doing. It’s super frustrating and I can’t wait to quit and just focus on Gremly",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "a6b595f5-673c-4f1c-b354-1ee76f3c7d68",
+   "type": "note",
+   "title": "Busy day yesterday means I’m quite tired today but overall fine. Managed to keep to my weight training and did ok at work and also made a little progress on the app",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "6b26d52d-7cb2-4bac-9f78-69cbbe660ea0",
+   "type": "note",
+   "title": "Habit Activation Confusion",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "6a0e6cf0-8a6c-4a71-99d2-3f5ecb4d7819",
+   "type": "note",
+   "title": "It was a stressful day running but I’m glad it’s done",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "a2f3b399-b4b0-43cb-b793-84f500706253",
+   "type": "note",
+   "title": "Felt a little anxious today about health stuff but staying active and focused and sober which is think is helping",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "f7bb2899-ce3f-43ab-b950-ee02894dd228",
+   "type": "note",
+   "title": "Grateful for AI today. Massively helped with a number of things, especially the Sage deck. Still not focused at all with work. Excited for Dave getting his new job but a little anxious what changes that might bring. The talk Dave had on adoption was also quite enlightening - could be a good option for us",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "cd4359e8-7691-41c0-a1c4-787a7203887a",
+   "type": "note",
+   "title": "Sage Future On April 28",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "8b005081-7f1e-4a1a-8fe4-285e9c76f119",
+   "type": "note",
+   "title": "Fun Animation For Daily Sweep",
+   "subtype": "idea",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "c7b5b6c1-aaad-4df7-88a5-4c081b0e4abf",
+   "type": "note",
+   "title": "Juggling Two Jobs",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "35f26011-bc50-4f27-9b89-c4de556a30e2",
+   "type": "note",
+   "title": "Gremly Message Feedback",
+   "subtype": null,
+   "due_day": null,
+   "due_time": null,
+   "space_id": "6a5ebdc2-89bc-4bcb-b863-39c6a046e1e1",
+   "target_date": null
+  },
+  {
+   "id": "3e959f06-c480-436f-9d55-3074136ff591",
+   "type": "note",
+   "title": "Photos Not Rendering Issue",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": "6a5ebdc2-89bc-4bcb-b863-39c6a046e1e1",
+   "target_date": null
+  },
+  {
+   "id": "9ca63b2b-3d83-4660-ad43-f75a97dd5461",
+   "type": "note",
+   "title": "Habit Frequency Troubleshooting",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": "6a5ebdc2-89bc-4bcb-b863-39c6a046e1e1",
+   "target_date": null
+  },
+  {
+   "id": "32199f58-5b48-4cae-ab0c-d6d0875118b2",
+   "type": "note",
+   "title": "Bella's Amazing Qualities",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "e792a246-a311-44c3-9dad-edfad77e6bc6",
+   "type": "note",
+   "title": "Evening reflection",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "c92a9241-5ad7-4dc9-8c2a-c3c210f1d1ab",
+   "type": "note",
+   "title": "Unwanted Items After Sweep",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "f0fa4f87-d029-4bd3-a14c-9d96fb79b37f",
+   "type": "note",
+   "title": "Grateful that the app is nearly complete. Tired and frustrated I can’t sleep but know I will get there. Work is picking up which is worrying but I will make it work",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "2d01c4b1-1bb4-448a-82aa-eb8705dfd617",
+   "type": "note",
+   "title": "Running And Exercise Plan For Half Marathon",
+   "subtype": null,
+   "due_day": null,
+   "due_time": null,
+   "space_id": "ed5a7cdc-29ae-47b4-9482-57c2cecb9b5f",
+   "target_date": null
+  },
+  {
+   "id": "08145ea3-e5eb-48f8-adc2-a328804e0e5b",
+   "type": "note",
+   "title": "App Update Feedback",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "89d8bba2-58e0-414f-bc46-ced270d13e77",
+   "type": "note",
+   "title": "Feel good about today. I managed to workout and do weights in the morning. Gremly has been a little frustrating but I think it is getting there. Feeling demotivated with work but I think that’s because my passions are elsewhere",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "8892b7b7-634e-4975-b434-6d204e1c8996",
+   "type": "note",
+   "title": "Completed Todos From Yesterday",
+   "subtype": null,
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "5dd70cea-4f81-4d95-a90c-7d284b4a53c5",
+   "type": "note",
+   "title": "Good day but feeling sluggish and tired. Need to sort out sleep and get back into exercise routine. Really happy that the house is sorted. Managed to clear out the Xmas tree and reorg the flat, it’s actually looking better now. Anxious about work but feeling like it’s a fresh start",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "75d7cfc6-7374-4822-976c-6633d082e142",
+   "type": "note",
+   "title": "Slept better and felt more productive today. The app is coming along and I can’t help but get excited. There’s so many tweaks I want to make to it, it’s just a case of prioritizing",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "680c77db-ad36-4bb8-9bff-2cb0f28ec40e",
+   "type": "note",
+   "title": "Jet lag is killing me but managed to get through a lot of niggles on the app today which is good. Just really want it finished. Need to have a balanced weekend whereby I am get good habits set",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "292af8a3-d103-41c6-b03c-8fff58a0b3d4",
+   "type": "note",
+   "title": "Hungover and sad that I lost my wallet but it was a fun night with Dave. And I’m excited for 3 months of not drinking so I can see the impact on my health",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "52990471-c674-45fb-86f9-6c4f4cbd32ff",
+   "type": "note",
+   "title": "Evening reflection",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "14113a9a-67c9-49ac-bb38-2f295e9a2043",
+   "type": "note",
+   "title": "Gift Ideas For Bella",
+   "subtype": "idea",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "3e4ff4e8-ba52-4c64-ae4c-936179aeab8a",
+   "type": "note",
+   "title": "2026 Refresh List",
+   "subtype": null,
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "6819a04b-f37c-4118-a0d6-392d15e916c3",
+   "type": "note",
+   "title": "House disco events in 2026",
+   "subtype": null,
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "4dbea63e-1664-49f6-84a4-88bfbed294ae",
+   "type": "note",
+   "title": "Evening reflection",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "983c73ff-3988-48c8-b7d4-b4690f85db34",
+   "type": "note",
+   "title": "Dinner And House Event Plans",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "af800755-b448-48ad-88e7-84df57b6182f",
+   "type": "note",
+   "title": "Detailed actionable resolutions",
+   "subtype": null,
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "77494f9f-70c4-4dd8-8e26-8088d08fbaa2",
+   "type": "note",
+   "title": "Refined Logic For Logs",
+   "subtype": "idea",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "d09a9f32-c7ee-4f8d-88e6-5902587e3db7",
+   "type": "note",
+   "title": "Feeling good about the app. And grateful for Dave for doing everything in the house. I just NEED TO SLEEP. NYE will be big so I want to be on top form",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "76f01e6f-62cb-4c45-adcb-c6ef1815da93",
+   "type": "note",
+   "title": "Mind Drop Space Expansion",
+   "subtype": "idea",
+   "due_day": null,
+   "due_time": null,
+   "space_id": "6a5ebdc2-89bc-4bcb-b863-39c6a046e1e1",
+   "target_date": null
+  },
+  {
+   "id": "5ea588a6-5671-48f6-a0eb-a41b67b5709d",
+   "type": "note",
+   "title": "MDMA supplement regimen",
+   "subtype": null,
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "95835753-7706-4dff-8fa8-b608c16bc36d",
+   "type": "note",
+   "title": "Overlay Saving Speed Issues",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "34e14d55-1039-421a-849a-964c4a26735b",
+   "type": "note",
+   "title": "Mind Clarity Challenge",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "a0f78c07-c3f7-494a-bc43-04425722fa45",
+   "type": "note",
+   "title": "Post-Xmas Health Reflections",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "16a723cc-4813-4eda-b072-c2f24b9fbea2",
+   "type": "note",
+   "title": "Think about restructuring the today page",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "8d317cfa-fd88-46a2-b06c-7b1913e17e9e",
+   "type": "note",
+   "title": "Top Disco House NYE 2025 Parties",
+   "subtype": null,
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "479d78f7-8d34-4912-97c0-3ea50fc44269",
+   "type": "note",
+   "title": "Missing Bella",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "19c54212-1295-41ba-8521-53279844203c",
+   "type": "note",
+   "title": "Party Friend Search",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "5cc40160-c6e7-4d68-b86d-e3bb47fd5b21",
+   "type": "note",
+   "title": "Prioritize current todos",
+   "subtype": null,
+   "due_day": null,
+   "due_time": null,
+   "space_id": "6a5ebdc2-89bc-4bcb-b863-39c6a046e1e1",
+   "target_date": null
+  },
+  {
+   "id": "030f515b-f77d-474a-9f7e-44e1de3a90e3",
+   "type": "note",
+   "title": "Very tired today. This entire trip has been exhausting. Happy to see everyone but very much need a couple days of doing nothing.\n\nGrateful for the people around me",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "b9fcdc39-5ac9-4664-82ef-8c5a8d698c7f",
+   "type": "note",
+   "title": "Post-Workout Motivation",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "377085ef-6c06-4983-b9ea-b841bfdcbdf2",
+   "type": "note",
+   "title": "Meeting Success Reflection",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "a0111ef9-1630-4735-bb2a-4f42a25ff445",
+   "type": "note",
+   "title": "Grateful Morning Walk",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "8e0c64e0-f3a9-499f-87f3-ffd6c92c59a8",
+   "type": "note",
+   "title": "Had a great 10km run with",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "381b618d-8a47-400c-b713-9c5254e3d7a1",
+   "type": "note",
+   "title": "Holiday Gathering Essentials",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "e6fdc1b7-2c28-48a4-a308-503d1017da26",
+   "type": "todo",
+   "title": "Plan Christmas In California",
+   "due_day": "2026-12-25",
+   "due_time": null,
+   "space_id": null
+  },
+  {
+   "id": "62d54b2c-3df2-4bc4-bdb1-6e98a2754c28",
+   "type": "note",
+   "title": "Data Disappearance On Logout",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": "6a5ebdc2-89bc-4bcb-b863-39c6a046e1e1",
+   "target_date": null
+  },
+  {
+   "id": "0290dc0a-f8bc-4897-b4e0-062941bd0e7c",
+   "type": "note",
+   "title": "Holiday Excitement",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "d4fe8dce-1031-42de-a7bb-b53d454d17ed",
+   "type": "note",
+   "title": "Missing Lock-In Option",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "8961cc98-dd91-45e2-8f84-71921222001b",
+   "type": "note",
+   "title": "Battery Inventory Check",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "6ed6fd26-7d1b-480c-aadd-c2cf03d2f0ed",
+   "type": "note",
+   "title": "Navigation Improvement",
+   "subtype": "idea",
+   "due_day": null,
+   "due_time": null,
+   "space_id": "6a5ebdc2-89bc-4bcb-b863-39c6a046e1e1",
+   "target_date": null
+  },
+  {
+   "id": "36f75c31-bcab-4082-9785-da98be8a5abb",
+   "type": "note",
+   "title": "Sweep Data Verification",
+   "subtype": "idea",
+   "due_day": null,
+   "due_time": null,
+   "space_id": "6a5ebdc2-89bc-4bcb-b863-39c6a046e1e1",
+   "target_date": null
+  },
+  {
+   "id": "bb79eda0-3c2b-4bc5-a0cc-8c09c5fefe35",
+   "type": "note",
+   "title": "Grateful that I slept well but definitely feeling anxious about stuff and can’t figure out why. Should look into therapist for the next year",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "bbf937b5-28c3-4ace-bc1b-c41f97774ce7",
+   "type": "note",
+   "title": "Presentation Anxiety",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "e64aa960-2e6f-48d0-8a2f-17bbbc8367a5",
+   "type": "note",
+   "title": "Presentation Anxiety",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "fc53ced1-198e-46be-b200-4e316a9f5bcc",
+   "type": "note",
+   "title": "Evening reflection",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "98506955-aca8-4606-a523-f4676822a87e",
+   "type": "note",
+   "title": "Evening reflection",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "4df40e95-3ee8-4b14-82e2-d7e9b4ae02b6",
+   "type": "note",
+   "title": "Design Team Productivity",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "bc3abb56-7e02-47eb-87fa-09e8fa8ce3da",
+   "type": "note",
+   "title": "Jet Lag Fatigue",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "d9cf1d92-dfe2-4acf-988d-29e46c46695d",
+   "type": "note",
+   "title": "Presentation Anxiety",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "9d23090e-89c6-4af7-8c0f-2f97b1bbe858",
+   "type": "note",
+   "title": "Admired Image",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "fb90ee53-af7a-4fff-81b0-c555d2690230",
+   "type": "note",
+   "title": "Tahoe Hike Memories",
+   "subtype": "catchall",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "b2d7e952-d7a6-4611-808f-60a798ddde7e",
+   "type": "note",
+   "title": "Long Travel Day Reflections",
+   "subtype": "journal",
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  },
+  {
+   "id": "d4a4c954-972d-4a20-a391-245bdddb1ba6",
+   "type": "note",
+   "title": "Weekly workout schedule",
+   "subtype": null,
+   "due_day": null,
+   "due_time": null,
+   "space_id": null,
+   "target_date": null
+  }
+ ],
+ "scenarios": [
+  {
+   "id": "J-7643",
+   "group": "James real chat: Add Deadline to Existing Call Task",
+   "turns": [
+    "I need to call Kim and Andrew by end of week",
+    "Don’t I already have an entity about calling them? Can’t I add a deadline?"
+   ]
+  },
+  {
+   "id": "J-cd59",
+   "group": "James real chat: Gremly Widget Deadline",
+   "turns": [
+    "I feel behind on Gremly and need to start making some progress",
+    "Yes I want to have the widget complete by Monday"
+   ]
+  },
+  {
+   "id": "J-c4c7",
+   "group": "James real chat: Gremly Work and Catch-Ups",
+   "turns": [
+    "I should probably try to call Kim and Andrew by the end of the week"
+   ]
+  },
+  {
+   "id": "J-18dd",
+   "group": "James real chat: Gremly Progress and Priorities",
+   "turns": [
+    "Help me think through something",
+    "It has been such a busy summer, I’ve had to deprioritize Gremly and now work is so busy I don’t know if I will ever have time to recommit to it but I really want to",
+    "I am working on it now, and making good progress. Mainly working through the mind drop issues",
+    "Thanks, I want to have the mind drop and chat finished by end of week",
+    "Yeah I should probably get the widget done by eow too"
+   ]
+  },
+  {
+   "id": "J-e566",
+   "group": "James real chat: Bella Appointment and Mexico Trip",
+   "turns": [
+    "I am thinking about doing a Mexico trip towards the end of November instead of being in the US for thanksgiving",
+    "Can you help me look at some options? I was thinking Mexico City and Oaxaca",
+    "Yes I was thinking Mexico City, Puerto Escondido and then Zipolite. I will be with Dave"
+   ]
+  },
+  {
+   "id": "J-262f",
+   "group": "James real chat: Move Bella’s Appointment",
+   "turns": [
+    "I am now really busy tomorrow and I don’t have time for Bellas appointment",
+    "Lets move it to Friday",
+    "Thank you, how is my day looking Friday?"
+   ]
+  },
+  {
+   "id": "J-19fd",
+   "group": "James real chat: Reschedule Bella’s Vet Appointment",
+   "turns": [
+    "I need to change the vet appointment to friday",
+    "Did you change it?"
+   ]
+  },
+  {
+   "id": "J-f4e6",
+   "group": "James real chat: Reschedule Bella’s Vet Appointment (earlier)",
+   "turns": [
+    "Hi. I need to change the vet appointment",
+    "Let’s move it to Friday",
+    "Ok can you update the entity?"
+   ]
+  },
+  {
+   "id": "J-f823",
+   "group": "James real chat: Japan Trip and Vet Appointment",
+   "turns": [
+    "Hi Gremly",
+    "Head is good. I need to change the vet appointment"
+   ]
+  },
+  {
+   "id": "T1",
+   "group": "James test: edit existing",
+   "turns": [
+    "I need to set up the ring doorbell this weekend"
+   ]
+  },
+  {
+   "id": "T2",
+   "group": "James test: edit existing",
+   "turns": [
+    "Can we push Jen’s 40th party note to the 25th"
+   ]
+  },
+  {
+   "id": "T3",
+   "group": "James test: edit existing",
+   "turns": [
+    "I finally did the washing"
+   ]
+  },
+  {
+   "id": "T4",
+   "group": "James test: edit existing",
+   "turns": [
+    "Thinking about the widget, I probably won’t get to it until next Friday",
+    "Yeah move it"
+   ]
+  },
+  {
+   "id": "T5",
+   "group": "James test: edit existing",
+   "turns": [
+    "I did strength training today"
+   ]
+  },
+  {
+   "id": "T6",
+   "group": "James test: create new",
+   "turns": [
+    "Remind me to renew my passport before Christmas"
+   ]
+  },
+  {
+   "id": "T7",
+   "group": "James test: create new",
+   "turns": [
+    "I want to start stretching for ten minutes every morning"
+   ]
+  },
+  {
+   "id": "T8",
+   "group": "James test: create new",
+   "turns": [
+    "Dave and I are thinking of doing a day trip to Point Reyes in October"
+   ]
+  },
+  {
+   "id": "T9",
+   "group": "James test: create new",
+   "turns": [
+    "I need to call Kim and Andrew, and also book a dentist appointment"
+   ]
+  },
+  {
+   "id": "T10",
+   "group": "James test: no entities",
+   "turns": [
+    "Work was brutal today and I just feel flat"
+   ]
+  },
+  {
+   "id": "T11",
+   "group": "James test: no entities",
+   "turns": [
+    "Hey, what’s a good film to watch tonight"
+   ]
+  },
+  {
+   "id": "T12",
+   "group": "James test: no entities",
+   "turns": [
+    "What’s the difference between Oaxaca and Puerto Escondido for a first visit"
+   ]
+  },
+  {
+   "id": "T13",
+   "group": "James test: no entities",
+   "turns": [
+    "Bella was so funny on her walk today"
+   ]
+  },
+  {
+   "id": "U1",
+   "group": "James screenshot: Sadie",
+   "turns": [
+    "Move the Sadie thing to next week"
+   ]
+  },
+  {
+   "id": "U2",
+   "group": "James screenshot: Christmas",
+   "turns": [
+    "Add a line to the Christmas in California note: Dave's parents are in from the 22nd",
+    "Did you do it?"
+   ]
+  },
+  {
+   "id": "U3",
+   "group": "James screenshot: watch strap",
+   "turns": [
+    "I should get a new watch strap, the leather one's cracked"
+   ]
+  },
+  {
+   "id": "U4",
+   "group": "James screenshot: Apple developer",
+   "turns": [
+    "Need to sort the Apple developer renewal before it lapses"
+   ]
+  },
+  {
+   "id": "V1",
+   "group": "James screenshot: thanks after a card",
+   "turns": [
+    "I'll do the Apple Health submission on Sunday",
+    "Amazing, thanks so much!"
+   ]
+  },
+  {
+   "id": "V2",
+   "group": "James screenshot: calendar fix, not that one",
+   "turns": [
+    "Push the calendar fix to Friday",
+    {
+     "text": "Not that one",
+     "decline": true
+    }
+   ]
+  },
+  {
+   "id": "W1",
+   "group": "James: habit check in",
+   "turns": [
+    "Cycling was brilliant this morning, Marin was empty"
+   ]
+  },
+  {
+   "id": "W2",
+   "group": "James: habit check in",
+   "turns": [
+    "I did strength training yesterday and again today"
+   ]
+  },
+  {
+   "id": "X1",
+   "group": "James live: Sage deck, not that one, archived item named",
+   "note": "Live chat 30 Sep. Finish Justin Slides is archived, so it is not on the list; the reply named it from the life map.",
+   "turns": [
+    "Can you push the Sage email to Thursday?",
+    {
+     "text": "Move the Sage deck thing to Wednesday",
+     "decline": true
+    },
+    {
+     "text": "Not that one",
+     "decline": true
+    },
+    "Finish Justin Slides",
+    "Yes"
+   ]
+  }
+ ]
+}

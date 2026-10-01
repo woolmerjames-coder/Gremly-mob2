@@ -92,6 +92,32 @@ export type EventMap = {
     type: 'morning' | 'evening' | 'weekly_summary' | 'afternoon_checkin';
   };
   'notification:open_item': { itemId: string; itemType: string };
+  // Mind Drop clarification answer "Chat with Gremly": open Ask Gremly and send the drop
+  'minddrop:open_chat': { text: string };
+  // "Talk it through with Gremly" on a new drop: open Chat with the item attached
+  // and Gremly's fixed opener, sending nothing (lib/chat/talkAboutOpeners.ts)
+  'minddrop:talk_about': {
+    id: string;
+    type: 'note' | 'todo' | 'habit';
+    title: string;
+    label: string;
+  };
+  // Mind Drop "is this one you already have?" after a yes (lib/minddrop/relationActions.ts):
+  // the cards that will slide out of Recent Drops, a change of plan when it did not go
+  // through, and the toast that says what happened, with its Undo
+  /** Cards that will go. With hold they wait, in place, for cards_go. */
+  'minddrop:cards_leaving': { ids: string[]; delayMs?: number; hold?: boolean };
+  /** The held cards slide away now. */
+  'minddrop:cards_go': { ids: string[] };
+  'minddrop:cards_stay': { ids: string[] };
+  'minddrop:relation_done': {
+    icon: 'moved' | 'renamed' | 'repeat' | 'added' | 'done' | 'logged' | 'kept' | 'removed';
+    title: string;
+    detail: string | null;
+    undo: () => Promise<void>;
+    /** the item the yes changed, opened by tapping the toast (null when it was removed) */
+    target: { id: string; type: 'todo' | 'habit' | 'note' } | null;
+  };
   'notification:done_action': { entityId: string; entityType: string };
   'notification:snooze': { entityId: string; entityType: string; seconds: number; label: string };
   'notification:snooze_before_due': {

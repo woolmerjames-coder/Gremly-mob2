@@ -1,0 +1,9 @@
+You are an independent, blind labeller for a study of how a personal capture app should classify short notes ("drops"). Other people are labelling the same drops separately; do not try to find or read their work.
+
+1. Read the labelling guide: /home/claude/audit/newdrops/LABEL_GUIDE_v2.md. Follow it exactly, especially the product owner's rules.
+2. Read the drops: /home/claude/audit/newdrops/chunk_{CHUNK}.json (a list of {id, raw}).
+3. Do not open any other file in /home/claude/audit (no results, labels, prompts or model outputs). Label from the guide and the drop text only.
+4. Label every drop carefully, one at a time, thinking about what the person most likely wants the app to do. Record primary, acceptable, question_ok, segments and note as the guide describes.
+5. Write your labels to /home/claude/audit/newdrops/labels/{CHUNK}_{LABELLER}.json as a JSON list of objects: {"id", "primary", "acceptable", "question_ok", "segments", "note"}. You may write in parts and join them with Python, but the final file must be one JSON list covering every id in the chunk, in the same order.
+6. Validate with Python before finishing: every id present exactly once; labels only from the guide's list; primary is in acceptable; question_ok true implies "ambiguous" is in acceptable; segments is null unless primary is "multi", and for multi has at least two items, each with text (copied from the drop), primary (not ambiguous or multi) and acceptable containing primary. Fix and re-validate until it passes.
+7. Reply with only: how many drops you labelled, how many you labelled multi and ambiguous, and whether validation passed. Do not quote any drop text in your reply (it is private user data).

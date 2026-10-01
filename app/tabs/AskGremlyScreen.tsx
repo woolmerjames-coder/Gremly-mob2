@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,10 +9,19 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppFlatList } from '../../components/common/AppFlatList';
 import { useChatMessages } from '../../hooks/useChatMessages';
-import { ChatBubble } from '../../components/chat/ChatBubble';
+import { ChatBubble, timingLine } from '../../components/chat/ChatBubble';
+import { EntityCardBubble } from '../../components/chat/EntityCardMessage';
+import {
+  applyEntityChange,
+  declinedOrShown,
+  foldEntityCards,
+  isEntityCardMessage,
+  recentEntityFor,
+} from '../../lib/chat/entityCards';
+import { useOpenEntity } from '../../hooks/useOpenEntity';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { SaveIndicatorPill } from '../../components/chat/SaveIndicatorPill';
 import { SaveSheet } from '../../components/chat/SaveSheet';
@@ -27,7 +36,7 @@ import {
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useAuth } from '../../providers/AuthProvider';
 import { supabase } from '../../lib/supabase/client';
-import { nowTimestamp } from '../../lib/date/DateService';
+import { nowTimestamp, getDateService } from '../../lib/date/DateService';
 import MascotLottie from '../components/MascotLottie';
 import * as Haptics from 'expo-haptics';
 import {
@@ -39,14 +48,27 @@ import {
   Sparkles,
   CalendarDays,
   ChevronRight,
+  X,
 } from 'lucide-react-native';
-import { useRoute } from '@react-navigation/native';
-import { useNavigation } from '@react-navigation/native';
-import type { SpaceChat, SpaceChatMessage } from '../../lib/types';
+import { NavigationRouteContext, useNavigation } from '@react-navigation/native';
+import type {
+  EntityCardEntity,
+  EntityCardStatus,
+  ChatAnchor,
+  RecentEntity,
+  SpaceChat,
+  SpaceChatMessage,
+} from '../../lib/types';
 import { useCanChat, useCanCreate } from '../../lib/store/lifecycleSelectors';
 import { useWakeOnInput } from '../../hooks/useWakeOnInput';
 import { useMascotActions } from '../../hooks/useMascotActions';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
+import { useHomeDock } from '../../components/home/GremlyHomeDock';
+import { talkAboutOpener, type TalkAboutItem } from '../../lib/chat/talkAboutOpeners';
+import { anchorFor, anchorMetadata, anchorOf } from '../../lib/chat/chatAnchor';
+import { waitForExtraction } from '../../lib/chat/waitForExtraction';
+import { findItemChat } from '../../lib/chat/itemChat';
+import type { ItemStarter } from '../../lib/chat/itemStarters';
 
 const MOSS = '#2E5540';
 const LINEN = '#F9F6F1';
@@ -57,9 +79,48 @@ const STARTERS = [
   { icon: CalendarDays, label: "What's coming up this week?" },
 ];
 
-export default function AskGremlyScreen() {
-  const route = useRoute<any>();
-  const prefillPrompt = route.params?.prefillPrompt || null;
+/** An item's own chat (components/chat/ItemChatScreen.tsx) */
+export type ItemChatOptions = {
+  /** The item: every turn is sent with it, and its chat is found by it */
+  anchor: ChatAnchor;
+  /** What the header calls it: Todo, Habit, Event... */
+  label: string;
+  /** Sent straight away when the item has no chat yet (a screen asked for it) */
+  initialPrompt?: string | null;
+  /** The starters for its kind, shown under Gremly's opener */
+  starters: ItemStarter[];
+  /**
+   * Starters drawn from the item itself (a note's topics), asked for only when
+   * its chat is new; none back keeps the usual starters
+   */
+  loadStarters?: () => Promise<ItemStarter[]>;
+  onClose: () => void;
+};
+
+/** How long a new item chat waits for starters drawn from the item */
+export const ITEM_STARTERS_WAIT_MS = 6000;
+
+type AskGremlyScreenProps = {
+  /** Rendered as the Chat page inside the Gremly home, under the DROP | CHAT
+   *  switch. The home's shared input box sends here; this page shows no
+   *  composer or mascot of its own. */
+  embedded?: boolean;
+  /** The chat about one item, opened from that item: one chat per item that
+   *  carries on each time, the item named at the top, no history or greeting */
+  item?: ItemChatOptions;
+};
+
+export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScreenProps = {}) {
+  // The screen's route, when there is one. An item's chat opens in the item
+  // overlay, which sits above the screens, where useRoute would throw; and its
+  // params (a Talk it through, a prompt to send) are not for it anyway.
+  const route = React.useContext(NavigationRouteContext) as { params?: any } | undefined;
+  const params = item ? undefined : route?.params;
+  // An item's chat opens in a full screen modal, where the SafeAreaView can
+  // measure no top inset while the modal slides in (and keep it), putting the
+  // header under the clock. The app's own insets are always right there.
+  const insets = useSafeAreaInsets();
+  const prefillPrompt = params?.prefillPrompt || null;
   const { userId } = useAuth();
   const navigation = useNavigation<any>();
   const canChat = useCanChat();
@@ -74,13 +135,30 @@ export default function AskGremlyScreen() {
 
   const wakeOnInput = useWakeOnInput();
   const [activeChat, setActiveChat] = useState<SpaceChat | null>(null);
+  // the chat on screen right now, for work that finishes after the user may have moved on
+  const activeChatIdRef = useRef<string | null>(null);
+  activeChatIdRef.current = activeChat?.id ?? null;
+  // an item's chat sends its item with every turn, with the title as it is now
+  const itemAnchorRef = useRef<ChatAnchor | null>(item?.anchor ?? null);
+  itemAnchorRef.current = item?.anchor ?? null;
+  // whether this opening of an item's chat has fed the gauge yet
+  const itemFedRef = useRef(false);
   const [sending, setSending] = useState(false);
   const [saveSheetVisible, setSaveSheetVisible] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [savingChat, setSavingChat] = useState(false);
   const [greeting, setGreeting] = useState<string>("What's on your mind?");
 
+  // Chat opened about a drop ("Talk it through"): Gremly's fixed opener shows
+  // instead of the greeting, and nothing is sent until the user replies
+  const [aboutItem, setAboutItem] = useState<TalkAboutItem | null>(null);
+  const [aboutOpener, setAboutOpener] = useState<string | null>(null);
+  const aboutRef = useRef<{ item: TalkAboutItem; opener: string } | null>(null);
+
   useEffect(() => {
+    // the greeting is a model call: skip it while a drop is attached, and in
+    // an item's chat, which opens with Gremly's line about the item instead
+    if (item || aboutRef.current || params?.talkAbout) return;
     if (!activeChat && userId) {
       callGeneralGreeting(userId).then((g) => {
         if (g) setGreeting(g);
@@ -92,6 +170,7 @@ export default function AskGremlyScreen() {
   const autoTitle = useGremlyStore((s) => s.generalChatAutoTitle);
   const extractions = useGremlyStore((s) => s.generalChatExtractions);
   const runningSummary = useGremlyStore((s) => s.generalChatRunningSummary);
+  const lateCard = useGremlyStore((s) => s.generalChatLateCard);
 
   const {
     messages,
@@ -104,7 +183,22 @@ export default function AskGremlyScreen() {
     finalizeStreamingMessage,
     cancelStreaming,
     updateMessage,
+    appendEntityCard,
+    setEntityCardStatus,
   } = useChatMessages(activeChat?.id, null);
+  const openEntity = useOpenEntity();
+  // entity cards live inside the reply they came with (one list row for the two)
+  const { rows, cardFor } = useMemo(() => foldEntityCards(messages), [messages]);
+
+  // A change to an existing item that the Worker found after the reply arrives
+  // through the same poll as the pill; it is shown once, under the last reply.
+  const shownLateCardRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!lateCard?.card || !activeChat) return;
+    if (shownLateCardRef.current === lateCard.at) return;
+    shownLateCardRef.current = lateCard.at;
+    appendEntityCard(lateCard.card);
+  }, [lateCard, activeChat, appendEntityCard]);
 
   // Word buffer flush (batches words at 50ms intervals, 3 at a time)
   const flushWordBuffer = useCallback(() => {
@@ -156,8 +250,45 @@ export default function AskGremlyScreen() {
     useGremlyStore.getState().setActiveGeneralChat(null);
   }, []);
 
+  const clearAbout = useCallback(() => {
+    aboutRef.current = null;
+    setAboutItem(null);
+    setAboutOpener(null);
+  }, []);
+
+  // "Talk it through with Gremly" on a drop: start a fresh chat about it
+  const talkAbout: TalkAboutItem | null = params?.talkAbout ?? null;
+  const talkKey: string | null = params?.talkKey ?? null;
+  const talkKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!talkAbout || !talkKey || talkKeyRef.current === talkKey) return;
+    talkKeyRef.current = talkKey;
+    const opener = talkAboutOpener(talkAbout.title);
+    aboutRef.current = { item: talkAbout, opener };
+    setAboutItem(talkAbout);
+    setAboutOpener(opener);
+    if (activeChat) goToEmptyState();
+    navigation.setParams({ talkAbout: undefined, talkKey: undefined });
+  }, [talkAbout, talkKey, activeChat, goToEmptyState, navigation]);
+
+  // Opening another chat (or starting this one) lets go of the attached drop
+  useEffect(() => {
+    if (activeChat && aboutRef.current) clearAbout();
+  }, [activeChat, clearAbout]);
+
   const sendToChat = useCallback(
-    async (chat: SpaceChat, text: string) => {
+    async (
+      chat: SpaceChat,
+      text: string,
+      opts: {
+        fresh?: boolean;
+        recentEntity?: RecentEntity | null;
+        /** Gremly's opener (already saved) that this new chat starts with */
+        lead?: string;
+        /** The item this chat was opened about; read from the chat when not given */
+        anchor?: ChatAnchor | null;
+      } = {},
+    ) => {
       setSending(true);
 
       await sendUserMessage(text);
@@ -171,12 +302,23 @@ export default function AskGremlyScreen() {
       streamingMessageIdRef.current = messageId;
       startWordFlushInterval();
 
-      const conversationHistory = messages
+      // A brand new chat has no history of its own; the hook's messages can
+      // still be the previous chat's for a moment, so they are not used.
+      const prior = opts.fresh ? [] : messages;
+      const conversationHistory = prior
         .filter((m) => m.role === 'user' || m.role === 'assistant')
         .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+      // a chat about a drop starts with Gremly's opener, which names the item
+      if (opts.fresh && opts.lead) {
+        conversationHistory.unshift({ role: 'assistant', content: opts.lead });
+      }
       conversationHistory.push({ role: 'user', content: text });
 
       let receivedChunks = false;
+      const sentAt = getDateService().now().getTime();
+      // written back with this turn's extraction, so the app knows when it has landed
+      const turnId = `${sentAt.toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+      let firstChunkAt: number | null = null;
       if (streamTimeoutRef.current) clearTimeout(streamTimeoutRef.current);
 
       const handleStreamTimeout = () => {
@@ -193,10 +335,25 @@ export default function AskGremlyScreen() {
 
       streamingControllerRef.current = callGeneralChatStreaming(
         conversationHistory,
-        { chatId: chat.id, userId: userId ?? undefined },
+        {
+          chatId: chat.id,
+          userId: userId ?? undefined,
+          recentEntity: opts.fresh
+            ? null
+            : opts.recentEntity !== undefined
+              ? opts.recentEntity
+              : recentEntityFor(messages),
+          // every turn of a chat opened about an item says which item
+          anchorEntity:
+            opts.anchor !== undefined
+              ? opts.anchor
+              : (itemAnchorRef.current ?? (opts.fresh ? null : anchorFor(messages))),
+          turnId,
+        },
         {
           onChunk: (delta: string) => {
             receivedChunks = true;
+            if (firstChunkAt === null) firstChunkAt = getDateService().now().getTime();
             if (streamTimeoutRef.current) clearTimeout(streamTimeoutRef.current);
             streamTimeoutRef.current = setTimeout(handleStreamTimeout, 15000);
 
@@ -232,14 +389,29 @@ export default function AskGremlyScreen() {
               if (richResult?.sources) {
                 updateMessage(msgId, { sources: richResult.sources } as any);
               }
+              if (__DEV__) {
+                const now = getDateService().now().getTime();
+                console.log(
+                  '[chat timing]',
+                  timingLine({
+                    first_ms: (firstChunkAt ?? now) - sentAt,
+                    total_ms: now - sentAt,
+                    server: richResult?.timing ?? null,
+                  }),
+                );
+              }
+            }
+            if (richResult?.entity_card) {
+              await appendEntityCard(richResult.entity_card);
             }
 
-            setTimeout(() => {
-              useGremlyStore.getState().updateGeneralChatExtractions(chat.id);
-            }, 2000);
-            setTimeout(() => {
-              useGremlyStore.getState().updateGeneralChatExtractions(chat.id);
-            }, 5000);
+            // the Save items pill and any late card follow from the Worker's
+            // background extraction; wait for this turn's, however long it takes
+            void waitForExtraction(turnId, richResult?.extraction, {
+              fetch: () => useGremlyStore.getState().updateGeneralChatExtractions(chat.id),
+              sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+              stillHere: () => activeChatIdRef.current === chat.id,
+            });
 
             supabase
               .from('scope_chats')
@@ -278,6 +450,7 @@ export default function AskGremlyScreen() {
       updateMessage,
       finalizeStreamingMessage,
       cancelStreaming,
+      appendEntityCard,
     ],
   );
 
@@ -289,6 +462,15 @@ export default function AskGremlyScreen() {
         return;
       }
       const trimmed = text.trim();
+      // a chat about an item feeds Gremly once each time it is opened, as the
+      // old entity chat did
+      if (itemAnchorRef.current && !itemFedRef.current) {
+        itemFedRef.current = true;
+        useGremlyStore
+          .getState()
+          .trackSpaceChat?.()
+          ?.catch((err: unknown) => console.warn('[ItemChat] Gauge contribution failed:', err));
+      }
 
       if (activeChat) {
         if (sending) return;
@@ -296,9 +478,15 @@ export default function AskGremlyScreen() {
         return;
       }
 
-      // Empty state → create new chat
+      // Empty state → create new chat. About a drop: named after the drop, and
+      // Gremly's opener is saved first, carrying the drop as the chat's anchor,
+      // so the chat (and the model, every turn) knows what it is about
+      const about = aboutRef.current;
+      const anchor = about ? anchorOf(about.item) : null;
       try {
-        const chat = await useGremlyStore.getState().createGeneralChat(trimmed.slice(0, 60));
+        const chat = await useGremlyStore
+          .getState()
+          .createGeneralChat((about ? about.item.title : trimmed).slice(0, 60));
         if (!chat) {
           Alert.alert('Error', 'Could not create chat');
           return;
@@ -307,36 +495,262 @@ export default function AskGremlyScreen() {
         setActiveChat(chat as SpaceChat);
 
         // Send the initial message after a tick so useChatMessages picks up the new chatId
-        setTimeout(() => sendToChat(chat as SpaceChat, trimmed), 200);
+        setTimeout(async () => {
+          if (about && anchor) {
+            try {
+              await appendAssistantMessage(about.opener, anchorMetadata(anchor), chat.id);
+            } catch {
+              // this turn still sends the anchor and the opener
+            }
+          }
+          sendToChat(chat as SpaceChat, trimmed, { fresh: true, lead: about?.opener, anchor });
+        }, 200);
       } catch {
         Alert.alert('Error', 'Could not create chat');
       }
     },
-    [canChat, navigation, activeChat, sending, sendToChat],
+    [canChat, navigation, activeChat, sending, sendToChat, appendAssistantMessage],
   );
+
+  // Inside the Gremly home, the shared input box sends through handleSend.
+  // Refs keep the registration stable while handleSend and sending change.
+  const homeDock = useHomeDock();
+  const handleSendRef = useRef(handleSend);
+  handleSendRef.current = handleSend;
+  const sendingRef = useRef(sending);
+  sendingRef.current = sending;
+  useEffect(() => {
+    if (!embedded || !homeDock) return;
+    homeDock.registerChat({
+      send: (text) => {
+        void handleSendRef.current(text);
+      },
+      isSending: () => sendingRef.current,
+    });
+    return () => homeDock.registerChat(null);
+  }, [embedded, homeDock]);
+  useEffect(() => {
+    if (embedded && homeDock) homeDock.setChatSending(sending);
+  }, [embedded, homeDock, sending]);
+
+  // An item's chat: the chat already about this item (started here or from
+  // Talk it through) carries on. Otherwise Gremly's opener names the item and
+  // nothing is sent until the user writes, unless a screen asked to start
+  // with a message. Looked up once, when the screen opens.
+  const itemRef = useRef(item);
+  itemRef.current = item;
+  const itemId = item?.anchor.id ?? null;
+  const [itemReady, setItemReady] = useState(!item);
+  // starters drawn from the item: undefined until asked, null while waiting
+  const [itemStarters, setItemStarters] = useState<ItemStarter[] | null | undefined>(undefined);
+  const itemLookedUpRef = useRef(false);
+  const mountedRef = useRef(true);
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    [],
+  );
+  useEffect(() => {
+    const opened = itemRef.current;
+    if (!opened || !itemId || !userId || itemLookedUpRef.current) return;
+    itemLookedUpRef.current = true;
+    (async () => {
+      const found = await findItemChat(userId, itemId).catch(() => null);
+      if (!mountedRef.current) return;
+      if (found) {
+        useGremlyStore.getState().setActiveGeneralChat(found.id);
+        setActiveChat(found);
+        setItemReady(true);
+        return;
+      }
+      const talk: TalkAboutItem = { ...opened.anchor, label: opened.label };
+      const opener = talkAboutOpener(opened.anchor.title);
+      aboutRef.current = { item: talk, opener };
+      setAboutItem(talk);
+      setAboutOpener(opener);
+      if (opened.initialPrompt) {
+        setItemReady(true);
+        handleSendRef.current(opened.initialPrompt);
+        return;
+      }
+      if (opened.loadStarters) {
+        setItemStarters(null);
+        setItemReady(true);
+        let waited: ReturnType<typeof setTimeout> | undefined;
+        const drawn = await Promise.race([
+          opened.loadStarters().catch((): ItemStarter[] => []),
+          new Promise<ItemStarter[]>((resolve) => {
+            waited = setTimeout(() => resolve([]), ITEM_STARTERS_WAIT_MS);
+          }),
+        ]);
+        clearTimeout(waited);
+        if (!mountedRef.current) return;
+        setItemStarters(drawn.length ? drawn : opened.starters);
+        return;
+      }
+      setItemReady(true);
+    })();
+  }, [itemId, userId]);
+  // what shows under the opener: drawn starters once they are back, none while waiting
+  const shownStarters = item ? (itemStarters === undefined ? item.starters : itemStarters) : null;
+
+  // Opened from a Mind Drop question ("Chat with Gremly" or "Ask Gremly now"):
+  // send the drop straight away so Gremly replies, once per request.
+  const autoSendKey: string | null = params?.autoSendKey || null;
+  const autoSentKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!autoSendKey || !prefillPrompt || !userId) return;
+    if (autoSentKeyRef.current === autoSendKey) return;
+    autoSentKeyRef.current = autoSendKey;
+    navigation.setParams({ prefillPrompt: undefined, autoSendKey: undefined });
+    handleSend(prefillPrompt);
+  }, [autoSendKey, prefillPrompt, userId, navigation, handleSend]);
+
+  // Opened with a prompt to edit rather than send (e.g. the weekly summary):
+  // inside the Gremly home it goes into the shared box
+  useEffect(() => {
+    if (!embedded || !homeDock || autoSendKey || !prefillPrompt) return;
+    homeDock.prefillDraft(prefillPrompt);
+    navigation.setParams({ prefillPrompt: undefined });
+  }, [embedded, homeDock, autoSendKey, prefillPrompt, navigation]);
 
   const keyExtractor = useCallback((item: SpaceChatMessage) => item.id, []);
 
+  const entityCardHandlers = useCallback(
+    (cardMessage: SpaceChatMessage) => ({
+      message: cardMessage,
+      onStatus: (status: EntityCardStatus, summary?: string) =>
+        setEntityCardStatus(cardMessage.id, status, summary),
+      onPick: (entity: EntityCardEntity) => {
+        setEntityCardStatus(cardMessage.id, 'declined');
+        if (activeChat) sendToChat(activeChat, `I mean ${entity.title}`);
+      },
+      // "Not that one" goes back to Gremly with the item marked as turned down,
+      // so the next reply excludes it and offers the others
+      onDecline: (entity: EntityCardEntity | null) => {
+        if (!activeChat) return;
+        if (entity) {
+          sendToChat(activeChat, 'Not that one', {
+            recentEntity: declinedOrShown(entity, 'declined'),
+          });
+        } else {
+          sendToChat(activeChat, 'None of those');
+        }
+      },
+      onOpen: openEntity,
+    }),
+    [activeChat, sendToChat, setEntityCardStatus, openEntity],
+  );
+
   const renderMessage = useCallback(
-    ({ item }: { item: SpaceChatMessage }) => (
-      <View style={styles.messageContainer}>
-        <ChatBubble message={item} testID={`chat-bubble-${item.id}`} />
-      </View>
-    ),
-    [],
+    ({ item }: { item: SpaceChatMessage }) => {
+      if (isEntityCardMessage(item)) {
+        // a card with no reply before it (should not happen, but never lose one)
+        return <EntityCardBubble standalone {...entityCardHandlers(item)} />;
+      }
+      const cardMessage = item.role === 'assistant' ? cardFor.get(item.id) : undefined;
+      return (
+        <View style={styles.messageContainer}>
+          <ChatBubble
+            message={item}
+            testID={`chat-bubble-${item.id}`}
+            entityCard={cardMessage ? entityCardHandlers(cardMessage) : null}
+          />
+        </View>
+      );
+    },
+    [cardFor, entityCardHandlers],
   );
 
   const inConversation = activeChat !== null;
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
+    <SafeAreaView
+      style={[styles.safe, item ? { paddingTop: insets.top } : null]}
+      edges={embedded || item ? ['left', 'right'] : ['top', 'left', 'right']}
+    >
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={0}
+        enabled={!embedded}
       >
-        {/* Header */}
-        {inConversation ? (
+        {/* Header. Inside the Gremly home the switch above names the page, so
+            this is a slim row: history on the left, the chat's title in the
+            middle, save and new chat on the right. */}
+        {item ? (
+          // an item's chat: back to the item, the item named in the middle
+          <View style={styles.chatHeader} testID="item-chat-header">
+            <TouchableOpacity
+              style={styles.chatHeaderBtn}
+              onPress={item.onClose}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              accessibilityRole="button"
+              accessibilityLabel="Close"
+            >
+              <ChevronLeft size={24} color="#222222" strokeWidth={2.5} />
+            </TouchableOpacity>
+            <View style={styles.chatHeaderCenter}>
+              <Text style={styles.itemHeaderLabel}>{item.label}</Text>
+              <Text style={styles.itemHeaderTitle} numberOfLines={1}>
+                {item.anchor.title}
+              </Text>
+            </View>
+            {inConversation ? (
+              <TouchableOpacity
+                style={styles.chatHeaderBtn}
+                onPress={() => setSaveSheetVisible(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Save from this chat"
+              >
+                <Bookmark size={20} color={MOSS} />
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.chatHeaderBtn} />
+            )}
+          </View>
+        ) : embedded ? (
+          <View style={styles.embeddedHeader}>
+            <TouchableOpacity
+              style={styles.embeddedHeaderBtn}
+              onPress={() => setHistoryVisible(true)}
+              accessibilityLabel="Chat history"
+              accessibilityRole="button"
+            >
+              <Clock size={20} color={MOSS} />
+            </TouchableOpacity>
+            <View style={styles.embeddedHeaderCenter}>
+              {inConversation && autoTitle ? (
+                <Text style={styles.embeddedHeaderTitle} numberOfLines={1}>
+                  {autoTitle}
+                </Text>
+              ) : null}
+            </View>
+            {inConversation ? (
+              <View style={styles.embeddedHeaderRight}>
+                <TouchableOpacity
+                  style={styles.embeddedHeaderBtn}
+                  onPress={() => setSaveSheetVisible(true)}
+                  accessibilityLabel="Save from this chat"
+                  accessibilityRole="button"
+                >
+                  <Bookmark size={20} color={MOSS} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.embeddedHeaderBtn}
+                  onPress={goToEmptyState}
+                  accessibilityLabel="New chat"
+                  accessibilityRole="button"
+                >
+                  <SquarePen size={19} color={MOSS} />
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.embeddedHeaderBtn} />
+            )}
+          </View>
+        ) : inConversation ? (
           <View style={styles.chatHeader}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <TouchableOpacity
@@ -396,12 +810,13 @@ export default function AskGremlyScreen() {
           {inConversation ? (
             <AppFlatList
               ref={flatListRef}
-              data={messages}
+              data={rows}
               keyExtractor={keyExtractor}
               renderItem={renderMessage}
               style={styles.messages}
               contentContainerStyle={[
                 styles.messagesContent,
+                embedded && styles.messagesContentEmbedded,
                 messages.length === 0 && styles.emptyListContent,
               ]}
               removeClippedSubviews={false}
@@ -413,22 +828,77 @@ export default function AskGremlyScreen() {
                   flatListRef.current?.scrollToEnd({ animated: true });
                 }, 100);
               }}
+              // Inside the Gremly home, Gremly steps aside while you scroll
+              onScrollBeginDrag={embedded ? () => homeDock?.setChatScrolling(true) : undefined}
+              onScrollEndDrag={embedded ? () => homeDock?.setChatScrolling(false) : undefined}
+              onMomentumScrollBegin={embedded ? () => homeDock?.setChatScrolling(true) : undefined}
+              onMomentumScrollEnd={embedded ? () => homeDock?.setChatScrolling(false) : undefined}
               ListEmptyComponent={<View style={styles.flex} />}
               ListFooterComponent={null}
             />
+          ) : item && !itemReady ? (
+            <View style={styles.flex} testID="item-chat-loading" />
+          ) : aboutItem && aboutOpener ? (
+            <View style={styles.aboutOpener} testID="chat-about-opener">
+              <ChatBubble
+                message={
+                  {
+                    id: 'about-opener',
+                    chat_id: '',
+                    scope_id: null,
+                    user_id: '',
+                    role: 'assistant',
+                    content: aboutOpener,
+                    created_at: '',
+                  } as unknown as SpaceChatMessage
+                }
+              />
+              {item && !sending && shownStarters ? (
+                <View style={styles.itemStarters} testID="item-starters">
+                  {shownStarters.map(({ key, label, prompt, icon: Icon }) => (
+                    <TouchableOpacity
+                      key={key}
+                      style={styles.starterCard}
+                      onPress={() => handleSend(prompt)}
+                      activeOpacity={0.75}
+                      testID={`item-starter-${key}`}
+                    >
+                      <View style={styles.starterGlyph}>
+                        <Icon size={16} color={MOSS} strokeWidth={2} />
+                      </View>
+                      <Text style={styles.starterLabel}>{label}</Text>
+                      <ChevronRight size={16} color="rgba(46,85,64,0.4)" strokeWidth={2} />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : item && !sending && itemStarters === null ? (
+                // the starters are being drawn from the item: their places, held
+                <View style={styles.itemStarters} testID="item-starters-loading">
+                  {[0, 1, 2].map((n) => (
+                    <View key={n} style={[styles.starterCard, styles.starterPlaceholder]}>
+                      <View style={styles.starterGlyph} />
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+            </View>
           ) : (
-            <View style={styles.emptyState}>
-              <Text style={styles.greeting}>{greeting}</Text>
+            <View style={embedded ? styles.emptyStateTop : styles.emptyState}>
+              <Text style={[styles.greeting, embedded && styles.greetingTop]}>{greeting}</Text>
 
-              <Pressable
-                style={styles.stageMascot}
-                onPress={() => setShowHelp(true)}
-                accessibilityLabel="Chat with Gremly"
-                accessibilityRole="button"
-              >
-                <View style={styles.stageGroundShadow} pointerEvents="none" />
-                <MascotLottie width={180} />
-              </Pressable>
+              {/* Inside the Gremly home, Gremly stays perched on the input (as on
+                  the Drop page) so he does not jump when switching pages */}
+              {!embedded && (
+                <Pressable
+                  style={styles.stageMascot}
+                  onPress={() => setShowHelp(true)}
+                  accessibilityLabel="Chat with Gremly"
+                  accessibilityRole="button"
+                >
+                  <View style={styles.stageGroundShadow} pointerEvents="none" />
+                  <MascotLottie width={180} />
+                </Pressable>
+              )}
 
               <View style={styles.startersContainer}>
                 {STARTERS.map(({ icon: Icon, label }) => (
@@ -451,28 +921,67 @@ export default function AskGremlyScreen() {
         </View>
 
         {/* Bottom section — fixed height, always at bottom */}
-        <View style={styles.bottomSection}>
-          <View style={styles.composerContainer}>
+        {embedded ? (
+          // The Gremly home's shared box (with Gremly on it) sits right below
+          // this page, so only the save pill is shown here
+          <>
             <SaveIndicatorPill
               count={extractions.length}
               visible={!!activeChat && extractions.length > 0}
               onPress={() => setSaveSheetVisible(true)}
-              style={{ position: 'absolute', top: -30, right: 105, zIndex: 11 }}
+              style={styles.savePillEmbedded}
             />
-            {inConversation && (
-              <Pressable style={styles.mascot} onPress={() => setShowHelp(true)}>
-                <MascotLottie />
-              </Pressable>
-            )}
-            <ChatComposer
-              onSend={handleSend}
-              onChangeText={() => wakeOnInput()}
-              disabled={sending}
-              placeholder={inConversation ? 'Type a message...' : 'Ask Gremly anything...'}
-              initialText={prefillPrompt || undefined}
-            />
+            {/* The drop this chat is about, attached to what you send next */}
+            {aboutItem && !activeChat ? (
+              <View style={styles.aboutChip} testID="chat-about-chip">
+                <Text style={styles.aboutChipLabel}>{aboutItem.label}</Text>
+                <Text style={styles.aboutChipTitle} numberOfLines={1}>
+                  {aboutItem.title}
+                </Text>
+                <TouchableOpacity
+                  onPress={clearAbout}
+                  hitSlop={12}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Stop talking about ${aboutItem.title}`}
+                  style={styles.aboutChipClose}
+                >
+                  <X size={14} color="rgba(26, 51, 40, 0.6)" strokeWidth={2.2} />
+                </TouchableOpacity>
+              </View>
+            ) : null}
+          </>
+        ) : (
+          <View style={styles.bottomSection}>
+            <View style={styles.composerContainer}>
+              <SaveIndicatorPill
+                count={extractions.length}
+                visible={!!activeChat && extractions.length > 0}
+                onPress={() => setSaveSheetVisible(true)}
+                style={{ position: 'absolute', top: -30, right: 105, zIndex: 11 }}
+              />
+              {/* Gremly perches on the box in a conversation, and in an item's
+                  chat from the start, as on the Ask Gremly page */}
+              {(inConversation || item) && (
+                <Pressable
+                  style={styles.mascot}
+                  onPress={() => setShowHelp(true)}
+                  testID="chat-mascot"
+                >
+                  <MascotLottie />
+                </Pressable>
+              )}
+              <ChatComposer
+                onSend={handleSend}
+                onChangeText={() => wakeOnInput()}
+                disabled={sending}
+                placeholder={
+                  inConversation || item ? 'Type a message...' : 'Ask Gremly anything...'
+                }
+                initialText={autoSendKey ? undefined : prefillPrompt || undefined}
+              />
+            </View>
           </View>
-        </View>
+        )}
       </KeyboardAvoidingView>
 
       <SaveSheet
@@ -509,9 +1018,27 @@ export default function AskGremlyScreen() {
 
           const store = useGremlyStore.getState();
           const savedIds: string[] = [];
+          const savedEntities: Array<{
+            id: string;
+            type: 'todo' | 'habit' | 'note';
+            title: string;
+            due_day?: string | null;
+            due_time?: string | null;
+            frequency?: string | null;
+          }> = [];
 
           for (const item of items) {
             try {
+              if (item.type === 'edit') {
+                // The extraction's second job: a change to something already tracked.
+                // Applied only now, on the user's tap, through the store like any edit.
+                await applyEntityChange(
+                  { id: item.entity_id, type: item.entity_type, title: item.entity_title },
+                  { field: item.field, from: item.from ?? null, to: item.to },
+                );
+                savedIds.push(item.id);
+                continue;
+              }
               const bucket =
                 item.type === 'todo' ? 'todo' : item.type === 'habit' ? 'habit' : 'log';
               const subtype = item.type === 'note' ? item.subtype || 'general' : null;
@@ -536,8 +1063,16 @@ export default function AskGremlyScreen() {
                 bucket_confirmed: true,
               };
 
+              let createdEntity: {
+                id: string;
+                type: 'todo' | 'habit' | 'note';
+                title: string;
+                due_day?: string | null;
+                due_time?: string | null;
+                frequency?: string | null;
+              } | null = null;
               if (item.type === 'todo') {
-                await store.createTodo({
+                const todo = await store.createTodo({
                   title: smartTitle,
                   name: smartTitle,
                   body: item.body || null,
@@ -549,8 +1084,15 @@ export default function AskGremlyScreen() {
                   ai_placed: true,
                   origin: 'chat_save',
                 });
+                createdEntity = {
+                  id: todo.id,
+                  type: 'todo',
+                  title: todo.name || todo.title || smartTitle,
+                  due_day: todo.due_day ?? null,
+                  due_time: todo.due_time ?? null,
+                };
               } else if (item.type === 'habit') {
-                await store.createHabit({
+                const habit = await store.createHabit({
                   name: smartTitle,
                   frequency: (phase2.ok && phase2.extracted_frequency) || item.frequency || 'daily',
                   subtype: item.habit_subtype === 'break' ? 'break_habit' : 'start_habit',
@@ -561,8 +1103,14 @@ export default function AskGremlyScreen() {
                   ai_placed: true,
                   origin: 'chat_save',
                 });
+                createdEntity = {
+                  id: habit.id,
+                  type: 'habit',
+                  title: habit.name || smartTitle,
+                  frequency: habit.frequency ?? null,
+                };
               } else {
-                await store.createNote({
+                const note = await store.createNote({
                   title: smartTitle,
                   body: item.body || item.title,
                   subtype: subtype || 'general',
@@ -571,8 +1119,10 @@ export default function AskGremlyScreen() {
                   ai_placed: true,
                   origin: 'chat_save',
                 });
+                createdEntity = { id: note.id, type: 'note', title: note.title || smartTitle };
               }
               savedIds.push(item.id);
+              if (createdEntity) savedEntities.push(createdEntity);
             } catch (err) {
               console.warn('[AskGremly] Save failed:', item.title, err);
             }
@@ -595,12 +1145,21 @@ export default function AskGremlyScreen() {
           if (activeChat?.id && savedIds.length > 0) {
             await store.markExtractionsSaved(activeChat.id, savedIds);
 
-            const savedNames = items.filter((i) => savedIds.includes(i.id)).map((i) => i.title);
-            const confirmText =
-              savedIds.length === 1
-                ? `Saved "${savedNames[0]}" to your list.`
-                : `Saved ${savedIds.length} items: ${savedNames.join(', ')}`;
-            await appendAssistantMessage(`✓ ${confirmText}`);
+            // each saved item gets its card in the chat, the receipt that opens it
+            for (const e of savedEntities) {
+              await appendEntityCard(
+                { kind: 'view', entity: { ...e, space_id: null }, intent: 'view', saved: true },
+                { status: 'applied', summary: 'Saved to your list.' },
+              );
+            }
+            const done = items.filter((i) => savedIds.includes(i.id));
+            const edited = done.filter((i) => i.type === 'edit');
+            if (edited.length === 1)
+              await appendAssistantMessage(`✓ Updated ${edited[0].entity_title}.`);
+            else if (edited.length > 1)
+              await appendAssistantMessage(
+                `✓ Updated ${edited.map((i) => i.entity_title).join(', ')}.`,
+              );
           }
 
           for (let i = 0; i < savedIds.length + (includeSummary ? 1 : 0); i++) {
@@ -667,6 +1226,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
+  // Header inside the Gremly home
+  embeddedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    height: 48,
+  },
+  embeddedHeaderBtn: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  embeddedHeaderCenter: { flex: 1, alignItems: 'center', paddingHorizontal: 8 },
+  embeddedHeaderTitle: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 14,
+    color: 'rgba(26, 51, 40, 0.75)',
+  },
+  embeddedHeaderRight: { flexDirection: 'row', alignItems: 'center' },
+
   // Conversation header
   chatHeader: {
     flexDirection: 'row',
@@ -707,6 +1287,16 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     paddingBottom: 30,
     position: 'relative',
+  },
+  // Inside the Gremly home: questions sit at the top, Gremly stays on the input
+  emptyStateTop: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingTop: 4,
+  },
+  greetingTop: {
+    marginBottom: 16,
   },
   greeting: {
     fontFamily: 'Inter-Medium',
@@ -786,6 +1376,81 @@ const styles = StyleSheet.create({
   bottomSection: {
     paddingHorizontal: 16,
     paddingBottom: 80,
+  },
+  // Inside the Gremly home: the save pill sits just above the shared box,
+  // left of Gremly, and the list keeps clear of him
+  savePillEmbedded: {
+    position: 'absolute',
+    bottom: 10,
+    right: 110,
+    zIndex: 11,
+  },
+  messagesContentEmbedded: {
+    paddingBottom: 120,
+  },
+  // Chat opened about a drop: Gremly's opener at the top, the drop attached
+  // just above the shared box (left of Gremly)
+  aboutOpener: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+  },
+  itemStarters: {
+    marginTop: 18,
+    gap: 10,
+  },
+  starterPlaceholder: {
+    opacity: 0.5,
+    height: 58,
+  },
+  itemHeaderLabel: {
+    fontFamily: 'PlusJakartaSans-SemiBold',
+    fontSize: 11,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    color: '#4B6A50',
+  },
+  itemHeaderTitle: {
+    fontFamily: 'PlusJakartaSans-Bold',
+    fontSize: 17,
+    color: '#222222',
+    marginTop: 2,
+  },
+  aboutChip: {
+    position: 'absolute',
+    left: 16,
+    bottom: 10,
+    maxWidth: '62%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 7,
+    paddingLeft: 10,
+    paddingRight: 8,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(46, 85, 64, 0.14)',
+    zIndex: 11,
+  },
+  aboutChipLabel: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 11,
+    color: '#4A6490',
+    backgroundColor: '#E9EFF8',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  aboutChipTitle: {
+    flexShrink: 1,
+    fontFamily: 'Inter-Medium',
+    fontSize: 13.5,
+    color: '#1A3328',
+  },
+  aboutChipClose: {
+    padding: 2,
   },
   composerContainer: { position: 'relative' as const },
   mascot: {

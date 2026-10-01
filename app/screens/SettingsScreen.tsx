@@ -20,6 +20,7 @@ import {
   Brain,
   Palette,
   Crown,
+  LogOut,
 } from 'lucide-react-native';
 import { colors, spacing, borderRadius } from '../../design/tokens';
 import { BRAND } from '../../design/brand';
@@ -28,6 +29,7 @@ import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useCurrentWeekSummary } from '../../lib/store/selectors';
 import { GREMLY_PALETTES, getPaletteById } from '../../lib/constants/gremlyPalettes';
 import { useSubscriptionStatus } from '../../lib/subscriptions/useSubscriptionStatus';
+import { useAuth } from '../../providers/AuthProvider';
 
 type SettingsRow = {
   key: string;
@@ -38,6 +40,7 @@ type SettingsRow = {
 };
 
 const ICON_SIZE = 20;
+const SIGN_OUT_RED = '#A2402F';
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
@@ -47,6 +50,25 @@ export default function SettingsScreen() {
   const setGremlyColor = useGremlyStore((s) => s.setGremlyColor);
   const currentPalette = getPaletteById(gremlyColor) ?? GREMLY_PALETTES[0];
   const { isSubscribed, isTrialActive } = useSubscriptionStatus();
+  const { signOut } = useAuth();
+
+  // Sign out lives here now (it used to sit in the MindDrop header)
+  const handleSignOutPress = () => {
+    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Sign Out',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await signOut();
+          } catch (err) {
+            console.error('[Settings] Sign out failed:', err);
+          }
+        },
+      },
+    ]);
+  };
 
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false });
@@ -188,6 +210,24 @@ export default function SettingsScreen() {
         ))}
       </View>
 
+      {/* Account */}
+      <View style={[styles.list, styles.accountList]}>
+        <Pressable
+          style={({ pressed }) => [styles.row, styles.rowLast, pressed && styles.rowPressed]}
+          onPress={handleSignOutPress}
+          accessibilityRole="button"
+          accessibilityLabel="Sign out"
+          testID="settings-sign-out"
+        >
+          <View style={[styles.rowIcon, styles.signOutIcon]}>
+            <LogOut size={ICON_SIZE} color={SIGN_OUT_RED} />
+          </View>
+          <View style={styles.rowContent}>
+            <Text style={[styles.rowTitle, styles.signOutText]}>Sign out</Text>
+          </View>
+        </Pressable>
+      </View>
+
       {/* Dev tools — only in __DEV__ */}
       {__DEV__ && (
         <View style={styles.devSection}>
@@ -279,6 +319,15 @@ const styles = StyleSheet.create({
   },
   rowLast: {
     borderBottomWidth: 0,
+  },
+  accountList: {
+    marginTop: spacing.md,
+  },
+  signOutIcon: {
+    backgroundColor: 'rgba(162, 64, 47, 0.08)',
+  },
+  signOutText: {
+    color: SIGN_OUT_RED,
   },
   rowPressed: {
     backgroundColor: colors.cream,

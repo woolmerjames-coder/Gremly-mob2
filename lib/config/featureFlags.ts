@@ -79,6 +79,21 @@ export const FEATURE_FLAGS = {
    * Automatically enabled in development, disabled in production.
    */
   HEURISTIC_LOGGING_ENABLED: isDev,
+
+  /**
+   * Single-call Mind Drop classifier (worker route `classify-v3`).
+   *
+   * One request returns the classification, the multi split and, for
+   * ambiguous drops, the clarifying question + options. Replaces
+   * detect-multi + classify-phase1-v2 (+ the separate clarify call).
+   *
+   * On when the build sets EXPO_PUBLIC_CLASSIFY_V3=on (every eas.json
+   * profile does, since the Sep 2026 model audit) AND the Worker var
+   * CLASSIFY_V3_ENABLED is "true". Add EXPO_PUBLIC_CLASSIFY_V3=on to
+   * .env.local to use it in local dev. Any v3 failure (disabled, error,
+   * timeout, bad shape) falls straight back to the v2 path for that drop.
+   */
+  CLASSIFY_V3_ENABLED: process.env.EXPO_PUBLIC_CLASSIFY_V3 === 'on',
 } as const;
 
 /**

@@ -137,7 +137,7 @@ describe('Mind Drop P10 Polish', () => {
 
     await waitFor(() => {
       // Wait for submit cycle to complete back to default label
-      expect(screen.getByText('Drop to Gremly →')).toBeTruthy();
+      expect(screen.getByText('Drop to Gremly')).toBeTruthy();
     });
 
     // Verify an announcement was made
@@ -168,7 +168,7 @@ describe('Mind Drop P10 Polish', () => {
 
     // Let it finish to avoid leaking timers
     await waitFor(() => {
-      expect(screen.getByText('Drop to Gremly →')).toBeTruthy();
+      expect(screen.getByText('Drop to Gremly')).toBeTruthy();
     });
   });
 });

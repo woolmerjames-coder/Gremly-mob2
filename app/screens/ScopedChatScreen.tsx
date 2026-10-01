@@ -11,18 +11,20 @@
 //   - For chapter chats, also inserts drop_world_links for the chapter's parent world
 //   - Polls extracted_items from the scope_chat after each turn
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import {
-  View,
-  StyleSheet,
-  Pressable,
-  KeyboardAvoidingView,
-  Platform,
-} from 'react-native';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { View, StyleSheet, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppFlatList } from '../../components/common/AppFlatList';
 import { useChatMessages } from '../../hooks/useChatMessages';
-import { ChatBubble } from '../../components/chat/ChatBubble';
+import { ChatBubble, timingLine } from '../../components/chat/ChatBubble';
+import { EntityCardBubble } from '../../components/chat/EntityCardMessage';
+import {
+  declinedOrShown,
+  foldEntityCards,
+  isEntityCardMessage,
+  recentEntityFor,
+} from '../../lib/chat/entityCards';
+import { useOpenEntity } from '../../hooks/useOpenEntity';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { SaveIndicatorPill } from '../../components/chat/SaveIndicatorPill';
 import { SaveSheet } from '../../components/chat/SaveSheet';
@@ -36,14 +38,20 @@ import {
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useAuth } from '../../providers/AuthProvider';
 import { supabase } from '../../lib/supabase/client';
-import { nowTimestamp } from '../../lib/date/DateService';
+import { nowTimestamp, getDateService } from '../../lib/date/DateService';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
 import { ChevronLeft } from 'lucide-react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { SpaceChat } from '../../lib/types';
+import type {
+  EntityCardEntity,
+  EntityCardStatus,
+  RecentEntity,
+  SpaceChat,
+  SpaceChatMessage,
+} from '../../lib/types';
 import { useCanChat, useCanCreate } from '../../lib/store/lifecycleSelectors';
 import { useWakeOnInput } from '../../hooks/useWakeOnInput';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -109,7 +117,9 @@ export default function ScopedChatScreen() {
   const pollExtractions = useCallback(async (chatId: string) => {
     const { data } = await supabase
       .from('scope_chats')
-      .select('extracted_items, dismissed_extractions, saved_extraction_ids, auto_title, running_summary')
+      .select(
+        'extracted_items, dismissed_extractions, saved_extraction_ids, auto_title, running_summary',
+      )
       .eq('id', chatId)
       .single();
     if (!data) return;
@@ -117,9 +127,7 @@ export default function ScopedChatScreen() {
       ...((data as any).dismissed_extractions || []),
       ...((data as any).saved_extraction_ids || []),
     ]);
-    setExtractions(
-      ((data as any).extracted_items || []).filter((e: any) => !exclude.has(e.id)),
-    );
+    setExtractions(((data as any).extracted_items || []).filter((e: any) => !exclude.has(e.id)));
     setAutoTitle((data as any).auto_title || null);
     setRunningSummary((data as any).running_summary || null);
   }, []);
@@ -139,7 +147,12 @@ export default function ScopedChatScreen() {
     finalizeStreamingMessage,
     cancelStreaming,
     updateMessage,
+    appendEntityCard,
+    setEntityCardStatus,
   } = useChatMessages(activeChat?.id ?? undefined, null);
+  const openEntity = useOpenEntity();
+  // entity cards live inside the reply they came with (one list row for the two)
+  const { rows, cardFor } = useMemo(() => foldEntityCards(messages), [messages]);
 
   // ── Word-flush timer ────────────────────────────────────────────────────────
 
@@ -182,7 +195,7 @@ export default function ScopedChatScreen() {
   // ── Send message ────────────────────────────────────────────────────────────
 
   const sendToChat = useCallback(
-    async (chat: SpaceChat, text: string) => {
+    async (chat: SpaceChat, text: string, opts: { recentEntity?: RecentEntity | null } = {}) => {
       setSending(true);
       await sendUserMessage(text);
 
@@ -201,6 +214,8 @@ export default function ScopedChatScreen() {
       conversationHistory.push({ role: 'user', content: text });
 
       let receivedChunks = false;
+      const sentAt = getDateService().now().getTime();
+      let firstChunkAt: number | null = null;
       if (streamTimeoutRef.current) clearTimeout(streamTimeoutRef.current);
 
       const handleStreamTimeout = () => {
@@ -220,6 +235,8 @@ export default function ScopedChatScreen() {
         scopeName,
         chatId: chat.id,
         userId: userId ?? undefined,
+        recentEntity:
+          opts.recentEntity !== undefined ? opts.recentEntity : recentEntityFor(messages),
       };
 
       const streamFn = scopeType === 'world' ? callWorldChatStreaming : callChapterChatStreaming;
@@ -227,6 +244,7 @@ export default function ScopedChatScreen() {
       streamingControllerRef.current = streamFn(conversationHistory, streamOpts, {
         onChunk: (delta: string) => {
           receivedChunks = true;
+          if (firstChunkAt === null) firstChunkAt = getDateService().now().getTime();
           if (streamTimeoutRef.current) clearTimeout(streamTimeoutRef.current);
           streamTimeoutRef.current = setTimeout(handleStreamTimeout, 15000);
 
@@ -262,6 +280,20 @@ export default function ScopedChatScreen() {
             if (richResult?.sources) {
               updateMessage(msgId, { sources: richResult.sources } as any);
             }
+            if (__DEV__) {
+              const now = getDateService().now().getTime();
+              console.log(
+                '[chat timing]',
+                timingLine({
+                  first_ms: (firstChunkAt ?? now) - sentAt,
+                  total_ms: now - sentAt,
+                  server: richResult?.timing ?? null,
+                }),
+              );
+            }
+          }
+          if (richResult?.entity_card) {
+            await appendEntityCard(richResult.entity_card);
           }
 
           // Poll extractions shortly after turn completes
@@ -398,13 +430,44 @@ export default function ScopedChatScreen() {
 
   const keyExtractor = useCallback((item: any) => item.id, []);
 
+  const entityCardHandlers = useCallback(
+    (cardMessage: SpaceChatMessage) => ({
+      message: cardMessage,
+      onStatus: (status: EntityCardStatus, summary?: string) =>
+        setEntityCardStatus(cardMessage.id, status, summary),
+      onPick: (entity: EntityCardEntity) => {
+        setEntityCardStatus(cardMessage.id, 'declined');
+        if (activeChat) sendToChat(activeChat, `I mean ${entity.title}`);
+      },
+      onDecline: (entity: EntityCardEntity | null) => {
+        if (!activeChat) return;
+        if (entity) {
+          sendToChat(activeChat, 'Not that one', {
+            recentEntity: declinedOrShown(entity, 'declined'),
+          });
+        } else {
+          sendToChat(activeChat, 'None of those');
+        }
+      },
+      onOpen: openEntity,
+    }),
+    [activeChat, sendToChat, setEntityCardStatus, openEntity],
+  );
+
   const renderMessage = useCallback(
-    ({ item }: { item: any }) => (
-      <ChatBubble
-        message={item}
-      />
-    ),
-    [],
+    ({ item }: { item: SpaceChatMessage }) => {
+      if (isEntityCardMessage(item)) {
+        return <EntityCardBubble standalone {...entityCardHandlers(item)} />;
+      }
+      const cardMessage = item.role === 'assistant' ? cardFor.get(item.id) : undefined;
+      return (
+        <ChatBubble
+          message={item}
+          entityCard={cardMessage ? entityCardHandlers(cardMessage) : null}
+        />
+      );
+    },
+    [cardFor, entityCardHandlers],
   );
 
   // ── Save sheet handler ──────────────────────────────────────────────────────
@@ -445,9 +508,7 @@ export default function ScopedChatScreen() {
           ]);
 
           const smartTitle =
-            (phase15.ok && phase15.smart_title) ||
-            (phase2.ok && phase2.smart_title) ||
-            item.title;
+            (phase15.ok && phase15.smart_title) || (phase2.ok && phase2.smart_title) || item.title;
 
           const tags = (phase2.ok && phase2.tags) || [];
           const timeEst = phase2.ok ? phase2.time_estimate_minutes : null;
@@ -534,21 +595,12 @@ export default function ScopedChatScreen() {
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     },
-    [
-      activeChat,
-      autoTitle,
-      runningSummary,
-      canCreate,
-      navigation,
-      autoLinkDrop,
-    ],
+    [activeChat, autoTitle, runningSummary, canCreate, navigation, autoLinkDrop],
   );
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
-  const title = scopeType === 'world'
-    ? `Chat about ${scopeName}`
-    : `Chat about ${scopeName}`;
+  const title = scopeType === 'world' ? `Chat about ${scopeName}` : `Chat about ${scopeName}`;
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -570,7 +622,7 @@ export default function ScopedChatScreen() {
       >
         <AppFlatList
           ref={flatListRef}
-          data={messages}
+          data={rows}
           keyExtractor={keyExtractor}
           renderItem={renderMessage}
           style={styles.messages}
@@ -586,9 +638,7 @@ export default function ScopedChatScreen() {
           }}
           ListEmptyComponent={
             <View style={styles.emptyState}>
-              <Text style={styles.emptyText}>
-                Ask me anything about {scopeName}.
-              </Text>
+              <Text style={styles.emptyText}>Ask me anything about {scopeName}.</Text>
             </View>
           }
           ListFooterComponent={null}

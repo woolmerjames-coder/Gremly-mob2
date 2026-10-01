@@ -54,6 +54,7 @@ jest.mock('../../store/useGremlyStore', () => ({
 }));
 jest.mock('../phase1', () => ({
   runPhase1: jest.fn().mockResolvedValue({ bucket: 'todo', source: 'ai', confidence: 0.9 }),
+  runClassifyV3: jest.fn().mockResolvedValue(null),
 }));
 jest.mock('../../supabase/client', () => ({
   supabase: {

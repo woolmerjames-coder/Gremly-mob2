@@ -186,7 +186,48 @@ import {
   MODE_TEMP,
 } from './gremlyPersona';
 import { aiClassify, aiGenerate, aiStream, getProviders } from './aiProvider.js';
+import {
+  buildClassifyV3Prompt,
+  buildSecondOpinionPrompt,
+  buildClarifyPrompt,
+  buildClarification,
+  formatDropMessage,
+  normalizeClassifyV3,
+  parseModelJson,
+  AMBIGUITY_TYPES,
+  PROMPT_VERSION,
+  PROMPT_VERSIONS,
+} from './classifyV3.js';
+
 import { handleHabitRead } from './habitRead.js';
+import { fetchItemDetail, itemDetailText, handleItemTopics } from './itemDetail.js';
+import { configureModels, models, helperModel } from './models.js';
+import { helperFetch } from './helperClient.js';
+import { relateDrop } from './minddropRelate.js';
+import {
+  matchEntity,
+  applyEntityCardToTriage,
+  anchorFrom,
+  turnItemSections,
+  offerLateCard,
+  todayIsoIn,
+  checkNewAgainstTracked,
+} from './entityMatch.js';
+import {
+  reconcileSameAs,
+  trackedRowsFromItems,
+  trackedItemsBlock,
+  lateCardCandidate,
+  newItemsOnly,
+  withValidDays,
+  buildChatExtractionPrompt,
+  buildPillPrompt,
+  buildSummaryPrompt,
+  withEvidenceRule,
+  withEditsRule,
+  evidenceGrounded,
+  NO_EXTRACTION_MODES,
+} from './chatPrompts.js';
 
 async function getCachedDomainNames(userId, env) {
   if (!userId || !env.CONTEXT_CACHE) return [];
@@ -216,6 +257,22 @@ function extractPreviousExchange(messages) {
   }
   if (!userMsg || !assistantMsg) return null;
   return { userMsg, assistantMsg };
+}
+
+/** The last n user/assistant pairs before the current message, oldest first. */
+function extractRecentExchanges(messages, n = 3) {
+  const out = [];
+  let assistantMsg = null;
+  for (let i = (messages || []).length - 1; i >= 0 && out.length < n; i--) {
+    const m = messages[i];
+    if (!m) continue;
+    if (m.role === 'assistant') assistantMsg = m.content;
+    else if (m.role === 'user' && assistantMsg) {
+      out.push({ userMsg: m.content, assistantMsg });
+      assistantMsg = null;
+    }
+  }
+  return out.reverse();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1767,22 +1824,14 @@ Rules:
   confidence = Math.max(0, Math.min(1, confidence));
 
   const isAmbiguous = parsed.bucket === 'ambiguous' || confidence < 0.7;
-  const ambiguityType =
-    isAmbiguous &&
-    [
-      'bucket',
-      'date_type',
-      'vague_aspiration',
-      'habit_or_todo',
-      'action_or_memory',
-      'commitment_level',
-      'emotional_or_action',
-      'social_plan',
-      'scope',
-      'idea_or_commitment',
-    ].includes(parsed.ambiguity_type)
+  // An ambiguous result must always carry a type. Low confidence alone (or a
+  // missing/invalid type from the model) used to return is_ambiguous: true
+  // with ambiguity_type: null, and the client then never asked the question.
+  const ambiguityType = isAmbiguous
+    ? AMBIGUITY_TYPES.includes(parsed.ambiguity_type)
       ? parsed.ambiguity_type
-      : null;
+      : 'bucket'
+    : null;
   const ambiguityReason =
     isAmbiguous && typeof parsed.ambiguity_reason === 'string'
       ? parsed.ambiguity_reason.trim().substring(0, 200)
@@ -2369,18 +2418,10 @@ ${turns}
 SUMMARY:`;
 
   try {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4.1-nano',
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 350,
-        temperature: 0.3,
-      }),
+    const res = await helperFetch('running_summary', {
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 350,
+      temperature: 0.3,
     });
 
     if (!res.ok) {
@@ -2476,18 +2517,10 @@ ${turns}
 SUMMARY:`;
 
   try {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4.1-nano',
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 150,
-        temperature: 0.3,
-      }),
+    const res = await helperFetch('running_summary', {
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 150,
+      temperature: 0.3,
     });
 
     if (!res.ok) {
@@ -2808,7 +2841,7 @@ function getModelAndTokens({ preset, userMessage, messageCount, entityType }) {
 
   if (canUseMini) {
     return {
-      model: 'gpt-4.1-nano',
+      model: helperModel('entity_chat_short'),
       maxTokens: 400,
       reason: 'simple_short_query',
     };
@@ -2816,7 +2849,7 @@ function getModelAndTokens({ preset, userMessage, messageCount, entityType }) {
 
   // Default: use the good model
   return {
-    model: 'gpt-4.1',
+    model: models().legacyOpenAIChat,
     maxTokens: needsMoreTokens ? 1000 : 800,
     reason: preset ? `preset:${preset}` : 'standard_query',
   };
@@ -3327,6 +3360,7 @@ function unauthorizedSSEResponse() {
 
 export default {
   async fetch(request, env, ctx) {
+    configureModels(env); // every model the Worker calls, resolved from env (models.js)
     // --- URL-based routing (Phase 4.7) ---
     const url = new URL(request.url);
 
@@ -3427,6 +3461,8 @@ export default {
         'weekly-summary',
         'floor-suggest',
         'habit-read',
+        'minddrop-relate',
+        'item-topics',
       ]);
       const AUTH_REQUIRED_LANES = new Set([
         'space_chat',
@@ -4314,21 +4350,13 @@ Rules:
 
 Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
 
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4.1-nano',
-              messages: [
-                { role: 'system', content: prompt },
-                { role: 'user', content: 'Generate greeting.' },
-              ],
-              max_tokens: 60,
-              temperature: 0.7,
-            }),
+          const res = await helperFetch('general_greeting', {
+            messages: [
+              { role: 'system', content: prompt },
+              { role: 'user', content: 'Generate greeting.' },
+            ],
+            max_tokens: 60,
+            temperature: 0.7,
           });
 
           if (res.ok) {
@@ -4521,6 +4549,7 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
             openaiMessages,
             {
               temperature: 0.7,
+              label: 'habit_builder',
               maxOutputTokens: chatCfg.maxTokens,
               thinkingLevel: chatCfg.thinkingLevel,
               tools: [makeWebSearchTool(userTimezone)],
@@ -5374,6 +5403,7 @@ Almost never suggest creating a Space. Only if ALL true:
               }
 
               const streamConfig = {
+                label: 'entity_chat',
                 temperature: genConfig.temperature,
                 maxOutputTokens: genConfig.maxTokens,
                 thinkingLevel: genConfig.thinkingLevel,
@@ -6363,22 +6393,14 @@ Return ONLY valid JSON:
 {"mode":"...","secondary_mode":null,"is_restart":false,"search_query":null,"event_context":null,"capacity_signal":null,"nudge_toward_proposal":false,"extracted":{"behavior":null,"habit_type":null,"frequency":null,"start_date":null,"time_window":null,"end_date":null}}`;
 
         try {
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4.1-nano',
-              messages: [
-                { role: 'system', content: prompt },
-                { role: 'user', content: userMessage },
-              ],
-              temperature: 0.1,
-              max_tokens: 300,
-              response_format: { type: 'json_object' },
-            }),
+          const res = await helperFetch('habit_preparse', {
+            messages: [
+              { role: 'system', content: prompt },
+              { role: 'user', content: userMessage },
+            ],
+            temperature: 0.1,
+            max_tokens: 300,
+            response_format: { type: 'json_object' },
           });
 
           if (!res.ok) {
@@ -6648,27 +6670,19 @@ Return ONLY valid JSON:
         };
 
         try {
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4.1-mini',
-              messages: [
-                { role: 'system', content: extractionPrompt },
-                {
-                  role: 'user',
-                  content:
-                    'Here is the conversation:\n\n' +
-                    messages.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n'),
-                },
-              ],
-              temperature: 0.1,
-              max_tokens: 600,
-              response_format: { type: 'json_object' },
-            }),
+          const res = await helperFetch('habit_fields', {
+            messages: [
+              { role: 'system', content: extractionPrompt },
+              {
+                role: 'user',
+                content:
+                  'Here is the conversation:\n\n' +
+                  messages.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n'),
+              },
+            ],
+            temperature: 0.1,
+            max_tokens: 600,
+            response_format: { type: 'json_object' },
           });
 
           if (!res.ok) {
@@ -7384,7 +7398,7 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
             summary,
             latency_ms: latency,
             _debug: {
-              model: 'gemini-3-flash-preview',
+              model: models().chat,
               prompt_tokens: usage.promptTokenCount,
               completion_tokens: usage.candidatesTokenCount,
             },
@@ -7764,7 +7778,7 @@ ${assistantMessage.substring(0, 2000)}
               'anthropic-version': '2023-06-01',
             },
             body: JSON.stringify({
-              model: 'claude-sonnet-4-5-20250929',
+              model: models().weeklySummary,
               max_tokens: 2000,
               system: WEEKLY_SUMMARY_SYSTEM_PROMPT,
               messages: [{ role: 'user', content: userMessage }],
@@ -7896,18 +7910,10 @@ ${conversationText}
 
 SUMMARY:`;
 
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4.1-mini',
-              messages: [{ role: 'user', content: summaryPrompt }],
-              max_tokens: 400,
-              temperature: 0.3,
-            }),
+          const res = await helperFetch('chat_full_summary', {
+            messages: [{ role: 'user', content: summaryPrompt }],
+            max_tokens: 400,
+            temperature: 0.3,
           });
 
           if (!res.ok) {
@@ -8080,21 +8086,13 @@ Life context: ${lifeMoment || 'none'}
 Completed: ${todosCompleted || 0} todos, ${habitsCompleted || 0} habits, ${eventsCompleted || 0} events, ${dropsCaptured || 0} drops`;
 
         try {
-          const response = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${key}`,
-            },
-            body: JSON.stringify({
-              model: 'gpt-4.1-nano',
-              temperature: 0.6,
-              max_tokens: 30,
-              messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: userContent },
-              ],
-            }),
+          const response = await helperFetch('sweep_headline', {
+            temperature: 0.6,
+            max_tokens: 30,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userContent },
+            ],
           });
 
           if (!response.ok) {
@@ -8175,18 +8173,9 @@ Completed: ${todosCompleted || 0} todos, ${habitsCompleted || 0} habits, ${event
             preparse_latency_ms: preparseLatency,
           });
 
-          // Call Phase 1 directly by continuing to the classify-phase1 handler logic below
-          // We'll inline a simplified Phase 1 call here
-          const phase1Response = await fetch(
-            new Request(request.url, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ type: 'classify-phase1', text, hasAttachments }),
-            }),
-          );
-
-          // This won't work - we need to call the internal logic, not make a network request
-          // Instead, we'll return a fallback and let the caller retry with classify-phase1
+          // (A self-fetch to classify-phase1 used to run here and its result was
+          // thrown away: a full extra classification on every preparse failure,
+          // added to the user's wait. Removed; return the fallback directly.)
           return j({
             bucket: 'log',
             subtype: 'general',
@@ -8560,311 +8549,321 @@ Segment rules:
       }
 
       // =========================
+      // === MIND DROP: IS THIS DROP ABOUT SOMETHING THEY ALREADY HAVE? ===
+      // Runs after the drop is classified. The model reads the user's live items
+      // and says whether the drop repeats one, changes it, adds to it, finishes a
+      // todo, logs a habit or cancels one (minddropRelate.js). It only proposes:
+      // the app changes nothing until the user taps. Off unless
+      // MINDDROP_RELATE_ENABLED = "true"; the app then files drops as before.
+      // docs/minddrop-relate.md
+      // =========================
+      if (type === 'minddrop-relate') {
+        // checked first, so a switched off step costs nothing per drop
+        if (String(env.MINDDROP_RELATE_ENABLED || '').toLowerCase() !== 'true') {
+          return j({ enabled: false, relation: null });
+        }
+
+        const rl = await checkIpRateLimit(request, env, 'relate', 60);
+        if (!rl.allowed) return rateLimitResponse('relate', rl.count, rl.limit);
+
+        const text = String(body.text || '').trim();
+        if (!text) {
+          return j({ error: 'missing_text', detail: 'text field is required' }, 400);
+        }
+        const todayIso = /^\d{4}-\d{2}-\d{2}$/.test(String(body.currentDate || ''))
+          ? String(body.currentDate)
+          : todayIsoIn(userTimezone);
+        // Never throws; any failure or doubt comes back as no relation
+        const { relation } = await relateDrop({ env, userId: authenticatedUserId, text, todayIso });
+        return j({ enabled: true, relation });
+      }
+
+      // === CLASSIFY v3: SINGLE CALL (classification + multi + clarification) ===
+      // Replaces detect-multi + preparse (8 calls) + Phase 1 + clarify-ambiguity
+      // for a drop with one structured call. Response is a superset of the
+      // classify-phase1-v2 shape. Off unless the Worker var
+      // CLASSIFY_V3_ENABLED = "true"; clients fall back to the v2 path.
+      // Corpus results: docs/minddrop-classify-v3.md
+      // =========================
+      if (type === 'classify-v3') {
+        const rl = await checkIpRateLimit(request, env, 'classify', 60);
+        if (!rl.allowed) return rateLimitResponse('classify', rl.count, rl.limit);
+
+        // OFF unless explicitly enabled. Which model it runs on is decided by
+        // the model audit (docs/), not by default.
+        if (String(env.CLASSIFY_V3_ENABLED || '').toLowerCase() !== 'true') {
+          return j({ error: 'classify_v3_disabled' }, 503);
+        }
+
+        const text = String(body.text || '').trim();
+        if (!text) {
+          return j({ error: 'missing_text', detail: 'text field is required' }, 400);
+        }
+
+        const t0 = Date.now();
+        // CLASSIFY_PROMPT picks a prompt version; anything else (including the
+        // older "v3.5") runs the default.
+        const promptVersion = PROMPT_VERSIONS.includes(env.CLASSIFY_PROMPT)
+          ? env.CLASSIFY_PROMPT
+          : PROMPT_VERSION;
+        const systemPrompt = buildClassifyV3Prompt({ version: promptVersion });
+
+        let result;
+        try {
+          result = await aiClassify({
+            mode: 'realtime',
+            ...getProviders('classify', env),
+            env,
+            systemPrompt,
+            messages: [
+              {
+                role: 'user',
+                content: formatDropMessage(text, {
+                  currentDate: typeof body.currentDate === 'string' ? body.currentDate : null,
+                  dayOfWeek: typeof body.dayOfWeek === 'string' ? body.dayOfWeek : null,
+                  hasUserSelectedDate: body.hasUserSelectedDate === true,
+                }),
+              },
+            ],
+            endpoint: 'classify-v3',
+            // Worst case 5s + 4s stays inside the app's 10s budget for this
+            // call. Every shortlisted model's p99 on the audit corpus was under
+            // 5s (docs/2026-09-29-minddrop-model-audit.md).
+            primaryTimeoutMs: 5000,
+            fallbackTimeoutMs: 4000,
+            // A slow primary (about 1 in 20 calls on the audit corpus) races
+            // the fallback from this point instead of holding the user for 5s.
+            hedgeAfterMs: Number(env.CLASSIFY_HEDGE_MS) || 3000,
+            validate: (parsed) =>
+              normalizeClassifyV3(parsed, text)
+                ? { valid: true }
+                : { valid: false, reason: 'classify_v3_shape' },
+          });
+        } catch (err) {
+          console.error('[ClassifyV3] aiClassify threw', { error: String(err) });
+          result = { parsed: null };
+        }
+
+        let normalized = result?.parsed ? normalizeClassifyV3(result.parsed, text) : null;
+        const dropMessage = formatDropMessage(text, {
+          currentDate: typeof body.currentDate === 'string' ? body.currentDate : null,
+          dayOfWeek: typeof body.dayOfWeek === 'string' ? body.dayOfWeek : null,
+          hasUserSelectedDate: body.hasUserSelectedDate === true,
+        });
+        const steps = { second_opinion: null, writer: null };
+        // The app gives this call 10s. The optional second opinion and question
+        // writer only run if there is time left, and their deadlines are cut to
+        // fit, so every path (including both backups) ends within 9s.
+        const BUDGET_MS = 9000;
+        const timeLeft = () => BUDGET_MS - (Date.now() - t0);
+        const deadlines = (primaryMax, fallbackMax) => {
+          const primaryTimeoutMs = Math.min(primaryMax, timeLeft() - 500);
+          return {
+            primaryTimeoutMs,
+            fallbackTimeoutMs: Math.max(500, Math.min(fallbackMax, timeLeft() - primaryTimeoutMs)),
+          };
+        };
+
+        // Optional second opinion when the classifier wants to ask (used with
+        // a fast, cheap classifier): a stronger model decides whether a
+        // question is really needed. Off unless SECOND_OPINION_MODEL is set.
+        if (normalized?.is_ambiguous && env.SECOND_OPINION_MODEL && timeLeft() >= 2000) {
+          try {
+            const so = await aiClassify({
+              mode: 'realtime',
+              ...getProviders('second_opinion', env),
+              env,
+              systemPrompt: buildSecondOpinionPrompt(),
+              messages: [{ role: 'user', content: dropMessage }],
+              endpoint: 'classify-v3-second-opinion',
+              ...deadlines(3000, 2500),
+              validate: (parsed) =>
+                normalizeClassifyV3(parsed, text)
+                  ? { valid: true }
+                  : { valid: false, reason: 'shape' },
+            });
+            const n2 = so?.parsed ? normalizeClassifyV3(so.parsed, text) : null;
+            if (n2) {
+              normalized = n2;
+              steps.second_opinion = { model: so.model, asked: n2.is_ambiguous };
+            }
+          } catch (err) {
+            console.warn('[ClassifyV3] second opinion failed', { error: String(err) });
+          }
+        }
+
+        // The classifier chose that a question is needed and which kind; a
+        // dedicated writer (Sonnet by default) writes the words. If it is slow
+        // or its words fail the checks, the classifier's own words stay.
+        if (
+          normalized?.is_ambiguous &&
+          String(env.CLARIFY_WRITER_ENABLED || 'true') !== 'false' &&
+          timeLeft() >= 1500
+        ) {
+          try {
+            const w = await aiClassify({
+              mode: 'realtime',
+              ...getProviders('clarify_writer', env),
+              env,
+              systemPrompt: buildClarifyPrompt(
+                normalized.ambiguity_type,
+                normalized.ambiguity_reason,
+              ),
+              messages: [{ role: 'user', content: formatDropMessage(text) }],
+              endpoint: 'classify-v3-writer',
+              ...deadlines(2500, 1500),
+            });
+            const words = w?.parsed || parseModelJson(w?.content);
+            if (words) {
+              const clar = buildClarification(
+                normalized.ambiguity_type,
+                words.question,
+                words.labels,
+                words.habit_direction,
+                text,
+              );
+              // Fixed label types only take the writer's question.
+              if (
+                clar.question_source === 'model' ||
+                clar.labels_source === 'model' ||
+                clar.labels_source === 'mixed'
+              ) {
+                normalized = {
+                  ...normalized,
+                  clarification_question: clar.clarification_question,
+                  clarification_options: clar.clarification_options,
+                  clarification_source: {
+                    question: clar.question_source,
+                    labels: clar.labels_source,
+                    writer: w.model,
+                  },
+                  plausible_interpretations: clar.clarification_options.map((o) => ({
+                    bucket: o.bucket,
+                    subtype: o.subtype,
+                    habitSubtype: o.habitSubtype,
+                    dateField: o.dateField || null,
+                  })),
+                };
+                steps.writer = { model: w.model };
+              }
+            }
+          } catch (err) {
+            console.warn('[ClassifyV3] question writer failed', { error: String(err) });
+          }
+        }
+        const latency = Date.now() - t0;
+
+        if (!normalized) {
+          console.error('[ClassifyV3] unusable output', {
+            latency_ms: latency,
+            provider: result?.provider,
+            model: result?.model,
+            wasFallback: result?.wasFallback,
+          });
+          return j({ error: 'classify_v3_failed', latency_ms: latency }, 502);
+        }
+
+        console.log('[ClassifyV3]', {
+          bucket: normalized.bucket,
+          subtype: normalized.subtype,
+          habitSubtype: normalized.habitSubtype,
+          is_ambiguous: normalized.is_ambiguous,
+          ambiguity_type: normalized.ambiguity_type,
+          is_multi: normalized.is_multi,
+          segments: normalized.segments?.length || 0,
+          confidence: normalized.confidence,
+          provider: result.provider,
+          model: result.model,
+          wasFallback: result.wasFallback,
+          gate: normalized.gate || null,
+          second_opinion: steps.second_opinion,
+          writer: steps.writer,
+          cache_read_tokens: result.usage?.cache_read_input_tokens ?? null,
+          latency_ms: latency,
+        });
+
+        return j({
+          ...normalized,
+          prompt_version: promptVersion,
+          provider: result.provider,
+          model: result.model,
+          was_fallback: result.wasFallback === true,
+          latency_ms: latency,
+        });
+      }
+
+      // =========================
       // === PHASE 1.5: CLARIFY AMBIGUITY ===
+      // Writes the question + option labels for a drop already known to be
+      // ambiguous. Used when classify-v3 is off, and by the app to heal
+      // entities saved without options. Option ids/actions are fixed per type
+      // (CLARIFY_TYPE_CONFIGS in classifyV3.js); the model only writes words,
+      // and every question is now about the actual drop (the old fixed
+      // questions such as "Is this already in the diary?" are gone).
+      // Response shape is unchanged so older app builds keep working.
       // =========================
       if (type === 'clarify-ambiguity') {
         const rl = await checkIpRateLimit(request, env, 'classify', 60);
         if (!rl.allowed) return rateLimitResponse('classify', rl.count, rl.limit);
 
-        const text = body.text || '';
-        const ambiguityType = body.ambiguityType || 'bucket';
-        const ambiguityReason = body.ambiguityReason || '';
+        const text = String(body.text || '');
+        const ambiguityType = AMBIGUITY_TYPES.includes(body.ambiguityType)
+          ? body.ambiguityType
+          : 'bucket';
+        const ambiguityReason =
+          typeof body.ambiguityReason === 'string' ? body.ambiguityReason : '';
         const t0 = Date.now();
 
-        // --- Type configs ---
-        const TYPE_CONFIGS = {
-          bucket: {
-            question: null,
-            options: [
-              { id: 'opt_1', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
-              { id: 'opt_2', label: '', bucket: 'log', subtype: 'idea', habitSubtype: null },
-              { id: 'opt_3', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
-            ],
-          },
-          date_type: {
-            question: 'Is this already in the diary?',
-            options: [
-              {
-                id: 'opt_1',
-                label: '',
-                bucket: 'log',
-                subtype: 'event',
-                habitSubtype: null,
-                dateField: 'target_date',
-              },
-              {
-                id: 'opt_2',
-                label: '',
-                bucket: 'todo',
-                subtype: null,
-                habitSubtype: null,
-                dateField: 'target_date',
-              },
-              { id: 'opt_3', label: '', bucket: 'log', subtype: 'event', habitSubtype: null },
-            ],
-          },
-          vague_aspiration: {
-            question: 'What did you want to do with this?',
-            options: [
-              {
-                id: 'opt_1',
-                label: '',
-                bucket: 'habit',
-                subtype: null,
-                habitSubtype: 'start_habit',
-              },
-              { id: 'opt_2', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
-            ],
-          },
-          habit_or_todo: {
-            question: 'Is this a one-time thing or something you want to keep doing?',
-            options: [
-              { id: 'opt_1', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
-              {
-                id: 'opt_2',
-                label: '',
-                bucket: 'habit',
-                subtype: null,
-                habitSubtype: 'start_habit',
-              },
-            ],
-          },
-          action_or_memory: {
-            question: 'Do you need to do something for this?',
-            options: [
-              { id: 'opt_1', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
-              { id: 'opt_2', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
-            ],
-          },
-          commitment_level: {
-            question: 'Do you want to actually track this?',
-            options: [
-              {
-                id: 'opt_1',
-                label: '',
-                bucket: 'habit',
-                subtype: null,
-                habitSubtype: 'start_habit',
-              },
-              { id: 'opt_2', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
-            ],
-          },
-          emotional_or_action: {
-            question: 'Did you want to do something with this?',
-            options: [
-              { id: 'opt_1', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
-              { id: 'opt_2', label: '', bucket: 'log', subtype: 'journal', habitSubtype: null },
-            ],
-          },
-          social_plan: {
-            question: 'Is this happening or do you need to make it happen?',
-            options: [
-              { id: 'opt_1', label: '', bucket: 'log', subtype: 'event', habitSubtype: null },
-              { id: 'opt_2', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
-              { id: 'opt_3', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
-            ],
-          },
-          scope: {
-            question: 'How big is this?',
-            options: [
-              { id: 'opt_1', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
-              { id: 'opt_2', label: '', bucket: 'log', subtype: 'idea', habitSubtype: null },
-              { id: 'opt_3', label: '', bucket: 'log', subtype: 'idea', habitSubtype: null },
-            ],
-          },
-          idea_or_commitment: {
-            question: 'How real is this for you?',
-            options: [
-              { id: 'opt_1', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
-              {
-                id: 'opt_2',
-                label: '',
-                bucket: 'habit',
-                subtype: null,
-                habitSubtype: 'start_habit',
-              },
-              { id: 'opt_3', label: '', bucket: 'log', subtype: 'idea', habitSubtype: null },
-              { id: 'opt_4', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
-            ],
-          },
-        };
-
-        const FALLBACK_CONFIG = {
-          question: 'Quick check — what did you have in mind?',
-          options: [
-            {
-              id: 'opt_1',
-              label: 'Something to do',
-              bucket: 'todo',
-              subtype: null,
-              habitSubtype: null,
-            },
-            {
-              id: 'opt_2',
-              label: 'An idea to explore',
-              bucket: 'log',
-              subtype: 'idea',
-              habitSubtype: null,
-            },
-            {
-              id: 'opt_3',
-              label: 'Just a note',
-              bucket: 'log',
-              subtype: 'general',
-              habitSubtype: null,
-            },
-          ],
-        };
-
-        const FALLBACK_LABELS = {
-          bucket: ['Need to do something', 'Thinking about it', 'Just remembering'],
-          date_type: ["Yes, it's in the diary", 'No, need to sort it', 'Just the date'],
-          vague_aspiration: ['Make it a real goal', 'Just holding the thought'],
-          habit_or_todo: ['Do it once', 'Make it regular'],
-          action_or_memory: ['Need to act on this', "Just didn't want to forget"],
-          commitment_level: ['Hold me to it', 'Just noting it'],
-          emotional_or_action: ['Want to tackle it', 'Needed to say it'],
-          social_plan: ["It's already sorted", 'Need to make it happen', 'Just noting it'],
-          scope: ['One thing to finish', 'Bigger than that', 'Just an idea'],
-          idea_or_commitment: [
-            'Doing it — one-off',
-            'Doing it — ongoing',
-            'Still thinking',
-            'Just a thought',
-          ],
-        };
-
-        function getLabelRules(aType) {
-          switch (aType) {
-            case 'bucket':
-              return `The question already references what the user dropped — the labels must not repeat it. Write labels as if the noun was never mentioned. Generic is correct here. The user reads the question first, then the labels — the labels only need to describe the mode of intent, not the subject. For the todo option: something short that conveys there is an action to take. For the idea option: something short that conveys the user is considering something. For the general option: something short that conveys the user wants to remember something. Do not include the noun from the user's input in any label under any circumstances.`;
-            case 'date_type':
-              return `Labels must directly reflect the booking/scheduling status. First option conveys it is already arranged and in the calendar. Second option conveys the user still needs to book or sort it, and references the specific thing. Third option conveys they just want to hold the date mentally.`;
-            case 'vague_aspiration':
-              return `First option should convey making this into a real ongoing goal without projecting what the habit looks like. Second option conveys holding the intention loosely with no commitment.`;
-            case 'habit_or_todo':
-              return `First option conveys doing this as a one-time thing and completing it. Second option conveys doing this on an ongoing regular basis and making it part of their routine. Both should reference the specific activity from the input.`;
-            case 'action_or_memory':
-              return `First option conveys that yes, the user needs to take action on this — something needs to happen. Second option conveys they simply did not want to forget this fact or date.`;
-            case 'commitment_level':
-              return `First option conveys wanting to hold themselves accountable and track this properly. Second option conveys noting the intention without formal commitment. Reference the specific activity.`;
-            case 'emotional_or_action':
-              return `First option conveys wanting to do something about this situation. Second option conveys having needed to express or process this feeling. Tone must be warm — never clinical.`;
-            case 'social_plan':
-              return `First option conveys it is already arranged. Second option conveys the user needs to make it happen — generic, no assumption about specifics. Third option conveys they just want to remember it happened or will happen. Reference the person or occasion if named.`;
-            case 'scope':
-              return `First option conveys this is one discrete thing to complete. Second option conveys this is a bigger multi-part effort. Third option conveys it is an early-stage idea not yet committed to. Reference the specific thing from the input.`;
-            case 'idea_or_commitment':
-              return `First option conveys fully committing to do this as a one-time action. Second option conveys committing to this as an ongoing practice. Third option conveys still thinking it through. Fourth option conveys it was a passing thought with no real intent. Reference the specific activity.`;
-            default:
-              return `Labels should describe what the user might have meant in casual, natural language. Reference the specific content from the input.`;
+        let parsedWords = null;
+        let aiMeta = {};
+        if (text.trim()) {
+          try {
+            const result = await aiClassify({
+              mode: 'realtime',
+              ...getProviders('clarify_writer', env),
+              env,
+              systemPrompt: buildClarifyPrompt(ambiguityType, ambiguityReason),
+              messages: [{ role: 'user', content: formatDropMessage(text) }],
+              endpoint: 'clarify-ambiguity',
+              // App waits 8s for this call; 4s + 3.5s keeps us inside it.
+              primaryTimeoutMs: 4000,
+              fallbackTimeoutMs: 3500,
+            });
+            parsedWords = result.parsed || parseModelJson(result.content);
+            aiMeta = {
+              provider: result.provider,
+              model: result.model,
+              wasFallback: result.wasFallback,
+            };
+          } catch (err) {
+            console.warn('[Phase1.5] AI call failed', { error: String(err) });
           }
         }
 
-        // --- Resolve config ---
-        const config = TYPE_CONFIGS[ambiguityType] || FALLBACK_CONFIG;
-        const optionCount = config.options.length;
-
-        // --- Build system prompt ---
-        const questionInstruction =
-          ambiguityType === 'bucket'
-            ? `\nQUESTION RULES (return a "question" field in your JSON):\n- Under 8 words\n- Must reference the specific content of the user's input — use the actual noun, name, or subject they wrote\n- Neutral — does not assume any interpretation\n- Natural spoken language\n- Never use: track, log, note, habit, task, todo, capture, save, manage\n`
-            : '';
-
-        const jsonShape =
-          ambiguityType === 'bucket'
-            ? `{\n  "question": "...",\n  "labels": ["label for opt_1", "label for opt_2", ...]\n}`
-            : `{\n  "labels": ["label for opt_1", "label for opt_2", ...]\n}`;
-
-        const clarifySystemPrompt = `You are generating labels for a clarification popup in a productivity app. The user dropped an ambiguous input and we need to show them options.
-
-GENERAL LABEL RULES — apply to all types:
-- 4 words max, 35 characters max
-- Casual, natural fragments — no formal language, no periods
-- Never use app terminology: do not say todo, habit, log, note, track, capture, save, manage, record, add to, create
-- Labels must feel like something a person would say, not a UI category name
-- Do not invent specific details that are not in the user's input
-
-TYPE-SPECIFIC RULES:
-${getLabelRules(ambiguityType)}
-${questionInstruction}
-Return JSON only:
-${jsonShape}
-Labels array must have exactly ${optionCount} items.`;
-
-        const clarifyUserMessage = `INPUT: "${text.substring(0, 500)}"\nTYPE: ${ambiguityType}${ambiguityReason ? `\nCONTEXT: ${ambiguityReason}` : ''}`;
-
-        // --- Make AI call ---
-        let aiSuccess = false;
-        let finalOptions = config.options;
-        let finalQuestion = config.question || "What's going on here?";
-
-        try {
-          const result = await aiClassify({
-            mode: 'realtime',
-            ...getProviders('mini', env),
-            env,
-            systemPrompt: clarifySystemPrompt,
-            messages: [{ role: 'user', content: clarifyUserMessage }],
-            temperature: 0.3,
-            maxOutputTokens: 150,
-            endpoint: 'clarify-ambiguity',
-          });
-
-          if (result.parsed) {
-            const parsed = result.parsed;
-            const labels = Array.isArray(parsed.labels) ? parsed.labels : [];
-
-            if (
-              labels.length === optionCount &&
-              labels.every((l) => typeof l === 'string' && l.trim())
-            ) {
-              aiSuccess = true;
-              finalOptions = config.options.map((opt, i) => ({
-                ...opt,
-                label: labels[i].trim().substring(0, 60),
-              }));
-
-              if (
-                ambiguityType === 'bucket' &&
-                typeof parsed.question === 'string' &&
-                parsed.question.trim()
-              ) {
-                finalQuestion = parsed.question.trim().substring(0, 100);
-              }
-            }
-          }
-        } catch (err) {
-          console.warn('[Phase1.5] AI call failed', { error: String(err) });
-        }
-
-        // --- Fallback labels if AI failed ---
-        if (!aiSuccess) {
-          const fallbackLabels = FALLBACK_LABELS[ambiguityType];
-          if (fallbackLabels && fallbackLabels.length === optionCount) {
-            finalOptions = config.options.map((opt, i) => ({
-              ...opt,
-              label: fallbackLabels[i],
-            }));
-          } else {
-            // Unknown type — use full fallback config
-            finalOptions = FALLBACK_CONFIG.options;
-            finalQuestion = FALLBACK_CONFIG.question;
-          }
-        }
-
+        // buildClarification validates the words and falls back to the fixed
+        // copy for the type, so this always returns a usable popup.
+        const clar = buildClarification(
+          ambiguityType,
+          parsedWords?.question,
+          parsedWords?.labels,
+          parsedWords?.habit_direction,
+          text,
+        );
         const latency = Date.now() - t0;
         console.log('[Phase1.5]', {
-          ambiguityType,
-          options_count: finalOptions.length,
-          ai_success: aiSuccess,
+          ambiguityType: clar.ambiguity_type,
+          options_count: clar.clarification_options.length,
+          question_source: clar.question_source,
+          labels_source: clar.labels_source,
+          ...aiMeta,
           latency_ms: latency,
         });
 
         return j({
           success: true,
-          clarification_question: finalQuestion,
-          options: finalOptions,
+          ambiguity_type: clar.ambiguity_type,
+          clarification_question: clar.clarification_question,
+          options: clar.clarification_options,
           latency_ms: latency,
         });
       }
@@ -8881,6 +8880,7 @@ Labels array must have exactly ${optionCount} items.`;
         const selectedLabel = body.selectedLabel || '';
         const selectedBucket = body.selectedBucket || null;
         const selectedSubtype = body.selectedSubtype || null;
+        const selectedHabitSubtype = body.selectedHabitSubtype || null;
         // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
         const currentDate =
           body.currentDate ||
@@ -8994,10 +8994,24 @@ If no date in input, all date fields are null.
 
         if (!result.parsed) {
           console.log('[Reclassify] Both providers failed', { latency_ms: latency });
+          // the kind the user picked still decides what the item becomes
+          const fallbackBucket = ['todo', 'habit', 'log'].includes(selectedBucket)
+            ? selectedBucket
+            : 'log';
           return j({
-            bucket: 'log',
-            subtype: 'general',
-            habit_subtype: null,
+            bucket: fallbackBucket,
+            subtype:
+              fallbackBucket === 'log'
+                ? ['general', 'idea', 'journal', 'event'].includes(selectedSubtype)
+                  ? selectedSubtype
+                  : 'general'
+                : null,
+            habit_subtype:
+              fallbackBucket === 'habit'
+                ? selectedHabitSubtype === 'break_habit'
+                  ? 'break_habit'
+                  : 'start_habit'
+                : null,
             smart_title: titleCase(text.substring(0, 50)),
             confirmation_message: 'Saved for later.',
             target_date: null,
@@ -9033,9 +9047,12 @@ If no date in input, all date fields are null.
         let habitSubtype = null;
         if (bucket === 'habit') {
           const validHabitSubtypes = ['start_habit', 'break_habit'];
-          habitSubtype = validHabitSubtypes.includes(parsed.habit_subtype)
-            ? parsed.habit_subtype
-            : 'start_habit';
+          // a habit to cut back that the user picked stays one
+          habitSubtype = validHabitSubtypes.includes(selectedHabitSubtype)
+            ? selectedHabitSubtype
+            : validHabitSubtypes.includes(parsed.habit_subtype)
+              ? parsed.habit_subtype
+              : 'start_habit';
         }
 
         // Validate dates
@@ -9498,19 +9515,11 @@ Rules:
 
         const t0 = Date.now();
         console.log('[Phase1:Timing] Pre-fetch', { t: Date.now() });
-        const res = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${key}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'gpt-4.1-mini',
-            messages: phase1Messages,
-            temperature: 0.1,
-            max_tokens: 500,
-            response_format: { type: 'json_object' },
-          }),
+        const res = await helperFetch('classify_phase1', {
+          messages: phase1Messages,
+          temperature: 0.1,
+          max_tokens: 500,
+          response_format: { type: 'json_object' },
         });
         console.log('[Phase1:Timing] Post-fetch', {
           t: Date.now(),
@@ -9617,23 +9626,13 @@ Rules:
           isAmbiguous && typeof parsed.ambiguity_reason === 'string'
             ? parsed.ambiguity_reason.trim().substring(0, 200)
             : null;
-        const ambiguityType =
-          isAmbiguous &&
-          typeof parsed.ambiguity_type === 'string' &&
-          [
-            'bucket',
-            'date_type',
-            'vague_aspiration',
-            'habit_or_todo',
-            'action_or_memory',
-            'commitment_level',
-            'emotional_or_action',
-            'social_plan',
-            'scope',
-            'idea_or_commitment',
-          ].includes(parsed.ambiguity_type)
+        // Ambiguous results always carry a type (defaults to 'bucket') so the
+        // client never flags a drop without being able to ask about it.
+        const ambiguityType = isAmbiguous
+          ? AMBIGUITY_TYPES.includes(parsed.ambiguity_type)
             ? parsed.ambiguity_type
-            : null;
+            : 'bucket'
+          : null;
 
         // Legacy clarification fields - always false/null in Phase 1
         // Actual clarification options are generated by Phase 1.5
@@ -11442,22 +11441,14 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
         const t0 = Date.now();
 
         try {
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${key}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4.1-mini',
-              messages: [
-                { role: 'system', content: analyzeSystemPrompt },
-                { role: 'user', content: 'Here are my journal entries:\n\n' + journalBlock },
-              ],
-              temperature: 0.4,
-              max_tokens: 1200,
-              response_format: { type: 'json_object' },
-            }),
+          const res = await helperFetch('journal_analyze', {
+            messages: [
+              { role: 'system', content: analyzeSystemPrompt },
+              { role: 'user', content: 'Here are my journal entries:\n\n' + journalBlock },
+            ],
+            temperature: 0.4,
+            max_tokens: 1200,
+            response_format: { type: 'json_object' },
           });
 
           const oj = await res.json();
@@ -11497,7 +11488,16 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
       }
 
       // --- EXISTING LOGIC BELOW (unchanged) ---
-      const baseModel = body.model || 'gpt-4.1-nano';
+      const baseModel = models().appHelper; // the Worker decides; app builds used to name the model (see models.js)
+      if (body.model && body.model !== baseModel) {
+        // App builds in users' hands still name a model. Logged so the switch to
+        // Worker side config can be checked in production, then ignored.
+        console.log('[MODEL] app named a model, Worker config wins', {
+          requested: body.model,
+          lane,
+          using: baseModel,
+        });
+      }
 
       const baseTemperature = Number.isFinite(body.temperature)
         ? body.temperature
@@ -11521,10 +11521,14 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
       const isChapterChatLane = lane === 'chapter_chat' && type !== 'classify';
       const isGeneralChatStreaming = isGeneralChatLane && wantsStreaming;
       const actualModel =
-        isSpaceChatLane || isWorldChatLane || isChapterChatLane ? 'gpt-4.1' : baseModel;
+        isSpaceChatLane || isWorldChatLane || isChapterChatLane
+          ? models().legacyOpenAIChat
+          : baseModel;
 
       const temperature =
-        actualModel === 'gpt-4.1' && !Number.isFinite(body.temperature) ? 0.7 : baseTemperature;
+        actualModel === models().legacyOpenAIChat && !Number.isFinite(body.temperature)
+          ? 0.7
+          : baseTemperature;
 
       // FIX 3: Increased token limit for Space Chat (was 400, now 800)
       const maxTokensValue =
@@ -11725,10 +11729,29 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               }
             }
 
-            // === TRIAGE: Classify message before generation ===
+            // === TRIAGE: Classify message before generation (entity matcher alongside) ===
+            const tLane = Date.now();
             const previousExchange = extractPreviousExchange(messages);
+            const entityCardPromise = authenticatedUserId
+              ? matchEntity({
+                  env,
+                  userId: authenticatedUserId,
+                  message: lastUserMsgSpace,
+                  previousExchange,
+                  exchanges: extractRecentExchanges(messages),
+                  recent: body.recentEntity || null,
+                  todayIso: todayIsoIn(userTimezone),
+                  todayStr: new Intl.DateTimeFormat('en-US', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                    timeZone: userTimezone,
+                  }).format(new Date()),
+                })
+              : Promise.resolve(null);
 
-            const triage = await triageMessage({
+            const triageFromClassifier = await triageMessage({
               userMessage: lastUserMsgSpace,
               previousExchange,
               spaceName: body.spaceName || undefined,
@@ -11739,6 +11762,12 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               profileSnippet: spaceUserProfile?.profileText?.slice(0, 150) || '',
               messageCount: messages.length,
             });
+            const triageMs = Date.now() - tLane;
+            // the card (started alongside triage) decides the reply shape, so it is awaited here
+            const entityMatch = await entityCardPromise;
+            const entityCard = entityMatch?.card || null;
+            const cardMs = Date.now() - tLane;
+            const triage = applyEntityCardToTriage(triageFromClassifier, entityCard);
 
             console.log('[SpaceChat:Streaming:Triage]', {
               mode: triage.mode,
@@ -11775,6 +11804,14 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               return msg;
             });
 
+            genConfig.systemPrompt += turnItemSections({
+              match: entityMatch,
+              card: entityCard,
+              recent: body.recentEntity,
+              mode: triage.mode,
+              todayIso: todayIsoIn(userTimezone),
+            });
+
             const spaceChatMessages = [
               { role: 'system', content: genConfig.systemPrompt },
               ...processedMessagesSpace.filter((m) => m.role !== 'system'),
@@ -11791,6 +11828,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             const searchPolicy = getSearchPolicy(triage.search);
 
             const streamConfig = {
+              label: 'space_chat',
               temperature: genConfig.temperature,
               maxOutputTokens: genConfig.maxTokens,
               thinkingLevel: genConfig.thinkingLevel,
@@ -12208,6 +12246,13 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 done: true,
                 full_content: fullContent,
                 save_suggestion,
+                entity_card: entityCard || null,
+                timing: {
+                  triage_ms: triageMs,
+                  card_ms: cardMs,
+                  pre_ms: t0 - tLane,
+                  reply_ms: latency,
+                },
                 sources,
                 search_query: searchQuery,
                 latency_ms: latency,
@@ -12524,10 +12569,40 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               }
             }
 
-            // Triage
+            // Triage, with the entity matcher running alongside it
+            const tLane = Date.now();
             const previousExchange = extractPreviousExchange(messages);
+            // the item this chat was opened about ("Talk it through"), sent with every turn
+            const anchorEntity = anchorFrom(body.anchorEntity);
+            // and what that item holds, read alongside triage and the matcher
+            const anchorDetailPromise =
+              authenticatedUserId && anchorEntity
+                ? fetchItemDetail(env, authenticatedUserId, anchorEntity, {
+                    todayIso: todayIsoIn(userTimezone),
+                    timezone: userTimezone,
+                  })
+                : Promise.resolve(null);
+            const entityCardPromise = authenticatedUserId
+              ? matchEntity({
+                  env,
+                  userId: authenticatedUserId,
+                  message: lastUserMsg,
+                  previousExchange,
+                  exchanges: extractRecentExchanges(messages),
+                  recent: body.recentEntity || null,
+                  anchor: anchorEntity,
+                  todayIso: todayIsoIn(userTimezone),
+                  todayStr: new Intl.DateTimeFormat('en-US', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                    timeZone: userTimezone,
+                  }).format(new Date()),
+                })
+              : Promise.resolve(null);
 
-            const triage = await triageMessage({
+            const triageFromClassifier = await triageMessage({
               userMessage: lastUserMsg,
               previousExchange,
               spaceName: undefined,
@@ -12538,12 +12613,22 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               profileSnippet: userProfile?.profileText?.slice(0, 150) || '',
               messageCount: messages.length,
             });
+            const triageMs = Date.now() - tLane;
+            // the card (started alongside triage) decides the reply shape, so it is awaited here
+            const entityMatch = await entityCardPromise;
+            const entityCard = entityMatch?.card || null;
+            const cardMs = Date.now() - tLane;
+            const triage = applyEntityCardToTriage(triageFromClassifier, entityCard);
+            // as it is now when the matcher ran, else as the app sent it
+            const anchor = entityMatch?.anchor || anchorEntity;
+            const anchorDetail = anchor && !anchor.gone ? await anchorDetailPromise : null;
 
             console.log('[GeneralChat:Triage]', {
               mode: triage.mode,
               search: triage.search,
               personal: triage.personal,
               depth: triage.depth,
+              anchored: anchor ? (anchor.gone ? 'gone' : true) : false,
             });
 
             const streamContext = { runningSummary: body.runningSummary || '' };
@@ -12567,6 +12652,16 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               return msg;
             });
 
+            genConfig.systemPrompt += turnItemSections({
+              match: entityMatch,
+              card: entityCard,
+              recent: body.recentEntity,
+              anchor,
+              mode: triage.mode,
+              todayIso: todayIsoIn(userTimezone),
+              detailText: itemDetailText(anchorDetail, todayIsoIn(userTimezone)),
+            });
+
             const chatMessages = [
               { role: 'system', content: genConfig.systemPrompt },
               ...processedMessages.filter((m) => m.role !== 'system'),
@@ -12575,6 +12670,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             // Search policy
             const searchPolicy = getSearchPolicy(triage.search);
             const streamConfig = {
+              label: 'general_chat',
               temperature: genConfig.temperature,
               maxOutputTokens: genConfig.maxTokens,
               thinkingLevel: genConfig.thinkingLevel,
@@ -12865,6 +12961,22 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     done: true,
                     full_content: fullContent,
                     save_suggestion,
+                    entity_card: entityCard || null,
+                    // whether the Save items pill and a late card may follow, so the
+                    // app knows to wait for them (it watches for this turn's marker)
+                    extraction:
+                      body.chatId &&
+                      authenticatedUserId &&
+                      fullContent &&
+                      !(models().flags.extractionV2 && NO_EXTRACTION_MODES.includes(triage.mode))
+                        ? 'running'
+                        : 'skipped',
+                    timing: {
+                      triage_ms: triageMs,
+                      card_ms: cardMs,
+                      pre_ms: t0 - tLane,
+                      reply_ms: latency,
+                    },
                     sources,
                     search_query: searchQuery,
                     latency_ms: latency,
@@ -12910,11 +13022,38 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 })();
                 ctx.waitUntil(summaryPromise);
 
+                // A chat about one item keeps that item's chat summary, as the
+                // old entity chat did: what the context jobs read about chats
+                // on an item (get_recent_entity_chat_summaries) and what the
+                // reply is told earlier chats about it covered (itemDetail.js).
+                if (anchor && !anchor.gone) {
+                  ctx.waitUntil(
+                    generateEntityChatSummary(
+                      messages.filter((m) => m.role !== 'system'),
+                      fullContent,
+                      anchor.id,
+                      anchor.type,
+                      anchor.title,
+                      anchorDetail?.space || null,
+                      anchorDetail?.summary || null,
+                      env,
+                      userTimezone,
+                    ).catch((err) => console.warn('[GeneralChat] Item chat summary failed:', err.message)),
+                  );
+                }
+
                 // Background extraction (fire-and-forget)
+                const extractionV2 = models().flags.extractionV2;
                 const extractionPromise = (async () => {
                   try {
+                    if (extractionV2 && NO_EXTRACTION_MODES.includes(triage.mode)) {
+                      console.log('[GeneralChat] Extraction skipped for mode', {
+                        mode: triage.mode,
+                      });
+                      return;
+                    }
                     const chatRes = await fetch(
-                      `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=saved_extraction_ids,dismissed_extractions`,
+                      `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=saved_extraction_ids,dismissed_extractions,metadata_json`,
                       {
                         headers: {
                           apikey: env.SUPABASE_SERVICE_KEY,
@@ -12934,37 +13073,62 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       apikey: env.SUPABASE_SERVICE_KEY,
                       Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
                     };
-                    const [summaryRes, todosRes, habitsRes] = await Promise.all([
+                    // The turn's item list (entityMatch.all) is the one the reply and the
+                    // card used, so the pill reconciles against the same picture. The
+                    // fetches below run only when the matcher did not (flag off, or failed).
+                    const shared = Array.isArray(entityMatch?.all) ? entityMatch.all : null;
+                    const [summaryRes, todosRes, habitsRes, notesRes] = await Promise.all([
                       fetch(
                         `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=running_summary`,
                         { headers: supaHeaders },
                       ),
-                      fetch(
-                        `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${authenticatedUserId}&completed_at=is.null&select=title&limit=50`,
-                        { headers: supaHeaders },
-                      ),
-                      fetch(
-                        `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${authenticatedUserId}&archived_at=is.null&select=title,frequency&limit=30`,
-                        { headers: supaHeaders },
-                      ),
+                      shared
+                        ? null
+                        : fetch(
+                            `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${authenticatedUserId}&completed_at=is.null&archived=not.is.true&select=id,title,name,due_day,due_time&order=updated_at.desc&limit=80`,
+                            { headers: supaHeaders },
+                          ),
+                      shared
+                        ? null
+                        : fetch(
+                            `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${authenticatedUserId}&archived_at=is.null&select=id,title,name,frequency&limit=30`,
+                            { headers: supaHeaders },
+                          ),
+                      shared
+                        ? null
+                        : fetch(
+                            `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${authenticatedUserId}&archived=not.is.true&select=id,title,target_date,event_time,views&order=updated_at.desc&limit=20`,
+                            { headers: supaHeaders },
+                          ),
                     ]);
                     const summaryData = summaryRes.ok
                       ? await summaryRes.json().catch(() => [])
                       : [];
                     const runningSummary = summaryData?.[0]?.running_summary || null;
-                    const todosData = todosRes.ok ? await todosRes.json().catch(() => []) : [];
-                    const habitsData = habitsRes.ok ? await habitsRes.json().catch(() => []) : [];
+                    const rowsFromShared = shared ? trackedRowsFromItems(shared) : null;
+                    const todosData = shared
+                      ? rowsFromShared.todos
+                      : todosRes?.ok
+                        ? await todosRes.json().catch(() => [])
+                        : [];
+                    const habitsData = shared
+                      ? rowsFromShared.habits
+                      : habitsRes?.ok
+                        ? await habitsRes.json().catch(() => [])
+                        : [];
+                    const notesData = shared
+                      ? rowsFromShared.notes
+                      : notesRes?.ok
+                        ? await notesRes.json().catch(() => [])
+                        : [];
 
-                    const existingLines = [
-                      ...todosData.map((t) => `- [todo] ${t.title}`),
-                      ...habitsData.map(
-                        (h) => `- [habit] ${h.title}${h.frequency ? ` (${h.frequency})` : ''}`,
-                      ),
-                    ];
-                    const existingItemsBlock =
-                      existingLines.length > 0
-                        ? `\nITEMS ALREADY TRACKED IN THE USER'S SYSTEM (do NOT re-extract these or close paraphrases):\n${existingLines.join('\n')}\n`
-                        : '';
+                    // With entity cards on, the list carries ids so the extractor can
+                    // record edits to tracked items (chatPrompts.js, EXTRACTION_EDITS_RULE)
+                    const editsOn = extractionV2 && models().flags.entityCards;
+                    const { block: existingItemsBlock, tracked } = trackedItemsBlock(
+                      { todos: todosData, habits: habitsData, notes: notesData },
+                      { editsOn, related: entityMatch?.related, card: entityCard },
+                    );
 
                     const allMsgs = [
                       ...messages.filter((m) => m.role !== 'system'),
@@ -12982,61 +13146,144 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       day: 'numeric',
                       timeZone: userTimezone,
                     }).format(new Date());
-                    const extractionPromptText = `Today is ${todayStr}.
+                    let extractionPromptText = buildChatExtractionPrompt({
+                      todayStr,
+                      runningSummary,
+                      conversationText,
+                      handledIds,
+                      existingItemsBlock,
+                    });
+                    if (extractionV2) extractionPromptText = withEvidenceRule(extractionPromptText);
+                    if (editsOn) extractionPromptText = withEditsRule(extractionPromptText);
 
-You are analyzing a conversation to identify items worth saving in a productivity app.
-${runningSummary ? `\nCONVERSATION CONTEXT (summary of earlier messages not shown below):\n${runningSummary}\n` : ''}
-CONVERSATION:
-${conversationText}
-
-${handledIds.length > 0 ? 'ALREADY HANDLED (skip these): ' + handledIds.join(', ') : ''}
-${existingItemsBlock}
-Extract ONLY items where the user showed clear commitment or intent:
-TODO: Actions the user committed to (concrete verb + object). NOT AI suggestions the user didn't affirm.
-HABIT: Only with explicit frequency or stop/quit intent + trackable behavior.
-NOTE: Ideas the user was excited about, decisions reached, recommendations they engaged with.
-EVENT: Upcoming dates, deadlines, exams, appointments, trips, or time-bound milestones the user mentioned. Extract these even without exact dates. Capturing that something is coming up is valuable context for other conversations.
-DO NOT EXTRACT: explorations, emotional processing, unaffirmed AI suggestions, small talk, or items that match or closely paraphrase something already tracked in the system above.
-
-TEMPORAL METADATA (EVENT items only — set all to null for todo/habit/note):
-- date_text: The user's exact words about timing, preserved verbatim (e.g. "next Thursday", "sometime in June", "before the end of the semester")
-- resolved_date: Best estimate as YYYY-MM-DD. Today is ${todayStr}. For vague references, pick the midpoint of the likely range.
-- date_confidence: "exact" if user gave a specific date, "approximate" if they gave a rough timeframe, "unknown" if mentioned without any timing
-- date_range_start: Earliest plausible YYYY-MM-DD
-- date_range_end: Latest plausible YYYY-MM-DD
-
-WRITING STYLE for title and body fields:
-- Title should be a short action phrase: "Book restaurant for Saturday" not "Restaurant Booking Task"
-- Body should be a brief casual note, one sentence max
-- Never write "the user" or "user" — write as if jotting a note for them: "Getting up early for a 20-min run" not "User committed to getting up early"
-- If no meaningful body beyond the title, set body to null
-
-Also generate a chat title (3-6 words) and a one-sentence summary that covers the ENTIRE conversation — not just the most recent messages. Use the CONVERSATION CONTEXT above to include earlier topics. The summary should capture the full arc of what was discussed.
-Return ONLY valid JSON:
-{"extractions":[{"id":"<8chars>","type":"todo|habit|note|event","title":"...","body":"...","due_date":"YYYY-MM-DD or null","frequency":"string or null","confidence":0-100,"date_text":"string or null","resolved_date":"YYYY-MM-DD or null","date_confidence":"exact|approximate|unknown or null","date_range_start":"YYYY-MM-DD or null","date_range_end":"YYYY-MM-DD or null"}],"chat_summary":{"title":"...","summary":"..."}}`;
-
+                    // CHAT_PILL_SPLIT=on: the pill is its own focused call (new and
+                    // changed only) and the title and summary a separate small one,
+                    // run together. Off: the single four-job call as before.
+                    const pillSplit = models().flags.pillSplit && extractionV2 && editsOn;
                     let extractResult = null;
+                    let lateCard = null;
                     try {
-                      const extractRes = await fetch('https://api.openai.com/v1/chat/completions', {
-                        method: 'POST',
-                        headers: {
-                          Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-                          'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                          model: 'gpt-4.1-mini',
-                          messages: [
-                            { role: 'system', content: extractionPromptText },
-                            { role: 'user', content: 'Extract items from the conversation above.' },
-                          ],
-                          max_tokens: 500,
-                          temperature: 0.1,
-                        }),
-                      });
+                      const extractReq = {
+                        messages: [
+                          {
+                            role: 'system',
+                            content: pillSplit
+                              ? buildPillPrompt({ todayStr, conversationText, existingItemsBlock })
+                              : extractionPromptText,
+                          },
+                          { role: 'user', content: 'Extract items from the conversation above.' },
+                        ],
+                        // 500 cut long chats off mid JSON (12 of 116 in the audit); v2 gives room
+                        max_tokens: extractionV2 ? 2000 : 500,
+                        temperature: pillSplit ? 0 : 0.1,
+                      };
+                      if (extractionV2) extractReq.response_format = { type: 'json_object' };
+                      const summaryReq = pillSplit
+                        ? {
+                            messages: [
+                              {
+                                role: 'system',
+                                content: buildSummaryPrompt({ runningSummary, conversationText }),
+                              },
+                              { role: 'user', content: 'Write the title and summary.' },
+                            ],
+                            max_tokens: 300,
+                            temperature: 0.2,
+                            response_format: { type: 'json_object' },
+                          }
+                        : null;
+                      const [extractRes, summaryRes2] = await Promise.all([
+                        helperFetch('chat_extraction', extractReq),
+                        summaryReq ? helperFetch('running_summary', summaryReq) : null,
+                      ]);
                       if (extractRes.ok) {
                         const extractJson = await extractRes.json();
                         const rawContent = extractJson.choices?.[0]?.message?.content || '';
                         extractResult = safeParseJson(rawContent);
+                        if (pillSplit && extractResult) {
+                          let summary = null;
+                          if (summaryRes2?.ok) {
+                            const sj = await summaryRes2.json().catch(() => null);
+                            summary = safeParseJson(sj?.choices?.[0]?.message?.content || '');
+                          }
+                          extractResult.chat_summary = summary?.chat_summary || null;
+                        }
+                        if (
+                          extractionV2 &&
+                          extractResult &&
+                          Array.isArray(extractResult.extractions)
+                        ) {
+                          // Evidence rule: drop anything not grounded in the user's own words
+                          const userTexts = recentMsgs
+                            .filter((m) => m.role === 'user')
+                            .map((m) => String(m.content || ''));
+                          const before = extractResult.extractions.length;
+                          extractResult.extractions = extractResult.extractions.filter((x) =>
+                            evidenceGrounded(x.evidence, userTexts),
+                          );
+                          // what the extractor itself marked as an existing item in
+                          // other words: a note gets "add to", a todo or habit is
+                          // left to its edit (nothing new to save)
+                          if (editsOn) {
+                            // a second, independent look at anything new against the
+                            // same list the reply and the card used
+                            extractResult.extractions = reconcileSameAs(
+                              await checkNewAgainstTracked(
+                                extractResult.extractions,
+                                shared || [...tracked.values()],
+                              ),
+                              tracked,
+                            );
+                          }
+                          if (before !== extractResult.extractions.length) {
+                            console.log('[GeneralChat] Extraction evidence check dropped', {
+                              dropped: before - extractResult.extractions.length,
+                            });
+                          }
+                        }
+                        if (editsOn && extractResult) {
+                          // Existing means card, new means pill: the pill keeps only new
+                          // things; every change to an existing item the extraction found
+                          // (its own edits, add-tos from reconciliation, what the matcher
+                          // heard in passing) is a card candidate, and one becomes a card
+                          // under the reply, picked up by the app's poll.
+                          const userTexts = recentMsgs
+                            .filter((m) => m.role === 'user')
+                            .map((m) => String(m.content || ''));
+                          const candidate = lateCardCandidate(extractResult, tracked, userTexts, {
+                            mention: entityMatch?.mention,
+                            cardEntityId: entityCard?.entity?.id || null,
+                            declinedId:
+                              body.recentEntity?.status === 'declined'
+                                ? body.recentEntity.id
+                                : null,
+                            aboutIds: (entityMatch?.related || []).map((c) => c.id),
+                          });
+                          extractResult.extractions = newItemsOnly(extractResult.extractions);
+                          // offered only when their own words asked for it or decided it
+                          const offered =
+                            candidate.lateCard &&
+                            (await offerLateCard({
+                              card: candidate.lateCard,
+                              message: lastUserMsg,
+                              exchanges: extractRecentExchanges(messages),
+                              todayStr,
+                              todayIso: todayIsoIn(userTimezone),
+                            }));
+                          lateCard = offered ? candidate.lateCard : null;
+                          if (candidate.editItems.length > 0) {
+                            console.log(
+                              '[GeneralChat] Extraction found changes to existing items',
+                              {
+                                edits: candidate.editItems.length,
+                                candidate: candidate.lateCard
+                                  ? candidate.lateCard.entity.title
+                                  : null,
+                                offered: !!lateCard,
+                              },
+                            );
+                          }
+                        }
                       }
                     } catch (parseErr) {
                       console.warn('[GeneralChat] Extraction parse error:', parseErr.message);
@@ -13051,8 +13298,19 @@ Return ONLY valid JSON:
                           Prefer: 'return=minimal',
                         },
                         body: JSON.stringify({
-                          extracted_items: extractResult.extractions || [],
+                          // a todo's day is a calendar day or nothing
+                          extracted_items: withValidDays(extractResult.extractions || []),
                           auto_title: extractResult.chat_summary?.title || null,
+                          // the late card for this turn, or none; the app polls for it
+                          metadata_json: {
+                            ...((existing && existing.metadata_json) || {}),
+                            late_card: lateCard
+                              ? { card: lateCard, at: new Date().toISOString() }
+                              : null,
+                            // the turn this extraction is for, so the app stops waiting
+                            extracted_turn:
+                              typeof body.turnId === 'string' ? body.turnId.slice(0, 40) : null,
+                          },
                         }),
                       });
                       console.log('[GeneralChat] Extraction complete', {
@@ -13448,7 +13706,7 @@ Return ONLY valid JSON:
 
         return j({
           content,
-          model: 'gemini-3-flash-preview',
+          model: models().chat,
           usage: geminiResult.usage || null,
           save_suggestion: save_suggestion || null,
           sources,
@@ -13649,7 +13907,7 @@ Return ONLY valid JSON:
 
         return j({
           content: worldContent,
-          model: 'gemini-3-flash-preview',
+          model: models().chat,
           usage: worldGeminiResult.usage || null,
           save_suggestion: worldSaveSuggestion || null,
           sources: worldSources,
@@ -13857,7 +14115,7 @@ Return ONLY valid JSON:
 
         return j({
           content: chapterContent,
-          model: 'gemini-3-flash-preview',
+          model: models().chat,
           usage: chapterGeminiResult.usage || null,
           save_suggestion: chapterSaveSuggestion || null,
           sources: chapterSources,
@@ -13878,7 +14136,7 @@ Return ONLY valid JSON:
 
       const openaiPayload = { model: nonStreamModel, messages, temperature, stream: false };
 
-      if (nonStreamModel === 'gpt-4.1' || nonStreamModel === 'gpt-4o') {
+      if (nonStreamModel === models().legacyOpenAIChat || nonStreamModel === 'gpt-4o') {
         openaiPayload.max_completion_tokens = nonStreamMaxTokens;
       } else {
         openaiPayload.max_tokens = nonStreamMaxTokens;
@@ -13977,6 +14235,11 @@ Return ONLY valid JSON:
         return j(await handleHabitRead(body, env, authenticatedUserId, ctx));
       }
 
+      // starters drawn from a note when its chat opens (itemDetail.js)
+      if (type === 'item-topics') {
+        return j(await handleItemTopics(body, env, authenticatedUserId));
+      }
+
       // =========================
       // === FLOOR SUGGEST ===
       // Given a habit + upcoming calendar events, decide whether a genuine
@@ -14050,15 +14313,9 @@ Return ONLY JSON:
 
           let res;
           try {
-            res = await fetch('https://api.openai.com/v1/chat/completions', {
-              method: 'POST',
-              signal: controller.signal,
-              headers: {
-                Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                model: 'gpt-4.1-mini',
+            res = await helperFetch(
+              'floor_suggest',
+              {
                 messages: [
                   { role: 'system', content: FLOOR_SUGGEST_SYSTEM },
                   { role: 'user', content: truncatedPayload },
@@ -14066,8 +14323,9 @@ Return ONLY JSON:
                 temperature: 0.4,
                 max_completion_tokens: 500,
                 response_format: { type: 'json_object' },
-              }),
-            });
+              },
+              { signal: controller.signal },
+            );
           } finally {
             clearTimeout(timeoutId);
           }
@@ -14368,8 +14626,27 @@ function runScopedChatStream(
       }
 
       // Triage
+      const tLane = Date.now();
       const previousExchange = extractPreviousExchange(messages);
-      const triage = await triageMessage({
+      const entityCardPromise = authenticatedUserId
+        ? matchEntity({
+            env,
+            userId: authenticatedUserId,
+            message: lastUserMsg,
+            previousExchange,
+            exchanges: extractRecentExchanges(messages),
+            recent: body.recentEntity || null,
+            todayIso: todayIsoIn(userTimezone),
+            todayStr: new Intl.DateTimeFormat('en-US', {
+              weekday: 'long',
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+              timeZone: userTimezone,
+            }).format(new Date()),
+          })
+        : Promise.resolve(null);
+      const triageFromClassifier = await triageMessage({
         userMessage: lastUserMsg,
         previousExchange,
         spaceName: body.scopeName || undefined,
@@ -14380,6 +14657,12 @@ function runScopedChatStream(
         profileSnippet: scopeUserProfile?.profileText?.slice(0, 150) || '',
         messageCount: messages.length,
       });
+      const triageMs = Date.now() - tLane;
+      // the card (started alongside triage) decides the reply shape, so it is awaited here
+      const entityMatch = await entityCardPromise;
+      const entityCard = entityMatch?.card || null;
+      const cardMs = Date.now() - tLane;
+      const triage = applyEntityCardToTriage(triageFromClassifier, entityCard);
 
       console.log(`[${tag}:Triage]`, {
         mode: triage.mode,
@@ -14433,6 +14716,13 @@ function runScopedChatStream(
         return msg;
       });
 
+      genConfig.systemPrompt += turnItemSections({
+        match: entityMatch,
+        card: entityCard,
+        recent: body.recentEntity,
+        mode: triage.mode,
+        todayIso: todayIsoIn(userTimezone),
+      });
       const chatMessages = [
         { role: 'system', content: genConfig.systemPrompt },
         ...processedMessages.filter((m) => m.role !== 'system'),
@@ -14441,6 +14731,7 @@ function runScopedChatStream(
       // Search policy
       const searchPolicy = getSearchPolicy(triage.search);
       const streamConfig = {
+        label: scopeType === 'world' ? 'world_chat' : 'chapter_chat',
         temperature: genConfig.temperature,
         maxOutputTokens: genConfig.maxTokens,
         thinkingLevel: genConfig.thinkingLevel,
@@ -14721,6 +15012,13 @@ function runScopedChatStream(
               done: true,
               full_content: fullContent,
               save_suggestion,
+              entity_card: entityCard || null,
+              timing: {
+                triage_ms: triageMs,
+                card_ms: cardMs,
+                pre_ms: t0 - tLane,
+                reply_ms: latency,
+              },
               sources,
               search_query: searchQuery,
               latency_ms: latency,

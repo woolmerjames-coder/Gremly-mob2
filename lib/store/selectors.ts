@@ -15,6 +15,8 @@ import { computeSweepCardMeta } from '../sweep/computeSweepCardMeta';
 import { computeWorldsForEntity } from './worldsSelectors';
 import type { NowWeeklyHabitSummary, HabitWeeklyStatus } from '../now/nowTypes';
 import { getDateService } from '../date';
+import { isRelationPending } from '../minddrop/dropRelation';
+import { sweepCardAsks } from '../sweep/sweepOrder';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // DATE HELPERS
@@ -813,7 +815,10 @@ export const selectSweepCandidatesUnified = createSelector(
     // Process notes
     for (const note of notes) {
       if (note.archived) continue;
-      if (note.subtype === 'journal') continue;
+      // A drop waiting on "is this one you already have?" is asked in Sweep
+      // whatever its kind or day, like a split (lib/minddrop/dropRelation.ts)
+      const relationPending = isRelationPending(note.views);
+      if (note.subtype === 'journal' && !relationPending) continue;
 
       const resurfaceAt = (note as any).resurface_at;
       const sweptAt = (note as any).swept_at;
@@ -827,7 +832,7 @@ export const selectSweepCandidatesUnified = createSelector(
       const shouldResurface = resurfaceAt && resurfaceAt <= today;
 
       // Skip notes that were swept, UNLESS they should resurface or were skipped
-      if (sweptAt && !shouldResurface && !note.skipped_in_sweep_at) {
+      if (sweptAt && !shouldResurface && !note.skipped_in_sweep_at && !relationPending) {
         continue;
       }
 
@@ -851,7 +856,7 @@ export const selectSweepCandidatesUnified = createSelector(
             )
           : null;
 
-      if (isEvent && isEventPassed && !(note as any).external_source) {
+      if (isEvent && isEventPassed && !(note as any).external_source && !relationPending) {
         continue;
       }
 
@@ -861,7 +866,14 @@ export const selectSweepCandidatesUnified = createSelector(
         note.subtype === 'catchall' || note.subtype === 'list' || note.subtype === 'reference';
       const isTodayOther = isOtherSubtype && isCreatedToday;
 
-      if (isRecentIdea || isTodayOther || isUpcomingEvent || wasSkipped || shouldResurface) {
+      if (
+        relationPending ||
+        isRecentIdea ||
+        isTodayOther ||
+        isUpcomingEvent ||
+        wasSkipped ||
+        shouldResurface
+      ) {
         // Extract log_photos from note (joined in useGremlyStore.initialize)
         const logPhotos = (note as any).log_photos;
         const attachments: SweepAttachment[] = Array.isArray(logPhotos)
@@ -896,11 +908,22 @@ export const selectSweepCandidatesUnified = createSelector(
       ),
     }));
 
-    // Sort: overdue → due today → other todos → notes
+    // Sort: questions → overdue → due today → other todos → notes
     // Within each group, sort by createdAt ascending (oldest first)
     withMeta.sort((a, b) => {
       const aKind = a.candidate.kind;
       const bKind = b.candidate.kind;
+
+      // 0. Cards with a question first: the answers can change other cards
+      //    (lib/sweep/sweepOrder.ts)
+      const asks = { relation: 0, clarify: 1 } as const;
+      const aAsks = sweepCardAsks(a.candidate);
+      const bAsks = sweepCardAsks(b.candidate);
+      if (aAsks || bAsks) {
+        if (!bAsks) return -1;
+        if (!aAsks) return 1;
+        if (aAsks !== bAsks) return asks[aAsks] - asks[bAsks];
+      }
 
       // 1. Locked-in items surface first (within their type)
       if (a.meta.isLockedIn && !b.meta.isLockedIn) return -1;

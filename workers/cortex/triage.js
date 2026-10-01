@@ -1,3 +1,6 @@
+import { helperFetch } from './helperClient.js';
+import { models } from './models.js';
+
 /**
  * Chat Triage Classifier (Worker JS version)
  *
@@ -114,7 +117,7 @@ const FALLBACK_TRIAGE = {
 // CLASSIFIER SYSTEM PROMPTS
 // ============================================================================
 
-const MODE_SYSTEM_PROMPT = `Classify a chat message in a productivity companion app into exactly one response mode.
+export const MODE_SYSTEM_PROMPT = `Classify a chat message in a productivity companion app into exactly one response mode.
 
 MODES:
 - emotional: Processing feelings, overwhelm, shame, frustration, self-doubt
@@ -157,7 +160,7 @@ function safeParseJsonTriage(raw) {
   }
 }
 
-function buildClassifierInput(userMessage, previousExchange, spaceName, runningSummary) {
+export function buildClassifierInput(userMessage, previousExchange, spaceName, runningSummary) {
   const parts = [];
 
   if (spaceName) {
@@ -181,21 +184,13 @@ function buildClassifierInput(userMessage, previousExchange, spaceName, runningS
 
 async function callNano(systemPrompt, userInput, apiKey) {
   try {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4.1-nano',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userInput },
-        ],
-        max_tokens: 30,
-        temperature: 0.1,
-      }),
+    const res = await helperFetch('triage_mode', {
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userInput },
+      ],
+      max_tokens: 30,
+      temperature: 0.1,
     });
 
     if (!res.ok) {
@@ -217,21 +212,13 @@ async function callNano(systemPrompt, userInput, apiKey) {
 
 export async function callMini(systemPrompt, userInput, apiKey) {
   try {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4.1-mini',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userInput },
-        ],
-        max_tokens: 50,
-        temperature: 0.1,
-      }),
+    const res = await helperFetch('triage_signals', {
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userInput },
+      ],
+      max_tokens: 50,
+      temperature: 0.1,
     });
 
     if (!res.ok) {
@@ -251,7 +238,7 @@ export async function callMini(systemPrompt, userInput, apiKey) {
   }
 }
 
-const LOADING_SYSTEM_PROMPT = `Generate a very short loading message (3-6 words) for a productivity companion app that is about to respond to a user's chat message. The loading message should feel warm, specific to what they asked, and slightly playful. It will be shown briefly while the AI generates its response.
+export const LOADING_SYSTEM_PROMPT = `Generate a very short loading message (3-6 words) for a productivity companion app that is about to respond to a user's chat message. The loading message should feel warm, specific to what they asked, and slightly playful. It will be shown briefly while the AI generates its response.
 
 Rules:
 - 3-6 words maximum
@@ -266,21 +253,13 @@ export async function generateLoadingMessage(userInput, spaceName, apiKey) {
   try {
     const contextualInput = spaceName ? `SPACE: ${spaceName}\n\nMESSAGE: ${userInput}` : userInput;
 
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4.1-nano',
-        messages: [
-          { role: 'system', content: LOADING_SYSTEM_PROMPT },
-          { role: 'user', content: contextualInput },
-        ],
-        max_tokens: 15,
-        temperature: 0.6,
-      }),
+    const res = await helperFetch('loading_message', {
+      messages: [
+        { role: 'system', content: LOADING_SYSTEM_PROMPT },
+        { role: 'user', content: contextualInput },
+      ],
+      max_tokens: 15,
+      temperature: 0.6,
     });
 
     if (!res.ok) return null;
@@ -310,7 +289,8 @@ async function classifyMode(userInput, apiKey) {
   return FALLBACK_MODE;
 }
 
-async function classifyWithMini(userInput, domainNames, profileSnippet, messageCount, apiKey) {
+/** The system prompt for the search, personal and depth signals. Exported for the audit harness. */
+export function buildSignalsSystemPrompt(domainNames, profileSnippet, messageCount) {
   const contextLines = [];
   if (domainNames && domainNames.length > 0) {
     contextLines.push(`User's life domains: ${domainNames.join(', ')}`);
@@ -349,6 +329,11 @@ The AI is a productivity companion. Its users frequently ask about places, food,
 When unsure on depth, choose brief or standard. Detailed is rare.
 
 Return ONLY JSON: {"personal":"...","depth":"...","search":"..."}`;
+  return systemPrompt;
+}
+
+async function classifyWithMini(userInput, domainNames, profileSnippet, messageCount, apiKey) {
+  const systemPrompt = buildSignalsSystemPrompt(domainNames, profileSnippet, messageCount);
 
   const result = await callMini(systemPrompt, userInput, apiKey);
 
@@ -363,6 +348,60 @@ Return ONLY JSON: {"personal":"...","depth":"...","search":"..."}`;
 // ============================================================================
 // EXPORTED FUNCTION
 // ============================================================================
+
+// One call variant (TRIAGE_ONE_CALL=on): the two prompts joined, asking for one
+// JSON object. Built from the same prompt text so the definitions cannot drift;
+// only the framing and return lines are new. Tested in the chat helper model
+// audit; identical to scripts/chat-audit/triage-jobs.mjs buildOneCallSystemPrompt.
+export function buildOneCallSystemPrompt(domainNames, profileSnippet, messageCount) {
+  const mode = MODE_SYSTEM_PROMPT.replace(/Return ONLY JSON:[\s\S]*$/, '').trim();
+  const signals = buildSignalsSystemPrompt(domainNames, profileSnippet, messageCount)
+    .replace(/Return ONLY JSON:[\s\S]*$/, '')
+    .trim();
+  const modeBody = mode.replace(
+    /^Classify a chat message in a productivity companion app into exactly one response mode\.\s*/,
+    '',
+  );
+  const signalsBody = signals.replace(
+    /^Classify three signals for a chat message in a productivity companion app\. The AI has personal context about this user\.\s*/,
+    '',
+  );
+  return `Classify a chat message in a productivity companion app: one response mode and three signals. The AI has personal context about this user.
+
+${modeBody}
+
+${signalsBody}
+
+Return ONLY JSON: {"mode":"...","personal":"...","depth":"...","search":"..."}`;
+}
+
+async function classifyOneCall(userInput, domainNames, profileSnippet, messageCount) {
+  const res = await helperFetch('triage_mode', {
+    messages: [
+      {
+        role: 'system',
+        content: buildOneCallSystemPrompt(domainNames, profileSnippet, messageCount),
+      },
+      { role: 'user', content: userInput },
+    ],
+    max_tokens: 80,
+    temperature: 0.1,
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    console.error('[Triage] one call failed', res.status, errText.slice(0, 200));
+    return null;
+  }
+  const json = await res.json();
+  const result = safeParseJsonTriage(json.choices?.[0]?.message?.content || '');
+  return {
+    mode: result?.mode && VALID_MODES.includes(result.mode) ? result.mode : FALLBACK_MODE,
+    personal:
+      result?.personal && VALID_PERSONAL.includes(result.personal) ? result.personal : 'light',
+    depth: result?.depth && VALID_DEPTH.includes(result.depth) ? result.depth : 'standard',
+    search: result?.search && VALID_SEARCH.includes(result.search) ? result.search : 'none',
+  };
+}
 
 export async function triageMessage(options) {
   const {
@@ -390,6 +429,17 @@ export async function triageMessage(options) {
       spaceName,
       runningSummary,
     );
+
+    if (models().flags.triageOneCall) {
+      const one = await classifyOneCall(
+        classifierInput,
+        domainNames || [],
+        profileSnippet || '',
+        messageCount || 0,
+      );
+      if (one) return { ...one, source: 'classifier' };
+      return FALLBACK_TRIAGE;
+    }
 
     const [mode, miniSignals] = await Promise.all([
       classifyMode(classifierInput, env.OPENAI_API_KEY),

@@ -1,0 +1,78 @@
+# Model config in one place, 29 Sep 2026
+
+Every model the cortex Worker (`gentle-thunder-5854`) calls is now chosen in `workers/cortex/models.js`. Nothing about which model runs changed in this commit: every default is pinned to what production ran before, and `workers/cortex/__tests__/models.test.js` asserts that. The point is that the model review that follows becomes a config edit and a deploy, not a code edit and an app release.
+
+## What moved
+
+- 16 hard coded `gpt-4.1-mini` strings across `cortex-index.js`, `aiProvider.js` and `triage.js`, each now a named helper job (`helperModel('chat_extraction')` and so on).
+- The chat model: `geminiClient.js` used a constant, and Space, World and Chapter chat reported it by name. All read `models().chat` now. `GEMINI_FLASH_MODEL` used to affect only the tier fallbacks; `CHAT_MODEL` now moves chat itself and falls back to `GEMINI_FLASH_MODEL`.
+- The non streaming OpenAI fallback for Space, World and Chapter chat (`gpt-4.1`) and the weekly summary model (Sonnet 4.5). The weekly summary is out of scope for the current review and has its own var for later.
+- The generic non streaming path used to run whatever model the app named in the request body. App builds name `gpt-4o-mini` everywhere (`EXPO_PUBLIC_CORTEX_MODEL` defaults to it, and `saveableDetector.ts`, `summaryGenerator.ts`, `enrichListItem.ts`, `cortexDecide.ts`, `conversation.ts` and `useOverwhelmFlow.ts` say it outright). The Worker now decides with `APP_HELPER_MODEL`, whose default is `gpt-4o-mini` so nothing changes today, and logs `[MODEL] app named a model, Worker config wins` when the app's request disagrees. The 13 app side model strings are dead weight and can be removed in a later app release.
+
+## The vars
+
+Set in `wrangler.toml` `[vars]` or the Cloudflare dashboard. All unset today.
+
+| Var | Covers | Default |
+| --- | --- | --- |
+| `CHAT_MODEL` | Ask Gremly, Space, World, Chapter, Habit Builder, Entity chat streaming | `gemini-3-flash-preview` |
+| `HELPER_MODEL` | every helper job below unless its own var is set | `gpt-4.1-mini` |
+| `MODEL_TRIAGE_MODE`, `MODEL_TRIAGE_SIGNALS`, `MODEL_LOADING_MESSAGE` | the pre generation calls in `triage.js` | helper |
+| `MODEL_RUNNING_SUMMARY`, `MODEL_CHAT_FULL_SUMMARY` | running and full chat summaries | helper |
+| `MODEL_CHAT_EXTRACTION` | Ask Gremly background extraction behind the Save items pill | helper |
+| `MODEL_GENERAL_GREETING`, `MODEL_ENTITY_CHAT_SHORT` | home screen greeting, short entity chat replies | helper |
+| `MODEL_HABIT_PREPARSE`, `MODEL_HABIT_FIELDS`, `MODEL_FLOOR_SUGGEST` | Habit Builder and floor suggestions | helper |
+| `MODEL_JOURNAL_ANALYZE`, `MODEL_SWEEP_HEADLINE`, `MODEL_CLASSIFY_PHASE1` | journal analysis, sweep headline, Mind Drop v2 chain | helper |
+| `APP_HELPER_MODEL` | generic non streaming path called by app builds | `gpt-4o-mini` |
+| `LEGACY_OPENAI_CHAT_MODEL` | non streaming fallback for Space, World, Chapter | `gpt-4.1` |
+| `WEEKLY_SUMMARY_MODEL` | weekly summary | `claude-sonnet-4-5-20250929` |
+
+`NANO_MODEL`, `MINI_MODEL`, `HAIKU_MODEL`, `SONNET_MODEL`, `GEMINI_FLASH_LITE_MODEL` and the `CLASSIFY_*` vars keep working as before; their defaults live in `models.js` too.
+
+## Still to confirm
+
+`EXPO_PUBLIC_CORTEX_MODEL` in the EAS production environment. If it is unset or `gpt-4o-mini`, the generic path is unchanged. If it names anything else, `APP_HELPER_MODEL` should be set to that value before this deploys.
+
+## Next
+
+Corpus test of the helper jobs (triage mode and depth, extraction, summaries) on real chat turns, four models against the current `gpt-4.1-mini`; then the chat corpus gate for `CHAT_MODEL`. Winners go in as vars, not code.
+
+## Added the same day: provider routing, usage logs, the split behind flags
+
+- `workers/cortex/helperClient.js`: every helper job goes through `helperFetch(job, body)`. An OpenAI model is sent exactly as before; a reasoning model gets `max_completion_tokens`, its lowest reasoning effort and no temperature; a Gemini model is translated to generateContent and answered in the OpenAI reply shape. `HELPER_FALLBACK_MODEL` retries a failed call once on another model.
+- `[USAGE]` log lines from `geminiClient.js` on every Gemini call: input, cached, output and thinking tokens, time, and the lane (`label`).
+- Flags, all default to today's behaviour: `TRIAGE_ONE_CALL`, `CHAT_EXTRACTION_V2`, `SEARCH_REQUIRED_FORCES`. What each does is in `models.js` and `wrangler.toml`. The proposed production setting is listed, commented out, in `wrangler.toml`; it goes live together after the chat corpus gate.
+
+## Live setting (29 Sep 2026)
+
+`wrangler.toml` now sets the split: `CHAT_MODEL=gemini-3.8-flash`, `HELPER_MODEL=gpt-6-luna`, `HELPER_FALLBACK_MODEL=gemini-3.8-flash`, `TRIAGE_ONE_CALL=on`, `CHAT_EXTRACTION_V2=on`, `SEARCH_REQUIRED_FORCES=off`, and `ENTITY_CARDS=on` for the entity card in chat (`workers/cortex/entityMatch.js`; the app side is `components/chat/EntityCardMessage.tsx` and `lib/chat/entityCards.ts`). James chose to judge the chat tone in the app rather than by a replay. To go back to the previous behaviour, comment those lines out and deploy.
+
+## Live setting, later on 29 Sep 2026: the reply path back on the old models
+
+The live test found the chat tone had changed: more turns landed in the action plan and prioritisation templates, replies ended without carrying the conversation, and the voice read as instructions. On the 500 test turns, the one Luna triage call picks action_ready 66 times against 48 for the previous two gpt-4.1-mini calls (gold accepts 113), so part of that shift is measured; the chat model change itself was never put through a corpus gate. `wrangler.toml` therefore sets `CHAT_MODEL=gemini-3-flash-preview`, `MODEL_TRIAGE_MODE`, `MODEL_TRIAGE_SIGNALS` and `MODEL_LOADING_MESSAGE` to `gpt-4.1-mini`, and `TRIAGE_ONE_CALL=off`: the reply path as it ran before 29 Sep. Extraction, summaries and the entity matcher stay on Luna (`HELPER_MODEL`). Moving the reply to Gemini 3.8 Flash again is a corpus gate job on real conversations, not a var flip.
+
+The reply prompt also gained two sections this day: `=== WHAT YOU CAN DO WITH THEIR ITEMS ===` (Gremly can change items through the card; it never says it cannot edit them) and `=== THEIR RELATED ITEMS ===` (the user's items whose wording matches the message, so the reply can say one already exists or is overdue; never an offer, the pill does that). The action_ready template no longer ends on a fixed slogan.
+
+## The cohesive model (evening of 29 Sep 2026)
+
+One item list per turn (`entityMatch.js matchEntity`): the user's live todos, habits and notes are fetched once and feed three things. The reply gets `=== WHAT THEY HAVE ON ===`: items whose wording matches the message (two words in common, or a whole short title) and what is due this week or slipped in the last month, with permission to say so and to offer the natural next step for one item; in feelings turns (emotional, venting, celebration, chit chat, playful, app help) only items the user named outright. The card is the confirmation for any concrete change: asked for, it takes the reply over (one line); said in passing ("I should call Kim and Andrew by end of week" against the todo Call Kim and Andrew), it sits under a normal reply that mentions it. A short "yes" points at what Gremly named in its last reply. The Save items pill reconciles against the same list before it offers anything: the same thing in other words is never new (a note gets "add to", a todo or habit is left to its edit), an item this turn's card covers is not offered as new, and an edit to something the user never spoke about is not offered. Journal entries are never candidates.
+
+Proven on a replay of the day's nine real Ask Gremly conversations (`scripts/chat-audit/replay-cohesive.mjs`, results in `results/replay_cohesive.json`) before deploy, with the real prompt builders and the real item list; the life map and session context blocks and web search are the only parts of the Worker the replay does not run.
+
+## Superseded the same evening: no pattern matching anywhere in the chat path
+
+The cohesive model above shortlisted items by word overlap and gated cards and the pill with word counts, which broke on the first message outside the transcripts it was tuned on. James's rule from this point: nothing in the AI path decides meaning by matching words or phrases, no examples in prompts, and never a guard to hide a symptom.
+
+What replaced it, all in `entityMatch.js` and `chatPrompts.js`: the matcher receives the user's whole live list every turn (fetch caps 300 todos, 100 habits, 300 notes; journal entries left out by their subtype), the last three exchanges and the item on the last card, and decides by meaning which item if any the message is about, whether it is a request, news, a completion or a request to see it, the date counted from today, and which items the message is about (`about`), which is what the reply is told. The date rule is a meaning rule: the one day the words point to, a period's last day for a deadline, a short span's first day, null when several days are equally possible, and the card then asks. An explicit request to add to a note is a card (`body_add`); details said in passing go to the pill. The word-overlap ranking, the "named in last reply" detection, the title gate and the two word-overlap duplicate filters are deleted. The pill's duplicate handling is the extractor's own judgement (`same_as`), told what the message is about and what this turn's card already covers, plus an independent same-thing check against the same list (`checkNewAgainstTracked`). The reply is told days in words (today, tomorrow, Friday) and never to claim a change was made.
+
+What stays deterministic, confirmed by James: the confidence floors (70 to act, 80 for a plain view card); an explicit ask takes the reply over and a plan said in passing sits under a normal reply; the feelings-mode gate on the pill and on the item list; the attention window of seven days ahead and thirty behind; the evidence check that a quoted evidence string really appears in a user message; the fetch caps by recency. Beyond a few hundred items the non-pattern way to shortlist is semantic retrieval, a later step.
+
+Proof is a scenario set written before running anything, for a synthetic person and list (`scripts/chat-audit/data/scenarios.json`, runner `scenario-run.mjs`), run with the real models, and James's own chats and test messages as a separate check (`data/james_check.json`). Results and verdicts: `results/scenarios.json`, `results/james_check.json`, `results/verdicts.json`, page built by `build-scenario-page.mjs`. Nothing is tuned on the check set.
+
+`CHAT_PILL_SPLIT=on`: the Save items pill is its own focused call (`buildPillPrompt`: what is new to the list and what has changed, meaning rules, no examples) and the chat title a separate small call (`buildSummaryPrompt`), both after the reply in parallel. Measured against the single four-job call on the cases that missed: the add-to for a note went from two of three runs to three of three, a todo plus a duplicate event from one sentence stopped, progress is no longer read as completion, and a request to be reminded is always a todo; one plain new todo next to a related listed item still comes back empty in about one run in three.
+
+## Night of 29 Sep 2026: live test fixes and the matcher model
+
+James's manual tests found four things. A new Ask Gremly chat sent the previous chat's messages as its history (a stale hook state during the 200ms hand-off in `AskGremlyScreen`), so titles, replies and the pill leaked between chats; fixed in the app (`useChatMessages` drops the old chat's messages the moment the chat changes, and the first message of a new chat sends no history). A low-confidence match became a which-one card padded with whatever was next on the list (the two most recently touched todos); now the model's own alternatives are the choice, else the one item is shown and Gremly checks it is the one (`intent: 'confirm'`). A todo keeps notes, so an explicit add is a card there too (`body_add` on todos: worker fields, pill fields, app apply and undo). The reply narrated cards ("I'll set up a card"); it is now told to speak about the item and the change, never about cards, buttons or tapping, never to promise, and never to say something is on the list unless it is.
+
+The matcher model: with the whole list in view (140 items), Luna found "Plan Christmas In California" for "the Christmas in California note" in about half of runs and otherwise did not see it at all, even with an explicit read-the-whole-list step (`considered`). Gemini 3.8 Flash found it every time, at the same latency (median about 1.0s against 1.2s), scored the same on the synthetic set (32 of 35) and better on James's set (no view cards on research asks, no card on the broad "mind drop and chat by end of week" goal). `MODEL_ENTITY_MATCH = "gemini-3.8-flash"` in `wrangler.toml`; everything else on the helper stays on Luna.

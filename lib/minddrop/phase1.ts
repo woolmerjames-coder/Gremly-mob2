@@ -19,6 +19,8 @@ import type { HabitSubtype } from '../types';
 import { FEATURE_FLAGS } from '../config/featureFlags';
 import { env, getEnv } from '../env';
 import { getSessionToken } from '../cortex/getSessionToken';
+import { dateService, getDateService } from '../date/DateService';
+import { mapWorkerOptions, normalizeAmbiguityType } from './clarification';
 
 // --- Types ---
 
@@ -267,4 +269,161 @@ export async function runPhase1(
     clarification_options: apiResult.clarification_options || null,
     reminder_intent: apiResult.reminder_intent === true,
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// classify-v3: single-call classifier
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** detect-multi compatible shape, so handleQueued can use v3 for both. */
+export interface ClassifyV3Multi {
+  is_multi: boolean;
+  segments?: Array<{
+    text: string;
+    bucket: MindDropBucket;
+    subtype: LogSubtype | null;
+    habitSubtype: HabitSubtype | null;
+    likely_bucket?: string;
+    likely_subtype?: string | null;
+  }>;
+  summary?: string;
+  dominant_bucket?: string;
+  dominant_subtype?: string | null;
+}
+
+export interface ClassifyV3Result {
+  phase1: Phase1Result;
+  multi: ClassifyV3Multi;
+  latencyMs: number | null;
+}
+
+/**
+ * Run the single-call classify-v3 endpoint. One request returns the
+ * classification, the multi split and, when ambiguous, the clarifying
+ * question and options.
+ *
+ * Returns null on ANY failure (disabled, non-OK, bad shape, network) so the
+ * caller can fall back to the v2 path (detect-multi + classify-phase1-v2).
+ * Timeouts are applied by the caller (dropPhases.ts).
+ */
+export async function runClassifyV3(
+  text: string,
+  context: ClassifyContext = {},
+  timeoutMs?: number,
+): Promise<ClassifyV3Result | null> {
+  const cortexUrl = readCortexUrl();
+  if (!cortexUrl || !text?.trim()) return null;
+
+  // Abort the request itself on timeout so a slow call does not keep running
+  // in the background after the pipeline has moved on to the v2 fallback.
+  const controller =
+    timeoutMs && typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const abortTimer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+
+  try {
+    const sessionToken = await getSessionToken();
+    const ds = getDateService();
+    const dayOfWeek = new Intl.DateTimeFormat('en-US', {
+      weekday: 'long',
+      timeZone: ds.getTimezone(),
+    }).format(ds.now());
+
+    const res = await fetch(cortexUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(sessionToken && { Authorization: `Bearer ${sessionToken}` }),
+      },
+      body: JSON.stringify({
+        type: 'classify-v3',
+        text,
+        hasUserSelectedDate: context.hasUserSelectedDate === true,
+        currentDate: dateService.today(),
+        dayOfWeek,
+        timezone: ds.getTimezone(),
+      }),
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+
+    if (!res.ok) {
+      console.log('[ClassifyV3] non-OK, falling back to v2', { status: res.status });
+      return null;
+    }
+
+    const json = await res.json();
+    const validBuckets = ['todo', 'habit', 'log'];
+    if (!json || !validBuckets.includes(json.bucket)) {
+      console.log('[ClassifyV3] bad shape, falling back to v2');
+      return null;
+    }
+
+    const bucket = json.bucket as MindDropBucket;
+    const isAmbiguous = json.is_ambiguous === true;
+    const options = isAmbiguous ? mapWorkerOptions(json.clarification_options, 'log') : null;
+
+    const phase1: Phase1Result = {
+      bucket,
+      subtype: (bucket === 'log' ? (json.subtype ?? 'general') : null) as LogSubtype | null,
+      habitSubtype: (bucket === 'habit'
+        ? (json.habitSubtype ?? 'start_habit')
+        : null) as HabitSubtype | null,
+      confidence: typeof json.confidence === 'number' ? json.confidence : 0.8,
+      source: 'api',
+      engine: 'v3',
+      is_multi: false,
+      classificationDegraded: false,
+      classificationSource: json.was_fallback ? 'v3-fallback-model' : 'v3',
+      is_ambiguous: isAmbiguous,
+      ambiguity_type: isAmbiguous ? normalizeAmbiguityType(json.ambiguity_type) : null,
+      ambiguity_reason: json.ambiguity_reason ?? null,
+      plausible_interpretations: json.plausible_interpretations ?? null,
+      needs_clarification: isAmbiguous,
+      clarification_question:
+        isAmbiguous && typeof json.clarification_question === 'string'
+          ? json.clarification_question
+          : null,
+      clarification_options: options,
+      reminder_intent: json.reminder_intent === true,
+    };
+
+    const segments = Array.isArray(json.segments) ? json.segments : [];
+    const multi: ClassifyV3Multi =
+      json.is_multi === true && segments.length > 1
+        ? {
+            is_multi: true,
+            segments: segments.map((seg: any) => ({
+              text: String(seg.text || ''),
+              bucket: (validBuckets.includes(seg.bucket) ? seg.bucket : 'log') as MindDropBucket,
+              subtype: seg.subtype ?? null,
+              habitSubtype: seg.habitSubtype ?? null,
+              likely_bucket: seg.likely_bucket ?? seg.bucket,
+              likely_subtype: seg.likely_subtype ?? seg.subtype ?? null,
+            })),
+            summary: json.summary || text.substring(0, 60),
+            dominant_bucket: json.dominant_bucket || 'log',
+            dominant_subtype: json.dominant_subtype ?? null,
+          }
+        : { is_multi: false };
+
+    console.log('[ClassifyV3] result', {
+      bucket: phase1.bucket,
+      subtype: phase1.subtype,
+      is_ambiguous: isAmbiguous,
+      ambiguity_type: phase1.ambiguity_type,
+      is_multi: multi.is_multi,
+      model: json.model,
+      latency_ms: json.latency_ms,
+    });
+
+    return {
+      phase1,
+      multi,
+      latencyMs: typeof json.latency_ms === 'number' ? json.latency_ms : null,
+    };
+  } catch (err) {
+    console.log('[ClassifyV3] request failed, falling back to v2', { error: String(err) });
+    return null;
+  } finally {
+    if (abortTimer) clearTimeout(abortTimer);
+  }
 }

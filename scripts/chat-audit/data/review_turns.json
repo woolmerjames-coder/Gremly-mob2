@@ -1,0 +1,703 @@
+[
+ {
+  "id": "15693141",
+  "by": "adjudicator",
+  "depth": "standard",
+  "depth_ok": [
+   "standard",
+   "detailed"
+  ]
+ },
+ {
+  "id": "57834537",
+  "by": "adjudicator",
+  "mode": "action_ready",
+  "mode_ok": [
+   "action_ready"
+  ],
+  "depth": "standard",
+  "depth_ok": [
+   "standard"
+  ]
+ },
+ {
+  "id": "73533281",
+  "by": "adjudicator",
+  "depth": "brief",
+  "depth_ok": [
+   "brief"
+  ]
+ },
+ {
+  "id": "74809314",
+  "by": "adjudicator",
+  "depth": "standard",
+  "depth_ok": [
+   "standard"
+  ]
+ },
+ {
+  "id": "6c1042c4",
+  "by": "adjudicator",
+  "mode": "action_ready",
+  "mode_ok": [
+   "action_ready"
+  ]
+ },
+ {
+  "id": "506a8ce8",
+  "by": "adjudicator",
+  "mode": "action_ready",
+  "mode_ok": [
+   "action_ready"
+  ]
+ },
+ {
+  "id": "e8706f46",
+  "by": "adjudicator",
+  "search": "maybe",
+  "search_ok": [
+   "maybe",
+   "none"
+  ]
+ },
+ {
+  "id": "03a4edd7",
+  "by": "adjudicator",
+  "depth": "standard",
+  "depth_ok": [
+   "standard",
+   "brief"
+  ]
+ },
+ {
+  "id": "dced8c8c",
+  "by": "adjudicator",
+  "mode": "app_help",
+  "mode_ok": [
+   "app_help",
+   "update"
+  ]
+ },
+ {
+  "id": "ebcd1e2b",
+  "by": "adjudicator",
+  "mode": "prioritization",
+  "mode_ok": [
+   "prioritization"
+  ]
+ },
+ {
+  "id": "24e0146b",
+  "by": "adjudicator",
+  "depth": "detailed",
+  "depth_ok": [
+   "detailed",
+   "standard"
+  ]
+ },
+ {
+  "id": "083cd25e",
+  "by": "adjudicator",
+  "depth": "brief",
+  "depth_ok": [
+   "brief",
+   "standard"
+  ]
+ },
+ {
+  "id": "34b6a4f0",
+  "by": "adjudicator",
+  "mode": "app_help",
+  "mode_ok": [
+   "app_help",
+   "quick_ask"
+  ]
+ },
+ {
+  "id": "f9641093",
+  "by": "adjudicator",
+  "mode": "emotional",
+  "mode_ok": [
+   "emotional",
+   "exploratory"
+  ]
+ },
+ {
+  "id": "13628fff",
+  "by": "adjudicator",
+  "mode": "app_help",
+  "mode_ok": [
+   "app_help",
+   "quick_ask"
+  ]
+ },
+ {
+  "id": "094ca2e8",
+  "by": "adjudicator",
+  "mode": "action_ready",
+  "mode_ok": [
+   "action_ready"
+  ]
+ },
+ {
+  "id": "3eb530d1",
+  "by": "adjudicator",
+  "mode": "action_ready",
+  "mode_ok": [
+   "action_ready",
+   "research"
+  ]
+ },
+ {
+  "id": "05777715",
+  "by": "adjudicator",
+  "search": "maybe",
+  "search_ok": [
+   "maybe"
+  ]
+ },
+ {
+  "id": "bfad332c",
+  "by": "adjudicator",
+  "mode": "prioritization",
+  "mode_ok": [
+   "prioritization",
+   "emotional"
+  ],
+  "unsure": [
+   "mode"
+  ]
+ },
+ {
+  "id": "6624eaaa",
+  "by": "adjudicator",
+  "mode": "action_ready",
+  "mode_ok": [
+   "action_ready",
+   "research"
+  ]
+ },
+ {
+  "id": "82a5e9a1",
+  "by": "adjudicator",
+  "mode": "exploratory",
+  "mode_ok": [
+   "exploratory"
+  ]
+ },
+ {
+  "id": "facd8fda",
+  "by": "adjudicator",
+  "mode": "action_ready",
+  "mode_ok": [
+   "action_ready"
+  ]
+ },
+ {
+  "id": "66a37b2d",
+  "by": "adjudicator",
+  "search": "maybe",
+  "search_ok": [
+   "maybe"
+  ]
+ },
+ {
+  "id": "f644a9d7",
+  "by": "adjudicator",
+  "depth": "brief",
+  "depth_ok": [
+   "brief",
+   "standard"
+  ]
+ },
+ {
+  "id": "438e2cd0",
+  "by": "adjudicator",
+  "search": "maybe",
+  "search_ok": [
+   "maybe",
+   "none"
+  ]
+ },
+ {
+  "id": "3bb398b3",
+  "by": "adjudicator",
+  "mode": "research",
+  "mode_ok": [
+   "research",
+   "emotional"
+  ],
+  "unsure": [
+   "mode"
+  ]
+ },
+ {
+  "id": "f58b8aa3",
+  "by": "adjudicator",
+  "depth": "brief",
+  "depth_ok": [
+   "brief",
+   "standard"
+  ]
+ },
+ {
+  "id": "9b03db5e",
+  "by": "adjudicator",
+  "mode": "research",
+  "mode_ok": [
+   "research",
+   "exploratory"
+  ]
+ },
+ {
+  "id": "7edab017",
+  "by": "adjudicator",
+  "search": "required",
+  "search_ok": [
+   "required",
+   "maybe"
+  ]
+ },
+ {
+  "id": "d98b96e9",
+  "by": "adjudicator",
+  "search": "required",
+  "search_ok": [
+   "required"
+  ]
+ },
+ {
+  "id": "6ab1f358",
+  "by": "adjudicator",
+  "search": "maybe",
+  "search_ok": [
+   "maybe",
+   "required"
+  ]
+ },
+ {
+  "id": "afe16dde",
+  "by": "adjudicator",
+  "depth": "standard",
+  "depth_ok": [
+   "standard"
+  ]
+ },
+ {
+  "id": "f0051e0d",
+  "by": "adjudicator",
+  "mode": "chit_chat",
+  "mode_ok": [
+   "chit_chat",
+   "quick_ask"
+  ]
+ },
+ {
+  "id": "721c28c0",
+  "by": "adjudicator",
+  "mode": "research",
+  "mode_ok": [
+   "research",
+   "action_ready"
+  ]
+ },
+ {
+  "id": "a940d59d",
+  "by": "adjudicator",
+  "mode": "research",
+  "mode_ok": [
+   "research",
+   "emotional"
+  ],
+  "unsure": [
+   "mode"
+  ],
+  "depth": "standard",
+  "depth_ok": [
+   "standard",
+   "brief"
+  ]
+ },
+ {
+  "id": "1d5290cd",
+  "by": "adjudicator",
+  "search": "maybe",
+  "search_ok": [
+   "maybe",
+   "required"
+  ]
+ },
+ {
+  "id": "4e20d964",
+  "by": "adjudicator",
+  "mode": "capture",
+  "mode_ok": [
+   "capture"
+  ]
+ },
+ {
+  "id": "e7283749",
+  "by": "adjudicator",
+  "mode": "comparison",
+  "mode_ok": [
+   "comparison",
+   "quick_ask"
+  ]
+ },
+ {
+  "id": "685c80c8",
+  "by": "adjudicator",
+  "mode": "capture",
+  "mode_ok": [
+   "capture",
+   "emotional"
+  ],
+  "unsure": [
+   "mode"
+  ]
+ },
+ {
+  "id": "bc7d1e7f",
+  "by": "adjudicator",
+  "mode": "quick_ask",
+  "mode_ok": [
+   "quick_ask",
+   "research"
+  ],
+  "depth": "brief",
+  "depth_ok": [
+   "brief",
+   "standard"
+  ]
+ },
+ {
+  "id": "3442f538",
+  "by": "adjudicator",
+  "search": "maybe",
+  "search_ok": [
+   "maybe",
+   "required"
+  ]
+ },
+ {
+  "id": "209212f8",
+  "by": "adjudicator",
+  "search": "none",
+  "search_ok": [
+   "none",
+   "maybe"
+  ]
+ },
+ {
+  "id": "c4a13597",
+  "by": "adjudicator",
+  "depth": "brief",
+  "depth_ok": [
+   "brief",
+   "standard"
+  ]
+ },
+ {
+  "id": "2b47ff6f",
+  "by": "adjudicator",
+  "mode": "capture",
+  "mode_ok": [
+   "capture"
+  ]
+ },
+ {
+  "id": "1c80e8e5",
+  "by": "adjudicator",
+  "search": "none",
+  "search_ok": [
+   "none",
+   "maybe"
+  ]
+ },
+ {
+  "id": "fb8237e7",
+  "by": "adjudicator",
+  "depth": "brief",
+  "depth_ok": [
+   "brief",
+   "standard"
+  ]
+ },
+ {
+  "id": "02ead4e0",
+  "by": "adjudicator",
+  "mode": "action_ready",
+  "mode_ok": [
+   "action_ready"
+  ]
+ },
+ {
+  "id": "f1bd33eb",
+  "by": "adjudicator",
+  "mode": "research",
+  "mode_ok": [
+   "research",
+   "action_ready"
+  ]
+ },
+ {
+  "id": "11c7919c",
+  "by": "adjudicator",
+  "depth": "standard",
+  "depth_ok": [
+   "standard"
+  ]
+ },
+ {
+  "id": "72d7ca99",
+  "by": "adjudicator",
+  "mode": "prioritization",
+  "mode_ok": [
+   "prioritization",
+   "research"
+  ]
+ },
+ {
+  "id": "1e756474",
+  "by": "adjudicator",
+  "search": "maybe",
+  "search_ok": [
+   "maybe"
+  ]
+ },
+ {
+  "id": "74407f46",
+  "by": "adjudicator",
+  "depth": "brief",
+  "depth_ok": [
+   "brief",
+   "standard"
+  ]
+ },
+ {
+  "id": "34c904ae",
+  "by": "adjudicator",
+  "mode": "update",
+  "mode_ok": [
+   "update"
+  ]
+ },
+ {
+  "id": "b47646d9",
+  "by": "adjudicator",
+  "depth": "standard",
+  "depth_ok": [
+   "standard",
+   "brief"
+  ]
+ },
+ {
+  "id": "a0b11d1f",
+  "by": "adjudicator",
+  "search": "required",
+  "search_ok": [
+   "required",
+   "maybe"
+  ]
+ },
+ {
+  "id": "e68646eb",
+  "by": "adjudicator",
+  "mode": "quick_ask",
+  "mode_ok": [
+   "quick_ask",
+   "research"
+  ],
+  "depth": "brief",
+  "depth_ok": [
+   "brief",
+   "standard"
+  ]
+ },
+ {
+  "id": "0319a2da",
+  "by": "adjudicator",
+  "search": "none",
+  "search_ok": [
+   "none",
+   "maybe"
+  ]
+ },
+ {
+  "id": "ff841694",
+  "by": "adjudicator",
+  "mode": "action_ready",
+  "mode_ok": [
+   "action_ready"
+  ]
+ },
+ {
+  "id": "9d051e1a",
+  "by": "adjudicator",
+  "search": "required",
+  "search_ok": [
+   "required",
+   "maybe"
+  ]
+ },
+ {
+  "id": "cb04a0b5",
+  "by": "adjudicator",
+  "depth": "brief",
+  "depth_ok": [
+   "brief",
+   "standard"
+  ],
+  "search": "maybe",
+  "search_ok": [
+   "maybe",
+   "none"
+  ]
+ },
+ {
+  "id": "ba1f00ea",
+  "by": "adjudicator",
+  "mode": "research",
+  "mode_ok": [
+   "research",
+   "quick_ask"
+  ],
+  "depth": "standard",
+  "depth_ok": [
+   "standard",
+   "brief"
+  ],
+  "search": "required",
+  "search_ok": [
+   "required",
+   "maybe"
+  ]
+ },
+ {
+  "id": "bf099179",
+  "by": "adjudicator",
+  "search": "none",
+  "search_ok": [
+   "none",
+   "maybe"
+  ]
+ },
+ {
+  "id": "b4ebc15f",
+  "by": "adjudicator",
+  "depth": "standard",
+  "depth_ok": [
+   "standard"
+  ]
+ },
+ {
+  "id": "5bd58547",
+  "by": "adjudicator",
+  "mode": "exploratory",
+  "mode_ok": [
+   "exploratory",
+   "emotional"
+  ]
+ },
+ {
+  "id": "fb2813be",
+  "by": "adjudicator",
+  "mode": "research",
+  "mode_ok": [
+   "research",
+   "quick_ask"
+  ]
+ },
+ {
+  "id": "34b6777d",
+  "by": "adjudicator",
+  "mode": "app_help",
+  "mode_ok": [
+   "app_help",
+   "venting"
+  ],
+  "unsure": [
+   "mode"
+  ]
+ },
+ {
+  "id": "fb35ff66",
+  "by": "adjudicator",
+  "mode": "research",
+  "mode_ok": [
+   "research",
+   "quick_ask"
+  ]
+ },
+ {
+  "id": "586b7bd4",
+  "by": "adjudicator",
+  "mode": "action_ready",
+  "mode_ok": [
+   "action_ready"
+  ]
+ },
+ {
+  "id": "1a6a6fa7",
+  "by": "adjudicator",
+  "depth": "brief",
+  "depth_ok": [
+   "brief",
+   "standard"
+  ]
+ },
+ {
+  "id": "ba36d5d7",
+  "by": "adjudicator",
+  "mode": "action_ready",
+  "mode_ok": [
+   "action_ready",
+   "research"
+  ],
+  "search": "none",
+  "search_ok": [
+   "none",
+   "maybe"
+  ]
+ },
+ {
+  "id": "f9c2cbcc",
+  "by": "adjudicator",
+  "mode": "research",
+  "mode_ok": [
+   "research"
+  ],
+  "depth": "standard",
+  "depth_ok": [
+   "standard",
+   "brief"
+  ]
+ },
+ {
+  "id": "212f6b51",
+  "by": "adjudicator",
+  "search": "required",
+  "search_ok": [
+   "required",
+   "maybe"
+  ]
+ },
+ {
+  "id": "8b2b0936",
+  "by": "adjudicator",
+  "depth": "standard",
+  "depth_ok": [
+   "standard"
+  ]
+ },
+ {
+  "id": "3b793565",
+  "by": "adjudicator",
+  "depth": "brief",
+  "depth_ok": [
+   "brief",
+   "standard"
+  ]
+ }
+]

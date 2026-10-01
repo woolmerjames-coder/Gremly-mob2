@@ -13,6 +13,7 @@ import { formatFrequencyLabel, formatDueDateLabel } from '../src/lib/formatters/
 import { useAuth } from '../providers/AuthProvider';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
 import { nowTimestamp } from '../lib/date/DateService';
+import { applyEntityChange, lateCardAlreadyShown, pendingTwinOf } from '../lib/chat/entityCards';
 
 /**
  * Generate a chat title from the first user message.
@@ -71,6 +72,17 @@ export interface UseChatMessagesResult {
     entity: Record<string, any>,
     entityType: 'note' | 'todo' | 'habit' | 'person',
   ) => Promise<SpaceChatMessage | undefined>;
+  /** Entity card in chat: persist the card the worker proposed as a system message. */
+  appendEntityCard: (
+    card: import('../lib/types').EntityCard,
+    opts?: { status?: import('../lib/types').EntityCardStatus; summary?: string },
+  ) => Promise<SpaceChatMessage | undefined>;
+  /** Entity card in chat: persist what the user did with it, plus Gremly's closing line. */
+  setEntityCardStatus: (
+    messageId: string,
+    status: import('../lib/types').EntityCardStatus,
+    summary?: string,
+  ) => Promise<void>;
   removeMessage: (messageId: string) => void;
   updateMessage: (messageId: string, updates: Partial<SpaceChatMessage>) => void;
   // Streaming support
@@ -129,11 +141,23 @@ export function useChatMessages(
 
   const chatRepo = useMemo(() => new SupabaseSpaceChatRepo(user?.id), [user?.id]);
 
-  // Update currentChatId if chatId prop changes
+  // Update currentChatId if chatId prop changes. Moving from one chat to
+  // another, or back to the empty state, drops the old chat's messages at
+  // once, so nothing sent from the next chat carries the last one's history.
+  const previousChatIdRef = useRef<string | undefined>(chatId);
   useEffect(() => {
+    const previous = previousChatIdRef.current;
+    previousChatIdRef.current = chatId;
+    if (previous && previous !== chatId) {
+      setMessages([]);
+      saveableDataRef.current.clear();
+    }
     if (chatId) {
       setCurrentChatId(chatId);
       currentChatIdRef.current = chatId;
+    } else if (previous) {
+      setCurrentChatId(null);
+      currentChatIdRef.current = null;
     }
   }, [chatId]);
 
@@ -594,6 +618,105 @@ export function useChatMessages(
     [currentChatId, spaceId, user?.id, messageRepo],
   );
 
+  // the messages as of the last render, for callbacks that run between renders
+  const messagesRef = useRef<SpaceChatMessage[]>(messages);
+  messagesRef.current = messages;
+
+  const appendEntityCard = useCallback(
+    async (
+      card: import('../lib/types').EntityCard,
+      opts: { status?: import('../lib/types').EntityCardStatus; summary?: string } = {},
+    ): Promise<SpaceChatMessage | undefined> => {
+      const targetChatId = currentChatIdRef.current || currentChatId;
+      if (!card || !targetChatId || !user?.id) return undefined;
+      // The same change offered again while its card is still waiting: the
+      // user has said yes in words, so that card is tapped for them instead of
+      // a second copy appearing.
+      if (lateCardAlreadyShown(messagesRef.current, card)) return undefined;
+      const twin = pendingTwinOf(messagesRef.current, card);
+      if (twin && card.kind === 'edit') {
+        try {
+          const applied = await applyEntityChange(card.entity, card.change);
+          await setEntityCardStatusRef.current?.(twin.id, 'applied', `Done. ${applied.summary}`);
+          return twin;
+        } catch (err) {
+          console.warn('[useChatMessages] Could not apply the waiting card', err);
+        }
+      }
+      try {
+        const title =
+          card.kind === 'choose' ? `${card.candidates.length} items` : card.entity.title;
+        const input: SpaceChatMessageInsert = {
+          chat_id: targetChatId,
+          scope_id: spaceId,
+          role: 'system',
+          content: `Entity card: ${title}`,
+          metadata_json: {
+            type: 'entity-card',
+            card,
+            status: opts.status || 'pending',
+            ...(opts.summary ? { summary: opts.summary } : {}),
+          },
+        };
+        const newMessage = await messageRepo.append(input);
+        setMessages((prev) => [...prev, newMessage]);
+        return newMessage;
+      } catch (err) {
+        console.error('Failed to append entity card:', err);
+        return undefined;
+      }
+    },
+    [currentChatId, spaceId, user?.id, messageRepo],
+  );
+
+  const setEntityCardStatus = useCallback(
+    async (
+      messageId: string,
+      status: import('../lib/types').EntityCardStatus,
+      summary?: string,
+    ): Promise<void> => {
+      // Read the card from the ref, not inside the state updater: React may run
+      // an updater later (when other updates are queued), and then the status
+      // was never saved, so the card came back as waiting after a reload and
+      // the next turn told Gremly nothing had changed.
+      const current = messagesRef.current.find((m) => m.id === messageId);
+      if (!current) return;
+      const nextSummary = summary ?? current.metadata_json?.summary ?? null;
+      const nextMeta: Record<string, unknown> = {
+        ...(current.metadata_json || {}),
+        status,
+        summary: nextSummary,
+      };
+      messagesRef.current = messagesRef.current.map((m) =>
+        m.id === messageId
+          ? { ...m, metadata_json: nextMeta as SpaceChatMessage['metadata_json'] }
+          : m,
+      );
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? {
+                ...m,
+                metadata_json: {
+                  ...(m.metadata_json || {}),
+                  status,
+                  summary: nextSummary,
+                } as SpaceChatMessage['metadata_json'],
+              }
+            : m,
+        ),
+      );
+      try {
+        await messageRepo.update(messageId, { metadata_json: nextMeta });
+      } catch (err) {
+        console.warn('[useChatMessages] Could not persist entity card status', err);
+      }
+    },
+    [messageRepo],
+  );
+  const setEntityCardStatusRef = useRef(setEntityCardStatus);
+  setEntityCardStatusRef.current = setEntityCardStatus;
+
   // Load messages on mount and when currentChatId changes
   useEffect(() => {
     refresh();
@@ -722,6 +845,8 @@ export function useChatMessages(
     appendActionConfirmation,
     appendEntryCard,
     appendSavedItemCard,
+    appendEntityCard,
+    setEntityCardStatus,
     removeMessage,
     updateMessage,
     // Streaming support

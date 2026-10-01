@@ -51,7 +51,7 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
   const mockUseGremlyStore = (selector: (state: any) => any) => {
     const state = {
       todos: [],
-      notes: [],
+      notes: mockLiveNotes,
       habits: [],
       worlds: [],
       dropWorldLinks: [],
@@ -131,6 +131,8 @@ const mockUncompleteHabit = jest.fn();
 
 // Store todos/notes that will be used for edit overlay lookups
 let mockStoreTodos: any[] = [];
+// Notes as the store has them now (an answer earlier in the Sweep may have cleared one)
+let mockLiveNotes: any[] = [];
 let mockStoreNotes: any[] = [];
 
 // Mock Supabase client
@@ -345,6 +347,7 @@ describe('SweepFlowScreen - Decision Step', () => {
     mockCandidates = [];
     mockStoreTodos = [];
     mockStoreNotes = [];
+    mockLiveNotes = [];
   });
 
   describe('Intro Step', () => {
@@ -552,6 +555,23 @@ describe('SweepFlowScreen - Decision Step', () => {
   });
 
   describe('Completion State', () => {
+    it('passes over a card whose item an answer earlier in the Sweep cleared', async () => {
+      mockCandidates = [mockTodoCandidate, mockNoteCandidate];
+      mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate, mockNoteCandidate]);
+      mockLiveNotes = [{ ...mockNoteCandidate.raw, archived: true }];
+
+      const result = await renderAtDecisionStep();
+      await waitFor(() => {
+        result.getByText(/1 of 2 items/);
+      });
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
+
+      await waitFor(() => {
+        expect(result.getByText('Habits today')).toBeTruthy();
+      });
+      expect(result.queryByText('Test note')).toBeNull();
+    });
+
     it('auto-advances to habits step after all cards processed', async () => {
       mockCandidates = [mockTodoCandidate];
       mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate]);

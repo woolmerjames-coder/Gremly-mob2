@@ -12,9 +12,10 @@
  */
 
 import type { QueuedDrop, DropPhase } from './dropQueue';
-import { saveDrop, getQueue, updateDrop } from './dropQueue';
+import { saveDrop, getQueue } from './dropQueue';
 import { detectMulti } from './detectMulti';
-import { runPhase1 } from './phase1';
+import { runPhase1, runClassifyV3 } from './phase1';
+import { FEATURE_FLAGS } from '../config/featureFlags';
 import type { MindDropBucket, LogSubtype, Phase1Result } from './types';
 import type { Phase2MetadataResult } from './dropSync';
 import { syncDropToSupabase, syncMultiDropToSupabase } from './dropSync';
@@ -22,7 +23,20 @@ import { useGremlyStore } from '../store/useGremlyStore';
 import { eventBus } from '../events/EventBus';
 import { dateService, getDateService } from '../date/DateService';
 import { env, getEnv } from '../env';
-import { getSessionToken, getSessionTokenSync } from '../cortex/getSessionToken';
+import { getSessionToken } from '../cortex/getSessionToken';
+import {
+  fetchClarification,
+  hasUsableClarification,
+  normalizeAmbiguityType,
+  CLARIFY_TIMEOUT_MS,
+} from './clarification';
+import {
+  forgetDropRelation,
+  holdDropForRelation,
+  shouldRelate,
+  startDropRelation,
+  takeDropRelation,
+} from './relationActions';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // withTimeout helper
@@ -303,111 +317,15 @@ async function callPhase2b(
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// fireClarificationInBackground — Phase 1.5 (fire and forget)
-// ──────────────────────────────────────────────────────────────────────────────
-
-function fireClarificationInBackground(
-  localId: string,
-  text: string,
-  ambiguityType:
-    | 'bucket'
-    | 'date_type'
-    | 'vague_aspiration'
-    | 'habit_or_todo'
-    | 'action_or_memory'
-    | 'commitment_level'
-    | 'emotional_or_action'
-    | 'social_plan'
-    | 'scope'
-    | 'idea_or_commitment'
-    | string,
-  bucket: MindDropBucket,
-  ambiguityReason?: string | null,
-  plausibleInterpretations?: Array<{
-    bucket: string | null;
-    subtype?: string | null;
-    habitSubtype?: string | null;
-    dateField?: string | null;
-  }> | null,
-): void {
-  const cortexUrl = readCortexUrl();
-  if (!cortexUrl) return;
-
-  const sessionToken = getSessionTokenSync();
-  const detectedTemporal = extractTemporal(text);
-  const currentDate = dateService.today();
-
-  // Fire and forget — no await, no return value
-  fetch(cortexUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${sessionToken}`,
-    },
-    body: JSON.stringify({
-      type: 'clarify-ambiguity',
-      text,
-      ambiguityType,
-      ambiguityReason: ambiguityReason || undefined,
-      plausibleInterpretations: plausibleInterpretations || undefined,
-      detectedTemporal,
-      currentDate,
-      targetBucket: bucket,
-      userSpaces: Array.from(useGremlyStore.getState().spaces.values()).map((s: any) => s.name),
-    }),
-  })
-    .then(async (res) => {
-      if (!res.ok) return;
-      const result = await res.json();
-
-      if (result.success && result.options?.length >= 2) {
-        const clarificationOptions = result.options.map(
-          (opt: {
-            id: string;
-            label: string;
-            bucket: string;
-            subtype: string | null;
-            space_suggestion: string | null;
-          }) => ({
-            id: opt.id,
-            label: opt.label,
-            action: {
-              bucket: opt.bucket || bucket,
-              subtype: opt.subtype || null,
-              target_date: false,
-              scheduled_date: false,
-            },
-            space_suggestion: opt.space_suggestion || null,
-          }),
-        );
-
-        // Try queue first (drop still processing), then entity (already synced)
-        void updateDrop(localId, {
-          clarificationQuestion: result.clarification_question,
-          clarificationOptions: clarificationOptions,
-        }).catch(() => {
-          // Drop not in queue — may already be synced, try entity
-          useGremlyStore.getState().updateEntityClarificationByDropId(localId, {
-            question: result.clarification_question,
-            options: clarificationOptions,
-          });
-        });
-        console.log('[DropPhases] Phase 1.5 pushed options to drop', { localId });
-      }
-    })
-    .catch((err) => {
-      console.log('[DropPhases] Phase 1.5 background error', { localId, error: String(err) });
-    });
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
 // Phase Handlers (exported)
 // ──────────────────────────────────────────────────────────────────────────────
 
-export async function handleQueued(drop: QueuedDrop): Promise<QueuedDrop> {
-  const shouldCheckMulti = mightBeMulti(drop.text);
+// App side budget for classify-v3 (worker worst case is 5s primary + 4s fallback).
+export const CLASSIFY_V3_TIMEOUT_MS = 10000;
 
-  const [multiResult, phase1Result] = await Promise.all([
+async function classifyV2(drop: QueuedDrop) {
+  const shouldCheckMulti = mightBeMulti(drop.text);
+  return Promise.all([
     shouldCheckMulti
       ? withTimeout(detectMulti(drop.text), 6000, { is_multi: false })
       : Promise.resolve({ is_multi: false }),
@@ -417,6 +335,39 @@ export async function handleQueued(drop: QueuedDrop): Promise<QueuedDrop> {
       null,
     ),
   ]);
+}
+
+export async function handleQueued(drop: QueuedDrop): Promise<QueuedDrop> {
+  let multiResult: any = { is_multi: false };
+  let phase1Result: any = null;
+  let engine: 'v2' | 'v3' = 'v2';
+
+  // "Is this one you already have?" only needs the words: start it now, beside
+  // classification, so it is back before the drop needs it (relationActions.ts)
+  if (FEATURE_FLAGS.CLASSIFY_V3_ENABLED) startDropRelation(drop);
+
+  // v3: one call for classification + multi + clarification. Any failure
+  // (null) drops through to the v2 path below for this drop.
+  if (FEATURE_FLAGS.CLASSIFY_V3_ENABLED) {
+    const v3 = await withTimeout(
+      runClassifyV3(
+        drop.text,
+        { hasAttachments: false, hasUserSelectedDate: !!drop.prefillDate },
+        CLASSIFY_V3_TIMEOUT_MS,
+      ),
+      CLASSIFY_V3_TIMEOUT_MS + 250,
+      null,
+    );
+    if (v3) {
+      multiResult = v3.multi;
+      phase1Result = v3.phase1;
+      engine = 'v3';
+    }
+  }
+
+  if (!phase1Result) {
+    [multiResult, phase1Result] = await classifyV2(drop);
+  }
 
   if (phase1Result === null) {
     throw new Error('Classification timeout');
@@ -424,6 +375,7 @@ export async function handleQueued(drop: QueuedDrop): Promise<QueuedDrop> {
 
   console.log('[DropPhases] handleQueued complete', {
     localId: drop.localId,
+    engine,
     isMulti: (multiResult as any).is_multi,
     bucket: phase1Result.bucket,
     source: phase1Result.source,
@@ -431,6 +383,7 @@ export async function handleQueued(drop: QueuedDrop): Promise<QueuedDrop> {
 
   // Multi path
   if ((multiResult as any).is_multi && (multiResult as any).segments?.length > 1) {
+    forgetDropRelation(drop.localId);
     // Emit multi follow-up for speech bubble (no AI reaction for multi parent)
     console.log('[SpeechBubble] Emitting drop:reaction_ready for multi', { localId: drop.localId });
     eventBus.emit('drop:reaction_ready', {
@@ -443,6 +396,7 @@ export async function handleQueued(drop: QueuedDrop): Promise<QueuedDrop> {
     return {
       ...drop,
       phase: 'multi_detected',
+      classifyEngine: engine,
       isMulti: true,
       multiSegments: (multiResult as any).segments,
       multiSummary: (multiResult as any).summary || drop.text.substring(0, 60),
@@ -459,6 +413,7 @@ export async function handleQueued(drop: QueuedDrop): Promise<QueuedDrop> {
   const resultDrop: QueuedDrop = {
     ...drop,
     phase: 'classified',
+    classifyEngine: engine,
     bucket: phase1Result.bucket,
     subtype: phase1Result.subtype,
     habitSubtype: phase1Result.habitSubtype,
@@ -472,33 +427,60 @@ export async function handleQueued(drop: QueuedDrop): Promise<QueuedDrop> {
     lastError: null,
   };
 
-  // Stash ambiguity_type so handleClassified can fire Phase 1.5
-  if ((phase1Result as any).ambiguity_type) {
-    (resultDrop as any).ambiguityType = (phase1Result as any).ambiguity_type;
+  // Stash ambiguity_type so handleClassified can fetch Phase 1.5.
+  // A drop flagged ambiguous WITHOUT a type used to skip clarification
+  // entirely (the card then sat on "Thinking..." forever). Default to
+  // 'bucket', the generic "what did you have in mind" question.
+  if (resultDrop.needsClarification) {
+    resultDrop.ambiguityType = normalizeAmbiguityType((phase1Result as any).ambiguity_type);
+  }
+
+  // classify-v3 returns the clarification in the same response.
+  const inlineQuestion = (phase1Result as any).clarification_question;
+  const inlineOptions = (phase1Result as any).clarification_options;
+  if (resultDrop.needsClarification && hasUsableClarification(inlineQuestion, inlineOptions)) {
+    resultDrop.clarificationQuestion = inlineQuestion;
+    resultDrop.clarificationOptions = inlineOptions;
   }
 
   return resultDrop;
 }
 
 export async function handleClassified(drop: QueuedDrop): Promise<QueuedDrop> {
-  // Phase 1.5a: get title + confirmation (soft timeout — fallback to raw text)
+  // Phase 1.5 clarification runs IN the pipeline, in parallel with Phase 1.5a,
+  // so the question and options are on the drop before it syncs. It never
+  // rejects and always resolves to usable options (worker or fixed fallback),
+  // so an ambiguous card can no longer be left without a question.
+  const needsClarificationFetch =
+    !!drop.needsClarification &&
+    !hasUsableClarification(drop.clarificationQuestion, drop.clarificationOptions);
+
+  // Start clarification first so it overlaps with Phase 1.5a...
+  const clarificationPromise = needsClarificationFetch
+    ? fetchClarification({
+        text: drop.text,
+        ambiguityType: drop.ambiguityType,
+        ambiguityReason: drop.ambiguityReason,
+        bucket: drop.bucket as 'todo' | 'habit' | 'log' | undefined,
+        userSpaces: Array.from(useGremlyStore.getState().spaces?.values?.() ?? []).map(
+          (sp: any) => sp.name,
+        ),
+        timeoutMs: CLARIFY_TIMEOUT_MS,
+      })
+    : Promise.resolve(null);
+
+  // Is this drop about something they already have? Runs alongside, never
+  // rejects, and null (off, slow, unsure) files the drop exactly as before.
+  const relates = shouldRelate(drop);
+  if (!relates) forgetDropRelation(drop.localId);
+  const relationPromise = relates ? takeDropRelation(drop) : Promise.resolve(null);
+
+  // Phase 1.5a: get title + confirmation (soft timeout, fallback to raw text)
   const result = await withTimeout(
     callPhase1_5a(drop.text, drop.bucket!, drop.subtype || null),
     6000,
     null,
   );
-
-  // Fire-and-forget: Phase 1.5 clarification (if ambiguous)
-  if (drop.needsClarification && (drop as any).ambiguityType) {
-    fireClarificationInBackground(
-      drop.localId,
-      drop.text,
-      (drop as any).ambiguityType,
-      drop.bucket!,
-      drop.ambiguityReason,
-      drop.plausibleInterpretations,
-    );
-  }
 
   const smartTitle = result?.smart_title || drop.text.substring(0, 50);
   const cardNote = result?.card_note || null;
@@ -509,13 +491,42 @@ export async function handleClassified(drop: QueuedDrop): Promise<QueuedDrop> {
   // Determine follow-up signal for speech bubble
   const followUpSignal: 'multi' | 'clarify' | null = drop.needsClarification ? 'clarify' : null;
 
-  // Emit AI reaction for speech bubble
+  // ...but emit the speech bubble reaction as soon as 1.5a is back, without
+  // waiting for the clarification call.
   eventBus.emit('drop:reaction_ready', {
     localId: drop.localId,
     message: speechMessage,
     rawReaction: rawReaction,
     followUp: followUpSignal,
   });
+
+  const clarification = await clarificationPromise;
+  if (clarification) {
+    console.log('[DropPhases] Phase 1.5 clarification ready', {
+      localId: drop.localId,
+      source: clarification.source,
+      ambiguityType: clarification.ambiguityType,
+      optionsCount: clarification.options.length,
+    });
+    drop = {
+      ...drop,
+      ambiguityType: clarification.ambiguityType,
+      clarificationQuestion: clarification.question,
+      clarificationOptions: clarification.options,
+    };
+  }
+
+  // A drop about one of their items waits as a note carrying the question,
+  // so nothing new appears in their lists before they answer.
+  const relation = await relationPromise;
+  if (relation) {
+    console.log('[DropPhases] Drop relates to an existing item', {
+      localId: drop.localId,
+      kind: relation.kind,
+      intent: relation.intent,
+    });
+    drop = holdDropForRelation(drop, relation);
+  }
 
   console.log('[DropPhases] handleClassified complete', {
     localId: drop.localId,
@@ -556,14 +567,27 @@ export async function handleMultiDetected(drop: QueuedDrop): Promise<QueuedDrop>
       } | null = null;
 
       try {
-        phase1 = await withTimeout(runPhase1(seg.text, { hasAttachments: false }), 8000, {
-          bucket: seg.likely_bucket || seg.bucket || 'log',
-          subtype: seg.likely_subtype || seg.subtype || null,
-          habitSubtype: null,
-          confidence: 0.5,
-          source: 'phase1-fallback',
-          is_multi: false,
-        });
+        // classify-v3 already classified each segment in the same call;
+        // only v2 segments need their own Phase 1 round trip.
+        const v3Classified =
+          drop.classifyEngine === 'v3' && ['todo', 'habit', 'log'].includes(seg.bucket);
+        phase1 = v3Classified
+          ? {
+              bucket: seg.bucket,
+              subtype: seg.subtype ?? null,
+              habitSubtype: seg.habitSubtype ?? null,
+              confidence: 0.85,
+              source: 'api',
+              is_multi: false,
+            }
+          : await withTimeout(runPhase1(seg.text, { hasAttachments: false }), 8000, {
+              bucket: seg.likely_bucket || seg.bucket || 'log',
+              subtype: seg.likely_subtype || seg.subtype || null,
+              habitSubtype: null,
+              confidence: 0.5,
+              source: 'phase1-fallback',
+              is_multi: false,
+            });
 
         phase15a = await withTimeout(
           callPhase1_5a(seg.text, phase1.bucket, phase1.subtype || null),

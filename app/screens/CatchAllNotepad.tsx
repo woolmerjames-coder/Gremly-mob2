@@ -74,6 +74,7 @@ import { useCortex } from '../../providers/CortexProvider';
 import { useAuth } from '../../providers/AuthProvider';
 import { useRepo } from '../../providers/RepoProvider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useHomeDock, useHomeMode } from '../../components/home/GremlyHomeDock';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
 import {
   MidConfidenceChips,
@@ -101,6 +102,7 @@ import type { AppRecord, LogSubtype, NoteSubtype } from '../../lib/types';
 import type { CortexResponse } from '../../lib/cortex/cortexDecide';
 import { persistedToCanonical } from '../../lib/cortex/canonicalMap';
 import { useWakeOnInput } from '../../hooks/useWakeOnInput';
+import { useEchoSafeText } from '../../hooks/useEchoSafeText';
 import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 import { eventBus } from '../../lib/events/EventBus';
 import { parseDue } from '../../lib/nlp/datetime/parseDue';
@@ -186,6 +188,8 @@ const TYPEWRITER_CHAR_DELAY_MS = 28;
 
 // Auto-grow constants: aligned for deterministic behavior
 const LINE_HEIGHT = 24; // Must match styles.input lineHeight
+// Chat in the Gremly home, while typing: the box starts at one line and grows
+const COMPACT_INPUT_HEIGHT = LINE_HEIGHT + 4;
 const INPUT_VERTICAL_PADDING = 20; // paddingTop + paddingBottom
 const MAX_LINES = 8;
 
@@ -382,11 +386,15 @@ type MindDropInputProps = {
   heightWrapperStyle?: any;
   inputDynHeight: number;
   onCameraPress?: () => void;
+  /** Hides the camera (Chat in the Gremly home has no photos) */
+  showCamera?: boolean;
   onCalendarPress?: () => void;
   photoHintText?: string;
   // Voice capture
   onMicPress?: () => void;
   voiceState?: VoiceCaptureState;
+  /** Each new value opens the keyboard on the box (the Gremly home asks) */
+  focusRequest?: number;
 };
 
 const MindDropInput = React.memo<MindDropInputProps>(
@@ -417,12 +425,25 @@ const MindDropInput = React.memo<MindDropInputProps>(
     heightWrapperStyle,
     inputDynHeight,
     onCameraPress,
+    showCamera = true,
     onCalendarPress,
     photoHintText,
     onMicPress,
     voiceState = 'idle',
+    focusRequest = 0,
   }) => {
     const inputRef = React.useRef<TextInput>(null);
+    // the box keeps its own text so typing never jumps while the value
+    // makes its way back from the Drop page through the Gremly home
+    const [text, handleChangeText] = useEchoSafeText(value, onChangeText);
+
+    // the Gremly home asks for the keyboard (Chat opened from Talk it through)
+    React.useEffect(() => {
+      if (!focusRequest) return;
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+      });
+    }, [focusRequest]);
     const [focused, setFocused] = React.useState(false);
     const hasAutoFocusedRef = React.useRef(false);
 
@@ -482,8 +503,8 @@ const MindDropInput = React.memo<MindDropInputProps>(
           <TextInput
             ref={inputRef}
             testID="minddrop-input"
-            value={value}
-            onChangeText={onChangeText}
+            value={text}
+            onChangeText={handleChangeText}
             onFocus={handleFocus}
             onBlur={handleBlur}
             multiline
@@ -515,18 +536,20 @@ const MindDropInput = React.memo<MindDropInputProps>(
               </View>
             </Pressable>
           )}
-          <Pressable
-            disabled={!onCameraPress}
-            style={[iconButtonStyle, iconCameraStyle]}
-            accessibilityRole="button"
-            accessibilityLabel="Attach a photo"
-            accessibilityState={{ disabled: !onCameraPress }}
-            onPress={onCameraPress}
-          >
-            <View style={iconWrapperStyle}>
-              <Icon name="Camera" size="sm" color={iconColor} strokeWidth={1.4} />
-            </View>
-          </Pressable>
+          {showCamera && (
+            <Pressable
+              disabled={!onCameraPress}
+              style={[iconButtonStyle, iconCameraStyle]}
+              accessibilityRole="button"
+              accessibilityLabel="Attach a photo"
+              accessibilityState={{ disabled: !onCameraPress }}
+              onPress={onCameraPress}
+            >
+              <View style={iconWrapperStyle}>
+                <Icon name="Camera" size="sm" color={iconColor} strokeWidth={1.4} />
+              </View>
+            </Pressable>
+          )}
         </View>
         {showHud ? (
           <View style={hudContainerStyle} pointerEvents="none">
@@ -1072,6 +1095,10 @@ export type CatchAllNotepadProps = {
   // Test hook: override organized today count directly to simplify deterministic assertions
   testOrganizedTodayOverride?: number;
   overlayController?: GlobalOverlayController;
+  /** Rendered as the Drop page inside the Gremly home: no MindDrop header or sign out */
+  embedded?: boolean;
+  /** Inside the Gremly home: whether the Drop page is the one showing */
+  active?: boolean;
 };
 
 export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React.JSX.Element {
@@ -1080,7 +1107,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     networkIsOnline,
     testOrganizedTodayOverride,
     overlayController,
+    embedded = false,
+    active = true,
   } = props;
+  // Inside the Gremly home: the shared input box lives under both pages, and
+  // in Chat it sends to the Chat page (components/home/GremlyHomeDock.tsx)
+  const homeDock = useHomeDock();
+  // each new value opens the keyboard on the shared box (Talk it through)
+  const [focusRequest, setFocusRequest] = useState(0);
+  const homeMode = useHomeMode();
+  const chatMode = embedded && homeMode?.mode === 'chat';
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const canCreate = useCanCreate();
 
@@ -1264,6 +1300,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [listStyle, setListStyle] = useState<ListStyle>('none');
   const [note, setNote] = useState('');
   const [inputDynHeight, setInputDynHeight] = useState(START_HEIGHT);
+  // The text's own height, not held to START_HEIGHT (for the one-line Chat box)
+  const [rawInputHeight, setRawInputHeight] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [microcopyIndex, setMicrocopyIndex] = useState(0);
@@ -1633,7 +1671,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const isProcessingRef = useRef(false);
   // Mind Drop: placeholder text and header focus target
   const headerTitleRef = useRef<any>(null);
-  const [placeholder] = useState("What's on your mind?");
+  // Says what Drop does (Gremly files it), so it does not read like a chat
+  const [placeholder] = useState("Jot it down, I'll sort it");
   const inputFocusRef = useRef(false);
   // Focused input mode: fade recent drops when keyboard is active
   const [isInputFocused, setIsInputFocused] = useState(false);
@@ -1679,6 +1718,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
       const raw = Math.ceil(event.nativeEvent.contentSize?.height ?? 0);
       if (!raw) return;
+      setRawInputHeight(raw);
 
       // Deterministic height calculation: clamp between START and MAX
       const target = Math.max(START_HEIGHT, Math.min(raw, MAX_HEIGHT));
@@ -1774,6 +1814,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     });
     return unsubscribe;
   }, [navigation, triggerRecentRefresh]);
+
+  // Inside the Gremly home the tab stays focused while moving between Drop and
+  // Chat, so refresh when the Drop page comes back into view instead
+  const wasActiveRef = useRef(active);
+  useEffect(() => {
+    if (active && !wasActiveRef.current) triggerRecentRefresh();
+    wasActiveRef.current = active;
+  }, [active, triggerRecentRefresh]);
 
   const canonicalConversionsOn = env.feature.canonicalConversions;
 
@@ -2977,46 +3025,51 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     pendingPhotoUris.length,
   ]);
 
+  // Header, weekly banner and the drops list. The input block below it is
+  // bottomSection, kept out of this memo so it can also be handed to the
+  // Gremly home's shared box.
   const legacyUI = React.useMemo(() => {
-    const statsVisible = organizedToday > 0;
-
     return (
-      <View style={styles.mainContainer} {...panResponder.panHandlers}>
-        {/* Header: Safe area wrapper + row with mascot, centered title, logout */}
-        <View style={{ paddingTop: insets.top + 16 }} testID="minddrop-header">
-          <View style={styles.headerRow}>
-            {/* Left - Training icon during training, otherwise empty spacer */}
-            <View style={styles.headerLeft}></View>
+      <>
+        {/* Header: Safe area wrapper + row with mascot, centered title, logout.
+            Inside the Gremly home the DROP | CHAT switch replaces it, and sign
+            out lives in Settings. */}
+        {!embedded && (
+          <View style={{ paddingTop: insets.top + 16 }} testID="minddrop-header">
+            <View style={styles.headerRow}>
+              {/* Left - Training icon during training, otherwise empty spacer */}
+              <View style={styles.headerLeft}></View>
 
-            {/* Center - Title (absolutely positioned to true center) */}
-            <View style={styles.headerCenter} pointerEvents="none">
-              <View style={styles.titleImageWrapper}>
-                <Image
-                  ref={headerTitleRef}
-                  source={MINDDROP_HEADER}
-                  style={styles.headerTitleCenter}
-                  resizeMode="contain"
-                  accessibilityLabel="Mind Drop"
-                  accessibilityIgnoresInvertColors
-                />
-                <View style={styles.titleUnderline} />
+              {/* Center - Title (absolutely positioned to true center) */}
+              <View style={styles.headerCenter} pointerEvents="none">
+                <View style={styles.titleImageWrapper}>
+                  <Image
+                    ref={headerTitleRef}
+                    source={MINDDROP_HEADER}
+                    style={styles.headerTitleCenter}
+                    resizeMode="contain"
+                    accessibilityLabel="Mind Drop"
+                    accessibilityIgnoresInvertColors
+                  />
+                  <View style={styles.titleUnderline} />
+                </View>
+              </View>
+
+              {/* Right - Logout button */}
+              <View style={styles.headerRight}>
+                <Pressable
+                  accessibilityLabel="Sign out"
+                  accessibilityRole="button"
+                  onPress={handleSignOutPress}
+                  hitSlop={12}
+                  style={styles.logoutBtn}
+                >
+                  <LogOut size={18} color="#6A6F76" />
+                </Pressable>
               </View>
             </View>
-
-            {/* Right - Logout button */}
-            <View style={styles.headerRight}>
-              <Pressable
-                accessibilityLabel="Sign out"
-                accessibilityRole="button"
-                onPress={handleSignOutPress}
-                hitSlop={12}
-                style={styles.logoutBtn}
-              >
-                <LogOut size={18} color="#6A6F76" />
-              </Pressable>
-            </View>
           </View>
-        </View>
+        )}
 
         <WeeklySummaryBanner />
 
@@ -3041,221 +3094,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             pointerEvents="none"
           />
         </Animated.View>
-
-        {/* Fixed bottom section: input + chips + button + stats */}
-        <View style={[styles.fixedTopSection, keyboardVisible && { paddingBottom: 12 }]}>
-          <View style={styles.inputBlock}>
-            {/* Gremly speech - positioned above input, to left of Gremly */}
-            {gremlySpeech && (
-              <Reanimated.View
-                style={styles.gremlyMessageContainer}
-                entering={FadeIn.duration(200)}
-                exiting={FadeOut.duration(150)}
-              >
-                <View
-                  style={[
-                    styles.gremlyMessageBackdrop,
-                    gremlySpeech.variant === 'celebration' && styles.gremlyMessageCelebration,
-                  ]}
-                >
-                  <TypewriterText
-                    key={gremlySpeech.message}
-                    text={gremlySpeech.message}
-                    style={styles.gremlyMessage}
-                    duration={1400}
-                    fadeIn={!hasCompletedFirstDrop}
-                  />
-                </View>
-              </Reanimated.View>
-            )}
-            {/* Gremly perched on input - always visible */}
-            <Pressable
-              onPress={() => {
-                if (isTrainingMode) {
-                  // Pre-graduation: show tutorial variant of TrainingMeter
-                  setShowTrainingMeter(true);
-                } else if (isInChallenge) {
-                  // Graduated but still in 7-fed-days challenge: show challenge variant
-                  setShowTrainingMeter(true);
-                } else {
-                  // Seasoned (challenge complete): show help card
-                  setHelpInitialPage(undefined);
-                  setShowHelp(true);
-                }
-              }}
-              accessibilityLabel="Help"
-              style={styles.inputGremly}
-            >
-              <MascotLottie />
-            </Pressable>
-            <MindDropInput
-              value={note}
-              onChangeText={handleChangeText}
-              placeholder={dynamicPlaceholder}
-              placeholderTextColor="#757575"
-              containerStyle={styles.inputContainer}
-              focusedStyle={styles.inputContainerFocused}
-              inputStyle={styles.input}
-              focusedInputStyle={styles.inputFocused}
-              onFocusChange={handleInputFocusChange}
-              onContentSizeChange={handleInputContentSizeChange}
-              scrollEnabled
-              showHud={false}
-              iconContainerStyle={styles.inputIconCluster}
-              iconButtonStyle={styles.inputIconButton}
-              iconMicStyle={styles.inputIconMicButton}
-              iconCameraStyle={styles.inputIconCameraButton}
-              iconWrapperStyle={styles.inputIconWrapper}
-              iconColor={c.mossGreen}
-              heightWrapperStyle={styles.inputHeightWrapper}
-              inputDynHeight={inputDynHeight}
-              onCameraPress={handleMindDropPhotoAction}
-              onCalendarPress={handleCalendarToggle}
-              photoHintText={photoHintText}
-              onMicPress={handleMicPress}
-              voiceState={voiceState}
-            />
-          </View>
-
-          {/* Calendar date pre-fill: chip + week strip */}
-          {prefillDate && (
-            <Reanimated.View entering={FadeIn.duration(150)} exiting={FadeOut.duration(100)}>
-              <View style={styles.prefillChipRow}>
-                <View style={styles.prefillChip}>
-                  <Calendar size={14} color="#2D4A33" />
-                  <Text style={styles.prefillChipText}>{formatPrefillChip(prefillDate)}</Text>
-                  <Pressable
-                    onPress={handleClearPrefillDate}
-                    hitSlop={8}
-                    accessibilityLabel="Clear date"
-                    accessibilityRole="button"
-                  >
-                    <X size={14} color="#6B7280" />
-                  </Pressable>
-                </View>
-              </View>
-            </Reanimated.View>
-          )}
-          {showDateStrip && (
-            <Reanimated.View entering={SlideInDown.duration(200)} exiting={FadeOut.duration(100)}>
-              <WeekStrip
-                selectedDate={prefillDate || getDateService().today()}
-                onDateSelect={handleDateStripSelect}
-              />
-            </Reanimated.View>
-          )}
-
-          {pendingPhotoUris.length > 0 && (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.photoStrip}
-              contentContainerStyle={styles.photoStripContent}
-            >
-              {pendingPhotoUris.map((uri, index) => (
-                <View key={uri} style={styles.photoThumb}>
-                  <Image source={{ uri }} style={styles.photoThumbImage} />
-                  <Pressable
-                    style={styles.photoRemoveButton}
-                    onPress={() => handleRemovePendingPhoto(index)}
-                    accessibilityLabel={`Remove photo ${index + 1}`}
-                    accessibilityRole="button"
-                  >
-                    <Text style={styles.photoRemoveText}>×</Text>
-                  </Pressable>
-                </View>
-              ))}
-              {pendingPhotoUris.length < 5 && (
-                <Pressable
-                  style={styles.photoAddButton}
-                  onPress={handleMindDropPhotoAction}
-                  accessibilityLabel="Add another photo"
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.photoAddText}>+</Text>
-                </Pressable>
-              )}
-            </ScrollView>
-          )}
-
-          {note.length >= 1500 ? (
-            <View style={styles.helperRow}>
-              <View style={{ flex: 1 }} />
-              <Text
-                testID="minddrop-counter"
-                style={styles.helperCounter}
-              >{`${note.length}/${MAX_INPUT_CHARACTERS}`}</Text>
-            </View>
-          ) : null}
-
-          {timingChips.length > 0 ? (
-            <MidConfidenceChips
-              variant="timing"
-              timingChips={timingChips}
-              onTimingPick={handleTimingSelection}
-              prompt="When do you want to do this?"
-              autoDismissMs={5000}
-            />
-          ) : null}
-
-          <View
-            style={[styles.submitButtonWrapper, !statsVisible && styles.submitButtonWrapperNoStats]}
-          >
-            <Pressable
-              testID="minddrop-submit-button"
-              onPress={handleSubmit}
-              disabled={disabled}
-              accessibilityRole="button"
-              accessibilityLabel={isProcessing ? 'Organizing' : 'Drop to Gremly'}
-              accessibilityState={{ busy: isProcessing, disabled }}
-              style={styles.submitPressable}
-              onPressIn={handleSubmitPressIn}
-              onPressOut={handleSubmitPressOut}
-            >
-              <Animated.View
-                style={[
-                  styles.submitButton,
-                  isButtonVisuallyDisabled
-                    ? styles.submitButtonDisabled
-                    : styles.submitButtonActive,
-                  { transform: [{ scale: submitScale }] },
-                ]}
-              >
-                <View style={styles.submitInnerRow}>
-                  {isProcessing ? (
-                    <Animated.View
-                      style={[
-                        styles.submitPulse,
-                        reduceMotion ? null : { transform: [{ scale: pulseScale }] },
-                      ]}
-                    />
-                  ) : null}
-                  <Text
-                    style={[
-                      styles.submitLabel,
-                      isButtonVisuallyDisabled ? styles.submitLabelDisabled : null,
-                    ]}
-                  >
-                    {isProcessing ? '✓ Organizing...' : 'Drop to Gremly →'}
-                  </Text>
-                </View>
-              </Animated.View>
-            </Pressable>
-          </View>
-
-          {showPhotoTextNudge && (
-            <View style={styles.photoTextNudge}>
-              <View style={styles.photoTextNudgeHeaderRow}>
-                <Icon name="Info" size="xs" color={c.mutedText} strokeWidth={1.6} />
-                <Text style={styles.photoTextNudgeTitle}>Add a quick note</Text>
-              </View>
-              <Text style={styles.photoTextNudgeBody}>
-                Gremly needs a few words so it can organize your photo.
-              </Text>
-            </View>
-          )}
-        </View>
-      </View>
+      </>
     );
   }, [
     headerTitleRef,
@@ -3290,16 +3129,363 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     isInputFocused,
     keyboardVisible,
     gremlySpeech,
+    embedded,
   ]);
+
+  // In Chat (Gremly home), the same box sends to the Chat page
+  const chatBusy = !!homeMode?.chatSending;
+  const chatDisabled = note.trim().length === 0 || chatBusy;
+  const buttonLooksDisabled = chatMode ? note.trim().length === 0 : isButtonVisuallyDisabled;
+  const handleChatSubmit = useCallback(() => {
+    const text = note.trim();
+    if (!text) return;
+    const chat = homeDock?.getChat();
+    if (!chat || chat.isSending()) return;
+    chat.send(text);
+    handleChangeText('');
+  }, [note, homeDock, handleChangeText]);
+
+  const statsVisible = organizedToday > 0;
+
+  // Typing in Chat (Gremly home): the box starts at one line and grows, and the
+  // big button folds into a send arrow inside the box, for more room to read
+  const compactTyping = chatMode && keyboardVisible;
+  const compactInputHeight = Math.max(
+    COMPACT_INPUT_HEIGHT,
+    Math.min(rawInputHeight || COMPACT_INPUT_HEIGHT, MAX_HEIGHT),
+  );
+
+  // Gremly steps aside (slides right and leans in) while the conversation is
+  // being read or typed into, and hops back when it settles
+  const gremlyTucked = chatMode && (keyboardVisible || !!homeMode?.chatScrolling);
+  const tuckAnim = useRef(new Animated.Value(0)).current;
+  const tuckTarget = gremlyTucked ? 1 : 0;
+  const tuckAtRef = useRef(0);
+  useEffect(() => {
+    // only when it changes; with reduced motion it simply moves
+    if (tuckAtRef.current === tuckTarget) return;
+    tuckAtRef.current = tuckTarget;
+    if (reduceMotion) {
+      tuckAnim.setValue(tuckTarget);
+      return;
+    }
+    Animated.timing(tuckAnim, {
+      toValue: tuckTarget,
+      duration: tuckTarget ? 260 : 460,
+      easing: tuckTarget ? Easing.out(Easing.cubic) : Easing.out(Easing.back(1.4)),
+      useNativeDriver: true,
+    }).start();
+  }, [tuckTarget, reduceMotion, tuckAnim]);
+  const gremlyTuckStyle = {
+    transform: [
+      { translateX: tuckAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 58] }) },
+      { rotate: tuckAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '-8deg'] }) },
+    ],
+  };
+
+  // Fixed bottom section: input + chips + button + stats. On its own page it
+  // sits under the drops list; inside the Gremly home it is handed to the
+  // home, which keeps it still under both pages.
+  const bottomSection = (
+    <View style={[styles.fixedTopSection, keyboardVisible && { paddingBottom: 12 }]}>
+      <View style={styles.inputBlock}>
+        {/* Gremly speech - positioned above input, to left of Gremly */}
+        {gremlySpeech && !chatMode && (
+          <Reanimated.View
+            style={styles.gremlyMessageContainer}
+            entering={FadeIn.duration(200)}
+            exiting={FadeOut.duration(150)}
+          >
+            <View
+              style={[
+                styles.gremlyMessageBackdrop,
+                gremlySpeech.variant === 'celebration' && styles.gremlyMessageCelebration,
+              ]}
+            >
+              <TypewriterText
+                key={gremlySpeech.message}
+                text={gremlySpeech.message}
+                style={styles.gremlyMessage}
+                duration={1400}
+                fadeIn={!hasCompletedFirstDrop}
+              />
+            </View>
+          </Reanimated.View>
+        )}
+        {/* Gremly perched on input - always visible */}
+        <Animated.View
+          style={[styles.inputGremly, styles.inputGremlyTuckOrigin, gremlyTuckStyle]}
+          pointerEvents="box-none"
+        >
+          <Pressable
+            onPress={() => {
+              if (isTrainingMode) {
+                // Pre-graduation: show tutorial variant of TrainingMeter
+                setShowTrainingMeter(true);
+              } else if (isInChallenge) {
+                // Graduated but still in 7-fed-days challenge: show challenge variant
+                setShowTrainingMeter(true);
+              } else {
+                // Seasoned (challenge complete): show help card
+                setHelpInitialPage(undefined);
+                setShowHelp(true);
+              }
+            }}
+            accessibilityLabel="Help"
+            style={styles.inputGremlyPress}
+          >
+            <MascotLottie />
+          </Pressable>
+        </Animated.View>
+        <MindDropInput
+          focusRequest={focusRequest}
+          value={note}
+          onChangeText={handleChangeText}
+          placeholder={chatMode ? 'Ask Gremly anything\u2026' : dynamicPlaceholder}
+          placeholderTextColor="#757575"
+          containerStyle={
+            compactTyping
+              ? [styles.inputContainer, styles.inputContainerCompact]
+              : styles.inputContainer
+          }
+          focusedStyle={styles.inputContainerFocused}
+          inputStyle={compactTyping ? [styles.input, styles.inputCompact] : styles.input}
+          focusedInputStyle={styles.inputFocused}
+          onFocusChange={handleInputFocusChange}
+          onContentSizeChange={handleInputContentSizeChange}
+          scrollEnabled
+          showHud={false}
+          iconContainerStyle={styles.inputIconCluster}
+          iconButtonStyle={styles.inputIconButton}
+          iconMicStyle={styles.inputIconMicButton}
+          iconCameraStyle={styles.inputIconCameraButton}
+          iconWrapperStyle={styles.inputIconWrapper}
+          iconColor={c.mossGreen}
+          heightWrapperStyle={styles.inputHeightWrapper}
+          inputDynHeight={compactTyping ? compactInputHeight : inputDynHeight}
+          onCameraPress={chatMode ? undefined : handleMindDropPhotoAction}
+          showCamera={!chatMode}
+          onCalendarPress={chatMode ? undefined : handleCalendarToggle}
+          photoHintText={chatMode ? undefined : photoHintText}
+          onMicPress={handleMicPress}
+          voiceState={voiceState}
+        />
+        {compactTyping ? (
+          <Pressable
+            onPress={handleChatSubmit}
+            disabled={chatDisabled}
+            accessibilityRole="button"
+            accessibilityLabel="Send to Gremly"
+            accessibilityState={{ disabled: chatDisabled }}
+            style={[
+              styles.inlineSend,
+              chatDisabled ? styles.inlineSendIdle : styles.inlineSendReady,
+            ]}
+            testID="minddrop-inline-send"
+          >
+            <Icon
+              name="Send"
+              size="xs"
+              color={chatDisabled ? 'rgba(46,85,64,0.85)' : '#F9F6F1'}
+              strokeWidth={2.2}
+            />
+          </Pressable>
+        ) : null}
+      </View>
+
+      {/* Calendar date pre-fill: chip + week strip */}
+      {prefillDate && !chatMode && (
+        <Reanimated.View entering={FadeIn.duration(150)} exiting={FadeOut.duration(100)}>
+          <View style={styles.prefillChipRow}>
+            <View style={styles.prefillChip}>
+              <Calendar size={14} color="#2D4A33" />
+              <Text style={styles.prefillChipText}>{formatPrefillChip(prefillDate)}</Text>
+              <Pressable
+                onPress={handleClearPrefillDate}
+                hitSlop={8}
+                accessibilityLabel="Clear date"
+                accessibilityRole="button"
+              >
+                <X size={14} color="#6B7280" />
+              </Pressable>
+            </View>
+          </View>
+        </Reanimated.View>
+      )}
+      {showDateStrip && !chatMode && (
+        <Reanimated.View entering={SlideInDown.duration(200)} exiting={FadeOut.duration(100)}>
+          <WeekStrip
+            selectedDate={prefillDate || getDateService().today()}
+            onDateSelect={handleDateStripSelect}
+          />
+        </Reanimated.View>
+      )}
+
+      {pendingPhotoUris.length > 0 && !chatMode && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.photoStrip}
+          contentContainerStyle={styles.photoStripContent}
+        >
+          {pendingPhotoUris.map((uri, index) => (
+            <View key={uri} style={styles.photoThumb}>
+              <Image source={{ uri }} style={styles.photoThumbImage} />
+              <Pressable
+                style={styles.photoRemoveButton}
+                onPress={() => handleRemovePendingPhoto(index)}
+                accessibilityLabel={`Remove photo ${index + 1}`}
+                accessibilityRole="button"
+              >
+                <Text style={styles.photoRemoveText}>×</Text>
+              </Pressable>
+            </View>
+          ))}
+          {pendingPhotoUris.length < 5 && (
+            <Pressable
+              style={styles.photoAddButton}
+              onPress={handleMindDropPhotoAction}
+              accessibilityLabel="Add another photo"
+              accessibilityRole="button"
+            >
+              <Text style={styles.photoAddText}>+</Text>
+            </Pressable>
+          )}
+        </ScrollView>
+      )}
+
+      {note.length >= 1500 ? (
+        <View style={styles.helperRow}>
+          <View style={{ flex: 1 }} />
+          <Text
+            testID="minddrop-counter"
+            style={styles.helperCounter}
+          >{`${note.length}/${MAX_INPUT_CHARACTERS}`}</Text>
+        </View>
+      ) : null}
+
+      {timingChips.length > 0 && !chatMode ? (
+        <MidConfidenceChips
+          variant="timing"
+          timingChips={timingChips}
+          onTimingPick={handleTimingSelection}
+          prompt="When do you want to do this?"
+          autoDismissMs={5000}
+        />
+      ) : null}
+
+      {compactTyping ? null : (
+        <View
+          style={[styles.submitButtonWrapper, !statsVisible && styles.submitButtonWrapperNoStats]}
+        >
+          <Pressable
+            testID="minddrop-submit-button"
+            onPress={chatMode ? handleChatSubmit : handleSubmit}
+            disabled={chatMode ? chatDisabled : disabled}
+            accessibilityRole="button"
+            accessibilityLabel={
+              chatMode ? 'Send to Gremly' : isProcessing ? 'Organizing' : 'Drop to Gremly'
+            }
+            accessibilityState={{
+              busy: chatMode ? chatBusy : isProcessing,
+              disabled: chatMode ? chatDisabled : disabled,
+            }}
+            style={styles.submitPressable}
+            onPressIn={handleSubmitPressIn}
+            onPressOut={handleSubmitPressOut}
+          >
+            <Animated.View
+              style={[
+                styles.submitButton,
+                buttonLooksDisabled ? styles.submitButtonDisabled : styles.submitButtonActive,
+                { transform: [{ scale: submitScale }] },
+              ]}
+            >
+              <View style={styles.submitInnerRow}>
+                {isProcessing && !chatMode ? (
+                  <Animated.View
+                    style={[
+                      styles.submitPulse,
+                      reduceMotion ? null : { transform: [{ scale: pulseScale }] },
+                    ]}
+                  />
+                ) : null}
+                <Text
+                  style={[
+                    styles.submitLabel,
+                    buttonLooksDisabled ? styles.submitLabelDisabled : null,
+                  ]}
+                >
+                  {chatMode
+                    ? 'Send to Gremly'
+                    : isProcessing
+                      ? '✓ Organizing...'
+                      : 'Drop to Gremly'}
+                </Text>
+                {/* Drop goes in (the MindDrop arrow); Chat is sent */}
+                {chatMode || !isProcessing ? (
+                  <Icon
+                    name={chatMode ? 'Send' : 'ArrowDownToLine'}
+                    size="xs"
+                    color={buttonLooksDisabled ? 'rgba(46,85,64,0.85)' : '#F9F6F1'}
+                    strokeWidth={2.2}
+                  />
+                ) : null}
+              </View>
+            </Animated.View>
+          </Pressable>
+        </View>
+      )}
+
+      {showPhotoTextNudge && !chatMode && (
+        <View style={styles.photoTextNudge}>
+          <View style={styles.photoTextNudgeHeaderRow}>
+            <Icon name="Info" size="xs" color={c.mutedText} strokeWidth={1.6} />
+            <Text style={styles.photoTextNudgeTitle}>Add a quick note</Text>
+          </View>
+          <Text style={styles.photoTextNudgeBody}>
+            Gremly needs a few words so it can organize your photo.
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+
+  useLayoutEffect(() => {
+    if (embedded && homeDock) homeDock.setDock(bottomSection);
+  });
+  useEffect(() => {
+    if (!embedded || !homeDock) return;
+    return () => homeDock.setDock(null);
+  }, [embedded, homeDock]);
+  // Lets other screens put a prompt into the shared box
+  useEffect(() => {
+    if (!embedded || !homeDock) return;
+    homeDock.registerDraftSetter(handleChangeText);
+    return () => homeDock.registerDraftSetter(null);
+  }, [embedded, homeDock, handleChangeText]);
+  // Lets the Gremly home open the keyboard on the box
+  useEffect(() => {
+    if (!embedded || !homeDock) return;
+    homeDock.registerFocus(() => setFocusRequest((n) => n + 1));
+    return () => homeDock.registerFocus(null);
+  }, [embedded, homeDock]);
+
+  const mainUI = (
+    <View style={styles.mainContainer} {...panResponder.panHandlers}>
+      {legacyUI}
+      {!embedded && bottomSection}
+    </View>
+  );
 
   const content = MIND_DROP_V2 ? (
     <>
       {/* Mind Drop v2 UI will render here in subsequent steps */}
       {/* For P0: temporarily just render the existing UI so nothing changes visually. */}
-      {legacyUI}
+      {mainUI}
     </>
   ) : (
-    legacyUI
+    mainUI
   );
 
   return (
@@ -3472,6 +3658,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         style={styles.keyboardAvoider}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={0}
+        enabled={!embedded}
       >
         <View
           style={[
@@ -3683,6 +3870,39 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       width: 95,
       height: 111,
       zIndex: 10,
+    },
+    // leans from his feet when he steps aside
+    inputGremlyTuckOrigin: {
+      transformOrigin: 'right bottom',
+    },
+    inputGremlyPress: {
+      flex: 1,
+    },
+    inputContainerCompact: {
+      minHeight: 0,
+      paddingTop: 12,
+      paddingBottom: 12,
+    },
+    inputCompact: {
+      paddingRight: 88,
+    },
+    // Chat send arrow inside the box while typing, left of where Gremly peeks in
+    inlineSend: {
+      position: 'absolute',
+      right: 46,
+      bottom: 8,
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 11,
+    },
+    inlineSendReady: {
+      backgroundColor: '#2E5540',
+    },
+    inlineSendIdle: {
+      backgroundColor: '#BFD8C0',
     },
     inputContainer: {
       width: '100%',

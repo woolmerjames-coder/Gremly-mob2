@@ -8,7 +8,8 @@ import {
   ScrollView,
   Pressable,
 } from 'react-native';
-import { Check, CheckSquare, Repeat, FileText, MessageSquare } from 'lucide-react-native';
+import { Check, CheckSquare, Repeat, FileText, MessageSquare, Pencil } from 'lucide-react-native';
+import { editPillTitle, formatDay } from '../../lib/chat/entityCards';
 
 interface SaveSheetProps {
   visible: boolean;
@@ -25,12 +26,14 @@ const ICON_CONFIG: Record<string, { icon: typeof CheckSquare; bg: string; color:
   todo: { icon: CheckSquare, bg: 'rgba(46,85,64,0.1)', color: '#2E5540' },
   habit: { icon: Repeat, bg: 'rgba(156,166,224,0.15)', color: '#9CA6E0' },
   note: { icon: FileText, bg: 'rgba(224,196,122,0.15)', color: '#C4A84A' },
+  // An edit to an item the user already has (the extraction's second job)
+  edit: { icon: Pencil, bg: 'rgba(224,196,122,0.25)', color: '#8C6A2A' },
 };
 
 function getTitle(count: number): string {
-  if (count >= 3) return `Gremly found ${count} things worth keeping`;
-  if (count === 2) return 'Gremly found a couple things worth keeping';
-  if (count === 1) return 'Gremly found something worth keeping';
+  if (count >= 3) return `Gremly found ${count} new things worth keeping`;
+  if (count === 2) return 'Gremly found a couple of new things worth keeping';
+  if (count === 1) return 'Gremly found something new worth keeping';
   return 'Save a summary of this conversation';
 }
 
@@ -97,16 +100,20 @@ export function SaveSheet({
                   </View>
                   <View style={styles.itemContent}>
                     <Text style={[styles.typeLabel, { color: config.color }]}>
-                      {item.type.toUpperCase()}
+                      {item.type === 'edit'
+                        ? `${item.field === 'body_add' ? 'ADD TO' : 'UPDATE'} ${String(item.entity_type || '').toUpperCase()}`
+                        : item.type.toUpperCase()}
                     </Text>
-                    <Text style={styles.itemTitle}>{item.title}</Text>
+                    <Text style={styles.itemTitle}>
+                      {item.type === 'edit' ? editPillTitle(item) : item.title}
+                    </Text>
                     {item.body ? (
                       <Text style={styles.itemMeta} numberOfLines={1}>
                         {item.body}
                       </Text>
                     ) : null}
                     {item.due_date ? (
-                      <Text style={styles.itemMeta}>Due: {item.due_date}</Text>
+                      <Text style={styles.itemMeta}>Due: {formatDay(item.due_date)}</Text>
                     ) : null}
                     {item.frequency ? <Text style={styles.itemMeta}>{item.frequency}</Text> : null}
                   </View>

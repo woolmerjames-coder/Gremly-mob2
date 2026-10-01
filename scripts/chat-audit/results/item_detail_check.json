@@ -1,0 +1,480 @@
+[
+  {
+    "id": "ID-note-first",
+    "base": "ID-note-first",
+    "group": "Item detail: a note",
+    "expect": "Builds on what the note says (the ryokan, the JR pass, Osaka) without asking what the trip is or reading the note back.",
+    "note": null,
+    "anchor": "Japan Trip Plan",
+    "lead": "**Japan Trip Plan**, got it. What would you like to talk through?",
+    "turns": [
+      {
+        "message": "What should I sort out first?",
+        "mode": "prioritization",
+        "modeBeforeCard": null,
+        "card": null,
+        "about": [],
+        "anchor": {
+          "title": "Japan Trip Plan",
+          "gone": false
+        },
+        "known": [
+          "none of their items, as far as the app can tell",
+          "todo \"Send Out Sage Future Deck\", due tomorrow, Thursday 1 October",
+          "todo \"Call Kim and Andrew\", due Friday 2 October",
+          "note \"Bella Vet Appointment\", Friday 2 October",
+          "todo \"Submit to Apple Health\", due Sunday 4 October"
+        ],
+        "reply": "Start with the **ryokan in Kyoto**. The best ones with private onsens book up months in advance, especially if you're aiming for specific dates in Kyoto's peak seasons. \n\nOnce that's locked, skip the JR Pass. Since you're only doing the round trip between Tokyo and Kyoto, it's **cheaper to buy individual Shinkansen tickets** at the station or via the SmartEX app. \n\nI'd leave the Osaka decision for when you're actually there. It's only 30 minutes from Kyoto, so you can decide on the day based on your energy. Does that help narrow it down?",
+        "pill": {
+          "lateCard": null,
+          "lateCardHeld": null,
+          "lateCardFull": null,
+          "items": [],
+          "rawNew": [],
+          "ungrounded": 0,
+          "gated": false,
+          "ms": 1378
+        },
+        "ms": 6883,
+        "cardMs": 3741,
+        "raw": {
+          "considered": [],
+          "refers": false,
+          "entity_id": null,
+          "intent": "none",
+          "change": null,
+          "about": [],
+          "confidence": 0,
+          "ask": false,
+          "candidates": []
+        },
+        "recentIn": null
+      }
+    ]
+  },
+  {
+    "id": "ID-note-deeper",
+    "base": "ID-note-deeper",
+    "group": "Item detail: a note",
+    "expect": "Goes deeper on what the note holds and may suggest something it leaves open. No list of everything in the note.",
+    "note": null,
+    "anchor": "Japan Trip Plan",
+    "lead": "**Japan Trip Plan**, got it. What would you like to talk through?",
+    "turns": [
+      {
+        "message": "Help me think deeper about this",
+        "mode": "exploratory",
+        "modeBeforeCard": null,
+        "card": null,
+        "about": [
+          "Japan Trip Plan"
+        ],
+        "anchor": {
+          "title": "Japan Trip Plan",
+          "gone": false
+        },
+        "known": [
+          "note \"Japan Trip Plan\" (the item this chat was opened about)",
+          "todo \"Send Out Sage Future Deck\", due tomorrow, Thursday 1 October",
+          "todo \"Call Kim and Andrew\", due Friday 2 October",
+          "note \"Bella Vet Appointment\", Friday 2 October",
+          "todo \"Submit to Apple Health\", due Sunday 4 October"
+        ],
+        "reply": "The JR Pass recently had a massive price hike, so it often doesn't pay off unless you're doing a ton of long distance travel. Since you're just doing the Tokyo to Kyoto run, individual tickets or a regional pass might actually be **cheaper** and more flexible.\n\nKyoto ryokans with private onsens fill up months in advance, especially in popular areas like Gion or near the river. Are you looking for that classic, tucked-away traditional feel, or something more modern that's easier to get to with your luggage?\n\nOne thing to consider is the **pacing** of the transition between the chaos of Shinjuku and the quiet of a ryokan. Do you want a buffer day in between, or do you like the sharp contrast of moving straight from the neon lights to the tatami mats?",
+        "pill": {
+          "lateCard": null,
+          "lateCardHeld": null,
+          "lateCardFull": null,
+          "items": [],
+          "rawNew": [],
+          "ungrounded": 0,
+          "gated": false,
+          "ms": 795
+        },
+        "ms": 3491,
+        "cardMs": 1013,
+        "raw": {
+          "considered": [
+            "7a1c3e52"
+          ],
+          "refers": true,
+          "entity_id": "7a1c3e52",
+          "intent": "none",
+          "change": null,
+          "about": [
+            "7a1c3e52"
+          ],
+          "confidence": 95,
+          "ask": false,
+          "candidates": []
+        },
+        "recentIn": null
+      }
+    ]
+  },
+  {
+    "id": "ID-note-settle",
+    "base": "ID-note-settle",
+    "group": "Item detail: a note",
+    "expect": "Turn 2: the pill offers an addition to the note about Nara; the reply never says it added it.",
+    "note": null,
+    "anchor": "Japan Trip Plan",
+    "lead": "**Japan Trip Plan**, got it. What would you like to talk through?",
+    "turns": [
+      {
+        "message": "Not sure about Osaka, is it worth it?",
+        "mode": "research",
+        "modeBeforeCard": null,
+        "card": null,
+        "about": [
+          "Japan Trip Plan"
+        ],
+        "anchor": {
+          "title": "Japan Trip Plan",
+          "gone": false
+        },
+        "known": [
+          "note \"Japan Trip Plan\" (the item this chat was opened about)",
+          "todo \"Send Out Sage Future Deck\", due tomorrow, Thursday 1 October",
+          "todo \"Call Kim and Andrew\", due Friday 2 October",
+          "note \"Bella Vet Appointment\", Friday 2 October",
+          "todo \"Submit to Apple Health\", due Sunday 4 October"
+        ],
+        "reply": "Osaka is worth it if you prioritize food and a more gritty, neon-soaked energy over Kyoto's temples. Since you're already thinking about a **Shinjuku food tour**, you'll likely love Dotonbori. It's the street food capital of Japan, famous for takoyaki and okonomiyaki.\n\nThe city is only 15 minutes from Kyoto by Shinkansen or 45 minutes by local train. You could easily do a **half-day trip** just for dinner and the lights without moving your luggage. It's a low-stakes way to see if the vibe suits you.\n\nIf you're looking for a break from the traditional ryokan feel you'll have in Kyoto, Osaka is the perfect contrast. Does a night of **neon and street food** sound like a good addition, or are you leaning more toward the quieter pace of the rest of your trip?",
+        "pill": {
+          "lateCard": null,
+          "lateCardHeld": null,
+          "lateCardFull": null,
+          "items": [],
+          "rawNew": [],
+          "ungrounded": 0,
+          "gated": false,
+          "ms": 698
+        },
+        "ms": 3607,
+        "cardMs": 951,
+        "raw": {
+          "considered": [
+            "7a1c3e52"
+          ],
+          "refers": false,
+          "entity_id": null,
+          "intent": "none",
+          "change": null,
+          "about": [
+            "7a1c3e52"
+          ],
+          "confidence": 0,
+          "ask": false,
+          "candidates": []
+        },
+        "recentIn": null
+      },
+      {
+        "message": "Ok I'll skip Osaka and do a day in Nara instead",
+        "mode": "update",
+        "modeBeforeCard": null,
+        "card": null,
+        "about": [
+          "Japan Trip Plan"
+        ],
+        "anchor": {
+          "title": "Japan Trip Plan",
+          "gone": false
+        },
+        "known": [
+          "note \"Japan Trip Plan\" (the item this chat was opened about)",
+          "todo \"Send Out Sage Future Deck\", due tomorrow, Thursday 1 October",
+          "todo \"Call Kim and Andrew\", due Friday 2 October",
+          "note \"Bella Vet Appointment\", Friday 2 October",
+          "todo \"Submit to Apple Health\", due Sunday 4 October"
+        ],
+        "reply": "Nara is a great call, especially since it's a quick trip from Kyoto. The **giant Buddha at Todai-ji** and the deer in the park make for a much more relaxed day than the chaos of Osaka. Since you're looking for a **ryokan with an onsen**, Nara keeps that slower, traditional momentum going.",
+        "pill": {
+          "lateCard": null,
+          "lateCardHeld": null,
+          "lateCardFull": null,
+          "items": [
+            {
+              "kind": "new",
+              "type": "note",
+              "title": "Skip Osaka and visit Nara",
+              "same_as": null
+            }
+          ],
+          "rawNew": [
+            {
+              "title": "Skip Osaka and visit Nara",
+              "type": "note",
+              "same_as": null
+            }
+          ],
+          "ungrounded": 0,
+          "gated": false,
+          "ms": 2985
+        },
+        "ms": 5217,
+        "cardMs": 1017,
+        "raw": {
+          "considered": [
+            "7a1c3e52"
+          ],
+          "refers": true,
+          "entity_id": "7a1c3e52",
+          "intent": "mention",
+          "change": null,
+          "about": [
+            "7a1c3e52"
+          ],
+          "confidence": 95,
+          "ask": false,
+          "candidates": []
+        },
+        "recentIn": null
+      }
+    ]
+  },
+  {
+    "id": "ID-todo-notes",
+    "base": "ID-todo-notes",
+    "group": "Item detail: a todo",
+    "expect": "Uses the notes and the list: the third quote is what is left, the policy ends 14 Oct. Gentle about it having been put off, never shaming.",
+    "note": null,
+    "anchor": "Renew Car Insurance",
+    "lead": "**Renew Car Insurance**, got it. What would you like to talk through?",
+    "turns": [
+      {
+        "message": "What are the concrete next actions I should take?",
+        "mode": "action_ready",
+        "modeBeforeCard": null,
+        "card": null,
+        "about": [
+          "Renew Car Insurance"
+        ],
+        "anchor": {
+          "title": "Renew Car Insurance",
+          "gone": false
+        },
+        "known": [
+          "todo \"Renew Car Insurance\", due Friday 9 October (the item this chat was opened about)",
+          "todo \"Send Out Sage Future Deck\", due tomorrow, Thursday 1 October",
+          "todo \"Call Kim and Andrew\", due Friday 2 October",
+          "note \"Bella Vet Appointment\", Friday 2 October",
+          "todo \"Submit to Apple Health\", due Sunday 4 October"
+        ],
+        "reply": "Since you've already compared the $820 and $640 quotes, the next move is seeing if that $180 saving is worth the higher excess or if a third option beats both. You've pushed this back a few times in the sweep, so let's get the comparison done before the October 9 deadline.\n\n**Call your current insurer** and ask them to match the $640 quote to avoid the hassle of switching.\n\n**Run one more quote** through a different comparison site or a direct insurer like GEICO or Progressive to see if the $640 is actually the floor.\n\n**Calculate the break-even point** on that higher excess by seeing how many years of lower premiums it takes to cover the extra out-of-pocket cost if you have an accident.\n\n**Check Bella's vet records** or your own files for any recent anti-theft upgrades or mileage changes that might lower the premium further.\n\n**Confirm the new policy** by Wednesday so you have a few days of buffer before your current one lapses on the 14th.\n\nGive your current company five minutes to keep your business before you spend time filling out more forms.",
+        "pill": {
+          "lateCard": null,
+          "lateCardHeld": null,
+          "lateCardFull": null,
+          "items": [],
+          "rawNew": [],
+          "ungrounded": 0,
+          "gated": false,
+          "ms": 867
+        },
+        "ms": 4298,
+        "cardMs": 1001,
+        "raw": {
+          "considered": [
+            "b84f2d19"
+          ],
+          "refers": true,
+          "entity_id": "b84f2d19",
+          "intent": "none",
+          "change": null,
+          "about": [
+            "b84f2d19"
+          ],
+          "confidence": 90,
+          "ask": false,
+          "candidates": []
+        },
+        "recentIn": null
+      }
+    ]
+  },
+  {
+    "id": "ID-habit-skip",
+    "base": "ID-habit-skip",
+    "group": "Item detail: a habit",
+    "expect": "Knows the check-ins are patchy and the smallest version is two minutes of rolls; no claim to add anything to the habit.",
+    "note": null,
+    "anchor": "Morning Stretch",
+    "lead": "**Morning Stretch**, got it. What would you like to talk through?",
+    "turns": [
+      {
+        "message": "I've been struggling to stay consistent with this habit. Help me figure out what's getting in the way.",
+        "mode": "emotional",
+        "modeBeforeCard": null,
+        "card": null,
+        "about": [
+          "Morning Stretch"
+        ],
+        "anchor": {
+          "title": "Morning Stretch",
+          "gone": false
+        },
+        "known": [
+          "habit \"Morning Stretch\", daily, logged 1 of the last 7 days, last Monday 28 September (the item this chat was opened about)"
+        ],
+        "reply": "Consistency is hard when a habit feels like another chore on a pile. You've only logged this once in the last week, so clearly the **current approach** isn't sticking.\n\nWhat does your morning actually look like before you get to the stretches? If you're usually rushing to get Bella out the door or diving straight into client emails, that two minute window might be getting swallowed by the chaos.\n\nSometimes it helps to look at where you're physically standing when you think about it. Are you trying to do these neck rolls at your desk once you're already stressed, or while you're waiting for the coffee to brew?",
+        "pill": {
+          "skipped": true,
+          "items": [],
+          "rawNew": [],
+          "lateCard": null,
+          "lateCardHeld": null,
+          "lateCardFull": null,
+          "ungrounded": 0,
+          "gated": true,
+          "ms": 0
+        },
+        "ms": 2396,
+        "cardMs": 767,
+        "raw": {
+          "considered": [
+            "3e9a6c27"
+          ],
+          "refers": true,
+          "entity_id": "3e9a6c27",
+          "intent": "mention",
+          "change": null,
+          "about": [
+            "3e9a6c27"
+          ],
+          "confidence": 95,
+          "ask": false,
+          "candidates": []
+        },
+        "recentIn": null
+      }
+    ]
+  },
+  {
+    "id": "ID-journal",
+    "base": "ID-journal",
+    "group": "Item detail: a journal entry",
+    "expect": "Warm, picks up the freezing when interrupted and the budget slide, without reading the entry back.",
+    "note": null,
+    "anchor": "Nervous About the Board Presentation",
+    "lead": "**Nervous About the Board Presentation**, got it. What would you like to talk through?",
+    "turns": [
+      {
+        "message": "Can we talk about this?",
+        "mode": "emotional",
+        "modeBeforeCard": null,
+        "card": null,
+        "about": [
+          "Nervous About the Board Presentation"
+        ],
+        "anchor": {
+          "title": "Nervous About the Board Presentation",
+          "gone": false
+        },
+        "known": [
+          "none of their items, as far as the app can tell"
+        ],
+        "reply": "Freezing up when you're interrupted is a **visceral** kind of stress, especially since you've got the budget slide history hanging over you. It's like your brain treats a question as a threat instead of just a request for data.\n\nWhen you're ready, we could look at a few ways to handle those interruptions so they don't knock you off your stride.",
+        "pill": {
+          "skipped": true,
+          "items": [],
+          "rawNew": [],
+          "lateCard": null,
+          "lateCardHeld": null,
+          "lateCardFull": null,
+          "ungrounded": 0,
+          "gated": true,
+          "ms": 0
+        },
+        "ms": 2115,
+        "cardMs": 800,
+        "raw": {
+          "considered": [
+            "c5d2814b"
+          ],
+          "refers": true,
+          "entity_id": "c5d2814b",
+          "intent": "none",
+          "change": null,
+          "about": [
+            "c5d2814b"
+          ],
+          "confidence": 95,
+          "ask": false,
+          "candidates": []
+        },
+        "recentIn": null
+      }
+    ]
+  },
+  {
+    "id": "ID-summary",
+    "base": "ID-summary",
+    "group": "Item detail: earlier chats",
+    "expect": "Recalls the earlier chat: Mission, tasting menu, about $300, his sister still to check.",
+    "note": null,
+    "anchor": "Plan Dave's Birthday Dinner",
+    "lead": "**Plan Dave's Birthday Dinner**, got it. What would you like to talk through?",
+    "turns": [
+      {
+        "message": "Where did we get to with this?",
+        "mode": "update",
+        "modeBeforeCard": null,
+        "card": {
+          "kind": "view",
+          "inPassing": false,
+          "title": "Plan Dave's Birthday Dinner",
+          "change": null,
+          "intent": "view",
+          "already": false
+        },
+        "about": [
+          "Plan Dave's Birthday Dinner"
+        ],
+        "anchor": {
+          "title": "Plan Dave's Birthday Dinner",
+          "gone": false
+        },
+        "known": [
+          "todo \"Plan Dave's Birthday Dinner\", due Saturday 10 October (the item this chat was opened about)",
+          "todo \"Send Out Sage Future Deck\", due tomorrow, Thursday 1 October",
+          "todo \"Call Kim and Andrew\", due Friday 2 October",
+          "note \"Bella Vet Appointment\", Friday 2 October",
+          "todo \"Submit to Apple Health\", due Sunday 4 October"
+        ],
+        "reply": "Last we spoke, you were leaning toward a **tasting menu in the Mission** with a $300 budget. You still needed to confirm if Dave's sister can make it before locking anything in.",
+        "pill": {
+          "lateCard": null,
+          "lateCardHeld": null,
+          "lateCardFull": null,
+          "items": [],
+          "rawNew": [],
+          "ungrounded": 0,
+          "gated": false,
+          "ms": 1169
+        },
+        "ms": 3519,
+        "cardMs": 1318,
+        "raw": {
+          "considered": [
+            "f16b7e3d",
+            "0b09ee6d"
+          ],
+          "refers": true,
+          "entity_id": "f16b7e3d",
+          "intent": "view",
+          "change": null,
+          "about": [
+            "f16b7e3d"
+          ],
+          "confidence": 95,
+          "ask": false,
+          "candidates": []
+        },
+        "recentIn": null
+      }
+    ]
+  }
+]
