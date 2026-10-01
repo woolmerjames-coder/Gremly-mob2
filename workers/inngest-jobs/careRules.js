@@ -14,3 +14,16 @@ export const WRITING_RULES = `WRITING
 - Plain, warm English. Never use em dashes, en dashes or double hyphens; use commas, full stops or "to" for ranges.
 - No ampersands except inside a proper name. No exclamation marks.
 - Never describe someone's feelings for them, and never give advice no one asked for.`;
+
+/**
+ * Who the person is, for any prompt that writes about them. Pronouns are never
+ * guessed: without stated pronouns the model uses the name and writes around them.
+ */
+export function personBlock(person) {
+  const name = person?.first_name || null;
+  const pronouns = person?.pronouns || null;
+  return `THE PERSON
+- ${name ? `Their first name is ${name}.` : 'Their name is not known.'} ${pronouns ? `Their pronouns are ${pronouns}.` : 'Their pronouns are not known.'}
+- When you write about them in the third person, use ${name ? 'their first name' : 'plain references such as "the person"'}${pronouns ? ' and those pronouns' : ', and write without he, she or they for them'}. If their own words in the inputs give a different name they go by, or their pronouns, use those.
+- Never infer anyone's gender from a name, an activity, a relationship or a partner. Other people in their life get the pronouns the person uses for them, or none.`;
+}

@@ -10,8 +10,8 @@
  * was shown, and nothing else.
  */
 
-import { CARE_RULES, WRITING_RULES } from '../careRules';
-import { db, userTimezone, localDate } from './db';
+import { CARE_RULES, WRITING_RULES, personBlock } from '../careRules';
+import { db, userTimezone, localDate, personIdentity } from './db';
 import { jsonCall, modelFor } from './llm';
 
 export const CORRECTION_PROMPT_VERSION = 'correction-2026-09-30';
@@ -57,10 +57,12 @@ const CORRECTION_SCHEMA = {
   required: ['understood', 'corrected_facts', 'new_facts', 'rewrites', 'retire_anchor_refs'],
 };
 
-function systemPrompt(today) {
+function systemPrompt(today, person) {
   return `The person has told Gremly that something it holds about their life is wrong. Your job is to apply their correction everywhere, exactly and only where it applies.
 
 TODAY'S DATE: ${today}
+
+${personBlock(person)}
 
 ${CARE_RULES}
 
@@ -261,7 +263,7 @@ ${anchorLines.join('\n') || '(none)'}`;
   const { output, model } = await jsonCall(env, {
     primary: modelFor(env, 'rewrite'),
     fallback: modelFor(env, 'rewriteFallback'),
-    system: systemPrompt(today),
+    system: systemPrompt(today, await personIdentity(env, userId)),
     user,
     schema: CORRECTION_SCHEMA,
     maxTokens: 8000,

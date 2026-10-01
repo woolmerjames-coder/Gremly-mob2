@@ -12,8 +12,8 @@
  * sentence it cannot ground is rewritten once, then cleared if it still fails.
  */
 
-import { CARE_RULES, WRITING_RULES } from '../careRules';
-import { db, userTimezone, localDate, localDateTime, addDays, daysBetween, weekdayName, relativeDay } from './db';
+import { CARE_RULES, WRITING_RULES, personBlock } from '../careRules';
+import { db, userTimezone, localDate, localDateTime, addDays, daysBetween, weekdayName, relativeDay, personIdentity } from './db';
 import { jsonCall, modelFor } from './llm';
 import { recentCorrections } from './corrections';
 
@@ -76,7 +76,7 @@ export async function gatherDay(env, userId, tz, today) {
   const weekStart = addDays(today, -((new Date(`${today}T12:00:00Z`).getUTCDay() + 6) % 7));
   const [
     calendar, noteEvents, openTodos, doneToday, habits, progress, brief, intentions, journals,
-    facts, changes, questions, absence, usage, lifeMap, worlds, prevDco, corrections,
+    facts, changes, questions, absence, usage, lifeMap, worlds, prevDco, corrections, pastFacts,
   ] = await Promise.all([
     d.select(`synced_calendar_events?owner_id=eq.${userId}&archived=eq.false&start_at=gte.${encodeURIComponent(dayStart)}&start_at=lt.${encodeURIComponent(horizonEnd)}&select=id,title,location,start_at,end_at,is_all_day&order=start_at.asc&limit=200`),
     d.select(`notes?owner_id=eq.${userId}&external_source=is.null&subtype=eq.event&archived=eq.false&target_date=gte.${today}&target_date=lte.${addDays(today, 3)}&select=id,title,target_date,event_time,end_date&order=target_date.asc&limit=50`),
@@ -96,11 +96,12 @@ export async function gatherDay(env, userId, tz, today) {
     d.select(`worlds?owner_id=eq.${userId}&phase=in.(candidate,active,evolving)&select=id,display_name,name,card_subtitle,phase`),
     d.select(`user_daily_state?user_id=eq.${userId}&date=lt.${today}&dco->>pipeline=not.is.null&select=date,dco&order=date.desc&limit=1`),
     recentCorrections(env, userId),
+    d.select(`life_facts?user_id=eq.${userId}&state=in.(happened,changed)&about_date=gte.${addDays(today, -365)}&select=id,statement,about_date,state,state_reason&order=about_date.desc&limit=80`),
   ]);
   return {
     today, weekStart, calendar, noteEvents, openTodos, doneToday, habits, progress, brief: brief?.[0] || null,
     intention: intentions?.[0] || null, journals, facts, changes, questions, absence, usage,
-    lifeMap: lifeMap?.[0]?.life_map || null, worlds, prevDco: prevDco?.[0] || null, corrections,
+    lifeMap: lifeMap?.[0]?.life_map || null, worlds, prevDco: prevDco?.[0] || null, corrections, pastFacts: pastFacts || [],
   };
 }
 
@@ -220,6 +221,7 @@ export function renderDay(g, tz) {
   lines.push(`JOURNAL ENTRIES, LAST 3 DAYS:\n${g.journals.map((j) => `${localDateTime(tz, j.created_at)} | "${trim(j.title, 100)}" ${trim(j.body, 900)}${j.mood?.length ? ` | mood: ${j.mood.join(', ')}` : ''}`).join('\n') || '(none)'}`);
   lines.push('');
   lines.push(`LEDGER FACTS (ref | state | date | statement | provenance):\n${factLines.join('\n') || '(none yet)'}`);
+  lines.push(`WHAT ALREADY HAPPENED OR CHANGED, LAST YEAR (date | state | statement):\n${(g.pastFacts || []).map((f) => `${f.about_date} (${relativeDay(f.about_date, today)}) | ${f.state} | ${trim(f.statement, 140)}`).join('\n') || '(none)'}`);
   lines.push(`RECENT CHANGES TO FACTS: ${g.changes.map((c) => `${c.created_at.slice(0, 10)} ${c.from_state} to ${c.to_state}: ${trim(c.reason, 140)}`).join('; ') || 'none'}`);
   lines.push(`CORRECTIONS THE PERSON MADE (never repeat the corrected claim): ${g.corrections.map((c) => `${c.corrected_at.slice(0, 10)}: "${trim(c.statement, 140)}" is wrong; they said "${trim(c.correction_text, 160)}"`).join('; ') || 'none'}`);
   lines.push('');
@@ -265,15 +267,18 @@ const DCO_SCHEMA = {
     reach_ref: { type: 'string', nullable: true },
     reach_why: { type: 'string', nullable: true },
     reach_fact_refs: { type: 'array', items: { type: 'string' } },
+    anchor_refs: { type: 'array', items: { type: 'string' } },
     question_ref: { type: 'string', nullable: true },
     return_note: { type: 'string', nullable: true },
     voice_note: { type: 'string' },
   },
-  required: ['headline', 'day_shape', 'tone', 'day_type', 'lead_what', 'lead_why_today', 'today_focus', 'also_matters', 'claims', 'reach_fact_refs', 'voice_note'],
+  required: ['headline', 'day_shape', 'tone', 'day_type', 'lead_what', 'lead_why_today', 'today_focus', 'also_matters', 'claims', 'reach_fact_refs', 'anchor_refs', 'voice_note'],
 };
 
-function dcoSystemPrompt() {
+function dcoSystemPrompt(person) {
   return `You prepare the start of someone's day for Gremly, a warm, shame-free companion app. What you write appears in the morning brief, on the home screen and in the context every chat reads today.
+
+${personBlock(person)}
 
 ${CARE_RULES}
 
@@ -285,6 +290,7 @@ YOUR JOB
 - today_focus: up to three short items. also_matters: anything else worth knowing, briefly.
 - claims: the items with a real claim on today (due today, on Today, a habit that needs today to stay on track for the week, a calendar entry). Each cites its ref and says why in a few words.
 - reach_ref and reach_why: at most one undated item worth suggesting today, only when a ledger fact gives a true reason for today; cite those facts in reach_fact_refs. Otherwise leave it empty.
+- anchor_refs: the dated ledger facts in the next 30 days that are genuinely ahead and worth keeping in mind, cited by ref. Leave out any plan that something in the inputs suggests already happened, moved or fell through, anything with an open question about it, and anything the person corrected.
 - question_ref: at most one of Gremly's open questions, only if today is a natural day to ask it. Otherwise leave it empty.
 - return_note: only when the person has been away three or more days before today. One warm line welcoming them back, without listing what they missed or what is overdue, and without guessing why they were away. Otherwise leave it empty.
 - voice_note: one line on how Gremly should sound today.
@@ -295,7 +301,7 @@ Warm, plain and forward-looking. Never shame or pressure, never use streak langu
 ${WRITING_RULES}
 
 EVIDENCE
-Every concrete claim (a meeting, a time, a task, a person, a date, a plan) must come from the inputs above, with its date read against today. A plan whose date has passed is not upcoming. A fact the person corrected is never used.`;
+Every concrete claim (a meeting, a time, a task, a person, a date, a plan) must come from the inputs above, with its date read against today. A plan whose date has passed is not upcoming. A plan that looks like something that already happened is not upcoming either. A fact the person corrected is never used.`;
 }
 
 const CHECK_SCHEMA = {
@@ -313,8 +319,10 @@ const CHECK_SCHEMA = {
   required: ['problems'],
 };
 
-function checkSystemPrompt() {
-  return `You check a daily brief written for a person against the inputs it was written from. For each field, decide whether every concrete claim in it is supported by the inputs: meetings, times, tasks, people, places, dates, plans and how near they are. Report a field when it states something the inputs do not support, places a past plan in the future, uses a fact the person corrected, mislabels a day or time, reads a gap in app use as a statement about the person's life, or uses clinical language. Judge meaning, not wording. Report nothing when a field is sound.
+function checkSystemPrompt(person) {
+  return `${personBlock(person)}
+
+You check a daily brief written for a person against the inputs it was written from. For each field, decide whether every concrete claim in it is supported by the inputs: meetings, times, tasks, people, places, dates, plans and how near they are. Report a field when it states something the inputs do not support, places a past plan in the future, uses a fact the person corrected, mislabels a day or time, reads a gap in app use as a statement about the person's life, uses pronouns for the person other than those given, or uses clinical language. Judge meaning, not wording. Report nothing when a field is sound.
 
 ${CARE_RULES}`;
 }
@@ -334,12 +342,12 @@ function textFields(o) {
   return out;
 }
 
-async function checkDay(env, inputText, output) {
+async function checkDay(env, inputText, output, person) {
   const fields = Object.entries(textFields(output)).filter(([, v]) => v);
   const { output: res } = await jsonCall(env, {
     primary: modelFor(env, 'reader'),
     fallback: modelFor(env, 'readerFallback'),
-    system: checkSystemPrompt(),
+    system: checkSystemPrompt(person),
     user: `INPUTS:\n${inputText}\n\nBRIEF TO CHECK (field | text):\n${fields.map(([k, v]) => `${k} | ${v}`).join('\n')}`,
     schema: CHECK_SCHEMA,
     maxTokens: 3000,
@@ -360,14 +368,14 @@ function clearField(o, field) {
 export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
   const tz = tzIn || (await userTimezone(env, userId));
   const today = localDate(tz);
-  const g = await gatherDay(env, userId, tz, today);
+  const [g, person] = await Promise.all([gatherDay(env, userId, tz, today), personIdentity(env, userId)]);
   const { text, refs, computed } = renderDay(g, tz);
 
   const gen = async (extra) =>
     jsonCall(env, {
       primary: modelFor(env, 'daily'),
       fallback: modelFor(env, 'dailyFallback'),
-      system: dcoSystemPrompt(),
+      system: dcoSystemPrompt(person),
       user: extra ? `${text}\n\n${extra}` : text,
       schema: DCO_SCHEMA,
       maxTokens: 6000,
@@ -376,7 +384,7 @@ export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
     });
 
   let { output, model } = await gen();
-  let problems = await checkDay(env, text, output);
+  let problems = await checkDay(env, text, output, person);
   let attempts = 1;
   if (problems.length) {
     attempts = 2;
@@ -385,7 +393,7 @@ export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
     );
     output = retry.output;
     model = retry.model;
-    problems = await checkDay(env, text, output);
+    problems = await checkDay(env, text, output, person);
     for (const p of problems) clearField(output, p.field);
   }
 
@@ -404,8 +412,13 @@ export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
   const daysAway = g.absence?.days_away_before_today ?? null;
   const ret = daysAway != null && daysAway >= 3 && output.return_note ? { days_away: daysAway, note: trim(output.return_note, 200) } : null;
 
-  const upcomingFacts = g.facts
-    .filter((f) => f.about_date && f.about_date >= today && f.about_date <= addDays(today, 30) && ['planned', 'current'].includes(f.state))
+  // Date anchors are the upcoming facts the model judged to be genuinely ahead.
+  const factById = new Map(g.facts.map((f) => [f.id, f]));
+  const upcomingFacts = [...new Set(output.anchor_refs || [])]
+    .map((r) => refs.get(r))
+    .filter((r) => r && r.type === 'fact')
+    .map((r) => factById.get(r.id))
+    .filter((f) => f && f.about_date && f.about_date >= today && f.about_date <= addDays(today, 30) && ['planned', 'current'].includes(f.state))
     .sort((a, b) => (a.about_date < b.about_date ? -1 : 1))
     .slice(0, 8);
 

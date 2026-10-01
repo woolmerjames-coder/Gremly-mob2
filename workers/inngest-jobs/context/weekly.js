@@ -14,8 +14,8 @@
  * its Space, and builds thread evidence from the facts the model cited.
  */
 
-import { CARE_RULES, WRITING_RULES } from '../careRules';
-import { db, userTimezone, localDate, addDays, relativeDay, weekdayName } from './db';
+import { CARE_RULES, WRITING_RULES, personBlock } from '../careRules';
+import { db, userTimezone, localDate, addDays, relativeDay, weekdayName, personIdentity, identityLine } from './db';
 import { anthropicJsonParams, anthropicJsonResult, modelFor, createBatch, getBatch, getBatchResults } from './llm';
 import { recentCorrections } from './corrections';
 import { batchUsageRow, writeUsageRow } from '../aiUsage';
@@ -116,10 +116,12 @@ const WEEKLY_SCHEMA = {
   required: ['life_map', 'profile_text', 'worlds', 'worlds_summary', 'questions', 'week_note'],
 };
 
-function weeklySystemPrompt(today) {
+function weeklySystemPrompt(today, person) {
   return `You keep Gremly's long-term understanding of one person up to date. Once a week you rewrite their Life Map, the short profile every conversation with them reads, and the cards on their Worlds screen, from what is known about their life.
 
 TODAY'S DATE: ${today}
+
+${personBlock(person)}
 
 ${CARE_RULES}
 
@@ -139,6 +141,7 @@ THE LIFE MAP
 
 THE PROFILE
 - A short, warm paragraph or two that a companion could read before talking to them: who they are, who matters to them, what is going on now, and what is coming up. Every date relative to today. No clinical or diagnostic language, no judgements about how they are coping.
+- Start with the paragraph itself. Their name, pronouns, age and location are added above it separately.
 
 WORLDS
 - For each world: a card line in the present tense naming one concrete, current thing; a one or two sentence summary; up to five key priorities, each with its date when it has one.
@@ -250,12 +253,12 @@ export function renderWeek(g, today) {
 export async function weeklyRequestParams(env, userId, periodEnd) {
   const tz = await userTimezone(env, userId);
   const today = localDate(tz);
-  const g = await gatherWeek(env, userId, tz, periodEnd);
+  const [g, person] = await Promise.all([gatherWeek(env, userId, tz, periodEnd), personIdentity(env, userId)]);
   const { text, refs } = renderWeek(g, today);
   const m = modelFor(env, 'weekly');
   const params = anthropicJsonParams({
     model: m.model,
-    system: weeklySystemPrompt(today),
+    system: weeklySystemPrompt(today, person),
     user: text,
     schema: WEEKLY_SCHEMA,
     maxTokens: 24000,
@@ -343,10 +346,14 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
     await d.insertQuiet('user_life_map', [{ user_id: userId, life_map: lifeMap, version: 1, rebuilt_at: nowIso, updated_at: nowIso, last_evidence_date: lastEvidence }]);
   }
 
+  // Other prompts read the IDENTITY line at the top of profile_text, so it stays first.
+  const person = await personIdentity(env, userId);
+  const idLine = identityLine(person);
+  const profileText = [idLine, String(output.profile_text || '').trim()].filter(Boolean).join('\n\n');
   const [profileRow] = await d.select(`user_profiles?user_id=eq.${userId}&select=user_id,signals`);
   const signals = { ...(profileRow?.signals || {}), source: 'weekly_synthesis', synthesized_at: nowIso };
-  if (profileRow) await d.update(`user_profiles?user_id=eq.${userId}`, { profile_text: output.profile_text, signals, generated_at: nowIso, model_used: 'weekly_synthesis' });
-  else await d.insertQuiet('user_profiles', [{ user_id: userId, profile_text: output.profile_text, signals, generated_at: nowIso, model_used: 'weekly_synthesis' }]);
+  if (profileRow) await d.update(`user_profiles?user_id=eq.${userId}`, { profile_text: profileText, signals, generated_at: nowIso, model_used: 'weekly_synthesis' });
+  else await d.insertQuiet('user_profiles', [{ user_id: userId, profile_text: profileText, signals, generated_at: nowIso, model_used: 'weekly_synthesis' }]);
 
   const [worldRows] = [await d.select(`worlds?owner_id=eq.${userId}&select=id,card_subtitle_source,summary_source`)];
   const sources = new Map(worldRows.map((r) => [r.id, r]));

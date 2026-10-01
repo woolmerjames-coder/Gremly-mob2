@@ -87,3 +87,33 @@ export function relativeDay(dateStr, todayStr) {
   if (n > 1) return `in ${n} days`;
   return `${-n} days ago`;
 }
+
+/** First name, pronouns and the onboarding identity, for prompts. Never throws. */
+export async function personIdentity(env, userId) {
+  try {
+    const rows = await db(env).rpc('person_identity', { p_user: userId });
+    const r = Array.isArray(rows) ? rows[0] : rows;
+    return { first_name: r?.first_name || null, pronouns: r?.pronouns || null, identity: r?.identity || {} };
+  } catch (err) {
+    console.warn(`[context] person_identity failed for ${userId}: ${err.message}`);
+    return { first_name: null, pronouns: null, identity: {} };
+  }
+}
+
+/**
+ * The "IDENTITY: ..." line other prompts read from the top of profile_text,
+ * in the format the older profile writers used.
+ */
+export function identityLine(person) {
+  const id = person?.identity || {};
+  const parts = [];
+  const name = id.name || person?.first_name;
+  if (name) parts.push(`Name: ${name}`);
+  if (person?.pronouns) parts.push(`Pronouns: ${person.pronouns}`);
+  else if (id.gender) parts.push(`Gender: ${id.gender}`);
+  if (id.age) parts.push(`Age: ${id.age}`);
+  if (id.location) parts.push(`Location: ${String(id.location).replace(/^live\s+/i, '')}`);
+  const partner = typeof id.partner === 'object' && id.partner ? id.partner.name : id.partner;
+  if (partner) parts.push(`Partner: ${partner}`);
+  return parts.length ? `IDENTITY: ${parts.join('. ')}.` : '';
+}

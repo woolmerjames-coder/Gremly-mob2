@@ -12,8 +12,8 @@
  * Code checks only that cited records and facts exist. All judgement is the model's.
  */
 
-import { CARE_RULES, WRITING_RULES } from '../careRules';
-import { db, userTimezone, localDate, localDateTime, relativeDay } from './db';
+import { CARE_RULES, WRITING_RULES, personBlock } from '../careRules';
+import { db, userTimezone, localDate, localDateTime, relativeDay, personIdentity } from './db';
 import { jsonCall, modelFor } from './llm';
 
 export const READER_PROMPT_VERSION = 'reader-2026-09-30';
@@ -88,10 +88,12 @@ const READER_SCHEMA = {
   required: ['new_facts', 'fact_updates', 'confirmations', 'questions'],
 };
 
-function readerSystemPrompt(today) {
+function readerSystemPrompt(today, person) {
   return `You keep a ledger of facts about one person's life for Gremly, a companion app. You are shown records the person made in the app, in the order they happened, and the facts the ledger already holds. Decide what the new records tell you.
 
 TODAY'S DATE: ${today}
+
+${personBlock(person)}
 
 ${CARE_RULES}
 
@@ -99,6 +101,8 @@ WHAT BELONGS IN THE LEDGER
 - Facts a thoughtful friend would want to remember to understand what is going on in this person's life: plans and trips, commitments and deadlines, events that happened, people who matter and what is happening with them, ongoing situations, goals, routines they keep, and things they say they want or prefer.
 - Not every record produces a fact. Routine chores, passing remarks and app housekeeping usually do not. Be selective; a short, accurate ledger is worth more than a long one.
 - Write each statement in plain words, about the person, in the third person, as true as of the record's date. Keep it to one sentence.
+- A statement says what the record shows. Whether a later record confirmed it is carried by the state, not written into the statement.
+- Records that say the same thing produce one fact, not one per record.
 
 EVIDENCE
 - Every new fact cites exactly one record by its ref, and quotes the person's own words from that record (or its title).
@@ -108,6 +112,7 @@ EVIDENCE
 KEEPING THE LEDGER TRUE
 - A plan is planned until a later record shows what happened. When a record shows a planned thing happened, moved, changed or fell through, update that fact and cite the record. If the details changed, give the replacement.
 - When a record restates an existing fact, confirm it instead of adding a duplicate.
+- When a record shows the same trip, event, milestone or plan as a fact the ledger holds, but at a different date or with a different outcome, the fact is no longer reliable as written. If the record makes clear it is the same thing, update the fact (changed, with the replacement). If it might be a separate occurrence, mark the fact unconfirmed and ask the person.
 - When records disagree and you cannot tell which is right, ask the person one short, friendly question instead of choosing. Ask only when the answer would change what Gremly understands.
 - Never mark a fact as happened just because its date has passed. Without a record, a passed plan stays as it is; it is simply no longer ahead.
 
@@ -289,7 +294,7 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
   // duplicates facts or questions.
   const runId = `${baseRunId}:${chunk[0].at}`;
   await rollbackRun(d, userId, runId);
-  const openFacts = await loadOpenFacts(env, userId, chunk[0].at);
+  const [openFacts, person] = await Promise.all([loadOpenFacts(env, userId, chunk[0].at), personIdentity(env, userId)]);
 
   const recRef = new Map();
   const recordLines = chunk.map((r, i) => {
@@ -315,7 +320,7 @@ ${recordLines.join('\n')}`;
   const { output, model } = await jsonCall(env, {
     primary: modelFor(env, 'reader'),
     fallback: modelFor(env, 'readerFallback'),
-    system: readerSystemPrompt(today),
+    system: readerSystemPrompt(today, person),
     user,
     schema: READER_SCHEMA,
     maxTokens: 8000,
