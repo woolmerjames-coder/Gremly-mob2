@@ -1,0 +1,119 @@
+import {
+  busyBlocks,
+  clock,
+  habitsLine,
+  meetingsLine,
+  stripPercent,
+  sweepLine,
+  todosLine,
+} from '../dayCard';
+import { countdownChip, isReturnDay, readDco } from '../dco';
+
+const MEETINGS = [
+  { id: 'a', title: 'NA standup', start: 480, end: 510 },
+  { id: 'b', title: 'Programmatic', start: 510, end: 555 },
+  { id: 'c', title: 'Fee planning', start: 570, end: 600 },
+  { id: 'd', title: 'Paid social', start: 600, end: 630 },
+  { id: 'e', title: 'QBR prep', start: 660, end: 690 },
+  { id: 'f', title: 'Media plan', start: 690, end: 720 },
+  { id: 'g', title: '1:1', start: 720, end: 750 },
+  { id: 'h', title: 'Paid search', start: 735, end: 795 },
+];
+
+describe('day card lines', () => {
+  it('meetings before, during and after the day', () => {
+    expect(meetingsLine(MEETINGS, 465)).toBe('8 today, first at 8:00');
+    expect(meetingsLine(MEETINGS, 720)).toBe('2 left, clear from 1:15');
+    expect(meetingsLine(MEETINGS, 900)).toBe('All done for today');
+    expect(meetingsLine([], 600)).toBe('Nothing on the calendar');
+  });
+
+  it('merges overlapping meetings into busy blocks', () => {
+    expect(busyBlocks(MEETINGS.slice(6))).toEqual([[720, 795]]);
+    expect(
+      busyBlocks([
+        { start: 600, end: 630 },
+        { start: 660, end: 690 },
+      ]),
+    ).toEqual([
+      [600, 630],
+      [660, 690],
+    ]);
+  });
+
+  it('todos due today', () => {
+    expect(todosLine([], [])).toBe('Nothing due today');
+    expect(todosLine([{ id: 't', title: 'Buy Oat Milk' }], [])).toBe('1 due, Buy Oat Milk');
+    expect(
+      todosLine(
+        [{ id: 't', title: 'Buy Oat Milk' }],
+        [{ id: 't', title: 'x', start: 930, end: 950, kind: 'todo' }],
+      ),
+    ).toBe('1 due, Buy Oat Milk at 3:30');
+    expect(
+      todosLine(
+        [
+          { id: 't', title: 'a' },
+          { id: 'u', title: 'b' },
+        ],
+        [{ id: 'u', title: 'b', start: 900, end: 920, kind: 'todo' }],
+      ),
+    ).toBe('2 due, 1 planned');
+  });
+
+  it('habits: behind is a warning, planned replaces it once locked', () => {
+    expect(habitsLine(8, 1, 0)).toEqual({ text: '8 today, 1 behind this week', warn: true });
+    expect(habitsLine(8, 0, 0)).toEqual({ text: '8 today, on track this week', warn: false });
+    expect(habitsLine(8, 2, 3)).toEqual({ text: '8 today, 3 planned', warn: false });
+  });
+
+  it('sweep', () => {
+    expect(sweepLine(7, 3)).toEqual({ text: '7 waiting, 3 past their dates', warn: true });
+    expect(sweepLine(5, 1)).toEqual({ text: '5 waiting, 1 past its date', warn: true });
+    expect(sweepLine(2, 0)).toEqual({ text: '2 waiting', warn: false });
+    expect(sweepLine(0, 0)).toEqual({ text: 'All sorted', warn: false });
+  });
+
+  it('clock and strip', () => {
+    expect(clock(795)).toBe('1:15');
+    expect(clock(720)).toBe('12:00');
+    expect(stripPercent(360)).toBe(0);
+    expect(stripPercent(1320)).toBe(100);
+    expect(stripPercent(840)).toBe(50);
+  });
+});
+
+describe('countdown chip', () => {
+  const anchors = [
+    { label: 'James planned to send the deck on Friday.', date: '2026-10-02' },
+    {
+      label: 'James and Dave celebrate their anniversary.',
+      short_label: 'Anniversary',
+      date: '2026-10-13',
+    },
+    { label: 'Passed', short_label: 'Old', date: '2026-09-01' },
+  ];
+
+  it('shows the nearest anchor that has a short label', () => {
+    expect(countdownChip(anchors, '2026-09-30')?.text).toBe('Anniversary in 13 days');
+    expect(countdownChip(anchors, '2026-10-12')?.text).toBe('Anniversary tomorrow');
+    expect(countdownChip(anchors, '2026-10-13')?.text).toBe('Anniversary today');
+  });
+
+  it('is left off when nothing ahead has a short label', () => {
+    expect(countdownChip(anchors, '2026-10-14')).toBeNull();
+    expect(countdownChip([], '2026-10-01')).toBeNull();
+  });
+
+  it('reads the DCO and knows a return day', () => {
+    const d = readDco({
+      date: '2026-10-01',
+      named_anchors: anchors,
+      brief: { headline: 'x', claims: [], return: { days_away: 7, note: 'Welcome back' } },
+    });
+    expect(d.anchors).toHaveLength(3);
+    expect(isReturnDay(d.brief)).toBe(true);
+    expect(isReturnDay(readDco({ brief: { return: null } }).brief)).toBe(false);
+    expect(readDco(null).brief).toBeNull();
+  });
+});

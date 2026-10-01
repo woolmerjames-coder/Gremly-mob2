@@ -70,10 +70,11 @@ import { waitForExtraction } from '../../lib/chat/waitForExtraction';
 import { findItemChat } from '../../lib/chat/itemChat';
 import type { ItemStarter } from '../../lib/chat/itemStarters';
 import { BriefMessage } from '../../components/brief/BriefMessage';
+import { BriefDayCardBlock } from '../../components/brief/BriefDayCardBlock';
 import { briefMetaOf, liveOfferId, visibleThreadMessages } from '../../lib/brief/messages';
 import { useBriefInChat } from '../../lib/brief/flag';
 import { ensureDailyThread } from '../../lib/repo/dailyThreadRepo';
-import type { OfferButton } from '../../lib/brief/types';
+import type { BriefDayCardMeta, OfferButton } from '../../lib/brief/types';
 
 const MOSS = '#2E5540';
 const LINEN = '#F9F6F1';
@@ -635,6 +636,10 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   const handleOfferButton = useCallback((_message: SpaceChatMessage, button: OfferButton) => {
     if (__DEV__) console.log('[DailyBrief] button', button.action, button.id);
   }, []);
+  const renderDayCard = useCallback(
+    (_message: SpaceChatMessage, meta: BriefDayCardMeta) => <BriefDayCardBlock date={meta.date} />,
+    [],
+  );
 
   // Opened from a Mind Drop question ("Chat with Gremly" or "Ask Gremly now"):
   // send the drop straight away so Gremly replies, once per request.
@@ -693,6 +698,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             prev={rows[index - 1]}
             liveOfferId={offerLive}
             onOfferButton={handleOfferButton}
+            renderDayCard={renderDayCard}
           />
         );
       }
@@ -711,7 +717,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         </View>
       );
     },
-    [cardFor, entityCardHandlers, rows, offerLive, handleOfferButton],
+    [cardFor, entityCardHandlers, rows, offerLive, handleOfferButton, renderDayCard],
   );
 
   const inConversation = activeChat !== null;
