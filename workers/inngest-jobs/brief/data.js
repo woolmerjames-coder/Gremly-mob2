@@ -12,6 +12,14 @@ import { readThreadReaction } from './reaction';
 export const PLAN_DAY_START = 8 * 60;
 export const PLAN_DAY_END = 22 * 60;
 
+/** Calendars that keep a cancelled meeting usually say so at the start of the title. */
+export const CANCELLED_TITLE = /^\s*(canceled|cancelled)\b/i;
+
+/** Cancelled entries stay on some calendars; they are not part of the day. */
+export function isCancelledEntry(e, cancelledIds) {
+  return Boolean(cancelledIds?.has(e.id) || CANCELLED_TITLE.test(e.title || ''));
+}
+
 export function dayPartAt(min) {
   if (min < 12 * 60) return 'morning';
   if (min < 17 * 60) return 'afternoon';
@@ -145,10 +153,12 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
     ]);
   const dco = dcoResult.dco;
 
-  // Today's timed calendar entries, in local minutes
+  // Today's timed calendar entries, in local minutes. Cancelled ones are left out.
+  const cancelledIds = new Set(dco?.cancelled_calendar_ids || []);
   const meetings = [];
   const allDay = [];
   for (const e of synced || []) {
+    if (isCancelledEntry(e, cancelledIds)) continue;
     if (e.is_all_day) {
       allDay.push({ id: e.id, title: e.title });
       continue;

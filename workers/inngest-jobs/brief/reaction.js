@@ -17,8 +17,11 @@ function trim(text, n) {
   return s.length > n ? `${s.slice(0, n)}…` : s;
 }
 
-function hhmm(min) {
-  return `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+/** "8am", "1:15pm": the same clock the brief writer uses. */
+function clockTime(min) {
+  const h = Math.floor(min / 60) % 24;
+  const m = min % 60;
+  return `${h % 12 || 12}${m ? `:${String(m).padStart(2, '0')}` : ''}${h >= 12 ? 'pm' : 'am'}`;
 }
 
 /** Summarise a thread's messages; exported for tests. */
@@ -35,7 +38,7 @@ export function summariseThread(meta, messages) {
     .map((m) => m.metadata_json);
   const locked = [...plans].reverse().find((p) => p.status === 'locked');
   if (locked) {
-    const items = (locked.items || []).map((i) => `${trim(i.title, 50)} at ${hhmm(i.start)}`);
+    const items = (locked.items || []).map((i) => `${trim(i.title, 50)} at ${clockTime(i.start)}`);
     parts.push(items.length ? `locked in a plan: ${items.join(', ')}` : 'locked in an empty plan');
     const first = plans[0];
     const lockedIds = new Set((locked.items || []).map((i) => i.id));

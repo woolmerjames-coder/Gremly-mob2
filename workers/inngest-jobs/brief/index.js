@@ -138,20 +138,24 @@ export async function writeDailyBrief(env, userId, { reason = 'scheduled', at = 
       },
     });
   }
-  rows.push({
-    role: 'assistant',
-    content: out.offer || fallbackOffer(offer.kind),
-    metadata_json: {
-      type: 'brief-offer',
-      kind: offer.kind,
-      buttons: offer.buttons,
-      // shown once the question has been answered or skipped
-      held: asking ? true : undefined,
-      catch_up: out.catchUp || undefined,
-      plan_from: offer.plan?.gapFrom ?? undefined,
-      brief_id: briefId,
-    },
-  });
+  // With no offer the last message is only a sign-off; when the writer gave
+  // none, the lines end the brief on their own.
+  const offerText = out.offer || (offer.kind === 'none' ? null : fallbackOffer(offer.kind));
+  if (offerText)
+    rows.push({
+      role: 'assistant',
+      content: offerText,
+      metadata_json: {
+        type: 'brief-offer',
+        kind: offer.kind,
+        buttons: offer.buttons,
+        // shown once the question has been answered or skipped
+        held: asking ? true : undefined,
+        catch_up: out.catchUp || undefined,
+        plan_from: offer.plan?.gapFrom ?? undefined,
+        brief_id: briefId,
+      },
+    });
 
   await appendMessages(env, userId, thread.id, rows, at.getTime());
   const nowIso = new Date().toISOString();

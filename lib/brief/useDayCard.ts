@@ -21,6 +21,7 @@ import { dayOfWeekNumber, habitsBehindThisWeek, weeklyTarget } from './behind';
 import { countdownChip, isReturnDay, readDco } from './dco';
 import {
   habitsLine,
+  isCancelledMeeting,
   meetingsLine,
   sweepLine,
   todosLine,
@@ -122,12 +123,19 @@ export function useDayCard(date: string): DayCardData {
   const userEvents = useGremlyStore((s) => s.userCalendarEvents);
   const notes = useGremlyStore((s) => s.notes);
 
+  const cancelledKey = useMemo(() => readDco(dco).cancelledCalendarIds.join(','), [dco]);
   const meetings = useMemo<DayMeeting[]>(() => {
+    const cancelled = new Set(cancelledKey ? cancelledKey.split(',') : []);
     return getEventsForDate(date)
       .filter(
         (e) =>
           !e.isAllDay &&
-          (e.source === 'synced' || e.source === 'gremly_event' || e.source === 'user_calendar'),
+          (e.source === 'synced' || e.source === 'gremly_event' || e.source === 'user_calendar') &&
+          !isCancelledMeeting(
+            e.title,
+            [e.originalId, (e.sourceData?.record as { id?: string } | undefined)?.id],
+            cancelled,
+          ),
       )
       .map((e) => {
         const start = e.startAt ? minutesOfDay(e.startAt) : hhmmToMinutes(e.startTime);
@@ -143,7 +151,7 @@ export function useDayCard(date: string): DayCardData {
       .filter((m): m is DayMeeting => m !== null)
       .sort((a, b) => a.start - b.start);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date, syncedToday, userEvents, notes]);
+  }, [date, syncedToday, userEvents, notes, cancelledKey]);
 
   const planned = useMemo(() => plannedForDay(todos, habits, date), [todos, habits, date]);
 

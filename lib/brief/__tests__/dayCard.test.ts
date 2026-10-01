@@ -2,6 +2,7 @@ import {
   busyBlocks,
   clock,
   habitsLine,
+  isCancelledMeeting,
   meetingsLine,
   stripPercent,
   sweepLine,
@@ -115,5 +116,25 @@ describe('countdown chip', () => {
     expect(isReturnDay(d.brief)).toBe(true);
     expect(isReturnDay(readDco({ brief: { return: null } }).brief)).toBe(false);
     expect(readDco(null).brief).toBeNull();
+  });
+});
+
+describe('cancelled meetings', () => {
+  const none = new Set<string>();
+  it('leaves out a meeting whose title says it was cancelled', () => {
+    expect(isCancelledMeeting('Canceled: iProspect Town Hall', ['x'], none)).toBe(true);
+    expect(isCancelledMeeting('CANCELLED - Attribution touchbase', ['x'], none)).toBe(true);
+    expect(isCancelledMeeting('Social connect', ['x'], none)).toBe(false);
+    expect(isCancelledMeeting('Cancellation policy review', ['x'], none)).toBe(false);
+  });
+  it('leaves out a meeting the DCO named as cancelled', () => {
+    expect(isCancelledMeeting('Social connect', ['ext-1', 'row-9'], new Set(['row-9']))).toBe(true);
+  });
+  it('reads the cancelled ids from the DCO', () => {
+    expect(readDco({ cancelled_calendar_ids: ['a', 2, 'b'] }).cancelledCalendarIds).toEqual([
+      'a',
+      'b',
+    ]);
+    expect(readDco(null).cancelledCalendarIds).toEqual([]);
   });
 });

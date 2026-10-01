@@ -1,0 +1,4 @@
+# Real days are built from someone's own data: never commit them.
+real/
+out/
+.bundle.mjs

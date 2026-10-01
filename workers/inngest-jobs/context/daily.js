@@ -871,6 +871,9 @@ export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
       return: ret,
     },
     absence: g.absence,
+    // Today's calendar entries that are cancelled but still on the calendar.
+    // The brief and the app's day card leave these out of the day.
+    cancelled_calendar_ids: [...(g.cancelledIds || [])],
     review_flags: problems.map((p) => ({ field: p.field, problem: p.problem })),
     user_id: userId,
     date: today,

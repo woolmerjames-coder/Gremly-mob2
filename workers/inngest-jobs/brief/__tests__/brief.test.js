@@ -6,8 +6,16 @@
  */
 import { decideOffer, planLabel, questionButtons } from '../offer';
 import { dayOfWeekNumber, isBehindThisWeek, mondayOf, weeklyTarget } from '../behind';
-import { clashesOf, dayPartAt, ritualDayFor, shapeOfDay, minutesIn, localStartIso } from '../data';
-import { checkRefs, noDashes, renderBriefInput } from '../writer';
+import {
+  clashesOf,
+  dayPartAt,
+  isCancelledEntry,
+  ritualDayFor,
+  shapeOfDay,
+  minutesIn,
+  localStartIso,
+} from '../data';
+import { checkRefs, clockTime, noDashes, renderBriefInput, stripRefs } from '../writer';
 import { summariseThread } from '../reaction';
 import { dueForBrief, fallbackOffer } from '../index';
 
@@ -174,6 +182,26 @@ describe("the writer's ID check", () => {
     expect(checkRefs({ lines: [], offer_refs: ['x'] }, refs).offerOk).toBe(false);
   });
 
+  it('takes refs out of the text', () => {
+    expect(stripRefs('Checkout at 10am, then the flight. [c1, c2]')).toBe(
+      'Checkout at 10am, then the flight.',
+    );
+    expect(stripRefs('Pack the charger (t1) before you go.')).toBe(
+      'Pack the charger before you go.',
+    );
+    expect(stripRefs('Call Mum at 6pm.')).toBe('Call Mum at 6pm.');
+    const out = checkRefs({ lines: [{ text: 'Standup at 8 [c1].', refs: ['c1'] }] }, refs);
+    expect(out.lines[0].text).toBe('Standup at 8.');
+  });
+
+  it('writes times the way people say them', () => {
+    expect(clockTime(480)).toBe('8am');
+    expect(clockTime(510)).toBe('8:30am');
+    expect(clockTime(720)).toBe('12pm');
+    expect(clockTime(0)).toBe('12am');
+    expect(clockTime(1335)).toBe('10:15pm');
+  });
+
   it('never lets a dash through', () => {
     expect(noDashes('Busy morning — then clear')).toBe('Busy morning, then clear');
     expect(noDashes('8–9')).toBe('8, 9');
@@ -191,7 +219,12 @@ describe("the writer's ID check", () => {
         { id: 'cal-3', title: 'Paid search', start: 735, end: 795 },
       ],
       allDay: [],
-      clashes: [[{ id: 'cal-2' }, { id: 'cal-3' }]],
+      clashes: [
+        [
+          { id: 'cal-2', end: 750 },
+          { id: 'cal-3', end: 795 },
+        ],
+      ],
       busy: [
         { from: 480, to: 510 },
         { from: 720, to: 795 },
@@ -227,11 +260,61 @@ describe("the writer's ID check", () => {
     });
     const { text, refs: r } = renderBriefInput(g, offer);
     expect(text).toContain('c2 overlaps c3');
+    expect(text).toContain('TIME NOW: 7:45am');
+    expect(text).toContain('c1 | 8am to 8:30am | still ahead | NA standup');
+    expect(text).toContain('clear stretches 8:30am to 12pm, 1:15pm to 10pm');
     expect(text).toContain('t1 | Buy Oat Milk');
     expect(text).toContain('behind for the week');
     expect(text).toContain('r1 | Car service light is on');
     expect(text).toContain('"Plan my day" is offered');
     expect(r.get('r1')).toEqual({ type: 'fact', id: 'fact-9' });
+  });
+
+  it('leaves out clashes that are over and starts a stretch that has begun from now', () => {
+    const g = {
+      today: '2026-09-30',
+      now: 760,
+      part: 'afternoon',
+      ret: null,
+      meetings: [
+        { id: 'cal-1', title: 'Standup', start: 540, end: 600 },
+        { id: 'cal-2', title: 'Fee planning', start: 570, end: 600 },
+      ],
+      allDay: [],
+      clashes: [
+        [
+          { id: 'cal-1', end: 600 },
+          { id: 'cal-2', end: 600 },
+        ],
+      ],
+      busy: [{ from: 540, to: 600 }],
+      free: [
+        { from: 480, to: 540 },
+        { from: 600, to: 1320 },
+      ],
+      dayShape: null,
+      todosDue: [],
+      habitsForToday: [],
+      claims: [],
+      reach: null,
+      anchors: [],
+      overdue: 0,
+      unsorted: 0,
+      reaction: null,
+      question: null,
+    };
+    const offer = decideOffer({
+      returnDay: false,
+      overdue: 0,
+      unsorted: 0,
+      candidates: 1,
+      freeWindows: g.free,
+      now: g.now,
+    });
+    const { text } = renderBriefInput(g, offer);
+    expect(text).toContain('CLASHES STILL AHEAD: none.');
+    expect(text).toContain('clear stretches now to 10pm');
+    expect(text).toContain('the clear stretch from now');
   });
 });
 
@@ -268,10 +351,22 @@ describe("yesterday's reaction", () => {
     const s = summariseThread({ seen_at: '2026-09-30T15:00:00Z' }, msgs);
     expect(s).toContain('they opened it');
     expect(s).toContain('tapped "Plan my afternoon"');
-    expect(s).toContain('locked in a plan: Social posts at 13:15, Run at 18:00');
+    expect(s).toContain('locked in a plan: Social posts at 1:15pm, Run at 6pm');
     expect(s).toContain('took out Oat milk');
     expect(s).toContain('moved Run');
     expect(s).toContain('said "move the run after 6"');
     expect(summariseThread({}, [])).toBe('they did not open it');
+  });
+});
+
+describe('cancelled calendar entries', () => {
+  it('are left out by id or by title', () => {
+    const ids = new Set(['row-1']);
+    expect(isCancelledEntry({ id: 'row-1', title: 'Social connect' }, ids)).toBe(true);
+    expect(isCancelledEntry({ id: 'row-2', title: 'Canceled: iProspect Town Hall' }, ids)).toBe(
+      true,
+    );
+    expect(isCancelledEntry({ id: 'row-3', title: 'Cancellation policy review' }, ids)).toBe(false);
+    expect(isCancelledEntry({ id: 'row-4', title: 'Search connect' }, undefined)).toBe(false);
   });
 });

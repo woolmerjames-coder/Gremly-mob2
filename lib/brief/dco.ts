@@ -55,6 +55,8 @@ export interface DcoForBrief {
   date: string | null;
   brief: DcoBrief | null;
   anchors: DcoAnchor[];
+  /** Today's synced calendar rows that are cancelled but still on the calendar */
+  cancelledCalendarIds: string[];
 }
 
 /** Read the brief's parts from whatever DCO row is loaded; anything missing is empty. */
@@ -69,6 +71,9 @@ export function readDco(dco: unknown): DcoForBrief {
   return {
     date: typeof d.date === 'string' ? d.date : null,
     anchors,
+    cancelledCalendarIds: Array.isArray(d.cancelled_calendar_ids)
+      ? d.cancelled_calendar_ids.filter((x: unknown): x is string => typeof x === 'string')
+      : [],
     brief: b
       ? {
           headline: b.headline ?? null,

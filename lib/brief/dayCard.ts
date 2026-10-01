@@ -19,6 +19,22 @@ export interface DayPlanned {
   kind: 'todo' | 'habit';
 }
 
+/** Calendars that keep a cancelled meeting usually say so at the start of the title. */
+const CANCELLED_TITLE = /^\s*(canceled|cancelled)\b/i;
+
+/**
+ * A meeting that is cancelled but still on the calendar: the DCO's reader
+ * named it, or its title says so. It is not part of the day.
+ */
+export function isCancelledMeeting(
+  title: string | null | undefined,
+  ids: (string | null | undefined)[],
+  cancelledIds: ReadonlySet<string>,
+): boolean {
+  if (ids.some((id) => !!id && cancelledIds.has(id))) return true;
+  return CANCELLED_TITLE.test(title ?? '');
+}
+
 /** "8:00", "1:15", "12:30" */
 export function clock(min: number): string {
   const h = Math.floor(min / 60) % 24;
