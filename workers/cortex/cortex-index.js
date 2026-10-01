@@ -165,6 +165,7 @@ import {
   lastUserText,
 } from './context/chatProjection.js';
 import { checkForCorrection } from './context/corrections.js';
+import { fetchInngestWorker } from './inngestWorker.js';
 import { getUserProfile } from './context/userProfile.js';
 import { buildTodayActivity } from './context/todayActivity.js';
 import { getAgeGuidance } from './context/gremlyAge.js';
@@ -3408,7 +3409,7 @@ export default {
       };
 
       try {
-        const inngestRes = await fetch(`${env.INNGEST_WORKER_URL}/api/challenge-completed`, {
+        const inngestRes = await fetchInngestWorker(env, '/api/challenge-completed', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -4394,7 +4395,11 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
               buildChatContext(
                 authenticatedUserId,
                 'habit_builder',
-                { message: lastUserText(body), timezone: userTimezone, currentChatId: body.chatId || null },
+                {
+                  message: lastUserText(body),
+                  timezone: userTimezone,
+                  currentChatId: body.chatId || null,
+                },
                 env,
               ),
               getUserProfile(authenticatedUserId, env),
@@ -5239,7 +5244,8 @@ Almost never suggest creating a Space. Only if ALL true:
                     buildChatContext(
                       authenticatedUserId,
                       'entity',
-                      { message: lastUserText(body),
+                      {
+                        message: lastUserText(body),
                         entityTitle: entity?.title || entity?.name || null,
                         entitySpaceId: entity?.spaceId || entity?.space_id || null,
                         timezone: userTimezone,
@@ -5977,7 +5983,8 @@ Almost never suggest creating a Space. Only if ALL true:
               buildChatContext(
                 authenticatedUserId,
                 'entity',
-                { message: lastUserText(body),
+                {
+                  message: lastUserText(body),
                   entityTitle: entity?.title || entity?.name || null,
                   entitySpaceId: entity?.spaceId || entity?.space_id || null,
                   timezone: userTimezone,
@@ -7745,18 +7752,29 @@ ${assistantMessage.substring(0, 2000)}
       // which applies the correction everywhere straight away.
       // =========================
       if (type === 'not-right') {
-        const said = String(body.said || '').trim().slice(0, 2000);
-        const surface = ['not_right', 'brief', 'question'].includes(body.surface) ? body.surface : 'not_right';
-        if (!said && !body.target_text && !body.kind) return j({ error: 'said, target_text or kind is required' }, 400);
-        if (!env.INNGEST_WORKER_URL || !env.INNGEST_ADMIN_KEY) return j({ error: 'not configured' }, 503);
-        const res = await fetch(`${env.INNGEST_WORKER_URL}/api/correction`, {
+        const said = String(body.said || '')
+          .trim()
+          .slice(0, 2000);
+        const surface = ['not_right', 'brief', 'question'].includes(body.surface)
+          ? body.surface
+          : 'not_right';
+        if (!said && !body.target_text && !body.kind)
+          return j({ error: 'said, target_text or kind is required' }, 400);
+        if (!env.INNGEST_WORKER_URL || !env.INNGEST_ADMIN_KEY)
+          return j({ error: 'not configured' }, 503);
+        const res = await fetchInngestWorker(env, '/api/correction', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-admin-key': env.INNGEST_ADMIN_KEY },
           body: JSON.stringify({
             user_id: authenticatedUserId,
-            said: said || (body.target_text ? `This is not right: ${String(body.target_text).slice(0, 500)}` : 'Not right'),
+            said:
+              said ||
+              (body.target_text
+                ? `This is not right: ${String(body.target_text).slice(0, 500)}`
+                : 'Not right'),
             surface,
-            target_kind: typeof body.target_kind === 'string' ? body.target_kind.slice(0, 40) : null,
+            target_kind:
+              typeof body.target_kind === 'string' ? body.target_kind.slice(0, 40) : null,
             target_text: body.target_text ? String(body.target_text).slice(0, 1000) : null,
             target_id: typeof body.target_id === 'string' ? body.target_id.slice(0, 64) : null,
             // Not right sheet choice (wrong, changed, done, private); answers send surface 'question' and the question id.
@@ -11726,7 +11744,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   buildChatContext(
                     authenticatedUserId,
                     'space',
-                    { message: lastUserText(body),
+                    {
+                      message: lastUserText(body),
                       spaceId: body.spaceId,
                       timezone: userTimezone,
                       currentChatId: body.chatId || null,
@@ -12573,7 +12592,11 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   buildChatContext(
                     authenticatedUserId,
                     'general',
-                    { message: lastUserText(body), timezone: userTimezone, currentChatId: body.chatId || null },
+                    {
+                      message: lastUserText(body),
+                      timezone: userTimezone,
+                      currentChatId: body.chatId || null,
+                    },
                     env,
                   ),
                   getUserProfile(authenticatedUserId, env),
@@ -13065,7 +13088,9 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       anchorDetail?.summary || null,
                       env,
                       userTimezone,
-                    ).catch((err) => console.warn('[GeneralChat] Item chat summary failed:', err.message)),
+                    ).catch((err) =>
+                      console.warn('[GeneralChat] Item chat summary failed:', err.message),
+                    ),
                   );
                 }
 
@@ -13442,7 +13467,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                                   date_range_start: evt.date_range_start || null,
                                   date_range_end: evt.date_range_end || null,
                                   source_chat_id: body.chatId || null,
-                                  source_message: (evt.evidence || lastUserMsg || '').slice(0, 500) || null,
+                                  source_message:
+                                    (evt.evidence || lastUserMsg || '').slice(0, 500) || null,
                                   space_id: body.spaceId || null,
                                   created_at: nowIso,
                                   updated_at: nowIso,
@@ -13466,7 +13492,10 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     }
                     const corrected = await correctionCheck;
                     if (corrected?.sent) {
-                      console.log('[GeneralChat] Correction sent to the context pipeline', corrected);
+                      console.log(
+                        '[GeneralChat] Correction sent to the context pipeline',
+                        corrected,
+                      );
                     }
                   } catch (err) {
                     console.warn('[GeneralChat] Extraction failed:', err.message);
@@ -13540,7 +13569,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               buildChatContext(
                 authenticatedUserId,
                 'space',
-                { message: lastUserText(body),
+                {
+                  message: lastUserText(body),
                   spaceId: body.spaceId,
                   timezone: userTimezone,
                   currentChatId: body.chatId || null,
@@ -13785,7 +13815,11 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               buildChatContext(
                 authenticatedUserId,
                 'world',
-                { message: lastUserText(body), timezone: userTimezone, currentChatId: body.chatId || null },
+                {
+                  message: lastUserText(body),
+                  timezone: userTimezone,
+                  currentChatId: body.chatId || null,
+                },
                 env,
               ),
               getUserProfile(authenticatedUserId, env),
@@ -13986,7 +14020,11 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               buildChatContext(
                 authenticatedUserId,
                 'chapter',
-                { message: lastUserText(body), timezone: userTimezone, currentChatId: body.chatId || null },
+                {
+                  message: lastUserText(body),
+                  timezone: userTimezone,
+                  currentChatId: body.chatId || null,
+                },
                 env,
               ),
               getUserProfile(authenticatedUserId, env),
@@ -14652,7 +14690,11 @@ function runScopedChatStream(
             buildChatContext(
               authenticatedUserId,
               scopeType,
-              { message: lastUserText(body), timezone: userTimezone, currentChatId: body.chatId || null },
+              {
+                message: lastUserText(body),
+                timezone: userTimezone,
+                currentChatId: body.chatId || null,
+              },
               env,
             ),
             getUserProfile(authenticatedUserId, env),

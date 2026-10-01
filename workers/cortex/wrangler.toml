@@ -2,6 +2,12 @@ name = "gentle-thunder-5854"
 main = "cortex-index.js"
 compatibility_date = "2024-01-01"
 
+# Calls to inngest-jobs go through this binding: Cloudflare refuses a fetch to
+# another workers.dev Worker on the same account (error 1042).
+[[services]]
+binding = "INNGEST"
+service = "gremly-inngest-jobs"
+
 [vars]
 INNGEST_WORKER_URL = "https://gremly-inngest-jobs.woolmerjames.workers.dev"
 # Mind Drop one call classifier (classify-v3). Chosen by the model audit in

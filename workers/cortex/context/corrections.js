@@ -10,6 +10,7 @@
  */
 
 import { helperFetch } from '../helperClient.js';
+import { fetchInngestWorker } from '../inngestWorker.js';
 
 function correctionPrompt(conversationText) {
   return `You read the end of a conversation between a person and Gremly, their companion app.
@@ -28,7 +29,8 @@ Return only JSON: {"corrections":[{"said":"<the person's words, copied exactly f
  * @returns {Promise<{sent: number}>}
  */
 export async function checkForCorrection({ conversationText, userTexts, chatId, userId, env }) {
-  if (!userId || !conversationText || !env.INNGEST_WORKER_URL || !env.INNGEST_ADMIN_KEY) return { sent: 0 };
+  if (!userId || !conversationText || !env.INNGEST_WORKER_URL || !env.INNGEST_ADMIN_KEY)
+    return { sent: 0 };
   const res = await helperFetch('correction_check', {
     messages: [
       { role: 'system', content: correctionPrompt(conversationText) },
@@ -52,10 +54,17 @@ export async function checkForCorrection({ conversationText, userTexts, chatId, 
     const said = String(c?.said || '').trim();
     // Their own words only: what Gremly said is never a correction.
     if (!said || !own.some((t) => t.includes(said))) continue;
-    const r = await fetch(`${env.INNGEST_WORKER_URL}/api/correction`, {
+    const r = await fetchInngestWorker(env, '/api/correction', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-admin-key': env.INNGEST_ADMIN_KEY },
-      body: JSON.stringify({ user_id: userId, said, surface: 'chat', chat_id: chatId || null, target_kind: 'chat', target_text: String(c?.about || '').slice(0, 300) }),
+      body: JSON.stringify({
+        user_id: userId,
+        said,
+        surface: 'chat',
+        chat_id: chatId || null,
+        target_kind: 'chat',
+        target_text: String(c?.about || '').slice(0, 300),
+      }),
     }).catch(() => null);
     if (r?.ok) sent++;
   }
