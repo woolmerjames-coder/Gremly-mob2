@@ -11242,7 +11242,15 @@ const appHandler = {
           said,
           chat_id: typeof body.chat_id === 'string' && /^[0-9a-f-]{36}$/i.test(body.chat_id) ? body.chat_id : null,
           target_kind: typeof body.target_kind === 'string' ? body.target_kind.slice(0, 40) : null,
-          target_ref: body.target_text ? { text: String(body.target_text).slice(0, 1000), id: body.target_id || null } : null,
+          // What they marked, the id it came from (a question when answering one), and
+          // what they chose on the Not right sheet: wrong, changed, done or private.
+          target_ref: body.target_text || body.target_id || body.kind
+            ? {
+                text: body.target_text ? String(body.target_text).slice(0, 1000) : null,
+                id: typeof body.target_id === 'string' ? body.target_id.slice(0, 64) : null,
+                kind: ['wrong', 'changed', 'done', 'private'].includes(body.kind) ? body.kind : null,
+              }
+            : null,
           status: 'received',
         };
         const ins = await fetch(`${env.SUPABASE_URL}/rest/v1/user_corrections`, {

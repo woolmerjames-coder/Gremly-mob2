@@ -7747,18 +7747,20 @@ ${assistantMessage.substring(0, 2000)}
       if (type === 'not-right') {
         const said = String(body.said || '').trim().slice(0, 2000);
         const surface = ['not_right', 'brief', 'question'].includes(body.surface) ? body.surface : 'not_right';
-        if (!said && !body.target_text) return j({ error: 'said or target_text is required' }, 400);
+        if (!said && !body.target_text && !body.kind) return j({ error: 'said, target_text or kind is required' }, 400);
         if (!env.INNGEST_WORKER_URL || !env.INNGEST_ADMIN_KEY) return j({ error: 'not configured' }, 503);
         const res = await fetch(`${env.INNGEST_WORKER_URL}/api/correction`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-admin-key': env.INNGEST_ADMIN_KEY },
           body: JSON.stringify({
             user_id: authenticatedUserId,
-            said: said || `This is not right: ${String(body.target_text).slice(0, 500)}`,
+            said: said || (body.target_text ? `This is not right: ${String(body.target_text).slice(0, 500)}` : 'Not right'),
             surface,
             target_kind: typeof body.target_kind === 'string' ? body.target_kind.slice(0, 40) : null,
             target_text: body.target_text ? String(body.target_text).slice(0, 1000) : null,
             target_id: typeof body.target_id === 'string' ? body.target_id.slice(0, 64) : null,
+            // Not right sheet choice (wrong, changed, done, private); answers send surface 'question' and the question id.
+            kind: ['wrong', 'changed', 'done', 'private'].includes(body.kind) ? body.kind : null,
           }),
         }).catch(() => null);
         if (!res?.ok) return j({ error: 'could not send the correction' }, 502);
