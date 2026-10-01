@@ -1,0 +1,95 @@
+/**
+ * The plan picker's checks: only what is in the pool, windows inside the
+ * planning hours, durations from the app when it has them.
+ */
+import { checkOps, checkPicks, parseHHMM, readRequest, renderPlanInput } from '../planPick';
+
+const BODY = {
+  now: 760,
+  gap_from: 795,
+  pool: [
+    { id: 'todo-1', kind: 'todo', title: 'Buy Oat Milk', minutes: 15, why: 'due today' },
+    {
+      id: 'hab-1',
+      kind: 'habit',
+      title: 'Run',
+      minutes: null,
+      why: '0 of 1 this week',
+      window: [1020, 1260],
+    },
+    { id: 'fact-9', kind: 'reach', title: 'Book the car service', why: 'overdue for a service' },
+  ],
+  meetings: [{ title: 'Search connect', start: 720, end: 750 }],
+};
+
+describe('the plan picker', () => {
+  it('reads the request and gives each candidate a ref', () => {
+    const req = readRequest(BODY);
+    expect(req.from).toBe(795);
+    expect(req.pool.map((p) => p.ref)).toEqual(['p1', 'p2', 'p3']);
+    expect(req.pool[1].minutes).toBeNull();
+    const text = renderPlanInput(req, { claims: [], reach: null });
+    expect(text).toContain('PLANNING FROM 1:15pm TO 10pm');
+    expect(text).toContain('p2 | habit | Run | unknown | 0 of 1 this week | 5pm to 9pm');
+    expect(text).toContain('p3 | suggestion from what they said | Book the car service');
+  });
+
+  it('keeps only picks in the pool, once each, with windows inside the planning hours', () => {
+    const req = readRequest(BODY);
+    const { picks, dropped } = checkPicks(
+      {
+        picks: [
+          { ref: 'p2', after: '18:00', before: '21:00', minutes: 40, reason: 'Behind this week' },
+          { ref: 'p9', after: '14:00', before: '15:00', minutes: 20, reason: 'Invented' },
+          { ref: 'p1', after: '09:00', before: '23:30', minutes: 99, reason: 'Due today' },
+          { ref: 'p2', after: '18:00', before: '21:00', minutes: 40, reason: 'Again' },
+        ],
+      },
+      req,
+    );
+    expect(dropped).toEqual(['p9', 'p2']);
+    expect(picks).toEqual([
+      {
+        id: 'hab-1',
+        window: [1080, 1260],
+        minutes: 40,
+        estimated: true,
+        reason: 'Behind this week',
+      },
+      // the app's own minutes win; the window starts no earlier than planning does
+      { id: 'todo-1', window: [795, 1320], minutes: 15, estimated: false, reason: 'Due today' },
+    ]);
+  });
+
+  it('reads a typed change as operations by item', () => {
+    const req = readRequest({ ...BODY, mode: 'edit', text: 'move the run after 6', live_plan: [] });
+    expect(
+      checkOps(
+        {
+          is_plan_change: true,
+          ops: [
+            { op: 'move', ref: 'p2', after: '18:00', before: null },
+            { op: 'remove', ref: 'p1', after: null, before: null },
+            { op: 'add', ref: 'p7', after: null, before: null },
+          ],
+        },
+        req,
+      ),
+    ).toEqual({
+      isPlanChange: true,
+      ops: [
+        { op: 'move', id: 'hab-1', window: [1080, 1320] },
+        { op: 'remove', id: 'todo-1', window: null },
+      ],
+    });
+    expect(checkOps({ is_plan_change: false, ops: [] }, req)).toEqual({
+      isPlanChange: false,
+      ops: [],
+    });
+  });
+
+  it('parses 24-hour times', () => {
+    expect(parseHHMM('18:30')).toBe(1110);
+    expect(parseHHMM('6pm')).toBeNull();
+  });
+});

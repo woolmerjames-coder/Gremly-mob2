@@ -18,9 +18,11 @@ import DayBoundaryPicker from '../../components/settings/DayBoundaryPicker';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useNotificationPreferences } from '../../hooks/useNotificationPreferences';
 import { getDateService } from '../../lib/date';
+import { useBriefInChat } from '../../lib/brief/flag';
 
 export default function RitualsSettingsScreen() {
   const navigation = useNavigation();
+  const briefInChat = useBriefInChat();
 
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false });
@@ -168,7 +170,7 @@ export default function RitualsSettingsScreen() {
         {/* Morning Brief */}
         <View style={styles.card}>
           <View style={styles.cardHeader}>
-            <Text style={styles.cardTitle}>Morning Brief</Text>
+            <Text style={styles.cardTitle}>{briefInChat ? 'Daily brief' : 'Morning Brief'}</Text>
             <Switch
               value={morningEnabled}
               onValueChange={(val) => {
@@ -179,6 +181,12 @@ export default function RitualsSettingsScreen() {
               thumbColor={morningEnabled ? BRAND.colors.mossGreen : colors.white}
             />
           </View>
+          {briefInChat ? (
+            <Text style={styles.cardDescription}>
+              Gremly writes your day in Chat a little before this time, and lets you know when it's
+              ready.
+            </Text>
+          ) : null}
           {morningEnabled && (
             <View style={styles.timeRow}>
               <Text style={styles.timeLabel}>Notification time</Text>
@@ -318,7 +326,9 @@ export default function RitualsSettingsScreen() {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Day Boundary</Text>
           <Text style={styles.cardDescription}>
-            Choose when your ritual day resets. Night owls might prefer 3am or later.
+            {briefInChat
+              ? "Choose when your day resets. At this time, today's thread with Gremly moves to your chat history and the next day starts. Night owls might prefer 3am or later."
+              : 'Choose when your ritual day resets. Night owls might prefer 3am or later.'}
           </Text>
           <DayBoundaryPicker
             value={localDayBoundary}

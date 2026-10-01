@@ -7,7 +7,7 @@
 
 import React from 'react';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
-import { EventTimePicker } from '../../app/components/morning-brief/components/EventTimePicker';
+import { EventTimePicker } from './EventTimePicker';
 
 function getEventId(event: { provider: string; providerEventId: string }): string {
   return `${event.provider}-${event.providerEventId}`;

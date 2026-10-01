@@ -206,6 +206,7 @@ import { handleHabitRead } from './habitRead.js';
 import { fetchItemDetail, itemDetailText, handleItemTopics } from './itemDetail.js';
 import { configureModels, models, helperModel } from './models.js';
 import { helperFetch } from './helperClient.js';
+import { briefQuestionSection } from './briefTurn.js';
 import { relateDrop } from './minddropRelate.js';
 import {
   matchEntity,
@@ -3467,6 +3468,8 @@ export default {
         'minddrop-relate',
         'item-topics',
         'not-right',
+        'daily-brief',
+        'plan-pick',
       ]);
       const AUTH_REQUIRED_LANES = new Set([
         'space_chat',
@@ -7783,6 +7786,58 @@ ${assistantMessage.substring(0, 2000)}
         }).catch(() => null);
         if (!res?.ok) return j({ error: 'could not send the correction' }, 502);
         return j(await res.json().catch(() => ({ ok: true })));
+      }
+
+      // =========================
+      // === DAILY BRIEF IN CHAT ===
+      // The app's first open when no brief was written for today, or a later
+      // first open that needs a fresh brief for this part of the day (once a
+      // day). The brief is written by inngest-jobs, beside the DCO.
+      // =========================
+      if (type === 'daily-brief') {
+        if (!env.INNGEST_WORKER_URL || !env.INNGEST_ADMIN_KEY)
+          return j({ error: 'not configured' }, 503);
+        const res = await fetchInngestWorker(env, '/api/daily-brief', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-admin-key': env.INNGEST_ADMIN_KEY },
+          body: JSON.stringify({
+            user_id: authenticatedUserId,
+            reason: body.reason === 'rewrite' ? 'rewrite' : 'first_open',
+          }),
+        }).catch(() => null);
+        if (!res) return j({ error: 'could not reach the brief writer' }, 502);
+        return j(await res.json().catch(() => ({ error: 'bad reply' })), res.ok ? 200 : 502);
+      }
+
+      // =========================
+      // === PLAN PICK (Daily brief in Chat) ===
+      // Plan my day / afternoon / evening, and changes typed while a plan is
+      // open. The app sends today's candidates (a data rule) and places the
+      // picks itself; inngest-jobs chooses and words them.
+      // =========================
+      if (type === 'plan-pick') {
+        if (!env.INNGEST_WORKER_URL || !env.INNGEST_ADMIN_KEY)
+          return j({ error: 'not configured' }, 503);
+        const res = await fetchInngestWorker(env, '/api/plan-pick', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-admin-key': env.INNGEST_ADMIN_KEY },
+          body: JSON.stringify({
+            user_id: authenticatedUserId,
+            mode: body.mode === 'edit' ? 'edit' : 'pick',
+            now: body.now,
+            gap_from: body.gap_from,
+            pool: Array.isArray(body.pool) ? body.pool.slice(0, 40) : [],
+            meetings: Array.isArray(body.meetings) ? body.meetings.slice(0, 40) : [],
+            live_plan: Array.isArray(body.live_plan) ? body.live_plan.slice(0, 40) : [],
+            text: typeof body.text === 'string' ? body.text.slice(0, 500) : '',
+            for_day:
+              typeof body.for_day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.for_day)
+                ? body.for_day
+                : null,
+          }),
+        }).catch(() => null);
+        if (!res) return j({ error: 'could not reach the plan picker' }, 502);
+        return j(await res.json().catch(() => ({ error: 'bad reply' })), res.ok ? 200 : 502);
       }
 
       // =========================
@@ -12711,6 +12766,9 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               todayIso: todayIsoIn(userTimezone),
               detailText: itemDetailText(anchorDetail, todayIsoIn(userTimezone)),
             });
+            // today's thread: the reply to the brief's question (a card's own
+            // instructions come first when one is shown)
+            if (!entityCard) genConfig.systemPrompt += briefQuestionSection(body.briefQuestion);
 
             const chatMessages = [
               { role: 'system', content: genConfig.systemPrompt },
@@ -13201,6 +13259,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       chatId: body.chatId,
                       userId: authenticatedUserId,
                       env,
+                      surface: body.chatSurface === 'brief' ? 'brief' : 'chat',
                     }).catch((e) => {
                       console.warn('[GeneralChat] Correction check failed:', e?.message);
                       return { sent: 0 };

@@ -22,7 +22,7 @@ export { TimeBlockSection } from './TimeBlockSection';
 export { OnYourPlateSection } from './OnYourPlateSection';
 export { TodaysKeyDatesSection } from './TodaysKeyDatesSection';
 export { TimeEstimatePicker } from './TimeEstimatePicker';
-export { EventTimePicker } from './EventTimePicker';
+export { EventTimePicker } from '../../../../components/calendar/EventTimePicker';
 export { OrganizeButton } from './OrganizeButton';
 export { GapRow } from './GapRow';
 export { SlottedTaskRow } from './SlottedTaskRow';

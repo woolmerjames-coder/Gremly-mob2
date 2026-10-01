@@ -63,6 +63,8 @@ interface ChatBubbleProps {
   onTypeChange?: (messageId: string, newType: 'todo' | 'habit' | 'note') => void;
   /** The entity card shown inside this reply, when the turn produced one */
   entityCard?: ChatBubbleEntityCard | null;
+  /** Leave out the GREMLY mark: this line follows another of Gremly's (the morning brief) */
+  hideMark?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -149,6 +151,7 @@ function ChatBubbleInner({
   onRetryStream,
   onTypeChange,
   entityCard,
+  hideMark,
 }: ChatBubbleProps) {
   const isUser = message.role === 'user';
   const isAssistant = message.role === 'assistant';
@@ -228,7 +231,7 @@ function ChatBubbleInner({
       >
         {isAssistant ? (
           <View style={{ paddingVertical: 2 }}>
-            <GremlyMark />
+            {hideMark ? null : <GremlyMark />}
             {sources && sources.length > 0 && !isStreaming && (
               <View style={styles.searchedBadge}>
                 <Search size={10} color="#9CA3AF" />

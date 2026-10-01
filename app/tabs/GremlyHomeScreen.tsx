@@ -51,6 +51,7 @@ import { useNeedsMindDropTutorial } from '../../lib/store/lifecycleSelectors';
 import { getDateService } from '../../lib/date/DateService';
 import { CHAT_CAPTION, DROP_CAPTION, inFirstWeek } from '../../components/home/homeCaptions';
 import type { TabParamList } from '../../navigation/TabNavigator';
+import { useBriefUnread } from '../../lib/brief/todayThread';
 
 const LINEN = '#F9F6F1';
 const HINT_DELAY_MS = 900;
@@ -87,6 +88,7 @@ export default function GremlyHomeScreen() {
   // send function. The API object never changes; see GremlyHomeDock.tsx.
   const [dock, setDock] = useState<React.ReactNode>(null);
   const [chatSending, setChatSending] = useState(false);
+  const [chatPlaceholder, setChatPlaceholder] = useState<string | null>(null);
   const [chatScrolling, setChatScrollingState] = useState(false);
   const scrollSettleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Gremly steps aside as soon as the conversation moves, and comes back a
@@ -153,6 +155,7 @@ export default function GremlyHomeScreen() {
       },
       getChat: () => chatApiRef.current,
       setChatSending,
+      setChatPlaceholder,
       setChatScrolling,
       prefillDraft: (text) => {
         if (draftSetterRef.current) draftSetterRef.current(text);
@@ -173,13 +176,15 @@ export default function GremlyHomeScreen() {
     [setChatScrolling],
   );
   const modeState = useMemo<HomeModeState>(
-    () => ({ mode, chatSending, chatScrolling }),
-    [mode, chatSending, chatScrolling],
+    () => ({ mode, chatSending, chatScrolling, chatPlaceholder }),
+    [mode, chatSending, chatScrolling, chatPlaceholder],
   );
   const switchTucked = keyboardOpen && mode === 'chat';
   const pendingModeRef = useRef<HomeMode | null>(null);
 
   const hasOpenedHomeChat = useGremlyStore((s) => s.hasOpenedHomeChat);
+  // Daily brief in Chat: the dot also says today's brief is waiting
+  const briefUnread = useBriefUnread();
   const hasSeenHomeSwipeHint = useGremlyStore((s) => s.hasSeenHomeSwipeHint);
   const markHomeChatOpened = useGremlyStore((s) => s.markHomeChatOpened);
   const markHomeSwipeHintSeen = useGremlyStore((s) => s.markHomeSwipeHintSeen);
@@ -220,7 +225,7 @@ export default function GremlyHomeScreen() {
 
   // Another screen asked for a mode (e.g. "Chat with Gremly" on a drop)
   const requestedMode = route.params?.mode;
-  const requestKey = route.params?.autoSendKey ?? route.params?.talkKey;
+  const requestKey = route.params?.autoSendKey ?? route.params?.talkKey ?? route.params?.threadKey;
   const talkKey = route.params?.talkKey;
   useEffect(() => {
     if (requestedMode !== 'drop' && requestedMode !== 'chat') return;
@@ -337,7 +342,7 @@ export default function GremlyHomeScreen() {
                 progress={progress}
                 mode={mode}
                 onSelect={handleSelect}
-                showChatDot={!hasOpenedHomeChat}
+                showChatDot={!hasOpenedHomeChat || briefUnread}
                 hintVisible={hintVisible}
               />
             )}

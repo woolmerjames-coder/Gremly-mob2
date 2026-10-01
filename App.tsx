@@ -58,6 +58,9 @@ import { ReadOnlyBanner } from './app/components/ReadOnlyBanner';
 import ReadOnlyIntroSheet from './app/components/ReadOnlyIntroSheet';
 import { useIsReadOnly, useHasSeenReadonlyIntro } from './lib/store/lifecycleSelectors';
 import * as Sentry from '@sentry/react-native';
+import { isBriefInChat } from './lib/brief/flag';
+import { todayThreadParams } from './lib/brief/pinned';
+import { useTodayThreadSync } from './lib/brief/todayThread';
 
 Sentry.init({
   dsn: 'https://c61fbacb4a91e6c566fc9f1c67cc79b6@o4511237634260992.ingest.us.sentry.io/4511237636292608',
@@ -579,7 +582,10 @@ function App() {
 
       switch (payload.type) {
         case 'morning':
-          nav.navigate('MorningBrief');
+          // Daily brief in Chat: the morning push opens today's thread
+          if (isBriefInChat())
+            nav.navigate('Tabs', { screen: 'Gremly', params: todayThreadParams() });
+          else nav.navigate('MorningBrief');
           break;
         case 'evening':
           nav.navigate('Sweep');
@@ -650,6 +656,9 @@ function App() {
 
   // Detect calendar day changes (background resume + midnight timer)
   useDayRollover();
+
+  // Daily brief in Chat: today's thread (unread or not), kept current
+  useTodayThreadSync();
 
   // Auto-sync timezone + activity heartbeat for notification delivery
   useTimezoneSync();

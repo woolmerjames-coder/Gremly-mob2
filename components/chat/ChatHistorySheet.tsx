@@ -9,7 +9,7 @@ import {
   TextInput,
   Pressable,
 } from 'react-native';
-import { MessageSquare, Search } from 'lucide-react-native';
+import { Coffee, MessageSquare, Search } from 'lucide-react-native';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { today, yesterday, extractLocalDate } from '../../lib/date/DateService';
 import type { SpaceChat } from '../../lib/types';
@@ -64,27 +64,41 @@ export function ChatHistorySheet({ visible, onClose, onSelectChat }: ChatHistory
       })
     : generalChats;
 
-  const renderItem = ({ item }: { item: SpaceChat }) => (
-    <TouchableOpacity
-      style={styles.historyItem}
-      onPress={() => onSelectChat(item.id)}
-      activeOpacity={0.7}
-    >
-      <View style={styles.iconContainer}>
-        <MessageSquare size={18} color="#2E5540" strokeWidth={1.5} />
-      </View>
-      <View style={styles.contentArea}>
-        <Text style={styles.titleStyle} numberOfLines={1}>
-          {item.title || 'Conversation'}
-        </Text>
-        <Text style={styles.metaStyle} numberOfLines={1}>
-          {formatRelativeDate(item.updated_at)}
-          {item.last_message_snippet ? ` · ${item.last_message_snippet.substring(0, 40)}...` : ''}
-        </Text>
-      </View>
-      <Text style={styles.arrowStyle}>›</Text>
-    </TouchableOpacity>
-  );
+  const renderItem = ({ item }: { item: SpaceChat }) => {
+    // A day's brief thread is named after its day, with "Today with Gremly" under it
+    const daily = item.chat_type === 'daily';
+    return (
+      <TouchableOpacity
+        style={styles.historyItem}
+        onPress={() => onSelectChat(item.id)}
+        activeOpacity={0.7}
+        testID={daily ? `history-daily-${item.id}` : undefined}
+      >
+        <View style={styles.iconContainer}>
+          {daily ? (
+            <Coffee size={18} color="#2E5540" strokeWidth={1.5} />
+          ) : (
+            <MessageSquare size={18} color="#2E5540" strokeWidth={1.5} />
+          )}
+        </View>
+        <View style={styles.contentArea}>
+          <Text style={styles.titleStyle} numberOfLines={1}>
+            {item.title || 'Conversation'}
+          </Text>
+          <Text style={styles.metaStyle} numberOfLines={1}>
+            {daily
+              ? 'Today with Gremly'
+              : `${formatRelativeDate(item.updated_at)}${
+                  item.last_message_snippet
+                    ? ` · ${item.last_message_snippet.substring(0, 40)}...`
+                    : ''
+                }`}
+          </Text>
+        </View>
+        <Text style={styles.arrowStyle}>›</Text>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>

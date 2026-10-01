@@ -170,6 +170,9 @@ import RecentDropsMemo, {
   type GlobalOverlayController,
   TypewriterText,
 } from './RecentDrops';
+import { useBriefUnread } from '../../lib/brief/todayThread';
+import { briefReadyLine, todayThreadParams } from '../../lib/brief/pinned';
+import { isReturnDay, readDco } from '../../lib/brief/dco';
 export { RecentDropsTestable, resetAnimationTrackingForDrop, markDropAsRecentlyPromoted };
 
 export const THINKING_DURATION = 1200;
@@ -1140,6 +1143,20 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   // DCO brief headline
   const briefHeadline = useGremlyStore(selectBriefHeadline);
   const dco = useGremlyStore((s) => s.dco);
+  // Daily brief in Chat: while today's brief waits unread, Gremly says so
+  // above the box; tapping the line opens today's thread
+  const briefUnread = useBriefUnread();
+  const userName = useGremlyStore((s) => s.userName);
+  const [briefLineShown, setBriefLineShown] = useState(false);
+  const briefLine = useMemo(() => {
+    if (!briefUnread) return null;
+    const firstName = userName ? userName.trim().split(/\s+/)[0] : null;
+    return briefReadyLine(getDateService().ritualDay(), {
+      returnDay: isReturnDay(readDco(dco).brief),
+      firstName,
+      surface: 'drop',
+    });
+  }, [briefUnread, userName, dco]);
   const lastSweepCompletedAt = useGremlyStore((s) => s.lastSweepCompletedAt);
   const feedingGaugeValue = useGremlyStore((s) => s.feedingGaugeValue);
   const isFedToday = useGremlyStore((s) => s.isFedToday);
@@ -1356,6 +1373,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     const timeout = setTimeout(() => setShowPhotoTextNudge(false), 5000);
     return () => clearTimeout(timeout);
   }, [showPhotoTextNudge]);
+
+  // The brief-ready line arrives a moment after landing on Drop
+  useEffect(() => {
+    if (!briefLine || chatMode) {
+      setBriefLineShown(false);
+      return;
+    }
+    const t = setTimeout(() => setBriefLineShown(true), 800);
+    return () => clearTimeout(t);
+  }, [briefLine, chatMode]);
 
   // Cleanup speech timeouts on unmount
   useEffect(() => {
@@ -3212,6 +3239,30 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             </View>
           </Reanimated.View>
         )}
+        {briefLine && briefLineShown && !gremlySpeech && !chatMode && (
+          <Reanimated.View
+            style={styles.gremlyMessageContainer}
+            entering={FadeIn.duration(200)}
+            exiting={FadeOut.duration(150)}
+          >
+            <Pressable
+              style={styles.gremlyMessageBackdrop}
+              onPress={() =>
+                navigation.navigate('Tabs', {
+                  screen: 'Gremly',
+                  params: todayThreadParams(),
+                })
+              }
+              accessibilityRole="button"
+              accessibilityLabel={`${briefLine.lead} ${briefLine.rest}`}
+              testID="drop-brief-ready"
+            >
+              <Text style={styles.gremlyMessage}>
+                <Text style={styles.gremlyMessageLead}>{briefLine.lead}</Text> {briefLine.rest}
+              </Text>
+            </Pressable>
+          </Reanimated.View>
+        )}
         {/* Gremly perched on input - always visible */}
         <Animated.View
           style={[styles.inputGremly, styles.inputGremlyTuckOrigin, gremlyTuckStyle]}
@@ -3241,7 +3292,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           focusRequest={focusRequest}
           value={note}
           onChangeText={handleChangeText}
-          placeholder={chatMode ? 'Ask Gremly anything\u2026' : dynamicPlaceholder}
+          placeholder={
+            chatMode
+              ? (homeMode?.chatPlaceholder ?? 'Ask Gremly anything\u2026')
+              : dynamicPlaceholder
+          }
           placeholderTextColor="#757575"
           containerStyle={
             compactTyping
@@ -3611,7 +3666,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           }
         }}
         onNavigate={(screen, params) => {
-          navigation.navigate(screen as any, params as any);
+          // a hint into today's thread gets its own key, so every tap opens it
+          const next = params?.thread === 'today' ? todayThreadParams(params.step) : params;
+          navigation.navigate(screen as any, next as any);
         }}
       />
 
@@ -3840,6 +3897,11 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       textAlign: 'right',
       lineHeight: 20,
       fontFamily: 'Inter-Medium',
+    },
+    gremlyMessageLead: {
+      fontFamily: 'Inter-SemiBold',
+      fontWeight: '600',
+      color: '#1A3328',
     },
     gremlyMessageCelebration: {
       backgroundColor: '#F2F7F2',

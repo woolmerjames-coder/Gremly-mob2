@@ -6,10 +6,7 @@ import EventSource from 'react-native-sse';
 import { getDateService, nowTimestamp } from '../date/DateService';
 import { eventBus } from '../events/EventBus';
 import { getSessionToken, getSessionTokenSync } from './getSessionToken';
-import type {
-  HabitBuilderRequest,
-  HabitBuilderStreamingCallbacks,
-} from '../types';
+import type { HabitBuilderRequest, HabitBuilderStreamingCallbacks } from '../types';
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
@@ -520,6 +517,10 @@ export function callGeneralChatStreaming(
     anchorEntity?: import('../types').ChatAnchor | null;
     /** This turn's id, written back with its extraction so the app knows when it has landed */
     turnId?: string;
+    /** 'brief' in today's thread (Daily brief in Chat), so a correction there is marked as made on the brief */
+    chatSurface?: 'brief' | 'chat';
+    /** Today's thread: the brief's question this message replies to, so the reply takes the answer in */
+    briefQuestion?: string | null;
   },
   callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
 ): { close: () => void } {
@@ -562,6 +563,8 @@ export function callGeneralChatStreaming(
       // the item the chat was opened about, so every turn knows what it is about
       anchorEntity: opts.anchorEntity ?? null,
       turnId: opts.turnId ?? null,
+      chatSurface: opts.chatSurface ?? 'chat',
+      briefQuestion: opts.briefQuestion ?? null,
       userId: opts.userId,
       currentTime: nowTimestamp(),
       timezone: getDateService().getTimezone(),
@@ -2068,7 +2071,104 @@ export async function callNotRight(input: {
       }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok || data?.error) return { ok: false, error: String(data?.error || res.status), status: res.status };
+    if (!res.ok || data?.error)
+      return { ok: false, error: String(data?.error || res.status), status: res.status };
+    return { ok: true, data };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
+/**
+ * Daily brief in Chat: ask for today's brief to be written now. Used on the
+ * first open when the morning job has not written one, and once a day for a
+ * fresh brief when the lines were written for an earlier part of the day.
+ * The brief lands in today's thread; the reply only says what happened.
+ */
+export async function callDailyBrief(reason: 'first_open' | 'rewrite'): Promise<
+  CortexClientResult<{
+    ok?: boolean;
+    skipped?: string;
+    thread_id?: string;
+    brief_id?: string;
+    part?: string;
+    offer_kind?: string;
+  }>
+> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return { ok: false, error: '[cortex] Missing EXPO_PUBLIC_CORTEX_URL' };
+  const token = await getSessionToken();
+  if (!token) return { ok: false, error: 'not signed in' };
+  try {
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ type: 'daily-brief', reason }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.error)
+      return { ok: false, error: String(data?.error || res.status), status: res.status };
+    return { ok: true, data };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
+/**
+ * Daily brief in Chat: the plan picker. 'pick' chooses which of today's
+ * candidates go in a plan (each with a time-of-day window and a reason) and
+ * words Gremly's line before the card; 'edit' reads a change typed while a
+ * plan is open. The app places everything itself (lib/plan/slotFitter.ts).
+ */
+export interface PlanPickRequest {
+  mode: 'pick' | 'edit';
+  /** Minutes from local midnight */
+  now: number;
+  gap_from: number;
+  pool: {
+    id: string;
+    kind: 'todo' | 'habit' | 'reach';
+    title: string;
+    minutes: number | null;
+    why: string;
+    window: [number, number] | null;
+  }[];
+  meetings: { title: string; start: number; end: number }[];
+  live_plan?: { id: string; start: number; end: number }[];
+  text?: string;
+  /** The day being planned (YYYY-MM-DD); tomorrow plans without today's context */
+  for_day?: string;
+}
+
+export interface PlanPickResponse {
+  intro?: string | null;
+  picks?: {
+    id: string;
+    window: [number, number];
+    minutes: number;
+    estimated: boolean;
+    reason: string | null;
+  }[];
+  isPlanChange?: boolean;
+  ops?: { op: 'remove' | 'add' | 'move'; id: string; window: [number, number] | null }[];
+}
+
+export async function callPlanPick(
+  req: PlanPickRequest,
+): Promise<CortexClientResult<PlanPickResponse>> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return { ok: false, error: '[cortex] Missing EXPO_PUBLIC_CORTEX_URL' };
+  const token = await getSessionToken();
+  if (!token) return { ok: false, error: 'not signed in' };
+  try {
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ type: 'plan-pick', ...req }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.error)
+      return { ok: false, error: String(data?.error || res.status), status: res.status };
     return { ok: true, data };
   } catch (e: any) {
     return { ok: false, error: String(e?.message || e) };

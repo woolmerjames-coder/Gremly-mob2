@@ -10,6 +10,7 @@
 
 import { supabase } from '../supabase/client';
 import { callNotRight } from '../cortex/CortexClient';
+import { nowTimestamp } from '../date/DateService';
 
 export type StoryKind = 'milestone' | 'shift' | 'proud' | 'pattern' | 'person';
 export type PatternKind = 'loves' | 'avoids' | 'often' | 'rarely' | 'rhythm';
@@ -58,21 +59,26 @@ export interface GremlyQuestion {
 }
 
 export async function fetchStory(): Promise<Story> {
-  const [{ data: mapRows, error: mapError }, { data: items, error: itemsError }] = await Promise.all([
-    supabase.from('user_life_map').select('life_map').limit(1),
-    supabase
-      .from('story_items')
-      .select('id,kind,pattern_kind,title,body,period_start,period_end,private')
-      .eq('state', 'current')
-      .order('period_start', { ascending: true, nullsFirst: false })
-      .limit(200),
-  ]);
+  const [{ data: mapRows, error: mapError }, { data: items, error: itemsError }] =
+    await Promise.all([
+      supabase.from('user_life_map').select('life_map').limit(1),
+      supabase
+        .from('story_items')
+        .select('id,kind,pattern_kind,title,body,period_start,period_end,private')
+        .eq('state', 'current')
+        .order('period_start', { ascending: true, nullsFirst: false })
+        .limit(200),
+    ]);
   if (mapError) throw mapError;
   if (itemsError) throw itemsError;
-  const story = (mapRows?.[0]?.life_map as { story?: Record<string, unknown> } | null)?.story ?? null;
+  const story =
+    (mapRows?.[0]?.life_map as { story?: Record<string, unknown> } | null)?.story ?? null;
   return {
     header: {
-      storyForThem: typeof story?.story_for_them === 'string' && story.story_for_them.trim() ? story.story_for_them : null,
+      storyForThem:
+        typeof story?.story_for_them === 'string' && story.story_for_them.trim()
+          ? story.story_for_them
+          : null,
       writtenAt: typeof story?.written_at === 'string' ? story.written_at : null,
     },
     items: (items ?? []) as StoryItem[],
@@ -99,7 +105,24 @@ export async function fetchOpenQuestions(): Promise<GremlyQuestion[]> {
 
 /** Skip: the question is dismissed and nothing about their life changes. */
 export async function dismissQuestion(id: string): Promise<void> {
-  const { error } = await supabase.from('gremly_questions').update({ status: 'dismissed' }).eq('id', id);
+  const { error } = await supabase
+    .from('gremly_questions')
+    .update({ status: 'dismissed' })
+    .eq('id', id);
+  if (error) throw error;
+}
+
+/**
+ * The question was put to them (Daily brief in Chat) and they skipped it: it
+ * stays open for another day, and the brief does not ask it again for a few
+ * days (asked_at).
+ */
+export async function markQuestionAsked(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('gremly_questions')
+    .update({ status: 'asked', asked_at: nowTimestamp() })
+    .eq('id', id)
+    .in('status', ['open', 'asked']);
   if (error) throw error;
 }
 

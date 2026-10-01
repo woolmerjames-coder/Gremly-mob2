@@ -28,7 +28,14 @@ Return only JSON: {"corrections":[{"said":"<the person's words, copied exactly f
 /**
  * @returns {Promise<{sent: number}>}
  */
-export async function checkForCorrection({ conversationText, userTexts, chatId, userId, env }) {
+export async function checkForCorrection({
+  conversationText,
+  userTexts,
+  chatId,
+  userId,
+  env,
+  surface = 'chat',
+}) {
   if (!userId || !conversationText || !env.INNGEST_WORKER_URL || !env.INNGEST_ADMIN_KEY)
     return { sent: 0 };
   const res = await helperFetch('correction_check', {
@@ -60,7 +67,8 @@ export async function checkForCorrection({ conversationText, userTexts, chatId, 
       body: JSON.stringify({
         user_id: userId,
         said,
-        surface: 'chat',
+        // the day's brief thread sends 'brief' (Daily brief in Chat)
+        surface: surface === 'brief' ? 'brief' : 'chat',
         chat_id: chatId || null,
         target_kind: 'chat',
         target_text: String(c?.about || '').slice(0, 300),

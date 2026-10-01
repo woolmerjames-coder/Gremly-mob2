@@ -94,6 +94,7 @@ const READER_SCHEMA = {
         type: 'object',
         properties: {
           question: { type: 'string' },
+          choices: { type: 'array', items: { type: 'string' } },
           fact_ref: { type: 'string', nullable: true },
           source_ref: { type: 'string', nullable: true },
           proposed_change: { type: 'string', nullable: true },
@@ -131,6 +132,7 @@ KEEPING THE LEDGER TRUE
 - When a record restates an existing fact, confirm it instead of adding a duplicate.
 - When a record shows the same trip, event, milestone or plan as a fact the ledger holds, but at a different date or with a different outcome, the fact is no longer reliable as written. If the record makes clear it is the same thing, update the fact (changed, with the replacement). If it might be a separate occurrence, mark the fact unconfirmed and ask the person.
 - When records disagree and you cannot tell which is right, ask the person one short, friendly question instead of choosing. Ask only when the answer bears on their life now or on something still ahead, measured against today's date. Differences about things long past are recorded as they are, without a question.
+- With each question, give two to four short answers the person could tap, each a few words, covering what they would most likely say. They can always answer in their own words instead.
 - Never mark a fact as happened just because its date has passed. Without a record, a passed plan stays as it is; it is simply no longer ahead.
 
 ${PRIVATE_RULES}
@@ -171,7 +173,8 @@ export async function loadRecords(env, userId, sinceIso, untilIso) {
         `space_milestones?owner_id=eq.${userId}${w('created_at')}&select=id,title,name,date,note,completed,completed_at,created_at&order=created_at.asc&limit=1000`,
       ),
       d.select(
-        `scope_chat_messages?user_id=eq.${userId}&role=eq.user${w('created_at')}&select=id,chat_id,content,created_at&order=created_at.asc&limit=5000`,
+        // Taps on the morning brief's buttons are not things they said
+        `scope_chat_messages?user_id=eq.${userId}&role=eq.user&or=(metadata_json.is.null,metadata_json->>type.is.null,metadata_json->>type.neq.brief-reply)${w('created_at')}&select=id,chat_id,content,created_at&order=created_at.asc&limit=5000`,
       ),
       d.select(
         `synced_calendar_events?owner_id=eq.${userId}&archived=eq.false${w('created_at')}&select=id,title,location,start_at,end_at,is_all_day,created_at&order=created_at.asc&limit=5000`,
@@ -588,6 +591,10 @@ ${recordLines.join('\n')}`;
       {
         user_id: userId,
         question: trim(q.question, 300),
+        choices: (q.choices || [])
+          .map((c) => trim(c, 40))
+          .filter(Boolean)
+          .slice(0, 4),
         status: 'open',
         about_fact_id: fact?.id || null,
         record_table: src?.table || null,

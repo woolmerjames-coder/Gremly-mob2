@@ -47,7 +47,14 @@ export interface UseChatMessagesResult {
   error: string | null;
   /** The current chat ID - may be null for new chats until first message */
   currentChatId: string | null;
-  refresh: () => Promise<void>;
+  /** The chat whose messages are in `messages` (null until the first load) */
+  loadedChatId: string | null;
+  /**
+   * Load the chat's messages again. Reads the chat id at call time, so a
+   * call made from an older render still loads the chat now on screen.
+   * Returns what was loaded, or undefined when nothing was.
+   */
+  refresh: (chatId?: string) => Promise<SpaceChatMessage[] | undefined>;
   sendUserMessage: (text: string) => Promise<string | undefined>;
   appendAssistantMessage: (
     text: string,
@@ -85,6 +92,17 @@ export interface UseChatMessagesResult {
   ) => Promise<void>;
   removeMessage: (messageId: string) => void;
   updateMessage: (messageId: string, updates: Partial<SpaceChatMessage>) => void;
+  /**
+   * Daily brief in Chat: save one message of the day's thread (a reply, a
+   * Gremly line, an event line or an offer) with its brief metadata.
+   */
+  appendBriefMessage: (
+    role: 'user' | 'assistant' | 'system',
+    content: string,
+    metadata: Record<string, unknown>,
+  ) => Promise<SpaceChatMessage | undefined>;
+  /** Merge fields into a message's metadata and save them. */
+  patchMessageMetadata: (messageId: string, patch: Record<string, unknown>) => Promise<void>;
   // Streaming support
   createStreamingMessage: () => Promise<{ messageId: string; chatId: string } | undefined>;
   updateStreamingContent: (messageId: string, content: string, mode?: 'append' | 'replace') => void;
@@ -103,10 +121,17 @@ export interface UseChatMessagesResult {
 export function useChatMessages(
   chatId: string | undefined,
   spaceId: string | null,
+  options: {
+    /** Keep the chat's own title (a day's brief thread is named after its day) */
+    keepTitle?: boolean;
+  } = {},
 ): UseChatMessagesResult {
+  const keepTitleRef = useRef(!!options.keepTitle);
+  keepTitleRef.current = !!options.keepTitle;
   const [messages, setMessages] = useState<SpaceChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loadedChatId, setLoadedChatId] = useState<string | null>(null);
 
   // Track the current chat ID (may be created during session)
   const [currentChatId, setCurrentChatId] = useState<string | null>(chatId || null);
@@ -150,6 +175,7 @@ export function useChatMessages(
     previousChatIdRef.current = chatId;
     if (previous && previous !== chatId) {
       setMessages([]);
+      setLoadedChatId(null);
       saveableDataRef.current.clear();
     }
     if (chatId) {
@@ -161,69 +187,85 @@ export function useChatMessages(
     }
   }, [chatId]);
 
-  const refresh = useCallback(async () => {
-    // Skip refresh during active send/append operations to prevent race conditions
-    if (isAddingMessageRef.current) {
-      if (__DEV__) {
-        console.log('[useChatMessages] Skipping refresh - message operation in progress');
+  const refresh = useCallback(
+    async (chatIdOverride?: string): Promise<SpaceChatMessage[] | undefined> => {
+      // Skip refresh during active send/append operations to prevent race conditions
+      if (isAddingMessageRef.current) {
+        if (__DEV__) {
+          console.log('[useChatMessages] Skipping refresh - message operation in progress');
+        }
+        return undefined;
       }
-      return;
-    }
 
-    if (!currentChatId || !user?.id) {
-      setLoading(false);
-      return;
-    }
+      // The ref holds the chat on screen even when this callback came from an
+      // earlier render, before the state caught up
+      const targetChatId =
+        (typeof chatIdOverride === 'string' && chatIdOverride) ||
+        currentChatIdRef.current ||
+        currentChatId;
+      if (!targetChatId || !user?.id) {
+        setLoading(false);
+        return undefined;
+      }
 
-    try {
-      setLoading(true);
-      setError(null);
-      const fetchedMessages = await messageRepo.list(currentChatId);
-
-      // Restore saveable data: Priority 1 = session ref, Priority 2 = database column
-      const messagesWithSaveable = fetchedMessages.map((msg) => {
-        // Priority 1: Session ref (most recent, set this session)
-        const refData = saveableDataRef.current.get(msg.id);
-        if (refData) {
-          return {
-            ...msg,
-            saveable: refData.saveable,
-            saveableDismissed: refData.saveableDismissed,
-          };
+      try {
+        setLoading(true);
+        setError(null);
+        const fetchedMessages = await messageRepo.list(targetChatId);
+        // Moved to another chat while this one loaded: leave its messages be
+        if (currentChatIdRef.current !== targetChatId) {
+          return undefined;
         }
 
-        // Priority 2: Database column (persisted from previous session)
-        if (msg.saveable_json) {
-          const dbSaveable = msg.saveable_json as {
-            type: string;
-            title: string;
-            dismissed?: boolean;
-            savedItemId?: string;
-            savedItemType?: string;
-          };
-          return {
-            ...msg,
-            saveable: {
-              type: dbSaveable.type as 'todo' | 'habit' | 'note',
-              title: dbSaveable.title,
-              savedItemId: dbSaveable.savedItemId,
-              savedItemType: dbSaveable.savedItemType as 'habit' | 'todo' | 'log' | undefined,
-            },
-            saveableDismissed: dbSaveable.dismissed ?? false,
-          };
-        }
+        // Restore saveable data: Priority 1 = session ref, Priority 2 = database column
+        const messagesWithSaveable = fetchedMessages.map((msg) => {
+          // Priority 1: Session ref (most recent, set this session)
+          const refData = saveableDataRef.current.get(msg.id);
+          if (refData) {
+            return {
+              ...msg,
+              saveable: refData.saveable,
+              saveableDismissed: refData.saveableDismissed,
+            };
+          }
 
-        return msg;
-      });
+          // Priority 2: Database column (persisted from previous session)
+          if (msg.saveable_json) {
+            const dbSaveable = msg.saveable_json as {
+              type: string;
+              title: string;
+              dismissed?: boolean;
+              savedItemId?: string;
+              savedItemType?: string;
+            };
+            return {
+              ...msg,
+              saveable: {
+                type: dbSaveable.type as 'todo' | 'habit' | 'note',
+                title: dbSaveable.title,
+                savedItemId: dbSaveable.savedItemId,
+                savedItemType: dbSaveable.savedItemType as 'habit' | 'todo' | 'log' | undefined,
+              },
+              saveableDismissed: dbSaveable.dismissed ?? false,
+            };
+          }
 
-      setMessages(messagesWithSaveable);
-    } catch (err) {
-      console.error('Failed to refresh chat messages:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load messages');
-    } finally {
-      setLoading(false);
-    }
-  }, [currentChatId, spaceId, user?.id, messageRepo]);
+          return msg;
+        });
+
+        setMessages(messagesWithSaveable);
+        setLoadedChatId(targetChatId);
+        return messagesWithSaveable;
+      } catch (err) {
+        console.error('Failed to refresh chat messages:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load messages');
+        return undefined;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [currentChatId, spaceId, user?.id, messageRepo],
+  );
 
   /**
    * Send a user message. If this is a new chat (no chatId), creates the chat first.
@@ -284,7 +326,9 @@ export function useChatMessages(
         // Check if this is the first user message - auto-generate chat title
         // (Only if chat already existed - new chats get title during creation)
         const isFirstUserMessage =
-          !titleSetRef.current && messages.filter((m) => m.role === 'user').length === 0;
+          !keepTitleRef.current &&
+          !titleSetRef.current &&
+          messages.filter((m) => m.role === 'user').length === 0;
 
         if (isFirstUserMessage) {
           titleSetRef.current = true;
@@ -714,6 +758,76 @@ export function useChatMessages(
     },
     [messageRepo],
   );
+  const appendBriefMessage = useCallback(
+    async (
+      role: 'user' | 'assistant' | 'system',
+      content: string,
+      metadata: Record<string, unknown>,
+    ): Promise<SpaceChatMessage | undefined> => {
+      const targetChatId = currentChatIdRef.current || currentChatId;
+      if (!targetChatId || !user?.id) return undefined;
+      isAddingMessageRef.current = true;
+      try {
+        const newMessage = await messageRepo.append({
+          chat_id: targetChatId,
+          scope_id: spaceId,
+          role,
+          content,
+          metadata_json: metadata,
+        });
+        messagesRef.current = [...messagesRef.current, newMessage];
+        setMessages((prev) =>
+          prev.some((m) => m.id === newMessage.id) ? prev : [...prev, newMessage],
+        );
+        if (role !== 'system' && content.trim()) {
+          chatRepo
+            .update(targetChatId, { last_message_snippet: content.trim().slice(0, 100) })
+            .catch(() => {});
+        }
+        return newMessage;
+      } catch (err) {
+        console.warn('[useChatMessages] Could not save a brief message', err);
+        return undefined;
+      } finally {
+        isAddingMessageRef.current = false;
+      }
+    },
+    [currentChatId, spaceId, user?.id, messageRepo, chatRepo],
+  );
+
+  const patchMessageMetadata = useCallback(
+    async (messageId: string, patch: Record<string, unknown>): Promise<void> => {
+      const current = messagesRef.current.find((m) => m.id === messageId);
+      if (!current) return;
+      const nextMeta = {
+        ...(current.metadata_json || {}),
+        ...patch,
+      } as SpaceChatMessage['metadata_json'];
+      messagesRef.current = messagesRef.current.map((m) =>
+        m.id === messageId ? { ...m, metadata_json: nextMeta } : m,
+      );
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? {
+                ...m,
+                metadata_json: {
+                  ...(m.metadata_json || {}),
+                  ...patch,
+                } as SpaceChatMessage['metadata_json'],
+              }
+            : m,
+        ),
+      );
+      try {
+        await messageRepo.update(messageId, { metadata_json: nextMeta as Record<string, unknown> });
+      } catch (err) {
+        console.warn('[useChatMessages] Could not save message metadata', err);
+      }
+    },
+    [messageRepo],
+  );
+
   const setEntityCardStatusRef = useRef(setEntityCardStatus);
   setEntityCardStatusRef.current = setEntityCardStatus;
 
@@ -839,6 +953,7 @@ export function useChatMessages(
     loading,
     error,
     currentChatId,
+    loadedChatId,
     refresh,
     sendUserMessage,
     appendAssistantMessage,
@@ -849,6 +964,8 @@ export function useChatMessages(
     setEntityCardStatus,
     removeMessage,
     updateMessage,
+    appendBriefMessage,
+    patchMessageMetadata,
     // Streaming support
     createStreamingMessage,
     updateStreamingContent,
