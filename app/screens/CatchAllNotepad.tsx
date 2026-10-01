@@ -102,6 +102,7 @@ import type { AppRecord, LogSubtype, NoteSubtype } from '../../lib/types';
 import type { CortexResponse } from '../../lib/cortex/cortexDecide';
 import { persistedToCanonical } from '../../lib/cortex/canonicalMap';
 import { useWakeOnInput } from '../../hooks/useWakeOnInput';
+import { useEchoSafeText } from '../../hooks/useEchoSafeText';
 import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 import { eventBus } from '../../lib/events/EventBus';
 import { parseDue } from '../../lib/nlp/datetime/parseDue';
@@ -432,6 +433,9 @@ const MindDropInput = React.memo<MindDropInputProps>(
     focusRequest = 0,
   }) => {
     const inputRef = React.useRef<TextInput>(null);
+    // the box keeps its own text so typing never jumps while the value
+    // makes its way back from the Drop page through the Gremly home
+    const [text, handleChangeText] = useEchoSafeText(value, onChangeText);
 
     // the Gremly home asks for the keyboard (Chat opened from Talk it through)
     React.useEffect(() => {
@@ -499,8 +503,8 @@ const MindDropInput = React.memo<MindDropInputProps>(
           <TextInput
             ref={inputRef}
             testID="minddrop-input"
-            value={value}
-            onChangeText={onChangeText}
+            value={text}
+            onChangeText={handleChangeText}
             onFocus={handleFocus}
             onBlur={handleBlur}
             multiline
