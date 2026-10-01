@@ -1,7 +1,7 @@
 import { renderHook, act } from '@testing-library/react-native';
 import { useBriefOffers } from '../useBriefOffers';
 import { answerQuestion, markQuestionAsked } from '../../story/storyApi';
-import { markDailyThreadOnce } from '../../repo/dailyThreadRepo';
+import { creditFirstReply } from '../feeding';
 import { BRIEF_COPY } from '../offerFlow';
 import type { SpaceChatMessage } from '../../types';
 
@@ -9,8 +9,8 @@ jest.mock('../../story/storyApi', () => ({
   answerQuestion: jest.fn(),
   markQuestionAsked: jest.fn(),
 }));
-jest.mock('../../repo/dailyThreadRepo', () => ({
-  markDailyThreadOnce: jest.fn(),
+jest.mock('../feeding', () => ({
+  creditFirstReply: jest.fn(),
 }));
 jest.mock('../dcoRefresh', () => ({ scheduleDcoRefresh: jest.fn() }));
 
@@ -77,10 +77,7 @@ describe('the brief’s buttons', () => {
     jest.clearAllMocks();
     (answerQuestion as jest.Mock).mockResolvedValue(true);
     (markQuestionAsked as jest.Mock).mockResolvedValue(undefined);
-    (markDailyThreadOnce as jest.Mock).mockResolvedValue({
-      at: '2026-10-01T15:00:00Z',
-      fresh: true,
-    });
+    (creditFirstReply as jest.Mock).mockResolvedValue(true);
   });
 
   it('saves a tapped answer, says thanks with a Saved line, then shows the held offer', async () => {
@@ -99,7 +96,7 @@ describe('the brief’s buttons', () => {
     ]);
     expect(added[3].meta).toMatchObject({ type: 'brief-offer', revealed_from: 'held' });
     expect(added[3].meta.held).toBeUndefined();
-    expect(markDailyThreadOnce).toHaveBeenCalledWith('t1', 'answered_at');
+    expect(creditFirstReply).toHaveBeenCalledWith('t1');
   });
 
   it('turns Something else into an answer box, and the next message is the answer', async () => {

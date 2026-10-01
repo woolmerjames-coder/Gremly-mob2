@@ -14,7 +14,8 @@ import { useCallback, useRef, useState } from 'react';
 import type { SpaceChatMessage } from '../types';
 import { getDateService, nowTimestamp } from '../date/DateService';
 import { answerQuestion, markQuestionAsked } from '../story/storyApi';
-import { markDailyThreadOnce } from '../repo/dailyThreadRepo';
+import { creditFirstReply } from './feeding';
+import { SWEEP_COPY } from './sweepHandoff';
 import { briefMetaOf, dayPartAt, heldOffer } from './messages';
 import { scheduleDcoRefresh } from './dcoRefresh';
 import {
@@ -52,6 +53,8 @@ export interface BriefOffersDeps {
   onWhatCanWait?: (offer: SpaceChatMessage, button: OfferButton) => void;
   /** A suggested change under the plan */
   onPlanEdit?: (offer: SpaceChatMessage, button: OfferButton) => void;
+  /** After Sweep: add what was kept to the plan already there (button value: the ids) */
+  onAddKept?: (ids: string[]) => void;
   /** The first reply of the day (feeding) */
   onFirstReply?: () => void;
   /** Pause between the lines Gremly adds; 0 in tests */
@@ -112,9 +115,10 @@ export function useBriefOffers(deps: BriefOffersDeps): BriefOffers {
       await save([step]);
       if (d.threadId && repliedRef.current !== d.threadId) {
         repliedRef.current = d.threadId;
-        markDailyThreadOnce(d.threadId, 'answered_at')
-          .then((stamp) => {
-            if (stamp?.fresh) depsRef.current.onFirstReply?.();
+        // the day's first reply feeds Gremly (once a day, Not today included)
+        creditFirstReply(d.threadId)
+          .then((fresh) => {
+            if (fresh) depsRef.current.onFirstReply?.();
           })
           .catch((err) => console.warn('[DailyBrief] could not note the first reply:', err));
       }
@@ -181,6 +185,18 @@ export function useBriefOffers(deps: BriefOffersDeps): BriefOffers {
             await reply(message, replyStep(button, offer.brief_id), button.id);
             d.onPlanEdit?.(message, button);
           });
+        case 'add_kept':
+          return run(async () => {
+            await reply(message, replyStep(button, offer.brief_id), button.id);
+            let ids: string[] = [];
+            try {
+              const v = JSON.parse(button.value || '[]');
+              ids = Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+            } catch {
+              ids = [];
+            }
+            d.onAddKept?.(ids);
+          });
           return;
         default:
           break;
@@ -221,6 +237,9 @@ export function useBriefOffers(deps: BriefOffersDeps): BriefOffers {
             return;
           case 'thanks':
             await save([gremlyStep(BRIEF_COPY.thanks, part, offer.brief_id)]);
+            return;
+          case 'leave_plan':
+            await save([gremlyStep(SWEEP_COPY.leavePlan, part, offer.brief_id)]);
             return;
           default:
             if (__DEV__) console.log('[DailyBrief] no handler yet for', button.action);

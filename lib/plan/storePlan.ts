@@ -21,6 +21,7 @@ import type { DayMeeting } from '../brief/dayCard';
 import type { PlanItem } from '../brief/types';
 import type { SequencedItem } from '../types';
 import { buildCandidatePool, windowFor, type Candidate } from './candidatePool';
+import { withFeedAnimation } from '../brief/feeding';
 
 export function poolFromStore(): Candidate[] {
   const s = useGremlyStore.getState();
@@ -178,6 +179,6 @@ export async function lockPlanItems(
     })
     .catch((err: unknown) => console.warn('[Plan] could not save the day', err));
 
-  await s.commitLockInItems(locked.length).catch(() => undefined);
+  await withFeedAnimation(() => s.commitLockInItems(locked.length)).catch(() => undefined);
   return { created, items: locked };
 }

@@ -97,6 +97,17 @@ import type {
   OfferButton,
 } from '../../lib/brief/types';
 import { usePlanFlow } from '../../lib/plan/usePlanFlow';
+import { meetingsFromStore } from '../../lib/plan/storePlan';
+import { creditFirstReply } from '../../lib/brief/feeding';
+import { clearFrom } from '../../lib/brief/pinned';
+import { minutesOfDay } from '../../lib/brief/time';
+import {
+  readSweepOutcome,
+  startBriefSweep,
+  sweepEventText,
+  sweepFollowUp,
+  takeBriefSweep,
+} from '../../lib/brief/sweepHandoff';
 import { opFromButton } from '../../lib/plan/planFlow';
 import { BriefPlanBlock } from '../../components/brief/BriefPlanBlock';
 
@@ -266,9 +277,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       const meta = briefMetaOf(offerMsg);
       void planFlowRef.current.start(meta?.type === 'brief-offer' ? meta : null);
     },
-    onSweep: () => {
-      if (__DEV__) console.log('[DailyBrief] sweep');
-    },
+    onSweep: (offerMsg) => openBriefSweepRef.current(offerMsg),
     onWhatCanWait: (offerMsg) => {
       const meta = briefMetaOf(offerMsg);
       void planFlowRef.current.answerWhatCanWait(meta?.type === 'brief-offer' ? meta : null);
@@ -277,6 +286,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       const op = opFromButton(button);
       if (op) void planFlowRef.current.applySuggestion(op);
     },
+    onAddKept: (ids) => void planFlowRef.current.addKept(ids),
   });
   const briefOffersRef = useRef(briefOffers);
   briefOffersRef.current = briefOffers;
@@ -562,6 +572,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         await briefOffersRef.current.answerTyped(trimmed);
         return;
       }
+      // A typed message is a reply to the brief too (feeds Gremly once a day)
+      if (isDailyThread && activeChat) void creditFirstReply(activeChat.id);
       // While a plan is open, a message that asks to change it changes it
       if (isDailyThread && planFlowRef.current.livePlan && !sending) {
         if (await planFlowRef.current.editFromText(trimmed)) return;
@@ -910,9 +922,64 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     return () => sub.remove();
   }, [embedded, enterChat, leaveChat]);
 
+  // Sweep from the brief: the real Sweep, handed back to the thread when it closes
+  const openBriefSweep = useCallback(
+    (offerMsg: SpaceChatMessage | null) => {
+      if (!activeChat || activeChat.chat_type !== 'daily') return;
+      const meta = briefMetaOf(offerMsg);
+      startBriefSweep({
+        threadId: activeChat.id,
+        offerId: offerMsg?.id ?? null,
+        offer: meta?.type === 'brief-offer' ? meta : null,
+      });
+      navigation.navigate('Sweep');
+    },
+    [activeChat, navigation],
+  );
+  const openBriefSweepRef = useRef(openBriefSweep);
+  openBriefSweepRef.current = openBriefSweep;
+  useEffect(() => {
+    // an item's chat is never today's thread
+    if (item || typeof navigation.addListener !== 'function') return undefined;
+    return navigation.addListener('focus', () => {
+      const p = takeBriefSweep();
+      if (!p || p.threadId !== activeChatIdRef.current) return;
+      const outcome = readSweepOutcome(p.before);
+      void (async () => {
+        if (outcome.swept > 0) {
+          await appendBriefMessage('system', sweepEventText(outcome), {
+            type: 'brief-event',
+            icon: 'sweep',
+          });
+          const date = getDateService().ritualDay();
+          const planFrom = clearFrom(meetingsFromStore(date), minutesOfDay());
+          const follow = sweepFollowUp(outcome, {
+            livePlan: !!planFlowRef.current.livePlan,
+            planFrom,
+          });
+          await appendBriefMessage('assistant', follow.text, {
+            type: 'brief-offer',
+            kind: 'follow_up',
+            buttons: follow.buttons,
+            plan_from: planFrom ?? undefined,
+          });
+        } else if (p.offerId && p.offer) {
+          // closed before deciding anything: the offer's buttons come back
+          const { chosen: _c, held: _h, revealed_from: _r, ...offer } = p.offer;
+          await appendBriefMessage('assistant', '', { ...offer, type: 'brief-offer' });
+        }
+      })();
+    });
+  }, [item, navigation, appendBriefMessage]);
+
   const renderDayCard = useCallback(
     (_message: SpaceChatMessage, meta: BriefDayCardMeta) => (
-      <BriefDayCardBlock date={meta.date} inPlan={planFlowRef.current.inPlanIds} />
+      <BriefDayCardBlock
+        date={meta.date}
+        inPlan={planFlowRef.current.inPlanIds}
+        onReply={() => void creditFirstReply(activeChatIdRef.current)}
+        onSweep={() => openBriefSweepRef.current(null)}
+      />
     ),
     [],
   );

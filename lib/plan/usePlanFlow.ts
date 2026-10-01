@@ -31,6 +31,7 @@ import {
   entryFromCandidate,
   fitPlan,
   lockText,
+  namesOf,
   suggestions,
   unplacedText,
   whatCanWait,
@@ -397,6 +398,40 @@ export function usePlanFlow(deps: PlanFlowDeps) {
     [run],
   );
 
+  /** After Sweep: what was kept for today joins the plan already there. */
+  const addKept = useCallback(
+    (ids: string[]) =>
+      run(async () => {
+        const d = depsRef.current;
+        const live = livePlanOf(d.messages);
+        const meta = planMetaOf(live);
+        if (!live || !meta) {
+          busyRef.current = false;
+          await start(null);
+          return;
+        }
+        const wasLocked = meta.status === 'locked';
+        const from = Math.max(meta.from ?? 0, up5(minutesOfDay()));
+        let entries = entriesOf(meta);
+        const pool = poolWith(entries);
+        const adding = ids.filter((id) => !entries.some((e) => e.id === id));
+        for (const id of adding)
+          entries = applyOp(entries, { op: 'add', id, window: null }, pool, from, meta.items);
+        const fit = fitPlan(entries, meetingsFromStore(d.date), from);
+        const placed = adding.filter((id) => fit.items.some((x) => x.id === id));
+        const titles = (list: string[]) =>
+          list.map((id) => pool.find((c) => c.id === id)?.title ?? 'that');
+        let text = placed.length
+          ? `Added ${namesOf(titles(placed))}.`
+          : `There isn't a good gap left today, so I've left ${adding.length === 1 ? 'it' : 'them'} off.`;
+        if (wasLocked) text += PLAN_COPY.relock;
+        await replaceOpen(true);
+        await say(text);
+        await addPlan(fit, pool);
+      }),
+    [addPlan, replaceOpen, run, say, start],
+  );
+
   /** What can wait? (data, no model), with what to do next. */
   const answerWhatCanWait = useCallback(
     (fromOffer?: BriefOfferMeta | null) =>
@@ -491,5 +526,6 @@ export function usePlanFlow(deps: PlanFlowDeps) {
     showAgain,
     answerWhatCanWait,
     editFromText,
+    addKept,
   };
 }
