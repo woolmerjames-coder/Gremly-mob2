@@ -42,7 +42,8 @@ import { JournalFullScreen } from '../../components/now/JournalFullScreen';
 
 import EventQuickActionSheet from '../../components/now/EventQuickActionSheet';
 import TodoLinkSheet from '../../components/now/TodoLinkSheet';
-import { scheduleEventReminder } from '../../lib/notifications/scheduleEventReminder';
+import { addReminderToItem, beforeReminder } from '../../lib/reminders/save';
+import { maybeAsk } from '../../lib/notifications/ask';
 import { useMorningBrief } from '../../lib/today/hooks/useMorningBrief';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import FirstTodayVisitBubble from '../../components/onboarding/FirstTodayVisitBubble';
@@ -662,49 +663,6 @@ export default function NowScreenV1() {
   const overlayController = useUnifiedOverlayController();
   const { openEntityOverlay } = useTodayInteractions();
 
-  // Handle notification tap to open Morning Brief, Evening Sweep, or Weekly Summary
-  useEffect(() => {
-    const handleNotificationOpen = (payload: {
-      type: 'morning' | 'evening' | 'weekly_summary' | 'afternoon_checkin';
-    }) => {
-      // With the Daily brief in Chat on, App opens today's thread instead
-      if (payload.type === 'morning' && !isBriefInChat()) {
-        console.log('[NowScreenV1] Opening Morning Brief from notification');
-        navigation.navigate('MorningBrief');
-      }
-      // Evening notifications navigate to Sweep screen
-      if (payload.type === 'evening') {
-        console.log('[NowScreenV1] Opening Evening Sweep from notification');
-        navigation.navigate('Sweep');
-      }
-      // Weekly summary notifications navigate to WeeklySummary screen
-      if (payload.type === 'weekly_summary') {
-        console.log('[NowScreenV1] Opening Weekly Summary from notification');
-        navigation.navigate('WeeklySummary');
-      }
-      // Afternoon check-in — already on NowScreen, no navigation needed
-      if (payload.type === 'afternoon_checkin') {
-        console.log('[NowScreenV1] Opening Now screen from afternoon check-in');
-        // Could optionally scroll to lock-ins section in the future
-      }
-    };
-
-    const unsubscribe = eventBus.on('notification:open_flow', handleNotificationOpen);
-    return () => unsubscribe();
-  }, [navigation]);
-
-  // Handle item-reminder notification taps — open the overlay for the reminded item
-  useEffect(() => {
-    const unsubscribe = eventBus.on(
-      'notification:open_item',
-      (payload: { itemId: string; itemType: string }) => {
-        console.log('[NowScreenV1] Opening item from reminder notification', payload);
-        openEntityOverlay({ id: payload.itemId, type: payload.itemType });
-      },
-    );
-    return () => unsubscribe();
-  }, [openEntityOverlay]);
-
   const [isProgressVisible, setProgressVisible] = useState(false);
   const [isQuickAddVisible, setQuickAddVisible] = useState(false);
   const [isNotesVisible, setNotesVisible] = useState(false);
@@ -807,21 +765,13 @@ export default function NowScreenV1() {
       const event = quickActionEvent;
       if (!event) return;
 
-      // Schedule the actual notification
-      const notificationId = await scheduleEventReminder(
+      // Saved on the event as a "before it starts" reminder; the server sends it
+      await addReminderToItem(
+        'note',
         eventId,
-        event.title || 'Event',
-        event.target_date || '',
-        event.event_time || null,
-        minutesBefore,
-      );
-
-      // Store reminder preferences + notification ID on the note
-      const existingIds = event.notification_ids ?? [];
-      useGremlyStore.getState().updateNote(eventId, {
-        reminder_preferences: { dayBefore: minutesBefore >= 1440, morningOf: false, minutesBefore },
-        ...(notificationId ? { notification_ids: [...existingIds, notificationId] } : {}),
-      });
+        beforeReminder(minutesBefore, getDateService().now()),
+      ).catch((err) => console.warn('[NowScreenV1] event reminder not saved:', err));
+      void maybeAsk('bell');
 
       setQuickActionEvent(null);
     },

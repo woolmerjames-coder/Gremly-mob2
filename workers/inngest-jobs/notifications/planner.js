@@ -212,11 +212,20 @@ export async function claimDays(env, { now = new Date(), fetchImpl, only = null 
 const daysBetween = (a, b) =>
   Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / DAY_MS);
 
-/** Median local minute of a habit's logs, once there are enough of them. */
-export function usualMinutes(times, tz, minLogs = 4) {
-  if (!times || times.length < minLogs) return null;
-  const mins = times.map((t) => localMinutesOf(new Date(t), tz)).sort((a, b) => a - b);
-  return mins[Math.floor(mins.length / 2)];
+/**
+ * When to check in on a habit today: an hour after the time they set for it,
+ * on a day it is due, unless it already has its own reminder. Habit logs carry
+ * no time of day, so the set time is the only honest signal. Null for no check in.
+ */
+export function habitCheckinMinutes(habit, { tz, localDate }) {
+  if (!habit?.scheduled_start_iso) return null;
+  if (Array.isArray(habit.reminders_json) && habit.reminders_json.length) return null;
+  const weekday = new Date(`${localDate}T12:00:00Z`).getUTCDay();
+  const due =
+    habit.cadence === 'daily' ||
+    (Array.isArray(habit.days_active) && habit.days_active.includes(weekday));
+  if (!due) return null;
+  return localMinutesOf(new Date(habit.scheduled_start_iso), tz);
 }
 
 /**
@@ -336,7 +345,7 @@ async function loadDay(env, userId, tz, localDate, now) {
         `app_events?user_id=eq.${userId}&kind=eq.app_open&occurred_at=gte.${encodeURIComponent(since28)}&select=occurred_at&order=occurred_at.desc&limit=500`,
       ),
       d.select(
-        `habits?owner_id=eq.${userId}&archived=eq.false&completed_at=is.null&select=id,name,title&limit=50`,
+        `habits?owner_id=eq.${userId}&archived=eq.false&completed_at=is.null&select=id,name,title,cadence,days_active,scheduled_start_iso,reminders_json&limit=50`,
       ),
       d.select(
         `habit_progress?owner_id=eq.${userId}&occurred_at=gte.${encodeURIComponent(since28)}&select=habit_id,occurred_at,occurred_day&limit=2000`,
@@ -349,12 +358,15 @@ async function loadDay(env, userId, tz, localDate, now) {
       ),
     ],
   );
-  const lastOpen =
+  const lastEvent =
     (
       await d.select(
         `app_events?user_id=eq.${userId}&kind=eq.app_open&select=occurred_at&order=occurred_at.desc&limit=1`,
       )
     )?.[0]?.occurred_at || null;
+  // the app's heartbeat covers opens from before app_events existed
+  const heartbeat = prefsRows?.[0]?.last_app_active_at || null;
+  const lastOpen = [lastEvent, heartbeat].filter(Boolean).sort().at(-1) || null;
   return {
     prefs: prefsRows?.[0] || null,
     engagement: engRows?.[0] || null,
@@ -408,18 +420,13 @@ export async function planPersonDay(
   }
   const facts = {
     briefExpected: x.cortex.brief_in_chat !== false && (x.cortex.gremly_age ?? 0) >= 1,
-    habits: x.habits.map((h) => {
-      const logs = byHabit.get(h.id) || [];
-      return {
-        id: h.id,
-        title: h.name || h.title || null,
-        usualMinutes: usualMinutes(
-          logs.map((l) => l.occurred_at),
-          tz,
-        ),
-        loggedToday: logs.some((l) => l.occurred_day === localDate),
-      };
-    }),
+    habits: x.habits.map((h) => ({
+      id: h.id,
+      title: h.name || h.title || null,
+      // planDay checks in an hour after usualMinutes, so it gets the set time
+      usualMinutes: habitCheckinMinutes(h, { tz, localDate }),
+      loggedToday: (byHabit.get(h.id) || []).some((l) => l.occurred_day === localDate),
+    })),
     goodNews: [],
     // Gremly not fed yet is the everyday reason for a note; the sender checks it is still true
     nudgeReasons: [{ kind: 'unfed', weight: 1 }],

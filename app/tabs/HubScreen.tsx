@@ -228,7 +228,7 @@ export default function HubScreen() {
   const journalAnalysis = useJournalAnalysis();
 
   // Handler to open settings screen
-  const handleOpenNotificationSettings = useCallback(() => {
+  const handleOpenSettings = useCallback(() => {
     navigation.navigate('Settings' as never);
   }, [navigation]);
 
@@ -905,11 +905,11 @@ export default function HubScreen() {
                 </TouchableOpacity>
               )}
               <TouchableOpacity
-                onPress={handleOpenNotificationSettings}
+                onPress={handleOpenSettings}
                 style={hubV1Styles.settingsButton}
                 hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                 testID="hub-settings-button"
-                accessibilityLabel="Notification Settings"
+                accessibilityLabel="Settings"
                 accessibilityRole="button"
               >
                 <Settings size={24} color={colors.gray600} />

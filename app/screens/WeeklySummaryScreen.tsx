@@ -67,7 +67,7 @@ import { useCurrentWeekSummary } from '../../lib/store/selectors';
 import { selectSummaryByWeek } from '../../lib/store/selectors';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { addDays, nextMonday, format } from 'date-fns';
-import { scheduleItemReminder } from '../../lib/notifications/itemReminderService';
+import { maybeAsk } from '../../lib/notifications/ask';
 import type { ItemReminder } from '../../lib/types';
 import { triggerLight, triggerSuccess } from '../../lib/haptics';
 import { getDateService } from '../../lib/date';
@@ -1171,7 +1171,6 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
 
       const tomorrow = addDays(getDateService().now(), 1);
       const dateStr = format(tomorrow, 'yyyy-MM-dd');
-      const entityTitle = item.title || item.name || 'Reminder';
 
       // Default reminder time: use time_window if available, else 9am
       let reminderTime = '09:00';
@@ -1185,18 +1184,13 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
         date: dateStr,
       };
 
-      // Schedule local notification
-      const notificationId = await scheduleItemReminder(
-        item.id,
-        entityTitle,
-        item.entityType === 'todo' ? 'todo' : 'habit',
-        reminder,
-      );
+      // the server sends it; if notifications are off, this is the moment to ask
+      void maybeAsk('bell');
 
       // Persist reminder and set due_day to tomorrow so it shows on Today
       if (item.entityType === 'todo') {
         await updateTodo(item.id, {
-          reminders: [{ ...reminder, notificationId: notificationId ?? undefined }],
+          reminders: [reminder],
           due_day: dateStr,
           scheduled_date: dateStr,
           resurface_at: dateStr,

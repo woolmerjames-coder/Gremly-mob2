@@ -202,6 +202,13 @@ export async function stillTrue(env, person, job, at = new Date()) {
       ) {
         return { ok: false, reason: 'The reminder moved to another time' };
       }
+      // a habit already logged today needs no reminder
+      if (type === 'habit') {
+        const logged = await d.select(
+          `habit_progress?owner_id=eq.${uid}&habit_id=eq.${id}&occurred_day=eq.${ritualDay}&select=id&limit=1`,
+        );
+        if (logged?.length) return { ok: false, reason: 'Already logged today' };
+      }
       return { ok: true };
     }
     case 'nudge': {
@@ -404,7 +411,7 @@ export async function compose(env, job, person, facts) {
     const [type, id] = String(job.subject || '').split(':');
     const table = { todo: 'todos', habit: 'habits', note: 'notes', person: 'people' }[type];
     const [item] = table ? (await d.select(`${table}?id=eq.${id}&select=*`)) || [] : [];
-    const itemTitle = item?.name || item?.title || 'Reminder';
+    const itemTitle = item?.name || item?.title || item?.display_name || 'Reminder';
     const startClock = item?.event_time
       ? clock(Number(item.event_time.slice(0, 2)) * 60 + Number(item.event_time.slice(3, 5)))
       : null;

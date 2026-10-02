@@ -22,14 +22,11 @@ import {
   LayoutAnimation,
   Alert,
 } from 'react-native';
-import * as Notifications from 'expo-notifications';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { scheduleEventReminder } from '../../../lib/notifications/scheduleEventReminder';
-import {
-  scheduleQuickReminder,
-  scheduleItemReminder,
-} from '../../../lib/notifications/itemReminderService';
 import type { ItemReminder } from '../../../lib/types';
+import { addReminderToItem, beforeReminder, inMinutes } from '../../../lib/reminders/save';
+import { newReminderId } from '../../../lib/reminders/reminders';
+import { maybeAsk } from '../../../lib/notifications/ask';
 import {
   ShieldOff,
   Calendar,
@@ -1155,48 +1152,37 @@ export function MorningBriefSheet({
       if (!reminderPromptTaskId) return;
 
       const taskId = reminderPromptTaskId;
-      const title = reminderPromptTaskTitle;
       const taskType = reminderPromptTaskType;
 
       let label = '';
-      let notificationId: string | null = null;
       let reminderObj: ItemReminder;
+      const now = getDateService().now();
 
       if (option === 'in2h') {
         label = 'in 2 hours';
-        const target = getDateService().now();
-        target.setHours(target.getHours() + 2);
-        const time = `${String(target.getHours()).padStart(2, '0')}:${String(target.getMinutes()).padStart(2, '0')}`;
-        reminderObj = { id: 'brief-reminder', time, frequency: 'once' as const, date: today };
-        notificationId = await scheduleQuickReminder(taskId, title, taskType, 7200);
+        reminderObj = inMinutes(120, now);
       } else if (option === 'afterLunch') {
         label = 'after lunch';
         reminderObj = {
-          id: 'brief-reminder',
+          id: newReminderId(now),
           time: '13:00',
           frequency: 'once' as const,
           date: today,
         };
-        notificationId = await scheduleItemReminder(taskId, title, taskType, reminderObj);
       } else {
         label = 'at 4 PM';
         reminderObj = {
-          id: 'brief-reminder',
+          id: newReminderId(now),
           time: '16:00',
           frequency: 'once' as const,
           date: today,
         };
-        notificationId = await scheduleItemReminder(taskId, title, taskType, reminderObj);
       }
 
-      if (notificationId) reminderObj.notificationId = notificationId;
-
-      // Persist reminder on the item
-      if (taskType === 'todo') {
-        updateTodo(taskId, { reminders: [reminderObj] });
-      } else {
-        updateHabit(taskId, { reminders: [reminderObj] });
-      }
+      // Saved on the item; the server sends it
+      addReminderToItem(taskType, taskId, reminderObj)
+        .then(() => maybeAsk('bell'))
+        .catch((err) => console.warn('[MBSheet] reminder not saved:', err));
 
       // Show confirmation, then auto-dismiss
       setShowReminderPills(false);
@@ -1207,15 +1193,7 @@ export function MorningBriefSheet({
         dismissReminderPrompt();
       }, 2000);
     },
-    [
-      reminderPromptTaskId,
-      reminderPromptTaskTitle,
-      reminderPromptTaskType,
-      today,
-      updateTodo,
-      updateHabit,
-      dismissReminderPrompt,
-    ],
+    [reminderPromptTaskId, reminderPromptTaskType, today, dismissReminderPrompt],
   );
 
   // Cleanup reminder timer on unmount
@@ -1464,46 +1442,21 @@ export function MorningBriefSheet({
         'minutes=',
         minutesBefore,
       );
-      // Derive title/date/time from whichever source is active
       const noteEvent = quickActionEvent;
-      const unified = quickActionUnified;
-      const title = noteEvent?.title || unified?.title || 'Event';
-      const targetDate = noteEvent?.target_date || today;
-      const eventTime = noteEvent?.event_time || unified?.eventTime || null;
 
-      // Schedule the actual notification via shared helper
-      const notificationId = await scheduleEventReminder(
-        eventId,
-        title,
-        targetDate,
-        eventTime,
-        minutesBefore,
-      );
-
-      // Store reminder preferences on the note (only for note events)
-      if (noteEvent) {
-        const existingIds = noteEvent.notification_ids ?? [];
-        useGremlyStore.getState().updateNote(eventId, {
-          reminder_preferences: {
-            dayBefore: minutesBefore >= 1440,
-            morningOf: false,
-            minutesBefore,
-          },
-          ...(notificationId ? { notification_ids: [...existingIds, notificationId] } : {}),
-        });
-      } else if (isCalendarEventId(eventId)) {
-        // For calendar events, promote to a Note so we can persist reminder prefs
+      // Saved on the event's note as a "before it starts" reminder; the server sends it
+      const reminder = beforeReminder(minutesBefore, getDateService().now());
+      let noteId: string | null = noteEvent ? eventId : null;
+      if (!noteId && isCalendarEventId(eventId)) {
+        // calendar events become a note so the reminder has somewhere to live
         const note = await promoteCalendarEventToNote(eventId);
-        if (note && notificationId) {
-          useGremlyStore.getState().updateNote(note.id, {
-            reminder_preferences: {
-              dayBefore: minutesBefore >= 1440,
-              morningOf: false,
-              minutesBefore,
-            },
-            notification_ids: [notificationId],
-          });
-        }
+        noteId = note?.id ?? null;
+      }
+      if (noteId) {
+        await addReminderToItem('note', noteId, reminder).catch((err) =>
+          console.warn('[MBSheet] event reminder not saved:', err),
+        );
+        void maybeAsk('bell');
       }
 
       setQuickActionEvent(null);
@@ -1729,20 +1682,10 @@ export function MorningBriefSheet({
   const handleQuickActionRemind = useCallback(
     async (taskId: string) => {
       try {
-        const taskTitle = quickActionTask?.title ?? 'your task';
-        await Notifications.scheduleNotificationAsync({
-          content: {
-            title: 'Reminder',
-            body: `Don't forget: ${taskTitle}`,
-            data: { type: 'task_reminder', taskId },
-            sound: 'default',
-          },
-          trigger: {
-            type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-            seconds: 30 * 60, // 30 minutes
-          },
-        });
+        const type = quickActionTask?.type === 'habit' ? 'habit' : 'todo';
+        await addReminderToItem(type, taskId, inMinutes(30, getDateService().now()));
         Alert.alert('Reminder set', "You'll be reminded in 30 minutes.");
+        void maybeAsk('bell');
       } catch {
         Alert.alert('Oops', 'Could not schedule reminder.');
       }

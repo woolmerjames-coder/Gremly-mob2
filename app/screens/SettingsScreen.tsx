@@ -21,6 +21,7 @@ import {
   Palette,
   Crown,
   LogOut,
+  Moon,
 } from 'lucide-react-native';
 import { colors, spacing, borderRadius } from '../../design/tokens';
 import { BRAND } from '../../design/brand';
@@ -105,10 +106,17 @@ export default function SettingsScreen() {
       route: '',
     },
     {
-      key: 'rituals',
+      key: 'notifications',
       icon: <Bell size={ICON_SIZE} color={BRAND.colors.mossGreen} />,
-      title: 'Rituals',
-      subtitle: 'Morning Brief, Evening Sweep, Day Boundary',
+      title: 'Notifications',
+      subtitle: 'Brief, sweep, reminders, quiet hours',
+      route: 'NotificationSettings',
+    },
+    {
+      key: 'day-boundary',
+      icon: <Moon size={ICON_SIZE} color={BRAND.colors.mossGreen} />,
+      title: 'Day boundary',
+      subtitle: 'When your day starts over',
       route: 'RitualsSettings',
     },
     {

@@ -11,7 +11,7 @@ import {
   rollReminder,
   claimDays,
   reminderEvent,
-  usualMinutes,
+  habitCheckinMinutes,
   learn,
   buildDayPlan,
   planPersonDay,
@@ -221,15 +221,25 @@ describe('claiming days', () => {
 
 describe('learning', () => {
   const now = new Date('2026-10-02T04:00:00Z');
-  it('usual habit time is the median, once there are enough logs', () => {
-    const t = [
-      '2026-09-20T06:00:00Z',
-      '2026-09-21T06:10:00Z',
-      '2026-09-22T06:20:00Z',
-      '2026-09-23T09:00:00Z',
-    ];
-    expect(usualMinutes(t, 'UTC')).toBe(6 * 60 + 20);
-    expect(usualMinutes(t.slice(0, 3), 'UTC')).toBeNull();
+  it('checks in on a habit after its set time, only on days it is due', () => {
+    const h = { scheduled_start_iso: '2026-02-11T18:45:00Z', cadence: 'daily' };
+    expect(habitCheckinMinutes(h, { tz: 'UTC', localDate: '2026-10-01' })).toBe(18 * 60 + 45);
+    expect(
+      habitCheckinMinutes(
+        { ...h, reminders_json: [{ id: 'r' }] },
+        { tz: 'UTC', localDate: '2026-10-01' },
+      ),
+    ).toBeNull();
+    const weekly = {
+      scheduled_start_iso: '2026-02-11T21:30:00Z',
+      cadence: 'weekly',
+      days_active: [6],
+    };
+    expect(habitCheckinMinutes(weekly, { tz: 'UTC', localDate: '2026-10-03' })).toBe(21 * 60 + 30); // a Saturday
+    expect(habitCheckinMinutes(weekly, { tz: 'UTC', localDate: '2026-10-01' })).toBeNull();
+    expect(
+      habitCheckinMinutes({ cadence: 'daily' }, { tz: 'UTC', localDate: '2026-10-01' }),
+    ).toBeNull();
   });
 
   it('marks outcomes, moves streaks and scores angles', () => {

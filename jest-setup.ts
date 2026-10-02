@@ -100,21 +100,31 @@ jest.mock('expo-constants', () => ({
   expoConfig: null,
 }));
 
-// Mock expo-notifications (requires native EventEmitter unavailable in Jest)
+// expo-device needs the native module; the notifications device sync only reads isDevice
+jest.mock('expo-device', () => ({ isDevice: true }));
+
+// Mock expo-notifications (requires native EventEmitter unavailable in Jest).
+// The app only registers this phone and handles taps (lib/notifications);
+// the server sends everything, so nothing is scheduled on the phone.
 jest.mock('expo-notifications', () => ({
-  scheduleNotificationAsync: jest.fn().mockResolvedValue('mock-notification-id'),
-  cancelScheduledNotificationAsync: jest.fn().mockResolvedValue(undefined),
   setNotificationHandler: jest.fn(),
+  setNotificationCategoryAsync: jest.fn().mockResolvedValue(undefined),
   addNotificationReceivedListener: jest.fn(() => ({ remove: jest.fn() })),
   addNotificationResponseReceivedListener: jest.fn(() => ({ remove: jest.fn() })),
-  getPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted' }),
-  requestPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted' }),
-  SchedulableTriggerInputTypes: {
-    DATE: 'date',
-    DAILY: 'daily',
-    WEEKLY: 'weekly',
-    CALENDAR: 'calendar',
+  getLastNotificationResponseAsync: jest.fn().mockResolvedValue(null),
+  clearLastNotificationResponseAsync: jest.fn().mockResolvedValue(undefined),
+  cancelAllScheduledNotificationsAsync: jest.fn().mockResolvedValue(undefined),
+  getPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted', granted: true }),
+  requestPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted', granted: true }),
+  getExpoPushTokenAsync: jest.fn().mockResolvedValue({ data: 'ExponentPushToken[test]' }),
+  IosAuthorizationStatus: {
+    NOT_DETERMINED: 0,
+    DENIED: 1,
+    AUTHORIZED: 2,
+    PROVISIONAL: 3,
+    EPHEMERAL: 4,
   },
+  DEFAULT_ACTION_IDENTIFIER: 'expo.modules.notifications.actions.DEFAULT',
 }));
 
 // Mock expo-auth-session to avoid expo-modules-core EventEmitter issues

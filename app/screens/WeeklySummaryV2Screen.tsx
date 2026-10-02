@@ -72,7 +72,7 @@ import {
 import { addDays, nextMonday, format } from 'date-fns';
 import { triggerLight, triggerSuccess } from '../../lib/haptics';
 import { getDateService } from '../../lib/date';
-import { scheduleItemReminder } from '../../lib/notifications/itemReminderService';
+import { maybeAsk } from '../../lib/notifications/ask';
 import { BRAND } from '../../design/brand';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useCurrentWeekSummary } from '../../lib/store/selectors';
@@ -1083,14 +1083,10 @@ function StaleTriageCard({ card }: { card: WSV2StaleTriageCard }) {
       };
 
       if (item.todoId) {
-        const notificationId = await scheduleItemReminder(
-          item.todoId,
-          item.title,
-          'todo',
-          reminder,
-        );
+        // the server sends it; if notifications are off, this is the moment to ask
+        void maybeAsk('bell');
         await updateTodo(item.todoId, {
-          reminders: [{ ...reminder, notificationId: notificationId ?? undefined }],
+          reminders: [reminder],
           due_day: dateStr,
           scheduled_date: dateStr,
           resurface_at: dateStr,

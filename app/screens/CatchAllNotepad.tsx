@@ -153,7 +153,7 @@ import { applyTagQualityFilter } from '../../lib/tags/quality';
 import { extractMeaningfulTags } from '../../lib/tags/extractTags';
 import { buildHabitFields } from '../../lib/cortex/textNormalization';
 import { hashString } from '../../lib/telemetry/catchallLogger';
-import { upsertEveningNotificationPreference } from '../../lib/repo/linkingRepo';
+import { maybeAsk } from '../../lib/notifications/ask';
 import { useMindDropSubmit } from '../../hooks/useMindDropSubmit';
 import { useMascotActions } from '../../hooks/useMascotActions';
 import { useVoiceCapture, VoiceCaptureState } from '../../hooks/useVoiceCapture';
@@ -1352,7 +1352,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [showGaugeModal, setShowGaugeModal] = useState(false);
   const [showFirstFedModal, setShowFirstFedModal] = useState(false);
   const [showSweepUnlockModal, setShowSweepUnlockModal] = useState(false);
-  const [showSweepTimeModal, setShowSweepTimeModal] = useState(false);
+  // set when the sweep demo opens from the unlock card; the one ask follows on return
   const [askSweepTimeAfterDemo, setAskSweepTimeAfterDemo] = useState(false);
   const [showTrainingMeter, setShowTrainingMeter] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -1396,14 +1396,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     };
   }, []);
 
-  // After sweep demo, return to MindDrop and prompt for notification time
+  // Back from the sweep demo: the one ask for notifications (end of day one)
   useEffect(() => {
     if (!askSweepTimeAfterDemo) return;
     const unsubscribe = navigation.addListener('focus', () => {
       if (askSweepTimeAfterDemo) {
         setAskSweepTimeAfterDemo(false);
         setTimeout(() => {
-          setShowSweepTimeModal(true);
+          void maybeAsk('onboarding');
         }, 500);
       }
     });
@@ -3602,50 +3602,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           setAskSweepTimeAfterDemo(true);
           navigation.navigate('Sweep', { demoMode: true } as any);
         }}
-        onSetReminder={async (time) => {
-          const userId = useGremlyStore.getState().userId;
-          if (!userId) return;
-
-          const hours = time.getHours().toString().padStart(2, '0');
-          const minutes = time.getMinutes().toString().padStart(2, '0');
-          const timeStr = `${hours}:${minutes}:00`;
-
-          try {
-            await upsertEveningNotificationPreference({
-              userId,
-              eveningTime: timeStr,
-              updatedAt: nowTimestamp(),
-            });
-            console.log('[Training] Evening notification time saved:', timeStr);
-          } catch (err) {
-            console.warn('[Training] Failed to save evening time:', err);
-          }
-        }}
-      />
-
-      <SweepUnlockModal
-        visible={showSweepTimeModal}
-        timePickerOnly
-        onDismiss={() => {
-          setShowSweepTimeModal(false);
-        }}
-        onTryNow={() => {}}
-        onSetReminder={async (time) => {
-          const userId = useGremlyStore.getState().userId;
-          if (!userId) return;
-          const hours = time.getHours().toString().padStart(2, '0');
-          const minutes = time.getMinutes().toString().padStart(2, '0');
-          const timeStr = `${hours}:${minutes}:00`;
-          try {
-            await upsertEveningNotificationPreference({
-              userId,
-              eveningTime: timeStr,
-              updatedAt: nowTimestamp(),
-            });
-          } catch (err) {
-            console.warn('[Training] Failed to save evening time:', err);
-          }
-          setShowSweepTimeModal(false);
+        onLater={() => {
+          setShowSweepUnlockModal(false);
+          markSweepUnlockModalSeen();
+          // the one ask for notifications, once the card has gone
+          setTimeout(() => {
+            void maybeAsk('onboarding');
+          }, 400);
         }}
       />
 

@@ -26,9 +26,8 @@ import { supabase } from '../supabase/client';
 import { nowTimestamp, getDateService } from '../date/DateService';
 import { eventBus } from '../events/EventBus';
 import { networkStatus } from '../network/NetworkStatus';
-import { scheduleItemReminder, scheduleQuickReminder } from '../notifications/itemReminderService';
-import { hasNotificationPermission } from '../../src/utils/notifications';
-import { dateService } from '../date/DateService';
+import { maybeAsk } from '../notifications/ask';
+import { hhmm, localDay } from '../reminders/reminders';
 import type { ItemReminder } from '../types';
 import { env } from '../env';
 import { getSessionToken } from '../cortex/getSessionToken';
@@ -104,8 +103,6 @@ async function scheduleAutoReminderForDrop(drop: QueuedDrop): Promise<void> {
       if (note?.external_source != null) return;
     }
 
-    const itemTitle = drop.smartTitle || drop.text.substring(0, 60);
-    const reminderEntityType: 'todo' | 'habit' = entityType === 'habit' ? 'habit' : 'todo';
     const frequency = drop.reminderFrequency === 'daily' ? ('daily' as const) : ('once' as const);
     const hasDate = !!drop.reminderDate;
 
@@ -116,14 +113,16 @@ async function scheduleAutoReminderForDrop(drop: QueuedDrop): Promise<void> {
           frequency,
           date: frequency === 'once' ? drop.reminderDate! : undefined,
         }
-      : {
-          id: `auto-quick-${getDateService().now().getTime()}`,
-          time: new Date(getDateService().now().getTime() + 2 * 60 * 60 * 1000)
-            .toTimeString()
-            .slice(0, 5),
-          frequency: 'once' as const,
-          date: dateService.today(),
-        };
+      : (() => {
+          // two hours from now, on the right day even near midnight
+          const at = new Date(getDateService().now().getTime() + 2 * 60 * 60 * 1000);
+          return {
+            id: `auto-quick-${getDateService().now().getTime()}`,
+            time: hhmm(at.getHours(), at.getMinutes()),
+            frequency: 'once' as const,
+            date: localDay(at),
+          };
+        })();
 
     // Persist to Supabase
     const table = entityType === 'todo' ? 'todos' : entityType === 'habit' ? 'habits' : 'notes';
@@ -146,31 +145,8 @@ async function scheduleAutoReminderForDrop(drop: QueuedDrop): Promise<void> {
       time: reminderToSave.time,
     });
 
-    // Schedule OS notification (best-effort)
-    const schedulePromise = hasDate
-      ? scheduleItemReminder(entityId, itemTitle, reminderEntityType, reminderToSave)
-      : scheduleQuickReminder(entityId, itemTitle, reminderEntityType, 2 * 60 * 60);
-
-    const notificationId = await schedulePromise;
-    if (notificationId) {
-      const updatedReminder = { ...reminderToSave, notificationId };
-      await supabase
-        .from(table)
-        .update({ reminders_json: [updatedReminder], updated_at: nowTimestamp() })
-        .eq('id', entityId);
-
-      useGremlyStore.setState((state) => ({
-        [storeKey]: (state[storeKey] as any[]).map((item: any) =>
-          item.id === entityId ? { ...item, reminders: [updatedReminder] } : item,
-        ),
-      }));
-
-      // Prompt for permission if needed
-      const hasPerm = await hasNotificationPermission();
-      if (!hasPerm) {
-        eventBus.emit('notification:permission_prompt', { context: 'reminder' });
-      }
-    }
+    // The server sends it. If notifications are off, this is the moment to ask.
+    void maybeAsk('bell');
   } catch (err) {
     console.warn('[Pipeline] Auto-reminder failed', { error: String(err) });
   }

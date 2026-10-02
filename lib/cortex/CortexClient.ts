@@ -2174,3 +2174,30 @@ export async function callPlanPick(
     return { ok: false, error: String(e?.message || e) };
   }
 }
+
+/**
+ * Notification Lab (testers): a real send through the real sender to this
+ * person's own phones, marked as a test. The server checks the tester flag.
+ */
+export async function callNotificationTest(
+  moment: string,
+  words?: { title?: string; body: string },
+): Promise<CortexClientResult<{ ok?: boolean; dedupe_key?: string }>> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return { ok: false, error: '[cortex] Missing EXPO_PUBLIC_CORTEX_URL' };
+  const token = await getSessionToken();
+  if (!token) return { ok: false, error: 'not signed in' };
+  try {
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ type: 'notification-test', moment, words: words ?? null }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.error)
+      return { ok: false, error: String(data?.error || res.status), status: res.status };
+    return { ok: true, data };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}

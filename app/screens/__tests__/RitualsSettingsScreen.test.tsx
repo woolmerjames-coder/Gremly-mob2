@@ -1,14 +1,11 @@
 /**
  * RitualsSettingsScreen.test.tsx
  *
- * Tests for the Rituals sub-screen: Morning Brief, Evening Sweep, Day Boundary,
- * and Weekly Summary settings.
+ * The Day boundary screen. (The brief, sweep and weekly summary settings moved
+ * to Settings, under Notifications: NotificationSettingsScreen.)
  *
  * NOTE: All jest.fn() are inline inside mock factories to avoid hoisting issues.
- * This screen imports useGremlyStore (7k+ lines) and useNotificationPreferences
- * (supabase), so every heavy import must be mocked to prevent OOM.
- *
- * Settings V2 (Feb 2026)
+ * This screen imports useGremlyStore (7k+ lines), so heavy imports are mocked.
  */
 
 import React from 'react';
@@ -21,18 +18,7 @@ import { render, fireEvent } from '@testing-library/react-native';
 
 const mockGoBack = jest.fn();
 const mockSetOptions = jest.fn();
-const mockSavePreferences = jest.fn();
 const mockSetDayBoundaryHour = jest.fn();
-const mockPreferences = {
-  morningEnabled: true,
-  morningTime: new Date('2025-01-01T08:00:00'),
-  eveningEnabled: true,
-  eveningTime: new Date('2025-01-01T20:00:00'),
-  weeklyEnabled: true,
-  weeklyTime: new Date('2025-01-01T18:00:00'),
-  weeklyDay: 0, // Sunday
-  timezone: 'America/New_York',
-};
 
 jest.mock('../../../providers/AuthProvider', () => ({
   useAuth: () => ({ user: { id: 'user-1' }, session: null }),
@@ -72,6 +58,8 @@ jest.mock('lucide-react-native', () => {
   };
 });
 
+jest.mock('../../../lib/brief/flag', () => ({ useBriefInChat: () => true }));
+
 jest.mock('../../../lib/store/useGremlyStore', () => ({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   useGremlyStore: (sel: any) =>
@@ -79,13 +67,6 @@ jest.mock('../../../lib/store/useGremlyStore', () => ({
       dayBoundaryHour: 5,
       setDayBoundaryHour: mockSetDayBoundaryHour,
     }),
-}));
-
-jest.mock('../../../hooks/useNotificationPreferences', () => ({
-  useNotificationPreferences: () => ({
-    preferences: mockPreferences,
-    savePreferences: mockSavePreferences,
-  }),
 }));
 
 jest.mock('../../../components/settings/DayBoundaryPicker', () => {
@@ -134,15 +115,13 @@ describe('RitualsSettingsScreen', () => {
     (global as any).__ritualBeforeRemove = null;
   });
 
-  it('renders ritual sections with time pickers', () => {
-    const { getByText, getByTestId, queryAllByTestId } = render(<RitualsSettingsScreen />);
-    expect(getByText('Rituals')).toBeTruthy();
-    expect(getByText('Morning Brief')).toBeTruthy();
-    expect(getByText('Evening Sweep')).toBeTruthy();
-    expect(getByText('Day Boundary')).toBeTruthy();
+  it('shows only the day boundary', () => {
+    const { getByText, getByTestId, queryByText } = render(<RitualsSettingsScreen />);
+    expect(getByText('Day boundary')).toBeTruthy();
     expect(getByTestId('day-boundary-picker')).toBeTruthy();
-    // At least 2 DateTimePickers: morning and evening
-    expect(queryAllByTestId('date-time-picker').length).toBeGreaterThanOrEqual(2);
+    // notification settings live under Notifications now
+    expect(queryByText('Morning Brief')).toBeNull();
+    expect(queryByText('Evening Sweep')).toBeNull();
   });
 
   it('fires day boundary onChange', () => {
