@@ -9,7 +9,7 @@
  * writes the plan to Today. Not now folds the card, with Show it again.
  */
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SpaceChatMessage } from '../types';
 import { callPlanPick } from '../cortex/CortexClient';
 import { patchDailyThreadMeta } from '../repo/dailyThreadRepo';
@@ -39,11 +39,15 @@ import {
 } from './planFlow';
 import {
   candidateFromStore,
+  dayRecordFromStore,
   lockPlanItems,
   meetingsFromStore,
   poolForDay,
   saveEstimates,
 } from './storePlan';
+import { DEFAULT_PLAN_END, type DayRecord } from '../brief/dayRecord';
+import { localMinutesToIso } from '../brief/time';
+import { syncPlanItems, timeSignature, type StoreTimes } from './livePlan';
 import { getDateService, nowTimestamp } from '../date/DateService';
 
 export interface PlanFlowDeps {
@@ -92,6 +96,26 @@ function fromFor(meta: BriefPlanMeta): number {
 /** Planning another day starts at 8am. */
 export const PLAN_DAY_START = 8 * 60;
 
+/** What the picker hears about the day's set times and travel. */
+function frameForPicker(rec: DayRecord) {
+  return {
+    fixed: rec.blocks.map((b) => ({
+      title: b.title,
+      start: b.start,
+      end: b.end,
+      travel: b.travel,
+    })),
+    travel: rec.travel ? { label: rec.travel.label, departs: rec.travel.departs } : null,
+    plan_end: rec.planEnd,
+  };
+}
+
+/** Re-fit a day's plan around its meetings and set times, ending when they set off. */
+function fitForDay(entries: PlanEntry[], day: string, from: number) {
+  const rec = dayRecordFromStore(day);
+  return fitPlan(entries, rec.busy, from, rec.planEnd);
+}
+
 /** The pool for a plan: the day's candidates, plus anything the plan holds that is not one now. */
 function poolWith(entries: PlanEntry[], day: string): Candidate[] {
   const pool = poolForDay(day);
@@ -120,6 +144,64 @@ export function usePlanFlow(deps: PlanFlowDeps) {
   const extraRef = useRef<Candidate | null>(null);
 
   const livePlan = useMemo(() => livePlanOf(deps.messages), [deps.messages]);
+
+  // The living plan: a time changed elsewhere (a card, Today) moves the item
+  // on the card; a proposal re-fits the rest around it, and a locked plan
+  // moves it on Today too.
+  const storeTodos = useGremlyStore((s) => s.todos);
+  const storeHabits = useGremlyStore((s) => s.habits);
+  useEffect(() => {
+    const msg = livePlan;
+    const meta = planMetaOf(msg);
+    if (!msg || !meta || busyRef.current) return;
+    const lookup = (id: string, kind: 'todo' | 'habit'): StoreTimes | undefined =>
+      kind === 'habit'
+        ? (storeHabits.find((h) => h.id === id) as StoreTimes | undefined)
+        : (storeTodos.find((t) => t.id === id) as StoreTimes | undefined);
+    const sync = syncPlanItems(meta.items, meta.date, lookup);
+    if (!sync) return;
+    const moved = new Set(sync.moved);
+    let patch: Partial<BriefPlanMeta> = { items: sync.items };
+    if (moved.size && meta.status === 'proposal') {
+      const pinned = sync.items
+        .filter((x) => moved.has(x.id))
+        .map((x) => ({ ...x, window: [x.start, x.end] as [number, number] }));
+      const rest = entriesOf({ ...meta, items: sync.items.filter((x) => !moved.has(x.id)) });
+      const rec = dayRecordFromStore(meta.date);
+      const busy = [...rec.busy, ...pinned.map((x) => ({ start: x.start, end: x.end }))];
+      const fit = fitPlan(rest, busy, fromFor(meta), rec.planEnd);
+      const seenOf = new Map(sync.items.map((x) => [x.id, x.seen]));
+      patch = {
+        ...fit,
+        items: [...pinned, ...fit.items.map((x) => ({ ...x, seen: seenOf.get(x.id) }))].sort(
+          (a, b) => a.start - b.start,
+        ),
+        order: [...pinned.map((x) => x.id), ...(fit.order ?? [])],
+      };
+    } else if (moved.size && meta.status === 'locked') {
+      // Today follows the card: the planned start moves with the item
+      const s = useGremlyStore.getState();
+      patch = {
+        items: sync.items.map((x) => {
+          if (!moved.has(x.id)) return x;
+          const iso = localMinutesToIso(meta.date, x.start);
+          const write = { scheduled_start_iso: iso };
+          if (x.kind === 'habit') void s.updateHabit(x.id, write);
+          else void s.updateTodo(x.id, write);
+          return {
+            ...x,
+            seen: timeSignature({
+              ...lookup(x.id, x.kind === 'habit' ? 'habit' : 'todo'),
+              ...write,
+            }),
+          };
+        }),
+      };
+    }
+    void depsRef.current
+      .patchMessageMetadata(msg.id, patch as Record<string, unknown>)
+      .catch((err) => console.warn('[Plan] could not bring the plan up to date:', err));
+  }, [livePlan, storeTodos, storeHabits]);
   const inPlanIds = useMemo(() => {
     const meta = planMetaOf(livePlan);
     return new Set(meta ? [...meta.items.map((x) => x.id), ...meta.unplaced.map((x) => x.id)] : []);
@@ -206,16 +288,19 @@ export function usePlanFlow(deps: PlanFlowDeps) {
         }
         const now = today ? minutesOfDay() : PLAN_DAY_START;
         const meetings = meetingsFromStore(day);
+        // set times and travel count too; nothing is planned after they set off
+        const rec = dayRecordFromStore(day);
+        const travelling = rec.planEnd < DEFAULT_PLAN_END;
         const gap = !today
           ? PLAN_DAY_START
           : fromOffer?.plan_from !== undefined && fromOffer.plan_from !== null
             ? Math.max(fromOffer.plan_from, now)
-            : clearFrom(meetings, now);
-        if (gap === null) {
-          await say(PLAN_COPY.noRoom);
+            : clearFrom(rec.busy, now, rec.planEnd);
+        const from = gap === null ? null : up5(Math.max(gap, now));
+        if (from === null || from + 15 > rec.planEnd) {
+          await say(travelling ? PLAN_COPY.noRoomTravel : PLAN_COPY.noRoom);
           return;
         }
-        const from = up5(Math.max(gap, now));
         const pool = poolForDay(day);
         if (!pool.length) {
           await say(PLAN_COPY.nothingToPlan);
@@ -238,6 +323,7 @@ export function usePlanFlow(deps: PlanFlowDeps) {
             ...(kept.has(c.id) ? { kept: true } : {}),
           })),
           meetings: meetings.map((m) => ({ title: m.title, start: m.start, end: m.end })),
+          ...frameForPicker(rec),
           for_day: day,
         });
         const byId = new Map(pool.map((c) => [c.id, c]));
@@ -264,7 +350,11 @@ export function usePlanFlow(deps: PlanFlowDeps) {
         } else {
           if (!res.ok) console.warn('[Plan] the picker could not be reached:', res.error);
           // without the picker: the first few candidates, about half the free time
-          let budget = (22 * 60 - from - meetings.filter((m) => m.end > from).length * 30) / 2;
+          let budget =
+            (rec.planEnd -
+              from -
+              meetings.filter((m) => m.end > from && m.start < rec.planEnd).length * 30) /
+            2;
           for (const c of pool.filter((x) => x.source !== 'reach')) {
             const e = entryFromCandidate(c, from);
             if (e.minutes > budget) continue;
@@ -279,7 +369,7 @@ export function usePlanFlow(deps: PlanFlowDeps) {
             entries.push({ ...entryFromCandidate(c, from), reason: PLAN_COPY.keptReason });
           }
         }
-        const fit = fitPlan(entries, meetings, from);
+        const fit = fitPlan(entries, rec.busy, from, rec.planEnd);
         await replaceOpen(false, day);
         setTyping(false);
         await say(intro);
@@ -318,7 +408,7 @@ export function usePlanFlow(deps: PlanFlowDeps) {
         extraRef.current = null;
         if (extra && !pool.some((c) => c.id === extra.id)) pool.push(extra);
         const next = applyOp(entries, op, pool, from, meta.items);
-        const fit = fitPlan(next, meetingsFromStore(meta.date), from);
+        const fit = fitForDay(next, meta.date, from);
         await d.patchMessageMetadata(planMsg.id, { ...fit });
         await refreshSuggestions(planMsg, { ...meta, ...fit });
         if (op.op === 'add' && !fit.items.some((x) => x.id === op.id)) {
@@ -355,7 +445,7 @@ export function usePlanFlow(deps: PlanFlowDeps) {
         let entries = entriesOf(meta);
         const pool = poolWith(entries, meta.date);
         for (const op of ops) entries = applyOp(entries, op, pool, from, meta.items);
-        const fit = fitPlan(entries, meetingsFromStore(meta.date), from);
+        const fit = fitForDay(entries, meta.date, from);
         const first = ops[0];
         const title = pool.find((c) => c.id === first.id)?.title ?? 'that';
         await replaceOpen(true, meta.date);
@@ -389,7 +479,17 @@ export function usePlanFlow(deps: PlanFlowDeps) {
           }
         }
         const res = await lockPlanItems(meta.date, meta.items, earlier);
-        await d.patchMessageMetadata(planMsg.id, { status: 'locked', items: res.items });
+        // what Lock it in just wrote is what the plan has seen
+        const st = useGremlyStore.getState();
+        const items = res.items.map((x) => ({
+          ...x,
+          seen: timeSignature(
+            (x.kind === 'habit'
+              ? st.habits.find((h) => h.id === x.id)
+              : st.todos.find((t) => t.id === x.id)) as StoreTimes | undefined,
+          ),
+        }));
+        await d.patchMessageMetadata(planMsg.id, { status: 'locked', items });
         if (d.threadId) {
           const at = nowTimestamp();
           patchDailyThreadMeta(d.threadId, { plan_locked_at: at })
@@ -445,7 +545,7 @@ export function usePlanFlow(deps: PlanFlowDeps) {
         const adding = ids.filter((id) => !entries.some((e) => e.id === id));
         for (const id of adding)
           entries = applyOp(entries, { op: 'add', id, window: null }, pool, from, meta.items);
-        const fit = fitPlan(entries, meetingsFromStore(meta.date), from);
+        const fit = fitForDay(entries, meta.date, from);
         const placed = adding.filter((id) => fit.items.some((x) => x.id === id));
         const titles = (list: string[]) =>
           list.map((id) => pool.find((c) => c.id === id)?.title ?? 'that');
@@ -469,10 +569,11 @@ export function usePlanFlow(deps: PlanFlowDeps) {
         const overdue = selectOverdueTodos(useGremlyStore.getState() as any).length;
         const text = whatCanWait(pool, overdue);
         const now = minutesOfDay();
+        const rec = dayRecordFromStore(getDateService().today());
         const gap =
           fromOffer?.plan_from !== undefined && fromOffer?.plan_from !== null
             ? Math.max(fromOffer!.plan_from!, now)
-            : clearFrom(meetingsFromStore(getDateService().today()), now);
+            : clearFrom(rec.busy, now, rec.planEnd);
         const hasLive = !!livePlanOf(d.messages, getDateService().today());
         const planButton: OfferButton | null =
           gap !== null && !hasLive
@@ -529,6 +630,7 @@ export function usePlanFlow(deps: PlanFlowDeps) {
           start: m.start,
           end: m.end,
         })),
+        ...frameForPicker(dayRecordFromStore(meta.date)),
         live_plan: meta.items.map((x) => ({ id: x.id, start: x.start, end: x.end })),
         text,
       });

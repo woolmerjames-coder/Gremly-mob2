@@ -116,3 +116,42 @@ describe('the plan picker', () => {
     expect(parseHHMM('6pm')).toBeNull();
   });
 });
+
+describe('the plan picker on a travel day', () => {
+  const travelBody = {
+    ...BODY,
+    now: 480,
+    gap_from: 510,
+    plan_end: 750,
+    travel: { label: 'Flying to San Diego', departs: 750 },
+    fixed: [{ title: 'Leave for the airport', start: 750, end: null, travel: true }],
+  };
+
+  it('plans only until they set off and says why', () => {
+    const req = readRequest(travelBody);
+    expect(req.end).toBe(750);
+    const text = renderPlanInput(req, { claims: [], reach: null });
+    expect(text).toContain('PLANNING FROM 8:30am TO 12:30pm');
+    expect(text).toContain('TRAVEL TODAY: Flying to San Diego; they set off at 12:30pm');
+    expect(text).toContain('SET TIMES (fixed, like meetings): 12:30pm Leave for the airport');
+    expect(text).not.toContain('10pm');
+  });
+
+  it('keeps every window before they set off', () => {
+    const req = readRequest(travelBody);
+    const { picks } = checkPicks(
+      {
+        picks: [
+          { ref: 'p1', after: '09:00', before: '18:00', minutes: 15, reason: 'due' },
+          { ref: 'p2', after: null, before: null, minutes: 30, reason: 'behind' },
+        ],
+      },
+      req,
+    );
+    expect(picks.every((p) => p.window[1] <= 750)).toBe(true);
+  });
+
+  it('an older app with no plan end plans to 10pm as before', () => {
+    expect(readRequest(BODY).end).toBe(1320);
+  });
+});

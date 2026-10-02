@@ -38,6 +38,16 @@ function data(): DayCardData {
     overdue: 0,
     chip: null,
     returnDay: false,
+    record: {
+      date: '2026-09-30',
+      travel: null,
+      away: null,
+      blocks: [],
+      busy: [],
+      planEnd: 22 * 60,
+      duringTravel: [],
+      chip: null,
+    },
     lines: {
       meetings: '',
       todos: '',

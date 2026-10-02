@@ -1,7 +1,14 @@
 import { renderHook, act } from '@testing-library/react-native';
 import { usePlanFlow } from '../usePlanFlow';
+import { PLAN_COPY } from '../planFlow';
 import { callPlanPick } from '../../cortex/CortexClient';
-import { lockPlanItems, poolForDay, meetingsFromStore, saveEstimates } from '../storePlan';
+import {
+  dayRecordFromStore,
+  lockPlanItems,
+  poolForDay,
+  meetingsFromStore,
+  saveEstimates,
+} from '../storePlan';
 import { patchDailyThreadMeta } from '../../repo/dailyThreadRepo';
 import type { SpaceChatMessage } from '../../types';
 
@@ -13,6 +20,7 @@ jest.mock('../../date/DateService', () => ({
 jest.mock('../storePlan', () => ({
   poolForDay: jest.fn(),
   meetingsFromStore: jest.fn(),
+  dayRecordFromStore: jest.fn(),
   saveEstimates: jest.fn(),
   lockPlanItems: jest.fn(),
   candidateFromStore: jest.fn(() => null),
@@ -20,13 +28,21 @@ jest.mock('../storePlan', () => ({
 jest.mock('../../repo/dailyThreadRepo', () => ({
   patchDailyThreadMeta: jest.fn(() => Promise.resolve(null)),
 }));
-jest.mock('../../brief/time', () => ({ minutesOfDay: () => 760 }));
+jest.mock('../../brief/time', () => ({
+  minutesOfDay: () => 760,
+  localMinutesToIso: (d: string, m: number) => `${d}T${m}`,
+  hhmmToMinutes: (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5)),
+  localDateOf: (iso: string) => iso.slice(0, 10),
+}));
 jest.mock('../../brief/todayThread', () => ({
   useTodayThread: { getState: () => ({ patchMeta: jest.fn() }) },
 }));
-jest.mock('../../store/useGremlyStore', () => ({
-  useGremlyStore: { getState: () => ({}) },
-}));
+jest.mock('../../store/useGremlyStore', () => {
+  const state = { todos: [], habits: [] };
+  const useGremlyStore: any = (sel: (s: any) => unknown) => sel(state);
+  useGremlyStore.getState = () => state;
+  return { useGremlyStore };
+});
 jest.mock('../../store/selectors', () => ({ selectOverdueTodos: () => [] }));
 
 const POOL = [
@@ -85,7 +101,31 @@ function harness() {
   return { hook, messages, deps };
 }
 
+/** Set times and where planning stops, for a travel day */
+let extra: { blocks?: any[]; planEnd?: number; travel?: any } = {};
+
+/** The day record as the store would build it: meetings, plus `extra`. */
+function recordFor(d: string) {
+  const meetings = ((meetingsFromStore as jest.Mock)(d) ?? []) as { start: number; end: number }[];
+  const blocks = extra.blocks ?? [];
+  return {
+    date: d,
+    travel: extra.travel ?? null,
+    away: null,
+    blocks,
+    busy: [
+      ...meetings.map((m) => ({ start: m.start, end: m.end })),
+      ...blocks.map((b: any) => ({ start: b.start, end: b.end ?? b.start + 30 })),
+    ],
+    planEnd: extra.planEnd ?? 1320,
+    duringTravel: [],
+    chip: null,
+  };
+}
+
 beforeEach(() => {
+  extra = {};
+  (dayRecordFromStore as jest.Mock).mockImplementation(recordFor);
   (patchDailyThreadMeta as jest.Mock).mockResolvedValue(null);
   (poolForDay as jest.Mock).mockReturnValue(POOL);
   (meetingsFromStore as jest.Mock).mockReturnValue([
@@ -262,5 +302,51 @@ describe('planning in the thread', () => {
       used = await fresh.result.current.editFromText('how was my week?');
     });
     expect(used).toBe(false);
+  });
+
+  it('on a travel day, plans only until they set off and tells the picker so', async () => {
+    // tomorrow: leaving for the airport at 12:30
+    extra = {
+      planEnd: 750,
+      travel: { label: 'Flying to San Diego', departs: 750 },
+      blocks: [{ id: 'b', title: 'Leave for the airport', start: 750, end: null, travel: true }],
+    };
+    (meetingsFromStore as jest.Mock).mockReturnValue([]);
+    (callPlanPick as jest.Mock).mockResolvedValue({
+      ok: true,
+      data: {
+        intro: 'A short morning before you head off.',
+        picks: [
+          { id: 'oat', window: [480, 1320], minutes: 15, estimated: true, reason: 'Due today' },
+          { id: 'social', window: [480, 1320], minutes: 30, estimated: false, reason: 'Behind' },
+        ],
+      },
+    });
+    const { hook, messages } = harness();
+    await act(async () => {
+      await hook.result.current.start(null, { day: '2026-10-01' });
+    });
+    expect(callPlanPick).toHaveBeenCalledWith(
+      expect.objectContaining({
+        plan_end: 750,
+        travel: { label: 'Flying to San Diego', departs: 750 },
+        fixed: [{ title: 'Leave for the airport', start: 750, end: null, travel: true }],
+      }),
+    );
+    const plan = messages.find((m) => (m.metadata_json as any).type === 'brief-plan')!
+      .metadata_json as any;
+    expect(plan.items.length).toBeGreaterThan(0);
+    expect(plan.items.every((x: any) => x.end <= 750)).toBe(true);
+  });
+
+  it('says there is no room once they have set off', async () => {
+    // 12:40 now, set off at 12:30
+    extra = { planEnd: 750, travel: { label: 'Flying to San Diego', departs: 750 } };
+    const { hook, messages } = harness();
+    await act(async () => {
+      await hook.result.current.start(null);
+    });
+    expect(callPlanPick).not.toHaveBeenCalled();
+    expect(messages.map((m) => m.content)).toEqual([PLAN_COPY.noRoomTravel]);
   });
 });

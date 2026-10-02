@@ -11,7 +11,7 @@
 import { PRIVATE_RULES, WRITING_RULES } from '../careRules';
 import { jsonCall } from '../context/llm';
 
-export const COPY_PROMPT_VERSION = 'notif-copy-2026-10-02a';
+export const COPY_PROMPT_VERSION = 'notif-copy-2026-10-02b';
 export const COPY_MODELS = Object.freeze({
   primary: { provider: 'google', model: 'gemini-3.8-flash' },
   fallback: { provider: 'openai', model: 'gpt-6-luna' },
@@ -21,7 +21,7 @@ export const LIMITS = Object.freeze({ title: 30, body: 100, timeoutMs: 4000 });
 /** What each angle asks of the writer, as a rule. */
 export const ANGLE_RULES = Object.freeze({
   day_shape:
-    'Describe the shape of today using only the facts: meetings, free time, due items, habits, what waits in Sweep and anything dated today. Call the day clear or empty only when all of those are none.',
+    'Describe the shape of today using only the facts: travel, meetings, free time, due items, habits, what waits in Sweep and anything dated today. When they travel today, that leads. Call the day clear or empty only when all of those are none.',
   callback:
     'Refer to one specific thing from the facts that the person dropped or planned, using their own words for it.',
   celebration: 'Notice one concrete thing from the facts that went well, plainly and without fuss.',

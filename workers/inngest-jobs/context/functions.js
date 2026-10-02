@@ -18,6 +18,7 @@ import { applyCorrection } from './corrections';
 import { reconcileAnchors } from './anchors';
 import { reviewQuestions } from './questions';
 import { buildDcoV4, writeDco } from './daily';
+import { refreshDayFrame } from '../brief/frameRefresh';
 import {
   weeklyRequestParams,
   applyWeekly,
@@ -125,6 +126,15 @@ export function createContextFunctions(inngest) {
         totals.question_review = await step.run('questions', () =>
           reviewQuestions(env, userId, plan.tz, { shadow: contextMode(env, userId) !== 'on' }),
         );
+        // Travel or a set time said today reaches the day frame (the planner,
+        // the day card's chip) once it is in the ledger.
+        if (!event.data?.backfill && contextMode(env, userId) === 'on') {
+          totals.day_frame = await step.run('day-frame', () =>
+            refreshDayFrame(env, userId, plan.tz).catch((err) => ({
+              error: String(err?.message || err).slice(0, 200),
+            })),
+          );
+        }
       }
       // Someone new, or anyone who has never had a story or Worlds written, gets
       // them straight away instead of waiting for the 1st of the month and

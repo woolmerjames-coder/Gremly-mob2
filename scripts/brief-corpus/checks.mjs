@@ -53,6 +53,11 @@ export function checkBrief(g, offer, out) {
       out.offer || '',
     );
   }
+  // a meeting after they set off is pointed out (the day record's flag)
+  for (const m of g.day?.duringTravel || []) {
+    const hit = texts.some((t) => t.toLowerCase().includes(m.title.toLowerCase()));
+    add('warn', `Points out ${m.title}, after they set off`, hit, '');
+  }
   const should = texts.filter((t) => /\bshould\b/i.test(t));
   add('fail', 'Never says "should"', should.length === 0, should.join(' | '));
 

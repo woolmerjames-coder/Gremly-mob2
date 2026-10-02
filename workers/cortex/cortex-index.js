@@ -7857,6 +7857,10 @@ ${assistantMessage.substring(0, 2000)}
             pool: Array.isArray(body.pool) ? body.pool.slice(0, 40) : [],
             meetings: Array.isArray(body.meetings) ? body.meetings.slice(0, 40) : [],
             live_plan: Array.isArray(body.live_plan) ? body.live_plan.slice(0, 40) : [],
+            // the day record: set times, travel and where planning stops
+            fixed: Array.isArray(body.fixed) ? body.fixed.slice(0, 20) : [],
+            travel: body.travel && typeof body.travel === 'object' ? body.travel : null,
+            plan_end: body.plan_end ?? null,
             text: typeof body.text === 'string' ? body.text.slice(0, 500) : '',
             for_day:
               typeof body.for_day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.for_day)

@@ -13,7 +13,7 @@ import { CARE_RULES, WRITING_RULES, PRIVATE_RULES, personBlock } from '../careRu
 import { jsonCall, modelFor } from '../context/llm';
 import { addDays } from '../context/db';
 
-export const BRIEF_PROMPT_VERSION = 'brief-2026-10-02b';
+export const BRIEF_PROMPT_VERSION = 'brief-2026-10-02c';
 
 function trim(text, n) {
   const s = String(text || '')
@@ -87,8 +87,11 @@ export function renderBriefInput(g, offer) {
         .filter((f) => f.to - Math.max(f.from, g.now) >= 45)
         .map((f) => `${fromTime(f.from, g.now)} to ${clockTime(f.to)}`)
         .join(', ') || 'none'
-    } (the day is counted from 8am to 10pm).`,
+    } (the day is counted from 8am to ${
+      g.day?.planEnd < 22 * 60 ? `${clockTime(g.day.planEnd)}, when they set off` : '10pm'
+    }).`,
   );
+  for (const line of dayRecordLines(g, refOf)) L.push(line);
   if (g.dayShape) L.push(`THE DCO'S READ OF THE DAY: ${trim(g.dayShape, 240)}`);
   L.push('');
   L.push(
@@ -127,7 +130,7 @@ export function renderBriefInput(g, offer) {
     );
   }
   const anchorLines = (g.anchors || [])
-    .filter((a) => a.date >= g.today)
+    .filter((a) => a.date >= g.today || (a.date_end && a.date_end >= g.today))
     .map((a) => `${a.date} | ${trim(a.short_label || a.label, 120)}`);
   L.push(`DATED THINGS AHEAD (shown on the day card already): ${anchorLines.join('; ') || 'none'}`);
   L.push('');
@@ -141,6 +144,46 @@ export function renderBriefInput(g, offer) {
     );
   }
   return { text: L.join('\n'), refs };
+}
+
+/**
+ * Travel, set times and meetings after setting off, from the day record
+ * (brief/dayRecord.js), as the planner and the day card see them.
+ */
+export function dayRecordLines(g, refOf = () => null) {
+  const day = g.day;
+  if (!day) return [];
+  const out = [];
+  if (day.travel) {
+    const what = day.travel.label ? `${day.travel.label} today` : 'they travel today';
+    out.push(
+      `TRAVEL TODAY: ${what}; ${
+        Number.isFinite(day.travel.departs)
+          ? `they set off at ${clockTime(day.travel.departs)}, and nothing is planned after that`
+          : 'the time they set off is not known'
+      }.`,
+    );
+  }
+  if (day.away) {
+    out.push(
+      `AWAY ON A TRIP: ${day.away.label}${day.away.through ? `, until ${weekdayLabel(day.away.through)}` : ''}.`,
+    );
+  }
+  if (day.blocks?.length) {
+    out.push(
+      `SET TIMES TODAY (planned around like meetings): ${day.blocks
+        .map((b) => `${clockTime(b.start)} ${trim(b.title, 60)}`)
+        .join('; ')}.`,
+    );
+  }
+  if (day.duringTravel?.length) {
+    out.push(
+      `MEETINGS AFTER THEY SET OFF (ref | time | title): ${day.duringTravel
+        .map((m) => `${refOf(m.id) || 'calendar'} | ${clockTime(m.start)} | ${trim(m.title, 80)}`)
+        .join('; ')}.`,
+    );
+  }
+  return out;
 }
 
 /** Clashes between meetings that are not over yet. */
@@ -257,6 +300,7 @@ WHAT YOU WRITE
 - Talk about todos and habits the way a person would say them in conversation, rather than pasting a title in as the subject of a sentence. Name a todo as the action itself, in the words a person would say out loud, never as an -ing word or a list of titles. Read each line back as speech: it must be grammatical and sound like something a friend would say aloud.
 - Say an occasion falls today (a birthday, an anniversary, a launch) only when the input gives that occasion's own date as today. A trip, plan, task or present named after an occasion does not date the occasion itself.
 - Mention a clash only when the input lists one still ahead.
+- When the input gives travel today, it frames the day: say so early and plainly, and talk about the time before they set off as the time there is. Point out a meeting that falls after they set off once, as something they may want to move. When the time they set off is not known, never guess one.
 - The day is counted to 10pm only so planning has an end; never say the day runs until 10pm or mention that end.
 - The DCO has already decided what matters (its claims), the one undated thing worth suggesting (its reach), the question and the welcome. Phrase those decisions; never choose different ones. Mention the reach only with the reason given for it.
 - The dated things ahead are on the day card. Mention one only when today genuinely needs it, never to fill a line.

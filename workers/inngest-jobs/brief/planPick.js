@@ -17,7 +17,7 @@ import { jsonCall, modelFor } from '../context/llm';
 import { db, userTimezone, localDate, personIdentity } from '../context/db';
 import { noDashes, stripRefs, clockTime } from './writer';
 
-export const PLAN_PICK_PROMPT_VERSION = 'plan-pick-2026-10-02a';
+export const PLAN_PICK_PROMPT_VERSION = 'plan-pick-2026-10-02b';
 const DAY_END = 22 * 60;
 
 function trim(text, n) {
@@ -71,6 +71,21 @@ export function readRequest(body) {
       end: num(m.end, 0, 1440),
     }))
     .filter((m) => m.start !== null && m.end !== null && m.end > m.start);
+  // the day record (lib/brief/dayRecord.ts): set times, and where planning stops
+  const end = Math.max(from, num(body.plan_end, 0, DAY_END) ?? DAY_END);
+  const fixed = (Array.isArray(body.fixed) ? body.fixed : [])
+    .slice(0, 20)
+    .map((b) => ({
+      title: trim(b.title, 60),
+      start: num(b.start, 0, 1440),
+      end: num(b.end, 0, 1440),
+      travel: b.travel === true,
+    }))
+    .filter((b) => b.title && b.start !== null);
+  const travel =
+    body.travel && typeof body.travel === 'object'
+      ? { label: trim(body.travel.label, 40) || null, departs: num(body.travel.departs, 0, 1440) }
+      : null;
   const live = Array.isArray(body.live_plan)
     ? body.live_plan
         .map((x) => ({ id: x.id, start: num(x.start, 0, 1440), end: num(x.end, 0, 1440) }))
@@ -86,6 +101,9 @@ export function readRequest(body) {
     from,
     pool,
     meetings,
+    end,
+    fixed,
+    travel,
     live,
     text: trim(body.text, 500),
   };
@@ -94,9 +112,29 @@ export function readRequest(body) {
 export function renderPlanInput(req, ctx) {
   const L = [];
   if (ctx.otherDay) {
-    L.push(`PLANNING ANOTHER DAY: ${ctx.otherDay}. PLANNING FROM ${clockTime(req.from)} TO 10pm.`);
+    L.push(
+      `PLANNING ANOTHER DAY: ${ctx.otherDay}. PLANNING FROM ${clockTime(req.from)} TO ${clockTime(req.end)}.`,
+    );
   } else {
-    L.push(`TIME NOW: ${clockTime(req.now)}. PLANNING FROM ${clockTime(req.from)} TO 10pm.`);
+    L.push(
+      `TIME NOW: ${clockTime(req.now)}. PLANNING FROM ${clockTime(req.from)} TO ${clockTime(req.end)}.`,
+    );
+  }
+  if (req.travel) {
+    L.push(
+      `TRAVEL TODAY: ${req.travel.label || 'they travel today'}${
+        req.travel.departs !== null
+          ? `; they set off at ${clockTime(req.travel.departs)}, which is where planning stops`
+          : ''
+      }.`,
+    );
+  }
+  if (req.fixed?.length) {
+    L.push(
+      `SET TIMES (fixed, like meetings): ${req.fixed
+        .map((b) => `${clockTime(b.start)}${b.end ? ` to ${clockTime(b.end)}` : ''} ${b.title}`)
+        .join('; ')}`,
+    );
   }
   L.push(
     `MEETINGS STILL AHEAD: ${
@@ -189,7 +227,7 @@ function pickSystem(person) {
 ${CARE_RULES}
 
 WHAT YOU RETURN
-- picks: a few candidates worth doing today, most important first, chosen only from CANDIDATES by ref. Prefer what has a real claim on today, then habits behind for the week, then what is simply due. The suggestion from what they said goes in only when the reason for it fits today. A candidate kept for today in Sweep just now was chosen by the person, so it is always picked, and the rest is fitted around it. Leave at least half of the time between PLANNING FROM and 10pm empty once meetings are counted, so the day has room if it runs over. Fewer is better than crowded.
+- picks: a few candidates worth doing today, most important first, chosen only from CANDIDATES by ref. Prefer what has a real claim on today, then habits behind for the week, then what is simply due. The suggestion from what they said goes in only when the reason for it fits today. A candidate kept for today in Sweep just now was chosen by the person, so it is always picked, and the rest is fitted around it. Leave at least half of the time between PLANNING FROM and the end of planning empty once meetings and set times are counted, so the day has room if it runs over. Fewer is better than crowded. Nothing goes after the end of planning.
 - after and before: the time-of-day window each pick fits, as 24-hour HH:MM, inside the planning hours. Use the usual time of day when one is given. Otherwise judge from what the item is and what surrounds it: when in the day it can realistically be done, and how the meetings around it leave the person.
 - minutes: how long it takes. Use the minutes given; when unknown, estimate a realistic length.
 - reason: a few words on why it is in the plan, taken from why it is a candidate. Never invent a fact.
@@ -230,13 +268,14 @@ export function checkPicks(output, req) {
       continue;
     }
     seen.add(item.id);
+    const end = req.end ?? DAY_END;
     let from = parseHHMM(p.after) ?? req.from;
-    let to = parseHHMM(p.before) ?? DAY_END;
-    from = Math.max(req.from, Math.min(from, DAY_END));
-    to = Math.min(DAY_END, Math.max(to, from));
+    let to = parseHHMM(p.before) ?? end;
+    from = Math.max(req.from, Math.min(from, end));
+    to = Math.min(end, Math.max(to, from));
     if (to - from < 15) {
       from = req.from;
-      to = DAY_END;
+      to = end;
     }
     const minutes = item.minutes ?? Math.min(240, Math.max(5, Math.round(Number(p.minutes) || 30)));
     picks.push({
@@ -253,7 +292,7 @@ export function checkPicks(output, req) {
     seen.add(item.id);
     picks.push({
       id: item.id,
-      window: [req.from, DAY_END],
+      window: [req.from, req.end ?? DAY_END],
       minutes: item.minutes ?? 30,
       estimated: !item.minutes,
       reason: 'Kept for today',
@@ -277,7 +316,10 @@ export function checkOps(output, req) {
       window:
         o.op === 'remove' || (after === null && before === null)
           ? null
-          : [Math.max(req.from, after ?? req.from), Math.min(DAY_END, before ?? DAY_END)],
+          : [
+              Math.max(req.from, after ?? req.from),
+              Math.min(req.end ?? DAY_END, before ?? req.end ?? DAY_END),
+            ],
     });
   }
   return { isPlanChange: ops.length > 0, ops };

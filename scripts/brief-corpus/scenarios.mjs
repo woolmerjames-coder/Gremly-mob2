@@ -181,7 +181,7 @@ export const SCENARIOS = [
   {
     id: 'anniversary-trip',
     title: 'Flying out on an anniversary trip, the anniversary itself later',
-    look: 'Mentions the trip today. Never says the anniversary is today (it is on 7 October). Any Sweep number is 6, the drops since the last Sweep.',
+    look: 'Leads with flying to San Diego today and leaving at 12:30. Points out that timesheets at 4pm falls after they set off. Never says the anniversary is today (it is on 7 October). Any Sweep number is 6, the drops since the last Sweep.',
     today: '2026-10-02',
     at: '06:10',
     person: ALEX,
@@ -203,6 +203,8 @@ export const SCENARIOS = [
     sweepAll: 10,
     newSince: 6,
     lastSweepAt: '2026-10-02T03:41:00Z',
+    travel: ['Flying to San Diego', '12:30'],
+    blocks: [['12:30', 'Leave for the airport', true]],
     forbid: ['happy anniversary', 'anniversary today', 'your anniversary is today'],
   },
   {
@@ -222,6 +224,8 @@ export const SCENARIOS = [
     anchors: [],
     overdue: 0,
     unsorted: 0,
+    travel: ['Flying home to San Francisco', null],
+    travelMeetings: [1],
   },
   {
     id: 'no-calendar',

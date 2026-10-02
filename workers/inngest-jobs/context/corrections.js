@@ -226,6 +226,14 @@ function scrubDco(dco, corrected, retiredTitles = []) {
   if (Array.isArray(dco.named_anchors)) {
     dco.named_anchors = dco.named_anchors.filter((a) => !ids.has(a?.fact_id) && !statements.has(a?.title) && !statements.has(a?.label));
   }
+  // the day frame: a corrected fact no longer sets travel or a set time
+  const frame = dco.day_frame;
+  if (frame && typeof frame === 'object') {
+    const cites = (x) => (x?.fact_ids || []).some((id) => ids.has(id));
+    if (Array.isArray(frame.blocks)) frame.blocks = frame.blocks.filter((b) => !ids.has(b?.fact_id));
+    if (cites(frame.travel)) frame.travel = null;
+    if (cites(frame.away)) frame.away = null;
+  }
   if (Array.isArray(dco.active_today?.upcoming_in_7d)) {
     dco.active_today.upcoming_in_7d = dco.active_today.upcoming_in_7d.filter((u) => !statements.has(u?.title));
   }

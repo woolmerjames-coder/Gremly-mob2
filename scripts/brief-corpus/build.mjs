@@ -7,6 +7,7 @@
 import { clashesOf, dayPartAt, isCancelledEntry, shapeOfDay } from '../../workers/inngest-jobs/brief/data.js';
 import { dayOfWeekNumber, isBehindThisWeek } from '../../workers/inngest-jobs/brief/behind.js';
 import { decideOffer } from '../../workers/inngest-jobs/brief/offer.js';
+import { buildDayRecord } from '../../workers/inngest-jobs/brief/dayRecord.js';
 
 const toMin = (hhmm) => {
   const [h, m] = hhmm.split(':').map(Number);
@@ -20,7 +21,25 @@ export function buildSnapshot(s) {
     .filter((m) => !isCancelledEntry(m, new Set()))
     .sort((a, b) => a.start - b.start);
   const allDay = (s.allDay || []).map((title, i) => ({ id: `${s.id}-a${i + 1}`, title }));
-  const { busy, free } = shapeOfDay(meetings);
+  // the day frame, when the day says (travel: [label, 'HH:MM' | null], blocks:
+  // [['HH:MM', title, travel]], travelMeetings: indexes of meetings that are travel)
+  const frame = s.travel || s.blocks || s.travelMeetings
+    ? {
+        date: s.today,
+        travel: s.travel ? { label: s.travel[0], departs: s.travel[1] ? toMin(s.travel[1]) : null } : null,
+        away: s.away ? { label: s.away[0], through: s.away[1] || null } : null,
+        blocks: (s.blocks || []).map(([at, title, travel], i) => ({
+          id: `${s.id}-b${i + 1}`,
+          title,
+          start: toMin(at),
+          end: null,
+          travel: !!travel,
+        })),
+        travel_calendar_ids: (s.travelMeetings || []).map((i) => `${s.id}-m${i + 1}`),
+      }
+    : null;
+  const day = buildDayRecord({ today: s.today, frame, meetings, anchors: s.anchors || [] });
+  const { busy, free } = shapeOfDay(day.busy, 8 * 60, day.planEnd);
   const daysGone = dayOfWeekNumber(s.today);
   const habits = (s.habits || []).map((h, i) => {
     const row = h.breaking
@@ -68,6 +87,7 @@ export function buildSnapshot(s) {
     busy,
     free,
     clashes: clashesOf(meetings),
+    day,
     todosDue,
     overdue: s.overdue || 0,
     unsorted: s.unsorted || 0,

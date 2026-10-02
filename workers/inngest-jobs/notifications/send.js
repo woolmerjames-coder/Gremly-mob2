@@ -352,6 +352,15 @@ export function briefFacts(g, moment) {
       .filter((a) => a.date === g.today && (a.short_label || a.label))
       .slice(0, 2)
       .map((a) => a.short_label || a.label),
+    // travel today, from the day record: what it is and when they set off
+    ...(g.day?.travel
+      ? {
+          travel_today: {
+            what: g.day.travel.label || 'travelling',
+            sets_off: Number.isFinite(g.day.travel.departs) ? clock(g.day.travel.departs) : null,
+          },
+        }
+      : {}),
     // left out, not guessed, when the count failed
     ...sweepFact(g, moment),
     gremly_age: g.gremlyAge ?? null,

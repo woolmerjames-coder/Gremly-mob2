@@ -264,6 +264,21 @@ describe('decide', () => {
     expect(briefFacts(await gatherBrief(), 'sweep').waiting_in_sweep).toBe(10);
   });
 
+  it('says they travel today, and when they set off, from the day record', () => {
+    const g = {
+      now: 7 * 60,
+      meetings: [],
+      today: '2026-10-02',
+      ritualDay: '2026-10-02',
+      day: { travel: { label: 'Flying to San Diego', departs: 750 } },
+    };
+    expect(briefFacts(g, 'brief').travel_today).toEqual({
+      what: 'Flying to San Diego',
+      sets_off: expect.stringMatching(/^12:30/),
+    });
+    expect(briefFacts({ ...g, day: null }, 'brief')).not.toHaveProperty('travel_today');
+  });
+
   it('leaves the number out rather than guess when it cannot be counted', async () => {
     mockTables.todos = () => {
       throw new Error('database down');

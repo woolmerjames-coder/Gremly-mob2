@@ -2136,6 +2136,12 @@ export interface PlanPickRequest {
     kept?: boolean;
   }[];
   meetings: { title: string; start: number; end: number }[];
+  /** Set times the day is planned around (lib/brief/dayRecord.ts) */
+  fixed?: { title: string; start: number; end: number | null; travel: boolean }[];
+  /** Today's travel, and when they set off */
+  travel?: { label: string | null; departs: number | null } | null;
+  /** Nothing is planned after this (minutes from local midnight) */
+  plan_end?: number;
   live_plan?: { id: string; start: number; end: number }[];
   text?: string;
   /** The day being planned (YYYY-MM-DD); tomorrow plans without today's context */

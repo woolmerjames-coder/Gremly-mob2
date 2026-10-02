@@ -17,7 +17,9 @@ import { getEventsForDate } from '../calendar/CalendarService';
 import { getDateService } from '../date/DateService';
 import type { Habit, Todo } from '../types';
 import { dayOfWeekNumber, habitsBehindThisWeek, weeklyTarget } from './behind';
-import { countdownChip, isReturnDay, readDco } from './dco';
+import { isReturnDay, readDco } from './dco';
+import { buildDayRecord, type DayRecord, type DayThreadMeta } from './dayRecord';
+import { useTodayThread } from './todayThread';
 import {
   habitsLine,
   isCancelledMeeting,
@@ -61,6 +63,8 @@ export interface DayCardData {
   /** Of them, todos past their day */
   overdue: number;
   chip: string | null;
+  /** Travel, set times, where planning stops (lib/brief/dayRecord.ts) */
+  record: DayRecord;
   returnDay: boolean;
   lines: {
     meetings: string;
@@ -182,8 +186,18 @@ export function useDayCard(date: string): DayCardData {
     return { habitWeeks: weeks, behind: behindList };
   }, [habits, progress, date]);
 
-  const { anchors, brief } = useMemo(() => readDco(dco), [dco]);
-  const chip = useMemo(() => countdownChip(anchors, date)?.text ?? null, [anchors, date]);
+  const { anchors, brief, frame } = useMemo(() => readDco(dco), [dco]);
+  // set times added in today's thread belong to the day too
+  const threadMeta = useTodayThread((s) =>
+    (s.thread?.metadata_json as { ritual_day?: string } | undefined)?.ritual_day === date
+      ? (s.thread?.metadata_json as DayThreadMeta)
+      : null,
+  );
+  const record = useMemo(
+    () => buildDayRecord({ today: date, frame, threadMeta, meetings, anchors }),
+    [date, frame, threadMeta, meetings, anchors],
+  );
+  const chip = record.chip?.text ?? null;
   const returnDay = isReturnDay(brief);
 
   const plannedHabits = planned.filter((p) => p.kind === 'habit').length;
@@ -213,6 +227,7 @@ export function useDayCard(date: string): DayCardData {
     sweepWaiting: quickSweep.length,
     overdue: pastDay,
     chip,
+    record,
     returnDay,
     lines,
   };

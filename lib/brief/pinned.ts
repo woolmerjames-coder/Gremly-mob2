@@ -25,9 +25,16 @@ function count(n: number, one: string, many: string): string {
   return `${word} ${n === 1 ? one : many}`;
 }
 
-/** The first clear stretch of 45 minutes or more from now, before 10pm. */
-export function clearFrom(meetings: DayMeeting[], now: number): number | null {
-  const END = 22 * 60;
+/**
+ * The first clear stretch of 45 minutes or more from now, before 10pm (or
+ * before `end`, when they set off earlier). Meetings and set times are busy.
+ */
+export function clearFrom(
+  meetings: { start: number; end: number }[],
+  now: number,
+  end: number = 22 * 60,
+): number | null {
+  const END = end;
   let cur = Math.max(now, 8 * 60);
   for (const [a, b] of busyBlocks(meetings.filter((m) => m.end > now))) {
     if (a - cur >= 45) return cur;

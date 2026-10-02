@@ -17,6 +17,16 @@ function data(over: Partial<DayCardData> = {}): DayCardData {
     overdue: 3,
     chip: 'Anniversary in 13 days',
     returnDay: false,
+    record: {
+      date: '2026-09-30',
+      travel: null,
+      away: null,
+      blocks: [],
+      busy: [],
+      planEnd: 22 * 60,
+      duringTravel: [],
+      chip: null,
+    },
     lines: {
       meetings: '8 today, first at 8:00',
       todos: '1 due, Buy Oat Milk',

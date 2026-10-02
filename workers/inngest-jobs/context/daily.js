@@ -25,6 +25,7 @@ import {
   personIdentity,
 } from './db';
 import { jsonCall, modelFor } from './llm';
+import { readDayFrame, emptyFrame, coversToday } from './dayFrame';
 import { recentCorrections } from './corrections';
 import { loadStory } from './story';
 import { invalidateChatCache } from './cache';
@@ -263,6 +264,7 @@ export function renderDay(g, tz) {
     // Cancelled entries were picked out by readTodayCalendar; they are not busy time.
     if (!c.is_all_day && startDay === today && !cancelled) {
       todayTimed.push({
+        id: c.id,
         start: minutesOfDay(tz, c.start_at),
         end: minutesOfDay(tz, c.end_at) || 1439,
         title: c.title,
@@ -490,6 +492,16 @@ export function renderDay(g, tz) {
     text: lines.join('\n'),
     refs,
     computed: {
+      // today's timed entries with their ids (the day frame reads these)
+      timed_today: [
+        ...todayTimed,
+        ...g.noteEvents
+          .filter((n) => n.target_date === today && /^\d{1,2}:\d{2}/.test(n.event_time || ''))
+          .map((n) => {
+            const [h, m] = n.event_time.split(':').map(Number);
+            return { id: n.id, title: n.title, start: h * 60 + m, end: h * 60 + m + 60 };
+          }),
+      ].sort((a, b) => a.start - b.start),
       meetings_today: meetingsToday,
       free_windows: free,
       todos_due_today: dueToday.length,
@@ -587,7 +599,7 @@ YOUR JOB
 - today_focus: up to three short items, each a concrete thing from the inputs. Fewer is fine, and none is fine; never fill it with general advice. also_matters: anything else worth knowing, briefly.
 - claims: the items with a real claim on today (due today, on Today, a habit that needs today to stay on track for the week, a calendar entry). Each cites its ref and says why in a few words.
 - reach_ref and reach_why: at most one undated item worth suggesting today, only when a ledger fact gives a true reason for today; cite those facts in reach_fact_refs. Otherwise leave it empty.
-- anchor_refs: the dated ledger facts in the next 30 days that are genuinely ahead and worth keeping in mind, cited by ref. Leave out any plan that something in the inputs suggests already happened, moved or fell through, anything with an open question about it, and anything the person corrected.
+- anchor_refs: the dated ledger facts happening today or in the next 30 days that are worth keeping in mind, cited by ref, including a trip or travel that starts today or is under way today. Leave out any plan that something in the inputs suggests already happened, moved or fell through, anything with an open question about it, and anything the person corrected.
 - anchor_labels: for each anchor you cite, a short name for the occasion itself as it would appear on a countdown chip on the day card: a few words, never a sentence, never about anything private.
 - Yesterday's brief tells you how they used yesterday's: what they kept, took out or moved says what fits their days. Let it inform what leads and what has a claim today. Never mention it, and never treat it as a judgement.
 - question_ref: at most one of Gremly's open questions, only if it is about something current or ahead and today is a natural day to ask it. A first morning back after time away is a natural day. Otherwise leave it empty.
@@ -733,6 +745,15 @@ export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
       effort: 'low',
     });
 
+  // the day's frame (travel and set times) is read beside the brief
+  const framePromise = readDayFrame(env, {
+    today,
+    meetings: computed.timed_today,
+    facts: g.facts,
+  }).catch((err) => {
+    console.warn(`[DCO v4] day frame failed: ${err.message}`);
+    return emptyFrame(today, null);
+  });
   let { output, model } = await gen();
   let problems = await checkDay(env, text, output, person);
   let attempts = 1;
@@ -805,7 +826,7 @@ export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
         f &&
         !f.private &&
         f.about_date &&
-        f.about_date >= today &&
+        (f.about_date >= today || coversToday(f, today)) &&
         f.about_date <= addDays(today, 30) &&
         ['planned', 'current'].includes(f.state),
     )
@@ -841,6 +862,7 @@ export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
       title: f.statement,
       type: 'fact',
       date: f.about_date,
+      date_end: f.about_date_end && f.about_date_end > f.about_date ? f.about_date_end : null,
       confidence: f.date_confidence,
       fact_id: f.id,
     })),
@@ -877,6 +899,8 @@ export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
     // Today's calendar entries that are cancelled but still on the calendar.
     // The brief and the app's day card leave these out of the day.
     cancelled_calendar_ids: [...(g.cancelledIds || [])],
+    // Travel and set times the day is planned around (context/dayFrame.js)
+    day_frame: await framePromise,
     review_flags: problems.map((p) => ({ field: p.field, problem: p.problem })),
     user_id: userId,
     date: today,

@@ -97,7 +97,7 @@ import type {
   OfferButton,
 } from '../../lib/brief/types';
 import { livePlanOf, usePlanFlow } from '../../lib/plan/usePlanFlow';
-import { meetingsFromStore } from '../../lib/plan/storePlan';
+import { dayRecordFromStore } from '../../lib/plan/storePlan';
 import { creditFirstReply } from '../../lib/brief/feeding';
 import { clearFrom } from '../../lib/brief/pinned';
 import { minutesOfDay } from '../../lib/brief/time';
@@ -1056,7 +1056,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             icon: 'sweep',
           });
           const date = getDateService().ritualDay();
-          const planFrom = clearFrom(meetingsFromStore(date), minutesOfDay());
+          const day = dayRecordFromStore(date);
+          const planFrom = clearFrom(day.busy, minutesOfDay(), day.planEnd);
           const follow = sweepFollowUp(outcome, {
             livePlan: !!planFlowRef.current.livePlan,
             planFrom,

@@ -22,6 +22,8 @@ import type { PlanItem } from '../brief/types';
 import type { SequencedItem } from '../types';
 import { buildCandidatePool, windowFor, type Candidate } from './candidatePool';
 import { withFeedAnimation } from '../brief/feeding';
+import { buildDayRecord, type DayRecord, type DayThreadMeta } from '../brief/dayRecord';
+import { useTodayThread } from '../brief/todayThread';
 
 export function poolFromStore(): Candidate[] {
   const s = useGremlyStore.getState();
@@ -188,6 +190,26 @@ export function resetStaleAssignments(today: string): number {
 export function meetingsFromStore(date: string): DayMeeting[] {
   const s = useGremlyStore.getState();
   return meetingsForDay(date, new Set(readDco(s.dco).cancelledCalendarIds));
+}
+
+/**
+ * The day record for a day, from the store: meetings, set times from memory
+ * and the thread, travel and where planning stops (lib/brief/dayRecord.ts).
+ */
+export function dayRecordFromStore(date: string): DayRecord {
+  const s = useGremlyStore.getState();
+  const { anchors, frame, cancelledCalendarIds } = readDco(s.dco);
+  const meetings = meetingsForDay(date, new Set(cancelledCalendarIds));
+  const meta = useTodayThread.getState().thread?.metadata_json as
+    | (DayThreadMeta & { ritual_day?: string })
+    | undefined;
+  return buildDayRecord({
+    today: date,
+    frame,
+    threadMeta: meta?.ritual_day === date ? meta : null,
+    meetings,
+    anchors,
+  });
 }
 
 /** Save the picker's estimate as the item's duration, when it had none. */

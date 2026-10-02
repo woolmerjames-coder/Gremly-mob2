@@ -42,6 +42,39 @@ describe('the plan card', () => {
     expect(getByText('Free until 10pm')).toBeTruthy();
   });
 
+  it('on a travel day, ends at setting off and flags a meeting after it', () => {
+    const meta: BriefPlanMeta = {
+      ...META,
+      from: 510,
+      items: [{ id: 'mum', kind: 'todo', title: 'Call Mum', start: 720, end: 740 }],
+    };
+    const meetings = [
+      { id: 'h', title: 'Team huddle', start: 480, end: 510 },
+      { id: 't', title: 'Timesheets', start: 960, end: 990 },
+    ];
+    const blocks = [
+      {
+        id: 'b',
+        title: 'Leave for the airport',
+        start: 750,
+        end: null,
+        travel: true,
+        source: 'chat' as const,
+      },
+    ];
+    const rows = planRows(meta, meetings, blocks, 750);
+    expect(rows.map((r) => r.type)).toEqual(['gap', 'item', 'fixed', 'meet']);
+    expect(rows[3]).toMatchObject({ title: 'Timesheets', during: true });
+    const { getByText, queryByText } = render(
+      <PlanCard meta={meta} meetings={meetings} blocks={blocks} planEnd={750} />,
+    );
+    expect(getByText('Leave for the airport')).toBeTruthy();
+    expect(getByText('Set time, you set off')).toBeTruthy();
+    expect(getByText("Meeting, while you're travelling")).toBeTruthy();
+    expect(getByText('Free, 8:30am to 12:30pm')).toBeTruthy();
+    expect(queryByText('Free until 10pm')).toBeNull();
+  });
+
   it('removes, adds, locks in and puts aside', () => {
     const onRemove = jest.fn();
     const onAdd = jest.fn();

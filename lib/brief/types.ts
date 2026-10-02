@@ -121,6 +121,8 @@ export interface PlanItem {
   minutes?: number;
   /** A reach that is a fact: it becomes a todo at Lock it in */
   fromFact?: boolean;
+  /** The item's time in the store when the plan last saw it (lib/plan/livePlan.ts) */
+  seen?: string;
 }
 
 /** An item the picker chose that had no gap, kept so a change can try again. */

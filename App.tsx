@@ -51,7 +51,7 @@ import { ReadOnlyBanner } from './app/components/ReadOnlyBanner';
 import ReadOnlyIntroSheet from './app/components/ReadOnlyIntroSheet';
 import { useIsReadOnly, useHasSeenReadonlyIntro } from './lib/store/lifecycleSelectors';
 import * as Sentry from '@sentry/react-native';
-import { useTodayThreadSync } from './lib/brief/todayThread';
+import { useTodayThreadSync } from './lib/brief/todayThreadSync';
 
 Sentry.init({
   dsn: 'https://c61fbacb4a91e6c566fc9f1c67cc79b6@o4511237634260992.ingest.us.sentry.io/4511237636292608',

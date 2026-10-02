@@ -10,8 +10,32 @@ export interface DcoAnchor {
   /** A few words for the countdown chip, such as "Anniversary" */
   short_label?: string | null;
   date: string;
+  /** The last day, for something that spans days (a trip) */
+  date_end?: string | null;
   confidence?: string | null;
   fact_id?: string | null;
+}
+
+/** A set time the day is planned around (minutes from local midnight). */
+export interface DcoFrameBlock {
+  id: string;
+  title: string;
+  start: number;
+  end: number | null;
+  travel: boolean;
+  fact_id?: string | null;
+}
+
+/**
+ * Travel and set times the day is planned around, read from memory and the
+ * calendar (workers/inngest-jobs/context/dayFrame.js).
+ */
+export interface DcoDayFrame {
+  date: string;
+  travel: { label: string; departs: number | null } | null;
+  away: { label: string; through: string | null } | null;
+  blocks: DcoFrameBlock[];
+  travel_calendar_ids: string[];
 }
 
 export interface DcoClaim {
@@ -57,6 +81,43 @@ export interface DcoForBrief {
   anchors: DcoAnchor[];
   /** Today's synced calendar rows that are cancelled but still on the calendar */
   cancelledCalendarIds: string[];
+  /** Travel and set times; null when the DCO has none (older rows) */
+  frame: DcoDayFrame | null;
+}
+
+const isMin = (n: unknown): n is number =>
+  typeof n === 'number' && Number.isFinite(n) && n >= 0 && n < 24 * 60;
+
+/** The day frame as stored, with anything malformed left out. */
+export function readFrame(raw: unknown): DcoDayFrame | null {
+  const f = raw as Record<string, any> | null | undefined;
+  if (!f || typeof f !== 'object' || typeof f.date !== 'string') return null;
+  const t = f.travel;
+  const a = f.away;
+  return {
+    date: f.date,
+    travel:
+      t && typeof t.label === 'string' && t.label
+        ? { label: t.label, departs: isMin(t.departs) ? t.departs : null }
+        : null,
+    away:
+      a && typeof a.label === 'string' && a.label
+        ? { label: a.label, through: typeof a.through === 'string' ? a.through : null }
+        : null,
+    blocks: (Array.isArray(f.blocks) ? f.blocks : [])
+      .filter((b: any) => b && typeof b.id === 'string' && typeof b.title === 'string' && isMin(b.start))
+      .map((b: any) => ({
+        id: b.id,
+        title: b.title,
+        start: b.start,
+        end: isMin(b.end) && b.end > b.start ? b.end : null,
+        travel: b.travel === true,
+        fact_id: typeof b.fact_id === 'string' ? b.fact_id : null,
+      })),
+    travel_calendar_ids: Array.isArray(f.travel_calendar_ids)
+      ? f.travel_calendar_ids.filter((x: unknown): x is string => typeof x === 'string')
+      : [],
+  };
 }
 
 /** Read the brief's parts from whatever DCO row is loaded; anything missing is empty. */
@@ -74,6 +135,7 @@ export function readDco(dco: unknown): DcoForBrief {
     cancelledCalendarIds: Array.isArray(d.cancelled_calendar_ids)
       ? d.cancelled_calendar_ids.filter((x: unknown): x is string => typeof x === 'string')
       : [],
+    frame: readFrame(d.day_frame),
     brief: b
       ? {
           headline: b.headline ?? null,
@@ -87,7 +149,7 @@ export function readDco(dco: unknown): DcoForBrief {
   };
 }
 
-function daysBetween(from: string, to: string): number {
+export function daysBetween(from: string, to: string): number {
   const a = Date.UTC(+from.slice(0, 4), +from.slice(5, 7) - 1, +from.slice(8, 10));
   const b = Date.UTC(+to.slice(0, 4), +to.slice(5, 7) - 1, +to.slice(8, 10));
   return Math.round((b - a) / 864e5);

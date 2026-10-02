@@ -9,6 +9,7 @@ import { buildDcoV4, writeDco } from '../context/daily';
 import { dayOfWeekNumber, isBehindThisWeek, mondayOf, weeklyTarget } from './behind';
 import { readThreadReaction } from './reaction';
 import { sweepCounts } from '../notifications/sweepCount';
+import { buildDayRecord } from './dayRecord';
 
 export const PLAN_DAY_START = 8 * 60;
 export const PLAN_DAY_END = 22 * 60;
@@ -107,72 +108,11 @@ export function ritualDayFor(today, nowMin, boundaryHour) {
   return boundaryHour > 0 && nowMin < boundaryHour * 60 ? addDays(today, -1) : today;
 }
 
-/** Today's DCO, built now if the 4am job has not made one (a first open after a month away). */
-export async function todaysDco(env, userId, tz, today) {
-  const d = db(env);
-  const [row] = await d.select(`user_daily_state?user_id=eq.${userId}&date=eq.${today}&select=dco`);
-  if (row?.dco?.pipeline) return { dco: row.dco, built: false };
-  const built = await buildDcoV4(env, userId, { tz });
-  await writeDco(env, userId, built, { shadow: false });
-  return { dco: built.dco, built: true };
-}
-
-export async function gatherBrief(env, userId, { at = new Date() } = {}) {
-  const d = db(env);
-  const tz = await userTimezone(env, userId);
-  const today = localDate(tz, at);
-  const now = minutesIn(tz, at);
-  const [prefs] = await d.select(
-    `cortex_preferences?owner_id=eq.${userId}&select=day_boundary_hour,gremly_age,brief_in_chat`,
-  );
-  const ritualDay = ritualDayFor(today, now, prefs?.day_boundary_hour ?? 0);
-  const dayStart = localStartIso(tz, today);
-  const dayEnd = localStartIso(tz, addDays(today, 1));
-  const monday = mondayOf(today);
-
-  const [
-    dcoResult,
-    person,
-    synced,
-    noteEvents,
-    quickEvents,
-    todos,
-    notes,
-    habits,
-    progress,
-    sweep,
-  ] = await Promise.all([
-    todaysDco(env, userId, tz, today),
-    personIdentity(env, userId),
-    d.select(
-      `synced_calendar_events?owner_id=eq.${userId}&archived=eq.false&start_at=gte.${encodeURIComponent(dayStart)}&start_at=lt.${encodeURIComponent(dayEnd)}&select=id,title,start_at,end_at,is_all_day&order=start_at.asc&limit=100`,
-    ),
-    d.select(
-      `notes?owner_id=eq.${userId}&subtype=eq.event&archived=eq.false&external_source=is.null&target_date=eq.${today}&select=id,title,event_time,end_date&limit=50`,
-    ),
-    d.select(
-      `calendar_events?owner_id=eq.${userId}&event_date=eq.${today}&select=id,title,event_time,duration_minutes&limit=50`,
-    ),
-    d.select(
-      `todos?owner_id=eq.${userId}&completed_at=is.null&archived=eq.false&select=id,name,title,due_day,commitment,time_estimate_minutes,created_at,skipped_in_sweep_at,resurface_at,scheduled_start_iso&limit=1000`,
-    ),
-    d.select(
-      `notes?owner_id=eq.${userId}&archived=eq.false&external_source=is.null&swept_at=is.null&subtype=in.(idea,catchall,list,reference)&created_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -6)))}&select=id&limit=500`,
-    ),
-    d.select(
-      `habits?owner_id=eq.${userId}&archived=eq.false&select=id,name,title,cadence,target_per_period,days_active,subtype,start_date,end_date,time_estimate_minutes,scheduled_start_iso&limit=200`,
-    ),
-    d.select(
-      `habit_progress?owner_id=eq.${userId}&occurred_day=gte.${monday}&occurred_day=lte.${today}&select=habit_id,occurred_day&limit=2000`,
-    ),
-    // Sweep's counts by the app's own rules (the evening Sweep and the
-    // morning's quick sweep); null when they cannot be counted
-    sweepCounts(env, userId, { today, tz }).catch(() => null),
-  ]);
-  const dco = dcoResult.dco;
-
-  // Today's timed calendar entries, in local minutes. Cancelled ones are left out.
-  const cancelledIds = new Set(dco?.cancelled_calendar_ids || []);
+/**
+ * Today's calendar as the brief reads it: synced entries, events Gremly holds
+ * and quick events, timed ones in local minutes, cancelled ones left out.
+ */
+export function meetingsFrom({ synced, noteEvents, quickEvents, tz, cancelledIds }) {
   const meetings = [];
   const allDay = [];
   for (const e of synced || []) {
@@ -207,7 +147,110 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
     });
   }
   meetings.sort((a, b) => a.start - b.start);
-  const { busy, free } = shapeOfDay(meetings);
+  return { meetings, allDay };
+}
+
+/** The selects meetingsFrom reads, for one person's day. */
+export function calendarSelects(d, userId, tz, today) {
+  const dayStart = localStartIso(tz, today);
+  const dayEnd = localStartIso(tz, addDays(today, 1));
+  return [
+    d.select(
+      `synced_calendar_events?owner_id=eq.${userId}&archived=eq.false&start_at=gte.${encodeURIComponent(dayStart)}&start_at=lt.${encodeURIComponent(dayEnd)}&select=id,title,start_at,end_at,is_all_day&order=start_at.asc&limit=100`,
+    ),
+    d.select(
+      `notes?owner_id=eq.${userId}&subtype=eq.event&archived=eq.false&external_source=is.null&target_date=eq.${today}&select=id,title,event_time,end_date&limit=50`,
+    ),
+    d.select(
+      `calendar_events?owner_id=eq.${userId}&event_date=eq.${today}&select=id,title,event_time,duration_minutes&limit=50`,
+    ),
+  ];
+}
+
+/** Today's DCO, built now if the 4am job has not made one (a first open after a month away). */
+export async function todaysDco(env, userId, tz, today) {
+  const d = db(env);
+  const [row] = await d.select(`user_daily_state?user_id=eq.${userId}&date=eq.${today}&select=dco`);
+  if (row?.dco?.pipeline) return { dco: row.dco, built: false };
+  const built = await buildDcoV4(env, userId, { tz });
+  await writeDco(env, userId, built, { shadow: false });
+  return { dco: built.dco, built: true };
+}
+
+export async function gatherBrief(env, userId, { at = new Date() } = {}) {
+  const d = db(env);
+  const tz = await userTimezone(env, userId);
+  const today = localDate(tz, at);
+  const now = minutesIn(tz, at);
+  const [prefs] = await d.select(
+    `cortex_preferences?owner_id=eq.${userId}&select=day_boundary_hour,gremly_age,brief_in_chat`,
+  );
+  const ritualDay = ritualDayFor(today, now, prefs?.day_boundary_hour ?? 0);
+  const dayStart = localStartIso(tz, today);
+  const dayEnd = localStartIso(tz, addDays(today, 1));
+  const monday = mondayOf(today);
+
+  const [
+    dcoResult,
+    person,
+    synced,
+    noteEvents,
+    quickEvents,
+    todos,
+    notes,
+    habits,
+    progress,
+    sweep,
+    threads,
+  ] = await Promise.all([
+    todaysDco(env, userId, tz, today),
+    personIdentity(env, userId),
+    ...calendarSelects(d, userId, tz, today),
+    d.select(
+      `todos?owner_id=eq.${userId}&completed_at=is.null&archived=eq.false&select=id,name,title,due_day,commitment,time_estimate_minutes,created_at,skipped_in_sweep_at,resurface_at,scheduled_start_iso&limit=1000`,
+    ),
+    d.select(
+      `notes?owner_id=eq.${userId}&archived=eq.false&external_source=is.null&swept_at=is.null&subtype=in.(idea,catchall,list,reference)&created_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -6)))}&select=id&limit=500`,
+    ),
+    d.select(
+      `habits?owner_id=eq.${userId}&archived=eq.false&select=id,name,title,cadence,target_per_period,days_active,subtype,start_date,end_date,time_estimate_minutes,scheduled_start_iso&limit=200`,
+    ),
+    d.select(
+      `habit_progress?owner_id=eq.${userId}&occurred_day=gte.${monday}&occurred_day=lte.${today}&select=habit_id,occurred_day&limit=2000`,
+    ),
+    // Sweep's counts by the app's own rules (the evening Sweep and the
+    // morning's quick sweep); null when they cannot be counted
+    sweepCounts(env, userId, { today, tz }).catch(() => null),
+    // today's thread: set times added there (fixed_blocks) belong to the day
+    d
+      .select(
+        `scope_chats?user_id=eq.${userId}&chat_type=eq.daily&metadata_json->>ritual_day=eq.${ritualDay}&select=id,metadata_json&limit=1`,
+      )
+      .catch(() => []),
+  ]);
+  const dco = dcoResult.dco;
+
+  // Today's timed calendar entries, in local minutes. Cancelled ones are left out.
+  const { meetings, allDay } = meetingsFrom({
+    synced,
+    noteEvents,
+    quickEvents,
+    tz,
+    cancelledIds: new Set(dco?.cancelled_calendar_ids || []),
+  });
+  // one picture of the day: travel, set times, where planning stops, the chip
+  const day = buildDayRecord({
+    today,
+    frame: dco?.day_frame || null,
+    threadMeta: threads?.[0]?.metadata_json || null,
+    meetings,
+    anchors: Array.isArray(dco?.named_anchors) ? dco.named_anchors : [],
+  });
+  const { busy, free } = shapeOfDay(
+    day.busy.map((b) => ({ start: b.start, end: b.end })),
+    PLAN_DAY_START,
+    day.planEnd,
+  );
 
   // Todos (the app writes name; older rows may only have title)
   const open = (todos || []).map((t) => ({ ...t, title: t.name || t.title || 'Untitled' }));
@@ -300,6 +343,7 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
     busy,
     free,
     clashes: clashesOf(meetings),
+    day,
     todosDue,
     // what needs a decision before the day is planned (the quick sweep's
     // split), or the older count when Sweep's could not be read
