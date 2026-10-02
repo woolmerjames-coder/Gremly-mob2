@@ -70,6 +70,7 @@ jest.mock('../../context/db', () => ({
 }));
 
 const AT = new Date('2026-10-01T17:00:00Z'); // 18:00 in London
+const ON = { NOTIFICATIONS_MODE: 'on' };
 const USER = 'u1';
 const TOKEN = 'ExponentPushToken[secret-device-token]';
 
@@ -192,25 +193,25 @@ describe('decide', () => {
   };
 
   it('sends when nothing is in the way', async () => {
-    const v = await decide({}, job, { at: AT });
+    const v = await decide(ON, job, { at: AT });
     expect(v.action).toBe('send');
     expect(v.facts).toMatchObject({ weekday: 'Thursday', meetings_today: 0 });
   });
 
   it('holds while they are in the app', async () => {
     mockTables.app_events = [{ occurred_at: new Date(AT.getTime() - 10 * 60000).toISOString() }];
-    const v = await decide({}, job, { at: AT });
+    const v = await decide(ON, job, { at: AT });
     expect(v).toMatchObject({ action: 'hold', minutes: 15 });
   });
 
   it('drops the sweep when they already swept, and says when', async () => {
     mockTables.events = [{ created_at: '2026-10-01T16:30:00Z' }];
-    const v = await decide({}, job, { at: AT });
+    const v = await decide(ON, job, { at: AT });
     expect(v).toMatchObject({ action: 'drop', reason: 'They swept at 5:30pm' });
   });
 
   it('drops and reports a wake far past its time', async () => {
-    const v = await decide({}, { ...job, planned_for: '2026-10-01T14:00:00Z' }, { at: AT });
+    const v = await decide(ON, { ...job, planned_for: '2026-10-01T14:00:00Z' }, { at: AT });
     expect(v.action).toBe('drop');
     expect(v.reason).toMatch(/Woke 180 minutes after/);
     expect(reportProblem).toHaveBeenCalled();
@@ -218,13 +219,48 @@ describe('decide', () => {
 
   it('drops when no phone can receive', async () => {
     mockTables.push_devices = [];
-    const v = await decide({}, job, { at: AT });
+    const v = await decide(ON, job, { at: AT });
     expect(v).toMatchObject({ action: 'drop', reason: 'No phone can receive notifications' });
+  });
+
+  it('sends nothing when the server switch is off, and only to testers in testers mode', async () => {
+    expect(await decide({}, job, { at: AT })).toMatchObject({
+      action: 'drop',
+      reason: 'Notifications are switched off on the server',
+    });
+    expect(await decide({ NOTIFICATIONS_MODE: 'testers' }, job, { at: AT })).toMatchObject({
+      reason: 'Only testers get notifications for now',
+    });
+    mockTables.cortex_preferences = [
+      { day_boundary_hour: 0, brief_in_chat: true, is_tester: true },
+    ];
+    expect((await decide({ NOTIFICATIONS_MODE: 'testers' }, job, { at: AT })).action).toBe('send');
+  });
+
+  it('a Lab test goes even with the switch off', async () => {
+    expect((await decide({}, { ...job, test: true }, { at: AT })).action).toBe('send');
+  });
+
+  it('drops a reminder whose item was moved to another time', async () => {
+    mockTables.reminder_schedule = [{ status: 'active', next_fire_at: '2026-10-01T18:00:00Z' }];
+    const rem = {
+      user_id: USER,
+      moment: 'reminder',
+      subject: 'todo:t1:r1',
+      dedupe_key: 'k',
+      planned_for: '2026-10-01T16:59:00Z',
+    };
+    expect(await decide(ON, rem, { at: AT })).toMatchObject({
+      action: 'drop',
+      reason: 'The reminder moved to another time',
+    });
+    mockTables.reminder_schedule = [{ status: 'active', next_fire_at: '2026-10-01T16:59:00Z' }];
+    expect((await decide(ON, rem, { at: AT })).action).toBe('send');
   });
 
   it('does not build a day for someone who has been away', async () => {
     mockTables.user_engagement = [{ user_id: USER, state: 'lapsed', days_away: 7 }];
-    await decide({}, { ...job, moment: 'nudge' }, { at: AT });
+    await decide(ON, { ...job, moment: 'nudge' }, { at: AT });
     expect(gatherBrief).not.toHaveBeenCalled();
   });
 });

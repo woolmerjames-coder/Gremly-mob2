@@ -38,9 +38,18 @@ function chunks(list, n) {
 
 /**
  * Builds the Expo message for one device.
- * @param {object} n  { to, title, body, route, logId, moment, categoryId, interruption, threadId, data }
+ * @param {object} n  { to, title, body, route, logId, moment, categoryId, interruption, threadId, data, silent }
  */
 export function buildMessage(n) {
+  if (n.silent) {
+    // a background push: proves delivery end to end without showing anything
+    return {
+      to: n.to,
+      _contentAvailable: true,
+      priority: 'normal',
+      data: { logId: n.logId || null, moment: n.moment, silent: true },
+    };
+  }
   const msg = {
     to: n.to,
     title: n.title || undefined,

@@ -189,11 +189,19 @@ export async function stillTrue(env, person, job, at = new Date()) {
       const [type, id, reminderId] = String(job.subject || '').split(':');
       const [row] =
         (await d.select(
-          `reminder_schedule?entity_type=eq.${type}&entity_id=eq.${id}&reminder_id=eq.${encodeURIComponent(reminderId)}&select=status`,
+          `reminder_schedule?entity_type=eq.${type}&entity_id=eq.${id}&reminder_id=eq.${encodeURIComponent(reminderId)}&select=status,next_fire_at`,
         )) || [];
       if (!row) return { ok: false, reason: 'The reminder was removed' };
       if (row.status === 'closed') return { ok: false, reason: 'Already done' };
       if (row.status === 'removed') return { ok: false, reason: 'The reminder was removed' };
+      // the item was edited after this run was queued; the new time has its own run
+      if (
+        job.planned_for &&
+        row.next_fire_at &&
+        Math.abs(Date.parse(row.next_fire_at) - Date.parse(job.planned_for)) > 60000
+      ) {
+        return { ok: false, reason: 'The reminder moved to another time' };
+      }
       return { ok: true };
     }
     case 'nudge': {
@@ -224,6 +232,13 @@ export async function decide(env, job, { at = new Date(), heldSoFar = 0 } = {}) 
   const person = await loadPerson(env, job.user_id, at);
   if (!person.prefs)
     return { action: 'drop', reason: 'No notification settings for this person', person };
+  const mode = String(env.NOTIFICATIONS_MODE || 'off').toLowerCase();
+  if (!job.test && mode === 'off') {
+    return { action: 'drop', reason: 'Notifications are switched off on the server', person };
+  }
+  if (!job.test && mode === 'testers' && !person.cortex?.is_tester) {
+    return { action: 'drop', reason: 'Only testers get notifications for now', person };
+  }
   const late = tooLate(job, at);
   if (late) {
     await reportProblem(env, {
@@ -460,6 +475,7 @@ export async function push(env, job, person, logId, words) {
       moment: job.moment,
       categoryId: CATEGORY[job.moment],
       interruption: words.interruption,
+      silent: job.moment === 'canary',
       data:
         job.moment === 'reminder' || job.moment === 'habit_checkin'
           ? { subject: job.subject }

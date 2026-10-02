@@ -34,6 +34,9 @@ import { CARE_RULES } from './careRules';
 import { createContextFunctions, hourlyContextEvents, contextMode } from './context/functions';
 import { createBriefFunctions, handleBriefApi } from './brief';
 import { createNotificationFunctions } from './notifications/functions';
+import { runMinute as runNotificationsMinute } from './notifications/cron';
+import { dedupeKey as notificationKey } from './notifications/policy';
+import { handleNotificationsApi } from './notifications/api';
 import { handlePlanPickApi } from './brief/planPick';
 import { buildDcoV4, writeDco } from './context/daily';
 import { reviewQuestions } from './context/questions';
@@ -2162,20 +2165,9 @@ const weeklySummaryV07Worker = inngest.createFunction(
       return out.content;
     });
 
-    // Step 3: claim notification slot, delete any existing row, insert new summary.
+    // Step 3: delete any existing row, insert new summary.
     await step.run('save-weekly-summary', async () => {
       const headers = authHeaders;
-
-      // Claim the notification slot — only done when we have a shippable deck.
-      await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/claim_notification_slot`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          p_user_id: user_id,
-          p_type: 'weekly',
-          p_date_key: week_start,
-        }),
-      });
 
       // Delete any existing summary for this week before insert.
       await fetch(
@@ -2220,6 +2212,31 @@ const weeklySummaryV07Worker = inngest.createFunction(
         throw new Error(`Failed to save weekly summary: ${errText}`);
       }
     });
+
+    // Step 4: the scheduled run tells them it's ready, through the notifications
+    // sender (settings, quiet hours, delivery receipts). Backfills stay quiet.
+    if (event.data.notify) {
+      const subject = `weekly_summary:${week_start}`;
+      const key = notificationKey({
+        userId: user_id,
+        moment: 'good_news',
+        subject,
+        localDate: week_start,
+      });
+      await step.sendEvent('tell-them-it-is-ready', {
+        name: 'notifications/send.due',
+        id: key,
+        data: {
+          user_id,
+          moment: 'good_news',
+          subject,
+          subject_type: 'weekly_summary',
+          dedupe_key: key,
+          planned_for: null,
+          data: { title: 'Your week in review is ready', facts: { ready: 'their week in review' } },
+        },
+      });
+    }
 
     return {
       success: true,
@@ -2528,12 +2545,11 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
         Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
       };
 
-      const [prefsRes, tokensRes, accessRes] = await Promise.all([
+      const [prefsRes, accessRes] = await Promise.all([
         fetch(
           `${env.SUPABASE_URL}/rest/v1/notification_preferences?weekly_enabled=eq.true&select=user_id,weekly_time,weekly_day,timezone`,
           { headers },
         ),
-        fetch(`${env.SUPABASE_URL}/rest/v1/push_tokens?select=user_id,token`, { headers }),
         fetch(`${env.SUPABASE_URL}/rest/v1/rpc/get_active_people`, {
           method: 'POST',
           headers: { ...headers, 'Content-Type': 'application/json' },
@@ -2543,12 +2559,8 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
 
       if (!prefsRes.ok) throw new Error(`Failed to fetch weekly prefs: ${prefsRes.statusText}`);
       const prefs = await prefsRes.json();
-      const tokens = tokensRes.ok ? await tokensRes.json() : [];
       if (!accessRes.ok) throw new Error(`Failed to fetch active users: ${accessRes.status}`);
       const accessPrefs = await accessRes.json();
-
-      const tokenMap = {};
-      for (const t of tokens) tokenMap[t.user_id] = t.token;
 
       // Anyone active in the last 30 days gets a weekly summary, whatever their tier.
       // The challenge no longer affects access.
@@ -2556,15 +2568,10 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
       for (const p of accessPrefs) accessMap[p.user_id] = true;
 
       const total = prefs.length;
-      let droppedNoToken = 0;
       let droppedNoAccess = 0;
 
       const filtered = prefs
         .filter((p) => {
-          if (!tokenMap[p.user_id]) {
-            droppedNoToken++;
-            // Do NOT exclude: summary still generates; push is skipped downstream when token is absent.
-          }
           if (!accessMap[p.user_id]) {
             droppedNoAccess++;
             return false;
@@ -2576,11 +2583,10 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
           timezone: p.timezone || 'UTC',
           weekly_time: p.weekly_time,
           weekly_day: p.weekly_day ?? 0, // 0 = Sunday
-          push_token: tokenMap[p.user_id] ?? null,
         }));
 
       console.log(
-        `[Weekly V2 Dispatcher] fetch-weekly-users: total=${total}, dropped_no_token=${droppedNoToken}, dropped_no_access=${droppedNoAccess}, eligible=${filtered.length}`,
+        `[Weekly V2 Dispatcher] fetch-weekly-users: total=${total}, dropped_no_access=${droppedNoAccess}, eligible=${filtered.length}`,
       );
 
       return filtered;
@@ -2652,8 +2658,8 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
           data: {
             user_id: u.user_id,
             timezone: u.timezone,
-            push_token: u.push_token,
             week_start: weekKeys[u.user_id],
+            notify: true,
           },
         })),
       );
@@ -2675,7 +2681,6 @@ const weeklySummaryV2Worker = inngest.createFunction(
   async ({ event, step, env }) => {
     const userId = event.data.user_id;
     const timezone = event.data.timezone || 'UTC';
-    const pushToken = event.data.push_token || null;
 
     // Step 0: Read-only idempotency check — if summary already exists, skip
     const weekStartForCheck = await step.run('check-existing-summary', async () => {
@@ -2936,32 +2941,13 @@ const weeklySummaryV2Worker = inngest.createFunction(
       }
     });
 
-    // Step 8: Save weekly summary (claim slot, delete existing, then insert)
+    // Step 8: Save weekly summary (delete existing, then insert)
     await step.run('save-weekly-summary', async () => {
       const headers = {
         apikey: env.SUPABASE_SERVICE_KEY,
         Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
         'Content-Type': 'application/json',
       };
-
-      // Claim the notification slot NOW — only when we have a summary ready to save
-      const claimRes = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/claim_notification_slot`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          p_user_id: userId,
-          p_type: 'weekly',
-          p_date_key: weekDates.weekStart,
-        }),
-      });
-      if (claimRes.ok) {
-        const claimed = await claimRes.json();
-        if (claimed !== true) {
-          console.log(
-            `[Weekly V2] Slot claimed by another run for ${userId}, but saving anyway (we have the summary)`,
-          );
-        }
-      }
 
       // Delete any existing summary for this week
       await fetch(
@@ -3536,18 +3522,6 @@ Rules:
         `[Weekly V2:Facts] Updated profile for ${userId}: ${extractedFacts.length} facts`,
       );
       return { facts_extracted: extractedFacts.length };
-    });
-
-    // Step 11: Send push notification (non-fatal)
-    await step.run('send-push', async () => {
-      if (!pushToken) {
-        console.log(`[Weekly V2] No push token for ${userId}, skipping notification`);
-        return;
-      }
-      const gremlyMood = summaryResult.summary?.cards?.find((c) => c.type === 'gremly_mood');
-      const body = gremlyMood?.hook || 'Your weekly summary is ready.';
-      await sendExpoPush(pushToken, 'Your week in review is ready', body, 'weekly_summary');
-      console.log(`[Weekly V2] Push sent for ${userId}`);
     });
 
     return {
@@ -11043,35 +11017,6 @@ function corsResponse(body, status = 200) {
   });
 }
 
-// ── Expo Push Helper ─────────────────────────────────────────────────────────
-async function sendExpoPush(token, title, body, notificationType) {
-  if (!token) return null;
-  const pushPayload = {
-    to: token,
-    title,
-    body,
-    sound: 'default',
-    data: {
-      type: notificationType,
-      action: 'open_flow',
-    },
-  };
-  try {
-    const response = await fetch('https://exp.host/--/api/v2/push/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(pushPayload),
-    });
-    if (!response.ok) {
-      console.warn(`[Push] Expo push failed: ${response.status}`);
-    }
-    return response;
-  } catch (err) {
-    console.warn(`[Push] Expo push error: ${err.message}`);
-    return null;
-  }
-}
-
 // ============================================================================
 // Nightly: auto-archive events older than 7 days
 // ============================================================================
@@ -11384,6 +11329,11 @@ const appHandler = {
       } catch (e) {
         return corsResponse({ error: String(e?.message || e).slice(0, 200) }, 500);
       }
+    }
+
+    // Notifications: the Lab's test send, through cortex
+    if (url.pathname.startsWith('/api/notifications/')) {
+      return handleNotificationsApi(request, env, corsResponse);
     }
 
     // Daily brief in Chat: the app's first open, or a fresh brief for a later
@@ -12392,6 +12342,16 @@ export default {
     };
     globalThis.__aiUsageFallbackStore = { env, ctx, worker: 'inngest-jobs' };
     return aiContext.run(store, () => appHandler.fetch(request, env, ctx));
+  },
+
+  // The worker's own cron (wrangler.toml [triggers]): notifications planning,
+  // receipts and the watchdog. Quiet minutes cost nothing in Inngest.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(
+      runNotificationsMinute(env, { now: new Date(event.scheduledTime || Date.now()) }).catch(
+        (err) => console.error(`[ALERT][Notifications] minute cron crashed: ${err.message}`),
+      ),
+    );
   },
 };
 

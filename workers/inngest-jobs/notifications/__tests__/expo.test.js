@@ -61,6 +61,22 @@ describe('buildMessage', () => {
   });
 });
 
+it('the canary is a silent background push with no words', () => {
+  const m = buildMessage({
+    to: 'T1',
+    body: 'ignored',
+    moment: 'canary',
+    logId: 'L1',
+    silent: true,
+  });
+  expect(m).toEqual({
+    to: 'T1',
+    _contentAvailable: true,
+    priority: 'normal',
+    data: { logId: 'L1', moment: 'canary', silent: true },
+  });
+});
+
 describe('sendToExpo', () => {
   it('reads each ticket: an error ticket inside a 200 is a failure', async () => {
     const fetchImpl = jest.fn(async () =>

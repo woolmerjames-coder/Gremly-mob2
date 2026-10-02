@@ -2,8 +2,8 @@
  * @jest-environment node
  *
  * The Inngest functions with a pretend step runner: the order of steps, holds,
- * skips that are logged, tokens never stored in step results, and what cancels
- * a waiting notification.
+ * skips that are logged, tokens never stored in step results, reminders rolled
+ * on, and a day's plan queued.
  */
 import {
   jobFrom,
@@ -12,18 +12,11 @@ import {
   CANCEL_ON,
   SEND_EVENT,
   TEST_EVENT,
+  PLAN_EVENT,
 } from '../functions';
-import {
-  decide,
-  claim,
-  compose,
-  push,
-  logSkip,
-  loadDevices,
-  settleReceipts,
-  settleDueReceipts,
-} from '../send';
-import { reportProblem, cronCheckIn } from '../alert';
+import { decide, claim, compose, push, logSkip, loadDevices, settleReceipts } from '../send';
+import { planPersonDay, rollReminder } from '../planner';
+import { reportProblem } from '../alert';
 
 jest.mock('../send', () => {
   const actual = jest.requireActual('../send');
@@ -36,9 +29,15 @@ jest.mock('../send', () => {
     logSkip: jest.fn(),
     loadDevices: jest.fn(),
     settleReceipts: jest.fn(),
-    settleDueReceipts: jest.fn(),
   };
 });
+jest.mock('../planner', () => ({
+  planPersonDay: jest.fn(),
+  rollReminder: jest.fn(),
+  SEND_EVENT: 'notifications/send.due',
+  PLAN_EVENT: 'notifications/plan.day',
+  CANCEL_EVENT: 'notifications/cancel',
+}));
 jest.mock('../alert', () => ({ reportProblem: jest.fn(), cronCheckIn: jest.fn() }));
 let mockUpdates;
 jest.mock('../../context/db', () => ({
@@ -67,6 +66,7 @@ function fakeStep() {
     },
     sleep: jest.fn(async (id) => order.push(id)),
     sleepUntil: jest.fn(async (id) => order.push(id)),
+    sendEvent: jest.fn(async (id) => order.push(id)),
   };
 }
 
@@ -76,7 +76,7 @@ const person = {
   state: 'engaged',
   devices: [{ id: 'd1', expo_token: TOKEN }],
 };
-const job = jobFrom({ user_id: 'u1', moment: 'sweep', dedupe_key: 'u1:sweep::2026-10-01:' });
+const job = jobFrom({ user_id: 'u1', moment: 'sweep', dedupe_key: 'u1:sweep:-:2026-10-01:20:00' });
 
 beforeEach(() => {
   mockUpdates = [];
@@ -103,10 +103,8 @@ describe('jobFrom', () => {
       jobFrom({ user_id: 'u', moment: 'sweep', dedupe_key: 'k', planned_for: 'soon' }),
     ).toThrow('planned_for');
   });
-  it('works out the item a reminder belongs to, so finishing it cancels the reminder', () => {
-    expect(
-      jobFrom({ user_id: 'u', moment: 'reminder', dedupe_key: 'k', subject: 'todo:abc:r1' }).item,
-    ).toBe('todo:abc');
+  it('accepts the canary', () => {
+    expect(jobFrom({ user_id: 'u', moment: 'canary', dedupe_key: 'k' }).moment).toBe('canary');
   });
 });
 
@@ -128,8 +126,7 @@ describe('runSend', () => {
 
   it('logs a skip with its reason and stops', async () => {
     decide.mockResolvedValue({ action: 'drop', reason: 'Quiet hours', person });
-    const step = fakeStep();
-    const out = await runSend({ step, env: {}, runId: 'r' }, job);
+    const out = await runSend({ step: fakeStep(), env: {}, runId: 'r' }, job);
     expect(out).toEqual({ sent: false, reason: 'Quiet hours' });
     expect(logSkip).toHaveBeenCalledWith({}, job, expect.any(Object), 'suppressed', 'Quiet hours');
     expect(claim).not.toHaveBeenCalled();
@@ -153,8 +150,7 @@ describe('runSend', () => {
 
   it('gives up after too many holds and says so', async () => {
     decide.mockResolvedValue({ action: 'hold', minutes: 15, reason: 'In a meeting', person });
-    const step = fakeStep();
-    const out = await runSend({ step, env: {}, runId: 'r' }, job);
+    const out = await runSend({ step: fakeStep(), env: {}, runId: 'r' }, job);
     expect(out.reason).toBe('Held 120 minutes and still not a good time');
     expect(logSkip).toHaveBeenCalledTimes(1);
   });
@@ -184,6 +180,27 @@ describe('runSend', () => {
     expect(push).not.toHaveBeenCalled();
     expect(mockUpdates[0].patch).toMatchObject({ status: 'failed' });
   });
+
+  it('rolls a reminder on afterwards, sent or skipped', async () => {
+    const rem = jobFrom({
+      user_id: 'u1',
+      moment: 'reminder',
+      subject: 'todo:t1:r1',
+      dedupe_key: 'k',
+      planned_for: '2026-10-01T16:00:00Z',
+    });
+    const step = fakeStep();
+    await runSend({ step, env: {}, runId: 'r' }, rem);
+    expect(step.order.at(-1)).toBe('roll-reminder');
+    expect(rollReminder).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ subject: 'todo:t1:r1', sent: true }),
+    );
+    rollReminder.mockClear();
+    decide.mockResolvedValue({ action: 'drop', reason: 'Already done', person });
+    await runSend({ step: fakeStep(), env: {}, runId: 'r' }, rem);
+    expect(rollReminder).toHaveBeenCalledWith({}, expect.objectContaining({ sent: false }));
+  });
 });
 
 describe('the functions', () => {
@@ -197,22 +214,22 @@ describe('the functions', () => {
   createNotificationFunctions(inngest);
   const byId = (id) => made.find((m) => m.config.id === id);
 
-  it('registers the send, the test send and the receipts reader', () => {
+  it('registers the day planner, the send and the test send', () => {
     expect(made.map((m) => m.config.id)).toEqual([
+      'notifications-plan-day',
       'notifications-send',
       'notifications-test-send',
-      'notifications-receipts',
     ]);
+    expect(byId('notifications-plan-day').trigger).toEqual({ event: PLAN_EVENT });
     expect(byId('notifications-send').trigger).toEqual({ event: SEND_EVENT });
     expect(byId('notifications-test-send').trigger).toEqual({ event: TEST_EVENT });
-    expect(byId('notifications-receipts').trigger.cron).toBeTruthy();
   });
 
-  it('keeps one send at a time per person, and can be cancelled', () => {
+  it('keeps one send at a time per person, and can be cancelled by the planner', () => {
     const c = byId('notifications-send').config;
     expect(c.concurrency[0]).toEqual({ key: 'event.data.user_id', limit: 1 });
-    expect(c.cancelOn).toHaveLength(CANCEL_ON.length);
-    for (const rule of c.cancelOn) expect(rule.if).toMatch(/event\.data\.(user_id|dedupe_key)/);
+    expect(c.cancelOn).toEqual(CANCEL_ON);
+    expect(CANCEL_ON[0].if).toBe('async.data.dedupe_key == event.data.dedupe_key');
     expect(typeof c.onFailure).toBe('function');
   });
 
@@ -238,6 +255,27 @@ describe('the functions', () => {
     expect(step.order[0]).toBe('wait-for-its-time');
   });
 
+  it('plans a day and queues its sends and cancellations together', async () => {
+    planPersonDay.mockResolvedValue({
+      events: [{ name: SEND_EVENT, id: 'a', data: {} }],
+      cancels: [{ name: 'notifications/cancel', data: { dedupe_key: 'old' } }],
+      state: 'engaged',
+      planned: 1,
+      skipped: 0,
+    });
+    const step = fakeStep();
+    const out = await byId('notifications-plan-day').handler({
+      event: { data: { user_id: 'u1', local_date: '2026-10-01' } },
+      step,
+      env: {},
+    });
+    expect(step.sendEvent).toHaveBeenCalledWith('queue-sends', [
+      { name: 'notifications/cancel', data: { dedupe_key: 'old' } },
+      { name: SEND_EVENT, id: 'a', data: {} },
+    ]);
+    expect(out).toMatchObject({ planned: 1, cancelled: 1 });
+  });
+
   it('a test send is a canary by default, unique, and reads its own receipt', async () => {
     settleReceipts.mockResolvedValue({ settled: true, delivered: true });
     const step = fakeStep();
@@ -255,23 +293,27 @@ describe('the functions', () => {
     });
     expect(step.sleep).toHaveBeenCalledWith('let-expo-deliver', '1m');
     expect(out.receipt).toEqual({ settled: true, delivered: true });
+    expect(reportProblem).not.toHaveBeenCalled();
   });
 
-  it('the receipts reader checks in with Sentry and alerts when many fail', async () => {
-    settleDueReceipts.mockResolvedValue({ checked: 4, delivered: 1, failed: 3, waiting: 0 });
-    const step = fakeStep();
-    await byId('notifications-receipts').handler({ step, env: {} });
-    expect(cronCheckIn.mock.calls.map((c) => c[2])).toEqual(['in_progress', 'ok']);
+  it('a canary that is not delivered alerts', async () => {
+    settleReceipts.mockResolvedValue({ settled: true, delivered: false });
+    await byId('notifications-test-send').handler({
+      event: { id: 'ev2', data: { user_id: 'u1' } },
+      step: fakeStep(),
+      env: {},
+      runId: 'r',
+    });
     expect(reportProblem).toHaveBeenCalledWith(
       {},
-      expect.objectContaining({ title: 'Notifications: 3 of 4 were not delivered' }),
+      expect.objectContaining({ title: 'Notifications canary was not delivered' }),
     );
   });
 
   it('a send that gives up marks its row failed and reports it', async () => {
     await byId('notifications-send').config.onFailure({
       event: {
-        data: { event: { data: { moment: 'brief', dedupe_key: 'u1:brief::2026-10-01:' } } },
+        data: { event: { data: { moment: 'brief', dedupe_key: 'u1:brief:-:2026-10-01:08:00' } } },
       },
       error: new Error('Supabase down'),
       env: {},

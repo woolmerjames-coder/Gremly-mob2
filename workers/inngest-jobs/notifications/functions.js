@@ -1,16 +1,18 @@
 /**
  * Notifications: the Inngest functions.
  *
- *   notifications/send.due    one planned notification. Sleeps until its time,
- *                             is cancelled by the thing it was about happening,
- *                             then decides, claims, writes and sends.
- *   notifications/test.send   the Lab's "send now", and the canary. Skips the
- *                             timing rules, never the delivery checks.
- *   cron every hour           reads Expo receipts for everything sent, so a
- *                             notification is only "delivered" when Apple or
- *                             Google took it.
+ *   notifications/plan.day    one person's day: learn from what was sent,
+ *                             then queue today's brief, sweep, check ins and
+ *                             notes, each as its own send.
+ *   notifications/send.due    one notification. Sleeps until its time, then
+ *                             decides with live facts, claims, writes and sends.
+ *   notifications/test.send   the Lab's "send now" and the daily canary. Skips
+ *                             the timing rules, never the delivery checks.
  *
- * Every path ends in a notification_log row with a plain reason.
+ * The cheap, frequent work (finding what needs planning, reading receipts,
+ * the watchdog) runs on the worker's own cron in cron.js, so Inngest only runs
+ * when there is something to send. Every path ends in a notification_log row
+ * with a plain reason.
  */
 
 import { MOMENTS } from './policy';
@@ -23,41 +25,18 @@ import {
   loadDevices,
   publicPerson,
   settleReceipts,
-  settleDueReceipts,
 } from './send';
-import { reportProblem, cronCheckIn } from './alert';
+import { planPersonDay, rollReminder, SEND_EVENT, PLAN_EVENT, CANCEL_EVENT } from './planner';
+import { reportProblem } from './alert';
 import { db } from '../context/db';
 
-export const SEND_EVENT = 'notifications/send.due';
+export { SEND_EVENT, PLAN_EVENT, CANCEL_EVENT };
 export const TEST_EVENT = 'notifications/test.send';
-export const CANCEL_EVENT = 'notifications/cancel';
-export const ACTIVITY_EVENT = 'app/activity';
-// hourly keeps Inngest use low; Expo keeps receipts for a day, and the Lab reads its own after a minute
-export const RECEIPTS_CRON = '7 * * * *';
 const MAX_HOLDS = 8;
 
-/**
- * The things that make a waiting notification pointless, as Inngest
- * expressions: `event` is the planned send, `async` is the activity.
- */
+/** A waiting send is cancelled when the planner replaces it. */
 export const CANCEL_ON = Object.freeze([
   { event: CANCEL_EVENT, if: 'async.data.dedupe_key == event.data.dedupe_key' },
-  {
-    event: ACTIVITY_EVENT,
-    if: "async.data.user_id == event.data.user_id && event.data.moment == 'sweep' && async.data.kind == 'swept'",
-  },
-  {
-    event: ACTIVITY_EVENT,
-    if: "async.data.user_id == event.data.user_id && event.data.moment == 'brief' && async.data.kind == 'brief_seen'",
-  },
-  {
-    event: ACTIVITY_EVENT,
-    if: "async.data.user_id == event.data.user_id && event.data.moment == 'habit_checkin' && async.data.kind == 'habit_logged' && async.data.subject == event.data.subject",
-  },
-  {
-    event: ACTIVITY_EVENT,
-    if: "async.data.user_id == event.data.user_id && event.data.moment == 'reminder' && async.data.kind == 'item_done' && async.data.subject == event.data.item",
-  },
 ]);
 
 /** Checks and tidies the event data into a job. Throws on anything unusable. */
@@ -69,12 +48,6 @@ export function jobFrom(data = {}) {
   if (!job.dedupe_key) throw new Error('dedupe_key is required');
   if (job.planned_for && Number.isNaN(Date.parse(job.planned_for)))
     throw new Error(`Bad planned_for ${job.planned_for}`);
-  // reminders are cancelled by their item being done: "todo:<id>"
-  if (job.moment === 'reminder' && !job.item)
-    job.item = String(job.subject || '')
-      .split(':')
-      .slice(0, 2)
-      .join(':');
   return job;
 }
 
@@ -83,6 +56,15 @@ export function jobFrom(data = {}) {
  * Each piece is its own step, so a retry never repeats a finished one.
  */
 export async function runSend({ step, env, runId }, job) {
+  const out = await sendSteps({ step, env, runId }, job);
+  if (job.moment === 'reminder' && !job.test) {
+    // sent or not, this occurrence is over; the planner works out the next one
+    await step.run('roll-reminder', () => rollReminder(env, { ...job, sent: !!out.sent }));
+  }
+  return out;
+}
+
+async function sendSteps({ step, env, runId }, job) {
   let verdict = null;
   let held = 0;
   for (let round = 0; round < MAX_HOLDS; round += 1) {
@@ -100,12 +82,13 @@ export async function runSend({ step, env, runId }, job) {
     await step.sleep(`hold-${round}`, `${verdict.minutes}m`);
     held += verdict.minutes;
   }
-  if (verdict.action === 'hold')
+  if (verdict.action === 'hold') {
     verdict = {
       ...verdict,
       action: 'drop',
       reason: `Held ${held} minutes and still not a good time`,
     };
+  }
 
   if (verdict.action !== 'send') {
     await step.run('log-skip', () =>
@@ -156,24 +139,20 @@ export async function runSend({ step, env, runId }, job) {
   };
 }
 
-/** When a send function gives up after its retries, its log row says so and James hears. */
+/** When a function gives up after its retries, its log row says so and James hears. */
 async function failed({ event, error, env }) {
   const job = event?.data?.event?.data || {};
   const message = String(error?.message || error).slice(0, 300);
   await reportProblem(env, {
-    title: `Notifications: a ${job.moment || 'notification'} failed after retries`,
-    tags: { moment: job.moment || 'unknown' },
-    extra: { error: message, dedupe_key: job.dedupe_key },
+    title: `Notifications: a ${job.moment || 'plan'} failed after retries`,
+    tags: { moment: job.moment || 'plan' },
+    extra: { error: message, dedupe_key: job.dedupe_key, user: job.user_id },
   });
   if (!job.dedupe_key) return;
   try {
     await db(env).update(
       `notification_log?dedupe_key=eq.${encodeURIComponent(job.dedupe_key)}&status=in.(sending,planned)`,
-      {
-        status: 'failed',
-        reason: `Gave up: ${message}`,
-        updated_at: new Date().toISOString(),
-      },
+      { status: 'failed', reason: `Gave up: ${message}`, updated_at: new Date().toISOString() },
     );
   } catch (err) {
     console.error(`[Notifications] could not mark ${job.dedupe_key} failed: ${err.message}`);
@@ -181,6 +160,30 @@ async function failed({ event, error, env }) {
 }
 
 export function createNotificationFunctions(inngest) {
+  const plan = inngest.createFunction(
+    {
+      id: 'notifications-plan-day',
+      name: "Notifications: plan one person's day",
+      concurrency: [{ key: 'event.data.user_id', limit: 1 }, { limit: 5 }],
+      retries: 2,
+      onFailure: failed,
+    },
+    { event: PLAN_EVENT },
+    async ({ event, step, env }) => {
+      if (!event.data?.user_id || !event.data?.local_date)
+        throw new Error('user_id and local_date are required');
+      const out = await step.run('plan', () => planPersonDay(env, event.data));
+      const events = [...(out.cancels || []), ...(out.events || [])];
+      if (events.length) await step.sendEvent('queue-sends', events);
+      return {
+        state: out.state,
+        planned: out.planned,
+        cancelled: out.cancels?.length || 0,
+        skipped: out.skipped,
+      };
+    },
+  );
+
   const send = inngest.createFunction(
     {
       id: 'notifications-send',
@@ -217,45 +220,31 @@ export function createNotificationFunctions(inngest) {
         test: true,
       });
       const out = await runSend({ step, env, runId }, job);
-      if (!out.logId || !out.sent) return out;
+      if (!out.logId || !out.sent) {
+        if (job.moment === 'canary') {
+          await step.run('canary-alert', () =>
+            reportProblem(env, {
+              title: `Notifications canary did not send: ${out.reason || 'no phone took it'}`,
+              extra: { user: job.user_id },
+            }),
+          );
+        }
+        return out;
+      }
       // the Lab shows delivery within a minute or two instead of waiting for the hourly read
       await step.sleep('let-expo-deliver', '1m');
       const receipt = await step.run('read-receipt', () => settleReceipts(env, out.logId));
+      if (job.moment === 'canary' && receipt.settled && !receipt.delivered) {
+        await step.run('canary-alert', () =>
+          reportProblem(env, {
+            title: 'Notifications canary was not delivered',
+            extra: { log: out.logId },
+          }),
+        );
+      }
       return { ...out, receipt };
     },
   );
 
-  const receipts = inngest.createFunction(
-    {
-      id: 'notifications-receipts',
-      name: 'Notifications: read delivery receipts',
-      retries: 2,
-      concurrency: [{ limit: 1 }],
-    },
-    { cron: RECEIPTS_CRON },
-    async ({ step, env }) => {
-      const out = await step.run('settle', async () => {
-        await cronCheckIn(env, 'notifications-receipts', 'in_progress', RECEIPTS_CRON);
-        try {
-          const r = await settleDueReceipts(env);
-          await cronCheckIn(env, 'notifications-receipts', 'ok', RECEIPTS_CRON);
-          return r;
-        } catch (err) {
-          await cronCheckIn(env, 'notifications-receipts', 'error', RECEIPTS_CRON);
-          throw err;
-        }
-      });
-      if (out.failed > 0 && out.failed >= Math.max(3, out.checked / 2)) {
-        await step.run('alert', () =>
-          reportProblem(env, {
-            title: `Notifications: ${out.failed} of ${out.checked} were not delivered`,
-            extra: out,
-          }),
-        );
-      }
-      return out;
-    },
-  );
-
-  return [send, test, receipts];
+  return [plan, send, test];
 }
