@@ -7,6 +7,16 @@ compatibility_flags = ["nodejs_compat"]
 # These will be overwritten by secrets
 CORTEX_WORKER_URL = "https://gentle-thunder-5854.woolmerjames.workers.dev"
 
+# Notifications report problems and cron check ins here. A DSN only lets a
+# client send events to Sentry (the app ships one in App.tsx), so it can live
+# in this file; this is the "workers" key on the react-native project.
+SENTRY_DSN = "https://2d2ac70795b0667b2ff47227eb9cac32@o4511237634260992.ingest.us.sentry.io/4511237636292608"
+SENTRY_ENVIRONMENT = "production"
+
+# Notifications rollout: "off" sends nothing, "testers" sends only to tester
+# accounts (for TestFlight checks), "on" sends to everyone.
+NOTIFICATIONS_MODE = "on"
+
 # Context pipeline (lifemaps-context-fixes-9.30):
 #   off     nothing new runs
 #   shadow  the fact ledger fills; DCO v4 and weekly results are written beside the live ones
@@ -45,3 +55,9 @@ cpu_ms = 300000
 [[kv_namespaces]]
 binding = "CONTEXT_CACHE"
 id = "d97644351d99456da19eb66f52d0189e"
+
+# Notifications: the worker's own cron (notifications/cron.js). Every minute it
+# plans reminders and days with a few small reads; at minute 7 of each hour it
+# reads Expo receipts, runs the watchdog and checks in with Sentry.
+[triggers]
+crons = ["* * * * *"]

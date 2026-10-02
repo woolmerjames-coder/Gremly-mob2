@@ -20,11 +20,7 @@ import { calendarClient } from '../lib/calendar/CalendarClient';
 import { FLAGS } from '../config/flags';
 import { nowTimestamp } from '../lib/date/DateService';
 import useDayBoundaryWatcher from '../lib/today/hooks/useDayBoundaryWatcher';
-import {
-  hasNotificationPermission,
-  registerForPushNotifications,
-  savePushToken,
-} from '../src/utils/notifications';
+import { syncDevice, releaseDevice } from '../lib/notifications/device';
 import { loginUser, logoutUser } from '../lib/subscriptions/purchases';
 import * as Sentry from '@sentry/react-native';
 import type { Session, User } from '@supabase/supabase-js';
@@ -184,20 +180,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       switch (event) {
         case 'SIGNED_IN':
-          // Register for push notifications after successful sign-in
+          // Tell the notifications server about this phone (never blocks sign in)
           if (newSession?.user?.id) {
-            try {
-              const pushToken = await registerForPushNotifications();
-              if (pushToken) {
-                await savePushToken(newSession.user.id, pushToken);
-                console.log('[AuthProvider] Push notification registration successful');
-              } else {
-                console.log('[AuthProvider] Push notification registration skipped (no token)');
-              }
-            } catch (pushError) {
-              console.log('[AuthProvider] Push notification registration failed:', pushError);
-              // Don't block sign-in on notification failure
-            }
+            syncDevice({ force: true }).catch((e) =>
+              console.log('[AuthProvider] Notification device sync failed:', e),
+            );
             // Identify user to RevenueCat for subscription tracking
             loginUser(newSession.user.id).catch((e) =>
               console.log('[AuthProvider] RevenueCat login failed:', e),
@@ -226,31 +213,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // Every time the app comes to the front: this phone's token and permission,
+  // so the server sends only where it can arrive and Settings shows the truth.
   useEffect(() => {
-    const syncPushToken = async () => {
-      const userId = session?.user?.id;
-      if (!userId) return;
-
-      try {
-        const hasPermission = await hasNotificationPermission();
-        if (!hasPermission) return;
-
-        const token = await registerForPushNotifications();
-        if (token) {
-          await savePushToken(userId, token);
-          console.log('[AuthProvider] Foreground push token sync successful');
-        }
-      } catch (pushError) {
-        console.log('[AuthProvider] Foreground push token sync failed:', pushError);
-      }
+    if (!session?.user?.id) return;
+    const sync = () => {
+      syncDevice().catch((e) => console.log('[AuthProvider] Notification device sync failed:', e));
     };
-
-    syncPushToken();
+    sync();
 
     const subscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active') {
-        syncPushToken();
-      }
+      if (nextState === 'active') sync();
     });
 
     return () => {
@@ -436,6 +409,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     setLoading(true);
     setError(null);
+    // while still signed in: this phone stops getting their notifications
+    await releaseDevice();
     reset();
     try {
       try {

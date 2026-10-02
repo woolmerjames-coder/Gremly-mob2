@@ -306,29 +306,6 @@ describe('Hydration with real Supabase data', () => {
   });
 });
 
-describe('Notification worker: isInHabitBuildingPhase', () => {
-  // Re-derive the worker logic from workers/notifications/index.js
-  const isUserInHabitBuildingPhase = (userId: string, seasonedUserIds: Set<string>): boolean => {
-    return !seasonedUserIds.has(userId);
-  };
-
-  it('returns true for user with no weekly summaries', () => {
-    const seasoned = new Set<string>();
-    expect(isUserInHabitBuildingPhase('user-1', seasoned)).toBe(true);
-  });
-
-  it('returns false for user with at least one weekly summary', () => {
-    const seasoned = new Set(['user-1']);
-    expect(isUserInHabitBuildingPhase('user-1', seasoned)).toBe(false);
-  });
-
-  it('correctly differentiates users in a mixed set', () => {
-    const seasoned = new Set(['user-seasoned']);
-    expect(isUserInHabitBuildingPhase('user-new', seasoned)).toBe(true);
-    expect(isUserInHabitBuildingPhase('user-seasoned', seasoned)).toBe(false);
-  });
-});
-
 describe('useSubscriptionStatus: trial calculation', () => {
   const TRIAL_DURATION_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
 

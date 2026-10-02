@@ -1260,22 +1260,26 @@ export interface DefaultReminderPreferences {
 }
 
 /**
- * Per-item reminder for todos, habits, and notes.
- * Stored in the `reminders` JSON column on each entity.
- * Local notifications are scheduled via expo-notifications.
+ * Per-item reminder on todos, habits, notes (events included) and people,
+ * stored in the item's reminders_json. The server plans and sends every
+ * reminder (workers/inngest-jobs/notifications); the app only saves them.
  */
 export interface ItemReminder {
   /** Unique ID for this reminder */
   id: string;
-  /** Time in "HH:MM" format (user's local time) */
-  time: string;
-  /** 'once' fires and should be removed after; 'daily' recurs; 'weekdays'/'weekends'/'weekly' for multi-day */
-  frequency: 'once' | 'daily' | 'weekdays' | 'weekends' | 'weekly';
-  /** Required for 'once' frequency — the date to fire (YYYY-MM-DD) */
+  /** Time in "HH:MM" (the person's local time). Not used by 'before' reminders. */
+  time?: string;
+  /** 'once' fires on `date`; the others repeat */
+  frequency?: 'once' | 'daily' | 'weekdays' | 'weekends' | 'weekly';
+  /** Required for 'once': the date to fire (YYYY-MM-DD) */
   date?: string;
-  /** Days of week for 'weekly' frequency (0=Sun, 1=Mon, ..., 6=Sat) */
+  /** Days of week for 'weekly' (0=Sun, 1=Mon, ..., 6=Sat) */
   days_of_week?: number[];
-  /** Expo notification ID returned from scheduleNotificationAsync (for cancellation) */
+  /** Events: counted back from the start ('minutes' before, or the evening before at 6pm) */
+  kind?: 'before';
+  minutes?: number;
+  evening?: boolean;
+  /** @deprecated written by the old on-phone scheduler; ignored */
   notificationId?: string;
 }
 

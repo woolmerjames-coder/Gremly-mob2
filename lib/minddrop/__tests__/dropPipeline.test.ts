@@ -86,12 +86,8 @@ jest.mock('../../events/EventBus', () => ({
 jest.mock('../../network/NetworkStatus', () => ({
   networkStatus: { isConnected: true },
 }));
-jest.mock('../../notifications/itemReminderService', () => ({
-  scheduleItemReminder: jest.fn().mockResolvedValue(undefined),
-  scheduleQuickReminder: jest.fn().mockResolvedValue(undefined),
-}));
-jest.mock('../../../src/utils/notifications', () => ({
-  hasNotificationPermission: jest.fn().mockResolvedValue(false),
+jest.mock('../../notifications/ask', () => ({
+  maybeAsk: jest.fn().mockResolvedValue(false),
 }));
 
 import { startQueueRunner, stopQueueRunner, triggerProcessing, retryDrop } from '../dropPipeline';

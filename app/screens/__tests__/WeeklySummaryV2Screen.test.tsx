@@ -102,8 +102,8 @@ jest.mock('../../../lib/haptics', () => ({
   triggerSuccess: jest.fn(),
 }));
 
-jest.mock('../../../lib/notifications/itemReminderService', () => ({
-  scheduleItemReminder: jest.fn(),
+jest.mock('../../../lib/notifications/ask', () => ({
+  maybeAsk: jest.fn().mockResolvedValue(false),
 }));
 
 jest.mock('../../../design/brand', () => ({

@@ -87,11 +87,6 @@ export type EventMap = {
   // Daily Brief events
   DailyBriefSaved: { date: string };
   DailyBriefCleared: { date: string };
-  // Notification response events
-  'notification:open_flow': {
-    type: 'morning' | 'evening' | 'weekly_summary' | 'afternoon_checkin';
-  };
-  'notification:open_item': { itemId: string; itemType: string };
   // Mind Drop clarification answer "Chat with Gremly": open Ask Gremly and send the drop
   'minddrop:open_chat': { text: string };
   // "Talk it through with Gremly" on a new drop: open Chat with the item attached
@@ -118,19 +113,6 @@ export type EventMap = {
     /** the item the yes changed, opened by tapping the toast (null when it was removed) */
     target: { id: string; type: 'todo' | 'habit' | 'note' } | null;
   };
-  'notification:done_action': { entityId: string; entityType: string };
-  'notification:snooze': { entityId: string; entityType: string; seconds: number; label: string };
-  'notification:snooze_before_due': {
-    entityId: string;
-    entityType: string;
-    dueDate: string;
-    dueTime: string | null;
-  };
-  'notification:habit_done': { entityId: string };
-  // Contextual notification permission prompt
-  'notification:permission_prompt': { context: 'reminder' | 'sweep' };
-  // Overlay open event (triggered from notification quick-action sheet)
-  'overlay:open': { entityId: string; entityType: string };
   // Tomorrow Brief navigation event
   openTomorrowBrief: Record<string, never>;
   // Open Gremly modal to gauge page (from fed toast tap)

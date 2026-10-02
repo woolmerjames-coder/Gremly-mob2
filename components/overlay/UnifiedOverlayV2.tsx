@@ -17,7 +17,7 @@
  * - ToggleSwitch.tsx: iOS-style toggle
  * - PhotoStrip.tsx: Photo thumbnails + add button
  * - OverlayExpandedEditor.tsx: Full-screen text editor
- * - SetRemindersModal.tsx: Reminder management
+ * - components/reminders/ReminderSheet.tsx: the bell (reminders on any item)
  *
  * Refactor complete: 2026-04-10
  * Before: 11,234 lines, 65 useStates, 35 useEffects, 4 state layers
@@ -124,12 +124,9 @@ import { getMindDropRawText } from './getMindDropRawText';
 
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import SetRemindersModal from './SetRemindersModal';
+import ReminderSheet from '../reminders/ReminderSheet';
+import { cleanReminders, summarizeReminders } from '../../lib/reminders/reminders';
 import type { ItemReminder } from '../../lib/types';
-import {
-  scheduleItemReminder,
-  cancelAllItemReminders,
-} from '../../lib/notifications/itemReminderService';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { enrichListItems } from '../../lib/ai/enrichListItem';
@@ -242,19 +239,9 @@ type LogPhoto = {
   isDeleted?: boolean; // marked for deletion on save
 };
 
-// Helper: format ItemReminder[] for summary display in detail rows
+// The Reminders row: "Off", the one reminder in words, or a count
 function formatItemReminderSummary(reminders: ItemReminder[]): string {
-  if (!reminders || reminders.length === 0) return 'Off';
-  if (reminders.length === 1) {
-    const r = reminders[0];
-    const [h, m] = r.time.split(':').map(Number);
-    const suffix = h >= 12 ? 'PM' : 'AM';
-    const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
-    const timeStr = `${hour12}:${String(m).padStart(2, '0')} ${suffix}`;
-    if (r.frequency === 'daily') return `Daily ${timeStr}`;
-    return timeStr;
-  }
-  return `${reminders.length} reminders`;
+  return summarizeReminders(reminders, { now: getDateService().now() });
 }
 
 function toCanonicalParts(value: string | null | undefined): { canonical: string; slug: string } {
@@ -2522,38 +2509,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         effectiveLogSubtype, // Phase L8: Pass effective log subtype
       );
 
-      // ── Schedule item reminders and persist to entity ──────────────────────
-      if (baseType === 'todo' || baseType === 'habit') {
-        const entityTitle = (input as any).title || (input as any).name || state.compactTitle || '';
+      // ── Reminders: saved on the item; the server plans and sends them ─────
+      {
         const oldReminders: ItemReminder[] = (fullEntity?.reminders as ItemReminder[]) ?? [];
-        const remindersChanged = JSON.stringify(itemReminders) !== JSON.stringify(oldReminders);
-
-        if (remindersChanged) {
-          // Cancel old reminders (fire and forget — don't block save)
-          cancelAllItemReminders(oldReminders).catch(() => {});
-
-          // Schedule new reminders and collect notification IDs
-          const scheduledReminders: ItemReminder[] = [];
-          for (const reminder of itemReminders) {
-            const notificationId = await scheduleItemReminder(
-              fullEntity?.id || 'new',
-              entityTitle,
-              baseType === 'habit' ? 'habit' : 'todo',
-              reminder,
-            );
-            scheduledReminders.push({
-              ...reminder,
-              notificationId: notificationId ?? undefined,
-            });
-          }
-
-          (input as any).reminders = scheduledReminders.length > 0 ? scheduledReminders : null;
-        } else if (itemReminders.length > 0) {
-          // Reminders unchanged but present — persist them as-is
-          (input as any).reminders = itemReminders;
-        } else if (oldReminders.length > 0 && itemReminders.length === 0) {
-          // User cleared all reminders
-          (input as any).reminders = null;
+        const next = cleanReminders(itemReminders, getDateService().now());
+        if (JSON.stringify(next) !== JSON.stringify(oldReminders)) {
+          (input as any).reminders = next.length > 0 ? next : null;
         }
       }
 
@@ -6796,16 +6757,26 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               onClose={() => store.setUI({ showWorldsModal: false })}
             />
 
-            {/* Reminders Management Modal – powered by SetRemindersModal */}
-            <SetRemindersModal
+            {/* The bell: reminders on this item (the server sends them) */}
+            <ReminderSheet
               visible={showRemindersModal}
-              onClose={() => setShowRemindersModal(false)}
+              kind={
+                baseType === 'habit'
+                  ? 'habit'
+                  : baseType === 'todo'
+                    ? 'todo'
+                    : isLog && effectiveLogSubtype === 'event'
+                      ? 'event'
+                      : 'note'
+              }
+              eventStart={
+                isLog && effectiveLogSubtype === 'event'
+                  ? { date: state.log.target_date ?? null, time: state.log.event_time ?? null }
+                  : null
+              }
               reminders={itemReminders}
-              onSave={(updated) => {
-                setItemReminders(updated);
-                setShowRemindersModal(false);
-              }}
-              itemType={baseType === 'habit' ? 'habit' : 'todo'}
+              onChange={setItemReminders}
+              onClose={() => setShowRemindersModal(false)}
             />
 
             {/* Save bar (fixed within the sheet) */}

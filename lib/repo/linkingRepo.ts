@@ -1,25 +1,5 @@
 import { supabase } from '../supabase/client';
 
-export async function upsertEveningNotificationPreference(params: {
-  userId: string;
-  eveningTime: string;
-  updatedAt: string;
-}): Promise<void> {
-  const { error } = await supabase.from('notification_preferences').upsert(
-    {
-      user_id: params.userId,
-      evening_enabled: true,
-      evening_time: params.eveningTime,
-      updated_at: params.updatedAt,
-    },
-    { onConflict: 'user_id' },
-  );
-
-  if (error) {
-    throw error;
-  }
-}
-
 export async function upsertDropWorldLinks(
   rows: Array<{
     drop_id: string;

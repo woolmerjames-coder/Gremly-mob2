@@ -20,7 +20,9 @@ import { useAuth } from '../../providers/AuthProvider';
 import { getDateService } from '../../lib/date';
 import { colors, spacing, radii } from '../../theme/tokens';
 import type { EntityPerson, ItemType } from '../../lib/repo/types';
-import type { AppRecord } from '../../lib/types';
+import type { AppRecord, ItemReminder, Person } from '../../lib/types';
+import ReminderSheet from '../../components/reminders/ReminderSheet';
+import { summarizeReminders } from '../../lib/reminders/reminders';
 import { getNoteLabel, kindToDisplayLabel } from '../../lib/canonicalTypes';
 
 type RootStackParamList = {
@@ -51,6 +53,9 @@ export default function PersonDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [linkedPeople, setLinkedPeople] = useState<EntityPerson[]>([]);
+  // The bell: reminders live on this person's row in people (made on first use)
+  const [person, setPerson] = useState<Person | null>(null);
+  const [showReminders, setShowReminders] = useState(false);
   const [groupedItems, setGroupedItems] = useState<GroupedItems>({
     habit: [],
     todo: [],
@@ -136,6 +141,37 @@ export default function PersonDetailScreen() {
     loadLinkedItems();
   }, [loadLinkedItems]);
 
+  useEffect(() => {
+    if (!userId || !personName) return;
+    (repo as any)
+      .listPeople?.()
+      .then((list: Person[]) => {
+        const lower = personName.trim().toLowerCase();
+        setPerson(
+          list.find((p) => (p.display_name || p.name || '').trim().toLowerCase() === lower) ?? null,
+        );
+      })
+      .catch((e: unknown) => console.warn('[PersonDetail] people list failed:', e));
+  }, [userId, repo, personName]);
+
+  const saveReminders = useCallback(
+    async (next: ItemReminder[]) => {
+      try {
+        const saved: Person = person
+          ? await (repo as any).updatePerson(person.id, { reminders: next.length ? next : null })
+          : await (repo as any).createPerson({
+              display_name: personName,
+              email: personEmail ?? null,
+              reminders: next,
+            });
+        setPerson(saved);
+      } catch (e) {
+        console.warn('[PersonDetail] reminders not saved:', e);
+      }
+    },
+    [person, repo, personName, personEmail],
+  );
+
   const getTotalCount = () => {
     return (
       groupedItems.habit.length +
@@ -179,7 +215,9 @@ export default function PersonDetailScreen() {
           >
             <Text style={styles.itemTitle}>{getItemTitle(item)}</Text>
             <Text style={styles.itemDate}>
-              {getDateService().formatForChip(getDateService().extractLocalDate(item.updated_at || item.created_at))}
+              {getDateService().formatForChip(
+                getDateService().extractLocalDate(item.updated_at || item.created_at),
+              )}
             </Text>
           </TouchableOpacity>
         ))}
@@ -229,8 +267,30 @@ export default function PersonDetailScreen() {
           <Text style={styles.personName}>{personName || 'Unknown Person'}</Text>
           {personEmail && <Text style={styles.personEmail}>{personEmail}</Text>}
           <Text style={styles.itemCount}>{getTotalCount()} linked items</Text>
+          <TouchableOpacity
+            style={styles.bellRow}
+            onPress={() => setShowReminders(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Reminders for this person"
+            testID="person-reminders"
+          >
+            <Text style={styles.bellLabel}>Reminders</Text>
+            <Text style={styles.bellValue}>
+              {summarizeReminders(person?.reminders ?? [], { now: getDateService().now() })}
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
+
+      <ReminderSheet
+        visible={showReminders}
+        kind="person"
+        reminders={person?.reminders ?? []}
+        onChange={(next) => {
+          void saveReminders(next);
+        }}
+        onClose={() => setShowReminders(false)}
+      />
 
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         {getTotalCount() === 0 ? (
@@ -255,6 +315,18 @@ export default function PersonDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  bellRow: {
+    marginTop: spacing.sm,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: colors.white,
+    borderRadius: radii.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  bellLabel: { fontSize: 15, fontWeight: '600', color: colors.ink },
+  bellValue: { fontSize: 13, color: colors.gray600 },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',

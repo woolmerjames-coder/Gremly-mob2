@@ -3470,6 +3470,7 @@ export default {
         'not-right',
         'daily-brief',
         'plan-pick',
+        'notification-test',
       ]);
       const AUTH_REQUIRED_LANES = new Set([
         'space_chat',
@@ -7807,6 +7808,33 @@ ${assistantMessage.substring(0, 2000)}
         }).catch(() => null);
         if (!res) return j({ error: 'could not reach the brief writer' }, 502);
         return j(await res.json().catch(() => ({ error: 'bad reply' })), res.ok ? 200 : 502);
+      }
+
+      // =========================
+      // === NOTIFICATION LAB (testers) ===
+      // "Send now" in the Lab: a real send through the real sender to the
+      // tester's own phones. inngest-jobs checks the tester flag.
+      // =========================
+      if (type === 'notification-test') {
+        if (!env.INNGEST_WORKER_URL || !env.INNGEST_ADMIN_KEY)
+          return j({ error: 'not configured' }, 503);
+        const res = await fetchInngestWorker(env, '/api/notifications/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-admin-key': env.INNGEST_ADMIN_KEY },
+          body: JSON.stringify({
+            user_id: authenticatedUserId,
+            moment: typeof body.moment === 'string' ? body.moment.slice(0, 20) : 'brief',
+            words:
+              body.words && typeof body.words.body === 'string'
+                ? {
+                    title: String(body.words.title || '').slice(0, 60),
+                    body: body.words.body.slice(0, 200),
+                  }
+                : null,
+          }),
+        }).catch(() => null);
+        if (!res) return j({ error: 'could not reach the notifications worker' }, 502);
+        return j(await res.json().catch(() => ({ error: 'bad reply' })), res.ok ? 200 : res.status);
       }
 
       // =========================

@@ -1,10 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Animated, Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Haptics from 'expo-haptics';
-import { ArrowLeft } from 'lucide-react-native';
 import { BRAND } from '../../../design/brand';
-import { getDateService } from '../../../lib/date';
 
 import SWEEP_IMAGE from '../../../assets/mascot/sweepcomplete.png';
 
@@ -12,25 +9,16 @@ interface SweepUnlockModalProps {
   visible: boolean;
   onDismiss: () => void;
   onTryNow: () => void;
-  onSetReminder: (time: Date) => void;
-  timePickerOnly?: boolean;
-}
-
-function getDefaultEveningTime(): Date {
-  const d = getDateService().now();
-  d.setHours(20, 0, 0, 0);
-  return d;
+  /** "I'll do it tonight": the one ask for notifications follows (CatchAllNotepad) */
+  onLater: () => void;
 }
 
 export default function SweepUnlockModal({
   visible,
   onDismiss,
   onTryNow,
-  onSetReminder,
-  timePickerOnly = false,
+  onLater,
 }: SweepUnlockModalProps) {
-  const [showTimePicker, setShowTimePicker] = useState(!timePickerOnly ? false : true);
-  const [selectedTime, setSelectedTime] = useState(getDefaultEveningTime);
   const [bounceAnim] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
@@ -55,118 +43,24 @@ export default function SweepUnlockModal({
     <Modal transparent animationType="fade" visible={visible} onRequestClose={onDismiss}>
       <View style={styles.overlay}>
         <View style={styles.card}>
-          {timePickerOnly ? (
-            <>
-              <Text style={styles.timePrompt}>When should I remind you to sweep?</Text>
+          <Animated.View style={[styles.imageContainer, { transform: [{ scale: mascotScale }] }]}>
+            <Image source={SWEEP_IMAGE} style={styles.sweepImage} resizeMode="contain" />
+          </Animated.View>
 
-              <View style={styles.timePickerCenter}>
-                <DateTimePicker
-                  mode="time"
-                  display="compact"
-                  value={selectedTime}
-                  onChange={(_event, date) => {
-                    if (date) setSelectedTime(date);
-                  }}
-                />
-              </View>
+          <Text style={styles.headline}>You unlocked the Sweep</Text>
 
-              <Pressable
-                style={styles.cta}
-                onPress={() => {
-                  onSetReminder(selectedTime);
-                  onDismiss();
-                }}
-              >
-                <Text style={styles.ctaText}>Set reminder</Text>
-              </Pressable>
+          <Text style={styles.body}>
+            Sweep helps you process what you dropped. Takes 2 minutes.{' '}
+            <Text style={{ fontWeight: '600' }}>Best done before bed.</Text>
+          </Text>
 
-              <Pressable onPress={() => onDismiss()} style={{ marginTop: 12, paddingVertical: 8 }}>
-                <Text
-                  style={{
-                    fontSize: 13,
-                    color: BRAND.colors.inkMuted,
-                    textAlign: 'center',
-                  }}
-                >
-                  Skip for now
-                </Text>
-              </Pressable>
-            </>
-          ) : (
-            <>
-              <Animated.View
-                style={[styles.imageContainer, { transform: [{ scale: mascotScale }] }]}
-              >
-                <Image source={SWEEP_IMAGE} style={styles.sweepImage} resizeMode="contain" />
-              </Animated.View>
+          <Pressable style={styles.cta} onPress={onTryNow}>
+            <Text style={styles.ctaText}>Try it now</Text>
+          </Pressable>
 
-              <Text style={styles.headline}>You unlocked the Sweep</Text>
-
-              <Text style={styles.body}>
-                Sweep helps you process what you dropped. Takes 2 minutes.{' '}
-                <Text style={{ fontWeight: '600' }}>Best done before bed.</Text>
-              </Text>
-
-              {!showTimePicker ? (
-                <>
-                  <Pressable style={styles.cta} onPress={onTryNow}>
-                    <Text style={styles.ctaText}>Try it now</Text>
-                  </Pressable>
-
-                  <Pressable onPress={() => setShowTimePicker(true)}>
-                    <Text style={styles.secondaryText}>I'll do it tonight</Text>
-                  </Pressable>
-                </>
-              ) : (
-                <>
-                  <Pressable
-                    onPress={() => setShowTimePicker(false)}
-                    style={{ position: 'absolute', top: 16, left: 16, zIndex: 1 }}
-                  >
-                    <ArrowLeft size={20} color={BRAND.colors.mossGreen} />
-                  </Pressable>
-
-                  <Text style={styles.timePrompt}>When should I remind you?</Text>
-
-                  <View style={styles.timePickerCenter}>
-                    <DateTimePicker
-                      mode="time"
-                      display="compact"
-                      value={selectedTime}
-                      onChange={(_event, date) => {
-                        if (date) setSelectedTime(date);
-                      }}
-                    />
-                  </View>
-
-                  <Pressable
-                    style={styles.cta}
-                    onPress={() => {
-                      onSetReminder(selectedTime);
-                      onDismiss();
-                    }}
-                  >
-                    <Text style={styles.ctaText}>Set reminder</Text>
-                  </Pressable>
-
-                  <Pressable
-                    onPress={() => onDismiss()}
-                    style={{ marginTop: 12, paddingVertical: 8 }}
-                  >
-                    <Text
-                      style={{
-                        fontSize: 13,
-                        color: BRAND.colors.inkMuted,
-                        textAlign: 'center',
-                      }}
-                    >
-                      Skip for now
-                    </Text>
-                  </Pressable>
-                </>
-              )}
-            </>
-          )}
+          <Pressable onPress={onLater}>
+            <Text style={styles.secondaryText}>I'll do it tonight</Text>
+          </Pressable>
         </View>
       </View>
     </Modal>
@@ -199,13 +93,6 @@ const styles = StyleSheet.create({
   sweepImage: {
     height: 125,
   },
-  timePickerCenter: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '100%',
-    marginTop: 12,
-    marginBottom: 12,
-  },
   headline: {
     fontSize: 18,
     fontWeight: '600',
@@ -237,11 +124,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     marginTop: 12,
-  },
-  timePrompt: {
-    fontSize: 15,
-    fontWeight: '500',
-    textAlign: 'center',
-    marginTop: 16,
   },
 });

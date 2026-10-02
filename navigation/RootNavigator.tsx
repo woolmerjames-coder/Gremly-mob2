@@ -31,6 +31,8 @@ import HabitsScreen from '../app/screens/HabitsScreen';
 import HabitDetailScreen from '../app/screens/HabitDetailScreen';
 import SettingsScreen from '../app/screens/SettingsScreen';
 import RitualsSettingsScreen from '../app/screens/RitualsSettingsScreen';
+import NotificationSettingsScreen from '../app/screens/NotificationSettingsScreen';
+import NotificationLabScreen from '../app/screens/NotificationLabScreen';
 import TimeBlocksSettingsScreen from '../app/screens/TimeBlocksSettingsScreen';
 import CalendarSettingsScreen from '../app/screens/CalendarSettingsScreen';
 import WhatGremlyKnowsScreen from '../app/screens/WhatGremlyKnowsScreen';
@@ -109,6 +111,8 @@ export type RootStackParamList = {
   HabitDetail: { habitId: string };
   Settings: undefined;
   RitualsSettings: undefined;
+  NotificationSettings: undefined;
+  NotificationLab: undefined;
   TimeBlocksSettings: undefined;
   CalendarSettings: undefined;
   WhatGremlyKnows: undefined;
@@ -307,6 +311,16 @@ export default function RootNavigator() {
               headerShown: false,
               animation: 'slide_from_right',
             }}
+          />
+          <Stack.Screen
+            name="NotificationSettings"
+            component={NotificationSettingsScreen}
+            options={{ headerShown: false, animation: 'slide_from_right' }}
+          />
+          <Stack.Screen
+            name="NotificationLab"
+            component={NotificationLabScreen}
+            options={{ headerShown: false, animation: 'slide_from_right' }}
           />
           <Stack.Screen
             name="TimeBlocksSettings"

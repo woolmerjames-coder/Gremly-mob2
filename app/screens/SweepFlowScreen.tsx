@@ -122,7 +122,7 @@ import {
 import { emitOverlayClosed, addOverlayClosedListener } from '../../lib/events/overlayClosed';
 import { eventBus } from '../../lib/events/EventBus';
 // date-fns addDays/nextMonday removed — DateService used for timezone-safe date math
-import { scheduleItemReminder } from '../../lib/notifications/itemReminderService';
+import { maybeAsk } from '../../lib/notifications/ask';
 import type { ItemReminder } from '../../lib/types';
 import type { AppRecord } from '../../lib/types';
 
@@ -1967,9 +1967,8 @@ function SweepDecisionStep({
           // Look up the original todo to get time_window for context-aware reminder time
           const originalTodo = todos.find((t) => t.id === decision.candidateId);
           const reminderTime = getDefaultReminderTime(originalTodo?.time_window);
-          const entityTitle = originalTodo?.name || originalTodo?.title || 'Reminder';
 
-          // Schedule a local notification for the remind date
+          // A reminder on the remind date (the server sends it)
           const reminder: ItemReminder = {
             id: `sweep-remind-${getDateService().now().getTime()}-${decision.candidateId.slice(0, 8)}`,
             time: reminderTime,
@@ -1977,21 +1976,16 @@ function SweepDecisionStep({
             date: decision.resurfaceDateStr,
           };
 
-          // Schedule notification and persist reminder with notificationId
           updates.push(
             (async () => {
-              const notificationId = await scheduleItemReminder(
-                decision.candidateId,
-                entityTitle,
-                'todo',
-                reminder,
-              );
+              // the server sends it; if notifications are off, this is the moment to ask
+              void maybeAsk('bell');
               await updateTodo(decision.candidateId, {
                 resurface_at: decision.resurfaceDateStr,
                 scheduled_date: decision.resurfaceDateStr,
                 due_day: decision.resurfaceDateStr,
                 due_date: null,
-                reminders: [{ ...reminder, notificationId: notificationId ?? undefined }],
+                reminders: [reminder],
               } as any);
             })(),
           );
@@ -2002,7 +1996,6 @@ function SweepDecisionStep({
 
           if (decision.reminderDateStr) {
             // Due date + reminder: schedule notification and persist both
-            const entityTitle = currentTodo?.name || 'Reminder';
             const reminderTime = decision.reminderTime || '09:00';
 
             const reminder: ItemReminder = {
@@ -2014,19 +2007,15 @@ function SweepDecisionStep({
 
             updates.push(
               (async () => {
-                const notificationId = await scheduleItemReminder(
-                  decision.candidateId,
-                  entityTitle,
-                  'todo',
-                  reminder,
-                );
+                // the server sends it; if notifications are off, this is the moment to ask
+                void maybeAsk('bell');
                 await updateTodo(decision.candidateId, {
                   scheduled_date: decision.dueDateStr,
                   due_day: decision.dueDateStr,
                   skipped_in_sweep_at: null,
                   resurface_at: null,
                   sweep_reschedule_count: currentCount + 1,
-                  reminders: [{ ...reminder, notificationId: notificationId ?? undefined }],
+                  reminders: [reminder],
                 } as any);
               })(),
             );
@@ -2135,9 +2124,6 @@ function SweepDecisionStep({
               // Event reminder — this IS a push notification
               sweepLog.debug('[SweepFlowScreen] Setting event reminder:', decision.reminderDateStr);
 
-              const entityTitle =
-                originalNote?.title || originalNote?.body?.slice(0, 40) || 'Event reminder';
-
               const reminder: ItemReminder = {
                 id: `sweep-remind-${getDateService().now().getTime()}-${decision.candidateId.slice(0, 8)}`,
                 time: '09:00',
@@ -2147,16 +2133,12 @@ function SweepDecisionStep({
 
               updates.push(
                 (async () => {
-                  const notificationId = await scheduleItemReminder(
-                    decision.candidateId,
-                    entityTitle,
-                    'todo',
-                    reminder,
-                  );
+                  // the server sends it; if notifications are off, this is the moment to ask
+                  void maybeAsk('bell');
                   await updateNote(decision.candidateId, {
                     swept_at: getDateService().nowTimestamp(),
                     skipped_in_sweep_at: null,
-                    reminders: [{ ...reminder, notificationId: notificationId ?? undefined }],
+                    reminders: [reminder],
                     ...(decision.spaceId ? { space_id: decision.spaceId } : {}),
                   } as any);
                 })(),

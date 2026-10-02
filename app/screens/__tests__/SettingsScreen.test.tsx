@@ -42,6 +42,7 @@ jest.mock('lucide-react-native', () => {
     Palette: (props: any) => <View testID="icon-palette" {...props} />,
     Crown: (props: any) => <View testID="icon-crown" {...props} />,
     LogOut: (props: any) => <View testID="icon-log-out" {...props} />,
+    Moon: (props: any) => <View testID="icon-moon" {...props} />,
   };
 });
 
@@ -107,10 +108,11 @@ describe('SettingsScreen', () => {
       expect(getByText('Settings')).toBeTruthy();
     });
 
-    it('renders all 6 menu rows', () => {
+    it('renders all 7 menu rows', () => {
       const { getByText } = render(<SettingsScreen />);
       expect(getByText('Gremly Premium')).toBeTruthy();
-      expect(getByText('Rituals')).toBeTruthy();
+      expect(getByText('Notifications')).toBeTruthy();
+      expect(getByText('Day boundary')).toBeTruthy();
       expect(getByText('Time Blocks')).toBeTruthy();
       expect(getByText('Calendar Connections')).toBeTruthy();
       expect(getByText('What Gremly Knows')).toBeTruthy();
@@ -120,7 +122,8 @@ describe('SettingsScreen', () => {
     it('renders subtitles for each row', () => {
       const { getByText } = render(<SettingsScreen />);
       expect(getByText('7-day Training Challenge active')).toBeTruthy();
-      expect(getByText('Morning Brief, Evening Sweep, Day Boundary')).toBeTruthy();
+      expect(getByText('Brief, sweep, reminders, quiet hours')).toBeTruthy();
+      expect(getByText('When your day starts over')).toBeTruthy();
       expect(getByText('Morning, Afternoon, Evening ranges')).toBeTruthy();
       expect(getByText('Outlook, Google, Calendar links')).toBeTruthy();
       expect(getByText('Your story, and what Gremly has learned about you')).toBeTruthy();
@@ -145,9 +148,15 @@ describe('SettingsScreen', () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   describe('navigation', () => {
-    it('navigates to RitualsSettings when Rituals row is pressed', () => {
+    it('navigates to NotificationSettings when Notifications is pressed', () => {
       const { getByText } = render(<SettingsScreen />);
-      fireEvent.press(getByText('Rituals'));
+      fireEvent.press(getByText('Notifications'));
+      expect(mockNavigate).toHaveBeenCalledWith('NotificationSettings');
+    });
+
+    it('navigates to RitualsSettings when Day boundary is pressed', () => {
+      const { getByText } = render(<SettingsScreen />);
+      fireEvent.press(getByText('Day boundary'));
       expect(mockNavigate).toHaveBeenCalledWith('RitualsSettings');
     });
 
