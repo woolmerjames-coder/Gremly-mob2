@@ -1,0 +1,209 @@
+/**
+ * The day turn's replay suite: messages typed in today's thread, built on the
+ * real 1 and 2 October mornings (with made-up names and items), and made-up
+ * edge cases. Each says what the turn must and must not do.
+ *
+ * A scenario: today, at (HH:MM), text, question, history, items, meetings,
+ * record ({ travel: [label, 'HH:MM' | null], blocks: [['HH:MM', title, travel]] }),
+ * plan ({ status, items: [[id, 'HH:MM', minutes]] }), and expect:
+ *   aboutDay        true or false
+ *   changes         every one must be on the card: { kind (or kinds), id, at }
+ *   forbid          kinds (or kind:id) that must not be on the card
+ *   status          checklist statuses that must appear
+ *   maxChanges      at most this many changes
+ */
+
+const ALEX_ITEMS = [
+  { id: 'mum', kind: 'todo', title: 'Call Mum', due_day: '2026-10-02', minutes: 20, note: 'in the plan' },
+  { id: 'deck', kind: 'todo', title: 'Send the partner deck', due_day: '2026-10-03', minutes: 60, note: 'upcoming' },
+  { id: 'present', kind: 'todo', title: 'Find a present for Sam', due_day: '2026-10-02', minutes: 45, note: 'in the plan' },
+  { id: 'calendar', kind: 'todo', title: 'Set up the shared calendar', due_day: '2026-10-02', minutes: 20, note: 'due today' },
+  { id: 'pushups', kind: 'habit', title: 'Pushups', minutes: 10, note: 'habit today' },
+];
+
+export const SCENARIOS = [
+  {
+    id: 'airport-and-call',
+    title: '2 October: a call at 12 and leaving for the airport at 12:30',
+    look: 'One card: Call Mum moves to 12:00 and a set time "leave for the airport" at 12:30 (travel). No claim that anything is done.',
+    today: '2026-10-02',
+    at: '09:04',
+    text: 'I need to call my parents at 12 and then leave for the airport at 12:30',
+    items: ALEX_ITEMS,
+    meetings: [
+      ['08:00', '08:30', 'Team huddle'],
+      ['16:00', '16:30', 'Timesheets'],
+    ],
+    record: { travel: ['Flying to San Diego', null], blocks: [] },
+    plan: {
+      status: 'proposal',
+      items: [
+        ['present', '09:30', 45],
+        ['mum', '11:50', 20],
+      ],
+    },
+    expect: {
+      aboutDay: true,
+      changes: [
+        { kinds: ['retime', 'plan_move'], id: 'mum', at: '12:00' },
+        { kinds: ['add_block'], at: '12:30', travel: true },
+      ],
+      forbid: ['create_todo'],
+      maxChanges: 3,
+    },
+  },
+  {
+    id: 'flying-today',
+    title: '2 October (the other side): "we fly today" with no time yet',
+    look: 'Asks when they set off or proposes nothing it cannot know; never moves or skips a habit it was not asked about.',
+    today: '2026-10-02',
+    at: '08:07',
+    text: "we're flying to San Diego today, can you plan around that?",
+    items: [
+      { id: 'workout', kind: 'habit', title: 'Work out', minutes: 30, note: 'habit today' },
+      { id: 'card', kind: 'todo', title: 'Buy an anniversary card', due_day: '2026-10-07', minutes: 15, note: 'upcoming' },
+      { id: 'pack', kind: 'todo', title: 'Pack', due_day: '2026-10-02', minutes: 30, note: 'due today' },
+    ],
+    meetings: [],
+    record: { travel: ['Flying to San Diego', null], blocks: [] },
+    plan: null,
+    expect: {
+      aboutDay: true,
+      forbid: ['skip_habit', 'move_day:workout', 'retime:workout', 'cancel'],
+      status: ['needs_answer'],
+      maxChanges: 1,
+    },
+  },
+  {
+    id: 'flying-at-three',
+    title: 'Flying at 3, leaving at 1',
+    look: 'A travel set time at 13:00; nothing moved that was not asked for.',
+    today: '2026-10-02',
+    at: '08:10',
+    text: 'our flight is at 3, we leave the house at 1',
+    items: [
+      { id: 'workout', kind: 'habit', title: 'Work out', minutes: 30, note: 'habit today' },
+      { id: 'pack', kind: 'todo', title: 'Pack', due_day: '2026-10-02', minutes: 30, note: 'due today' },
+    ],
+    meetings: [],
+    record: { travel: ['Flying to San Diego', null], blocks: [] },
+    plan: null,
+    expect: {
+      aboutDay: true,
+      changes: [{ kinds: ['add_block'], at: '13:00', travel: true }],
+      forbid: ['skip_habit', 'move_day', 'cancel'],
+      maxChanges: 2,
+    },
+  },
+  {
+    id: 'calendar-meeting',
+    title: 'A calendar meeting cannot be moved here',
+    look: 'Says plainly that the meeting lives in their calendar; no change pretends to move it.',
+    today: '2026-10-02',
+    at: '09:10',
+    text: 'move timesheets to tomorrow',
+    items: ALEX_ITEMS,
+    meetings: [['16:00', '16:30', 'Timesheets']],
+    record: { travel: ['Flying to San Diego', '12:30'], blocks: [['12:30', 'Leave for the airport', true]] },
+    plan: null,
+    expect: {
+      aboutDay: true,
+      status: ['not_possible'],
+      forbid: ['create_todo', 'move_day', 'retime'],
+      maxChanges: 0,
+    },
+  },
+  {
+    id: 'cancelled-appointment',
+    title: '1 October: the appointment is off',
+    look: 'Takes the prep todo off the list, nothing else.',
+    today: '2026-10-01',
+    at: '20:30',
+    text: "the vet appointment got cancelled, Bella's fine",
+    items: [
+      { id: 'sample', kind: 'todo', title: "Get a sample for Bella's vet appointment", due_day: '2026-10-02', minutes: 10, note: 'upcoming' },
+      { id: 'mum', kind: 'todo', title: 'Call Mum', due_day: '2026-10-02', minutes: 20, note: 'upcoming' },
+    ],
+    meetings: [],
+    record: { travel: null, blocks: [] },
+    plan: null,
+    expect: {
+      aboutDay: true,
+      changes: [{ kinds: ['cancel', 'complete'], id: 'sample' }],
+      forbid: ['cancel:mum', 'create_todo'],
+      maxChanges: 1,
+    },
+  },
+  {
+    id: 'three-asks',
+    title: 'Three asks in one message',
+    look: 'All three on one card: skip the run, add sunscreen, pushups at 6pm.',
+    today: '2026-10-02',
+    at: '10:00',
+    text: "skip my run today, add buy sunscreen, and I'll do pushups at 6pm",
+    items: [
+      { id: 'run', kind: 'habit', title: 'Run', minutes: 30, note: 'in the plan' },
+      { id: 'pushups', kind: 'habit', title: 'Pushups', minutes: 10, note: 'habit today' },
+    ],
+    meetings: [],
+    record: { travel: null, blocks: [] },
+    plan: { status: 'locked', items: [['run', '17:00', 30]] },
+    expect: {
+      aboutDay: true,
+      changes: [
+        { kinds: ['skip_habit', 'plan_remove'], id: 'run' },
+        { kinds: ['create_todo'], title: 'sunscreen' },
+        { kinds: ['retime', 'plan_add', 'plan_move'], id: 'pushups', at: '18:00' },
+      ],
+      maxChanges: 4,
+    },
+  },
+  {
+    id: 'deck-not-today',
+    title: 'Something due later comes off today',
+    look: 'Takes the deck out of today (plan or day), never marks it done.',
+    today: '2026-10-02',
+    at: '09:20',
+    text: "the deck isn't due till Saturday, take it off today",
+    items: [
+      { id: 'deck', kind: 'todo', title: 'Send the partner deck', due_day: '2026-10-02', minutes: 60, note: 'in the plan' },
+      { id: 'mum', kind: 'todo', title: 'Call Mum', due_day: '2026-10-02', minutes: 20, note: 'in the plan' },
+    ],
+    meetings: [],
+    record: { travel: null, blocks: [] },
+    plan: { status: 'proposal', items: [['deck', '10:00', 60], ['mum', '11:50', 20]] },
+    expect: {
+      aboutDay: true,
+      changes: [{ kinds: ['move_day', 'plan_remove'], id: 'deck' }],
+      forbid: ['complete', 'cancel', 'plan_remove:mum'],
+      maxChanges: 2,
+    },
+  },
+  {
+    id: 'not-about-the-day',
+    title: 'A general question goes to normal chat',
+    look: 'about_day is false.',
+    today: '2026-10-02',
+    at: '09:30',
+    text: "what's the weather usually like in San Diego in October?",
+    items: ALEX_ITEMS,
+    meetings: [],
+    record: { travel: ['Flying to San Diego', null], blocks: [] },
+    plan: null,
+    expect: { aboutDay: false },
+  },
+  {
+    id: 'answers-the-question',
+    title: "An answer to Gremly's question",
+    look: 'Treated as about the day; no false claim; nothing invented.',
+    today: '2026-10-02',
+    at: '08:20',
+    question: 'Is your haircut this Friday or Saturday?',
+    text: 'Saturday at 10',
+    items: ALEX_ITEMS,
+    meetings: [],
+    record: { travel: null, blocks: [] },
+    plan: null,
+    expect: { aboutDay: true, forbid: ['cancel', 'complete', 'move_day'], maxChanges: 1 },
+  },
+];

@@ -1,0 +1,64 @@
+/**
+ * What every day turn must get right (the plan doc's replay checks): every
+ * ask handled in one turn, no false "done", only the changes asked for, and
+ * the changes the scenario needs.
+ */
+
+const toMin = (hhmm) => {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
+};
+
+// a reply that says a change is already made; the card only proposes
+const CLAIMS = [
+  /\b(i['’]ve|i have)\s+(\w+\s+)?(added|moved|updated|changed|cancell?ed|removed|saved|booked|scheduled|set|put|made|taken|skipped)\b/i,
+  /\ball set\b/i,
+  /^\s*done\b/i,
+  /\b(it['’]s|that['’]s|they['’]re|is|are)\s+now\s+(added|moved|updated|changed|cancell?ed|removed|saved|booked|scheduled|in)\b/i,
+];
+
+export function checkTurn(s, out) {
+  const checks = [];
+  const add = (level, name, ok, detail = '') => checks.push({ level, name, ok: !!ok, detail });
+  const e = s.expect || {};
+  add('fail', `about_day is ${e.aboutDay}`, out.about_day === e.aboutDay, String(out.about_day));
+  if (!out.about_day || !e.aboutDay) return checks;
+
+  const changes = out.changes || [];
+  const desc = changes.map((c) => `${c.kind}${c.id ? `:${c.id}` : ''}${c.start != null ? `@${c.start}` : ''}`).join(', ');
+  for (const want of e.changes || []) {
+    const hit = changes.some(
+      (c) =>
+        want.kinds.includes(c.kind) &&
+        (!want.id || c.id === want.id) &&
+        (!want.at || c.start === toMin(want.at)) &&
+        (want.travel === undefined || c.travel === want.travel) &&
+        (!want.title || String(c.title || '').toLowerCase().includes(want.title)),
+    );
+    add('fail', `Card has ${want.kinds.join('/')}${want.id ? ` ${want.id}` : ''}${want.at ? ` at ${want.at}` : ''}${want.title ? ` "${want.title}"` : ''}`, hit, desc);
+  }
+  for (const f of e.forbid || []) {
+    const [kind, id] = f.split(':');
+    const hit = changes.some((c) => c.kind === kind && (!id || c.id === id));
+    add('fail', `Card has no ${f}`, !hit, desc);
+  }
+  if (e.maxChanges !== undefined) {
+    add('fail', `At most ${e.maxChanges} changes`, changes.length <= e.maxChanges, `${changes.length}: ${desc}`);
+  }
+  for (const st of e.status || []) {
+    add('fail', `Checklist has ${st}`, (out.checklist || []).some((a) => a.status === st), JSON.stringify(out.checklist));
+  }
+  const reply = out.reply || '';
+  // the worker replaces a reply that claims a change; the model is judged on its own words
+  add(
+    'fail',
+    'Reply claims nothing as done',
+    !out.reply_claimed && !CLAIMS.some((re) => re.test(reply)),
+    reply,
+  );
+  add('fail', 'Reply is short', reply.split(/(?<=[.!?])\s+/).filter(Boolean).length <= 3, reply);
+  add('warn', 'No dashes', !/[–—]/.test(reply), reply);
+  const proposed = (out.checklist || []).filter((a) => a.status === 'proposed').length;
+  add('warn', 'Every proposed ask has a change', !proposed || changes.length > 0, JSON.stringify(out.checklist));
+  return checks;
+}

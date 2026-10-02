@@ -3470,6 +3470,7 @@ export default {
         'not-right',
         'daily-brief',
         'plan-pick',
+        'day-turn',
         'notification-test',
       ]);
       const AUTH_REQUIRED_LANES = new Set([
@@ -7869,6 +7870,35 @@ ${assistantMessage.substring(0, 2000)}
           }),
         }).catch(() => null);
         if (!res) return j({ error: 'could not reach the plan picker' }, 502);
+        return j(await res.json().catch(() => ({ error: 'bad reply' })), res.ok ? 200 : 502);
+      }
+
+      // =========================
+      // === DAY TURN (Daily brief in Chat) ===
+      // A message typed in today's thread: inngest-jobs reads it against the
+      // day record, the plan and the person's items, and returns one change
+      // set for the app's change card (or says it is not about the day).
+      // =========================
+      if (type === 'day-turn') {
+        if (!env.INNGEST_WORKER_URL || !env.INNGEST_ADMIN_KEY)
+          return j({ error: 'not configured' }, 503);
+        const res = await fetchInngestWorker(env, '/api/day-turn', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-admin-key': env.INNGEST_ADMIN_KEY },
+          body: JSON.stringify({
+            user_id: authenticatedUserId,
+            text: typeof body.text === 'string' ? body.text.slice(0, 800) : '',
+            question: typeof body.question === 'string' ? body.question.slice(0, 300) : null,
+            history: Array.isArray(body.history) ? body.history.slice(-12) : [],
+            date: typeof body.date === 'string' ? body.date : null,
+            now: body.now,
+            items: Array.isArray(body.items) ? body.items.slice(0, 80) : [],
+            meetings: Array.isArray(body.meetings) ? body.meetings.slice(0, 40) : [],
+            record: body.record && typeof body.record === 'object' ? body.record : null,
+            plan: body.plan && typeof body.plan === 'object' ? body.plan : null,
+          }),
+        }).catch(() => null);
+        if (!res) return j({ error: 'could not reach the day turn' }, 502);
         return j(await res.json().catch(() => ({ error: 'bad reply' })), res.ok ? 200 : 502);
       }
 

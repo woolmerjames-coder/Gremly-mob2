@@ -69,7 +69,7 @@ describe('the plan card', () => {
       <PlanCard meta={meta} meetings={meetings} blocks={blocks} planEnd={750} />,
     );
     expect(getByText('Leave for the airport')).toBeTruthy();
-    expect(getByText('Set time, you set off')).toBeTruthy();
+    expect(getByText('Set time, travel')).toBeTruthy();
     expect(getByText("Meeting, while you're travelling")).toBeTruthy();
     expect(getByText('Free, 8:30am to 12:30pm')).toBeTruthy();
     expect(queryByText('Free until 10pm')).toBeNull();

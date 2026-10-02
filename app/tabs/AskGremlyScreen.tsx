@@ -91,12 +91,15 @@ import { useReducedMotion } from '../../design/animations';
 import { useMascotStore } from '../../lib/store/useMascotStore';
 import { ensureDailyThread, markDailyThreadOnce } from '../../lib/repo/dailyThreadRepo';
 import type {
+  BriefChangesMeta,
   BriefDayCardMeta,
   BriefPlanMeta,
   DailyThreadMeta,
   OfferButton,
 } from '../../lib/brief/types';
 import { livePlanOf, usePlanFlow } from '../../lib/plan/usePlanFlow';
+import { useDayTurn } from '../../lib/brief/useDayTurn';
+import { ChangeCard } from '../../components/brief/ChangeCard';
 import { dayRecordFromStore } from '../../lib/plan/storePlan';
 import { creditFirstReply } from '../../lib/brief/feeding';
 import { clearFrom } from '../../lib/brief/pinned';
@@ -319,6 +322,23 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   });
   const briefOffersRef = useRef(briefOffers);
   briefOffersRef.current = briefOffers;
+  // A message typed in today's thread: one day turn, one change card
+  const dayTurn = useDayTurn({
+    threadId: isDailyThread && activeChat ? activeChat.id : null,
+    date: threadDay,
+    messages,
+    appendBriefMessage,
+    patchMessageMetadata,
+    plan: {
+      livePlan: planFlow.livePlan,
+      reviseAfterChanges: (c) => planFlowRef.current.reviseAfterChanges(c),
+      pauseSync: () => planFlowRef.current.pauseSync(),
+      resumeSync: () => planFlowRef.current.resumeSync(),
+    },
+    continueBrief: () => briefOffersRef.current.continueBrief(),
+  });
+  const dayTurnRef = useRef(dayTurn);
+  dayTurnRef.current = dayTurn;
 
   // A change to an existing item that the Worker found after the reply arrives
   // through the same poll as the pill; it is shown once, under the last reply.
@@ -614,9 +634,17 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       }
       // A typed message is a reply to the brief too (feeds Gremly once a day)
       if (isDailyThread && activeChat) void creditFirstReply(activeChat.id);
-      // Typed straight under Gremly's question, it is the reply to the question
+      // In today's thread every typed message is read against the day first
+      // (the day turn); one that is not about the day goes to chat. Typed
+      // straight under Gremly's question, it is also the reply to the question.
       if (isDailyThread && activeChat && !sending) {
+        // one turn at a time: a message sent while Gremly is still working waits
+        if (dayTurnRef.current.thinking || dayTurnRef.current.busy) return;
         const question = await briefOffersRef.current.takeTypedReply(trimmed);
+        if (await dayTurnRef.current.run(trimmed, question)) {
+          scheduleDcoRefresh();
+          return;
+        }
         if (question) {
           await sendToChat(activeChat, trimmed, { briefQuestion: question });
           return;
@@ -1090,6 +1118,17 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     ),
     [],
   );
+  const renderChanges = useCallback(
+    (message: SpaceChatMessage, meta: BriefChangesMeta) => (
+      <ChangeCard
+        meta={meta}
+        interactive={!dayTurnRef.current.busy}
+        onApply={(unticked) => void dayTurnRef.current.apply(message, unticked)}
+        onDismiss={() => void dayTurnRef.current.dismiss(message)}
+      />
+    ),
+    [],
+  );
   const renderPlan = useCallback(
     (message: SpaceChatMessage, meta: BriefPlanMeta) => (
       <BriefPlanBlock
@@ -1171,6 +1210,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             onOfferButton={handleOfferButton}
             renderDayCard={renderDayCard}
             renderPlan={renderPlan}
+            renderChanges={renderChanges}
           />
         );
       }
@@ -1197,6 +1237,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       handleOfferButton,
       renderDayCard,
       renderPlan,
+      renderChanges,
       briefOffers.busy,
       playback.playing,
     ],
@@ -1410,7 +1451,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                 )
               }
               ListFooterComponent={
-                (briefWriting || playback.typing || planFlow.typing) && isDailyThread ? (
+                (briefWriting || playback.typing || planFlow.typing || dayTurn.thinking) &&
+                isDailyThread ? (
                   <View style={styles.messageContainer} testID="brief-writing">
                     <ChatBubble
                       message={

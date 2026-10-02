@@ -38,6 +38,7 @@ import { runMinute as runNotificationsMinute } from './notifications/cron';
 import { dedupeKey as notificationKey } from './notifications/policy';
 import { handleNotificationsApi } from './notifications/api';
 import { handlePlanPickApi } from './brief/planPick';
+import { handleDayTurnApi } from './brief/dayTurn';
 import { buildDcoV4, writeDco } from './context/daily';
 import { reviewQuestions } from './context/questions';
 import { weeklySummaryContext } from './context/summaryContext';
@@ -11345,6 +11346,10 @@ const appHandler = {
     // Daily brief in Chat: the plan picker (Plan my day, typed changes to a plan), through cortex
     if (url.pathname === '/api/plan-pick' && request.method === 'POST') {
       return handlePlanPickApi(request, env, corsResponse);
+    }
+
+    if (url.pathname === '/api/day-turn' && request.method === 'POST') {
+      return handleDayTurnApi(request, env, corsResponse);
     }
 
     if (url.pathname === '/api/force-generate-dco' && request.method === 'POST') {

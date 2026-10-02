@@ -28,6 +28,7 @@ import {
   changeText,
   entriesOf,
   entryFromCandidate,
+  fitAround,
   fitPlan,
   lockText,
   namesOf,
@@ -49,6 +50,13 @@ import { DEFAULT_PLAN_END, type DayRecord } from '../brief/dayRecord';
 import { localMinutesToIso } from '../brief/time';
 import { syncPlanItems, timeSignature, type StoreTimes } from './livePlan';
 import { getDateService, nowTimestamp } from '../date/DateService';
+
+/** What the day turn's changes mean for the plan (lib/brief/applyChanges.ts). */
+export interface PlanChange {
+  add: { id: string; kind: 'todo' | 'habit'; start: number | null; minutes: number | null }[];
+  remove: string[];
+  pin: { id: string; start: number }[];
+}
 
 export interface PlanFlowDeps {
   threadId: string | null;
@@ -148,12 +156,14 @@ export function usePlanFlow(deps: PlanFlowDeps) {
   // The living plan: a time changed elsewhere (a card, Today) moves the item
   // on the card; a proposal re-fits the rest around it, and a locked plan
   // moves it on Today too.
+  // paused while the day turn applies its changes and writes a new version
+  const syncPausedRef = useRef(false);
   const storeTodos = useGremlyStore((s) => s.todos);
   const storeHabits = useGremlyStore((s) => s.habits);
   useEffect(() => {
     const msg = livePlan;
     const meta = planMetaOf(msg);
-    if (!msg || !meta || busyRef.current) return;
+    if (!msg || !meta || busyRef.current || syncPausedRef.current) return;
     const lookup = (id: string, kind: 'todo' | 'habit'): StoreTimes | undefined =>
       kind === 'habit'
         ? (storeHabits.find((h) => h.id === id) as StoreTimes | undefined)
@@ -168,16 +178,9 @@ export function usePlanFlow(deps: PlanFlowDeps) {
         .map((x) => ({ ...x, window: [x.start, x.end] as [number, number] }));
       const rest = entriesOf({ ...meta, items: sync.items.filter((x) => !moved.has(x.id)) });
       const rec = dayRecordFromStore(meta.date);
-      const busy = [...rec.busy, ...pinned.map((x) => ({ start: x.start, end: x.end }))];
-      const fit = fitPlan(rest, busy, fromFor(meta), rec.planEnd);
+      const fit = fitAround(pinned, rest, rec.busy, fromFor(meta), rec.planEnd);
       const seenOf = new Map(sync.items.map((x) => [x.id, x.seen]));
-      patch = {
-        ...fit,
-        items: [...pinned, ...fit.items.map((x) => ({ ...x, seen: seenOf.get(x.id) }))].sort(
-          (a, b) => a.start - b.start,
-        ),
-        order: [...pinned.map((x) => x.id), ...(fit.order ?? [])],
-      };
+      patch = { ...fit, items: fit.items.map((x) => ({ ...x, seen: seenOf.get(x.id) })) };
     } else if (moved.size && meta.status === 'locked') {
       // Today follows the card: the planned start moves with the item
       const s = useGremlyStore.getState();
@@ -560,6 +563,83 @@ export function usePlanFlow(deps: PlanFlowDeps) {
     [addPlan, replaceOpen, run, say, start],
   );
 
+  /**
+   * After the day turn's changes: a new version of the plan with what was
+   * added, taken out or given a time, re-fitted around the day as it is now
+   * (set times, setting off). Nothing when there is no plan yet.
+   */
+  const reviseAfterChanges = useCallback(
+    (change: PlanChange) =>
+      run(async () => {
+        const d = depsRef.current;
+        const live = livePlanOf(d.messages);
+        const meta = planMetaOf(live);
+        if (!live || !meta) return;
+        const wasLocked = meta.status === 'locked';
+        const from = fromFor(meta);
+        const st = useGremlyStore.getState();
+        // titles as they are now (a rename on the card)
+        const titleOf = (id: string, kind: string): string | null => {
+          const x =
+            kind === 'habit'
+              ? st.habits.find((h) => h.id === id)
+              : st.todos.find((t) => t.id === id);
+          return (x as { name?: string; title?: string } | undefined)?.name || null;
+        };
+        const remove = new Set(change.remove);
+        const pins = new Map(change.pin.map((p) => [p.id, p.start]));
+        const entries = entriesOf(meta)
+          .filter((e) => !remove.has(e.id))
+          .map((e) => ({ ...e, title: titleOf(e.id, e.kind) ?? e.title }));
+        const pool = poolWith(entries, meta.date);
+        for (const a of change.add) {
+          if (a.start !== null) pins.set(a.id, a.start);
+          if (entries.some((e) => e.id === a.id)) continue;
+          const c = pool.find((x) => x.id === a.id) ?? candidateFromStore(a.id, a.kind);
+          if (!c) continue;
+          if (!pool.some((x) => x.id === c.id)) pool.push(c);
+          const e = entryFromCandidate(c, from);
+          entries.push({ ...e, minutes: a.minutes ?? e.minutes });
+        }
+        const rec = dayRecordFromStore(meta.date);
+        const pinned: PlanItem[] = entries
+          .filter((e) => pins.has(e.id))
+          .map((e) => {
+            const start = pins.get(e.id)!;
+            return {
+              id: e.id,
+              kind: e.kind,
+              title: e.title,
+              start,
+              end: start + e.minutes,
+              reason: e.reason,
+              window: [start, start + e.minutes] as [number, number],
+              minutes: e.minutes,
+              fromFact: e.fromFact,
+            };
+          });
+        const fit = fitAround(
+          pinned,
+          entries.filter((e) => !pins.has(e.id)),
+          rec.busy,
+          from,
+          rec.planEnd,
+        );
+        await replaceOpen(true, meta.date);
+        if (wasLocked) await say(PLAN_COPY.relockAfterChanges);
+        await addPlan(fit, pool, meta.date);
+      }),
+    [addPlan, replaceOpen, run, say],
+  );
+
+  /** The living plan waits while the day turn applies its changes. */
+  const pauseSync = useCallback(() => {
+    syncPausedRef.current = true;
+  }, []);
+  const resumeSync = useCallback(() => {
+    syncPausedRef.current = false;
+  }, []);
+
   /** What can wait? (data, no model), with what to do next. */
   const answerWhatCanWait = useCallback(
     (fromOffer?: BriefOfferMeta | null) =>
@@ -657,5 +737,8 @@ export function usePlanFlow(deps: PlanFlowDeps) {
     answerWhatCanWait,
     editFromText,
     addKept,
+    reviseAfterChanges,
+    pauseSync,
+    resumeSync,
   };
 }

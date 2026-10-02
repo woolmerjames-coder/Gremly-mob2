@@ -9,6 +9,9 @@
  * draws them from data each time they are shown.
  */
 
+import type { DayChange } from '../cortex/CortexClient';
+import type { ThreadBlock } from './dayRecord';
+
 /** The part of the day a brief was written for. */
 export type DayPart = 'morning' | 'afternoon' | 'evening';
 
@@ -18,7 +21,8 @@ export type BriefMessageType =
   | 'brief-offer'
   | 'brief-plan'
   | 'brief-event'
-  | 'brief-reply';
+  | 'brief-reply'
+  | 'brief-changes';
 
 /** Fields every brief message carries. */
 interface BriefMetaBase {
@@ -164,13 +168,32 @@ export interface BriefReplyMeta extends BriefMetaBase {
   action: OfferAction;
 }
 
+/**
+ * The day turn's card: every change it proposes for one message, each with a
+ * tick, and Apply or Not now (lib/brief/useDayTurn.ts).
+ */
+export interface BriefChangesMeta extends BriefMetaBase {
+  type: 'brief-changes';
+  changes: DayChange[];
+  /** What was asked, each proposed, needing an answer, not possible here or noted */
+  checklist?: { ask: string; status: 'proposed' | 'needs_answer' | 'not_possible' | 'noted' }[];
+  status: 'open' | 'applied' | 'dismissed';
+  /** Changes the person unticked */
+  unticked?: string[];
+  /** After Apply: the changes made, and any that could not be */
+  applied?: string[];
+  failed?: string[];
+  prompt_version?: string;
+}
+
 export type BriefMeta =
   | BriefTextMeta
   | BriefDayCardMeta
   | BriefOfferMeta
   | BriefPlanMeta
   | BriefEventMeta
-  | BriefReplyMeta;
+  | BriefReplyMeta
+  | BriefChangesMeta;
 
 /** scope_chats.metadata_json on a daily thread. */
 export interface DailyThreadMeta {
@@ -185,4 +208,10 @@ export interface DailyThreadMeta {
   brief_written_at?: string | null;
   /** Set once a later first open has asked for a fresh brief */
   rewrite_requested_at?: string | null;
+  /** Set times added in the thread (lib/brief/dayRecord.ts) */
+  fixed_blocks?: ThreadBlock[];
+  /** Set times from memory taken off the day in the thread */
+  fixed_removed?: string[];
+  /** Habits skipped today in the thread: not planned again today */
+  skipped_habits?: string[];
 }

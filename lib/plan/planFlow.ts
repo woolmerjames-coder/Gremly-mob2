@@ -117,6 +117,31 @@ export function fitPlan(
   };
 }
 
+/**
+ * Fit a plan where some items have a time the person set (a card, the day
+ * turn): those stay exactly there, and everything else is fitted around them,
+ * the meetings and the set times.
+ */
+export function fitAround(
+  pinned: PlanItem[],
+  rest: PlanEntry[],
+  busy: Busy[],
+  from: number,
+  dayEnd: number = PLAN_DAY_END,
+): Pick<BriefPlanMeta, 'items' | 'unplaced' | 'order' | 'from'> {
+  const fit = fitPlan(
+    rest,
+    [...busy, ...pinned.map((x) => ({ start: x.start, end: x.end }))],
+    from,
+    dayEnd,
+  );
+  return {
+    ...fit,
+    items: [...pinned, ...fit.items].sort((a, b) => a.start - b.start),
+    order: [...pinned.map((x) => x.id), ...(fit.order ?? [])],
+  };
+}
+
 /** Apply one change. A move with no time asks for later than where it is now. */
 export function applyOp(
   entries: PlanEntry[],
@@ -254,6 +279,7 @@ export const PLAN_COPY = {
   dismissed: "No problem. It'll be right here if you want it later.",
   alreadyLocked: "It's already locked in. Tell me what to change and I'll rework it.",
   relock: ' Lock it in again to update Today.',
+  relockAfterChanges: "Here's the plan with those changes. Lock it in again to update Today.",
   thanks: 'Any time.',
   keptReason: 'Kept for today',
 };

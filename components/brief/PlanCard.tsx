@@ -233,7 +233,7 @@ export function PlanCard({
                       : `Meeting, ${duration(r.end - r.start)}`
                     : r.type === 'fixed'
                       ? r.travel
-                        ? 'Set time, you set off'
+                        ? 'Set time, travel'
                         : 'Set time'
                       : `${duration(r.end - r.start)}${r.reason ? `, ${r.reason}` : ''}`}
                 </Text>

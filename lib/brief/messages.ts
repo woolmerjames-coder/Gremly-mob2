@@ -13,6 +13,7 @@ const BRIEF_TYPES: ReadonlySet<string> = new Set<BriefMessageType>([
   'brief-plan',
   'brief-event',
   'brief-reply',
+  'brief-changes',
 ]);
 
 /** The brief metadata on a message, or null when it is an ordinary chat message. */

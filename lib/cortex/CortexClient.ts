@@ -2183,6 +2183,99 @@ export async function callPlanPick(
   }
 }
 
+/** One change on the day turn's card (workers/inngest-jobs/brief/dayTurn.js). */
+export interface DayChange {
+  /** c1, c2, … within its card */
+  cid: string;
+  kind:
+    | 'create_todo'
+    | 'retime'
+    | 'move_day'
+    | 'rename'
+    | 'complete'
+    | 'cancel'
+    | 'skip_habit'
+    | 'add_block'
+    | 'remove_block'
+    | 'plan_add'
+    | 'plan_remove'
+    | 'plan_move';
+  /** The card's words, written by the worker from the change */
+  label: string;
+  /** The item or set time it changes */
+  id?: string;
+  item?: 'todo' | 'habit';
+  title: string;
+  /** Minutes from local midnight */
+  start?: number | null;
+  end?: number | null;
+  day?: string;
+  minutes?: number | null;
+  travel?: boolean;
+  /** rename: the title before */
+  was?: string;
+}
+
+export interface DayTurnRequest {
+  text: string;
+  question: string | null;
+  history: { role: 'user' | 'assistant'; content: string }[];
+  date: string;
+  /** Minutes from local midnight */
+  now: number;
+  items: {
+    id: string;
+    kind: 'todo' | 'habit';
+    title: string;
+    due_day: string | null;
+    due_time: string | null;
+    minutes: number | null;
+    note: string;
+  }[];
+  meetings: { title: string; start: number; end: number }[];
+  record: {
+    travel: { label: string | null; departs: number | null } | null;
+    blocks: { id: string; title: string; start: number; end: number | null; travel: boolean }[];
+    plan_end: number;
+  };
+  plan: {
+    status: 'proposal' | 'locked';
+    items: { id: string; kind: string; title: string; start: number; end: number }[];
+  } | null;
+}
+
+export interface DayTurnResponse {
+  about_day: boolean;
+  checklist?: { ask: string; status: 'proposed' | 'needs_answer' | 'not_possible' | 'noted' }[];
+  changes?: DayChange[];
+  reply?: string | null;
+  model?: string;
+  prompt_version?: string;
+}
+
+/** A message typed in today's thread, read against the day (the day turn). */
+export async function callDayTurn(
+  req: DayTurnRequest,
+): Promise<CortexClientResult<DayTurnResponse>> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return { ok: false, error: '[cortex] Missing EXPO_PUBLIC_CORTEX_URL' };
+  const token = await getSessionToken();
+  if (!token) return { ok: false, error: 'not signed in' };
+  try {
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ type: 'day-turn', ...req }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.error)
+      return { ok: false, error: String(data?.error || res.status), status: res.status };
+    return { ok: true, data };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
 /**
  * Notification Lab (testers): a real send through the real sender to this
  * person's own phones, marked as a test. The server checks the tester flag.

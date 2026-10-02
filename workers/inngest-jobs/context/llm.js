@@ -23,6 +23,9 @@ export const MODELS = {
   briefFallback: { provider: 'openai', model: 'gpt-6-luna' },
   planPick: { provider: 'openai', model: 'gpt-6-luna' },
   planPickFallback: { provider: 'google', model: 'gemini-3.8-flash' },
+  // the day turn in today's thread: chosen on the replay suite (scripts/day-replay)
+  dayTurn: { provider: 'openai', model: 'gpt-6-luna' },
+  dayTurnFallback: { provider: 'google', model: 'gemini-3.8-flash' },
 };
 
 export function modelFor(env, job) {

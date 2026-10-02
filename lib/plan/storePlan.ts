@@ -36,6 +36,11 @@ export function poolFromStore(): Candidate[] {
     count?: number;
   }[];
   const { brief } = readDco(s.dco);
+  // habits skipped today in the thread are not planned again today
+  const meta = useTodayThread.getState().thread?.metadata_json as
+    | { ritual_day?: string; skipped_habits?: string[] }
+    | undefined;
+  const skipped = new Set(meta?.ritual_day === today ? (meta.skipped_habits ?? []) : []);
   return buildCandidatePool({
     today,
     todosDueToday: selectTodosDueToday(s as any),
@@ -49,7 +54,7 @@ export function poolFromStore(): Candidate[] {
     claims: brief?.claims ?? [],
     reach: brief?.reach ?? null,
     blocks: s.timeBlockPreferences,
-  });
+  }).filter((c) => !skipped.has(c.id));
 }
 
 /** A todo or habit picked from Due today that is not in today's pool. */
