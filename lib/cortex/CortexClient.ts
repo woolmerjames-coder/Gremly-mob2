@@ -2132,6 +2132,8 @@ export interface PlanPickRequest {
     minutes: number | null;
     why: string;
     window: [number, number] | null;
+    /** Kept for today in Sweep just now: always in the plan */
+    kept?: boolean;
   }[];
   meetings: { title: string; start: number; end: number }[];
   live_plan?: { id: string; start: number; end: number }[];

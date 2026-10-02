@@ -224,6 +224,31 @@ describe('decide', () => {
     expect(v.facts.waiting_in_sweep).toBe(3);
   });
 
+  it('gives the words what makes a day not clear: habits, Sweep and what is dated today', async () => {
+    // 2 October for Dave: no meetings, nothing due, but habits, Sweep and a trip
+    gatherBrief.mockResolvedValue({
+      now: 7 * 60,
+      meetings: [],
+      today: '2026-10-02',
+      ritualDay: '2026-10-02',
+      todosDue: [],
+      habitsForToday: [{ id: 'h1' }, { id: 'h2' }, { id: 'h3' }],
+      sweepWaiting: 10,
+      anchors: [
+        { date: '2026-10-02', short_label: 'Flying to San Diego' },
+        { date: '2026-10-07', short_label: 'Anniversary' },
+      ],
+    });
+    const v = await decide(ON, job, { at: AT });
+    expect(v.facts).toMatchObject({
+      meetings_today: 0,
+      due_today: 0,
+      habits_today: 3,
+      waiting_in_sweep: 10,
+      dated_today: ['Flying to San Diego'],
+    });
+  });
+
   it('leaves the number out rather than guess when it cannot be counted', async () => {
     mockTables.todos = () => {
       throw new Error('database down');

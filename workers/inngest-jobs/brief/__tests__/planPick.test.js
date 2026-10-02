@@ -61,6 +61,29 @@ describe('the plan picker', () => {
     ]);
   });
 
+  it('always holds what was kept for today in Sweep, picked or not', () => {
+    const req = readRequest({
+      ...BODY,
+      pool: [
+        { ...BODY.pool[0], kept: true },
+        { id: 'todo-2', kind: 'todo', title: 'Fix the input box', minutes: null, kept: true },
+        BODY.pool[1],
+      ],
+    });
+    const text = renderPlanInput(req, { claims: [], reach: null });
+    expect(text).toContain('p1 | todo | Buy Oat Milk | 15 min | kept for today in Sweep just now');
+    const { picks } = checkPicks(
+      { picks: [{ ref: 'p1', after: '14:00', before: '16:00', minutes: 15, reason: 'Kept' }] },
+      req,
+    );
+    expect(picks.map((p) => [p.id, p.reason])).toEqual([
+      ['todo-1', 'Kept'],
+      // left out by the model, put back by code
+      ['todo-2', 'Kept for today'],
+    ]);
+    expect(picks[1]).toMatchObject({ window: [795, 1320], minutes: 30, estimated: true });
+  });
+
   it('reads a typed change as operations by item', () => {
     const req = readRequest({ ...BODY, mode: 'edit', text: 'move the run after 6', live_plan: [] });
     expect(

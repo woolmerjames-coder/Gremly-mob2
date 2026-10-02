@@ -35,6 +35,19 @@ export function checkBrief(g, offer, out) {
     (offer.kind === 'none' ? true : !!out.offer) && !out.offerDropped,
     out.offerDropped ? `bad refs ${out.offerDropped.bad.join(', ')}` : '',
   );
+  for (const words of g.forbid || []) {
+    const hit = texts.filter((t) => t.toLowerCase().includes(words.toLowerCase()));
+    add('fail', `Never says "${words}"`, hit.length === 0, hit.join(' | '));
+  }
+  if (Number.isFinite(g.sweepWaiting) && ['sweep', 'return'].includes(offer.kind)) {
+    const counts = (out.offer || '').replace(TIMES, '').match(/\d+/g) || [];
+    add(
+      'fail',
+      `Any Sweep number named is ${g.sweepWaiting}, as the day card shows`,
+      counts.every((n) => Number(n) === g.sweepWaiting),
+      out.offer || '',
+    );
+  }
   const should = texts.filter((t) => /\bshould\b/i.test(t));
   add('fail', 'Never says "should"', should.length === 0, should.join(' | '));
 

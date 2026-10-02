@@ -8,6 +8,7 @@ import { db, userTimezone, localDate, addDays, personIdentity } from '../context
 import { buildDcoV4, writeDco } from '../context/daily';
 import { dayOfWeekNumber, isBehindThisWeek, mondayOf, weeklyTarget } from './behind';
 import { readThreadReaction } from './reaction';
+import { sweepWaiting } from '../notifications/sweepCount';
 
 export const PLAN_DAY_START = 8 * 60;
 export const PLAN_DAY_END = 22 * 60;
@@ -129,32 +130,44 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
   const dayEnd = localStartIso(tz, addDays(today, 1));
   const monday = mondayOf(today);
 
-  const [dcoResult, person, synced, noteEvents, quickEvents, todos, notes, habits, progress] =
-    await Promise.all([
-      todaysDco(env, userId, tz, today),
-      personIdentity(env, userId),
-      d.select(
-        `synced_calendar_events?owner_id=eq.${userId}&archived=eq.false&start_at=gte.${encodeURIComponent(dayStart)}&start_at=lt.${encodeURIComponent(dayEnd)}&select=id,title,start_at,end_at,is_all_day&order=start_at.asc&limit=100`,
-      ),
-      d.select(
-        `notes?owner_id=eq.${userId}&subtype=eq.event&archived=eq.false&external_source=is.null&target_date=eq.${today}&select=id,title,event_time,end_date&limit=50`,
-      ),
-      d.select(
-        `calendar_events?owner_id=eq.${userId}&event_date=eq.${today}&select=id,title,event_time,duration_minutes&limit=50`,
-      ),
-      d.select(
-        `todos?owner_id=eq.${userId}&completed_at=is.null&archived=eq.false&select=id,name,title,due_day,commitment,time_estimate_minutes,created_at,skipped_in_sweep_at,resurface_at,scheduled_start_iso&limit=1000`,
-      ),
-      d.select(
-        `notes?owner_id=eq.${userId}&archived=eq.false&external_source=is.null&swept_at=is.null&subtype=in.(idea,catchall,list,reference)&created_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -6)))}&select=id&limit=500`,
-      ),
-      d.select(
-        `habits?owner_id=eq.${userId}&archived=eq.false&select=id,name,title,cadence,target_per_period,days_active,subtype,start_date,end_date,time_estimate_minutes,scheduled_start_iso&limit=200`,
-      ),
-      d.select(
-        `habit_progress?owner_id=eq.${userId}&occurred_day=gte.${monday}&occurred_day=lte.${today}&select=habit_id,occurred_day&limit=2000`,
-      ),
-    ]);
+  const [
+    dcoResult,
+    person,
+    synced,
+    noteEvents,
+    quickEvents,
+    todos,
+    notes,
+    habits,
+    progress,
+    waiting,
+  ] = await Promise.all([
+    todaysDco(env, userId, tz, today),
+    personIdentity(env, userId),
+    d.select(
+      `synced_calendar_events?owner_id=eq.${userId}&archived=eq.false&start_at=gte.${encodeURIComponent(dayStart)}&start_at=lt.${encodeURIComponent(dayEnd)}&select=id,title,start_at,end_at,is_all_day&order=start_at.asc&limit=100`,
+    ),
+    d.select(
+      `notes?owner_id=eq.${userId}&subtype=eq.event&archived=eq.false&external_source=is.null&target_date=eq.${today}&select=id,title,event_time,end_date&limit=50`,
+    ),
+    d.select(
+      `calendar_events?owner_id=eq.${userId}&event_date=eq.${today}&select=id,title,event_time,duration_minutes&limit=50`,
+    ),
+    d.select(
+      `todos?owner_id=eq.${userId}&completed_at=is.null&archived=eq.false&select=id,name,title,due_day,commitment,time_estimate_minutes,created_at,skipped_in_sweep_at,resurface_at,scheduled_start_iso&limit=1000`,
+    ),
+    d.select(
+      `notes?owner_id=eq.${userId}&archived=eq.false&external_source=is.null&swept_at=is.null&subtype=in.(idea,catchall,list,reference)&created_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -6)))}&select=id&limit=500`,
+    ),
+    d.select(
+      `habits?owner_id=eq.${userId}&archived=eq.false&select=id,name,title,cadence,target_per_period,days_active,subtype,start_date,end_date,time_estimate_minutes,scheduled_start_iso&limit=200`,
+    ),
+    d.select(
+      `habit_progress?owner_id=eq.${userId}&occurred_day=gte.${monday}&occurred_day=lte.${today}&select=habit_id,occurred_day&limit=2000`,
+    ),
+    // the number Sweep itself shows (the app's rules); null when it cannot be counted
+    sweepWaiting(env, userId, { today, tz }).catch(() => null),
+  ]);
   const dco = dcoResult.dco;
 
   // Today's timed calendar entries, in local minutes. Cancelled ones are left out.
@@ -289,6 +302,7 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
     todosDue,
     overdue: overdue.length,
     unsorted,
+    sweepWaiting: Number.isFinite(waiting) ? waiting : null,
     habits: habitView,
     habitsForToday,
     candidates,

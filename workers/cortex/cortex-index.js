@@ -206,7 +206,7 @@ import { handleHabitRead } from './habitRead.js';
 import { fetchItemDetail, itemDetailText, handleItemTopics } from './itemDetail.js';
 import { configureModels, models, helperModel } from './models.js';
 import { helperFetch } from './helperClient.js';
-import { briefQuestionSection } from './briefTurn.js';
+import { briefNoCardSection, briefQuestionSection } from './briefTurn.js';
 import { relateDrop } from './minddropRelate.js';
 import {
   matchEntity,
@@ -12797,6 +12797,9 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             // today's thread: the reply to the brief's question (a card's own
             // instructions come first when one is shown)
             if (!entityCard) genConfig.systemPrompt += briefQuestionSection(body.briefQuestion);
+            // today's thread with no card: nothing changes, so nothing is claimed
+            if (!entityCard && body.chatSurface === 'brief')
+              genConfig.systemPrompt += briefNoCardSection();
 
             const chatMessages = [
               { role: 'system', content: genConfig.systemPrompt },

@@ -1,4 +1,10 @@
-import { compareSweep, sweepEventText, sweepFollowUp, type SweepSnapshot } from '../sweepHandoff';
+import {
+  compareSweep,
+  names,
+  sweepEventText,
+  sweepFollowUp,
+  type SweepSnapshot,
+} from '../sweepHandoff';
 
 jest.mock('../../store/useGremlyStore', () => ({
   useGremlyStore: { getState: () => ({}) },
@@ -59,5 +65,14 @@ describe('handing Sweep back to the thread', () => {
       sweepFollowUp({ swept: 2, kept: [], allDone: false }, { livePlan: true, planFrom: 795 })
         .buttons,
     ).toEqual([]);
+  });
+});
+
+describe('naming what was kept', () => {
+  it('names two at most, then counts the rest', () => {
+    expect(names(['Call Mum'])).toBe('Call Mum');
+    expect(names(['A', 'B'])).toBe('A and B');
+    expect(names(['A', 'B', 'C'])).toBe('A, B and C');
+    expect(names(['A', 'B', 'C', 'D', 'E', 'F'])).toBe('A, B and 4 more');
   });
 });

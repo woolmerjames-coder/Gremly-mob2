@@ -145,7 +145,9 @@ export function buildCandidatePool(input: PoolInput): Candidate[] {
   }
   // 2. Already on Today
   if (input.forToday !== false) {
-    for (const t of input.todos) if (t.commitment) addTodo(t, 'On Today', 'today');
+    // a Lock In counts for the day it is due, as Today shows it (selectLockedTodos)
+    for (const t of input.todos)
+      if (t.commitment && t.due_day === input.today) addTodo(t, 'On Today', 'today');
     for (const h of input.habits)
       if (input.lockedHabitIds.has(h.id)) addHabit(h, 'On Today', 'today');
   }

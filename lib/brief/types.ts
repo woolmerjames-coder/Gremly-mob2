@@ -102,6 +102,8 @@ export interface BriefOfferMeta extends BriefMetaBase {
   revealed_from?: string;
   /** The plan offer this one brings back after a change made in the thread (once) */
   brought_back_from?: string;
+  /** After Sweep: what was kept for today, so the plan holds it */
+  kept_ids?: string[];
 }
 
 export type PlanStatus = 'proposal' | 'replaced' | 'dismissed' | 'locked';

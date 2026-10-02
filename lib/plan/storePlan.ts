@@ -112,6 +112,27 @@ export function poolForDay(day: string): Candidate[] {
 }
 
 /**
+ * A new day: a todo's Lock In is for the day it was made, so one made on an
+ * earlier day comes off and does not return in Sweep or in the plan. Habits
+ * keep their own end date (commitment_until).
+ */
+export function expireOldLockIns(today: string): number {
+  const s = useGremlyStore.getState();
+  let expired = 0;
+  for (const t of s.todos) {
+    if (!t.commitment || t.completed_at || t.archived) continue;
+    const started = t.commitment_started_at ? localDateOf(t.commitment_started_at) : null;
+    const day = started ?? t.due_day ?? null;
+    if (!day || day >= today) continue;
+    expired++;
+    void s
+      .removeCommitment(t.id, 'todo')
+      .catch((err: unknown) => console.warn('[Plan] could not expire a Lock In', t.id, err));
+  }
+  return expired;
+}
+
+/**
  * A new day: times placed on earlier days come off their todos and habits,
  * so yesterday's plan never shows on Today. Times placed for today (a plan
  * locked yesterday for tomorrow) or later stay.

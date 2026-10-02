@@ -115,10 +115,13 @@ export function sweepEventText(o: SweepOutcome): string {
   return `Swept ${o.swept} ${o.swept === 1 ? 'thing' : 'things'}${o.kept.length ? `, ${o.kept.length} kept for today` : ''}`;
 }
 
-function names(titles: string[]): string {
-  // titles as the person typed them (changing case by rule gets names wrong)
+/** Two names at most, then a count: "A, B and 4 more" (titles as the person typed them). */
+export function names(titles: string[]): string {
   const t = titles;
-  return t.length <= 1 ? t.join('') : `${t.slice(0, -1).join(', ')} and ${t[t.length - 1]}`;
+  if (t.length <= 1) return t.join('');
+  if (t.length === 2) return `${t[0]} and ${t[1]}`;
+  if (t.length === 3) return `${t[0]}, ${t[1]} and ${t[2]}`;
+  return `${t[0]}, ${t[1]} and ${t.length - 2} more`;
 }
 
 /** Gremly's follow-up after Sweep, and its buttons. */

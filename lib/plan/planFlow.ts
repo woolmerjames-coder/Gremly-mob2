@@ -244,6 +244,7 @@ export const PLAN_COPY = {
   alreadyLocked: "It's already locked in. Tell me what to change and I'll rework it.",
   relock: ' Lock it in again to update Today.',
   thanks: 'Any time.',
+  keptReason: 'Kept for today',
 };
 
 /** Gremly's line after a change. */

@@ -12,7 +12,7 @@
 import { CARE_RULES, WRITING_RULES, PRIVATE_RULES, personBlock } from '../careRules';
 import { jsonCall, modelFor } from '../context/llm';
 
-export const BRIEF_PROMPT_VERSION = 'brief-2026-10-01d';
+export const BRIEF_PROMPT_VERSION = 'brief-2026-10-02a';
 
 function trim(text, n) {
   const s = String(text || '')
@@ -130,7 +130,7 @@ export function renderBriefInput(g, offer) {
     .map((a) => `${a.date} | ${trim(a.short_label || a.label, 120)}`);
   L.push(`DATED THINGS AHEAD (shown on the day card already): ${anchorLines.join('; ') || 'none'}`);
   L.push('');
-  L.push(`WAITING IN SWEEP: ${g.overdue} past their dates, ${g.unsorted} unsorted drops.`);
+  L.push(`WAITING IN SWEEP: ${sweepLine(g)}`);
   if (g.reaction) L.push(g.reaction);
   L.push('');
   L.push(`THE OFFER, DECIDED IN CODE: ${offerBrief(offer, g)}`);
@@ -147,12 +147,23 @@ export function clashesAhead(g) {
   return (g.clashes || []).filter(([a, b]) => a.end > g.now && b.end > g.now);
 }
 
+/**
+ * What waits in Sweep, as the day card shows it. Any number Gremly names is
+ * the one Sweep shows; the split says why Sweep is offered.
+ */
+export function sweepLine(g) {
+  const why = `${g.overdue} past their dates, ${g.unsorted} with no day yet`;
+  return Number.isFinite(g.sweepWaiting)
+    ? `${g.sweepWaiting}, the number Sweep and the day card show; any number named is this one (of them, ${why}).`
+    : `${why}. The total is not known, so name no number.`;
+}
+
 function offerBrief(offer, g) {
   switch (offer.kind) {
     case 'return':
-      return `return day. Things piled up while they were away (${g.overdue} past their dates, ${g.unsorted} unsorted). Sweep is offered first, beside "Catch me up" and "Just today".`;
+      return `return day. Things piled up while they were away (waiting in Sweep: ${sweepLine(g)}). Sweep is offered first, beside "Catch me up" and "Just today".`;
     case 'sweep':
-      return `a messy backlog (${g.overdue} past their dates, ${g.unsorted} unsorted). Sweep is offered first; planning comes after, around what they keep.`;
+      return `things are waiting to be sorted (waiting in Sweep: ${sweepLine(g)}). Sweep is offered first; planning comes after, around what they keep. Never call what is waiting messy or a backlog.`;
     case 'plan':
       return `planning. "${offer.buttons[0].label}" is offered, to fit a few things into the clear stretch from ${fromTime(offer.plan.gapFrom, g.now)}${g.reach ? ', with the reach item added' : ''}.`;
     default:
@@ -194,7 +205,8 @@ ${CARE_RULES}
 WHAT YOU WRITE
 - lines: two or three short chat messages, each its own entry in lines and each one or two sentences, read in the part of the day given in TIME NOW. They give one read of the day: what shapes it, the one or two things that matter, and when it is clear. A meeting that is already over is never described as coming up; at noon or later, write about the rest of the day. When nothing is left today, one line is enough.
 - Every meeting, todo, habit or reach item a line names is cited in that line's refs, by the refs given in the input. Refs go only in the refs fields, never in the text. Name nothing that is not in the input. Times come from the input as given; never work out or add up times or counts yourself.
-- Talk about todos and habits the way a person would say them in conversation, rather than pasting a title in as the subject of a sentence.
+- Talk about todos and habits the way a person would say them in conversation, rather than pasting a title in as the subject of a sentence. Name a todo as the action itself, in the words a person would say out loud, never as an -ing word or a list of titles. Read each line back as speech: it must be grammatical and sound like something a friend would say aloud.
+- Say an occasion falls today (a birthday, an anniversary, a launch) only when the input gives that occasion's own date as today. A trip, plan, task or present named after an occasion does not date the occasion itself.
 - Mention a clash only when the input lists one still ahead.
 - The day is counted to 10pm only so planning has an end; never say the day runs until 10pm or mention that end.
 - The DCO has already decided what matters (its claims), the one undated thing worth suggesting (its reach), the question and the welcome. Phrase those decisions; never choose different ones. Mention the reach only with the reason given for it.

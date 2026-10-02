@@ -15,7 +15,7 @@ import {
   minutesIn,
   localStartIso,
 } from '../data';
-import { checkRefs, clockTime, noDashes, renderBriefInput, stripRefs } from '../writer';
+import { checkRefs, clockTime, noDashes, renderBriefInput, stripRefs, sweepLine } from '../writer';
 import { summariseThread } from '../reaction';
 import { dueForBrief, fallbackOffer } from '../index';
 
@@ -375,5 +375,20 @@ describe('cancelled calendar entries', () => {
     expect(isCancelledEntry({ id: 'row-3', title: 'Cancellation policy review' }, ids)).toBe(false);
     expect(isCancelledEntry({ id: 'row-5', title: 'Cancelled flights review' }, ids)).toBe(false);
     expect(isCancelledEntry({ id: 'row-4', title: 'Search connect' }, undefined)).toBe(false);
+  });
+});
+
+describe('the Sweep number the brief may name', () => {
+  it('is the number Sweep and the day card show, with the split as the reason', () => {
+    // 2 October: six drops with no day, ten cards in Sweep
+    const line = sweepLine({ overdue: 0, unsorted: 7, sweepWaiting: 10 });
+    expect(line).toMatch(/^10, the number Sweep and the day card show/);
+    expect(line).toContain('0 past their dates, 7 with no day yet');
+  });
+
+  it('names no number when Sweep could not be counted', () => {
+    const line = sweepLine({ overdue: 2, unsorted: 3, sweepWaiting: null });
+    expect(line).toContain('name no number');
+    expect(line).not.toContain('the number Sweep');
   });
 });

@@ -323,12 +323,13 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   // A change to an existing item that the Worker found after the reply arrives
   // through the same poll as the pill; it is shown once, under the last reply.
   const shownLateCardRef = useRef<string | null>(null);
+  // (once the chat's own messages are in, so a card already shown is seen)
   useEffect(() => {
-    if (!lateCard?.card || !activeChat) return;
+    if (!lateCard?.card || !activeChat || !threadLoaded) return;
     if (shownLateCardRef.current === lateCard.at) return;
     shownLateCardRef.current = lateCard.at;
     appendEntityCard(lateCard.card);
-  }, [lateCard, activeChat, appendEntityCard]);
+  }, [lateCard, activeChat, threadLoaded, appendEntityCard]);
 
   // Word buffer flush (batches words at 50ms intervals, 3 at a time)
   const flushWordBuffer = useCallback(() => {
@@ -1064,6 +1065,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             kind: 'follow_up',
             buttons: follow.buttons,
             plan_from: planFrom ?? undefined,
+            // a plan made from here holds what was kept
+            kept_ids: outcome.kept.length ? outcome.kept.map((k) => k.id) : undefined,
           });
         } else if (p.offerId && p.offer) {
           // closed before deciding anything: the offer's buttons come back

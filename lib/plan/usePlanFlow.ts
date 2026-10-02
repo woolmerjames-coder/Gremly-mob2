@@ -221,6 +221,8 @@ export function usePlanFlow(deps: PlanFlowDeps) {
           await say(PLAN_COPY.nothingToPlan);
           return;
         }
+        // kept for today in Sweep just now: always in the plan
+        const kept = new Set(fromOffer?.kept_ids ?? []);
         setTyping(true);
         const res = await callPlanPick({
           mode: 'pick',
@@ -233,6 +235,7 @@ export function usePlanFlow(deps: PlanFlowDeps) {
             minutes: c.minutes,
             why: c.why,
             window: c.window,
+            ...(kept.has(c.id) ? { kept: true } : {}),
           })),
           meetings: meetings.map((m) => ({ title: m.title, start: m.start, end: m.end })),
           for_day: day,
@@ -268,6 +271,12 @@ export function usePlanFlow(deps: PlanFlowDeps) {
             entries.push(e);
             budget -= e.minutes;
             if (entries.length >= 4) break;
+          }
+        }
+        for (const id of kept) {
+          const c = byId.get(id);
+          if (c && !entries.some((e) => e.id === id)) {
+            entries.push({ ...entryFromCandidate(c, from), reason: PLAN_COPY.keptReason });
           }
         }
         const fit = fitPlan(entries, meetings, from);

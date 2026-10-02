@@ -282,7 +282,7 @@ export async function decide(env, job, { at = new Date(), heldSoFar = 0 } = {}) 
       ['engaged', 'drifting'].includes(person.state))
   ) {
     g = await gatherBrief(env, job.user_id, { at }).catch(() => null);
-    if (g) {
+    if (g && !Number.isFinite(g.sweepWaiting)) {
       // counted by the app's own Sweep rules; null (no number at all) if it fails
       g.sweepWaiting = await sweepWaiting(env, job.user_id, {
         today: person.today,
@@ -335,6 +335,12 @@ function briefFacts(g) {
     first_meeting: g.meetings?.[0] ? clock(g.meetings[0].start) : null,
     due_today: (g.todosDue || []).length,
     due_today_titles: titles(g.todosDue),
+    habits_today: (g.habitsForToday || []).length,
+    // a trip, an event or an occasion dated today
+    dated_today: (g.anchors || [])
+      .filter((a) => a.date === g.today && (a.short_label || a.label))
+      .slice(0, 2)
+      .map((a) => a.short_label || a.label),
     // left out, not guessed, when the count failed
     ...(Number.isFinite(g.sweepWaiting) ? { waiting_in_sweep: g.sweepWaiting } : {}),
     gremly_age: g.gremlyAge ?? null,

@@ -71,6 +71,7 @@ export function buildSnapshot(s) {
     todosDue,
     overdue: s.overdue || 0,
     unsorted: s.unsorted || 0,
+    sweepWaiting: Number.isFinite(s.sweepWaiting) ? s.sweepWaiting : null,
     habits,
     habitsForToday,
     candidates: todosDue.length + habitsForToday.length + (reach ? 1 : 0),
@@ -81,6 +82,8 @@ export function buildSnapshot(s) {
     claims: s.claims || [],
     dayShape: s.dayShape || null,
     reaction: s.reaction || null,
+    // words the brief must never say on this day (checked, not sent to the writer)
+    forbid: s.forbid || [],
   };
   const offer = decideOffer({
     returnDay: !!ret,

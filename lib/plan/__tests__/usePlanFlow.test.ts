@@ -158,6 +158,39 @@ describe('planning in the thread', () => {
     ]);
   });
 
+  it('holds what was kept in Sweep, even when the picker leaves it out', async () => {
+    (callPlanPick as jest.Mock).mockResolvedValue({
+      ok: true,
+      data: {
+        intro: 'A light afternoon.',
+        picks: [
+          { id: 'social', window: [795, 1320], minutes: 30, estimated: false, reason: 'Behind' },
+        ],
+      },
+    });
+    const { hook, messages } = harness();
+    await act(async () => {
+      await hook.result.current.start({
+        type: 'brief-offer',
+        kind: 'follow_up',
+        buttons: [],
+        plan_from: 795,
+        kept_ids: ['oat'],
+      });
+    });
+    expect(callPlanPick).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pool: expect.arrayContaining([expect.objectContaining({ id: 'oat', kept: true })]),
+      }),
+    );
+    const plan = messages.find((m) => (m.metadata_json as any).type === 'brief-plan')!
+      .metadata_json as any;
+    expect(plan.items.map((x: any) => [x.id, x.reason])).toEqual([
+      ['social', 'Behind'],
+      ['oat', 'Kept for today'],
+    ]);
+  });
+
   it('plans from the candidates when the picker cannot be reached', async () => {
     (callPlanPick as jest.Mock).mockResolvedValue({ ok: false, error: 'offline' });
     const { hook, messages } = harness();

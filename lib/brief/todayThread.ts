@@ -16,7 +16,7 @@ import { getDailyThread, type DailyThread } from '../repo/dailyThreadRepo';
 import { getDateService } from '../date/DateService';
 import { useGremlyStore } from '../store/useGremlyStore';
 import { briefInChatOn } from './flag';
-import { resetStaleAssignments } from '../plan/storePlan';
+import { expireOldLockIns, resetStaleAssignments } from '../plan/storePlan';
 import type { DailyThreadMeta } from './types';
 
 let lastResetDay: string | null = null;
@@ -129,6 +129,8 @@ export function useTodayThreadSync(): void {
     lastResetDay = today;
     const n = resetStaleAssignments(today);
     if (n) console.log(`[DailyBrief] cleared ${n} planned times from earlier days`);
+    const locks = expireOldLockIns(today);
+    if (locks) console.log(`[DailyBrief] ended ${locks} Lock Ins from earlier days`);
   }, [on, userId, loaded, ritualDay]);
 
   useEffect(() => {
