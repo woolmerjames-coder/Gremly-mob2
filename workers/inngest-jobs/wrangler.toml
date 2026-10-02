@@ -15,7 +15,7 @@ SENTRY_ENVIRONMENT = "production"
 
 # Notifications rollout: "off" sends nothing, "testers" sends only to tester
 # accounts (for TestFlight checks), "on" sends to everyone.
-NOTIFICATIONS_MODE = "testers"
+NOTIFICATIONS_MODE = "on"
 
 # Context pipeline (lifemaps-context-fixes-9.30):
 #   off     nothing new runs

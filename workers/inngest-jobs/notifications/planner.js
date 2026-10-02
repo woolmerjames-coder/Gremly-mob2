@@ -14,17 +14,8 @@
  */
 
 import { db } from '../context/db';
-import { nextFireAt, zonedTimeToUtc, localDateOf, localMinutesOf, addDays } from './reminderTimes';
-import {
-  POLICY,
-  planDay,
-  engagementState,
-  dedupeKey,
-  outcomeOf,
-  nextStreak,
-  bestMinutes,
-  clock,
-} from './policy';
+import { nextFireAt, zonedTimeToUtc, localDateOf, localMinutesOf } from './reminderTimes';
+import { planDay, dedupeKey, outcomeOf, nextStreak, bestMinutes, clock } from './policy';
 
 export const SEND_EVENT = 'notifications/send.due';
 export const PLAN_EVENT = 'notifications/plan.day';
@@ -109,6 +100,29 @@ export async function planReminders(env, { now = new Date() } = {}) {
     planned += 1;
   }
   return { planned };
+}
+
+/**
+ * Whether a reminder, as it is now, still fires at `plannedFor`. A send checks
+ * this when it wakes: the item may have been edited after its run was queued,
+ * and the schedule row may not have been worked out again yet (next_fire_at is
+ * null until the next minute). Same sum and time zone as planReminders.
+ */
+export async function reminderStillFiresAt(env, row, timezone, plannedFor) {
+  const at = Date.parse(plannedFor);
+  if (!row?.rule || Number.isNaN(at)) return false;
+  const tz = timezone || 'America/Los_Angeles';
+  const starts = await eventStarts(env, [row]);
+  try {
+    const next = nextFireAt(row.rule, {
+      tz,
+      now: new Date(at - 60000),
+      eventStart: starts.get(row.entity_id),
+    });
+    return !!next && Math.abs(next.getTime() - at) <= 60000;
+  } catch {
+    return false;
+  }
 }
 
 /** The send event for one reminder at its next fire time. */

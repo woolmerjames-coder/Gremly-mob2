@@ -25,9 +25,10 @@ import {
   clock,
   dedupeKey,
 } from './policy';
-import { writeCopy, reminderCopy, fallbackCopy } from './copy';
+import { writeCopy, reminderCopy } from './copy';
 import { buildMessage, sendToExpo, getReceipts, DEAD_DEVICE_ERRORS, ALERT_ERRORS } from './expo';
 import { reportProblem } from './alert';
+import { reminderStillFiresAt } from './planner';
 
 /** iOS action button sets, matching the categories the app registers. */
 export const CATEGORY = Object.freeze({
@@ -189,16 +190,17 @@ export async function stillTrue(env, person, job, at = new Date()) {
       const [type, id, reminderId] = String(job.subject || '').split(':');
       const [row] =
         (await d.select(
-          `reminder_schedule?entity_type=eq.${type}&entity_id=eq.${id}&reminder_id=eq.${encodeURIComponent(reminderId)}&select=status,next_fire_at`,
+          `reminder_schedule?entity_type=eq.${type}&entity_id=eq.${id}&reminder_id=eq.${encodeURIComponent(reminderId)}&select=status,rule,entity_type,entity_id`,
         )) || [];
       if (!row) return { ok: false, reason: 'The reminder was removed' };
       if (row.status === 'closed') return { ok: false, reason: 'Already done' };
       if (row.status === 'removed') return { ok: false, reason: 'The reminder was removed' };
-      // the item was edited after this run was queued; the new time has its own run
+      // The item may have been edited after this run was queued, even in the
+      // minute before its schedule is worked out again. The reminder as it is
+      // now must still fall at this time; a new time gets its own run.
       if (
         job.planned_for &&
-        row.next_fire_at &&
-        Math.abs(Date.parse(row.next_fire_at) - Date.parse(job.planned_for)) > 60000
+        !(await reminderStillFiresAt(env, row, person.prefs?.timezone, job.planned_for))
       ) {
         return { ok: false, reason: 'The reminder moved to another time' };
       }

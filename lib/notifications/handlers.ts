@@ -13,6 +13,8 @@ import { useNotificationUi } from './store';
 import { doneFromNotification, snoozeFromNotification } from './actions';
 
 const CLEARED_KEY = 'gremly.notifications.oldLocalCleared';
+const HANDLED_KEY = 'gremly.notifications.handled';
+const HANDLED_KEEP = 50;
 const seen = new Set<string>();
 let installed = false;
 
@@ -47,10 +49,50 @@ async function markOpened(logId: string | null | undefined, action: string | nul
   }
 }
 
+async function readHandled(): Promise<string[]> {
+  try {
+    const raw = await AsyncStorage.getItem(HANDLED_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Remembers a response across launches and clears it from the OS, before any
+ * action runs: a later cold launch, even one after a crash in the action, can
+ * never hand the same Done or Snooze back to run again.
+ */
+let claiming: Promise<unknown> = Promise.resolve();
+function claimResponse(key: string): Promise<boolean> {
+  // one at a time, so two responses arriving together both get remembered
+  const next = claiming.then(() => claimNow(key));
+  claiming = next.catch(() => undefined);
+  return next;
+}
+
+async function claimNow(key: string): Promise<boolean> {
+  const handled = await readHandled();
+  if (handled.includes(key)) return false;
+  try {
+    await AsyncStorage.setItem(HANDLED_KEY, JSON.stringify([...handled, key].slice(-HANDLED_KEEP)));
+  } catch {
+    // the OS copy is still cleared below
+  }
+  try {
+    await Notifications.clearLastNotificationResponseAsync();
+  } catch {
+    // the stored key still stops a replay
+  }
+  return true;
+}
+
 export async function handleResponse(response: Notifications.NotificationResponse): Promise<void> {
   const key = `${response.notification.request.identifier}:${response.actionIdentifier}`;
   if (seen.has(key)) return;
   seen.add(key);
+  if (!(await claimResponse(key))) return;
   const data = (response.notification.request.content.data ?? {}) as Record<string, any>;
   const action = response.actionIdentifier;
   const isDefault = action === Notifications.DEFAULT_ACTION_IDENTIFIER;
@@ -70,12 +112,6 @@ export async function handleResponse(response: Notifications.NotificationRespons
   }
   const route = routeFromData(data);
   if (route && route !== 'drop') useNotificationUi.getState().openRoute(route);
-  // so the tap that launched the app is not replayed on the next launch
-  try {
-    await (Notifications as any).clearLastNotificationResponseAsync?.();
-  } catch {
-    // not in every SDK version; the seen set still stops a repeat in this launch
-  }
 }
 
 async function registerCategories(): Promise<void> {

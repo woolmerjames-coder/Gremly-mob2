@@ -241,21 +241,80 @@ describe('decide', () => {
     expect((await decide({}, { ...job, test: true }, { at: AT })).action).toBe('send');
   });
 
-  it('drops a reminder whose item was moved to another time', async () => {
-    mockTables.reminder_schedule = [{ status: 'active', next_fire_at: '2026-10-01T18:00:00Z' }];
+  describe('a reminder whose item changed after its run was queued', () => {
+    // queued for 18:00 London (17:00 UTC), which is also the time it wakes
     const rem = {
       user_id: USER,
       moment: 'reminder',
       subject: 'todo:t1:r1',
       dedupe_key: 'k',
-      planned_for: '2026-10-01T16:59:00Z',
+      planned_for: '2026-10-01T17:00:00Z',
     };
-    expect(await decide(ON, rem, { at: AT })).toMatchObject({
-      action: 'drop',
-      reason: 'The reminder moved to another time',
+    const row = (rule, over = {}) => ({
+      status: 'active',
+      entity_type: 'todo',
+      entity_id: 't1',
+      next_fire_at: null,
+      rule,
+      ...over,
     });
-    mockTables.reminder_schedule = [{ status: 'active', next_fire_at: '2026-10-01T16:59:00Z' }];
-    expect((await decide(ON, rem, { at: AT })).action).toBe('send');
+    const daily = (time) => ({ id: 'r1', frequency: 'daily', time });
+
+    it('still goes when the reminder still falls at this time', async () => {
+      mockTables.reminder_schedule = [row(daily('18:00'), { next_fire_at: rem.planned_for })];
+      expect((await decide(ON, rem, { at: AT })).action).toBe('send');
+    });
+
+    it('is dropped when the time was changed', async () => {
+      mockTables.reminder_schedule = [
+        row(daily('19:00'), { next_fire_at: '2026-10-01T18:00:00Z' }),
+      ];
+      expect(await decide(ON, rem, { at: AT })).toMatchObject({
+        action: 'drop',
+        reason: 'The reminder moved to another time',
+      });
+    });
+
+    it('is dropped in the minute before the new time is worked out', async () => {
+      // the edit cleared next_fire_at and the planner has not run yet
+      mockTables.reminder_schedule = [row(daily('18:30'))];
+      expect(await decide(ON, rem, { at: AT })).toMatchObject({
+        action: 'drop',
+        reason: 'The reminder moved to another time',
+      });
+    });
+
+    it('still goes in that minute when the edit left the time alone', async () => {
+      mockTables.reminder_schedule = [row(daily('18:00'))];
+      expect((await decide(ON, rem, { at: AT })).action).toBe('send');
+    });
+
+    it('still goes after the planner has moved on to tomorrow, if the time is unchanged', async () => {
+      mockTables.reminder_schedule = [
+        row(daily('18:00'), { next_fire_at: '2026-10-02T17:00:00Z' }),
+      ];
+      expect((await decide(ON, rem, { at: AT })).action).toBe('send');
+    });
+
+    it('is dropped when a one off reminder moved to another day', async () => {
+      mockTables.reminder_schedule = [
+        row({ id: 'r1', frequency: 'once', date: '2026-10-02', time: '18:00' }),
+      ];
+      expect((await decide(ON, rem, { at: AT })).action).toBe('drop');
+    });
+
+    it('follows the event for a "before it starts" reminder', async () => {
+      const ev = { ...rem, subject: 'note:n1:r1' };
+      const before = row(
+        { id: 'r1', kind: 'before', minutes: 30 },
+        { entity_type: 'note', entity_id: 'n1' },
+      );
+      mockTables.reminder_schedule = [before];
+      mockTables.notes = [{ id: 'n1', target_date: '2026-10-01', event_time: '18:30:00' }];
+      expect((await decide(ON, ev, { at: AT })).action).toBe('send');
+      mockTables.notes = [{ id: 'n1', target_date: '2026-10-01', event_time: '19:00:00' }];
+      expect((await decide(ON, ev, { at: AT })).action).toBe('drop');
+    });
   });
 
   it('does not build a day for someone who has been away', async () => {
