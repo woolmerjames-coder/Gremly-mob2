@@ -13,7 +13,6 @@ import { create } from 'zustand';
 import { getDailyThread, type DailyThread } from '../repo/dailyThreadRepo';
 import { getDateService } from '../date/DateService';
 import { useGremlyStore } from '../store/useGremlyStore';
-import { briefInChatOn } from './flag';
 import type { DailyThreadMeta } from './types';
 
 /** Chat reopens the chat that was on screen if it was left this recently. */
@@ -92,9 +91,7 @@ export const useTodayThread = create<TodayThreadState>((set, get) => ({
   noteChatLeft: (chatId, at) => set({ chatLeftId: chatId, chatLeftAt: at }),
 }));
 
-/** Unread brief, with the switch on: drives the dot, the Drop line, the bubble and the card. */
+/** Unread brief: drives the dot, the Drop line, the bubble and the card. */
 export function useBriefUnread(): boolean {
-  const on = briefInChatOn(useGremlyStore((s) => s.briefInChat));
-  const unread = useTodayThread((s) => isBriefUnread(s.thread));
-  return on && unread;
+  return useTodayThread((s) => isBriefUnread(s.thread));
 }

@@ -350,7 +350,7 @@ describe('planning one person', () => {
         },
       },
     ];
-    mockTables.cortex_preferences = [{ gremly_age: 5, brief_in_chat: true }];
+    mockTables.cortex_preferences = [{ gremly_age: 5 }];
     mockTables.app_events = [{ occurred_at: '2026-09-30T18:00:00Z' }];
     const out = await planPersonDay(
       ENV,

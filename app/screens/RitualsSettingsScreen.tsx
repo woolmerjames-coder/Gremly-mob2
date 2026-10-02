@@ -13,11 +13,9 @@ import { colors, spacing, borderRadius } from '../../design/tokens';
 import { BRAND } from '../../design/brand';
 import DayBoundaryPicker from '../../components/settings/DayBoundaryPicker';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
-import { useBriefInChat } from '../../lib/brief/flag';
 
 export default function RitualsSettingsScreen() {
   const navigation = useNavigation();
-  const briefInChat = useBriefInChat();
 
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false });
@@ -53,9 +51,9 @@ export default function RitualsSettingsScreen() {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Day Boundary</Text>
           <Text style={styles.cardDescription}>
-            {briefInChat
-              ? "Choose when your day resets. At this time, today's thread with Gremly moves to your chat history and the next day starts. Night owls might prefer 3am or later."
-              : 'Choose when your ritual day resets. Night owls might prefer 3am or later.'}
+            {
+              "Choose when your day resets. At this time, today's thread with Gremly moves to your chat history and the next day starts. Night owls might prefer 3am or later."
+            }
           </Text>
           <DayBoundaryPicker
             value={localDayBoundary}

@@ -183,7 +183,7 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
   const today = localDate(tz, at);
   const now = minutesIn(tz, at);
   const [prefs] = await d.select(
-    `cortex_preferences?owner_id=eq.${userId}&select=day_boundary_hour,gremly_age,brief_in_chat`,
+    `cortex_preferences?owner_id=eq.${userId}&select=day_boundary_hour,gremly_age`,
   );
   const ritualDay = ritualDayFor(today, now, prefs?.day_boundary_hour ?? 0);
   const dayStart = localStartIso(tz, today);
@@ -335,7 +335,6 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
     part: dayPartAt(now),
     person,
     gremlyAge: prefs?.gremly_age ?? 0,
-    briefInChat: prefs?.brief_in_chat === true,
     dco,
     dcoBuilt: dcoResult.built,
     meetings,

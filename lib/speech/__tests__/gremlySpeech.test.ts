@@ -10,7 +10,6 @@ import {
   getGreetingSpeechV2,
   getReturnSpeech,
   getEmptyStateSpeech,
-  getMorningBriefSpeech,
   getDcoGreetingSpeech,
   getFedCelebrationSpeech,
   getPostAgeUpSpeech,
@@ -388,29 +387,6 @@ describe('getGreetingSpeech', () => {
 describe('getEmptyStateSpeech', () => {
   it('returns an empty state message', () => {
     const result = getEmptyStateSpeech();
-
-    expect(result.message).toBeTruthy();
-    expect(result.duration).toBeGreaterThan(0);
-  });
-});
-
-describe('getMorningBriefSpeech', () => {
-  it('returns prompt message for prompt event', () => {
-    const result = getMorningBriefSpeech('prompt');
-
-    expect(result.message).toBeTruthy();
-    expect(result.duration).toBeGreaterThan(0);
-  });
-
-  it('returns complete message for complete event', () => {
-    const result = getMorningBriefSpeech('complete');
-
-    expect(result.message).toBeTruthy();
-    expect(result.duration).toBeGreaterThan(0);
-  });
-
-  it('returns skip message for skip event', () => {
-    const result = getMorningBriefSpeech('skip');
 
     expect(result.message).toBeTruthy();
     expect(result.duration).toBeGreaterThan(0);

@@ -16,7 +16,6 @@ import { useGremlyStore } from '../../../lib/store/useGremlyStore';
 import { useNeedsMindDropTutorial, useTrialStartedAt } from '../../../lib/store/lifecycleSelectors';
 import { supabase } from '../../../lib/supabase/client';
 import { getTrainingHints } from '../../../lib/training/trainingHints';
-import { isBriefInChat } from '../../../lib/brief/flag';
 import {
   getReadinessLabel,
   getTrainingDaysRemaining,
@@ -112,7 +111,7 @@ export default function TrainingMeter({ visible, onDismiss, onNavigate }: Traini
             todosCount: metrics.todos_count ?? 0,
             calendarConnected: false,
           };
-          setHints(getTrainingHints(trainingData, { briefInChat: isBriefInChat() }));
+          setHints(getTrainingHints(trainingData));
         });
     }
   }, [

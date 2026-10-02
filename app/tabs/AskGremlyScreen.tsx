@@ -78,7 +78,6 @@ import {
   liveOfferId,
   visibleThreadMessages,
 } from '../../lib/brief/messages';
-import { useBriefInChat } from '../../lib/brief/flag';
 import { useBriefOffers } from '../../lib/brief/useBriefOffers';
 import { BRIEF_COPY } from '../../lib/brief/offerFlow';
 import { callDailyBrief } from '../../lib/cortex/CortexClient';
@@ -117,12 +116,7 @@ import { BriefPlanBlock } from '../../components/brief/BriefPlanBlock';
 const MOSS = '#2E5540';
 const LINEN = '#F9F6F1';
 
-const STARTERS = [
-  { icon: Target, label: 'What should I focus on today?' },
-  { icon: Sparkles, label: 'Help me think through something' },
-  { icon: CalendarDays, label: "What's coming up this week?" },
-];
-// With the Daily brief in Chat the brief answers the first one
+// The brief answers "what should I focus on today?", so it is not a starter
 const BRIEF_STARTERS = [
   { icon: Sparkles, label: 'Help me think through something' },
   { icon: CalendarDays, label: "What's coming up this week?" },
@@ -275,7 +269,6 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     [messages],
   );
   // Daily brief in Chat: today's thread is a chat of its own (chat_type 'daily')
-  const briefInChat = useBriefInChat();
   const isDailyThread = activeChat?.chat_type === 'daily';
   const offerLive = useMemo(
     () => (isDailyThread ? liveOfferId(rows) : null),
@@ -808,7 +801,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   const pendingPlanRef = useRef<{ day: string } | null>(null);
   const [skipPlayback, setSkipPlayback] = useState(false);
   useEffect(() => {
-    if (threadRequest !== 'today' || !briefInChat || !userId) return;
+    if (threadRequest !== 'today' || !userId) return;
     const key = threadKey ?? 'today';
     if (threadKeyRef.current === key) return;
     threadKeyRef.current = key;
@@ -829,7 +822,6 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   }, [
     threadRequest,
     threadKey,
-    briefInChat,
     userId,
     navigation,
     openTodayThread,
@@ -891,7 +883,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   }, [isDailyThread, chatOnScreen, briefWriting, rows]);
 
   useEffect(() => {
-    if (!isDailyThread || !activeChat || !threadLoaded || !chatOnScreen || !briefInChat) return;
+    if (!isDailyThread || !activeChat || !threadLoaded || !chatOnScreen) return;
     const meta = (activeChat.metadata_json ?? {}) as Partial<DailyThreadMeta>;
     if (meta.seen_at) return;
     const now = getDateService().now();
@@ -928,15 +920,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         setBriefWriting(false);
       }
     })();
-  }, [
-    isDailyThread,
-    activeChat,
-    threadLoaded,
-    chatOnScreen,
-    briefInChat,
-    hasBriefLines,
-    refreshMessages,
-  ]);
+  }, [isDailyThread, activeChat, threadLoaded, chatOnScreen, hasBriefLines, refreshMessages]);
   // The first time today's brief is on screen it plays in, Gremly waving,
   // and then counts as seen
   const reducedMotion = useReducedMotion();
@@ -964,9 +948,9 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     threadId: isDailyThread && activeChat ? activeChat.id : null,
     rows,
     seen: threadSeen,
-    ready: !!isDailyThread && threadLoaded && chatOnScreen && !briefWriting && briefInChat,
+    ready: !!isDailyThread && threadLoaded && chatOnScreen && !briefWriting,
     // (with the brief off, a day's thread opened from history shows as it is)
-    reducedMotion: reducedMotion || skipPlayback || !briefInChat,
+    reducedMotion: reducedMotion || skipPlayback,
     onStart: () => useMascotStore.getState().requestMode('waving'),
     onSeen: handleBriefSeen,
   });
@@ -1005,8 +989,6 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   const briefUnreadHere = useTodayThread((st) => isBriefUnread(st.thread));
   // the brief starts on the second day of training, so the pinned card does too
   const gremlyAge = useGremlyStore((st) => st.gremlyAge);
-  const briefInChatRef = useRef(briefInChat);
-  briefInChatRef.current = briefInChat;
   const jumpPending = !!(
     params?.thread ||
     params?.talkAbout ||
@@ -1016,7 +998,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   const jumpPendingRef = useRef(jumpPending);
   jumpPendingRef.current = jumpPending;
   const enterChat = useCallback(() => {
-    if (!briefInChatRef.current || item || jumpPendingRef.current) return;
+    if (item || jumpPendingRef.current) return;
     const state = useTodayThread.getState();
     if (isBriefUnread(state.thread)) {
       void openTodayThread();
@@ -1516,7 +1498,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             </View>
           ) : (
             <View style={embedded ? styles.emptyStateTop : styles.emptyState}>
-              {briefInChat && gremlyAge >= 1 ? (
+              {gremlyAge >= 1 ? (
                 <View style={styles.pinnedToday}>
                   <TodayPinnedCard
                     date={getDateService().ritualDay()}
@@ -1542,7 +1524,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
               )}
 
               <View style={styles.startersContainer}>
-                {(briefInChat ? BRIEF_STARTERS : STARTERS).map(({ icon: Icon, label }) => (
+                {BRIEF_STARTERS.map(({ icon: Icon, label }) => (
                   <TouchableOpacity
                     key={label}
                     style={styles.starterCard}

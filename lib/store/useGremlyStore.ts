@@ -654,8 +654,6 @@ export interface GremlyState {
   postGraduationMessageShown: boolean;
   /** Whether user is a tester (from cortex_preferences.is_tester) */
   isTester: boolean;
-  /** Daily brief in Chat: the morning brief lives in today's Chat thread (cortex_preferences.brief_in_chat) */
-  briefInChat: boolean;
   /** ISO timestamp when trial period started */
   trialStartedAt: string | null;
   /** ISO timestamp when challenge started */
@@ -1321,8 +1319,6 @@ const initialState = {
   pendingGraduation: false,
   postGraduationMessageShown: false,
   isTester: false,
-  // on for everyone; cortex_preferences can still turn it off for one person
-  briefInChat: true,
   trialStartedAt: null as string | null,
   challengeStartedAt: null as string | null,
   challengeCompletedAt: null as string | null,
@@ -1572,7 +1568,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase
                 .from('cortex_preferences')
                 .select(
-                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, demo_sweep_completed_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, graduated_at, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, has_seen_readonly_intro, gremly_color, is_tester, brief_in_chat, trial_started_at, challenge_started_at, challenge_completed_at',
+                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, demo_sweep_completed_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, graduated_at, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, has_seen_readonly_intro, gremly_color, is_tester, trial_started_at, challenge_started_at, challenge_completed_at',
                 )
                 .eq('owner_id', userId)
                 .maybeSingle(),
@@ -1830,7 +1826,6 @@ export const useGremlyStore = create<GremlyState>()(
               aiMode: ((cortexPrefs?.ai_mode as string) ?? 'encouragement') as AIMode,
               graduatedAt: (cortexPrefs?.graduated_at as string) ?? null,
               isTester: (cortexPrefs?.is_tester as boolean) ?? false,
-              briefInChat: (cortexPrefs?.brief_in_chat as boolean) ?? true,
               trialStartedAt: (cortexPrefs?.trial_started_at as string) ?? null,
               challengeStartedAt: (cortexPrefs?.challenge_started_at as string) ?? null,
               challengeCompletedAt: (cortexPrefs?.challenge_completed_at as string) ?? null,
@@ -2038,7 +2033,6 @@ export const useGremlyStore = create<GremlyState>()(
             gremlyAge: 0,
             gremlyAgeLastIncrementedAt: null,
             dayBoundaryHour: 0,
-            briefInChat: true,
             accountCreatedAt: null,
             demoSweepCompletedAt: null,
             todayRitualDay: null,
@@ -6559,7 +6553,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase
                 .from('cortex_preferences')
                 .select(
-                  'gremly_age, gremly_age_last_incremented_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, graduated_at, last_sweep_completed_at, sweep_streak, mini_sweep_last_completed_at, day_boundary_hour, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, has_seen_readonly_intro, gremly_color, is_tester, brief_in_chat, trial_started_at, challenge_started_at, challenge_completed_at, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, demo_sweep_completed_at, created_at',
+                  'gremly_age, gremly_age_last_incremented_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, graduated_at, last_sweep_completed_at, sweep_streak, mini_sweep_last_completed_at, day_boundary_hour, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, has_seen_readonly_intro, gremly_color, is_tester, trial_started_at, challenge_started_at, challenge_completed_at, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, demo_sweep_completed_at, created_at',
                 )
                 .eq('owner_id', userId)
                 .maybeSingle(),
@@ -6665,7 +6659,6 @@ export const useGremlyStore = create<GremlyState>()(
                   (cp.has_seen_readonly_intro as boolean) ?? get().hasSeenReadonlyIntro,
                 gremlyColor: (cp.gremly_color as string) ?? get().gremlyColor,
                 isTester: (cp.is_tester as boolean) ?? get().isTester,
-                briefInChat: (cp.brief_in_chat as boolean) ?? get().briefInChat,
                 trialStartedAt: (cp.trial_started_at as string) ?? get().trialStartedAt,
                 challengeStartedAt: (cp.challenge_started_at as string) ?? get().challengeStartedAt,
                 challengeCompletedAt:
@@ -11208,7 +11201,6 @@ export const useGremlyStore = create<GremlyState>()(
           gremlyAge: state.gremlyAge,
           gremlyAgeLastIncrementedAt: state.gremlyAgeLastIncrementedAt,
           dayBoundaryHour: state.dayBoundaryHour,
-          briefInChat: state.briefInChat,
           accountCreatedAt: state.accountCreatedAt,
           demoSweepCompletedAt: state.demoSweepCompletedAt,
           firstTodayVisitCompletedAt: state.firstTodayVisitCompletedAt,
@@ -11350,45 +11342,3 @@ export const selectCalendarEventsForDate = (date: string) => (state: GremlyState
 /** Select user-created calendar events for a specific date */
 export const selectUserCalendarEventsForDate = (date: string) => (state: GremlyState) =>
   state.userCalendarEvents.filter((e) => e.event_date === date);
-
-/** Select all items for Morning Brief on a given date */
-export const selectMorningBriefItems = (date: string) => (state: GremlyState) => {
-  const todos = state.todos.filter(
-    (t) => !t.archived && !t.completed_at && t.scheduled_date === date,
-  );
-  const habits = state.habits.filter(
-    (h) => !h.archived,
-    // Note: Habits don't have completed_at - completion is tracked via habitProgress
-    // Add days_active logic here if needed
-  );
-  // Notes with target_date (excluding event subtype - those are handled separately as keyDateEvents)
-  const eventNotes = state.notes.filter(
-    (n) => !n.archived && n.target_date === date && n.subtype !== 'event',
-  );
-  const reminderNotes = state.notes.filter((n) => !n.archived && n.reminder_date === date);
-
-  const calendarEvents = state.calendarEvents[date] ?? [];
-  const userCalendarEvents = state.userCalendarEvents.filter((e) => e.event_date === date);
-
-  // Key Date events (subtype='event') - includes single-day and multi-day events spanning this date
-  const keyDateEvents = state.notes.filter((n) => {
-    if (n.subtype !== 'event' || n.archived) return false;
-    // Single day event: target_date matches
-    if (n.target_date === date) return true;
-    // Multi-day event: date falls within range
-    if (n.target_date && n.end_date) {
-      return date >= n.target_date && date <= n.end_date;
-    }
-    return false;
-  });
-
-  return {
-    todos,
-    habits,
-    eventNotes,
-    reminderNotes,
-    calendarEvents,
-    userCalendarEvents,
-    keyDateEvents,
-  };
-};

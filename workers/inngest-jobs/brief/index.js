@@ -1,8 +1,8 @@
 /**
  * Daily brief in Chat: writing the brief into the day's thread.
  *
- * - daily-brief-dispatch (every 10 minutes): for everyone with brief_in_chat on,
- *   asks for today's brief 20 minutes before their morning notification time.
+ * - daily-brief-dispatch (every 10 minutes): for everyone, asks for today's
+ *   brief 20 minutes before their morning notification time.
  * - daily-brief-write (one person): gathers the day, decides the offer, has the
  *   writer word it, and writes the thread's messages.
  * - POST /api/daily-brief (from cortex, for the app): the first open when no
@@ -68,7 +68,6 @@ async function logRun(env, row) {
  */
 export async function writeDailyBrief(env, userId, { reason = 'scheduled', at = new Date() } = {}) {
   const g = await gatherBrief(env, userId, { at });
-  if (!g.briefInChat) return { skipped: 'brief_in_chat is off' };
   // The brief starts from the second day of the training challenge
   if ((g.gremlyAge ?? 0) < 1) return { skipped: 'new user' };
 
@@ -239,9 +238,7 @@ export function createBriefFunctions(inngest) {
     async ({ step, env }) => {
       const due = await step.run('who-is-due', async () => {
         const d = db(env);
-        const on = await d.select(
-          'cortex_preferences?brief_in_chat=eq.true&select=owner_id&limit=5000',
-        );
+        const on = await d.select('cortex_preferences?select=owner_id&limit=5000');
         const ids = (on || []).map((r) => r.owner_id);
         if (!ids.length) return [];
         const prefs = await d.select(

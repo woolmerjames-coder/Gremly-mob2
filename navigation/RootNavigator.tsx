@@ -37,7 +37,6 @@ import TimeBlocksSettingsScreen from '../app/screens/TimeBlocksSettingsScreen';
 import CalendarSettingsScreen from '../app/screens/CalendarSettingsScreen';
 import WhatGremlyKnowsScreen from '../app/screens/WhatGremlyKnowsScreen';
 import { HabitBuilderScreen } from '../screens/habits/HabitBuilderScreen';
-import { MorningBriefSheet } from '../app/components/morning-brief/MorningBriefSheet';
 import WeeklySummaryScreen from '../app/screens/WeeklySummaryScreen';
 import WeeklySummaryV2Screen from '../app/screens/WeeklySummaryV2Screen';
 import WeeklyArchiveScreen from '../app/screens/WeeklyArchiveScreen';
@@ -47,13 +46,6 @@ import ChapterDetailScreen from '../app/screens/ChapterDetailScreen';
 import YourStoryScreen from '../app/screens/YourStoryScreen';
 import GremlyQuestionsScreen from '../app/screens/GremlyQuestionsScreen';
 import ScopedChatScreen from '../app/screens/ScopedChatScreen';
-
-// Wrapper to bridge navigation params to MorningBriefSheet props
-function MorningBriefWrapper({ navigation, route }: any) {
-  return (
-    <MorningBriefSheet onClose={() => navigation.goBack()} targetDate={route.params?.targetDate} />
-  );
-}
 
 // Wrapper to bridge navigation params to HabitBuilderScreen props
 function HabitBuilderWrapper({ navigation, route }: any) {
@@ -119,7 +111,6 @@ export type RootStackParamList = {
   CalendarSettings: undefined;
   WhatGremlyKnows: undefined;
   HabitBuilder: { prefill?: string; spaceId?: string } | undefined;
-  MorningBrief: { targetDate?: string } | undefined;
   WeeklySummary: { weekStartDate?: string } | undefined;
   WeeklySummaryV2: { weekStartDate?: string } | undefined;
   WeeklyArchive: undefined;
@@ -247,11 +238,6 @@ export default function RootNavigator() {
           <Stack.Screen
             name="Sweep"
             component={SweepFlowScreen}
-            options={{ headerShown: false, presentation: 'card', gestureEnabled: false }}
-          />
-          <Stack.Screen
-            name="MorningBrief"
-            component={MorningBriefWrapper}
             options={{ headerShown: false, presentation: 'card', gestureEnabled: false }}
           />
           <Stack.Screen

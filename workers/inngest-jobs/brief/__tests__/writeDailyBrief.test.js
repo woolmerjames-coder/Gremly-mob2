@@ -33,7 +33,6 @@ jest.mock('../../context/db', () => ({
 
 function day(over = {}) {
   return {
-    briefInChat: true,
     gremlyAge: 5,
     ritualDay: '2026-10-01',
     part: 'morning',
@@ -134,11 +133,9 @@ describe('writing the brief', () => {
     expect(question.content).toBe('Is the haircut Friday?');
   });
 
-  it('never writes for someone in their first day, or with the brief off', async () => {
+  it('never writes for someone in their first day', async () => {
     gatherBrief.mockResolvedValue(day({ gremlyAge: 0 }));
     expect(await writeDailyBrief({}, 'user-1')).toEqual({ skipped: 'new user' });
-    gatherBrief.mockResolvedValue(day({ briefInChat: false }));
-    expect((await writeDailyBrief({}, 'user-1')).skipped).toBeTruthy();
     expect(appendMessages).not.toHaveBeenCalled();
   });
 

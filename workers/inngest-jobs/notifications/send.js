@@ -115,7 +115,7 @@ export async function loadPerson(env, userId, at = new Date()) {
     loadDevices(env, userId),
     d.select(`user_engagement?user_id=eq.${userId}&select=*`),
     d.select(
-      `cortex_preferences?owner_id=eq.${userId}&select=day_boundary_hour,gremly_age,fed_days_count,brief_in_chat,is_tester`,
+      `cortex_preferences?owner_id=eq.${userId}&select=day_boundary_hour,gremly_age,fed_days_count,is_tester`,
     ),
     d.select(
       `app_events?user_id=eq.${userId}&kind=eq.app_open&select=occurred_at&order=occurred_at.desc&limit=1`,
@@ -162,8 +162,6 @@ export async function stillTrue(env, person, job, at = new Date()) {
         const result = await writeDailyBrief(env, uid, { reason: 'scheduled', at });
         if (result?.skipped === 'new user')
           return { ok: false, reason: 'The brief starts on their second day' };
-        if (result?.skipped === 'brief_in_chat is off')
-          return { ok: false, reason: 'The brief in Chat is switched off' };
         thread = await read();
       }
       if (!thread?.metadata_json?.brief_written_at)

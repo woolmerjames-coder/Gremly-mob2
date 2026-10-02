@@ -90,7 +90,7 @@ beforeEach(() => {
     notification_preferences: [prefs()],
     push_devices: [{ id: 'd1', expo_token: TOKEN, time_sensitive: true }],
     user_engagement: [{ user_id: USER, state: 'engaged', days_away: 0 }],
-    cortex_preferences: [{ day_boundary_hour: 0, brief_in_chat: true }],
+    cortex_preferences: [{ day_boundary_hour: 0 }],
     app_events: [],
     events: [],
   };
@@ -321,9 +321,7 @@ describe('decide', () => {
     expect(await decide({ NOTIFICATIONS_MODE: 'testers' }, job, { at: AT })).toMatchObject({
       reason: 'Only testers get notifications for now',
     });
-    mockTables.cortex_preferences = [
-      { day_boundary_hour: 0, brief_in_chat: true, is_tester: true },
-    ];
+    mockTables.cortex_preferences = [{ day_boundary_hour: 0, is_tester: true }];
     expect((await decide({ NOTIFICATIONS_MODE: 'testers' }, job, { at: AT })).action).toBe('send');
   });
 

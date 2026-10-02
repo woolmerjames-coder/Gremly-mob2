@@ -81,7 +81,6 @@ export function buildSnapshot(s) {
     part: dayPartAt(now),
     person: s.person || { first_name: null, pronouns: null, identity: {} },
     gremlyAge: s.gremlyAge ?? 30,
-    briefInChat: true,
     meetings,
     allDay,
     busy,

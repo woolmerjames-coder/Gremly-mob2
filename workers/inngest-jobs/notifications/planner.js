@@ -352,9 +352,7 @@ async function loadDay(env, userId, tz, localDate, now) {
     [
       d.select(`notification_preferences?user_id=eq.${userId}&select=*`),
       d.select(`user_engagement?user_id=eq.${userId}&select=*`),
-      d.select(
-        `cortex_preferences?owner_id=eq.${userId}&select=gremly_age,brief_in_chat,day_boundary_hour`,
-      ),
+      d.select(`cortex_preferences?owner_id=eq.${userId}&select=gremly_age,day_boundary_hour`),
       d.select(
         `app_events?user_id=eq.${userId}&kind=eq.app_open&occurred_at=gte.${encodeURIComponent(since28)}&select=occurred_at&order=occurred_at.desc&limit=500`,
       ),
@@ -433,7 +431,7 @@ export async function planPersonDay(
     byHabit.get(p.habit_id).push(p);
   }
   const facts = {
-    briefExpected: x.cortex.brief_in_chat !== false && (x.cortex.gremly_age ?? 0) >= 1,
+    briefExpected: (x.cortex.gremly_age ?? 0) >= 1,
     habits: x.habits.map((h) => ({
       id: h.id,
       title: h.name || h.title || null,

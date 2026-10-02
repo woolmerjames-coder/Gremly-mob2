@@ -6,7 +6,6 @@ import {
   liveOfferId,
   visibleThreadMessages,
 } from '../messages';
-import { briefInChatOn } from '../flag';
 import type { SpaceChatMessage } from '../../types';
 
 function msg(id: string, role: string, meta: Record<string, unknown> | null): SpaceChatMessage {
@@ -76,27 +75,5 @@ describe('brief messages', () => {
     expect(dayPartAt(12)).toBe('afternoon');
     expect(dayPartAt(16)).toBe('afternoon');
     expect(dayPartAt(17)).toBe('evening');
-  });
-});
-
-describe('briefInChat switch', () => {
-  const env = process.env.EXPO_PUBLIC_BRIEF_IN_CHAT;
-  afterEach(() => {
-    if (env === undefined) delete process.env.EXPO_PUBLIC_BRIEF_IN_CHAT;
-    else process.env.EXPO_PUBLIC_BRIEF_IN_CHAT = env;
-  });
-
-  it('follows the stored value per person', () => {
-    delete process.env.EXPO_PUBLIC_BRIEF_IN_CHAT;
-    expect(briefInChatOn(true)).toBe(true);
-    expect(briefInChatOn(false)).toBe(false);
-    expect(briefInChatOn(undefined)).toBe(false);
-  });
-
-  it('lets a build force it on or off', () => {
-    process.env.EXPO_PUBLIC_BRIEF_IN_CHAT = 'on';
-    expect(briefInChatOn(false)).toBe(true);
-    process.env.EXPO_PUBLIC_BRIEF_IN_CHAT = 'off';
-    expect(briefInChatOn(true)).toBe(false);
   });
 });

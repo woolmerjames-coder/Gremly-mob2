@@ -4,7 +4,6 @@
 jest.mock('../../../lib/supabase/client', () => ({
   supabase: { from: jest.fn() },
 }));
-jest.mock('../../../lib/brief/flag', () => ({ isBriefInChat: jest.fn() }));
 jest.mock('../../../lib/brief/pinned', () => ({
   todayThreadParams: () => ({ mode: 'chat', thread: 'today', threadKey: 'k' }),
 }));
@@ -18,14 +17,12 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
 });
 
 import { runRoute } from '../NotificationResponder';
-import { isBriefInChat } from '../../../lib/brief/flag';
 import { supabase } from '../../../lib/supabase/client';
 
 const nav = () => ({ navigate: jest.fn(), isReady: () => true });
 const overlay = () => ({ openEdit: jest.fn() });
 
 it('the brief opens today’s thread in Chat', async () => {
-  (isBriefInChat as jest.Mock).mockReturnValue(true);
   const n = nav();
   await runRoute('brief', n, overlay());
   expect(n.navigate).toHaveBeenCalledWith('Tabs', {
