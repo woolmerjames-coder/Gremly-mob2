@@ -1035,7 +1035,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         offerId: offerMsg?.id ?? null,
         offer: meta?.type === 'brief-offer' ? meta : null,
       });
-      navigation.navigate('Sweep');
+      // the quick sweep: only the cards that still need a decision, then back here
+      navigation.navigate('Sweep', { quick: true });
     },
     [activeChat, navigation],
   );

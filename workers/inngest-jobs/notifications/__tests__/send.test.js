@@ -16,6 +16,7 @@ import {
   settleReceipts,
   settleDueReceipts,
   CANARY_WORDS,
+  briefFacts,
   compose,
 } from '../send';
 import { gatherBrief } from '../../brief/data';
@@ -233,7 +234,8 @@ describe('decide', () => {
       ritualDay: '2026-10-02',
       todosDue: [],
       habitsForToday: [{ id: 'h1' }, { id: 'h2' }, { id: 'h3' }],
-      sweepWaiting: 10,
+      sweep: { all: 10, quick: 6 },
+      sweepWaiting: 6,
       anchors: [
         { date: '2026-10-02', short_label: 'Flying to San Diego' },
         { date: '2026-10-07', short_label: 'Anniversary' },
@@ -247,6 +249,19 @@ describe('decide', () => {
       waiting_in_sweep: 10,
       dated_today: ['Flying to San Diego'],
     });
+  });
+
+  it('the morning brief names the quick sweep, what still needs a decision', async () => {
+    gatherBrief.mockResolvedValue({
+      now: 7 * 60,
+      meetings: [],
+      today: '2026-10-02',
+      ritualDay: '2026-10-02',
+      sweep: { all: 10, quick: 6 },
+      sweepWaiting: 6,
+    });
+    expect(briefFacts(await gatherBrief(), 'brief').waiting_in_sweep).toBe(6);
+    expect(briefFacts(await gatherBrief(), 'sweep').waiting_in_sweep).toBe(10);
   });
 
   it('leaves the number out rather than guess when it cannot be counted', async () => {

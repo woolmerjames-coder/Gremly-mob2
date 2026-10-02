@@ -2,7 +2,7 @@
  * Everything the day card and the Due today sheet show, from the store.
  *
  * Counts come from the same selectors Today uses (todos due today, habits due
- * today, Sweep's count, overdue todos) and the same merged calendar
+ * today, the quick sweep's count) and the same merged calendar
  * (CalendarService), so the card and Today always agree.
  */
 
@@ -10,8 +10,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useGremlyStore } from '../store/useGremlyStore';
 import {
   selectHabitsDueToday,
-  selectOverdueTodos,
-  selectSweepCandidateCountUnified,
+  selectQuickSweepCandidates,
   selectTodosDueToday,
 } from '../store/selectors';
 import { getEventsForDate } from '../calendar/CalendarService';
@@ -57,7 +56,9 @@ export interface DayCardData {
   habitsToday: Habit[];
   habitWeeks: HabitWeek[];
   behind: Habit[];
+  /** The quick sweep's cards: what still needs a decision */
   sweepWaiting: number;
+  /** Of them, todos past their day */
   overdue: number;
   chip: string | null;
   returnDay: boolean;
@@ -144,8 +145,8 @@ export function useDayCard(date: string): DayCardData {
   const now = useNowMinutes();
   const todosDue = useGremlyStore(selectTodosDueToday);
   const habitsToday = useGremlyStore(selectHabitsDueToday);
-  const overdueTodos = useGremlyStore(selectOverdueTodos);
-  const sweepWaiting = useGremlyStore(selectSweepCandidateCountUnified);
+  // the quick sweep: what still needs a decision, the number the brief names
+  const quickSweep = useGremlyStore(selectQuickSweepCandidates);
   const todos = useGremlyStore((s) => s.todos);
   const habits = useGremlyStore((s) => s.habits);
   const progress = useGremlyStore((s) => s.habitProgress);
@@ -186,6 +187,10 @@ export function useDayCard(date: string): DayCardData {
   const returnDay = isReturnDay(brief);
 
   const plannedHabits = planned.filter((p) => p.kind === 'habit').length;
+  const pastDay = useMemo(
+    () => quickSweep.filter((c) => c.candidate.kind === 'todo' && c.candidate.isOverdue).length,
+    [quickSweep],
+  );
   const lines = {
     meetings: meetingsLine(meetings, now),
     todos: todosLine(
@@ -193,7 +198,7 @@ export function useDayCard(date: string): DayCardData {
       planned,
     ),
     habits: habitsLine(habitsToday.length, behind.length, plannedHabits),
-    sweep: sweepLine(sweepWaiting, overdueTodos.length),
+    sweep: sweepLine(quickSweep.length, pastDay),
   };
 
   return {
@@ -205,8 +210,8 @@ export function useDayCard(date: string): DayCardData {
     habitsToday,
     habitWeeks,
     behind,
-    sweepWaiting,
-    overdue: overdueTodos.length,
+    sweepWaiting: quickSweep.length,
+    overdue: pastDay,
     chip,
     returnDay,
     lines,

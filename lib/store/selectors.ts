@@ -17,6 +17,7 @@ import type { NowWeeklyHabitSummary, HabitWeeklyStatus } from '../now/nowTypes';
 import { getDateService } from '../date';
 import { isRelationPending } from '../minddrop/dropRelation';
 import { sweepCardAsks } from '../sweep/sweepOrder';
+import { quickSweepCards } from '../sweep/quickSweep';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // DATE HELPERS
@@ -954,6 +955,17 @@ export const selectSweepCandidatesUnified = createSelector(
 /** Count of unified sweep candidates */
 export const selectSweepCandidateCountUnified = createSelector(
   [selectSweepCandidatesUnified],
+  (candidates): number => candidates.length,
+);
+
+/** The quick sweep's cards (lib/sweep/quickSweep.ts): only what still needs a decision. */
+export const selectQuickSweepCandidates = createSelector(
+  [selectSweepCandidatesUnified],
+  (candidates) => quickSweepCards(candidates, getTodayDayString()),
+);
+
+export const selectQuickSweepCount = createSelector(
+  [selectQuickSweepCandidates],
   (candidates): number => candidates.length,
 );
 

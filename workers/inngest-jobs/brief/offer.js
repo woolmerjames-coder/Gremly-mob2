@@ -2,10 +2,14 @@
  * What the brief offers at its end: a data rule, never the model's choice.
  * The writer only words the offer for the kind decided here.
  *
+ * The counts are the quick sweep's (what still needs a decision; anything
+ * already given a day, a Lock In or a resurface date is left out), so nothing
+ * to decide means no Sweep offer.
+ *
  * - A return day (back after three or more days away) with anything waiting:
  *   Sweep first, worded kindly, beside Catch me up and Just today.
- * - A messy backlog (anything past its date, or more than five unsorted
- *   drops): Sweep first, beside Plan anyway and Not today.
+ * - Things to decide (anything past its date, or more than five other cards
+ *   in the quick sweep): Sweep first, beside Plan anyway and Not today.
  * - Otherwise, when there is at least one thing to plan and a clear stretch of
  *   45 minutes or more still ahead today: Plan, beside What can wait? and
  *   Not today.
@@ -32,8 +36,8 @@ export function gapsAhead(freeWindows, now) {
 /**
  * @param {object} p
  * @param {boolean} p.returnDay
- * @param {number} p.overdue  todos past their date
- * @param {number} p.unsorted unsorted drops waiting in Sweep
+ * @param {number} p.overdue  todos past their date (the quick sweep's)
+ * @param {number} p.unsorted the quick sweep's other cards: no day yet, skipped, notes
  * @param {number} p.candidates things that could go in a plan
  * @param {{from:number,to:number}[]} p.freeWindows clear stretches today, in minutes
  * @param {number} p.now minutes from local midnight

@@ -2,7 +2,7 @@
  * The Sweep count a notification may name: the app's own rules
  * (selectSweepCandidatesUnified), so the number matches what Sweep shows.
  */
-import { countSweep } from '../sweepCount';
+import { countBoth, countSweep, lockedIn, quickSweepItems } from '../sweepCount';
 
 const today = '2026-10-01';
 const tz = 'America/Los_Angeles';
@@ -120,5 +120,110 @@ describe('countSweep: notes', () => {
       note({ resurface_at: '2026-10-09' }),
     ];
     expect(countSweep({ notes, today, tz })).toBe(2);
+  });
+});
+
+describe('a Lock In lasts its own day', () => {
+  it('counts a todo locked in yesterday as no longer locked in', () => {
+    const todos = [
+      // locked in by yesterday's plan, never done
+      todo({
+        due_day: '2026-09-30',
+        commitment: true,
+        commitment_started_at: '2026-09-30T16:00:00Z',
+      }),
+      // locked in this morning for today
+      todo({ due_day: today, commitment: true, commitment_started_at: '2026-10-01T15:00:00Z' }),
+    ];
+    expect(lockedIn(todos[0], today, tz)).toBe(false);
+    expect(lockedIn(todos[1], today, tz)).toBe(true);
+    expect(countSweep({ todos, today, tz })).toBe(1);
+  });
+
+  it('a Lock In made last night for today still holds', () => {
+    // 9pm on 30 Sep in Los Angeles, due 1 Oct: the day it was for is today
+    const t = todo({
+      due_day: today,
+      commitment: true,
+      commitment_started_at: '2026-10-01T04:00:00Z',
+    });
+    expect(lockedIn(t, today, tz)).toBe(true);
+  });
+
+  it('a Lock In from an earlier plan ends, even when the todo is due later', () => {
+    // the Sage deck: locked in on 30 Sep, due 3 Oct
+    const t = todo({
+      due_day: '2026-10-03',
+      commitment: true,
+      commitment_started_at: '2026-09-30T16:00:00Z',
+    });
+    expect(lockedIn(t, today, tz)).toBe(false);
+  });
+});
+
+describe('the quick sweep: what still needs a decision', () => {
+  const lastSweepAt = '2026-10-02T03:41:00Z'; // 8:41pm on 1 Oct in Los Angeles
+  const morning = '2026-10-02';
+  const dropped = (h) => todo({ created_at: `2026-10-02T0${h}:00:00Z` });
+
+  it('2 October: only the six drops after last night’s Sweep, not the four kept for today', () => {
+    const todos = [
+      ...[4, 5, 6, 7, 7, 7].map(dropped),
+      ...Array.from({ length: 4 }, () =>
+        todo({
+          due_day: morning,
+          decided_at: '2026-10-02T03:40:00Z',
+          created_at: '2026-09-28T18:00:00Z',
+        }),
+      ),
+    ];
+    const c = countBoth({ todos, notes: [], lastSweepAt, today: morning, tz });
+    expect(c).toMatchObject({
+      all: 10,
+      quick: 6,
+      pastDay: 0,
+      noDay: 6,
+      other: 0,
+      notes: 0,
+      newSince: 6,
+    });
+  });
+
+  it('keeps what is past its day, skipped or back today, and drops the decided', () => {
+    const todos = [
+      todo({ due_day: '2026-09-30', decided_at: '2026-09-29T18:00:00Z' }),
+      todo({
+        due_day: morning,
+        decided_at: '2026-10-01T18:00:00Z',
+        skipped_in_sweep_at: '2026-10-02T03:40:00Z',
+      }),
+      todo({ due_day: morning, decided_at: '2026-09-20T18:00:00Z', resurface_at: morning }),
+      todo({ due_day: morning, decided_at: '2026-10-01T18:00:00Z' }),
+      todo({ decided_at: '2026-09-20T18:00:00Z' }),
+    ];
+    const q = quickSweepItems({ todos, today: morning, tz });
+    expect([q.pastDay.length, q.noDay.length, q.other.length]).toEqual([1, 0, 2]);
+    expect(q.newSince).toBeNull();
+  });
+
+  it('keeps unswept drops and questions, leaves upcoming events for the evening', () => {
+    const notes = [
+      note({ subtype: 'list', created_at: '2026-10-02T14:00:00Z' }), // 7am today
+      note({ subtype: 'event', target_date: '2026-10-07' }),
+      note({
+        subtype: 'catchall',
+        created_at: '2026-09-01T18:00:00Z',
+        swept_at: '2026-09-02T03:00:00Z',
+        relation: { classified: { bucket: 'log' }, status: 'pending' },
+      }),
+    ];
+    const q = quickSweepItems({ notes, today: morning, tz, since: lastSweepAt });
+    expect(q.notes).toHaveLength(2);
+    expect(q.newSince).toBe(1);
+  });
+
+  it('before the decided_at column exists, every undated todo still counts', () => {
+    const c = countBoth({ todos: [todo(), todo({ due_day: morning })], today: morning, tz });
+    expect(c).toMatchObject({ all: 2, quick: 1, noDay: 1 });
   });
 });

@@ -181,7 +181,7 @@ export const SCENARIOS = [
   {
     id: 'anniversary-trip',
     title: 'Flying out on an anniversary trip, the anniversary itself later',
-    look: 'Mentions the trip today. Never says the anniversary is today (it is on 7 October). Any Sweep number is 10.',
+    look: 'Mentions the trip today. Never says the anniversary is today (it is on 7 October). Any Sweep number is 6, the drops since the last Sweep.',
     today: '2026-10-02',
     at: '06:10',
     person: ALEX,
@@ -198,7 +198,11 @@ export const SCENARIOS = [
     dayShape: 'Anniversary trip to San Diego with Sam from 2 to 4 October, flying down this afternoon.',
     overdue: 0,
     unsorted: 6,
-    sweepWaiting: 10,
+    // ten cards in the evening Sweep; the six with no day were dropped after
+    // last night's Sweep at 8:41pm
+    sweepAll: 10,
+    newSince: 6,
+    lastSweepAt: '2026-10-02T03:41:00Z',
     forbid: ['happy anniversary', 'anniversary today', 'your anniversary is today'],
   },
   {

@@ -281,6 +281,8 @@ export interface Todo {
 
   // Sweep tracking
   skipped_in_sweep_at?: string | null;
+  /** When it was last decided (a day, a Lock In, a resurface date): the quick sweep skips it */
+  decided_at?: string | null;
   resurface_at?: string | null; // ISO date for "remind me later" resurface
   // Sweep reschedule tracking - counts how many times rescheduled via quick date buttons
   sweep_reschedule_count?: number;

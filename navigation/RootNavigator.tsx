@@ -103,6 +103,8 @@ export type RootStackParamList = {
         demoMode?: boolean;
         initialIntent?: 'today' | 'tomorrow' | 'week';
         initialHub?: boolean;
+        /** The brief's quick sweep: only the cards that need a decision, then back */
+        quick?: boolean;
       }
     | undefined;
   ArchivedItems: { searchQuery?: string } | undefined;

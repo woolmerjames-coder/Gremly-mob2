@@ -112,9 +112,24 @@ export function poolForDay(day: string): Candidate[] {
 }
 
 /**
- * A new day: a todo's Lock In is for the day it was made, so one made on an
- * earlier day comes off and does not return in Sweep or in the plan. Habits
- * keep their own end date (commitment_until).
+ * The day a todo's Lock In is for: the day it was made, or the next day when
+ * the todo is due then (locked in the evening for tomorrow, or moved to
+ * tomorrow at Sweep's Lock-In checkpoint). A todo due further out was locked
+ * in for the day it was made. The worker reads it the same way
+ * (workers/inngest-jobs/notifications/sweepCount.js, lockedIn).
+ */
+export function lockInDay(startedDay: string | null, dueDay: string | null): string | null {
+  if (!startedDay) return dueDay;
+  if (dueDay && dueDay > startedDay && dueDay <= getDateService().addDays(startedDay, 1)) {
+    return dueDay;
+  }
+  return startedDay;
+}
+
+/**
+ * A new day: a todo's Lock In lasts the day it was for (lockInDay), so one
+ * for an earlier day comes off and does not return in Sweep or in the plan.
+ * Habits keep their own end date (commitment_until).
  */
 export function expireOldLockIns(today: string): number {
   const s = useGremlyStore.getState();
@@ -122,7 +137,7 @@ export function expireOldLockIns(today: string): number {
   for (const t of s.todos) {
     if (!t.commitment || t.completed_at || t.archived) continue;
     const started = t.commitment_started_at ? localDateOf(t.commitment_started_at) : null;
-    const day = started ?? t.due_day ?? null;
+    const day = lockInDay(started, t.due_day ?? null);
     if (!day || day >= today) continue;
     expired++;
     void s

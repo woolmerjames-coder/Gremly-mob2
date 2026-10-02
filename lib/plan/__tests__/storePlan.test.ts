@@ -1,4 +1,4 @@
-import { expireOldLockIns } from '../storePlan';
+import { expireOldLockIns, lockInDay } from '../storePlan';
 
 const mockState: any = { todos: [], habits: [], removeCommitment: jest.fn() };
 jest.mock('../../store/useGremlyStore', () => ({
@@ -15,7 +15,20 @@ const todo = (id: string, extra: Record<string, unknown>) => ({
   ...extra,
 });
 
-describe('Lock Ins last the day they were made', () => {
+describe('the day a Lock In is for', () => {
+  it('is the day it was made, or the next day when the todo is due then', () => {
+    expect(lockInDay('2026-10-01', null)).toBe('2026-10-01');
+    expect(lockInDay('2026-10-01', '2026-10-01')).toBe('2026-10-01');
+    // locked in last night for today, or moved to tomorrow at the checkpoint
+    expect(lockInDay('2026-10-01', '2026-10-02')).toBe('2026-10-02');
+    // the Sage deck: locked in by Thursday's plan, due Saturday
+    expect(lockInDay('2026-10-01', '2026-10-03')).toBe('2026-10-01');
+    expect(lockInDay('2026-10-01', '2026-09-28')).toBe('2026-10-01');
+    expect(lockInDay(null, '2026-01-05')).toBe('2026-01-05');
+  });
+});
+
+describe('Lock Ins last the day they were for', () => {
   beforeEach(() => {
     mockState.removeCommitment = jest.fn(async () => undefined);
   });
@@ -33,6 +46,8 @@ describe('Lock Ins last the day they were made', () => {
       todo('loose', { commitment: false, commitment_started_at: '2026-09-01T10:00:00Z' }),
       // an old row with no start: its due date decides
       todo('legacy', { commitment_started_at: null, due_day: '2026-01-05' }),
+      // locked in at 9pm last night for today: it holds
+      todo('tonight', { commitment_started_at: '2026-10-02T04:00:00Z', due_day: '2026-10-02' }),
     ];
     expect(expireOldLockIns('2026-10-02')).toBe(2);
     expect(mockState.removeCommitment.mock.calls.map((c: unknown[]) => c[0])).toEqual([

@@ -41,10 +41,15 @@ export function checkBrief(g, offer, out) {
   }
   if (Number.isFinite(g.sweepWaiting) && ['sweep', 'return'].includes(offer.kind)) {
     const counts = (out.offer || '').replace(TIMES, '').match(/\d+/g) || [];
+    // the total the day card shows, or one of its parts as given
+    const s = g.sweep || {};
+    const allowed = new Set(
+      [g.sweepWaiting, s.pastDay, s.noDay, s.other, s.notes, s.newSince].filter(Number.isFinite),
+    );
     add(
       'fail',
-      `Any Sweep number named is ${g.sweepWaiting}, as the day card shows`,
-      counts.every((n) => Number(n) === g.sweepWaiting),
+      `Any Sweep number named is ${g.sweepWaiting} (as the day card shows) or one of its parts`,
+      counts.every((n) => allowed.has(Number(n))),
       out.offer || '',
     );
   }

@@ -1,8 +1,9 @@
 /**
  * Sweep from the brief and back (Daily brief in Chat).
  *
- * Sweep first (or the day card's Sweep row) opens the real Sweep. Nothing in
- * Sweep changes: on the way in the brief notes what was waiting, and when the
+ * Sweep first (or the day card's Sweep row) opens Sweep's quick mode: only
+ * the swipe cards that still need a decision (selectQuickSweepCandidates).
+ * On the way in the brief notes what was waiting, and when the
  * thread is back on screen it compares. What left Sweep was swept; what now
  * carries today's date, or became a Lock In, was kept for today. Then the
  * thread gets an event line and Gremly's follow-up, worked out from data:
@@ -11,7 +12,7 @@
  */
 
 import { useGremlyStore, isHabitLockedIn } from '../store/useGremlyStore';
-import { selectSweepCandidatesUnified } from '../store/selectors';
+import { selectQuickSweepCandidates } from '../store/selectors';
 import { getDateService } from '../date/DateService';
 import type { BriefOfferMeta, OfferButton } from './types';
 import { planLabel } from './offerFlow';
@@ -56,7 +57,7 @@ function stateOf(id: string): SweepItemState | null {
 export function snapshotSweep(): SweepSnapshot {
   const s = useGremlyStore.getState();
   const candidates = new Map<string, SweepItemState>();
-  for (const { candidate } of selectSweepCandidatesUnified(s as any)) {
+  for (const { candidate } of selectQuickSweepCandidates(s as any)) {
     const st = stateOf(candidate.id);
     if (st) candidates.set(candidate.id, st);
   }

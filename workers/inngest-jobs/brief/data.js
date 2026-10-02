@@ -8,7 +8,7 @@ import { db, userTimezone, localDate, addDays, personIdentity } from '../context
 import { buildDcoV4, writeDco } from '../context/daily';
 import { dayOfWeekNumber, isBehindThisWeek, mondayOf, weeklyTarget } from './behind';
 import { readThreadReaction } from './reaction';
-import { sweepWaiting } from '../notifications/sweepCount';
+import { sweepCounts } from '../notifications/sweepCount';
 
 export const PLAN_DAY_START = 8 * 60;
 export const PLAN_DAY_END = 22 * 60;
@@ -140,7 +140,7 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
     notes,
     habits,
     progress,
-    waiting,
+    sweep,
   ] = await Promise.all([
     todaysDco(env, userId, tz, today),
     personIdentity(env, userId),
@@ -165,8 +165,9 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
     d.select(
       `habit_progress?owner_id=eq.${userId}&occurred_day=gte.${monday}&occurred_day=lte.${today}&select=habit_id,occurred_day&limit=2000`,
     ),
-    // the number Sweep itself shows (the app's rules); null when it cannot be counted
-    sweepWaiting(env, userId, { today, tz }).catch(() => null),
+    // Sweep's counts by the app's own rules (the evening Sweep and the
+    // morning's quick sweep); null when they cannot be counted
+    sweepCounts(env, userId, { today, tz }).catch(() => null),
   ]);
   const dco = dcoResult.dco;
 
@@ -300,9 +301,13 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
     free,
     clashes: clashesOf(meetings),
     todosDue,
-    overdue: overdue.length,
-    unsorted,
-    sweepWaiting: Number.isFinite(waiting) ? waiting : null,
+    // what needs a decision before the day is planned (the quick sweep's
+    // split), or the older count when Sweep's could not be read
+    overdue: sweep ? sweep.pastDay : overdue.length,
+    unsorted: sweep ? sweep.quick - sweep.pastDay : unsorted,
+    sweep,
+    // the number the brief and the day card name: the quick sweep's
+    sweepWaiting: sweep ? sweep.quick : null,
     habits: habitView,
     habitsForToday,
     candidates,

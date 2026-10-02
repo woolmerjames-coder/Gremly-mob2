@@ -71,7 +71,19 @@ export function buildSnapshot(s) {
     todosDue,
     overdue: s.overdue || 0,
     unsorted: s.unsorted || 0,
-    sweepWaiting: Number.isFinite(s.sweepWaiting) ? s.sweepWaiting : null,
+    // the quick sweep (what still needs a decision) is overdue + unsorted;
+    // sweepAll is the whole evening Sweep, when the day says
+    sweep: {
+      all: Number.isFinite(s.sweepAll) ? s.sweepAll : (s.overdue || 0) + (s.unsorted || 0),
+      quick: (s.overdue || 0) + (s.unsorted || 0),
+      pastDay: s.overdue || 0,
+      noDay: s.unsorted || 0,
+      other: 0,
+      notes: 0,
+      newSince: Number.isFinite(s.newSince) ? s.newSince : null,
+      lastSweepAt: s.lastSweepAt || null,
+    },
+    sweepWaiting: (s.overdue || 0) + (s.unsorted || 0),
     habits,
     habitsForToday,
     candidates: todosDue.length + habitsForToday.length + (reach ? 1 : 0),

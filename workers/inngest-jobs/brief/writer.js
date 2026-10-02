@@ -11,8 +11,9 @@
 
 import { CARE_RULES, WRITING_RULES, PRIVATE_RULES, personBlock } from '../careRules';
 import { jsonCall, modelFor } from '../context/llm';
+import { addDays } from '../context/db';
 
-export const BRIEF_PROMPT_VERSION = 'brief-2026-10-02a';
+export const BRIEF_PROMPT_VERSION = 'brief-2026-10-02b';
 
 function trim(text, n) {
   const s = String(text || '')
@@ -130,7 +131,7 @@ export function renderBriefInput(g, offer) {
     .map((a) => `${a.date} | ${trim(a.short_label || a.label, 120)}`);
   L.push(`DATED THINGS AHEAD (shown on the day card already): ${anchorLines.join('; ') || 'none'}`);
   L.push('');
-  L.push(`WAITING IN SWEEP: ${sweepLine(g)}`);
+  L.push(`NEEDS A DECISION IN SWEEP: ${sweepLine(g)}`);
   if (g.reaction) L.push(g.reaction);
   L.push('');
   L.push(`THE OFFER, DECIDED IN CODE: ${offerBrief(offer, g)}`);
@@ -147,23 +148,71 @@ export function clashesAhead(g) {
   return (g.clashes || []).filter(([a, b]) => a.end > g.now && b.end > g.now);
 }
 
+/** When their last Sweep was, as they would say it, in their own time zone. */
+export function sweptWhen(iso, tz, today) {
+  const at = new Date(iso || '');
+  if (!tz || !today || Number.isNaN(at.getTime())) return null;
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      hourCycle: 'h23',
+    })
+      .formatToParts(at)
+      .map((x) => [x.type, x.value]),
+  );
+  const day = `${p.year}-${p.month}-${p.day}`;
+  const hour = Number(p.hour);
+  if (day === today) {
+    if (hour < 5) return 'last night';
+    if (hour < 12) return 'this morning';
+    return hour < 17 ? 'this afternoon' : 'this evening';
+  }
+  if (day === addDays(today, -1)) {
+    if (hour >= 17) return 'last night';
+    return hour >= 12 ? 'yesterday afternoon' : 'yesterday morning';
+  }
+  return `on ${weekdayLabel(day)}`;
+}
+
 /**
- * What waits in Sweep, as the day card shows it. Any number Gremly names is
- * the one Sweep shows; the split says why Sweep is offered.
+ * What needs a decision before the day is planned: the quick sweep, the
+ * number the day card shows. Everything else in Sweep was already decided.
+ * Any number Gremly names is this one; the split says what kind of decision.
  */
 export function sweepLine(g) {
-  const why = `${g.overdue} past their dates, ${g.unsorted} with no day yet`;
-  return Number.isFinite(g.sweepWaiting)
-    ? `${g.sweepWaiting}, the number Sweep and the day card show; any number named is this one (of them, ${why}).`
-    : `${why}. The total is not known, so name no number.`;
+  const s = g.sweep;
+  if (!s || !Number.isFinite(s.quick)) {
+    return `${g.overdue} past their dates, ${g.unsorted} with no day yet. The total is not known, so name no number.`;
+  }
+  if (!s.quick) return 'nothing. Everything in Sweep has already been decided.';
+  const parts = [];
+  if (s.pastDay) parts.push(`${s.pastDay} past their dates`);
+  if (s.noDay) parts.push(`${s.noDay} todos with no day yet`);
+  if (s.other) parts.push(`${s.other} skipped in an earlier Sweep or back today`);
+  if (s.notes) parts.push(`${s.notes} notes not sorted yet`);
+  const when = s.lastSweepAt ? sweptWhen(s.lastSweepAt, g.tz, g.today) : null;
+  let fresh = '';
+  if (when && Number.isFinite(s.newSince)) {
+    fresh =
+      s.newSince === s.quick
+        ? ` All of them were added after their last Sweep (${when}).`
+        : s.newSince > 0
+          ? ` ${s.newSince} of them were added after their last Sweep (${when}).`
+          : ` Their last Sweep was ${when}.`;
+  }
+  return `${s.quick}, the number the day card shows and the quick sweep holds; any number named is this one or one of its parts (${parts.join(', ')}).${fresh} Everything else in Sweep has already been decided, so it is not waiting.`;
 }
 
 function offerBrief(offer, g) {
   switch (offer.kind) {
     case 'return':
-      return `return day. Things piled up while they were away (waiting in Sweep: ${sweepLine(g)}). Sweep is offered first, beside "Catch me up" and "Just today".`;
+      return `return day. Things piled up while they were away (needing a decision: ${sweepLine(g)}). Sweep is offered first, beside "Catch me up" and "Just today".`;
     case 'sweep':
-      return `things are waiting to be sorted (waiting in Sweep: ${sweepLine(g)}). Sweep is offered first; planning comes after, around what they keep. Never call what is waiting messy or a backlog.`;
+      return `some things need a decision before the day is planned (${sweepLine(g)}). A quick sweep is offered first: only those cards, then straight back here, with planning after, around what they keep. Say what needs deciding in plain words.${g.sweep?.newSince > 0 ? ' Say when the new ones came in, so they read as fresh drops rather than something undone, without explaining that they are not left over.' : ''} Never call what is waiting messy or a backlog.`;
     case 'plan':
       return `planning. "${offer.buttons[0].label}" is offered, to fit a few things into the clear stretch from ${fromTime(offer.plan.gapFrom, g.now)}${g.reach ? ', with the reach item added' : ''}.`;
     default:
@@ -198,7 +247,7 @@ const SCHEMA = {
 
 function systemPrompt(person) {
   return {
-    fixed: `You are Gremly, a warm, shame-free companion, writing the start of someone's day as a few short chat messages. They read it in the app's chat, under a day card that already shows today's meetings, todos, habits, what waits in Sweep and any date coming up. Your words sit around that card; they do not repeat it as a list.
+    fixed: `You are Gremly, a warm, shame-free companion, writing the start of someone's day as a few short chat messages. They read it in the app's chat, under a day card that already shows today's meetings, todos, habits, what needs a decision in Sweep and any date coming up. Your words sit around that card; they do not repeat it as a list.
 
 ${CARE_RULES}
 
@@ -215,7 +264,7 @@ WHAT YOU WRITE
 - offer: one or two sentences that end the brief, wording the offer decided in code. The buttons appear under it, so do not name them. Planning is offered as an invitation, never an instruction. Sweep is suggested, never pushed; on a return day say plainly that a sweep would help and that it is fine to skip it. With no offer, the offer is a warm one-sentence sign-off, and the lines do not sign off themselves. Cite in offer_refs anything the offer names.
 - question_line: when the input gives a question to ask, ask it in your own words as a short chat message, keeping its meaning exactly. Otherwise empty.
 - question_choices: required whenever the question has no answers to tap yet: two to four short answers that cover what the person would most likely say, each a few words. Otherwise empty.
-- catch_up: on a return day only, one or two kind sentences saying what is waiting, using the counts in WAITING IN SWEEP as given, and that nothing has been lost. It is shown only if they ask. Otherwise empty.
+- catch_up: on a return day only, one or two kind sentences saying what is waiting, using the counts in NEEDS A DECISION IN SWEEP as given, and that nothing has been lost. It is shown only if they ask. Otherwise empty.
 
 VOICE
 Warm, plain and brief, like a friend who knows their day. Suggest, never instruct: never tell them what they ought to do, never shame or pressure, never tell them how they feel.

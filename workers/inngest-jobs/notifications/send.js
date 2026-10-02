@@ -29,7 +29,7 @@ import { writeCopy, reminderCopy } from './copy';
 import { buildMessage, sendToExpo, getReceipts, DEAD_DEVICE_ERRORS, ALERT_ERRORS } from './expo';
 import { reportProblem } from './alert';
 import { reminderStillFiresAt } from './planner';
-import { sweepWaiting } from './sweepCount';
+import { sweepCounts } from './sweepCount';
 
 /** iOS action button sets, matching the categories the app registers. */
 export const CATEGORY = Object.freeze({
@@ -282,9 +282,9 @@ export async function decide(env, job, { at = new Date(), heldSoFar = 0 } = {}) 
       ['engaged', 'drifting'].includes(person.state))
   ) {
     g = await gatherBrief(env, job.user_id, { at }).catch(() => null);
-    if (g && !Number.isFinite(g.sweepWaiting)) {
+    if (g && !g.sweep) {
       // counted by the app's own Sweep rules; null (no number at all) if it fails
-      g.sweepWaiting = await sweepWaiting(env, job.user_id, {
+      g.sweep = await sweepCounts(env, job.user_id, {
         today: person.today,
         tz: person.tz,
       }).catch(() => null);
@@ -317,10 +317,21 @@ export async function decide(env, job, { at = new Date(), heldSoFar = 0 } = {}) 
         heldSoFar,
         meetingEndsInMinutes: job.moment === 'reminder' ? null : meetingEndsInMinutes,
       });
-  return { ...verdict, person, facts: g ? briefFacts(g) : null };
+  return { ...verdict, person, facts: g ? briefFacts(g, job.moment) : null };
 }
 
-function briefFacts(g) {
+/** The Sweep number for a moment; left out, not guessed, when the count failed. */
+function sweepFact(g, moment) {
+  const n = moment === 'sweep' ? g.sweep?.all : g.sweep?.quick;
+  return Number.isFinite(n) ? { waiting_in_sweep: n } : {};
+}
+
+/**
+ * What a notification may say about the day. The Sweep number is the one the
+ * person will see on tapping: the whole evening Sweep for the Sweep reminder,
+ * the quick sweep (what still needs a decision) for every other moment.
+ */
+export function briefFacts(g, moment) {
   const titles = (list) =>
     (list || [])
       .slice(0, 2)
@@ -342,7 +353,7 @@ function briefFacts(g) {
       .slice(0, 2)
       .map((a) => a.short_label || a.label),
     // left out, not guessed, when the count failed
-    ...(Number.isFinite(g.sweepWaiting) ? { waiting_in_sweep: g.sweepWaiting } : {}),
+    ...sweepFact(g, moment),
     gremly_age: g.gremlyAge ?? null,
   };
 }

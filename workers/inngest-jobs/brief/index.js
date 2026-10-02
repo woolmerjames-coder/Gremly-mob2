@@ -30,7 +30,7 @@ export function fallbackOffer(kind, part = 'morning') {
     case 'return':
       return "A quick sweep would help, and it's fine to skip it today.";
     case 'sweep':
-      return 'A few things are waiting in Sweep. Want to sweep first?';
+      return 'A few things need a decision before we plan. Want a quick sweep first?';
     case 'plan':
       return 'Want me to fit a few things into the clear time today?';
     default:

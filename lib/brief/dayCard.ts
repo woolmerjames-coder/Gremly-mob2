@@ -110,16 +110,20 @@ export function habitsLine(
   return { text: `${lead}, on track this week`, warn: false };
 }
 
-/** Sweep row: "7 waiting, 3 past their dates", "2 waiting", "All sorted". */
-export function sweepLine(waiting: number, pastDate: number): { text: string; warn: boolean } {
-  if (waiting <= 0) return { text: 'All sorted', warn: false };
+/**
+ * Sweep row, from the quick sweep (what still needs a decision): "7 to sort,
+ * 3 past their dates", "2 to sort", "All sorted". What was already decided
+ * (given a day, a Lock In, a resurface date) is not counted.
+ */
+export function sweepLine(toSort: number, pastDate: number): { text: string; warn: boolean } {
+  if (toSort <= 0) return { text: 'All sorted', warn: false };
   if (pastDate > 0) {
     return {
-      text: `${waiting} waiting, ${pastDate} past ${pastDate === 1 ? 'its date' : 'their dates'}`,
+      text: `${toSort} to sort, ${pastDate} past ${pastDate === 1 ? 'its date' : 'their dates'}`,
       warn: true,
     };
   }
-  return { text: `${waiting} waiting`, warn: false };
+  return { text: `${toSort} to sort`, warn: false };
 }
 
 /** The day strip runs 6am to 10pm. */
