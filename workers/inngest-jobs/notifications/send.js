@@ -29,6 +29,7 @@ import { writeCopy, reminderCopy } from './copy';
 import { buildMessage, sendToExpo, getReceipts, DEAD_DEVICE_ERRORS, ALERT_ERRORS } from './expo';
 import { reportProblem } from './alert';
 import { reminderStillFiresAt } from './planner';
+import { sweepWaiting } from './sweepCount';
 
 /** iOS action button sets, matching the categories the app registers. */
 export const CATEGORY = Object.freeze({
@@ -281,6 +282,13 @@ export async function decide(env, job, { at = new Date(), heldSoFar = 0 } = {}) 
       ['engaged', 'drifting'].includes(person.state))
   ) {
     g = await gatherBrief(env, job.user_id, { at }).catch(() => null);
+    if (g) {
+      // counted by the app's own Sweep rules; null (no number at all) if it fails
+      g.sweepWaiting = await sweepWaiting(env, job.user_id, {
+        today: person.today,
+        tz: person.tz,
+      }).catch(() => null);
+    }
     const now = g?.now ?? person.nowMinutes;
     const current = (g?.meetings || []).find((m) => m.start <= now && now < m.end);
     if (current) meetingEndsInMinutes = current.end - now;
@@ -327,7 +335,8 @@ function briefFacts(g) {
     first_meeting: g.meetings?.[0] ? clock(g.meetings[0].start) : null,
     due_today: (g.todosDue || []).length,
     due_today_titles: titles(g.todosDue),
-    waiting_in_sweep: (g.overdue || 0) + (g.unsorted || 0),
+    // left out, not guessed, when the count failed
+    ...(Number.isFinite(g.sweepWaiting) ? { waiting_in_sweep: g.sweepWaiting } : {}),
     gremly_age: g.gremlyAge ?? null,
   };
 }

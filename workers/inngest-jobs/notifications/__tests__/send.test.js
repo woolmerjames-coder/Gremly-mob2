@@ -204,6 +204,35 @@ describe('decide', () => {
     expect(v.facts).toMatchObject({ weekday: 'Thursday', meetings_today: 0 });
   });
 
+  it('names the number Sweep will show, due today included', async () => {
+    // gatherBrief's own split (overdue plus undated) would say 1 here
+    gatherBrief.mockResolvedValue({
+      now: 18 * 60,
+      meetings: [],
+      ritualDay: '2026-10-01',
+      overdue: 0,
+      unsorted: 1,
+    });
+    mockTables.todos = [
+      { id: 'a', due_day: '2026-10-01' },
+      { id: 'b', due_day: '2026-10-01' },
+      { id: 'c', due_day: null },
+      { id: 'd', due_day: '2026-10-09' },
+    ];
+    mockTables.notes = [];
+    const v = await decide(ON, job, { at: AT });
+    expect(v.facts.waiting_in_sweep).toBe(3);
+  });
+
+  it('leaves the number out rather than guess when it cannot be counted', async () => {
+    mockTables.todos = () => {
+      throw new Error('database down');
+    };
+    const v = await decide(ON, job, { at: AT });
+    expect(v.action).toBe('send');
+    expect(v.facts).not.toHaveProperty('waiting_in_sweep');
+  });
+
   it('holds while they are in the app', async () => {
     mockTables.app_events = [{ occurred_at: new Date(AT.getTime() - 10 * 60000).toISOString() }];
     const v = await decide(ON, job, { at: AT });
