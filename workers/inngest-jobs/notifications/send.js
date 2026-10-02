@@ -95,10 +95,13 @@ export const LATE_LIMIT_MINUTES = Object.freeze({
   canary: 60,
 });
 
-/** Null when on time, or the reason it is too late to send. */
-export function tooLate(job, at = new Date()) {
+/**
+ * Null when on time, or the reason it is too late to send. Minutes it was held
+ * on purpose (in the app, in a meeting) are not lateness.
+ */
+export function tooLate(job, at = new Date(), heldSoFar = 0) {
   if (!job.planned_for || job.test) return null;
-  const late = Math.floor((at.getTime() - Date.parse(job.planned_for)) / 60000);
+  const late = Math.floor((at.getTime() - Date.parse(job.planned_for)) / 60000) - heldSoFar;
   const limit = LATE_LIMIT_MINUTES[job.moment] ?? 60;
   return late > limit ? `Woke ${late} minutes after the planned time` : null;
 }
@@ -248,7 +251,7 @@ export async function decide(env, job, { at = new Date(), heldSoFar = 0 } = {}) 
   if (!job.test && mode === 'testers' && !person.cortex?.is_tester) {
     return { action: 'drop', reason: 'Only testers get notifications for now', person };
   }
-  const late = tooLate(job, at);
+  const late = tooLate(job, at, heldSoFar);
   if (late) {
     await reportProblem(env, {
       title: `Notifications: a ${job.moment} woke too late`,

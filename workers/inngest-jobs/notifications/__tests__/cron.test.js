@@ -91,6 +91,10 @@ describe('hourly', () => {
     await runMinute(ON, { now: new Date('2026-10-01T10:07:00Z') });
     expect(settleDueReceipts).toHaveBeenCalled();
     expect(cronCheckIn.mock.calls.map((c) => c[2])).toEqual(['in_progress', 'ok']);
+    // one id on both, so Sentry pairs the finish with its start
+    const [start, finish] = cronCheckIn.mock.calls.map((c) => c[5]);
+    expect(start).toMatch(/^[0-9a-f-]{36}$/);
+    expect(finish).toBe(start);
   });
 
   it('checks in with an error when something is wrong', async () => {

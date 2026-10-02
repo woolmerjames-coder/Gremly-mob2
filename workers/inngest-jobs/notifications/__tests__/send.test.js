@@ -128,6 +128,12 @@ describe('tooLate', () => {
     expect(tooLate({ moment: 'reminder', planned_for: '2026-10-01T08:40:00Z' }, at)).toBeNull();
     expect(tooLate({ moment: 'brief', planned_for: '2026-10-01T08:00:00Z' }, at)).toBeNull();
   });
+  it('does not count minutes it was held on purpose', () => {
+    // planned 7:00, held 60 minutes while they were in the app, now 9:00: 60 minutes late, not 120
+    const job = { moment: 'sweep', planned_for: '2026-10-01T07:00:00Z' };
+    expect(tooLate(job, at)).toMatch(/120 minutes after/);
+    expect(tooLate(job, at, 60)).toBeNull();
+  });
   it('never applies to a test', () => {
     expect(
       tooLate({ moment: 'reminder', planned_for: '2026-09-30T08:00:00Z', test: true }, at),
