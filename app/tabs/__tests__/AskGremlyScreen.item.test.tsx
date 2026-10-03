@@ -69,6 +69,11 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
   return { useGremlyStore };
 });
 
+// the chat home's wrap up count reads the whole store; an item chat never shows it
+jest.mock('../../../lib/store/selectors', () => ({
+  ...jest.requireActual('../../../lib/store/selectors'),
+  selectQuickSweepCount: () => 0,
+}));
 jest.mock('../../../lib/cortex/CortexClient', () => ({
   callGeneralChatStreaming: jest.fn(),
   callGeneralGreeting: jest.fn(async () => null),

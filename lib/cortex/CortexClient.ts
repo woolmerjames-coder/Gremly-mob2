@@ -1918,7 +1918,14 @@ export async function callJournalAnalyze(
   }
 }
 
-export async function callGeneralGreeting(userId: string): Promise<string | null> {
+/**
+ * Gremly's line on Chat's fresh home. What waits in the app (the unread brief,
+ * things to decide tonight) is sent so the line can mention it in passing.
+ */
+export async function callGeneralGreeting(
+  userId: string,
+  waiting: { briefUnread?: boolean; toDecide?: number } = {},
+): Promise<string | null> {
   const baseUrl = readCortexUrl();
   if (!baseUrl) return null;
   try {
@@ -1934,6 +1941,8 @@ export async function callGeneralGreeting(userId: string): Promise<string | null
         type: 'general-greeting',
         userId,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        brief_unread: waiting.briefUnread === true,
+        to_decide: waiting.toDecide ?? 0,
       }),
     });
     if (!res.ok) {

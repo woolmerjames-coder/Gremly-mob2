@@ -207,6 +207,10 @@ import { handleHabitRead } from './habitRead.js';
 import { fetchItemDetail, itemDetailText, handleItemTopics } from './itemDetail.js';
 import { configureModels, models, helperModel } from './models.js';
 import { helperFetch } from './helperClient.js';
+import { greetingFacts, greetingPrompt } from './greeting.js';
+import { readWeekAhead } from './context/weekAhead.js';
+import { clock } from './agent/tools/words.js';
+import { minutesIn } from '../shared/calendar.js';
 import { executeTavilySearch, formatSearchBrief } from './webSearch.js';
 import { aiContext, installAiUsageLogging, setAiUsage } from '../shared/aiUsage.js';
 import { briefNoCardSection, briefQuestionSection } from './briefTurn.js';
@@ -2118,6 +2122,7 @@ async function getDailyFocusForChat(userId, env, timezone = 'UTC') {
       briefHeadline: dco.brief_headline || null,
       namedAnchors: dco.named_anchors || [],
       todayFocus: dco.today_focus || [],
+      leadStory: dco.lead_story || null,
     };
   } catch (err) {
     console.warn('[getDailyFocusForChat] Failed:', err.message);
@@ -4211,7 +4216,12 @@ After the user confirms and locks in a habit, check the existing habits listed i
         }
 
         try {
-          const dailyFocus = await getDailyFocusForChat(authenticatedUserId, env, userTimezone);
+          // the daily context, and what is still on the calendar today
+          const [dailyFocus, week] = await Promise.all([
+            getDailyFocusForChat(authenticatedUserId, env, userTimezone),
+            readWeekAhead(authenticatedUserId, userTimezone, env),
+          ]);
+          // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
           const now = new Date();
           const timeStr = new Intl.DateTimeFormat('en-US', {
             hour: 'numeric',
@@ -4223,41 +4233,36 @@ After the user confirms and locks in a habit, check the existing habits listed i
             weekday: 'long',
             timeZone: userTimezone,
           }).format(now);
-
-          const focusSnippet = dailyFocus
+          const nowMinutes = minutesIn(userTimezone, now);
+          const hour = Math.floor(nowMinutes / 60);
+          const today = week?.days?.[0];
+          const laterToday = today
             ? [
-                dailyFocus.lifeMoment && `Life moment: ${dailyFocus.lifeMoment}`,
-                dailyFocus.briefHeadline && `Headline: "${dailyFocus.briefHeadline}"`,
-                dailyFocus.namedAnchors?.length > 0 &&
-                  `People: ${dailyFocus.namedAnchors.map((a) => a.label).join(', ')}`,
-                dailyFocus.todayFocus?.length > 0 && `Focus: ${dailyFocus.todayFocus.join(', ')}`,
-              ]
-                .filter(Boolean)
-                .join('\n')
-            : '';
-
-          const prompt = `Generate a 1-2 sentence contextual greeting for Gremly, a productivity companion. This shows on the home screen when the user opens the chat tab.
-
-Current time: ${timeStr} on ${dayStr}.
-${focusSnippet ? `\nUSER CONTEXT:\n${focusSnippet}` : 'No context available.'}
-
-Rules:
-- It is currently ${timeStr}. Be time-appropriate. Late evening means winding down or looking ahead to tomorrow, not starting a busy day.
-- Reference ONE specific detail from the context by name: a person, a project, an event, a milestone. If you can't name something specific, say "What's on your mind?" and nothing else.
-- Write like a friend who already knows what's going on. No introductions, no offers to help.
-- No productivity language. No "organize", "tasks", "stay on track", "moment to breathe", "focus".
-- No questions that a customer service bot would ask.
-- No exclamation marks.
-- Under 25 words.
-
-Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
+                ...today.meetings
+                  .filter((m) => m.start >= nowMinutes)
+                  .map((m) => `${clock(m.start)} ${m.title}`),
+                ...today.allDay.map((a) => `all day: ${a.title}`),
+              ].slice(0, 6)
+            : [];
+          const prompt = greetingPrompt({
+            timeStr,
+            dayStr,
+            hour,
+            facts: greetingFacts({
+              focus: dailyFocus,
+              laterToday,
+              // sent by app builds that know them
+              briefUnread: body.brief_unread === true,
+              toDecide: Number(body.to_decide) || 0,
+            }),
+          });
 
           const res = await helperFetch('general_greeting', {
             messages: [
               { role: 'system', content: prompt },
-              { role: 'user', content: 'Generate greeting.' },
+              { role: 'user', content: 'Write the line.' },
             ],
-            max_tokens: 60,
+            max_tokens: 80,
             temperature: 0.7,
           });
 

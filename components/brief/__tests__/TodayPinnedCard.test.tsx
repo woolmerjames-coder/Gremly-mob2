@@ -33,4 +33,40 @@ describe('the pinned Today card', () => {
     expect(getByText('Two meetings left, clear from 8:30')).toBeTruthy();
     expect(queryByTestId('today-pinned-unread')).toBeNull();
   });
+
+  it('offers to wrap up in the evening while things wait, and a tap starts it', () => {
+    const onPress = jest.fn();
+    const onWrapUp = jest.fn();
+    const { getByText, getByTestId } = render(
+      <TodayPinnedCard
+        date="2026-10-01"
+        unread={false}
+        onPress={onPress}
+        phase="evening"
+        toDecide={3}
+        onWrapUp={onWrapUp}
+      />,
+    );
+    expect(getByText('Wrap up today: 3 things to decide')).toBeTruthy();
+    fireEvent.press(getByTestId('today-pinned-card'));
+    expect(onWrapUp).toHaveBeenCalled();
+    expect(onPress).not.toHaveBeenCalled();
+  });
+
+  it('keeps the day in the evening when nothing waits, and the brief first while unread', () => {
+    const one = render(
+      <TodayPinnedCard
+        date="2026-10-01"
+        unread={false}
+        onPress={() => {}}
+        phase="evening"
+        toDecide={0}
+      />,
+    );
+    expect(one.getByText('Two meetings left, clear from 8:30')).toBeTruthy();
+    const two = render(
+      <TodayPinnedCard date="2026-10-01" unread onPress={() => {}} phase="evening" toDecide={1} />,
+    );
+    expect(two.getByText('Your brief is ready')).toBeTruthy();
+  });
 });

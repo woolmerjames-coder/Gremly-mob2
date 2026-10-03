@@ -40,17 +40,7 @@ import { supabase } from '../../lib/supabase/client';
 import { nowTimestamp, getDateService } from '../../lib/date/DateService';
 import MascotLottie from '../components/MascotLottie';
 import * as Haptics from 'expo-haptics';
-import {
-  Clock,
-  SquarePen,
-  ChevronLeft,
-  Bookmark,
-  Target,
-  Sparkles,
-  CalendarDays,
-  ChevronRight,
-  X,
-} from 'lucide-react-native';
+import { Clock, SquarePen, ChevronLeft, Bookmark, ChevronRight, X } from 'lucide-react-native';
 import { NavigationRouteContext, useNavigation } from '@react-navigation/native';
 import type {
   EntityCardEntity,
@@ -111,16 +101,16 @@ import {
 } from '../../lib/brief/sweepHandoff';
 import { opFromButton } from '../../lib/plan/planFlow';
 import { BriefPlanBlock } from '../../components/brief/BriefPlanBlock';
+import { HomeChips } from '../../components/home/HomeChips';
+import { chipPrompt, homeChipsFor, homePhase, type HomeChipKey } from '../../lib/chat/homeChips';
+import { useNowMinutes } from '../../lib/brief/useDayCard';
+import { selectQuickSweepCount } from '../../lib/store/selectors';
 
 const MOSS = '#2E5540';
 const LINEN = '#F9F6F1';
 
-// The brief answers "what should I focus on today?", so it is not a starter
-const BRIEF_STARTERS = [
-  { icon: Sparkles, label: 'Help me think through something' },
-  { icon: CalendarDays, label: "What's coming up this week?" },
-  { icon: Target, label: 'How am I doing with my habits?' },
-];
+// What Gremly says on the fresh home until his greeting arrives, or if it cannot
+const GREETING_FALLBACK = "What's on your mind?";
 
 /** An item's own chat (components/chat/ItemChatScreen.tsx) */
 export type ItemChatOptions = {
@@ -212,7 +202,10 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   const [saveSheetVisible, setSaveSheetVisible] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [savingChat, setSavingChat] = useState(false);
-  const [greeting, setGreeting] = useState<string>("What's on your mind?");
+  // null until Gremly's greeting arrives, so the bubble does not change under you
+  const [greeting, setGreeting] = useState<string | null>(null);
+  // what waits in the app, for the greeting to mention (set further down)
+  const greetingWaitingRef = useRef({ briefUnread: false, toDecide: 0 });
 
   // Chat opened about a drop ("Talk it through"): Gremly's fixed opener shows
   // instead of the greeting, and nothing is sent until the user replies
@@ -225,8 +218,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     // an item's chat, which opens with Gremly's line about the item instead
     if (item || aboutRef.current || params?.talkAbout) return;
     if (!activeChat && userId) {
-      callGeneralGreeting(userId).then((g) => {
-        if (g) setGreeting(g);
+      callGeneralGreeting(userId, greetingWaitingRef.current).then((g) => {
+        setGreeting(g || GREETING_FALLBACK);
       });
     }
   }, [activeChat, userId]);
@@ -703,6 +696,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   const homeDock = useHomeDock();
   const handleSendRef = useRef(handleSend);
   handleSendRef.current = handleSend;
+  // a chip above the shared box, set once the chips are worked out below
+  const pressChipRef = useRef<(key: HomeChipKey) => void>(() => {});
   const sendingRef = useRef(sending);
   sendingRef.current = sending;
   useEffect(() => {
@@ -712,6 +707,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         void handleSendRef.current(text);
       },
       isSending: () => sendingRef.current,
+      pressChip: (key) => pressChipRef.current(key),
     });
     return () => homeDock.registerChat(null);
   }, [embedded, homeDock]);
@@ -996,6 +992,45 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   const briefUnreadHere = useTodayThread((st) => isBriefUnread(st.thread));
   // the brief starts on the second day of training, so the pinned card does too
   const gremlyAge = useGremlyStore((st) => st.gremlyAge);
+
+  // Chat's fresh home: Gremly's greeting and chips that follow the part of the
+  // day; inside the Gremly home both sit by the shared box (GremlyHomeDock)
+  const nowMinutes = useNowMinutes();
+  const dayBoundaryHour = useGremlyStore((st) => st.dayBoundaryHour);
+  const phase = homePhase(nowMinutes, dayBoundaryHour);
+  const toDecide = useGremlyStore(selectQuickSweepCount);
+  const homeChips = useMemo(() => homeChipsFor(phase, toDecide), [phase, toDecide]);
+  greetingWaitingRef.current = { briefUnread: briefUnreadHere, toDecide };
+  const freshHome = !activeChat && !item && !aboutItem;
+  const openWrapUp = useCallback(() => {
+    navigation.navigate('Sweep', { quick: true });
+  }, [navigation]);
+  const pressChip = useCallback(
+    (key: HomeChipKey) => {
+      if (key === 'plan_day') {
+        void openTodayThread();
+        return;
+      }
+      if (key === 'wrap_up') {
+        openWrapUp();
+        return;
+      }
+      const prompt = chipPrompt(key);
+      if (prompt) void handleSend(prompt);
+    },
+    [openTodayThread, openWrapUp, handleSend],
+  );
+  pressChipRef.current = pressChip;
+  useEffect(() => {
+    if (!embedded || !homeDock) return;
+    homeDock.setChatHome(freshHome ? { greeting, chips: homeChips } : null);
+  }, [embedded, homeDock, freshHome, greeting, homeChips]);
+  useEffect(
+    () => () => {
+      if (embedded && homeDock) homeDock.setChatHome(null);
+    },
+    [embedded, homeDock],
+  );
   const jumpPending = !!(
     params?.thread ||
     params?.talkAbout ||
@@ -1520,10 +1555,14 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                     date={getDateService().ritualDay()}
                     unread={briefUnreadHere}
                     onPress={() => void openTodayThread()}
+                    phase={phase}
+                    toDecide={toDecide}
+                    onWrapUp={openWrapUp}
                   />
                 </View>
               ) : null}
-              <Text style={[styles.greeting, embedded && styles.greetingTop]}>{greeting}</Text>
+              {/* Inside the Gremly home the greeting and chips sit by the shared box */}
+              {!embedded && <Text style={styles.greeting}>{greeting ?? GREETING_FALLBACK}</Text>}
 
               {/* Inside the Gremly home, Gremly stays perched on the input (as on
                   the Drop page) so he does not jump when switching pages */}
@@ -1539,22 +1578,9 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                 </Pressable>
               )}
 
-              <View style={styles.startersContainer}>
-                {BRIEF_STARTERS.map(({ icon: Icon, label }) => (
-                  <TouchableOpacity
-                    key={label}
-                    style={styles.starterCard}
-                    onPress={() => handleSend(label)}
-                    activeOpacity={0.75}
-                  >
-                    <View style={styles.starterGlyph}>
-                      <Icon size={16} color={MOSS} strokeWidth={2} />
-                    </View>
-                    <Text style={styles.starterLabel}>{label}</Text>
-                    <ChevronRight size={16} color="rgba(46,85,64,0.4)" strokeWidth={2} />
-                  </TouchableOpacity>
-                ))}
-              </View>
+              {!embedded && (
+                <HomeChips chips={homeChips} onPress={pressChip} style={styles.homeChips} />
+              )}
             </View>
           )}
         </View>
@@ -1946,9 +1972,6 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     paddingTop: 4,
   },
-  greetingTop: {
-    marginBottom: 16,
-  },
   greeting: {
     fontFamily: 'Inter-Medium',
     fontSize: 15,
@@ -1985,11 +2008,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     marginBottom: 18,
   },
-  startersContainer: {
-    width: '100%',
+  homeChips: {
+    flexGrow: 0,
+    marginTop: 8,
     paddingHorizontal: 24,
-    gap: 10,
-    zIndex: 2,
   },
   starterCard: {
     flexDirection: 'row',

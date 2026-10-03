@@ -75,6 +75,7 @@ import { useAuth } from '../../providers/AuthProvider';
 import { useRepo } from '../../providers/RepoProvider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useHomeDock, useHomeMode } from '../../components/home/GremlyHomeDock';
+import { HomeChips } from '../../components/home/HomeChips';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
 import {
   MidConfidenceChips,
@@ -3174,9 +3175,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   const statsVisible = organizedToday > 0;
 
-  // Typing in Chat (Gremly home): the box starts at one line and grows, and the
-  // big button folds into a send arrow inside the box, for more room to read
-  const compactTyping = chatMode && keyboardVisible;
+  // Chat (Gremly home): the box is one line that grows as you type, with the
+  // send arrow inside it, for more room to read
+  const compactTyping = chatMode;
+  // Chat's fresh home: Gremly's greeting beside him and the chips above the
+  // box, put away while typing
+  const chatHome = chatMode && !keyboardVisible ? (homeMode?.chatHome ?? null) : null;
   const compactInputHeight = Math.max(
     COMPACT_INPUT_HEIGHT,
     Math.min(rawInputHeight || COMPACT_INPUT_HEIGHT, MAX_HEIGHT),
@@ -3263,9 +3267,34 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             </Pressable>
           </Reanimated.View>
         )}
-        {/* Gremly perched on input - always visible */}
+        {/* Chat's fresh home: Gremly's greeting, left of him */}
+        {chatHome?.greeting ? (
+          <Reanimated.View
+            style={styles.chatGreetingContainer}
+            entering={FadeIn.duration(200)}
+            exiting={FadeOut.duration(150)}
+            testID="chat-home-greeting"
+          >
+            <View style={styles.chatGreetingBubble}>
+              <Text style={styles.chatGreetingText}>{chatHome.greeting}</Text>
+            </View>
+          </Reanimated.View>
+        ) : null}
+        {chatHome?.chips.length ? (
+          <HomeChips
+            chips={chatHome.chips}
+            onPress={(key) => homeDock?.getChat()?.pressChip?.(key)}
+            style={styles.chatChips}
+          />
+        ) : null}
+        {/* Gremly perched on input - always visible; in Chat he stands above it */}
         <Animated.View
-          style={[styles.inputGremly, styles.inputGremlyTuckOrigin, gremlyTuckStyle]}
+          style={[
+            styles.inputGremly,
+            chatMode && styles.inputGremlyChat,
+            styles.inputGremlyTuckOrigin,
+            gremlyTuckStyle,
+          ]}
           pointerEvents="box-none"
         >
           <Pressable
@@ -3895,6 +3924,44 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       width: 95,
       height: 111,
       zIndex: 10,
+    },
+    // In Chat he stands on the first row (the chips, or the box), beside his greeting
+    inputGremlyChat: {
+      top: -90,
+    },
+    // Chat's fresh home: the greeting bubble, its tail towards Gremly
+    chatGreetingContainer: {
+      position: 'absolute',
+      bottom: '100%',
+      marginBottom: 10,
+      left: 0,
+      right: 100,
+      zIndex: 15,
+      alignItems: 'flex-start',
+    },
+    chatGreetingBubble: {
+      backgroundColor: '#FFFFFF',
+      borderRadius: 20,
+      borderBottomRightRadius: 6,
+      borderWidth: 1,
+      borderColor: '#ECEAE4',
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      shadowColor: '#28322C',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.05,
+      shadowRadius: 3,
+      elevation: 1,
+    },
+    chatGreetingText: {
+      fontFamily: 'Inter-Regular',
+      fontSize: 16,
+      lineHeight: 22,
+      color: '#2B3630',
+    },
+    chatChips: {
+      marginBottom: 12,
+      flexGrow: 0,
     },
     // leans from his feet when he steps aside
     inputGremlyTuckOrigin: {

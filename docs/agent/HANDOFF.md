@@ -158,9 +158,23 @@ feels" (semantic, Ask Gremly only). The writer test is `scripts/writer-test`
 (fixtures and outputs stay out of git): 40 of James's turns through the live
 chat path, two blind judges, Luna with the new section 6.9 of 10, Luna
 without it 6.7, the preview 5.2. The other chat surfaces stay on the preview
-until each is checked. Known gap: a "what's coming up" question is answered
-from the preload alone and Luna says when it cannot see the week; the agent
-lane (lookup, with get_day) is the fix.
+until each is checked. Ask Gremly's preload now carries the
+week ahead (`workers/cortex/context/weekAhead.js`: the calendar and planned
+todos for the next seven days, read live), so questions about the days ahead
+are answered from them; before, chat had only the week so far.
+
+**Chat home (step 9, 3 Oct).** From the mockup James approved
+(https://claude.ai/artifact/RxvQRqbb722VymHacdNQB5): the three starter
+buttons are gone; Gremly's greeting sits in a speech bubble beside him and a
+row of chips (`lib/chat/homeChips.ts`) sits above the box, both drawn by the
+shared box (`CatchAllNotepad`) from `chatHome` on the home dock
+(`components/home/GremlyHomeDock.tsx`), with chip taps routed back to the
+Chat page. The box in Chat is always one line with the send arrow inside.
+The Today card's mark and line follow the part of the day, and in the
+evening, while things wait for a decision, it offers to wrap up (the quick
+Sweep for now; the Sweep redesign repoints it). The greeting prompt
+(`workers/cortex/greeting.js`) is semantic and knows the hour, what is still
+on the calendar today, and what waits in the app.
 
 **Step 11, focused model audit.** After chat and Sweep, a smaller audit of
 only the places that could be better, from replays and real use: a stronger
