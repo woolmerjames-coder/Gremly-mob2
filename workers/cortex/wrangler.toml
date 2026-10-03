@@ -41,6 +41,9 @@ MINDDROP_RELATE_ENABLED = "true"
 #   LEGACY_OPENAI_CHAT_MODEL  non streaming OpenAI fallback for Space, World, Chapter (default gpt-4.1)
 #   WEEKLY_SUMMARY_MODEL      weekly summary (default claude-sonnet-4-5-20250929)
 #   HELPER_FALLBACK_MODEL     retry a failed helper call once on this model (default none)
+#   AGENT_MODEL               the agent's model on every surface (agent/run.js; default gemini-3.8-flash)
+#   AGENT_FALLBACK_MODEL      tried once when the agent's first step fails (default gpt-6-luna)
+#   AGENT_MODEL_BRIEF, AGENT_MODEL_CHAT  one surface on its own
 #   TRIAGE_ONE_CALL           on: one triage call instead of two (default off)
 #   CHAT_EXTRACTION_V2        on: evidence rule, 2,000 cap, JSON mode, skipped on
 #                             chit chat, playful, app help, venting, emotional,

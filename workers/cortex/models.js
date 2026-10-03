@@ -43,6 +43,10 @@ export const DEFAULTS = {
   haiku: 'claude-haiku-4-5-20251001',
   sonnet: 'claude-sonnet-4-6',
   weeklySummary: 'claude-sonnet-4-5-20250929', // type weekly-summary, direct Anthropic call; its own review is a later pass
+  // the agent (agent/run.js): its main model and the one tried when the first step fails.
+  // Chosen per surface in step 8 of the agent plan by replay; until then these.
+  agent: 'gemini-3.8-flash',
+  agentFallback: 'gpt-6-luna',
 };
 
 // Helper jobs and the var that moves each one on its own.
@@ -84,6 +88,15 @@ export function resolveModels(env = {}) {
     legacyOpenAIChat: env.LEGACY_OPENAI_CHAT_MODEL || DEFAULTS.legacyOpenAIChat,
     appHelper: env.APP_HELPER_MODEL || DEFAULTS.appHelper,
     weeklySummary: env.WEEKLY_SUMMARY_MODEL || DEFAULTS.weeklySummary,
+    agent: {
+      model: env.AGENT_MODEL || DEFAULTS.agent,
+      fallback: env.AGENT_FALLBACK_MODEL || DEFAULTS.agentFallback,
+      // one surface on its own: AGENT_MODEL_BRIEF, AGENT_MODEL_CHAT
+      bySurface: {
+        brief: env.AGENT_MODEL_BRIEF || '',
+        chat: env.AGENT_MODEL_CHAT || '',
+      },
+    },
     // Behaviour switches for the chat helper split (docs/2026-09-29-chat-helper-model-audit.md).
     // Every default is today's behaviour; the corpus gate applies before any is flipped.
     flags: {
