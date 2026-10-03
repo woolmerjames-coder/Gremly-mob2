@@ -115,6 +115,9 @@ export function resolveModels(env = {}) {
       // The Save items pill as its own focused call (new and changed only), with
       // the chat summary as a separate small call, both after the reply.
       pillSplit: env.CHAT_PILL_SPLIT === 'on',
+      // Today's thread on the agent (agent/brief.js). Off: the day turn answers,
+      // as before. Only app builds that call brief-turn see either.
+      agentBrief: env.AGENT_BRIEF === 'on',
     },
     // A helper call that fails on its model is retried once on this model, if set.
     helperFallback: env.HELPER_FALLBACK_MODEL || '',

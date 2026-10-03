@@ -2,3 +2,4 @@
 real/
 out/
 .bundle.mjs
+.bundle-agent.mjs

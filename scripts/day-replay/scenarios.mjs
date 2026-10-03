@@ -11,6 +11,8 @@
  *   forbid          kinds (or kind:id) that must not be on the card
  *   status          checklist statuses that must appear
  *   maxChanges      at most this many changes
+ *   dueBefore       { id or title, before: YYYY-MM-DD }: what gets someone ready
+ *                   for a later date is due before it, or Gremly asks (needs_answer)
  */
 
 const ALEX_ITEMS = [
@@ -205,5 +207,38 @@ export const SCENARIOS = [
     record: { travel: null, blocks: [] },
     plan: null,
     expect: { aboutDay: true, forbid: ['cancel', 'complete', 'move_day'], maxChanges: 1 },
+  },
+  {
+    id: 'present-before-anniversary',
+    title: 'A present for a date: due before it, never on it',
+    look: 'Gremly asked when the anniversary is; the answer gives the present a day before the 10th, or Gremly asks when it should be ready. Never the 10th itself.',
+    today: '2026-10-02',
+    at: '18:30',
+    history: [
+      { role: 'user', content: "I need to sort Dave's anniversary present" },
+      { role: 'assistant', content: "It's on your list already. When is your anniversary?" },
+    ],
+    text: "it's on the 10th",
+    items: [
+      { id: 'gift', kind: 'todo', title: 'Get Dave an anniversary present', minutes: 60, note: 'no day' },
+      { id: 'mum', kind: 'todo', title: 'Call Mum', due_day: '2026-10-02', minutes: 20, note: 'due today' },
+    ],
+    meetings: [],
+    record: { travel: null, blocks: [] },
+    plan: null,
+    expect: { aboutDay: true, dueBefore: { id: 'gift', before: '2026-10-10' }, forbid: ['cancel', 'complete'], maxChanges: 2 },
+  },
+  {
+    id: 'present-for-a-date',
+    title: 'Something to get ready for a date, said in one go',
+    look: 'A todo for the present due before the 10th, or a question about when it should be ready. Never due on the 10th.',
+    today: '2026-10-02',
+    at: '12:15',
+    text: 'add getting Sam a birthday present, her birthday is on the 10th',
+    items: ALEX_ITEMS,
+    meetings: [],
+    record: { travel: null, blocks: [] },
+    plan: null,
+    expect: { aboutDay: true, dueBefore: { title: 'present', before: '2026-10-10' }, maxChanges: 2 },
   },
 ];

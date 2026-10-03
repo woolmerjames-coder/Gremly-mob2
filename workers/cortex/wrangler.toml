@@ -44,6 +44,9 @@ MINDDROP_RELATE_ENABLED = "true"
 #   AGENT_MODEL               the agent's model on every surface (agent/run.js; default gemini-3.8-flash)
 #   AGENT_FALLBACK_MODEL      tried once when the agent's first step fails (default gpt-6-luna)
 #   AGENT_MODEL_BRIEF, AGENT_MODEL_CHAT  one surface on its own
+#   AGENT_BRIEF               on: today's thread on the agent (agent/brief.js, type brief-turn);
+#                             off: the day turn answers brief-turn, as before. Only app builds
+#                             from step 7 on call brief-turn; older builds keep calling day-turn
 #   TRIAGE_ONE_CALL           on: one triage call instead of two (default off); its model is
 #                             MODEL_TRIAGE, and in Ask Gremly it also records the lane
 #   CHAT_EXTRACTION_V2        on: evidence rule, 2,000 cap, JSON mode, skipped on
@@ -77,6 +80,15 @@ MODEL_TRIAGE_MODE = "gpt-4.1-mini"
 MODEL_TRIAGE_SIGNALS = "gpt-4.1-mini"
 MODEL_LOADING_MESSAGE = "gpt-4.1-mini"
 TRIAGE_ONE_CALL = "on"
+# Today's thread on the agent (agent plan step 7), on Luna by James's choice:
+# the day turn's replay suite (11 messages) passed 20 of 22 runs at 5.4s typical
+# and about 0.06 cents a message, against 5 of 11 for today's day turn on Luna.
+# Gemini 3.8 Flash was faster (2.9s) but about 1.35 cents a message, nearly three
+# times the brief's budget. A first step that fails is tried once on Gemini; when
+# the agent cannot finish, the day turn answers.
+AGENT_BRIEF = "on"
+AGENT_MODEL_BRIEF = "gpt-6-luna"
+AGENT_FALLBACK_MODEL = "gemini-3.8-flash"
 CHAT_EXTRACTION_V2 = "on"
 SEARCH_REQUIRED_FORCES = "off"
 ENTITY_CARDS = "on"

@@ -86,7 +86,7 @@ export const TYPES = {
         group: 'main',
         column: 'target_date',
         clear: true,
-        about: 'when it is due, apart from the day they plan to do it',
+        about: 'the last day it can be done by, apart from the day they plan to do it',
       },
       length: {
         kind: 'minutes',

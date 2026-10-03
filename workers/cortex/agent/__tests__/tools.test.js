@@ -5,9 +5,9 @@
 // database, what it hands the model, and that a failing tool never stops a
 // turn.
 
-import { TOOLS, runTool, toolDeclarations } from '../tools/index.js';
+import { TOOLS, runTool, toolDeclarations, toolsFor } from '../tools/index.js';
 import { habitOnDay } from '../tools/getDay.js';
-import { fieldListWords, toModelChange } from '../tools/proposeChanges.js';
+import { fieldListWords, readPlanRow, toModelChange } from '../tools/proposeChanges.js';
 
 const USER = '0b7c6f0e-1d2a-4c3b-9e8f-112233445566';
 const TODAY = '2026-10-02'; // a Friday
@@ -66,7 +66,7 @@ describe('the declarations', () => {
       }
       expect(s.oneOf || s.anyOf || s.$ref).toBeUndefined();
     };
-    for (const d of decls) {
+    for (const d of [...decls, ...toolDeclarations(toolsFor(null, 'brief'))]) {
       expect(d.description.length).toBeGreaterThan(80);
       expect(d.parameters.type).toBe('object');
       walk(d.parameters, d.name);
@@ -405,6 +405,126 @@ describe('propose_changes', () => {
     );
     expect(r.text).toContain('Nothing made it onto the card.');
     expect(r.text).toContain('- c1: a new item needs a name');
+  });
+});
+
+describe("propose_changes in today's thread", () => {
+  const BLOCK = 'blk_1';
+  const day = {
+    date: TODAY,
+    plan: {
+      status: 'proposal',
+      items: [{ id: TODO, kind: 'todo', title: 'Call Mum', start: 710, end: 730 }],
+    },
+    blocks: [{ id: BLOCK, title: 'Dentist', start: 600, end: null, travel: false }],
+    items: new Map([
+      [TODO, { id: TODO, kind: 'todo', title: 'Call Mum', minutes: 20 }],
+      [HABIT, { id: HABIT, kind: 'habit', title: 'Pushups', minutes: 10 }],
+    ]),
+  };
+
+  it('reads each plan change against the plan on screen and the set times', () => {
+    const row = (plan) => readPlanRow({ op: 'plan', plan }, 'c1', day);
+    expect(row({ kind: 'plan_move', id: TODO, time: '12:00' }).raw).toEqual({
+      cid: 'c1',
+      op: 'plan',
+      type: 'todo',
+      id: TODO,
+      title: 'Call Mum',
+      plan: { kind: 'plan_move', id: TODO, item: 'todo', start: 720, title: 'Call Mum' },
+    });
+    expect(
+      row({ kind: 'add_block', title: 'Leave for the airport', time: '12:30', travel: true }).raw
+        .plan,
+    ).toEqual({
+      kind: 'add_block',
+      start: 750,
+      end: null,
+      travel: true,
+      title: 'Leave for the airport',
+    });
+    expect(row({ kind: 'plan_add', id: HABIT }).raw.plan).toMatchObject({
+      kind: 'plan_add',
+      id: HABIT,
+      item: 'habit',
+      start: null,
+      minutes: 10,
+    });
+    expect(row({ kind: 'remove_block', id: BLOCK }).raw).toMatchObject({
+      id: BLOCK,
+      title: 'Dentist',
+    });
+    expect(row({ kind: 'plan_add', id: TODO }).reason).toBe('in_plan');
+    expect(row({ kind: 'plan_remove', id: HABIT }).reason).toBe('not_in_plan');
+    expect(row({ kind: 'plan_move', id: TODO }).reason).toBe('needs_time');
+    expect(row({ kind: 'remove_block', id: 'blk_9' }).reason).toBe('no_block');
+    expect(row({ kind: 'add_block', time: '12:30' }).reason).toBe('needs_title');
+    expect(row({ kind: 'plan_add', id: NOTE }).reason).toBe('not_today');
+    expect(row({ kind: 'add_block', title: 'x', time: '25:00' }).reason).toBe('bad_plan_time');
+    expect(
+      readPlanRow({ op: 'plan', plan: { kind: 'plan_add', id: HABIT } }, 'c1', {
+        ...day,
+        plan: null,
+      }).reason,
+    ).toBe('no_plan');
+    expect(
+      readPlanRow({ op: 'plan', plan: { kind: 'plan_move', id: TODO, time: '12:00' } }, 'c1', null)
+        .reason,
+    ).toBe('not_here');
+  });
+
+  it('puts plan changes and item changes on one card, in the order given', async () => {
+    const db = fakeDb({
+      'todos?id=eq.': [
+        { id: TODO, name: 'Call Mum', due_day: TODAY, due_time: '11:50:00', archived_at: null },
+      ],
+      worlds: [],
+      chapters: [],
+    });
+    const r = await runTool({ ...ctxWith(db), surface: 'brief', day }, 'propose_changes', {
+      changes: [
+        {
+          op: 'plan',
+          plan: { kind: 'add_block', title: 'Leave for the airport', time: '12:30', travel: true },
+        },
+        { op: 'plan', plan: { kind: 'plan_remove', id: HABIT } },
+        { op: 'change', type: 'todo', id: TODO, fields: { time: '12:00' } },
+      ],
+    });
+    expect(r.ok).toBe(true);
+    expect(r.result.changes.map((c) => [c.cid, c.op])).toEqual([
+      ['c1', 'plan'],
+      ['c3', 'change'],
+    ]);
+    expect(r.result.dropped).toEqual([{ cid: 'c2', reason: 'not_in_plan' }]);
+    expect(r.text).toContain('c1 plan: set time today “Leave for the airport” at 12:30pm, travel');
+    expect(r.text).toContain('c2: that item is not in the plan on screen; plan_add fits it in');
+  });
+
+  it('keeps one row per item: a new time or day already moves it in the plan', async () => {
+    const db = fakeDb({
+      'todos?id=eq.': [
+        { id: TODO, name: 'Call Mum', due_day: TODAY, due_time: '11:50:00', archived: false },
+      ],
+      worlds: [],
+      chapters: [],
+    });
+    const r = await runTool({ ...ctxWith(db), surface: 'brief', day }, 'propose_changes', {
+      changes: [
+        { op: 'change', type: 'todo', id: TODO, fields: { time: '12:00' } },
+        { op: 'plan', plan: { kind: 'plan_move', id: TODO, time: '12:00' } },
+      ],
+    });
+    expect(r.result.changes.map((c) => c.cid)).toEqual(['c1']);
+    expect(r.result.dropped).toEqual([{ cid: 'c2', reason: 'covered' }]);
+  });
+
+  it('keeps plan changes off the card everywhere else', async () => {
+    const r = await runTool(ctxWith(fakeDb({ worlds: [], chapters: [] })), 'propose_changes', {
+      changes: [{ op: 'plan', plan: { kind: 'add_block', title: 'x', time: '12:30' } }],
+    });
+    expect(r.result.changes).toEqual([]);
+    expect(r.result.dropped).toEqual([{ cid: 'c1', reason: 'unknown_op' }]);
   });
 });
 

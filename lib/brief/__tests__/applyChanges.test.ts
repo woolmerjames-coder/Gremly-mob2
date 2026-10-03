@@ -4,7 +4,8 @@
  * the item's history, everything can be undone, and what it means for the
  * plan is handed back.
  */
-import { applyDayChanges, changedEventText } from '../applyChanges';
+import { applyCardChanges, applyDayChanges, changedEventText } from '../applyChanges';
+import type { Change } from '../../changes/model';
 import { useGremlyStore } from '../../store/useGremlyStore';
 import { patchDailyThreadMeta } from '../../repo/dailyThreadRepo';
 import { useTodayThread } from '../todayThread';
@@ -209,5 +210,98 @@ describe('applying the change card', () => {
   it('counts what was updated', () => {
     expect(changedEventText(1)).toBe('Updated 1 thing');
     expect(changedEventText(3)).toBe('Updated 3 things');
+  });
+});
+
+describe("applying the agent's card", () => {
+  it('writes each row and works out what each means for the plan', async () => {
+    const card = [
+      {
+        cid: 'c1',
+        op: 'change',
+        type: 'todo',
+        id: 'mum',
+        title: 'Call Mum',
+        fields: { time: '12:00' },
+        before: { time: null },
+      },
+      {
+        cid: 'c2',
+        op: 'plan',
+        type: null,
+        id: null,
+        title: 'Leave for the airport',
+        plan: {
+          kind: 'add_block',
+          start: 750,
+          end: null,
+          travel: true,
+          title: 'Leave for the airport',
+        },
+      },
+      {
+        cid: 'c3',
+        op: 'add',
+        type: 'todo',
+        id: null,
+        title: 'Buy sunscreen',
+        fields: { name: 'Buy sunscreen', day: '2026-10-02', time: '15:00' },
+        before: {},
+      },
+      {
+        cid: 'c4',
+        op: 'plan',
+        type: 'habit',
+        id: 'run',
+        title: 'Run',
+        plan: {
+          kind: 'plan_add',
+          id: 'run',
+          item: 'habit',
+          start: null,
+          minutes: 30,
+          title: 'Run',
+        },
+      },
+    ] as Change[];
+    const res = await applyCardChanges(card, ctx);
+    expect(res.done).toEqual(['c1', 'c2', 'c3', 'c4']);
+    expect(res.failed).toEqual([]);
+    expect(res.plan).toEqual({
+      add: [
+        { id: 'new-1', kind: 'todo', start: 900, minutes: null },
+        { id: 'run', kind: 'habit', start: null, minutes: 30 },
+      ],
+      remove: [],
+      pin: [{ id: 'mum', start: 720 }],
+    });
+    expect(res.frameChanged).toBe(true);
+  });
+
+  it('a new day takes an item out of the plan; what is not in the plan stays out of it', async () => {
+    const card = [
+      {
+        cid: 'c1',
+        op: 'change',
+        type: 'todo',
+        id: 'mum',
+        title: 'Call Mum',
+        fields: { day: '2026-10-03' },
+        before: { day: '2026-10-02' },
+      },
+      { cid: 'c2', op: 'done', type: 'todo', id: 'deck', title: 'Finish the deck' },
+      {
+        cid: 'c3',
+        op: 'change',
+        type: 'todo',
+        id: 'deck',
+        title: 'Finish the deck',
+        fields: { time: '16:00' },
+        before: { time: null },
+      },
+    ] as Change[];
+    const res = await applyCardChanges(card, { ...ctx, inPlan: new Set(['mum']) });
+    expect(res.plan.remove).toEqual(['mum']);
+    expect(res.plan.pin).toEqual([]);
   });
 });

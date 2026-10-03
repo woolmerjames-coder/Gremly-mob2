@@ -9,7 +9,8 @@
  * draws them from data each time they are shown.
  */
 
-import type { DayChange } from '../cortex/CortexClient';
+import type { AgentTask, DayChange } from '../cortex/CortexClient';
+import type { Change } from '../changes/model';
 import type { ThreadBlock } from './dayRecord';
 
 /** The part of the day a brief was written for. */
@@ -169,12 +170,17 @@ export interface BriefReplyMeta extends BriefMetaBase {
 }
 
 /**
- * The day turn's card: every change it proposes for one message, each with a
- * tick, and Apply or Not now (lib/brief/useDayTurn.ts).
+ * The card under Gremly's reply in today's thread: every change proposed for
+ * one message, each with a tick, and Accept all or Not now
+ * (lib/brief/useDayTurn.ts). The day turn's card has changes, each with its
+ * own words; the agent's has card, in the change model's shape, and changes
+ * is empty.
  */
 export interface BriefChangesMeta extends BriefMetaBase {
   type: 'brief-changes';
   changes: DayChange[];
+  /** The agent's card (agent plan step 7), drawn with lib/changes/words.ts */
+  card?: Change[];
   /** What was asked, each proposed, needing an answer, not possible here or noted */
   checklist?: { ask: string; status: 'proposed' | 'needs_answer' | 'not_possible' | 'noted' }[];
   /** undone: everything it did was put back with its Undo */
@@ -215,4 +221,6 @@ export interface DailyThreadMeta {
   fixed_removed?: string[];
   /** Habits skipped today in the thread: not planned again today */
   skipped_habits?: string[];
+  /** The agent's task list in the thread, carried from one message to the next */
+  agent_tasks?: AgentTask[];
 }

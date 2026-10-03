@@ -7,6 +7,7 @@ import { getDateService, nowTimestamp } from '../date/DateService';
 import { eventBus } from '../events/EventBus';
 import { getSessionToken, getSessionTokenSync } from './getSessionToken';
 import type { HabitBuilderRequest, HabitBuilderStreamingCallbacks } from '../types';
+import type { Change } from '../changes/model';
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
@@ -2274,6 +2275,102 @@ export async function callDayTurn(
   } catch (e: any) {
     return { ok: false, error: String(e?.message || e) };
   }
+}
+
+/** One ask on the agent's task list in today's thread (workers/cortex/agent/tasks.js). */
+export interface AgentTask {
+  ask: string;
+  status: 'open' | 'proposed' | 'needs_answer' | 'done' | 'not_possible' | 'dropped';
+}
+
+export interface BriefTurnRequest extends DayTurnRequest {
+  /** Where they are, for their calendar and their day */
+  timezone: string;
+  /** The agent's task list so far in today's thread */
+  tasks: AgentTask[];
+}
+
+/**
+ * What answered a message in today's thread: the agent (agent plan step 7),
+ * or the day turn when the agent is switched off or could not finish.
+ */
+export type BriefTurnResponse =
+  | {
+      engine: 'agent';
+      reply: string;
+      /** The card, in the change model's shape: nothing changes until they tap */
+      card: Change[];
+      tasks: AgentTask[];
+      model?: string;
+      prompt_version?: string;
+    }
+  | ({ engine: 'day_turn'; agent_error?: string } & DayTurnResponse);
+
+/**
+ * A message typed in today's thread (workers/cortex/agent/brief.js). Status
+ * lines come through onStatus while Gremly works; the answer resolves once.
+ */
+export async function callBriefTurn(
+  req: BriefTurnRequest,
+  opts: { onStatus?: (line: string) => void; timeoutMs?: number } = {},
+): Promise<CortexClientResult<BriefTurnResponse>> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return { ok: false, error: '[cortex] Missing EXPO_PUBLIC_CORTEX_URL' };
+  if (isAiDisabled()) return { ok: false, error: 'AI disabled' };
+  const token = await getSessionToken();
+  if (!token) return { ok: false, error: 'not signed in' };
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const es = new EventSource(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ type: 'brief-turn', ...req }),
+      lineEndingCharacter: '\n',
+    });
+    const finish = (r: CortexClientResult<BriefTurnResponse>) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      es.close();
+      resolve(r);
+    };
+    // the agent's budget plus the day turn behind it, with room to spare
+    timer = setTimeout(() => finish({ ok: false, error: 'timed out' }), opts.timeoutMs ?? 30000);
+    es.addEventListener('message', (event: { data?: string | null }) => {
+      let data: Record<string, unknown> | null = null;
+      try {
+        data = JSON.parse(event.data ?? '');
+      } catch {
+        return;
+      }
+      if (!data) return;
+      if (data.error === 'read_only') {
+        eventBus.emit('cortex:read_only', {});
+        finish({ ok: false, error: 'read_only' });
+        return;
+      }
+      if (typeof data.status === 'string') {
+        opts.onStatus?.(data.status);
+        return;
+      }
+      if (data.done) {
+        if (data.error) {
+          finish({ ok: false, error: String(data.error) });
+          return;
+        }
+        const answer = { ...data };
+        delete answer.done;
+        finish({ ok: true, data: answer as unknown as BriefTurnResponse });
+      }
+    });
+    es.addEventListener('error', (event) =>
+      finish({
+        ok: false,
+        error: String((event as { message?: string } | null)?.message || 'stream error'),
+      }),
+    );
+  });
 }
 
 /**

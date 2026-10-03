@@ -12,7 +12,20 @@ import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Check, CircleSlash, RotateCcw, Square, SquareCheck } from 'lucide-react-native';
 import type { BriefChangesMeta } from '../../lib/brief/types';
+import { nameLookup } from '../../lib/changes/apply';
+import { rowWords } from '../../lib/changes/words';
 import { BRIEF } from './briefStyles';
+
+/**
+ * The card's rows: the day turn's changes in its own words, or the agent's in
+ * the change model's words (Today and Tomorrow while the card is waiting).
+ */
+export function rowsOf(meta: BriefChangesMeta): { cid: string; label: string }[] {
+  if (!meta.card?.length) return meta.changes;
+  const names = nameLookup();
+  const relative = meta.status === 'open';
+  return meta.card.map((c) => ({ cid: c.cid, label: rowWords(c, { relative, names }) }));
+}
 
 export type ChangeCardProps = {
   meta: BriefChangesMeta;
@@ -32,6 +45,7 @@ export function ChangeCard({
   onUndo,
 }: ChangeCardProps) {
   const [unticked, setUnticked] = useState<string[]>(meta.unticked ?? []);
+  const rows = rowsOf(meta);
 
   if (meta.status === 'undone') {
     return (
@@ -54,7 +68,7 @@ export function ChangeCard({
   if (meta.status === 'applied') {
     const done = new Set(meta.applied ?? []);
     const failed = new Set(meta.failed ?? []);
-    const shown = meta.changes.filter((c) => done.has(c.cid) || failed.has(c.cid));
+    const shown = rows.filter((c) => done.has(c.cid) || failed.has(c.cid));
     return (
       <View style={styles.card} testID="changes-applied">
         <Text style={styles.title}>Changed</Text>
@@ -87,13 +101,13 @@ export function ChangeCard({
 
   const toggle = (cid: string) =>
     setUnticked((u) => (u.includes(cid) ? u.filter((x) => x !== cid) : [...u, cid]));
-  const ticked = meta.changes.filter((c) => !unticked.includes(c.cid)).length;
-  const all = ticked === meta.changes.length;
+  const ticked = rows.filter((c) => !unticked.includes(c.cid)).length;
+  const all = ticked === rows.length;
 
   return (
     <View style={styles.card} testID="changes-open">
       <Text style={styles.title}>Here's what I'll change</Text>
-      {meta.changes.map((c) => {
+      {rows.map((c) => {
         const on = !unticked.includes(c.cid);
         return (
           <Pressable

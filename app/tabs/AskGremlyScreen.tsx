@@ -631,7 +631,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       // (the day turn); one that is not about the day goes to chat. Typed
       // straight under Gremly's question, it is also the reply to the question.
       if (isDailyThread && activeChat && !sending) {
-        // one turn at a time: a message sent while Gremly is still working waits
+        // one turn at a time: the box is held while Gremly is still working,
+        // so this only guards a send that raced it
         if (dayTurnRef.current.thinking || dayTurnRef.current.busy) return;
         const question = await briefOffersRef.current.takeTypedReply(trimmed);
         if (await dayTurnRef.current.run(trimmed, question)) {
@@ -1448,6 +1449,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                           role: 'assistant',
                           content: '',
                           isStreaming: true,
+                          // what Gremly is doing while it works on a message in the thread
+                          loadingMessage: dayTurn.thinking ? dayTurn.status : null,
                         } as unknown as SpaceChatMessage
                       }
                     />
@@ -1601,7 +1604,9 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
               <ChatComposer
                 onSend={handleSend}
                 onChangeText={() => wakeOnInput()}
-                disabled={sending}
+                // in today's thread a message waits in the box while Gremly is
+                // still working on the last one, rather than being lost
+                disabled={sending || (isDailyThread && (dayTurn.thinking || dayTurn.busy))}
                 placeholder={
                   awaitingAnswer
                     ? BRIEF_COPY.answerPlaceholder

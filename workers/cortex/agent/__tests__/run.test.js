@@ -238,18 +238,88 @@ describe('a turn', () => {
   });
 
   it('does not run a tool the surface does not offer', async () => {
-    const m = scripted(ask(['web_search', { query: 'news' }]), reply('Sorry, not here.'));
+    const m = scripted(ask(['send_email', { to: 'sam' }]), reply('Sorry, not here.'));
     const t = tools();
     const r = await runAgent({
       surface: 'brief',
       persona: 'P',
-      message: 'news?',
+      message: 'email Sam',
       ctx,
       deps: { callModel: m.callModel, runTool: t.runTool },
     });
     expect(t.ran).toEqual([]);
-    expect(m.seen[1].turns[2].results[0].text).toBe('web_search is not available here.');
+    expect(m.seen[1].turns[2].results[0].text).toBe('send_email is not available here.');
     expect(r.reply).toBe('Sorry, not here.');
+  });
+
+  it('shows a first status line at once, before the first step', async () => {
+    const m = scripted(reply('Morning.'));
+    const lines = [];
+    await runAgent({
+      surface: 'brief',
+      persona: 'P',
+      message: 'hi',
+      ctx,
+      firstStatus: 'Looking at your day',
+      onStatus: (l) => lines.push(l),
+      deps: { callModel: m.callModel },
+    });
+    expect(lines).toEqual(['Looking at your day']);
+  });
+
+  it('takes a reply that comes with only its task list as the answer, with no extra step', async () => {
+    const m = scripted({
+      ...ask([
+        'track_tasks',
+        { tasks: [{ ask: 'Plan around the flight', status: 'needs_answer' }] },
+      ]),
+      text: 'What time do you need to leave?',
+    });
+    const r = await runAgent({
+      surface: 'brief',
+      persona: 'P',
+      message: 'we fly today',
+      ctx,
+      deps: { callModel: m.callModel, runTool: tools().runTool },
+    });
+    expect(r).toMatchObject({
+      ok: true,
+      reply: 'What time do you need to leave?',
+      stopped: 'answer',
+    });
+    expect(r.tasks).toEqual([{ ask: 'Plan around the flight', status: 'needs_answer' }]);
+    expect(m.seen).toHaveLength(1);
+  });
+
+  it("offers the brief's own propose_changes, and runs tools with the surface on their context", async () => {
+    const m = scripted(ask(['propose_changes', { changes: [] }]), reply('ok'));
+    const seenCtx = [];
+    const t = tools();
+    const runTool = async (c, name, args) => {
+      seenCtx.push(c.surface);
+      return t.runTool(c, name, args);
+    };
+    await runAgent({
+      surface: 'brief',
+      persona: 'P',
+      message: 'x',
+      ctx,
+      deps: { callModel: m.callModel, runTool },
+    });
+    const decl = m.seen[0].tools.find((d) => d.name === 'propose_changes');
+    expect(decl.description).toContain("today's set times");
+    expect(decl.parameters.properties.changes.items.properties.plan).toBeTruthy();
+    expect(seenCtx).toEqual(['brief']);
+    const chat = scripted(reply('ok'));
+    await runAgent({
+      surface: 'chat',
+      persona: 'P',
+      message: 'x',
+      ctx,
+      deps: { callModel: chat.callModel },
+    });
+    const chatDecl = chat.seen[0].tools.find((d) => d.name === 'propose_changes');
+    expect(chatDecl.parameters.properties.changes.items.properties.plan).toBeUndefined();
   });
 
   it('uses the model set for a surface', async () => {

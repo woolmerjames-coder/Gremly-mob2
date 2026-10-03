@@ -170,6 +170,7 @@ import { getUserProfile } from './context/userProfile.js';
 import { buildTodayActivity } from './context/todayActivity.js';
 import { getAgeGuidance } from './context/gremlyAge.js';
 import { triageMessage, generateLoadingMessage, callMini } from './triage';
+import { briefTurnResponse } from './agent/brief.js';
 import {
   geminiGenerate,
   geminiStream,
@@ -3367,6 +3368,7 @@ const cortexHandler = {
         'daily-brief',
         'plan-pick',
         'day-turn',
+        'brief-turn',
         'notification-test',
       ]);
       const AUTH_REQUIRED_LANES = new Set([
@@ -7779,24 +7781,29 @@ ${assistantMessage.substring(0, 2000)}
       if (type === 'day-turn') {
         if (!env.INNGEST_WORKER_URL || !env.INNGEST_ADMIN_KEY)
           return j({ error: 'not configured' }, 503);
-        const res = await fetchInngestWorker(env, '/api/day-turn', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-admin-key': env.INNGEST_ADMIN_KEY },
-          body: JSON.stringify({
-            user_id: authenticatedUserId,
-            text: typeof body.text === 'string' ? body.text.slice(0, 800) : '',
-            question: typeof body.question === 'string' ? body.question.slice(0, 300) : null,
-            history: Array.isArray(body.history) ? body.history.slice(-12) : [],
-            date: typeof body.date === 'string' ? body.date : null,
-            now: body.now,
-            items: Array.isArray(body.items) ? body.items.slice(0, 80) : [],
-            meetings: Array.isArray(body.meetings) ? body.meetings.slice(0, 40) : [],
-            record: body.record && typeof body.record === 'object' ? body.record : null,
-            plan: body.plan && typeof body.plan === 'object' ? body.plan : null,
-          }),
-        }).catch(() => null);
+        const res = await askDayTurn(env, authenticatedUserId, body);
         if (!res) return j({ error: 'could not reach the day turn' }, 502);
         return j(await res.json().catch(() => ({ error: 'bad reply' })), res.ok ? 200 : 502);
+      }
+
+      // Today's thread on the agent (agent plan step 7): status lines while it
+      // works, then the reply and the card, as server-sent events. With
+      // AGENT_BRIEF off, or when the agent cannot finish, the day turn answers.
+      if (type === 'brief-turn') {
+        const access = await checkUserAccess(authenticatedUserId, env);
+        if (!access.hasAccess) return denyAccessSSEResponse(access.reason);
+        return briefTurnResponse({
+          env,
+          userId: authenticatedUserId,
+          body,
+          useAgent: models().flags.agentBrief,
+          dayTurn: async (b) => {
+            if (!env.INNGEST_WORKER_URL || !env.INNGEST_ADMIN_KEY) return null;
+            const res = await askDayTurn(env, authenticatedUserId, b);
+            return res && res.ok ? res.json().catch(() => null) : null;
+          },
+          waitUntil: (p) => ctx.waitUntil(p),
+        });
       }
 
       // =========================
@@ -15225,6 +15232,26 @@ function runScopedChatStream(
       }
     }
   })();
+}
+
+/** The day turn in inngest-jobs, for one message in today's thread. */
+function askDayTurn(env, userId, body) {
+  return fetchInngestWorker(env, '/api/day-turn', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-admin-key': env.INNGEST_ADMIN_KEY },
+    body: JSON.stringify({
+      user_id: userId,
+      text: typeof body.text === 'string' ? body.text.slice(0, 800) : '',
+      question: typeof body.question === 'string' ? body.question.slice(0, 300) : null,
+      history: Array.isArray(body.history) ? body.history.slice(-12) : [],
+      date: typeof body.date === 'string' ? body.date : null,
+      now: body.now,
+      items: Array.isArray(body.items) ? body.items.slice(0, 80) : [],
+      meetings: Array.isArray(body.meetings) ? body.meetings.slice(0, 40) : [],
+      record: body.record && typeof body.record === 'object' ? body.record : null,
+      plan: body.plan && typeof body.plan === 'object' ? body.plan : null,
+    }),
+  }).catch(() => null);
 }
 
 function j(obj, status = 200) {

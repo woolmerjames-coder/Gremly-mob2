@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { keys } from '../chat-audit/keys.mjs';
 import { SCENARIOS } from './scenarios.mjs';
 import { checkTurn } from './checks.mjs';
+import { bodyFor } from './body.mjs';
 import {
   readTurnRequest,
   runDayTurn,
@@ -47,58 +48,6 @@ if (args.includes('--real')) {
   }
 }
 if (only) scenarios = scenarios.filter((s) => only.split(',').includes(s.id));
-
-const toMin = (hhmm) => {
-  const [h, m] = hhmm.split(':').map(Number);
-  return h * 60 + m;
-};
-
-/** The app's request for a scenario (lib/brief/useDayTurn.ts buildDayTurnRequest). */
-export function bodyFor(s) {
-  const titleOf = new Map((s.items || []).map((x) => [x.id, x.title]));
-  const kindOf = new Map((s.items || []).map((x) => [x.id, x.kind]));
-  const rec = s.record || {};
-  const blocks = (rec.blocks || []).map(([at, title, travel], i) => ({
-    id: `b${i + 1}`,
-    title,
-    start: toMin(at),
-    end: null,
-    travel: !!travel,
-  }));
-  const departs = rec.travel?.[1] ? toMin(rec.travel[1]) : (blocks.find((b) => b.travel)?.start ?? null);
-  return {
-    text: s.text,
-    question: s.question || null,
-    history: s.history || [],
-    date: s.today,
-    now: toMin(s.at),
-    items: (s.items || []).map((x) => ({
-      due_day: null,
-      due_time: null,
-      minutes: null,
-      note: '',
-      ...x,
-    })),
-    meetings: (s.meetings || []).map(([from, to, title]) => ({ title, start: toMin(from), end: toMin(to) })),
-    record: {
-      travel: rec.travel ? { label: rec.travel[0], departs } : null,
-      blocks,
-      plan_end: rec.travel && departs !== null ? departs : 22 * 60,
-    },
-    plan: s.plan
-      ? {
-          status: s.plan.status,
-          items: s.plan.items.map(([id, at, minutes]) => ({
-            id,
-            kind: kindOf.get(id) || 'todo',
-            title: titleOf.get(id) || id,
-            start: toMin(at),
-            end: toMin(at) + minutes,
-          })),
-        }
-      : null,
-  };
-}
 
 async function runOne(s, modelKey) {
   const env = {

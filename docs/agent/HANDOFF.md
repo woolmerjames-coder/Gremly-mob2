@@ -23,8 +23,8 @@ the item search all stay; the middle layer that handles a message changes.
 | 4    | The tools                         | Done                              |
 | 5    | The core loop                     | Done                              |
 | 6    | Triage update                     | Done                              |
-| 7    | The brief on the core             | Next                              |
-| 8    | Replay suites and model choice    |                                   |
+| 7    | The brief on the core             | Done                              |
+| 8    | Replay suites and model choice    | Next                              |
 | 9    | General chat on the core          |                                   |
 | 10   | Sweep on the core                 | After the Sweep redesign is built |
 | 11   | Rollout and watching              |                                   |
@@ -40,6 +40,8 @@ Docs (Claude Docs; James comments and edits in them):
   https://claude.ai/code/artifact/b3630ed3-f3f7-4d16-8f21-2134b31e864c
 - Step 6, triage and the lane, the replay, decisions:
   https://claude.ai/code/artifact/167d9176-a2ff-4419-bbe7-34f71a7ffcbe
+- Step 7, today's thread on the agent, the replay, decisions:
+  https://claude.ai/code/artifact/0111f10c-cabe-4b88-86ed-8ee46a45a5c0
 
 Each step so far has had its own doc. Keep that going: one doc per step, made
 before the work, filled as it goes, ending with what is next.
@@ -65,7 +67,7 @@ before the work, filled as it goes, ending with what is next.
 - `scripts/agent-smoke/` five turns with real models and a made-up person
   (10 of 10 pass). `scripts/day-replay/` the day turn's replay suite.
 
-Nothing calls `runAgent` yet.
+Today's thread calls `runAgent` (step 7); general chat does not yet.
 
 ## What the next steps need
 
@@ -90,23 +92,28 @@ back. Before step 9 routes on the lane, read the real mix from ai_usage
 (`job like '%/triage'`, `meta->'triage'->>'lane'`) and rescore the lane if
 the rules change (any rule change means relabelling with the new guide).
 
-**Step 7, the brief on the core.** The day turn today: the app builds a
-`DayTurnRequest` (`lib/brief/useDayTurn.ts` `buildDayTurnRequest`), cortex
-proxies `type: 'day-turn'` to inngest-jobs (`/api/day-turn`,
-`brief/dayTurn.js`). The natural path: a cortex route that takes the same
-request, builds the persona from the care rules and the day as
-`renderTurnInput` already renders it, calls `runAgent({ surface: 'brief' })`,
-streams `onStatus` lines, and returns the reply, the card as change model
-changes and the task list. The app then draws the card from `Change[]`
-(`lib/changes/words.ts` `rowWords`) and applies with `applyChanges` from
-`lib/changes/apply.ts`; plan effects as `applyDayChanges` works them out now.
-Store the task list on the daily thread's metadata. Fall back to the day turn
-when the agent returns `ok: false`. The brief's plan tools (fit something into
-the day, move it in the plan, using plan pick and the slot fitter) belong here.
-The smoke run showed what the persona has to settle, as semantic rules: no
-markdown headers, no emoji, no dashes even in a time range, and offering what
-is on the card in Gremly's own voice rather than talking about "a card".
-This is where James first tests the agent in the app (simulator).
+**Step 7, the brief on the core (done).** The app calls cortex `type:
+'brief-turn'` (`lib/cortex/CortexClient.ts` `callBriefTurn`, server-sent
+events) with the day turn's request plus `timezone` and the task list
+(`buildBriefTurnRequest` in `lib/brief/useDayTurn.ts`). Cortex
+(`workers/cortex/agent/brief.js`) reads it with the day turn's own
+`readTurnRequest`, builds Gremly's persona from the care rules
+(`inngest-jobs/careRules.js`) and the day with real ids (`renderDay`), and
+runs `runAgent({ surface: 'brief' })` with a first status line at once. On
+today's thread `propose_changes` is the brief's own version
+(`proposeDayChanges`): op `plan` changes the plan on screen and today's set
+times, checked against the day the app sent (`ctx.day`), and a plan row an
+item row already covers is dropped (one row per item). The app draws the
+agent's card from `Change[]` (`ChangeCard` `rowsOf`, `rowWords`) and applies it
+with `applyCardChanges` (plan effects from the change model). The task list
+lives on the thread (`agent_tasks`); the brief waits when a task needs an
+answer. `AGENT_BRIEF` switches it; off, or when the agent cannot finish, the
+day turn answers. Older app builds still call `day-turn`. Replay:
+`scripts/day-replay/run-agent.sh` (same scenarios and checks as the day turn,
+plus cost per message). On Luna, James's choice: 31 of 33, 5.7s typical,
+9.5s slowest, about 0.04 cents a message. Gemini 3.8 Flash was faster but
+about 1.35 cents a message because none of its input was cached (Luna had
+97% cached); look at Gemini caching in step 8.
 
 **Step 8, replays.** Grow `scripts/agent-smoke` into multi turn replays per
 surface. Compare four models: gpt-6-luna (low effort), Gemini 3.5 Flash-Lite
@@ -153,6 +160,15 @@ component here.
   unsure, quick; quick covers the last three days. Today's thread has no
   triage: from step 7 every message goes to the agent. Triage runs on Luna
   in one call, switched on with step 6; James judges the tone in the app.
+- Today's thread (step 7): every message goes to the agent on Luna, with web
+  search on the brief too; the composer holds a message while Gremly works
+  rather than losing it. Asking and timing (James's note on an anniversary
+  present): Gremly asks when the answer would change what it does or what it
+  understands about them and what matters to them, one question at a time,
+  and anything that gets them ready for a later date is due before it, never
+  on the date itself. Rules only, no examples; the replay has two date
+  scenarios. Whether to reuse the day turn's check on replies that sound done
+  is an open question in the step 7 doc.
 - Agent replies get no dash cleanup for now (the brief writer's `noDashes`
   turns any dash into a comma, which reads wrong in a time range). The
   persona settles dashes in steps 7 and 9, the step 8 replays count slips,

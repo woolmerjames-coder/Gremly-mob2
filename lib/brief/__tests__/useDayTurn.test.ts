@@ -1,17 +1,37 @@
 /**
- * The day turn in today's thread: a message about the day becomes Gremly's
- * reply and one change card; Apply makes the changes and re-fits the plan
- * once; anything else is left to normal chat.
+ * A message in today's thread: the agent's reply and card (agent plan step
+ * 7), or the day turn's when the agent is off or could not finish; Apply
+ * makes the changes and re-fits the plan once; a day turn answer that is not
+ * about the day is left to normal chat.
  */
 import { renderHook, act } from '@testing-library/react-native';
-import { useDayTurn, buildDayTurnRequest, DAY_TURN_COPY } from '../useDayTurn';
-import { callDayTurn } from '../../cortex/CortexClient';
-import { applyDayChanges } from '../applyChanges';
+import {
+  useDayTurn,
+  buildDayTurnRequest,
+  buildBriefTurnRequest,
+  DAY_TURN_COPY,
+} from '../useDayTurn';
+import { callBriefTurn } from '../../cortex/CortexClient';
+import { applyCardChanges, applyDayChanges } from '../applyChanges';
+import { patchDailyThreadMeta } from '../../repo/dailyThreadRepo';
 import type { SpaceChatMessage } from '../../types';
 
-jest.mock('../../cortex/CortexClient', () => ({ callDayTurn: jest.fn() }));
+jest.mock('../../cortex/CortexClient', () => ({ callBriefTurn: jest.fn() }));
+jest.mock('../../repo/dailyThreadRepo', () => ({
+  patchDailyThreadMeta: jest.fn(async () => null),
+}));
+const mockPatchMeta = jest.fn();
+jest.mock('../todayThread', () => ({
+  useTodayThread: {
+    getState: () => ({
+      thread: { id: 't1', metadata_json: { agent_tasks: [{ ask: 'Pack', status: 'done' }] } },
+      patchMeta: mockPatchMeta,
+    }),
+  },
+}));
 jest.mock('../applyChanges', () => ({
   applyDayChanges: jest.fn(),
+  applyCardChanges: jest.fn(),
   changedEventText: (n: number) => `Updated ${n} things`,
   undoneEventText: (n: number) => `Put back ${n} things`,
 }));
@@ -21,6 +41,7 @@ jest.mock('../time', () => ({
 }));
 jest.mock('../../date/DateService', () => ({
   getDateService: () => ({
+    getTimezone: () => 'America/Los_Angeles',
     addDays: (d: string, n: number) => {
       const x = new Date(`${d}T12:00:00Z`);
       x.setUTCDate(x.getUTCDate() + n);
@@ -75,7 +96,7 @@ const PLAN = {
   },
 } as unknown as SpaceChatMessage;
 
-function harness() {
+function harness(onRender?: (r: ReturnType<typeof useDayTurn>) => void) {
   const messages: SpaceChatMessage[] = [PLAN];
   const deps = {
     threadId: 't1',
@@ -98,7 +119,11 @@ function harness() {
     },
     continueBrief: jest.fn(async () => undefined),
   };
-  const hook = renderHook(() => useDayTurn(deps));
+  const hook = renderHook(() => {
+    const r = useDayTurn(deps);
+    onRender?.(r);
+    return r;
+  });
   return { hook, deps, messages };
 }
 
@@ -122,7 +147,7 @@ const CHANGES = [
   },
 ];
 
-describe('the day turn', () => {
+describe('the day turn, when it answers', () => {
   it('tells the worker about the day, the plan and their items, most relevant first', () => {
     const req = buildDayTurnRequest('call mum at 12', null, '2026-10-02', [PLAN], PLAN);
     expect(req.items.map((x) => [x.id, x.note])).toEqual([
@@ -142,9 +167,10 @@ describe('the day turn', () => {
   });
 
   it('a message about the day: the reply, then one card with every change', async () => {
-    (callDayTurn as jest.Mock).mockResolvedValue({
+    (callBriefTurn as jest.Mock).mockResolvedValue({
       ok: true,
       data: {
+        engine: 'day_turn',
         about_day: true,
         reply: "Here's what I'd change for this morning.",
         changes: CHANGES,
@@ -172,9 +198,15 @@ describe('the day turn', () => {
   });
 
   it('Apply makes the ticked changes, says so, re-fits the plan once and carries on', async () => {
-    (callDayTurn as jest.Mock).mockResolvedValue({
+    (callBriefTurn as jest.Mock).mockResolvedValue({
       ok: true,
-      data: { about_day: true, reply: 'Sure.', changes: CHANGES, checklist: [] },
+      data: {
+        engine: 'day_turn',
+        about_day: true,
+        reply: 'Sure.',
+        changes: CHANGES,
+        checklist: [],
+      },
     });
     (applyDayChanges as jest.Mock).mockResolvedValue({
       done: ['c1', 'c2'],
@@ -207,9 +239,15 @@ describe('the day turn', () => {
   });
 
   it('Undo puts everything back, says so, and moves the plan back to how it was', async () => {
-    (callDayTurn as jest.Mock).mockResolvedValue({
+    (callBriefTurn as jest.Mock).mockResolvedValue({
       ok: true,
-      data: { about_day: true, reply: 'Sure.', changes: CHANGES, checklist: [] },
+      data: {
+        engine: 'day_turn',
+        about_day: true,
+        reply: 'Sure.',
+        changes: CHANGES,
+        checklist: [],
+      },
     });
     const revert = jest.fn(async () => undefined);
     (applyDayChanges as jest.Mock).mockResolvedValue({
@@ -245,9 +283,15 @@ describe('the day turn', () => {
   });
 
   it('Not now changes nothing and the brief carries on', async () => {
-    (callDayTurn as jest.Mock).mockResolvedValue({
+    (callBriefTurn as jest.Mock).mockResolvedValue({
       ok: true,
-      data: { about_day: true, reply: 'Sure.', changes: CHANGES, checklist: [] },
+      data: {
+        engine: 'day_turn',
+        about_day: true,
+        reply: 'Sure.',
+        changes: CHANGES,
+        checklist: [],
+      },
     });
     const { hook, messages, deps } = harness();
     await act(async () => {
@@ -263,9 +307,10 @@ describe('the day turn', () => {
   });
 
   it('a question back waits for their answer', async () => {
-    (callDayTurn as jest.Mock).mockResolvedValue({
+    (callBriefTurn as jest.Mock).mockResolvedValue({
       ok: true,
       data: {
+        engine: 'day_turn',
         about_day: true,
         reply: 'What time do you need to leave for the airport?',
         changes: [],
@@ -280,7 +325,10 @@ describe('the day turn', () => {
   });
 
   it('anything not about the day, or no answer at all, goes to normal chat', async () => {
-    (callDayTurn as jest.Mock).mockResolvedValue({ ok: true, data: { about_day: false } });
+    (callBriefTurn as jest.Mock).mockResolvedValue({
+      ok: true,
+      data: { engine: 'day_turn', about_day: false },
+    });
     const { hook, messages } = harness();
     let handled = true;
     await act(async () => {
@@ -288,10 +336,179 @@ describe('the day turn', () => {
     });
     expect(handled).toBe(false);
     expect(messages).toHaveLength(1);
-    (callDayTurn as jest.Mock).mockResolvedValue({ ok: false, error: 'offline' });
+    (callBriefTurn as jest.Mock).mockResolvedValue({ ok: false, error: 'offline' });
     await act(async () => {
       handled = await hook.result.current.run('call mum at 12', null);
     });
     expect(handled).toBe(false);
+  });
+});
+
+const CARD = [
+  {
+    cid: 'c1',
+    op: 'plan',
+    type: 'todo',
+    id: 'mum',
+    title: 'Call Mum',
+    plan: { kind: 'plan_move', id: 'mum', item: 'todo', start: 720, title: 'Call Mum' },
+  },
+  {
+    cid: 'c2',
+    op: 'plan',
+    type: null,
+    id: null,
+    title: 'Leave for the airport',
+    plan: {
+      kind: 'add_block',
+      start: 750,
+      end: null,
+      travel: true,
+      title: 'Leave for the airport',
+    },
+  },
+];
+
+describe('the agent', () => {
+  beforeEach(() => {
+    (callBriefTurn as jest.Mock).mockReset();
+    (patchDailyThreadMeta as jest.Mock).mockClear();
+    mockPatchMeta.mockClear();
+  });
+
+  it('is told the day turn request, where they are and the task list so far', () => {
+    const req = buildBriefTurnRequest('call mum at 12', null, '2026-10-02', [PLAN], PLAN, 't1');
+    expect(req).toMatchObject({
+      text: 'call mum at 12',
+      timezone: 'America/Los_Angeles',
+      tasks: [{ ask: 'Pack', status: 'done' }],
+    });
+    expect(req.items.map((x) => x.id)).toEqual(['mum', 'late', 'deck', 'run']);
+  });
+
+  it('shows what Gremly is doing while it works, then the reply and its card', async () => {
+    const { hook, messages, deps } = harness();
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    (callBriefTurn as jest.Mock).mockImplementation(async (_req: unknown, opts: any) => {
+      opts.onStatus('Looking at your day');
+      await gate;
+      return {
+        ok: true,
+        data: {
+          engine: 'agent',
+          reply: "I'd move the call to 12 and keep 12:30 for leaving.",
+          card: CARD,
+          tasks: [{ ask: 'Call at 12', status: 'proposed' }],
+          prompt_version: 'v',
+        },
+      };
+    });
+    let pending: Promise<boolean> = Promise.resolve(false);
+    await act(async () => {
+      pending = hook.result.current.run('call mum at 12, leave at 12:30', null);
+      await Promise.resolve();
+    });
+    // while it works
+    expect(hook.result.current.thinking).toBe(true);
+    expect(hook.result.current.status).toBe('Looking at your day');
+    let handled = false;
+    await act(async () => {
+      release();
+      handled = await pending;
+    });
+    expect(handled).toBe(true);
+    expect(hook.result.current.status).toBeNull();
+    expect(messages.slice(1).map((m) => [m.role, (m.metadata_json as any).type ?? null])).toEqual([
+      ['user', null],
+      ['assistant', 'brief-text'],
+      ['system', 'brief-changes'],
+    ]);
+    expect(messages[3].metadata_json).toMatchObject({
+      type: 'brief-changes',
+      changes: [],
+      card: CARD,
+      checklist: [{ ask: 'Call at 12', status: 'proposed' }],
+      status: 'open',
+    });
+    expect(patchDailyThreadMeta).toHaveBeenCalledWith('t1', {
+      agent_tasks: [{ ask: 'Call at 12', status: 'proposed' }],
+    });
+    expect(mockPatchMeta).toHaveBeenCalledWith('t1', {
+      agent_tasks: [{ ask: 'Call at 12', status: 'proposed' }],
+    });
+    expect(deps.continueBrief).not.toHaveBeenCalled();
+  });
+
+  it('applies the ticked rows of its card through the change model', async () => {
+    (callBriefTurn as jest.Mock).mockResolvedValue({
+      ok: true,
+      data: { engine: 'agent', reply: 'Sure.', card: CARD, tasks: [] },
+    });
+    (applyCardChanges as jest.Mock).mockResolvedValue({
+      done: ['c1'],
+      failed: [],
+      plan: { add: [], remove: [], pin: [{ id: 'mum', start: 720 }] },
+      frameChanged: false,
+      revert: jest.fn(),
+    });
+    const { hook, messages, deps } = harness();
+    await act(async () => {
+      await hook.result.current.run('call mum at 12', null);
+    });
+    await act(async () => {
+      await hook.result.current.apply(messages[3], ['c2']);
+    });
+    expect(applyCardChanges).toHaveBeenCalledWith(
+      [CARD[0]],
+      expect.objectContaining({ hasPlan: true }),
+    );
+    expect(messages[3].metadata_json).toMatchObject({ status: 'applied', applied: ['c1'] });
+    expect(deps.plan.reviseAfterChanges).toHaveBeenCalledWith({
+      add: [],
+      remove: [],
+      pin: [{ id: 'mum', start: 720 }],
+    });
+  });
+
+  it('waits when it asked something back, and carries on when there is nothing to do', async () => {
+    (callBriefTurn as jest.Mock).mockResolvedValue({
+      ok: true,
+      data: {
+        engine: 'agent',
+        reply: 'What time do you need to leave?',
+        card: [],
+        tasks: [{ ask: 'Plan around the flight', status: 'needs_answer' }],
+      },
+    });
+    const first = harness();
+    await act(async () => {
+      await first.hook.result.current.run('we fly today', null);
+    });
+    expect(first.deps.continueBrief).not.toHaveBeenCalled();
+
+    (callBriefTurn as jest.Mock).mockResolvedValue({
+      ok: true,
+      data: { engine: 'agent', reply: 'Morning to you too.', card: [], tasks: [] },
+    });
+    const second = harness();
+    await act(async () => {
+      await second.hook.result.current.run('morning', null);
+    });
+    expect(second.deps.continueBrief).toHaveBeenCalled();
+  });
+
+  it('answers every message itself: only an empty answer goes to normal chat', async () => {
+    (callBriefTurn as jest.Mock).mockResolvedValue({
+      ok: true,
+      data: { engine: 'agent', reply: '', card: [], tasks: [] },
+    });
+    const { hook, messages } = harness();
+    let handled = true;
+    await act(async () => {
+      handled = await hook.result.current.run('hmm', null);
+    });
+    expect(handled).toBe(false);
+    expect(messages).toHaveLength(1);
   });
 });

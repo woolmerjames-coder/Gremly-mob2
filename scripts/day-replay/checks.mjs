@@ -14,6 +14,7 @@ const CLAIMS = [
   /\b(i['’]ve|i have)\s+(\w+\s+)?(added|moved|updated|changed|cancell?ed|removed|saved|booked|scheduled|set|put|made|taken|skipped)\b/i,
   /\ball set\b/i,
   /^\s*done\b/i,
+  /\bI\s+(added|moved|updated|changed|cancell?ed|removed|saved|booked|scheduled|put|made|took|skipped|set up|set aside)\b/i,
   /\b(it['’]s|that['’]s|they['’]re|is|are)\s+now\s+(added|moved|updated|changed|cancell?ed|removed|saved|booked|scheduled|in)\b/i,
 ];
 
@@ -47,6 +48,20 @@ export function checkTurn(s, out) {
   }
   for (const st of e.status || []) {
     add('fail', `Checklist has ${st}`, (out.checklist || []).some((a) => a.status === st), JSON.stringify(out.checklist));
+  }
+  if (e.dueBefore) {
+    // what gets someone ready for a date is due before it; asking when is fine too
+    const d = e.dueBefore;
+    const forIt = changes.filter(
+      (c) => c.day && ((d.id && c.id === d.id) || (d.title && String(c.title || '').toLowerCase().includes(d.title))),
+    );
+    const late = forIt.filter((c) => c.day >= d.before);
+    const asked = (out.checklist || []).some((a) => a.status === 'needs_answer');
+    // or it already sits on a day before the date, and the card leaves that day alone
+    const item = (s.items || []).find((x) => (d.id && x.id === d.id) || (d.title && x.title.toLowerCase().includes(d.title)));
+    const already = !!item?.due_day && item.due_day < d.before && !changes.some((c) => c.id === item.id && c.day);
+    add('fail', `Nothing for it is due on or after ${d.before}`, !late.length, desc);
+    add('fail', `It is due before ${d.before}, or Gremly asks when`, forIt.length > 0 || asked || already, `${desc} ${JSON.stringify(out.checklist)}`);
   }
   const reply = out.reply || '';
   // the worker replaces a reply that claims a change; the model is judged on its own words

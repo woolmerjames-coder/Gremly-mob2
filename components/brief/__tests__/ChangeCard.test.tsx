@@ -76,3 +76,36 @@ describe('the change card', () => {
     expect(r.getByText('Leave for the airport at 12:30pm (could not be saved)')).toBeTruthy();
   });
 });
+
+describe("the agent's card", () => {
+  it("draws each row from the change model's own words", () => {
+    const meta: BriefChangesMeta = {
+      type: 'brief-changes',
+      status: 'open',
+      changes: [],
+      card: [
+        {
+          cid: 'c1',
+          op: 'plan',
+          type: null,
+          id: null,
+          title: 'Leave for the airport',
+          plan: {
+            kind: 'add_block',
+            start: 750,
+            end: null,
+            travel: true,
+            title: 'Leave for the airport',
+          },
+        },
+        { cid: 'c2', op: 'skip_today', type: 'habit', id: 'run', title: 'Run' },
+      ],
+    } as BriefChangesMeta;
+    const onApply = jest.fn();
+    const r = render(<ChangeCard meta={meta} onApply={onApply} />);
+    expect(r.getByText('Leave for the airport at 12:30pm')).toBeTruthy();
+    expect(r.getByText('Skip Run today')).toBeTruthy();
+    fireEvent.press(r.getByTestId('changes-apply'));
+    expect(onApply).toHaveBeenCalledWith([]);
+  });
+});

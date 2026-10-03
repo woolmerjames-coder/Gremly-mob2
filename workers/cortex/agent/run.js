@@ -49,6 +49,7 @@ function numbered(changes) {
  * @param {number} [p.nowMin] minutes after midnight where they are
  * @param {{ask: string, status: string}[]} [p.tasks] the task list so far
  * @param {(line: string) => void} [p.onStatus] called with each status line
+ * @param {string} [p.firstStatus] a line to show at once, before the first step
  * @param {{model?: string, fallback?: string}} [p.models] overrides, for replays
  * @param {object} [p.deps] { callModel, runTool, now } for tests and replays
  */
@@ -73,7 +74,12 @@ export async function runAgent(p) {
     google: p.ctx?.env?.GOOGLE_API_KEY || p.ctx?.env?.GEMINI_API_KEY,
     openai: p.ctx?.env?.OPENAI_API_KEY,
   };
-  const decls = [...toolDeclarations(toolsFor(surface.tools)), toolDeclarations([trackTasks])[0]];
+  const decls = [
+    ...toolDeclarations(toolsFor(surface.tools, surface.name)),
+    toolDeclarations([trackTasks])[0],
+  ];
+  // the tools run with the surface's own versions (tools/index.js)
+  const ctx = { ...p.ctx, surface: surface.name };
   let tasks = normalizeTasks(p.tasks);
   const system = buildSystem(surface, {
     persona: p.persona,
@@ -115,6 +121,8 @@ export async function runAgent(p) {
     ...extra,
   });
 
+  status(p.firstStatus);
+
   for (let step = 1; ; step++) {
     const final = step > surface.stepCap || now() - started > surface.maxMs;
     const t0 = now();
@@ -139,7 +147,20 @@ export async function runAgent(p) {
     });
     if (!res.ok) return done({ ok: false, error: res.error, reply: null, stopped: 'error' });
 
-    const calls = final ? [] : res.calls || [];
+    let calls = final ? [] : res.calls || [];
+    // a reply that comes with nothing but its task list is the answer: keep
+    // the list and reply, rather than spending a step to say it again
+    if (
+      calls.length &&
+      String(res.text || '').trim() &&
+      calls.every((c) => c.name === trackTasks.name)
+    ) {
+      for (const c of calls) {
+        tasks = normalizeTasks(c.args?.tasks);
+        steps.push({ kind: 'tool', name: c.name, ms: 0, ok: true });
+      }
+      calls = [];
+    }
     if (!calls.length) {
       const reply = String(res.text || '').trim();
       if (!reply) return done({ ok: false, error: 'empty reply', reply: null, stopped: 'error' });
@@ -166,10 +187,10 @@ export async function runAgent(p) {
             text: tasksReceipt(tasks),
           };
         }
-        status(statusFor(call.name, call.args, p.ctx));
+        status(statusFor(call.name, call.args, ctx));
         const allowed = surface.tools.includes(call.name);
         const r = allowed
-          ? await runTool(p.ctx, call.name, call.args)
+          ? await runTool(ctx, call.name, call.args)
           : { ok: false, text: `${call.name} is not available here.` };
         if (call.name === 'propose_changes' && r.ok) card = r.result?.changes || [];
         steps.push({ kind: 'tool', name: call.name, ms: now() - t1, ok: !!r.ok });
