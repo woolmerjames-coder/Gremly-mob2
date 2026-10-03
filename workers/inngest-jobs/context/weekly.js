@@ -36,7 +36,7 @@ import {
 import { recentCorrections } from './corrections';
 import { loadStory, storyLines } from './story';
 import { invalidateChatCache } from './cache';
-import { batchUsageRow, writeUsageRow } from '../aiUsage';
+import { batchUsageRow, writeUsageRow } from '../../shared/aiUsage';
 
 export const WEEKLY_PROMPT_VERSION = 'weekly-2026-10-01d';
 

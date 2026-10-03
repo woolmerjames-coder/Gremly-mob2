@@ -1,15 +1,23 @@
 /**
- * AI usage logging.
+ * AI usage logging, shared by both Workers (cortex and inngest-jobs).
  *
- * Every call this Worker makes to Anthropic, OpenAI or Google is recorded as one
+ * Every call a Worker makes to Anthropic, OpenAI or Google is recorded as one
  * row in public.ai_usage: which job made it, for which user, on which model, how
- * many tokens went in and out, and what it cost at list price. Nothing about the
- * content of the call is stored.
+ * many tokens went in and out, and what it cost at list price. Tavily searches
+ * from chat are recorded too, as calls with no tokens and no price. Nothing
+ * about the content of a call is stored.
  *
  * It works by wrapping fetch once per isolate. The job and user come from an
  * AsyncLocalStorage context set at the top of the Worker's fetch handler, so no
  * call site has to change. A call made outside that context is still logged,
  * without a job or user.
+ *
+ * In cortex one request makes several calls, so each call can carry a step
+ * (withAiStep): the row's job is then route/step, such as
+ * general_chat/triage_mode or general_chat/reply. Every call one request makes
+ * shares its run_id, so a chat message's calls add up to its cost. A streamed
+ * call also records how long its first chunk took (meta.first_chunk_ms), which
+ * is the time to first words.
  *
  * Logging never blocks or breaks the call it records: the response is cloned,
  * read after the caller has it, and every failure here is swallowed.
@@ -19,10 +27,11 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 
 export const aiContext = new AsyncLocalStorage();
 
-// List prices in USD per million tokens, as published on 30 Sep 2026.
+// List prices in USD per million tokens, as published on 30 Sep 2026 and
+// checked again on 2 Oct 2026.
 // [model id prefix, input, cached input, cache write, output]
-// Longest matching prefix wins. Gemini 3.7 and 3.8 Flash have a promotional
-// price until 31 Dec 2026 and the standard price from 1 Jan 2027.
+// Longest matching prefix wins. Gemini 3.6, 3.7 and 3.8 Flash have a
+// promotional price until 31 Dec 2026 and the standard price from 1 Jan 2027.
 const PRICE_TABLE = [
   ['claude-sonnet-5-5', 2, 0.2, 2.5, 10],
   ['claude-sonnet-5', 2, 0.2, 2.5, 10],
@@ -35,17 +44,20 @@ const PRICE_TABLE = [
   ['gpt-4.1', 2, 0.5, 0, 8],
   ['gpt-4o-mini', 0.15, 0.075, 0, 0.6],
   ['gemini-3-flash-preview', 0.5, 0.05, 0, 3],
+  ['gemini-3.5-flash', 1.5, 0.15, 0, 9],
   ['gemini-3.1-flash-lite', 0.25, 0.025, 0, 1.5],
   ['gemini-3.5-flash-lite', 0.3, 0.03, 0, 2.5],
   ['gemini-2.5-flash', 0.3, 0.03, 0, 2.5],
   ['gemini-2.0-flash', 0.1, 0.025, 0, 0.4],
 ];
-const PROMO_FLASH = ['gemini-3.8-flash', 'gemini-3.7-flash'];
+const PROMO_FLASH = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash'];
 const PROMO_END = Date.parse('2027-01-01T00:00:00Z');
 
 export function priceFor(model, at = Date.now()) {
   if (!model) return null;
-  const m = String(model).toLowerCase().replace(/^models\//, '');
+  const m = String(model)
+    .toLowerCase()
+    .replace(/^models\//, '');
   for (const p of PROMO_FLASH) {
     if (m.startsWith(p)) return at < PROMO_END ? [0.75, 0.075, 0, 3.75] : [1.5, 0.15, 0, 7.5];
   }
@@ -62,7 +74,35 @@ function providerFor(url) {
   if (url.includes('api.anthropic.com')) return 'anthropic';
   if (url.includes('api.openai.com')) return 'openai';
   if (url.includes('generativelanguage.googleapis.com')) return 'google';
+  if (url.includes('api.tavily.com')) return 'tavily';
   return null;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The row's job: the route, then the step when the call has one. */
+export function jobName(store) {
+  if (!store) return null;
+  if (store.step) return `${store.job || 'unknown'}/${store.step}`;
+  return store.job || null;
+}
+
+/** Add the route, user or run to the current request's usage context. */
+export function setAiUsage(fields) {
+  const store = aiContext.getStore();
+  if (store && fields) Object.assign(store, fields);
+}
+
+/**
+ * Run fn with a step name on the calls it makes, so a request that makes
+ * several calls logs each one under route/step. With keep, a step that is
+ * already set wins: a helper job that goes out through the Gemini client keeps
+ * the helper job's name.
+ */
+export function withAiStep(step, fn, { keep = false } = {}) {
+  const store = aiContext.getStore();
+  if (!store || !step || (keep && store.step)) return fn();
+  return aiContext.run({ ...store, step }, fn);
 }
 
 function emptyUsage() {
@@ -80,7 +120,8 @@ function absorb(provider, obj, u) {
     if (usage) {
       if (usage.input_tokens != null) u.input = usage.input_tokens;
       if (usage.cache_read_input_tokens != null) u.cached = usage.cache_read_input_tokens;
-      if (usage.cache_creation_input_tokens != null) u.cacheWrite = usage.cache_creation_input_tokens;
+      if (usage.cache_creation_input_tokens != null)
+        u.cacheWrite = usage.cache_creation_input_tokens;
       if (usage.output_tokens != null) u.output = usage.output_tokens;
     }
     return;
@@ -145,6 +186,10 @@ function parseBody(provider, text, u) {
 }
 
 function modelFromRequest(provider, url, reqBody) {
+  if (provider === 'tavily') {
+    const m = url.match(/api\.tavily\.com\/([a-z_-]+)/i);
+    return `tavily-${m ? m[1] : 'call'}`;
+  }
   if (provider === 'google') {
     const m = url.match(/models\/([^:/?]+)/);
     if (m) return decodeURIComponent(m[1]);
@@ -210,18 +255,52 @@ export async function writeUsageRow(env, row, rawFetch = globalThis.__aiUsageRaw
   });
 }
 
-async function record({ provider, url, reqBody, clone, started, status, store, rawFetch }) {
-  const text = await clone.text();
+/**
+ * Read a cloned body to the end, noting when the first bytes arrived. For a
+ * streamed reply that is when the first words reached the Worker.
+ */
+export async function readTimed(clone, started) {
+  if (!clone.body || typeof clone.body.getReader !== 'function') {
+    return { text: await clone.text(), firstChunkMs: null };
+  }
+  const reader = clone.body.getReader();
+  const decoder = new TextDecoder();
+  let text = '';
+  let firstChunkMs = null;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value && value.length) {
+      if (firstChunkMs === null) firstChunkMs = Date.now() - started;
+      text += decoder.decode(value, { stream: true });
+    }
+  }
+  text += decoder.decode();
+  return { text, firstChunkMs };
+}
+
+async function record({
+  provider,
+  url,
+  reqBody,
+  clone,
+  started,
+  status,
+  streamed,
+  store,
+  rawFetch,
+}) {
+  const { text, firstChunkMs } = await readTimed(clone, started);
   const u = emptyUsage();
-  parseBody(provider, text, u);
+  if (provider !== 'tavily') parseBody(provider, text, u);
   if (!u.model) u.model = modelFromRequest(provider, url, reqBody);
   const latency = Date.now() - started;
   await writeUsageRow(
     store.env,
     {
       worker: store.worker || null,
-      job: store.job || null,
-      user_id: store.userId || null,
+      job: jobName(store),
+      user_id: UUID.test(String(store.userId || '')) ? store.userId : null,
       provider,
       model: u.model,
       input_tokens: u.input,
@@ -235,6 +314,7 @@ async function record({ provider, url, reqBody, clone, started, status, store, r
       ok: status >= 200 && status < 300,
       batch: false,
       run_id: store.runId || null,
+      meta: streamed && firstChunkMs !== null ? { first_chunk_ms: firstChunkMs } : null,
     },
     rawFetch,
   );
@@ -262,6 +342,9 @@ export function installAiUsageLogging() {
       const store = aiContext.getStore() || globalThis.__aiUsageFallbackStore;
       if (store?.env?.SUPABASE_URL) {
         const reqBody = typeof init?.body === 'string' ? init.body : null;
+        const streamed =
+          /event-stream/i.test(res.headers?.get?.('content-type') || '') ||
+          /alt=sse|streamGenerateContent/.test(url);
         const clone = res.clone();
         const work = record({
           provider,
@@ -270,6 +353,7 @@ export function installAiUsageLogging() {
           clone,
           started,
           status: res.status,
+          streamed,
           store,
           rawFetch,
         }).catch(() => {});

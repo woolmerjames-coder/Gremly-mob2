@@ -18,6 +18,7 @@
 import { models, helperModel } from './models.js';
 import { geminiGenerate } from './geminiClient.js';
 import { isOpenAIReasoningModel, openAIMinimalEffort } from './aiProvider.js';
+import { withAiStep } from '../shared/aiUsage.js';
 
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 
@@ -43,6 +44,11 @@ function capWithHeadroom(body) {
  * @returns {Promise<Response>} a Response whose JSON is OpenAI shaped
  */
 export async function helperFetch(job, body, opts = {}) {
+  // Logged to ai_usage as <route>/<job>, for example general_chat/triage_mode.
+  return withAiStep(job, () => runHelper(job, body, opts));
+}
+
+async function runHelper(job, body, opts) {
   const primary = helperModel(job);
   const fallback = models().helperFallback;
   let res;

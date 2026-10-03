@@ -29,7 +29,7 @@ import { createWorldsWeeklyRun } from './worldsWeeklyRun';
 import { createWorldsWeeklyScheduler } from './worldsWeeklyScheduler';
 import { createDropAssignmentBackfill } from './dropAssignmentBackfill';
 import { createBackfillPriorityKind } from './backfillPriorityKind';
-import { aiContext, installAiUsageLogging } from './aiUsage';
+import { aiContext, installAiUsageLogging } from '../shared/aiUsage';
 import { CARE_RULES } from './careRules';
 import { createContextFunctions, hourlyContextEvents, contextMode } from './context/functions';
 import { createBriefFunctions, handleBriefApi } from './brief';

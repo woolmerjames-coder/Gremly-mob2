@@ -1,6 +1,9 @@
 name = "gentle-thunder-5854"
 main = "cortex-index.js"
 compatibility_date = "2024-01-01"
+# AsyncLocalStorage (node:async_hooks) for usage logging: every model call is
+# tied to the request that made it (../shared/aiUsage.js).
+compatibility_flags = ["nodejs_als"]
 
 # Calls to inngest-jobs go through this binding: Cloudflare refuses a fetch to
 # another workers.dev Worker on the same account (error 1042).

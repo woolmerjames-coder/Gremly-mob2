@@ -28,7 +28,7 @@ import {
 } from './weekly';
 import { anthropicJsonResult } from './llm';
 import { storyRequestParams, applyStory, STORY_PROMPT_VERSION } from './story';
-import { writeUsageRow } from '../aiUsage';
+import { writeUsageRow } from '../../shared/aiUsage';
 
 /**
  * The pipeline mode, for one person when a user id is given. People listed in

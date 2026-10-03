@@ -7,7 +7,7 @@
  *  - OpenAI: strict json_schema (every property required, nulls via type unions).
  *  - Anthropic: output_config.format json_schema, same strict shape as OpenAI.
  *
- * Each call returns parsed JSON or throws. Usage is logged by aiUsage.js.
+ * Each call returns parsed JSON or throws. Usage is logged by ../../shared/aiUsage.js.
  */
 
 export const MODELS = {

@@ -1,4 +1,5 @@
 import { DEFAULTS, models } from './models.js';
+import { withAiStep } from '../shared/aiUsage.js';
 // ============================================================================
 // geminiClient.js — Native Gemini API client for Cortex Proxy Worker
 // ============================================================================
@@ -99,11 +100,17 @@ export async function geminiGenerate(systemPrompt, messages, config, apiKey) {
 
   let res;
   try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    // Logged to ai_usage as <route>/reply, unless a helper job already named it.
+    res = await withAiStep(
+      'reply',
+      () =>
+        fetch(url, {
+          method: 'POST',
+          headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }),
+      { keep: true },
+    );
   } catch (err) {
     return { ok: false, content: '', functionCalls: [], parts: [], usage: {}, error: err.message };
   }
@@ -178,11 +185,17 @@ export async function geminiStream(systemPrompt, messages, config, apiKey) {
 
   let res;
   try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    // Logged to ai_usage as <route>/reply, unless a helper job already named it.
+    res = await withAiStep(
+      'reply',
+      () =>
+        fetch(url, {
+          method: 'POST',
+          headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }),
+      { keep: true },
+    );
   } catch (err) {
     return { ok: false, status: 0, error: err.message };
   }

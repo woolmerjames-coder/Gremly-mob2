@@ -206,6 +206,7 @@ import { handleHabitRead } from './habitRead.js';
 import { fetchItemDetail, itemDetailText, handleItemTopics } from './itemDetail.js';
 import { configureModels, models, helperModel } from './models.js';
 import { helperFetch } from './helperClient.js';
+import { aiContext, installAiUsageLogging, setAiUsage } from '../shared/aiUsage.js';
 import { briefNoCardSection, briefQuestionSection } from './briefTurn.js';
 import { relateDrop } from './minddropRelate.js';
 import {
@@ -3362,7 +3363,10 @@ function unauthorizedSSEResponse() {
   );
 }
 
-export default {
+// The Worker's request handler. The default export below runs it inside a
+// usage context, so every model call it makes is logged to ai_usage
+// (../shared/aiUsage.js).
+const cortexHandler = {
   async fetch(request, env, ctx) {
     configureModels(env); // every model the Worker calls, resolved from env (models.js)
     // --- URL-based routing (Phase 4.7) ---
@@ -3442,6 +3446,7 @@ export default {
 
       const type = body.type || 'complete';
       const lane = body.lane || null;
+      setAiUsage({ job: lane || type });
 
       // Check if client requests streaming
       const wantsStreaming = body.stream === true;
@@ -3496,6 +3501,7 @@ export default {
           return unauthorizedResponse();
         }
       }
+      setAiUsage({ userId: authenticatedUserId || body.userId || body.user_id || null });
 
       // =========================
       // Timezone resolution (single source of truth per request)
@@ -14708,6 +14714,24 @@ Return ONLY JSON:
     } catch (err) {
       return j({ error: 'proxy_error', detail: String(err?.message || 'unknown') }, 200);
     }
+  },
+};
+
+export default {
+  async fetch(request, env, ctx) {
+    installAiUsageLogging();
+    globalThis.__aiUsageFallbackStore = { env, ctx, worker: 'cortex' };
+    // job and userId are filled in once the handler has read the body and
+    // checked the session. runId ties together every call this request makes.
+    const usage = {
+      env,
+      ctx,
+      worker: 'cortex',
+      job: null,
+      userId: null,
+      runId: crypto.randomUUID(),
+    };
+    return aiContext.run(usage, () => cortexHandler.fetch(request, env, ctx));
   },
 };
 
