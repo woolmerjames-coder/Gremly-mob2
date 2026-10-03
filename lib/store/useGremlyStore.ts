@@ -6789,6 +6789,9 @@ export const useGremlyStore = create<GremlyState>()(
           const isToday = todayDate === getDateService().today();
           const now = nowTimestamp();
           const existingBrief = get().dailyBrief;
+          // the brief held in memory is only this record when it is for the same
+          // day; another day's record is never rewritten as this one
+          const sameDayBrief = existingBrief?.date === todayDate ? existingBrief : null;
 
           // Build the payload (one_thing_id/one_thing_type deprecated - locked items use locked_in field)
           const payload = {
@@ -6807,25 +6810,25 @@ export const useGremlyStore = create<GremlyState>()(
 
           // Optimistic update
           const optimisticBrief: DailyBrief = {
-            id: existingBrief?.id ?? `temp_${getDateService().now().getTime()}`,
+            id: sameDayBrief?.id ?? `temp_${getDateService().now().getTime()}`,
             ...payload,
             dismissed_habit_ids: payload.dismissed_habit_ids,
-            created_at: existingBrief?.created_at ?? now,
+            created_at: sameDayBrief?.created_at ?? now,
           };
           if (isToday) {
             set({ dailyBrief: optimisticBrief });
           }
 
           try {
-            if (existingBrief?.id && !existingBrief.id.startsWith('temp_')) {
-              // Update existing brief
+            if (sameDayBrief?.id && !sameDayBrief.id.startsWith('temp_')) {
+              // Update this day's brief
               const { error } = await supabase
                 .from('daily_briefs')
                 .update(payload)
-                .eq('id', existingBrief.id);
+                .eq('id', sameDayBrief.id);
 
               if (error) throw error;
-              console.log('[GremlyStore] ✅ Updated daily brief:', existingBrief.id);
+              console.log('[GremlyStore] ✅ Updated daily brief:', sameDayBrief.id);
             } else {
               // Insert new brief (upsert pattern)
               const { data, error } = await supabase
