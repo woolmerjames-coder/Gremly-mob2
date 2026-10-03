@@ -118,7 +118,6 @@ describe("the agent's card", () => {
 describe('the card in the thread', () => {
   // the thread's rows are memoized (BriefMessage), so a card drawn while its
   // changes were saving must be drawn again once saving ends, or Undo is dead
-  const { act } = require('@testing-library/react-native');
   const { BriefMessage } = require('../BriefMessage');
   const { useRenderChanges } = require('../ChangeCard');
 
@@ -133,16 +132,10 @@ describe('the card in the thread', () => {
 
   it('answers Undo once saving has finished', () => {
     const undo = jest.fn(async () => {});
-    let setState: (s: { busy: boolean; undoable: string[] }) => void = () => {};
-    function Thread() {
-      const [state, set] = React.useState({ busy: true, undoable: [] as string[] });
-      setState = set;
-      const canUndo = React.useCallback(
-        (id: string) => state.undoable.includes(id),
-        [state.undoable],
-      );
+    function Thread({ busy, undoable }: { busy: boolean; undoable: string[] }) {
+      const canUndo = React.useCallback((id: string) => undoable.includes(id), [undoable]);
       const renderChanges = useRenderChanges({
-        busy: state.busy,
+        busy,
         apply: jest.fn(),
         dismiss: jest.fn(),
         undo,
@@ -150,10 +143,10 @@ describe('the card in the thread', () => {
       });
       return <BriefMessage message={message} renderChanges={renderChanges} />;
     }
-    const r = render(<Thread />);
+    const r = render(<Thread busy={true} undoable={[]} />);
     // drawn while the changes were still being saved
     expect(r.queryByTestId('changes-undo')).toBeNull();
-    act(() => setState({ busy: false, undoable: ['m1'] }));
+    r.rerender(<Thread busy={false} undoable={['m1']} />);
     fireEvent.press(r.getByTestId('changes-undo'));
     expect(undo).toHaveBeenCalledWith(message);
   });
