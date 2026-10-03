@@ -2,17 +2,19 @@
  * Entity card in chat: the words on the card, applying and undoing the change
  * the user confirmed, and the two bits of bookkeeping the chat screens share.
  *
- * The worker proposes (lib/types EntityCard); this module is the only place
- * that turns a proposal into a store change, and only when the user tapped.
- * Everything goes through the Zustand store's own update actions, so the
- * usual sync, optimistic update and rollback apply.
+ * The worker proposes (lib/types EntityCard); applying goes through the
+ * change model (lib/changes), only when the user tapped, and through the
+ * Zustand store's own update actions, so the usual sync, optimistic update
+ * and rollback apply.
  *
  * Mockup is spec (Entity Card in Chat canvas, September 2026): the card sits
  * inside Gremly's message, one tap either way, a plain closing line with Undo.
  */
-import { useGremlyStore } from '../store/useGremlyStore';
-import { getDateService } from '../date/DateService';
-import { recordChange, type ChangeSource } from './changeHistory';
+import type { ChangeSource } from './changeHistory';
+import { applyChange } from '../changes/apply';
+import { fromEntityCard } from '../changes/fromLegacy';
+import { checkChange } from '../changes/model';
+import { contextFor, findItem } from '../changes/snapshot';
 import type {
   EntityCard,
   EntityCardChange,
@@ -22,53 +24,12 @@ import type {
   SpaceChatMessage,
 } from '../types';
 
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-export interface DayWordsOptions {
-  /**
-   * "Today" and "Tomorrow" when they apply (the default). Off for words that
-   * are kept, such as the closing line saved on a tapped card, which would
-   * otherwise be wrong the next day.
-   */
-  relative?: boolean;
-}
-
-/** "Thu 1 Oct" from YYYY-MM-DD, "Today" and "Tomorrow" when they apply. */
-export function formatDay(dateStr: string | null | undefined, opts: DayWordsOptions = {}): string {
-  if (!dateStr) return '';
-  const ds = getDateService();
-  if (opts.relative !== false && ds.isToday(dateStr)) return 'Today';
-  if (opts.relative !== false && ds.isTomorrow(dateStr)) return 'Tomorrow';
-  const d = ds.fromLocalDate(dateStr);
-  if (!d) return dateStr;
-  return `${WEEKDAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
-}
-
-/** Several days in one phrase: "Mon 28 Sep and today". */
-export function formatDays(days: string[], opts: DayWordsOptions = {}): string {
-  const words = days.map((d, i) => {
-    const w = formatDay(d, opts);
-    return i > 0 && (w === 'Today' || w === 'Tomorrow') ? w.toLowerCase() : w;
-  });
-  if (words.length < 2) return words[0] || '';
-  return `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
-}
+export { formatDay, formatDays, formatTime, type DayWordsOptions } from './dayWords';
+import { formatDay, formatDays, formatTime, type DayWordsOptions } from './dayWords';
 
 /** The days a check-in logs: all of them when the card names several. */
 export function loggedDaysOf(change: EntityCardChange): string[] {
   return change.days?.length ? change.days : [change.to];
-}
-
-/** "2:00pm" from HH:mm (a seconds part is ignored). */
-export function formatTime(time: string | null | undefined): string {
-  if (!time) return '';
-  const m = time.match(/^(\d{1,2}):(\d{2})/);
-  if (!m) return time;
-  const h = parseInt(m[1], 10);
-  const suffix = h >= 12 ? 'pm' : 'am';
-  const h12 = h % 12 === 0 ? 12 : h % 12;
-  return `${h12}:${m[2]}${suffix}`;
 }
 
 export function entityKind(entity: Pick<EntityCardEntity, 'type'>): string {
@@ -222,188 +183,60 @@ export interface ApplyChangeOptions {
   sameChange?: boolean;
 }
 
+/** The closing line kept on the card: names the date, so it is still true tomorrow. */
+function closingLine(
+  entity: EntityCardEntity,
+  change: EntityCardChange,
+  item: Record<string, any> | null,
+): string {
+  const words = describeChange(entity, change, { relative: false });
+  const title = (entity.type === 'note' ? item?.title : item?.name || item?.title) || entity.title;
+  switch (change.field) {
+    case 'completed':
+      return `${title} is done.`;
+    case 'logged':
+      return `Logged ${title} for ${formatDays(loggedDaysOf(change), { relative: false })}.`;
+    case 'name':
+      return `Renamed to ${words.to}.`;
+    case 'body':
+      return 'Note updated.';
+    case 'body_add':
+      return `Added to ${title}.`;
+    default:
+      return `${title} is now ${words.to}.`;
+  }
+}
+
 /**
- * Apply a confirmed edit through the store. Resolves with an undo function.
- * Throws when the item no longer exists. The change goes into the item's
- * history (lib/chat/changeHistory) in the same write, and Undo takes it out;
- * marking done and habit check-ins are not history, the item shows those.
+ * Apply a confirmed edit. Resolves with an undo function. Throws when the
+ * item no longer exists or the change can't be made. Goes through the change
+ * model (lib/changes): the same checks, writes, history and Undo as every
+ * other surface. Marking done and habit check-ins are not history, the item
+ * shows those.
  */
 export async function applyEntityChange(
   entity: EntityCardEntity,
   change: EntityCardChange,
   opts: ApplyChangeOptions = {},
 ): Promise<AppliedChange> {
-  const store = useGremlyStore.getState();
-  const source = opts.source ?? 'chat';
-  // the closing line is kept on the card, so its days are dates, not today or tomorrow
-  const words = describeChange(entity, change, { relative: false });
   const after = entityAfterChange(entity, change);
-
-  if (entity.type === 'todo') {
-    const todo = store.todos.find((t) => t.id === entity.id);
-    if (!todo) throw new Error('That todo is no longer here.');
-    const title = todo.name || todo.title;
-    if (change.field === 'completed') {
-      await store.completeTodo(todo.id);
-      return {
-        revert: () => store.uncompleteTodo(todo.id),
-        summary: `${title} is done.`,
-        entity: after,
-      };
+  const raw = fromEntityCard(entity, change);
+  const item = findItem(entity.type, entity.id);
+  const checked = checkChange(raw, contextFor(raw));
+  if (!checked.ok) {
+    if (checked.reason === 'no_item') throw new Error(`That ${entity.type} is no longer here.`);
+    // already the way they asked: nothing to write and nothing to undo
+    if (checked.reason === 'no_change') {
+      return { revert: async () => {}, summary: closingLine(entity, change, item), entity: after };
     }
-    const before = {
-      name: todo.name,
-      title: todo.title,
-      due_day: todo.due_day ?? null,
-      due_date: todo.due_date ?? null,
-      due_time: todo.due_time ?? null,
-      body: todo.body ?? null,
-    };
-    const updates =
-      change.field === 'due_day'
-        ? { due_day: change.to, due_date: change.to }
-        : change.field === 'due_time'
-          ? { due_time: change.to }
-          : change.field === 'body_add'
-            ? { body: todo.body?.trim() ? `${todo.body.trimEnd()}\n\n${change.to}` : change.to }
-            : { name: change.to, title: change.to };
-    const history = recordChange(todo.views, entity, change, source, todo.body, opts.sameChange);
-    await store.updateTodo(todo.id, { ...updates, views: history.views });
-    return {
-      revert: () => {
-        const now = useGremlyStore.getState();
-        const current = now.todos.find((t) => t.id === todo.id)?.views ?? history.views;
-        return now.updateTodo(todo.id, {
-          ...(change.field === 'due_day'
-            ? { due_day: before.due_day, due_date: before.due_date }
-            : change.field === 'due_time'
-              ? { due_time: before.due_time }
-              : change.field === 'body_add'
-                ? { body: before.body }
-                : { name: before.name, title: before.title }),
-          views: history.undo(current),
-        });
-      },
-      summary:
-        change.field === 'name'
-          ? `Renamed to ${words.to}.`
-          : change.field === 'body_add'
-            ? `Added to ${title}.`
-            : `${title} is now ${words.to}.`,
-      entity: after,
-    };
+    throw new Error('That change did not go through.');
   }
-
-  if (entity.type === 'habit') {
-    const habit = store.habits.find((h) => h.id === entity.id);
-    if (!habit) throw new Error('That habit is no longer here.');
-    if (change.field === 'logged') {
-      // a check-in for each day they said; the store ignores a day already logged
-      const days = loggedDaysOf(change);
-      for (const day of days) await store.logHabitCompletionForDate(habit.id, day);
-      return {
-        revert: async () => {
-          const now = useGremlyStore.getState();
-          for (const day of days) await now.removeHabitCompletionForDate(habit.id, day);
-        },
-        summary: `Logged ${habit.name} for ${formatDays(days, { relative: false })}.`,
-        entity: after,
-      };
-    }
-    const before = { name: habit.name, frequency: habit.frequency };
-    const updates = change.field === 'frequency' ? { frequency: change.to } : { name: change.to };
-    const history = recordChange(habit.views, entity, change, source, habit.notes, opts.sameChange);
-    await store.updateHabit(habit.id, { ...updates, views: history.views });
-    return {
-      revert: () => {
-        const now = useGremlyStore.getState();
-        const current = now.habits.find((h) => h.id === habit.id)?.views ?? history.views;
-        return now.updateHabit(habit.id, {
-          ...(change.field === 'frequency'
-            ? { frequency: before.frequency }
-            : { name: before.name }),
-          views: history.undo(current),
-        });
-      },
-      summary:
-        change.field === 'frequency'
-          ? `${habit.name} is now ${words.to}.`
-          : `Renamed to ${words.to}.`,
-      entity: after,
-    };
-  }
-
-  // notes: a title, a body, and for appointments and events a day and a time
-  const note = store.notes.find((n) => n.id === entity.id);
-  if (!note) throw new Error('That note is no longer here.');
-  const views = (note.views as Record<string, unknown> | undefined) ?? undefined;
-  const before = {
-    title: note.title ?? null,
-    body: note.body ?? null,
-    target_date: note.target_date ?? null,
-    event_time: note.event_time ?? null,
-  };
-  // MindDrop keeps a copy of a note's day and time in views; keep it in step
-  const withViews = (patch: Record<string, unknown>) =>
-    views && ('target_date' in views || 'event_time' in views)
-      ? { ...patch, views: { ...views, ...patch } }
-      : patch;
-  const fieldUpdates: Record<string, unknown> =
-    change.field === 'body'
-      ? { body: change.to }
-      : change.field === 'body_add'
-        ? { body: note.body?.trim() ? `${note.body.trimEnd()}\n\n${change.to}` : change.to }
-        : change.field === 'due_day'
-          ? withViews({ target_date: change.to })
-          : change.field === 'due_time'
-            ? withViews({ event_time: change.to })
-            : { title: change.to };
-  const history = recordChange(
-    fieldUpdates.views ?? views,
-    entity,
-    change,
-    source,
-    note.body,
-    opts.sameChange,
-  );
-  const updates = { ...fieldUpdates, views: history.views };
-  await store.updateNote(note.id, updates as Partial<typeof note>);
-  const title = note.title || entity.title;
-  // Undo puts back MindDrop's copy of the day or time as it was, and takes the
-  // history line out, leaving anything else in views that changed since
-  const viewsCopyBack = (key: 'target_date' | 'event_time') =>
-    views && key in views ? { [key]: views[key] } : {};
-  return {
-    revert: () => {
-      const now = useGremlyStore.getState();
-      const current = now.notes.find((n) => n.id === note.id)?.views ?? history.views;
-      const undone = history.undo(current);
-      return now.updateNote(note.id, {
-        ...(change.field === 'body' || change.field === 'body_add'
-          ? { body: before.body, views: undone }
-          : change.field === 'due_day'
-            ? {
-                target_date: before.target_date,
-                views: { ...undone, ...viewsCopyBack('target_date') },
-              }
-            : change.field === 'due_time'
-              ? {
-                  event_time: before.event_time,
-                  views: { ...undone, ...viewsCopyBack('event_time') },
-                }
-              : { title: before.title, views: undone }),
-      } as Partial<typeof note>);
-    },
-    summary:
-      change.field === 'body'
-        ? 'Note updated.'
-        : change.field === 'body_add'
-          ? `Added to ${title}.`
-          : change.field === 'name'
-            ? `Renamed to ${words.to}.`
-            : `${title} is now ${words.to}.`,
-    entity: after,
-  };
+  const outcome = await applyChange(checked.change, {
+    source: opts.source ?? 'chat',
+    joinHistory: opts.sameChange,
+  });
+  if (!outcome.ok) throw new Error(outcome.message);
+  return { revert: outcome.revert, summary: closingLine(entity, change, item), entity: after };
 }
 
 export function isEditCard(card: EntityCard): card is Extract<EntityCard, { kind: 'edit' }> {

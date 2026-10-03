@@ -331,28 +331,6 @@ const SPEECH_POOLS = {
     },
   },
 
-  MORNING_BRIEF: {
-    prompt: [
-      'Good morning! What\u2019s your One Thing today?',
-      'New day. What matters most?',
-      'Morning! Let\u2019s pick a focus.',
-      'Rise and plan. What\u2019s the priority?',
-      'What would make today feel like a win?',
-    ],
-    complete: [
-      'Locked in. Go make it happen.',
-      'That\u2019s the plan. You\u2019ve got this.',
-      'Day\u2019s set. Now just do the next thing.',
-      'Focused and ready. Let\u2019s go.',
-      'Great call. Today\u2019s yours.',
-    ],
-    skip: [
-      'No pressure. I\u2019m here when you\u2019re ready.',
-      'All good. Come find me when you want to plan.',
-      'Skipped for now. You know where I am.',
-    ],
-  },
-
   FED_CELEBRATION: {
     days_remaining_2: [
       'Full for the day. Two more like this and I level up.',
@@ -665,19 +643,6 @@ export function getFirstVisitSpeech(): { message: string; duration: number } {
   return {
     message,
     duration: 15000, // Stay visible until user acts — long duration as fallback
-  };
-}
-
-export function getMorningBriefSpeech(event: 'prompt' | 'complete' | 'skip'): {
-  message: string;
-  duration: number;
-} {
-  const pool = SPEECH_POOLS.MORNING_BRIEF[event];
-  const message = pickRandom(pool, getRecentMessages());
-  trackMessage(message);
-  return {
-    message,
-    duration: calculateDuration(message),
   };
 }
 

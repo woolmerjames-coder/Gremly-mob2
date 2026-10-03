@@ -1,6 +1,9 @@
 name = "gentle-thunder-5854"
 main = "cortex-index.js"
 compatibility_date = "2024-01-01"
+# AsyncLocalStorage (node:async_hooks) for usage logging: every model call is
+# tied to the request that made it (../shared/aiUsage.js).
+compatibility_flags = ["nodejs_als"]
 
 # Calls to inngest-jobs go through this binding: Cloudflare refuses a fetch to
 # another workers.dev Worker on the same account (error 1042).
@@ -38,7 +41,14 @@ MINDDROP_RELATE_ENABLED = "true"
 #   LEGACY_OPENAI_CHAT_MODEL  non streaming OpenAI fallback for Space, World, Chapter (default gpt-4.1)
 #   WEEKLY_SUMMARY_MODEL      weekly summary (default claude-sonnet-4-5-20250929)
 #   HELPER_FALLBACK_MODEL     retry a failed helper call once on this model (default none)
-#   TRIAGE_ONE_CALL           on: one triage call instead of two (default off)
+#   AGENT_MODEL               the agent's model on every surface (agent/run.js; default gemini-3.8-flash)
+#   AGENT_FALLBACK_MODEL      tried once when the agent's first step fails (default gpt-6-luna)
+#   AGENT_MODEL_BRIEF, AGENT_MODEL_CHAT  one surface on its own
+#   AGENT_BRIEF               on: today's thread on the agent (agent/brief.js, type brief-turn);
+#                             off: the day turn answers brief-turn, as before. Only app builds
+#                             from step 7 on call brief-turn; older builds keep calling day-turn
+#   TRIAGE_ONE_CALL           on: one triage call instead of two (default off); its model is
+#                             MODEL_TRIAGE, and in Ask Gremly it also records the lane
 #   CHAT_EXTRACTION_V2        on: evidence rule, 2,000 cap, JSON mode, skipped on
 #                             chit chat, playful, app help, venting, emotional,
 #                             celebration turns (default off)
@@ -52,16 +62,33 @@ MINDDROP_RELATE_ENABLED = "true"
 
 # The split from docs/2026-09-29-chat-helper-model-audit.md, live since 29 Sep 2026.
 # James judges the chat tone in the app rather than by a replay (his call).
-# The reply path (chat model and triage) is back on the models it ran on before
-# 29 Sep: the live test found the tone had changed, and that change was never
-# put through the corpus gate. Helpers that do not shape the reply stay on Luna.
+# The chat model is back on the model it ran on before 29 Sep: the live test
+# found the tone had changed, and that change was never put through the corpus
+# gate. Helpers that do not shape the reply stay on Luna.
+# Triage (agent plan step 6, replay of 2 Oct 2026 on the audit's 500 locked
+# turns and 293 lane turns): one call on Luna with no thinking, 75% of turns
+# with mode, length and search all right against 68% for the two calls on
+# gpt-4.1-mini, 95% of lanes right, 0.94s typical. It changes the reply's
+# instructions on about half of messages, so James judges the tone in the app.
+# To go back: TRIAGE_ONE_CALL = "off" (the two calls keep gpt-4.1-mini). A
+# failed call is retried once on HELPER_FALLBACK_MODEL.
 CHAT_MODEL = "gemini-3-flash-preview"
 HELPER_MODEL = "gpt-6-luna"
 HELPER_FALLBACK_MODEL = "gemini-3.8-flash"
+MODEL_TRIAGE = "gpt-6-luna"
 MODEL_TRIAGE_MODE = "gpt-4.1-mini"
 MODEL_TRIAGE_SIGNALS = "gpt-4.1-mini"
 MODEL_LOADING_MESSAGE = "gpt-4.1-mini"
-TRIAGE_ONE_CALL = "off"
+TRIAGE_ONE_CALL = "on"
+# Today's thread on the agent (agent plan step 7), on Luna by James's choice:
+# the day turn's replay suite (11 messages) passed 20 of 22 runs at 5.4s typical
+# and about 0.06 cents a message, against 5 of 11 for today's day turn on Luna.
+# Gemini 3.8 Flash was faster (2.9s) but about 1.35 cents a message, nearly three
+# times the brief's budget. A first step that fails is tried once on Gemini; when
+# the agent cannot finish, the day turn answers.
+AGENT_BRIEF = "on"
+AGENT_MODEL_BRIEF = "gpt-6-luna"
+AGENT_FALLBACK_MODEL = "gemini-3.8-flash"
 CHAT_EXTRACTION_V2 = "on"
 SEARCH_REQUIRED_FORCES = "off"
 ENTITY_CARDS = "on"

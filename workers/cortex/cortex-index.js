@@ -170,6 +170,7 @@ import { getUserProfile } from './context/userProfile.js';
 import { buildTodayActivity } from './context/todayActivity.js';
 import { getAgeGuidance } from './context/gremlyAge.js';
 import { triageMessage, generateLoadingMessage, callMini } from './triage';
+import { briefTurnResponse } from './agent/brief.js';
 import {
   geminiGenerate,
   geminiStream,
@@ -206,7 +207,9 @@ import { handleHabitRead } from './habitRead.js';
 import { fetchItemDetail, itemDetailText, handleItemTopics } from './itemDetail.js';
 import { configureModels, models, helperModel } from './models.js';
 import { helperFetch } from './helperClient.js';
-import { briefQuestionSection } from './briefTurn.js';
+import { executeTavilySearch, formatSearchBrief } from './webSearch.js';
+import { aiContext, installAiUsageLogging, setAiUsage } from '../shared/aiUsage.js';
+import { briefNoCardSection, briefQuestionSection } from './briefTurn.js';
 import { relateDrop } from './minddropRelate.js';
 import {
   matchEntity,
@@ -1910,116 +1913,6 @@ function stripFillerOpening(text) {
 }
 
 /**
- * Execute a web search using Tavily API
- *
- * @param {string} query - The search query
- * @param {string} apiKey - Tavily API key
- * @param {Object} options - Search options
- * @param {number} options.maxResults - Maximum results to return (default: 5)
- * @param {string} options.searchDepth - 'basic' or 'advanced' (default: 'basic')
- * @returns {Promise<Object|null>} Formatted search results or null on error
- */
-async function executeTavilySearch(query, apiKey, options = {}) {
-  const maxResults = options.maxResults ?? 3;
-  const searchDepth = options.searchDepth ?? 'basic';
-  const includeImages = options.includeImages ?? false;
-
-  try {
-    const response = await fetch('https://api.tavily.com/search', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        api_key: apiKey,
-        query: query,
-        search_depth: searchDepth,
-        max_results: maxResults,
-        include_answer: true,
-        include_raw_content: false,
-        include_images: includeImages,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => '');
-      console.error('[Tavily] Search failed:', {
-        status: response.status,
-        error: errorText,
-      });
-      return null;
-    }
-
-    const data = await response.json();
-
-    // Format results
-    const results = (data.results || []).map((result, index) => ({
-      index: index + 1,
-      title: result.title || '',
-      url: result.url || '',
-      snippet: (result.content || '').substring(0, 1000),
-    }));
-
-    // Get images if available (Tavily returns these separately)
-    const images = includeImages && data.images ? data.images.slice(0, 3) : [];
-
-    console.log('[Tavily] Search result:', {
-      query,
-      includeImages,
-      resultsCount: results.length,
-      imagesReturned: data.images?.length || 0,
-      rawImages: data.images,
-    });
-
-    return {
-      query: query,
-      answer: data.answer || null,
-      results: results,
-      images: images,
-    };
-  } catch (error) {
-    console.error('[Tavily] Search error:', error);
-    return null;
-  }
-}
-
-/**
- * Format Tavily search results into a readable brief for the LLM.
- * Instead of raw JSON, gives the model a structured brief that's
- * easy to cite from — the approach used by Perplexity/ChatGPT Browse.
- */
-function formatSearchBrief(tavilyResult) {
-  if (!tavilyResult || !tavilyResult.results) return JSON.stringify(tavilyResult);
-
-  let brief = '';
-
-  // Lead with the synthesized answer if available
-  if (tavilyResult.answer) {
-    brief += `SYNTHESIZED ANSWER: ${tavilyResult.answer}\n\n`;
-  }
-
-  brief += 'SOURCES:\n\n';
-
-  for (const result of tavilyResult.results) {
-    // Extract domain name for easy citation
-    let domain = '';
-    try {
-      domain = new URL(result.url).hostname.replace('www.', '');
-    } catch {
-      domain = result.url;
-    }
-
-    brief += `[${result.title}] (${domain})\n`;
-    brief += `${result.snippet}\n\n`;
-  }
-
-  brief +=
-    'INSTRUCTIONS: Use the specific findings, statistics, and expert names from these sources in your response. Cite each source by its name. Do not give generic advice — only share what these sources specifically say.';
-
-  return brief;
-}
-
-/**
  * Detect if a query would benefit from images
  * Returns true for exercises, recipes, products, places, etc.
  */
@@ -3362,7 +3255,10 @@ function unauthorizedSSEResponse() {
   );
 }
 
-export default {
+// The Worker's request handler. The default export below runs it inside a
+// usage context, so every model call it makes is logged to ai_usage
+// (../shared/aiUsage.js).
+const cortexHandler = {
   async fetch(request, env, ctx) {
     configureModels(env); // every model the Worker calls, resolved from env (models.js)
     // --- URL-based routing (Phase 4.7) ---
@@ -3442,6 +3338,7 @@ export default {
 
       const type = body.type || 'complete';
       const lane = body.lane || null;
+      setAiUsage({ job: lane || type });
 
       // Check if client requests streaming
       const wantsStreaming = body.stream === true;
@@ -3470,6 +3367,8 @@ export default {
         'not-right',
         'daily-brief',
         'plan-pick',
+        'day-turn',
+        'brief-turn',
         'notification-test',
       ]);
       const AUTH_REQUIRED_LANES = new Set([
@@ -3495,6 +3394,7 @@ export default {
           return unauthorizedResponse();
         }
       }
+      setAiUsage({ userId: authenticatedUserId || body.userId || body.user_id || null });
 
       // =========================
       // Timezone resolution (single source of truth per request)
@@ -7857,6 +7757,10 @@ ${assistantMessage.substring(0, 2000)}
             pool: Array.isArray(body.pool) ? body.pool.slice(0, 40) : [],
             meetings: Array.isArray(body.meetings) ? body.meetings.slice(0, 40) : [],
             live_plan: Array.isArray(body.live_plan) ? body.live_plan.slice(0, 40) : [],
+            // the day record: set times, travel and where planning stops
+            fixed: Array.isArray(body.fixed) ? body.fixed.slice(0, 20) : [],
+            travel: body.travel && typeof body.travel === 'object' ? body.travel : null,
+            plan_end: body.plan_end ?? null,
             text: typeof body.text === 'string' ? body.text.slice(0, 500) : '',
             for_day:
               typeof body.for_day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.for_day)
@@ -7866,6 +7770,40 @@ ${assistantMessage.substring(0, 2000)}
         }).catch(() => null);
         if (!res) return j({ error: 'could not reach the plan picker' }, 502);
         return j(await res.json().catch(() => ({ error: 'bad reply' })), res.ok ? 200 : 502);
+      }
+
+      // =========================
+      // === DAY TURN (Daily brief in Chat) ===
+      // A message typed in today's thread: inngest-jobs reads it against the
+      // day record, the plan and the person's items, and returns one change
+      // set for the app's change card (or says it is not about the day).
+      // =========================
+      if (type === 'day-turn') {
+        if (!env.INNGEST_WORKER_URL || !env.INNGEST_ADMIN_KEY)
+          return j({ error: 'not configured' }, 503);
+        const res = await askDayTurn(env, authenticatedUserId, body);
+        if (!res) return j({ error: 'could not reach the day turn' }, 502);
+        return j(await res.json().catch(() => ({ error: 'bad reply' })), res.ok ? 200 : 502);
+      }
+
+      // Today's thread on the agent (agent plan step 7): status lines while it
+      // works, then the reply and the card, as server-sent events. With
+      // AGENT_BRIEF off, or when the agent cannot finish, the day turn answers.
+      if (type === 'brief-turn') {
+        const access = await checkUserAccess(authenticatedUserId, env);
+        if (!access.hasAccess) return denyAccessSSEResponse(access.reason);
+        return briefTurnResponse({
+          env,
+          userId: authenticatedUserId,
+          body,
+          useAgent: models().flags.agentBrief,
+          dayTurn: async (b) => {
+            if (!env.INNGEST_WORKER_URL || !env.INNGEST_ADMIN_KEY) return null;
+            const res = await askDayTurn(env, authenticatedUserId, b);
+            return res && res.ok ? res.json().catch(() => null) : null;
+          },
+          waitUntil: (p) => ctx.waitUntil(p),
+        });
       }
 
       // =========================
@@ -12761,6 +12699,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               search: triage.search,
               personal: triage.personal,
               depth: triage.depth,
+              // recorded only: nothing routes on the lane until step 9 of the agent plan
+              lane: triage.lane || null,
               anchored: anchor ? (anchor.gone ? 'gone' : true) : false,
             });
 
@@ -12797,6 +12737,9 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             // today's thread: the reply to the brief's question (a card's own
             // instructions come first when one is shown)
             if (!entityCard) genConfig.systemPrompt += briefQuestionSection(body.briefQuestion);
+            // today's thread with no card: nothing changes, so nothing is claimed
+            if (!entityCard && body.chatSurface === 'brief')
+              genConfig.systemPrompt += briefNoCardSection();
 
             const chatMessages = [
               { role: 'system', content: genConfig.systemPrompt },
@@ -13279,11 +13222,10 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
 
                     // Corrections: when they say Gremly has something about their
                     // life wrong, the context pipeline applies it straight away.
+                    // Only this turn's message is checked (each one once).
                     const correctionCheck = checkForCorrection({
                       conversationText,
-                      userTexts: recentMsgs
-                        .filter((m) => m.role === 'user')
-                        .map((m) => String(m.content || '')),
+                      latest: recentMsgs.filter((m) => m.role === 'user').at(-1)?.content,
                       chatId: body.chatId,
                       userId: authenticatedUserId,
                       env,
@@ -14674,6 +14616,24 @@ Return ONLY JSON:
   },
 };
 
+export default {
+  async fetch(request, env, ctx) {
+    installAiUsageLogging();
+    globalThis.__aiUsageFallbackStore = { env, ctx, worker: 'cortex' };
+    // job and userId are filled in once the handler has read the body and
+    // checked the session. runId ties together every call this request makes.
+    const usage = {
+      env,
+      ctx,
+      worker: 'cortex',
+      job: null,
+      userId: null,
+      runId: crypto.randomUUID(),
+    };
+    return aiContext.run(usage, () => cortexHandler.fetch(request, env, ctx));
+  },
+};
+
 // ============================================================================
 // SHARED SCOPED-CHAT STREAMING CORE (F.5.b.2)
 // Used by world_chat and chapter_chat lanes. Spawns an async IIFE that
@@ -15271,6 +15231,26 @@ function runScopedChatStream(
       }
     }
   })();
+}
+
+/** The day turn in inngest-jobs, for one message in today's thread. */
+function askDayTurn(env, userId, body) {
+  return fetchInngestWorker(env, '/api/day-turn', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-admin-key': env.INNGEST_ADMIN_KEY },
+    body: JSON.stringify({
+      user_id: userId,
+      text: typeof body.text === 'string' ? body.text.slice(0, 800) : '',
+      question: typeof body.question === 'string' ? body.question.slice(0, 300) : null,
+      history: Array.isArray(body.history) ? body.history.slice(-12) : [],
+      date: typeof body.date === 'string' ? body.date : null,
+      now: body.now,
+      items: Array.isArray(body.items) ? body.items.slice(0, 80) : [],
+      meetings: Array.isArray(body.meetings) ? body.meetings.slice(0, 40) : [],
+      record: body.record && typeof body.record === 'object' ? body.record : null,
+      plan: body.plan && typeof body.plan === 'object' ? body.plan : null,
+    }),
+  }).catch(() => null);
 }
 
 function j(obj, status = 200) {

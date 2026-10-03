@@ -22,6 +22,8 @@ import type { PlanItem } from '../brief/types';
 import type { SequencedItem } from '../types';
 import { buildCandidatePool, windowFor, type Candidate } from './candidatePool';
 import { withFeedAnimation } from '../brief/feeding';
+import { buildDayRecord, type DayRecord, type DayThreadMeta } from '../brief/dayRecord';
+import { useTodayThread } from '../brief/todayThread';
 
 export function poolFromStore(): Candidate[] {
   const s = useGremlyStore.getState();
@@ -34,6 +36,11 @@ export function poolFromStore(): Candidate[] {
     count?: number;
   }[];
   const { brief } = readDco(s.dco);
+  // habits skipped today in the thread are not planned again today
+  const meta = useTodayThread.getState().thread?.metadata_json as
+    | { ritual_day?: string; skipped_habits?: string[] }
+    | undefined;
+  const skipped = new Set(meta?.ritual_day === today ? (meta.skipped_habits ?? []) : []);
   return buildCandidatePool({
     today,
     todosDueToday: selectTodosDueToday(s as any),
@@ -47,7 +54,7 @@ export function poolFromStore(): Candidate[] {
     claims: brief?.claims ?? [],
     reach: brief?.reach ?? null,
     blocks: s.timeBlockPreferences,
-  });
+  }).filter((c) => !skipped.has(c.id));
 }
 
 /** A todo or habit picked from Due today that is not in today's pool. */
@@ -112,6 +119,42 @@ export function poolForDay(day: string): Candidate[] {
 }
 
 /**
+ * The day a todo's Lock In is for: the day it was made, or the next day when
+ * the todo is due then (locked in the evening for tomorrow, or moved to
+ * tomorrow at Sweep's Lock-In checkpoint). A todo due further out was locked
+ * in for the day it was made. The worker reads it the same way
+ * (workers/inngest-jobs/notifications/sweepCount.js, lockedIn).
+ */
+export function lockInDay(startedDay: string | null, dueDay: string | null): string | null {
+  if (!startedDay) return dueDay;
+  if (dueDay && dueDay > startedDay && dueDay <= getDateService().addDays(startedDay, 1)) {
+    return dueDay;
+  }
+  return startedDay;
+}
+
+/**
+ * A new day: a todo's Lock In lasts the day it was for (lockInDay), so one
+ * for an earlier day comes off and does not return in Sweep or in the plan.
+ * Habits keep their own end date (commitment_until).
+ */
+export function expireOldLockIns(today: string): number {
+  const s = useGremlyStore.getState();
+  let expired = 0;
+  for (const t of s.todos) {
+    if (!t.commitment || t.completed_at || t.archived) continue;
+    const started = t.commitment_started_at ? localDateOf(t.commitment_started_at) : null;
+    const day = lockInDay(started, t.due_day ?? null);
+    if (!day || day >= today) continue;
+    expired++;
+    void s
+      .removeCommitment(t.id, 'todo')
+      .catch((err: unknown) => console.warn('[Plan] could not expire a Lock In', t.id, err));
+  }
+  return expired;
+}
+
+/**
  * A new day: times placed on earlier days come off their todos and habits,
  * so yesterday's plan never shows on Today. Times placed for today (a plan
  * locked yesterday for tomorrow) or later stay.
@@ -152,6 +195,26 @@ export function resetStaleAssignments(today: string): number {
 export function meetingsFromStore(date: string): DayMeeting[] {
   const s = useGremlyStore.getState();
   return meetingsForDay(date, new Set(readDco(s.dco).cancelledCalendarIds));
+}
+
+/**
+ * The day record for a day, from the store: meetings, set times from memory
+ * and the thread, travel and where planning stops (lib/brief/dayRecord.ts).
+ */
+export function dayRecordFromStore(date: string): DayRecord {
+  const s = useGremlyStore.getState();
+  const { anchors, frame, cancelledCalendarIds } = readDco(s.dco);
+  const meetings = meetingsForDay(date, new Set(cancelledCalendarIds));
+  const meta = useTodayThread.getState().thread?.metadata_json as
+    | (DayThreadMeta & { ritual_day?: string })
+    | undefined;
+  return buildDayRecord({
+    today: date,
+    frame,
+    threadMeta: meta?.ritual_day === date ? meta : null,
+    meetings,
+    anchors,
+  });
 }
 
 /** Save the picker's estimate as the item's duration, when it had none. */

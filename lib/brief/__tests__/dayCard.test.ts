@@ -69,9 +69,9 @@ describe('day card lines', () => {
   });
 
   it('sweep', () => {
-    expect(sweepLine(7, 3)).toEqual({ text: '7 waiting, 3 past their dates', warn: true });
-    expect(sweepLine(5, 1)).toEqual({ text: '5 waiting, 1 past its date', warn: true });
-    expect(sweepLine(2, 0)).toEqual({ text: '2 waiting', warn: false });
+    expect(sweepLine(7, 3)).toEqual({ text: '7 to sort, 3 past their dates', warn: true });
+    expect(sweepLine(5, 1)).toEqual({ text: '5 to sort, 1 past its date', warn: true });
+    expect(sweepLine(2, 0)).toEqual({ text: '2 to sort', warn: false });
     expect(sweepLine(0, 0)).toEqual({ text: 'All sorted', warn: false });
   });
 

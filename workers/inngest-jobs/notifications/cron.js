@@ -160,8 +160,9 @@ export async function runMinute(env, { now = new Date() } = {}) {
   };
 
   const hourly = now.getUTCMinutes() === 7;
+  const checkInId = hourly ? crypto.randomUUID() : null;
   if (hourly) {
-    await cronCheckIn(env, HOURLY_MONITOR, 'in_progress', HOURLY_SCHEDULE);
+    await cronCheckIn(env, HOURLY_MONITOR, 'in_progress', HOURLY_SCHEDULE, fetch, checkInId);
     out.receipts = await safely(
       env,
       'receipts',
@@ -187,6 +188,13 @@ export async function runMinute(env, { now = new Date() } = {}) {
     });
   }
   if (hourly)
-    await cronCheckIn(env, HOURLY_MONITOR, problems.length ? 'error' : 'ok', HOURLY_SCHEDULE);
+    await cronCheckIn(
+      env,
+      HOURLY_MONITOR,
+      problems.length ? 'error' : 'ok',
+      HOURLY_SCHEDULE,
+      fetch,
+      checkInId,
+    );
   return { ...out, problems };
 }

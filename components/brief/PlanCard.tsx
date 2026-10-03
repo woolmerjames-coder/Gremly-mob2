@@ -11,6 +11,7 @@ import { Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-nativ
 import { ArrowRight, Check, Clock, Lock, Plus, Repeat, X } from 'lucide-react-native';
 import type { BriefPlanMeta } from '../../lib/brief/types';
 import type { DayMeeting } from '../../lib/brief/dayCard';
+import type { DayBlock } from '../../lib/brief/dayRecord';
 import { clock, ampm } from '../../lib/brief/dayCard';
 import { duration, otherDayTitle, planHeading, planSummary } from '../../lib/plan/planFlow';
 import { getDateService } from '../../lib/date/DateService';
@@ -20,6 +21,10 @@ import { BRIEF } from './briefStyles';
 export type PlanCardProps = {
   meta: BriefPlanMeta;
   meetings: DayMeeting[];
+  /** Set times the day is planned around (lib/brief/dayRecord.ts) */
+  blocks?: DayBlock[];
+  /** Nothing is planned after this: when they set off, or 10pm */
+  planEnd?: number;
   /** False while something is being saved */
   interactive?: boolean;
   onRemove?: (id: string) => void;
@@ -31,17 +36,39 @@ export type PlanCardProps = {
 };
 
 type Row =
-  | { type: 'meet'; start: number; end: number; title: string }
+  | { type: 'meet'; start: number; end: number; title: string; during?: boolean }
+  | { type: 'fixed'; start: number; end: number; title: string; travel: boolean }
   | { type: 'item'; start: number; end: number; id: string; title: string; reason?: string | null }
   | { type: 'gap'; start: number; end: number; last?: boolean };
 
-/** The timeline: meetings and items in time order, with gaps of an hour or more. */
-export function planRows(meta: BriefPlanMeta, meetings: DayMeeting[]): Row[] {
+const BLOCK_MINUTES = 30;
+
+/**
+ * The timeline: meetings, set times and items in time order, with gaps of an
+ * hour or more, up to `dayEnd` (when they set off, or 10pm). Meetings after
+ * they set off follow, marked as falling while they travel.
+ */
+export function planRows(
+  meta: BriefPlanMeta,
+  meetings: DayMeeting[],
+  blocks: DayBlock[] = [],
+  dayEnd: number = PLAN_DAY_END,
+): Row[] {
   const from = meta.from ?? 0;
+  const order = { meet: 0, fixed: 1, item: 2 } as const;
   const rows: Row[] = [
     ...meetings
-      .filter((m) => m.end > from && m.start < PLAN_DAY_END)
+      .filter((m) => m.end > from && m.start < dayEnd)
       .map((m) => ({ type: 'meet' as const, start: m.start, end: m.end, title: m.title })),
+    ...blocks
+      .filter((b) => (b.end ?? b.start + BLOCK_MINUTES) > from && b.start <= dayEnd)
+      .map((b) => ({
+        type: 'fixed' as const,
+        start: b.start,
+        end: b.end ?? b.start + BLOCK_MINUTES,
+        title: b.title,
+        travel: b.travel,
+      })),
     ...meta.items.map((x) => ({
       type: 'item' as const,
       start: x.start,
@@ -50,7 +77,11 @@ export function planRows(meta: BriefPlanMeta, meetings: DayMeeting[]): Row[] {
       title: x.title,
       reason: x.reason,
     })),
-  ].sort((a, b) => a.start - b.start || (a.type === 'meet' ? -1 : 1));
+  ].sort(
+    (a, b) =>
+      a.start - b.start ||
+      order[a.type as keyof typeof order] - order[b.type as keyof typeof order],
+  );
   const out: Row[] = [];
   let cursor = from;
   for (const r of rows) {
@@ -58,14 +89,26 @@ export function planRows(meta: BriefPlanMeta, meetings: DayMeeting[]): Row[] {
     out.push(r);
     cursor = Math.max(cursor, r.end);
   }
-  if (PLAN_DAY_END - cursor >= 60)
-    out.push({ type: 'gap', start: cursor, end: PLAN_DAY_END, last: true });
+  if (dayEnd - cursor >= 60) out.push({ type: 'gap', start: cursor, end: dayEnd, last: true });
+  if (dayEnd < PLAN_DAY_END) {
+    for (const m of meetings.filter((x) => x.start >= dayEnd && x.start < PLAN_DAY_END)) {
+      out.push({ type: 'meet', start: m.start, end: m.end, title: m.title, during: true });
+    }
+  }
   return out;
+}
+
+/** "10pm", "12:30pm" */
+function endLabel(min: number): string {
+  const t = clock(min);
+  return `${t.endsWith(':00') ? t.slice(0, -3) : t}${ampm(min).toLowerCase()}`;
 }
 
 export function PlanCard({
   meta,
   meetings,
+  blocks = [],
+  planEnd = PLAN_DAY_END,
   interactive = true,
   onRemove,
   onAdd,
@@ -96,13 +139,17 @@ export function PlanCard({
 
   const locked = meta.status === 'locked';
   const from = meta.from ?? 0;
-  const span = Math.max(1, PLAN_DAY_END - from);
-  const meetMin = meetings.reduce(
-    (a, m) => a + Math.max(0, Math.min(m.end, PLAN_DAY_END) - Math.max(m.start, from)),
+  const end = Math.max(from, planEnd);
+  const span = Math.max(1, end - from);
+  const busy = [
+    ...meetings.map((m) => ({ start: m.start, end: m.end })),
+    ...blocks.map((b) => ({ start: b.start, end: b.end ?? b.start + BLOCK_MINUTES })),
+  ];
+  const meetMin = busy.reduce(
+    (a, m) => a + Math.max(0, Math.min(m.end, end) - Math.max(m.start, from)),
     0,
   );
   const planMin = meta.items.reduce((a, x) => a + (x.end - x.start), 0);
-  const busy = meetings.map((m) => ({ start: m.start, end: m.end }));
 
   return (
     <View style={styles.card} testID={locked ? 'plan-locked' : 'plan-proposal'}>
@@ -111,7 +158,7 @@ export function PlanCard({
           <Text style={styles.title}>
             {otherDayTitle(meta.date, getDateService().today()) ?? planHeading(from)}
           </Text>
-          <Text style={styles.sub}>{planSummary(meta, busy)}</Text>
+          <Text style={styles.sub}>{planSummary(meta, busy, end)}</Text>
         </View>
         {locked ? (
           <View style={[styles.tag, styles.tagDone]}>
@@ -132,14 +179,11 @@ export function PlanCard({
       <View style={styles.legend}>
         <Legend color={BRIEF.meeting} label="Meetings" />
         <Legend color={BRIEF.peri} label="Planned" />
-        <Legend
-          color={BRIEF.linen2}
-          label={`Free, ${clock(from)}${ampm(from).toLowerCase()} to 10pm`}
-        />
+        <Legend color={BRIEF.linen2} label={`Free, ${endLabel(from)} to ${endLabel(end)}`} />
       </View>
 
       <View style={styles.timeline}>
-        {planRows(meta, meetings).map((r) =>
+        {planRows(meta, meetings, blocks, end).map((r) =>
           r.type === 'gap' ? (
             <View key={`gap-${r.start}`} style={styles.tlRow}>
               <Text style={styles.time} />
@@ -147,7 +191,7 @@ export function PlanCard({
                 <View style={[styles.dot, styles.dotGap]} />
               </View>
               <Text style={styles.gapText}>
-                {r.last ? 'Free until 10pm' : `${duration(r.end - r.start)} free`}
+                {r.last ? `Free until ${endLabel(r.end)}` : `${duration(r.end - r.start)} free`}
               </Text>
             </View>
           ) : (
@@ -161,7 +205,16 @@ export function PlanCard({
                 <Text style={styles.ampm}> {ampm(r.start)}</Text>
               </Text>
               <View style={styles.dotCol}>
-                <View style={[styles.dot, r.type === 'meet' ? styles.dotMeet : styles.dotItem]} />
+                <View
+                  style={[
+                    styles.dot,
+                    r.type === 'meet'
+                      ? styles.dotMeet
+                      : r.type === 'fixed'
+                        ? styles.dotFixed
+                        : styles.dotItem,
+                  ]}
+                />
               </View>
               <View style={styles.flex}>
                 <Text
@@ -170,10 +223,19 @@ export function PlanCard({
                 >
                   {r.title}
                 </Text>
-                <Text style={styles.itemMeta} numberOfLines={2}>
+                <Text
+                  style={[styles.itemMeta, r.type === 'meet' && r.during && styles.warn]}
+                  numberOfLines={2}
+                >
                   {r.type === 'meet'
-                    ? `Meeting, ${duration(r.end - r.start)}`
-                    : `${duration(r.end - r.start)}${r.reason ? `, ${r.reason}` : ''}`}
+                    ? r.during
+                      ? "Meeting, while you're travelling"
+                      : `Meeting, ${duration(r.end - r.start)}`
+                    : r.type === 'fixed'
+                      ? r.travel
+                        ? 'Set time, travel'
+                        : 'Set time'
+                      : `${duration(r.end - r.start)}${r.reason ? `, ${r.reason}` : ''}`}
                 </Text>
               </View>
               {r.type === 'item' && !locked ? (
@@ -298,6 +360,8 @@ const styles = StyleSheet.create({
   dot: { width: 9, height: 9, borderRadius: 5 },
   dotMeet: { backgroundColor: BRIEF.meeting },
   dotItem: { backgroundColor: BRIEF.peri },
+  dotFixed: { backgroundColor: BRIEF.mossInk },
+  warn: { color: BRIEF.warn },
   dotGap: { backgroundColor: BRIEF.linen2, borderWidth: 1, borderColor: BRIEF.chipBorder },
   gapText: { fontFamily: 'Inter-Regular', fontSize: 12, color: BRIEF.faint, fontStyle: 'italic' },
   itemTitle: { fontFamily: 'Inter-Medium', fontSize: 14, color: BRIEF.mossInk },

@@ -179,6 +179,35 @@ export const SCENARIOS = [
     unsorted: 0,
   },
   {
+    id: 'anniversary-trip',
+    title: 'Flying out on an anniversary trip, the anniversary itself later',
+    look: 'Leads with flying to San Diego today and leaving at 12:30. Points out that timesheets at 4pm falls after they set off. Never says the anniversary is today (it is on 7 October). Any Sweep number is 6, the drops since the last Sweep.',
+    today: '2026-10-02',
+    at: '06:10',
+    person: ALEX,
+    meetings: [
+      ['08:00', '08:30', 'Team huddle'],
+      ['16:00', '16:30', 'Timesheets'],
+    ],
+    todos: ['Find a present and give it to Sam', 'Send out the partner deck', 'Submit to the app store'],
+    habits: [{ title: 'Pushups', target: 2, done: 0 }],
+    claims: [],
+    anchors: [
+      { date: '2026-10-07', short_label: 'Anniversary', label: 'Alex and Sam’s anniversary is on 7 October.' },
+    ],
+    dayShape: 'Anniversary trip to San Diego with Sam from 2 to 4 October, flying down this afternoon.',
+    overdue: 0,
+    unsorted: 6,
+    // ten cards in the evening Sweep; the six with no day were dropped after
+    // last night's Sweep at 8:41pm
+    sweepAll: 10,
+    newSince: 6,
+    lastSweepAt: '2026-10-02T03:41:00Z',
+    travel: ['Flying to San Diego', '12:30'],
+    blocks: [['12:30', 'Leave for the airport', true]],
+    forbid: ['happy anniversary', 'anniversary today', 'your anniversary is today'],
+  },
+  {
     id: 'travel-day',
     title: 'Travel day',
     look: 'Builds the day around the flight. Does not suggest planning into the flight time.',
@@ -195,6 +224,8 @@ export const SCENARIOS = [
     anchors: [],
     overdue: 0,
     unsorted: 0,
+    travel: ['Flying home to San Francisco', null],
+    travelMeetings: [1],
   },
   {
     id: 'no-calendar',

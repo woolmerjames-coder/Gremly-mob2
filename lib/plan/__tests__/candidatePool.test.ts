@@ -75,7 +75,7 @@ describe('the candidate pool', () => {
 
   it('puts claims first, then what is on Today, and leaves out done and archived items', () => {
     const claimed = todo('claimed', { due_day: TODAY, time_estimate_minutes: 20 });
-    const committed = todo('committed', { due_day: null, commitment: true });
+    const committed = todo('committed', { due_day: TODAY, commitment: true });
     const done = todo('done', { due_day: TODAY, completed_at: '2026-09-30T10:00:00Z' });
     const run = habit('run', { time_window: 'evening' });
     const pool = buildCandidatePool(
@@ -91,6 +91,14 @@ describe('the candidate pool', () => {
     expect(pool.map((c) => c.id)).toEqual(['claimed', 'committed', 'run']);
     expect(pool[0]).toMatchObject({ minutes: 20, why: 'Dana needs it today', source: 'claim' });
     expect(pool[2].window).toEqual([17 * 60, 22 * 60]);
+  });
+
+  it('counts a Lock In only for the day it is due, as Today shows it', () => {
+    // locked in yesterday, then moved to Saturday in Sweep: not on today
+    const moved = todo('moved', { due_day: '2026-10-03', commitment: true });
+    const undated = todo('undated', { due_day: null, commitment: true });
+    const pool = buildCandidatePool(input({ todos: [moved, undated] }));
+    expect(pool.map((c) => c.id)).toEqual([]);
   });
 
   it('adds the reach: a todo as it is, a fact as a suggestion', () => {

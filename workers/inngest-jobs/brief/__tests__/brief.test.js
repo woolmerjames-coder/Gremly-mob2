@@ -15,7 +15,15 @@ import {
   minutesIn,
   localStartIso,
 } from '../data';
-import { checkRefs, clockTime, noDashes, renderBriefInput, stripRefs } from '../writer';
+import {
+  checkRefs,
+  clockTime,
+  noDashes,
+  renderBriefInput,
+  stripRefs,
+  sweepLine,
+  sweptWhen,
+} from '../writer';
 import { summariseThread } from '../reaction';
 import { dueForBrief, fallbackOffer } from '../index';
 
@@ -375,5 +383,57 @@ describe('cancelled calendar entries', () => {
     expect(isCancelledEntry({ id: 'row-3', title: 'Cancellation policy review' }, ids)).toBe(false);
     expect(isCancelledEntry({ id: 'row-5', title: 'Cancelled flights review' }, ids)).toBe(false);
     expect(isCancelledEntry({ id: 'row-4', title: 'Search connect' }, undefined)).toBe(false);
+  });
+});
+
+describe('the Sweep number the brief may name', () => {
+  const g = { tz: 'America/Los_Angeles', today: '2026-10-02', overdue: 0, unsorted: 6 };
+  const sweep = {
+    all: 10,
+    quick: 6,
+    pastDay: 0,
+    noDay: 6,
+    other: 0,
+    notes: 0,
+    newSince: 6,
+    lastSweepAt: '2026-10-02T03:41:00Z', // 8:41pm on 1 October in Los Angeles
+  };
+
+  it('is the quick sweep, the number the day card shows, and says the drops are new', () => {
+    // 2 October: ten cards in the evening Sweep, but only the six drops since last night need a decision
+    const line = sweepLine({ ...g, sweep });
+    expect(line).toMatch(/^6, the number the day card shows and the quick sweep holds/);
+    expect(line).toContain('6 todos with no day yet');
+    expect(line).toContain('All of them were added after their last Sweep (last night)');
+    expect(line).not.toMatch(/\b10\b/);
+  });
+
+  it('says how many are new when only some are', () => {
+    const line = sweepLine({ ...g, sweep: { ...sweep, quick: 8, pastDay: 2, newSince: 6 } });
+    expect(line).toContain('2 past their dates, 6 todos with no day yet');
+    expect(line).toContain('6 of them were added after their last Sweep');
+  });
+
+  it('says nothing is waiting when everything has been decided', () => {
+    const line = sweepLine({ ...g, sweep: { ...sweep, quick: 0, noDay: 0, newSince: 0 } });
+    expect(line).toMatch(/^nothing/);
+  });
+
+  it('names no number when Sweep could not be counted', () => {
+    const line = sweepLine({ overdue: 2, unsorted: 3, sweep: null });
+    expect(line).toContain('name no number');
+    expect(line).not.toContain('the number the day card');
+  });
+});
+
+describe('when the last Sweep was, as they would say it', () => {
+  const tz = 'America/Los_Angeles';
+  it('reads it in their own time zone', () => {
+    expect(sweptWhen('2026-10-02T03:41:00Z', tz, '2026-10-02')).toBe('last night');
+    expect(sweptWhen('2026-10-02T07:30:00Z', tz, '2026-10-02')).toBe('last night');
+    expect(sweptWhen('2026-10-02T14:05:00Z', tz, '2026-10-02')).toBe('this morning');
+    expect(sweptWhen('2026-10-01T20:00:00Z', tz, '2026-10-02')).toBe('yesterday afternoon');
+    expect(sweptWhen('2026-09-28T03:00:00Z', tz, '2026-10-02')).toBe('on Sunday');
+    expect(sweptWhen(null, tz, '2026-10-02')).toBeNull();
   });
 });

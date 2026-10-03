@@ -1,4 +1,4 @@
-import { briefQuestionSection } from '../briefTurn.js';
+import { briefNoCardSection, briefQuestionSection } from '../briefTurn.js';
 
 describe('the reply to the brief’s question', () => {
   it('names the question and keeps the reply to it', () => {
@@ -19,5 +19,13 @@ describe('the reply to the brief’s question', () => {
     const quoted = out.split('"')[1];
     expect(quoted.length).toBeLessThanOrEqual(300);
     expect(quoted).not.toContain('\n');
+  });
+});
+
+describe('today’s thread with no card', () => {
+  it('says nothing changes this turn, so nothing is claimed', () => {
+    const out = briefNoCardSection();
+    expect(out).toContain('nothing about them changes from it');
+    expect(out).toContain('Never say or imply');
   });
 });

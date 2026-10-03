@@ -1,0 +1,5 @@
+# Real mornings are built from someone's own data: never commit them.
+real/
+out/
+.bundle.mjs
+.bundle-agent.mjs

@@ -35,6 +35,29 @@ export function checkBrief(g, offer, out) {
     (offer.kind === 'none' ? true : !!out.offer) && !out.offerDropped,
     out.offerDropped ? `bad refs ${out.offerDropped.bad.join(', ')}` : '',
   );
+  for (const words of g.forbid || []) {
+    const hit = texts.filter((t) => t.toLowerCase().includes(words.toLowerCase()));
+    add('fail', `Never says "${words}"`, hit.length === 0, hit.join(' | '));
+  }
+  if (Number.isFinite(g.sweepWaiting) && ['sweep', 'return'].includes(offer.kind)) {
+    const counts = (out.offer || '').replace(TIMES, '').match(/\d+/g) || [];
+    // the total the day card shows, or one of its parts as given
+    const s = g.sweep || {};
+    const allowed = new Set(
+      [g.sweepWaiting, s.pastDay, s.noDay, s.other, s.notes, s.newSince].filter(Number.isFinite),
+    );
+    add(
+      'fail',
+      `Any Sweep number named is ${g.sweepWaiting} (as the day card shows) or one of its parts`,
+      counts.every((n) => allowed.has(Number(n))),
+      out.offer || '',
+    );
+  }
+  // a meeting after they set off is pointed out (the day record's flag)
+  for (const m of g.day?.duringTravel || []) {
+    const hit = texts.some((t) => t.toLowerCase().includes(m.title.toLowerCase()));
+    add('warn', `Points out ${m.title}, after they set off`, hit, '');
+  }
   const should = texts.filter((t) => /\bshould\b/i.test(t));
   add('fail', 'Never says "should"', should.length === 0, should.join(' | '));
 

@@ -39,14 +39,21 @@ jest.mock('../../supabase/client', () => {
       'upsert',
     ];
     selfReturning.forEach((method) => {
-      chain[method] = () => chain;
+      chain[method] = () => {
+        // what was asked of the database, for tests that check the write used
+        ((globalThis as any).__dbCalls ??= []).push(method);
+        return chain;
+      };
     });
     // range() is awaited by fetchAllPaginated — return an empty page.
     chain.range = () => Promise.resolve({ data: [], error: null });
     // single() is used by point-read queries.
     chain.single = () => Promise.resolve({ data: null, error: null });
     // upsert() resolves directly (also listed above for self-returning, but override).
-    chain.upsert = () => Promise.resolve({ error: null });
+    chain.upsert = () => {
+      ((globalThis as any).__dbCalls ??= []).push('upsert');
+      return Promise.resolve({ error: null });
+    };
     // then() makes the chain awaitable (for write ops like .update().eq()).
     chain.then = (resolve: any, reject?: any) =>
       Promise.resolve({ data: [], error: null }).then(resolve, reject);
@@ -417,6 +424,25 @@ describe('useGremlyStore actions', () => {
       // This test verifies no crash and the action runs the right code path.
       // The date logic (input.date ?? today()) is tested via the
       // "throws when not authenticated" test and the tomorrow-mode tests below.
+    });
+
+    it("never rewrites another day's record as today's (the day's first reply)", async () => {
+      // the record in memory is from an earlier day; today's first reply saves today's
+      useGremlyStore.setState({
+        userId: 'user-1',
+        dailyBrief: makeDailyBrief({ id: 'brief-oct-1', date: '2000-01-01' }),
+      });
+      (globalThis as any).__dbCalls = [];
+      await act(async () => {
+        try {
+          await useGremlyStore.getState().saveBrief({ completed_at: '2026-10-03T08:26:08Z' });
+        } catch {
+          // the mock's upsert chain stops short of select().single()
+        }
+      });
+      const calls = (globalThis as any).__dbCalls as string[];
+      expect(calls).toContain('upsert');
+      expect(calls).not.toContain('update');
     });
 
     it('does NOT set dailyBrief for tomorrow date (isToday guard)', async () => {

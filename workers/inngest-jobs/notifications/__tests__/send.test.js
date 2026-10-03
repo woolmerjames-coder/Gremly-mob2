@@ -16,6 +16,7 @@ import {
   settleReceipts,
   settleDueReceipts,
   CANARY_WORDS,
+  briefFacts,
   compose,
 } from '../send';
 import { gatherBrief } from '../../brief/data';
@@ -89,7 +90,7 @@ beforeEach(() => {
     notification_preferences: [prefs()],
     push_devices: [{ id: 'd1', expo_token: TOKEN, time_sensitive: true }],
     user_engagement: [{ user_id: USER, state: 'engaged', days_away: 0 }],
-    cortex_preferences: [{ day_boundary_hour: 0, brief_in_chat: true }],
+    cortex_preferences: [{ day_boundary_hour: 0 }],
     app_events: [],
     events: [],
   };
@@ -127,6 +128,12 @@ describe('tooLate', () => {
     );
     expect(tooLate({ moment: 'reminder', planned_for: '2026-10-01T08:40:00Z' }, at)).toBeNull();
     expect(tooLate({ moment: 'brief', planned_for: '2026-10-01T08:00:00Z' }, at)).toBeNull();
+  });
+  it('does not count minutes it was held on purpose', () => {
+    // planned 7:00, held 60 minutes while they were in the app, now 9:00: 60 minutes late, not 120
+    const job = { moment: 'sweep', planned_for: '2026-10-01T07:00:00Z' };
+    expect(tooLate(job, at)).toMatch(/120 minutes after/);
+    expect(tooLate(job, at, 60)).toBeNull();
   });
   it('never applies to a test', () => {
     expect(
@@ -198,6 +205,89 @@ describe('decide', () => {
     expect(v.facts).toMatchObject({ weekday: 'Thursday', meetings_today: 0 });
   });
 
+  it('names the number Sweep will show, due today included', async () => {
+    // gatherBrief's own split (overdue plus undated) would say 1 here
+    gatherBrief.mockResolvedValue({
+      now: 18 * 60,
+      meetings: [],
+      ritualDay: '2026-10-01',
+      overdue: 0,
+      unsorted: 1,
+    });
+    mockTables.todos = [
+      { id: 'a', due_day: '2026-10-01' },
+      { id: 'b', due_day: '2026-10-01' },
+      { id: 'c', due_day: null },
+      { id: 'd', due_day: '2026-10-09' },
+    ];
+    mockTables.notes = [];
+    const v = await decide(ON, job, { at: AT });
+    expect(v.facts.waiting_in_sweep).toBe(3);
+  });
+
+  it('gives the words what makes a day not clear: habits, Sweep and what is dated today', async () => {
+    // 2 October for Dave: no meetings, nothing due, but habits, Sweep and a trip
+    gatherBrief.mockResolvedValue({
+      now: 7 * 60,
+      meetings: [],
+      today: '2026-10-02',
+      ritualDay: '2026-10-02',
+      todosDue: [],
+      habitsForToday: [{ id: 'h1' }, { id: 'h2' }, { id: 'h3' }],
+      sweep: { all: 10, quick: 6 },
+      sweepWaiting: 6,
+      anchors: [
+        { date: '2026-10-02', short_label: 'Flying to San Diego' },
+        { date: '2026-10-07', short_label: 'Anniversary' },
+      ],
+    });
+    const v = await decide(ON, job, { at: AT });
+    expect(v.facts).toMatchObject({
+      meetings_today: 0,
+      due_today: 0,
+      habits_today: 3,
+      waiting_in_sweep: 10,
+      dated_today: ['Flying to San Diego'],
+    });
+  });
+
+  it('the morning brief names the quick sweep, what still needs a decision', async () => {
+    gatherBrief.mockResolvedValue({
+      now: 7 * 60,
+      meetings: [],
+      today: '2026-10-02',
+      ritualDay: '2026-10-02',
+      sweep: { all: 10, quick: 6 },
+      sweepWaiting: 6,
+    });
+    expect(briefFacts(await gatherBrief(), 'brief').waiting_in_sweep).toBe(6);
+    expect(briefFacts(await gatherBrief(), 'sweep').waiting_in_sweep).toBe(10);
+  });
+
+  it('says they travel today, and when they set off, from the day record', () => {
+    const g = {
+      now: 7 * 60,
+      meetings: [],
+      today: '2026-10-02',
+      ritualDay: '2026-10-02',
+      day: { travel: { label: 'Flying to San Diego', departs: 750 } },
+    };
+    expect(briefFacts(g, 'brief').travel_today).toEqual({
+      what: 'Flying to San Diego',
+      sets_off: expect.stringMatching(/^12:30/),
+    });
+    expect(briefFacts({ ...g, day: null }, 'brief')).not.toHaveProperty('travel_today');
+  });
+
+  it('leaves the number out rather than guess when it cannot be counted', async () => {
+    mockTables.todos = () => {
+      throw new Error('database down');
+    };
+    const v = await decide(ON, job, { at: AT });
+    expect(v.action).toBe('send');
+    expect(v.facts).not.toHaveProperty('waiting_in_sweep');
+  });
+
   it('holds while they are in the app', async () => {
     mockTables.app_events = [{ occurred_at: new Date(AT.getTime() - 10 * 60000).toISOString() }];
     const v = await decide(ON, job, { at: AT });
@@ -231,9 +321,7 @@ describe('decide', () => {
     expect(await decide({ NOTIFICATIONS_MODE: 'testers' }, job, { at: AT })).toMatchObject({
       reason: 'Only testers get notifications for now',
     });
-    mockTables.cortex_preferences = [
-      { day_boundary_hour: 0, brief_in_chat: true, is_tester: true },
-    ];
+    mockTables.cortex_preferences = [{ day_boundary_hour: 0, is_tester: true }];
     expect((await decide({ NOTIFICATIONS_MODE: 'testers' }, job, { at: AT })).action).toBe('send');
   });
 

@@ -21,19 +21,12 @@ type WSV1Params = RootStackParamList['WeeklySummary'];
 const _v1Undefined: WSV1Params = undefined;
 const _v1WithDate: WSV1Params = { weekStartDate: '2025-12-15' };
 
-// MorningBrief accepts optional targetDate
-type MBParams = RootStackParamList['MorningBrief'];
-const _mbUndefined: MBParams = undefined;
-const _mbWithDate: MBParams = { targetDate: '2025-12-15' };
-
 // Suppress unused variable warnings
 void _v2Undefined;
 void _v2WithDate;
 void _v2Empty;
 void _v1Undefined;
 void _v1WithDate;
-void _mbUndefined;
-void _mbWithDate;
 
 // ── Runtime tests ─────────────────────────────────────────────────────────────
 
@@ -69,7 +62,6 @@ describe('RootStackParamList route types', () => {
     type _ChatThread = AssertRouteExists<'ChatThread'>;
     type _WeeklySummary = AssertRouteExists<'WeeklySummary'>;
     type _WeeklySummaryV2 = AssertRouteExists<'WeeklySummaryV2'>;
-    type _MorningBrief = AssertRouteExists<'MorningBrief'>;
     type _CalendarScreen = AssertRouteExists<'CalendarScreen'>;
     type _Habits = AssertRouteExists<'Habits'>;
     type _HabitDetail = AssertRouteExists<'HabitDetail'>;

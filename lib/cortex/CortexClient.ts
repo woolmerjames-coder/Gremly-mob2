@@ -7,6 +7,7 @@ import { getDateService, nowTimestamp } from '../date/DateService';
 import { eventBus } from '../events/EventBus';
 import { getSessionToken, getSessionTokenSync } from './getSessionToken';
 import type { HabitBuilderRequest, HabitBuilderStreamingCallbacks } from '../types';
+import type { Change } from '../changes/model';
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
@@ -2132,8 +2133,16 @@ export interface PlanPickRequest {
     minutes: number | null;
     why: string;
     window: [number, number] | null;
+    /** Kept for today in Sweep just now: always in the plan */
+    kept?: boolean;
   }[];
   meetings: { title: string; start: number; end: number }[];
+  /** Set times the day is planned around (lib/brief/dayRecord.ts) */
+  fixed?: { title: string; start: number; end: number | null; travel: boolean }[];
+  /** Today's travel, and when they set off */
+  travel?: { label: string | null; departs: number | null } | null;
+  /** Nothing is planned after this (minutes from local midnight) */
+  plan_end?: number;
   live_plan?: { id: string; start: number; end: number }[];
   text?: string;
   /** The day being planned (YYYY-MM-DD); tomorrow plans without today's context */
@@ -2173,6 +2182,197 @@ export async function callPlanPick(
   } catch (e: any) {
     return { ok: false, error: String(e?.message || e) };
   }
+}
+
+/** One change on the day turn's card (workers/inngest-jobs/brief/dayTurn.js). */
+export interface DayChange {
+  /** c1, c2, … within its card */
+  cid: string;
+  kind:
+    | 'create_todo'
+    | 'retime'
+    | 'move_day'
+    | 'rename'
+    | 'complete'
+    | 'cancel'
+    | 'skip_habit'
+    | 'add_block'
+    | 'remove_block'
+    | 'plan_add'
+    | 'plan_remove'
+    | 'plan_move';
+  /** The card's words, written by the worker from the change */
+  label: string;
+  /** The item or set time it changes */
+  id?: string;
+  item?: 'todo' | 'habit';
+  title: string;
+  /** Minutes from local midnight */
+  start?: number | null;
+  end?: number | null;
+  day?: string;
+  minutes?: number | null;
+  travel?: boolean;
+  /** rename: the title before */
+  was?: string;
+}
+
+export interface DayTurnRequest {
+  text: string;
+  question: string | null;
+  history: { role: 'user' | 'assistant'; content: string }[];
+  date: string;
+  /** Minutes from local midnight */
+  now: number;
+  items: {
+    id: string;
+    kind: 'todo' | 'habit';
+    title: string;
+    due_day: string | null;
+    due_time: string | null;
+    minutes: number | null;
+    note: string;
+  }[];
+  meetings: { title: string; start: number; end: number }[];
+  record: {
+    travel: { label: string | null; departs: number | null } | null;
+    blocks: { id: string; title: string; start: number; end: number | null; travel: boolean }[];
+    plan_end: number;
+  };
+  plan: {
+    status: 'proposal' | 'locked';
+    items: { id: string; kind: string; title: string; start: number; end: number }[];
+  } | null;
+}
+
+export interface DayTurnResponse {
+  about_day: boolean;
+  checklist?: { ask: string; status: 'proposed' | 'needs_answer' | 'not_possible' | 'noted' }[];
+  changes?: DayChange[];
+  reply?: string | null;
+  model?: string;
+  prompt_version?: string;
+}
+
+/** A message typed in today's thread, read against the day (the day turn). */
+export async function callDayTurn(
+  req: DayTurnRequest,
+): Promise<CortexClientResult<DayTurnResponse>> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return { ok: false, error: '[cortex] Missing EXPO_PUBLIC_CORTEX_URL' };
+  const token = await getSessionToken();
+  if (!token) return { ok: false, error: 'not signed in' };
+  try {
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ type: 'day-turn', ...req }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.error)
+      return { ok: false, error: String(data?.error || res.status), status: res.status };
+    return { ok: true, data };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
+/** One ask on the agent's task list in today's thread (workers/cortex/agent/tasks.js). */
+export interface AgentTask {
+  ask: string;
+  status: 'open' | 'proposed' | 'needs_answer' | 'done' | 'not_possible' | 'dropped';
+}
+
+export interface BriefTurnRequest extends DayTurnRequest {
+  /** Where they are, for their calendar and their day */
+  timezone: string;
+  /** The agent's task list so far in today's thread */
+  tasks: AgentTask[];
+  /** Today's thread, so a correction said in it is filed against it */
+  chat_id: string;
+}
+
+/**
+ * What answered a message in today's thread: the agent (agent plan step 7),
+ * or the day turn when the agent is switched off or could not finish.
+ */
+export type BriefTurnResponse =
+  | {
+      engine: 'agent';
+      reply: string;
+      /** The card, in the change model's shape: nothing changes until they tap */
+      card: Change[];
+      tasks: AgentTask[];
+      model?: string;
+      prompt_version?: string;
+    }
+  | ({ engine: 'day_turn'; agent_error?: string } & DayTurnResponse);
+
+/**
+ * A message typed in today's thread (workers/cortex/agent/brief.js). Status
+ * lines come through onStatus while Gremly works; the answer resolves once.
+ */
+export async function callBriefTurn(
+  req: BriefTurnRequest,
+  opts: { onStatus?: (line: string) => void; timeoutMs?: number } = {},
+): Promise<CortexClientResult<BriefTurnResponse>> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return { ok: false, error: '[cortex] Missing EXPO_PUBLIC_CORTEX_URL' };
+  if (isAiDisabled()) return { ok: false, error: 'AI disabled' };
+  const token = await getSessionToken();
+  if (!token) return { ok: false, error: 'not signed in' };
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const es = new EventSource(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ type: 'brief-turn', ...req }),
+      lineEndingCharacter: '\n',
+    });
+    const finish = (r: CortexClientResult<BriefTurnResponse>) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      es.close();
+      resolve(r);
+    };
+    // the agent's budget plus the day turn behind it, with room to spare
+    timer = setTimeout(() => finish({ ok: false, error: 'timed out' }), opts.timeoutMs ?? 30000);
+    es.addEventListener('message', (event: { data?: string | null }) => {
+      let data: Record<string, unknown> | null = null;
+      try {
+        data = JSON.parse(event.data ?? '');
+      } catch {
+        return;
+      }
+      if (!data) return;
+      if (data.error === 'read_only') {
+        eventBus.emit('cortex:read_only', {});
+        finish({ ok: false, error: 'read_only' });
+        return;
+      }
+      if (typeof data.status === 'string') {
+        opts.onStatus?.(data.status);
+        return;
+      }
+      if (data.done) {
+        if (data.error) {
+          finish({ ok: false, error: String(data.error) });
+          return;
+        }
+        const answer = { ...data };
+        delete answer.done;
+        finish({ ok: true, data: answer as unknown as BriefTurnResponse });
+      }
+    });
+    es.addEventListener('error', (event) =>
+      finish({
+        ok: false,
+        error: String((event as { message?: string } | null)?.message || 'stream error'),
+      }),
+    );
+  });
 }
 
 /**

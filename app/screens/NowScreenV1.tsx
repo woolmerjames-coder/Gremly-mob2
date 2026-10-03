@@ -22,7 +22,7 @@ import {
 } from 'react-native';
 import { getDateService, nowTimestamp } from '../../lib/date';
 import { format } from 'date-fns';
-import { useNavigation, useIsFocused } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui';
@@ -48,7 +48,6 @@ import { useMorningBrief } from '../../lib/today/hooks/useMorningBrief';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import FirstTodayVisitBubble from '../../components/onboarding/FirstTodayVisitBubble';
 import WeeklySummaryBanner from '../../components/WeeklySummaryBanner';
-import { useDailyAppOpen } from '../../lib/today/hooks/useDailyAppOpen';
 // Store and selectors
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useHasCompletedOnboarding } from '../../lib/store/lifecycleSelectors';
@@ -63,7 +62,6 @@ import {
   useTodayHabits,
   useYourNotes,
   useTodayLogsCount,
-  useIsLoading,
   useHabitsCompletedToday,
   useHabitsUpToDateCount,
   useTodayPendingDrops,
@@ -87,7 +85,6 @@ import type { SweepCandidate } from '../../lib/today/sweepSelectors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import type { Habit, Todo, Space, Note } from '../../lib/types';
 import { eventBus } from '../../lib/events';
-import { isBriefInChat, useBriefInChat } from '../../lib/brief/flag';
 import { useBriefUnread } from '../../lib/brief/todayThread';
 import { briefReadyLine, todayThreadParams } from '../../lib/brief/pinned';
 import { isReturnDay, readDco } from '../../lib/brief/dco';
@@ -319,10 +316,7 @@ export default function NowScreenV1() {
   // STORE SELECTORS - Data from Zustand store
   // ═══════════════════════════════════════════════════════════════════
 
-  // Loading state
-  const loading = useIsLoading();
   const isInitialized = useGremlyStore((state) => state.isInitialized);
-  const gremlyAge = useGremlyStore((state) => state.gremlyAge);
   const firstTodayVisitCompletedAt = useGremlyStore((s) => s.firstTodayVisitCompletedAt);
   const hasCompletedOnboarding = useHasCompletedOnboarding();
   const markFirstTodayVisitComplete = useGremlyStore((s) => s.markFirstTodayVisitComplete);
@@ -334,15 +328,12 @@ export default function NowScreenV1() {
   // Unified event notes for today (external + native, from Phase 1 normalization)
   const todayEventNotes = useEventNotesForDate(todayStr);
 
-  // Morning Brief - sequences and brief state
-  const { hasCompletedBriefToday, brief } = useMorningBrief();
-  const [briefTargetDate, setBriefTargetDate] = useState<string | undefined>(undefined);
+  // The day's sequences (written by the plan's Lock it in)
+  const { brief } = useMorningBrief();
 
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const isFocused = useIsFocused();
 
   // Daily brief in Chat: Gremly's bubble says today's brief is waiting
-  const briefInChatOn = useBriefInChat();
   // the Calendar card counts the same meetings as the brief's day card
   const todayMeetings = useDayCard(getDateService().today()).meetings;
   const briefUnread = useBriefUnread();
@@ -359,9 +350,6 @@ export default function NowScreenV1() {
         : null,
     [briefUnread, briefDco, briefUserName],
   );
-
-  // Daily app open detection
-  const { isFirstOpenToday, isChecking, markTodayOpened } = useDailyAppOpen();
 
   // Sweep completion detection for day picker
   const lastSweepCompletedAt = useGremlyStore((s) => s.lastSweepCompletedAt);
@@ -401,48 +389,13 @@ export default function NowScreenV1() {
   useEffect(() => {
     const unsub = eventBus.on('openTomorrowBrief', () => {
       // Daily brief in Chat: today's thread, with a plan for tomorrow
-      if (isBriefInChat()) {
-        navigation.navigate('Tabs', {
-          screen: 'Gremly',
-          params: todayThreadParams('plan', 'tomorrow'),
-        });
-        return;
-      }
-      const td = getDateService().addDays(todayStr, 1);
-      setBriefTargetDate(td);
-      navigation.navigate('MorningBrief', { targetDate: td });
+      navigation.navigate('Tabs', {
+        screen: 'Gremly',
+        params: todayThreadParams('plan', 'tomorrow'),
+      });
     });
     return () => unsub();
-  }, [todayStr, navigation]);
-
-  // Auto-open Morning Brief on first open of the day (skip for brand new users)
-  const hasAutoOpenedBriefRef = useRef(false);
-  useEffect(() => {
-    // Daily brief in Chat: opening Today never opens anything by itself
-    if (briefInChatOn) return;
-    if (gremlyAge < 1) return; // Don't show for brand new users
-    if (hasAutoOpenedBriefRef.current) return; // Already auto-opened this mount
-    if (!isFocused) return; // Don't fire if user is on another screen (e.g. mid-Sweep)
-    if (!isChecking && isFirstOpenToday && !hasCompletedBriefToday && isInitialized && !loading) {
-      hasAutoOpenedBriefRef.current = true;
-      markTodayOpened(); // Flip isFirstOpenToday to false so this won't retrigger
-      const timer = setTimeout(() => {
-        navigation.navigate('MorningBrief');
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [
-    gremlyAge,
-    isChecking,
-    isFirstOpenToday,
-    hasCompletedBriefToday,
-    isInitialized,
-    loading,
-    isFocused,
-    markTodayOpened,
-    navigation,
-    briefInChatOn,
-  ]);
+  }, [navigation]);
 
   // Show first-visit bubble for new users
   useEffect(() => {
@@ -824,23 +777,17 @@ export default function NowScreenV1() {
     setQuickAddVisible(true);
   }, []);
 
-  // Handle opening Morning Brief sheet (with the Daily brief in Chat on:
-  // Plan with Gremly, which opens today's thread at the plan step)
+  // Plan with Gremly: today's thread at the plan step (after a Sweep today,
+  // a choice of today or tomorrow first)
   const openPlanWithGremly = useCallback(
     (day?: 'tomorrow') =>
       navigation.navigate('Tabs', { screen: 'Gremly', params: todayThreadParams('plan', day) }),
     [navigation],
   );
   const handleOpenBrief = useCallback(() => {
-    if (hasSweepedToday) {
-      setShowDayPicker(true);
-    } else if (briefInChatOn) {
-      openPlanWithGremly();
-    } else {
-      setBriefTargetDate(undefined);
-      navigation.navigate('MorningBrief');
-    }
-  }, [hasSweepedToday, navigation, briefInChatOn, openPlanWithGremly]);
+    if (hasSweepedToday) setShowDayPicker(true);
+    else openPlanWithGremly();
+  }, [hasSweepedToday, openPlanWithGremly]);
 
   // Add item to Today's Focus by setting due_day to today
   const handleAddToToday = useCallback(
@@ -855,20 +802,15 @@ export default function NowScreenV1() {
     [updateTodo, todayDayString],
   );
 
-  // Quick add hook - passes briefTargetDate so tomorrow-mode items land on the right day
-  const quickAdd = useNowQuickAdd({ targetDate: briefTargetDate });
+  const quickAdd = useNowQuickAdd({});
 
   // Handle quick add submission - fire-and-forget, modal closes immediately
   const handleQuickAddSubmit = useCallback(
     (text: string) => {
-      console.log(
-        '[NowScreenV1] Quick add submitted:',
-        text,
-        briefTargetDate ? `(target: ${briefTargetDate})` : '',
-      );
+      console.log('[NowScreenV1] Quick add submitted:', text);
       quickAdd.onQuickAdd(text);
     },
-    [quickAdd, briefTargetDate],
+    [quickAdd],
   );
 
   // Handle "Prefer to add manually" from quick add modal
@@ -942,7 +884,7 @@ export default function NowScreenV1() {
         habitsTotal={habitsUpToDate.total}
         remainingMinutes={remainingMinutes}
         eventNotes={todayEventNotes}
-        meetings={briefInChatOn ? todayMeetings : null}
+        meetings={todayMeetings}
         onPressProgress={() => setProgressVisible(true)}
         onPressWeek={() => navigation.navigate('Habits')}
         onCalendarPress={handleCalendarHintPress}
@@ -980,11 +922,9 @@ export default function NowScreenV1() {
             onPress={handleOpenBrief}
             testID="header-organize"
             accessibilityRole="button"
-            accessibilityLabel={briefInChatOn ? 'Plan with Gremly' : 'Organize your day'}
+            accessibilityLabel="Plan with Gremly"
           >
-            <Text style={styles.headerOrganizeButtonText}>
-              {briefInChatOn ? 'Plan with Gremly' : 'Organize'}
-            </Text>
+            <Text style={styles.headerOrganizeButtonText}>Plan with Gremly</Text>
           </Pressable>
 
           {/* Add to Today button - sage */}
@@ -1155,12 +1095,7 @@ export default function NowScreenV1() {
               }}
               onPress={() => {
                 setShowDayPicker(false);
-                if (briefInChatOn) {
-                  openPlanWithGremly();
-                  return;
-                }
-                setBriefTargetDate(undefined);
-                navigation.navigate('MorningBrief');
+                openPlanWithGremly();
               }}
             >
               <Text style={{ fontSize: 15, fontWeight: '600', color: '#2E5540' }}>Plan today</Text>
@@ -1174,13 +1109,7 @@ export default function NowScreenV1() {
               }}
               onPress={() => {
                 setShowDayPicker(false);
-                if (briefInChatOn) {
-                  openPlanWithGremly('tomorrow');
-                  return;
-                }
-                const td = getDateService().addDays(todayStr, 1);
-                setBriefTargetDate(td);
-                navigation.navigate('MorningBrief', { targetDate: td });
+                openPlanWithGremly('tomorrow');
               }}
             >
               <Text style={{ fontSize: 15, fontWeight: '600', color: '#FFFFFF' }}>

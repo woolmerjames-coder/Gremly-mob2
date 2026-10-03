@@ -9,17 +9,11 @@
  * rolls over at the Day Boundary, and after the brief is written or seen.
  */
 
-import { useEffect } from 'react';
-import { AppState } from 'react-native';
 import { create } from 'zustand';
 import { getDailyThread, type DailyThread } from '../repo/dailyThreadRepo';
 import { getDateService } from '../date/DateService';
 import { useGremlyStore } from '../store/useGremlyStore';
-import { briefInChatOn } from './flag';
-import { resetStaleAssignments } from '../plan/storePlan';
 import type { DailyThreadMeta } from './types';
-
-let lastResetDay: string | null = null;
 
 /** Chat reopens the chat that was on screen if it was left this recently. */
 export const RESUME_WINDOW_MS = 5 * 60 * 1000;
@@ -97,45 +91,7 @@ export const useTodayThread = create<TodayThreadState>((set, get) => ({
   noteChatLeft: (chatId, at) => set({ chatLeftId: chatId, chatLeftAt: at }),
 }));
 
-/** Unread brief, with the switch on: drives the dot, the Drop line, the bubble and the card. */
+/** Unread brief: drives the dot, the Drop line, the bubble and the card. */
 export function useBriefUnread(): boolean {
-  const on = briefInChatOn(useGremlyStore((s) => s.briefInChat));
-  const unread = useTodayThread((s) => isBriefUnread(s.thread));
-  return on && unread;
-}
-
-/**
- * Keeps today's thread current: on start, when the app comes back to the
- * front, and when the ritual day rolls over. Mounted once, in App.
- */
-export function useTodayThreadSync(): void {
-  const userId = useGremlyStore((s) => s.userId);
-  const ritualDay = useGremlyStore((s) => s.currentDate);
-  const stored = useGremlyStore((s) => s.briefInChat);
-  const on = briefInChatOn(stored);
-
-  useEffect(() => {
-    if (!on || !userId) return;
-    void useTodayThread.getState().refresh();
-  }, [on, userId, ritualDay]);
-
-  // A new day: yesterday's planned times come off Today (the old brief did
-  // this when it opened; with the brief in Chat nothing else would)
-  const loaded = useGremlyStore((s) => s.todos.length + s.habits.length > 0);
-  useEffect(() => {
-    if (!on || !userId || !loaded) return;
-    const today = getDateService().today();
-    if (lastResetDay === today) return;
-    lastResetDay = today;
-    const n = resetStaleAssignments(today);
-    if (n) console.log(`[DailyBrief] cleared ${n} planned times from earlier days`);
-  }, [on, userId, loaded, ritualDay]);
-
-  useEffect(() => {
-    if (!on) return;
-    const sub = AppState.addEventListener('change', (next) => {
-      if (next === 'active') void useTodayThread.getState().refresh();
-    });
-    return () => sub.remove();
-  }, [on]);
+  return useTodayThread((s) => isBriefUnread(s.thread));
 }

@@ -26,7 +26,14 @@ export function BriefPlanBlock({ meta, onAdd, ...rest }: Props) {
   const inPlan = new Set([...meta.items.map((x) => x.id), ...meta.unplaced.map((x) => x.id)]);
   return (
     <>
-      <PlanCard meta={meta} meetings={data.meetings} onAdd={() => setAdding(true)} {...rest} />
+      <PlanCard
+        meta={meta}
+        meetings={data.meetings}
+        blocks={data.record.blocks}
+        planEnd={data.record.planEnd}
+        onAdd={() => setAdding(true)}
+        {...rest}
+      />
       <DueTodaySheet
         visible={adding}
         onClose={() => setAdding(false)}

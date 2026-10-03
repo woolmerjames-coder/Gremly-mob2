@@ -7,7 +7,7 @@
  *  - OpenAI: strict json_schema (every property required, nulls via type unions).
  *  - Anthropic: output_config.format json_schema, same strict shape as OpenAI.
  *
- * Each call returns parsed JSON or throws. Usage is logged by aiUsage.js.
+ * Each call returns parsed JSON or throws. Usage is logged by ../../shared/aiUsage.js.
  */
 
 export const MODELS = {
@@ -23,6 +23,9 @@ export const MODELS = {
   briefFallback: { provider: 'openai', model: 'gpt-6-luna' },
   planPick: { provider: 'openai', model: 'gpt-6-luna' },
   planPickFallback: { provider: 'google', model: 'gemini-3.8-flash' },
+  // the day turn in today's thread: chosen on the replay suite (scripts/day-replay)
+  dayTurn: { provider: 'openai', model: 'gpt-6-luna' },
+  dayTurnFallback: { provider: 'google', model: 'gemini-3.8-flash' },
 };
 
 export function modelFor(env, job) {

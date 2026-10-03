@@ -9,6 +9,10 @@
  * draws them from data each time they are shown.
  */
 
+import type { AgentTask, DayChange } from '../cortex/CortexClient';
+import type { Change } from '../changes/model';
+import type { ThreadBlock } from './dayRecord';
+
 /** The part of the day a brief was written for. */
 export type DayPart = 'morning' | 'afternoon' | 'evening';
 
@@ -18,7 +22,8 @@ export type BriefMessageType =
   | 'brief-offer'
   | 'brief-plan'
   | 'brief-event'
-  | 'brief-reply';
+  | 'brief-reply'
+  | 'brief-changes';
 
 /** Fields every brief message carries. */
 interface BriefMetaBase {
@@ -102,6 +107,8 @@ export interface BriefOfferMeta extends BriefMetaBase {
   revealed_from?: string;
   /** The plan offer this one brings back after a change made in the thread (once) */
   brought_back_from?: string;
+  /** After Sweep: what was kept for today, so the plan holds it */
+  kept_ids?: string[];
 }
 
 export type PlanStatus = 'proposal' | 'replaced' | 'dismissed' | 'locked';
@@ -119,6 +126,8 @@ export interface PlanItem {
   minutes?: number;
   /** A reach that is a fact: it becomes a todo at Lock it in */
   fromFact?: boolean;
+  /** The item's time in the store when the plan last saw it (lib/plan/livePlan.ts) */
+  seen?: string;
 }
 
 /** An item the picker chose that had no gap, kept so a change can try again. */
@@ -160,13 +169,38 @@ export interface BriefReplyMeta extends BriefMetaBase {
   action: OfferAction;
 }
 
+/**
+ * The card under Gremly's reply in today's thread: every change proposed for
+ * one message, each with a tick, and Accept all or Not now
+ * (lib/brief/useDayTurn.ts). The day turn's card has changes, each with its
+ * own words; the agent's has card, in the change model's shape, and changes
+ * is empty.
+ */
+export interface BriefChangesMeta extends BriefMetaBase {
+  type: 'brief-changes';
+  changes: DayChange[];
+  /** The agent's card (agent plan step 7), drawn with lib/changes/words.ts */
+  card?: Change[];
+  /** What was asked, each proposed, needing an answer, not possible here or noted */
+  checklist?: { ask: string; status: 'proposed' | 'needs_answer' | 'not_possible' | 'noted' }[];
+  /** undone: everything it did was put back with its Undo */
+  status: 'open' | 'applied' | 'dismissed' | 'undone';
+  /** Changes the person unticked */
+  unticked?: string[];
+  /** After Apply: the changes made, and any that could not be */
+  applied?: string[];
+  failed?: string[];
+  prompt_version?: string;
+}
+
 export type BriefMeta =
   | BriefTextMeta
   | BriefDayCardMeta
   | BriefOfferMeta
   | BriefPlanMeta
   | BriefEventMeta
-  | BriefReplyMeta;
+  | BriefReplyMeta
+  | BriefChangesMeta;
 
 /** scope_chats.metadata_json on a daily thread. */
 export interface DailyThreadMeta {
@@ -181,4 +215,12 @@ export interface DailyThreadMeta {
   brief_written_at?: string | null;
   /** Set once a later first open has asked for a fresh brief */
   rewrite_requested_at?: string | null;
+  /** Set times added in the thread (lib/brief/dayRecord.ts) */
+  fixed_blocks?: ThreadBlock[];
+  /** Set times from memory taken off the day in the thread */
+  fixed_removed?: string[];
+  /** Habits skipped today in the thread: not planned again today */
+  skipped_habits?: string[];
+  /** The agent's task list in the thread, carried from one message to the next */
+  agent_tasks?: AgentTask[];
 }

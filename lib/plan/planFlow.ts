@@ -67,16 +67,22 @@ export function entriesOf(meta: BriefPlanMeta): PlanEntry[] {
   return out;
 }
 
-/** Place the entries and describe the result as a plan message. */
+/**
+ * Place the entries and describe the result as a plan message. `busy` is
+ * meetings and set times; nothing ends after `dayEnd` (10pm, or when they set
+ * off: lib/brief/dayRecord.ts).
+ */
 export function fitPlan(
   entries: PlanEntry[],
-  meetings: Busy[],
+  busy: Busy[],
   from: number,
+  dayEnd: number = PLAN_DAY_END,
 ): Pick<BriefPlanMeta, 'items' | 'unplaced' | 'order' | 'from'> {
   const fit = fitSlots(
     entries.map((e) => ({ id: e.id, minutes: e.minutes, window: e.window })),
-    meetings,
+    busy,
     from,
+    dayEnd,
   );
   const byId = new Map(entries.map((e) => [e.id, e]));
   return {
@@ -108,6 +114,31 @@ export function fitPlan(
         fromFact: e.fromFact,
       };
     }),
+  };
+}
+
+/**
+ * Fit a plan where some items have a time the person set (a card, the day
+ * turn): those stay exactly there, and everything else is fitted around them,
+ * the meetings and the set times.
+ */
+export function fitAround(
+  pinned: PlanItem[],
+  rest: PlanEntry[],
+  busy: Busy[],
+  from: number,
+  dayEnd: number = PLAN_DAY_END,
+): Pick<BriefPlanMeta, 'items' | 'unplaced' | 'order' | 'from'> {
+  const fit = fitPlan(
+    rest,
+    [...busy, ...pinned.map((x) => ({ start: x.start, end: x.end }))],
+    from,
+    dayEnd,
+  );
+  return {
+    ...fit,
+    items: [...pinned, ...fit.items].sort((a, b) => a.start - b.start),
+    order: [...pinned.map((x) => x.id), ...(fit.order ?? [])],
   };
 }
 
@@ -166,10 +197,14 @@ export function planHeading(from: number): string {
 }
 
 /** "3 things, 1h 30m, still 4h 10m free" */
-export function planSummary(meta: BriefPlanMeta, meetings: Busy[]): string {
+export function planSummary(
+  meta: BriefPlanMeta,
+  meetings: Busy[],
+  end: number = PLAN_DAY_END,
+): string {
   const from = meta.from ?? 0;
   const planned = meta.items.reduce((a, x) => a + (x.end - x.start), 0);
-  const free = freeMinutes(meetings, meta.items, from, PLAN_DAY_END);
+  const free = freeMinutes(meetings, meta.items, from, Math.max(from, end));
   const n = meta.items.length;
   return `${n} ${n === 1 ? 'thing' : 'things'}, ${duration(planned)}, still ${duration(free)} free`;
 }
@@ -240,10 +275,13 @@ export const PLAN_COPY = {
     "Here's what I'd do with what's on today. I've kept it light so there's room if the day runs over.",
   nothingToPlan: "There's nothing on today's list to plan around, so the rest of the day is yours.",
   noRoom: "There isn't a clear stretch left today to fit anything in, so I'd leave it as it is.",
+  noRoomTravel: "There isn't a clear stretch left before you set off, so I'd leave it as it is.",
   dismissed: "No problem. It'll be right here if you want it later.",
   alreadyLocked: "It's already locked in. Tell me what to change and I'll rework it.",
   relock: ' Lock it in again to update Today.',
+  relockAfterChanges: "Here's the plan with those changes. Lock it in again to update Today.",
   thanks: 'Any time.',
+  keptReason: 'Kept for today',
 };
 
 /** Gremly's line after a change. */

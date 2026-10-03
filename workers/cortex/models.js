@@ -43,10 +43,15 @@ export const DEFAULTS = {
   haiku: 'claude-haiku-4-5-20251001',
   sonnet: 'claude-sonnet-4-6',
   weeklySummary: 'claude-sonnet-4-5-20250929', // type weekly-summary, direct Anthropic call; its own review is a later pass
+  // the agent (agent/run.js): its main model and the one tried when the first step fails.
+  // Chosen per surface in step 8 of the agent plan by replay; until then these.
+  agent: 'gemini-3.8-flash',
+  agentFallback: 'gpt-6-luna',
 };
 
 // Helper jobs and the var that moves each one on its own.
 export const HELPER_JOB_VARS = {
+  triage: 'MODEL_TRIAGE', // triage.js classifyOneCall: mode, signals and the lane in one call (TRIAGE_ONE_CALL)
   triage_mode: 'MODEL_TRIAGE_MODE', // triage.js classifyMode
   triage_signals: 'MODEL_TRIAGE_SIGNALS', // triage.js classifyWithMini: search, personal, depth
   loading_message: 'MODEL_LOADING_MESSAGE', // triage.js generateLoadingMessage
@@ -84,6 +89,21 @@ export function resolveModels(env = {}) {
     legacyOpenAIChat: env.LEGACY_OPENAI_CHAT_MODEL || DEFAULTS.legacyOpenAIChat,
     appHelper: env.APP_HELPER_MODEL || DEFAULTS.appHelper,
     weeklySummary: env.WEEKLY_SUMMARY_MODEL || DEFAULTS.weeklySummary,
+    agent: {
+      model: env.AGENT_MODEL || DEFAULTS.agent,
+      fallback: env.AGENT_FALLBACK_MODEL || DEFAULTS.agentFallback,
+      // one surface on its own: AGENT_MODEL_BRIEF, AGENT_MODEL_CHAT
+      bySurface: {
+        brief: env.AGENT_MODEL_BRIEF || '',
+        chat: env.AGENT_MODEL_CHAT || '',
+      },
+      // how much the model thinks before each step, by surface (AGENT_THINKING_BRIEF,
+      // AGENT_THINKING_CHAT); empty keeps the provider's default for the agent, low
+      thinkingBySurface: {
+        brief: env.AGENT_THINKING_BRIEF || '',
+        chat: env.AGENT_THINKING_CHAT || '',
+      },
+    },
     // Behaviour switches for the chat helper split (docs/2026-09-29-chat-helper-model-audit.md).
     // Every default is today's behaviour; the corpus gate applies before any is flipped.
     flags: {
@@ -101,6 +121,9 @@ export function resolveModels(env = {}) {
       // The Save items pill as its own focused call (new and changed only), with
       // the chat summary as a separate small call, both after the reply.
       pillSplit: env.CHAT_PILL_SPLIT === 'on',
+      // Today's thread on the agent (agent/brief.js). Off: the day turn answers,
+      // as before. Only app builds that call brief-turn see either.
+      agentBrief: env.AGENT_BRIEF === 'on',
     },
     // A helper call that fails on its model is retried once on this model, if set.
     helperFallback: env.HELPER_FALLBACK_MODEL || '',

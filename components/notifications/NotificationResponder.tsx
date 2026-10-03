@@ -6,7 +6,6 @@
 import { useEffect } from 'react';
 import { supabase } from '../../lib/supabase/client';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
-import { isBriefInChat } from '../../lib/brief/flag';
 import { todayThreadParams } from '../../lib/brief/pinned';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { useNotificationUi } from '../../lib/notifications/store';
@@ -31,8 +30,7 @@ export async function runRoute(
   const [head, a, b] = route.split('/');
   switch (head) {
     case 'brief':
-      if (isBriefInChat()) nav.navigate('Tabs', { screen: 'Gremly', params: todayThreadParams() });
-      else nav.navigate('MorningBrief');
+      nav.navigate('Tabs', { screen: 'Gremly', params: todayThreadParams() });
       return;
     case 'sweep':
       nav.navigate('Sweep');

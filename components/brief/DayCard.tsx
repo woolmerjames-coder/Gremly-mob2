@@ -17,6 +17,7 @@ import {
   type LucideIcon,
 } from 'lucide-react-native';
 import { busyBlocks, stripPercent } from '../../lib/brief/dayCard';
+import { BLOCK_MINUTES, DEFAULT_PLAN_END } from '../../lib/brief/dayRecord';
 import type { DayCardData } from '../../lib/brief/useDayCard';
 import { getDateService } from '../../lib/date/DateService';
 import { BRIEF } from './briefStyles';
@@ -76,11 +77,31 @@ function Row({
   );
 }
 
-export function DayStrip({ data }: { data: Pick<DayCardData, 'meetings' | 'planned' | 'now'> }) {
+export function DayStrip({
+  data,
+}: {
+  data: Pick<DayCardData, 'meetings' | 'planned' | 'now'> & Partial<Pick<DayCardData, 'record'>>;
+}) {
   const blocks = busyBlocks(data.meetings);
+  const record = data.record;
+  // after they set off the day is travel, not free time
+  const away = record && record.planEnd < DEFAULT_PLAN_END ? record.planEnd : null;
   return (
     <View style={styles.strip} testID="day-strip">
       <View style={styles.track}>
+        {away !== null ? (
+          <View
+            testID="day-strip-travel"
+            style={[
+              styles.block,
+              styles.travelling,
+              {
+                left: `${stripPercent(away)}%`,
+                width: `${Math.max(0.8, 100 - stripPercent(away))}%`,
+              },
+            ]}
+          />
+        ) : null}
         {blocks.map(([s, e]) => (
           <View
             key={`m${s}`}
@@ -91,6 +112,19 @@ export function DayStrip({ data }: { data: Pick<DayCardData, 'meetings' | 'plann
               {
                 left: `${stripPercent(s)}%`,
                 width: `${Math.max(0.8, stripPercent(e) - stripPercent(s))}%`,
+              },
+            ]}
+          />
+        ))}
+        {(record?.blocks ?? []).map((b) => (
+          <View
+            key={`f${b.id}`}
+            style={[
+              styles.block,
+              styles.fixed,
+              {
+                left: `${stripPercent(b.start)}%`,
+                width: `${Math.max(0.8, stripPercent(b.end ?? b.start + BLOCK_MINUTES) - stripPercent(b.start))}%`,
               },
             ]}
           />
@@ -232,6 +266,12 @@ const styles = StyleSheet.create({
   },
   planned: {
     backgroundColor: BRIEF.peri,
+  },
+  fixed: {
+    backgroundColor: BRIEF.mossInk,
+  },
+  travelling: {
+    backgroundColor: BRIEF.pearWash,
   },
   now: {
     position: 'absolute',

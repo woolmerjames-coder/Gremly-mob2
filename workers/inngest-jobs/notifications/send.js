@@ -29,6 +29,7 @@ import { writeCopy, reminderCopy } from './copy';
 import { buildMessage, sendToExpo, getReceipts, DEAD_DEVICE_ERRORS, ALERT_ERRORS } from './expo';
 import { reportProblem } from './alert';
 import { reminderStillFiresAt } from './planner';
+import { sweepCounts } from './sweepCount';
 
 /** iOS action button sets, matching the categories the app registers. */
 export const CATEGORY = Object.freeze({
@@ -95,10 +96,13 @@ export const LATE_LIMIT_MINUTES = Object.freeze({
   canary: 60,
 });
 
-/** Null when on time, or the reason it is too late to send. */
-export function tooLate(job, at = new Date()) {
+/**
+ * Null when on time, or the reason it is too late to send. Minutes it was held
+ * on purpose (in the app, in a meeting) are not lateness.
+ */
+export function tooLate(job, at = new Date(), heldSoFar = 0) {
   if (!job.planned_for || job.test) return null;
-  const late = Math.floor((at.getTime() - Date.parse(job.planned_for)) / 60000);
+  const late = Math.floor((at.getTime() - Date.parse(job.planned_for)) / 60000) - heldSoFar;
   const limit = LATE_LIMIT_MINUTES[job.moment] ?? 60;
   return late > limit ? `Woke ${late} minutes after the planned time` : null;
 }
@@ -111,7 +115,7 @@ export async function loadPerson(env, userId, at = new Date()) {
     loadDevices(env, userId),
     d.select(`user_engagement?user_id=eq.${userId}&select=*`),
     d.select(
-      `cortex_preferences?owner_id=eq.${userId}&select=day_boundary_hour,gremly_age,fed_days_count,brief_in_chat,is_tester`,
+      `cortex_preferences?owner_id=eq.${userId}&select=day_boundary_hour,gremly_age,fed_days_count,is_tester`,
     ),
     d.select(
       `app_events?user_id=eq.${userId}&kind=eq.app_open&select=occurred_at&order=occurred_at.desc&limit=1`,
@@ -158,8 +162,6 @@ export async function stillTrue(env, person, job, at = new Date()) {
         const result = await writeDailyBrief(env, uid, { reason: 'scheduled', at });
         if (result?.skipped === 'new user')
           return { ok: false, reason: 'The brief starts on their second day' };
-        if (result?.skipped === 'brief_in_chat is off')
-          return { ok: false, reason: 'The brief in Chat is switched off' };
         thread = await read();
       }
       if (!thread?.metadata_json?.brief_written_at)
@@ -248,7 +250,7 @@ export async function decide(env, job, { at = new Date(), heldSoFar = 0 } = {}) 
   if (!job.test && mode === 'testers' && !person.cortex?.is_tester) {
     return { action: 'drop', reason: 'Only testers get notifications for now', person };
   }
-  const late = tooLate(job, at);
+  const late = tooLate(job, at, heldSoFar);
   if (late) {
     await reportProblem(env, {
       title: `Notifications: a ${job.moment} woke too late`,
@@ -278,6 +280,13 @@ export async function decide(env, job, { at = new Date(), heldSoFar = 0 } = {}) 
       ['engaged', 'drifting'].includes(person.state))
   ) {
     g = await gatherBrief(env, job.user_id, { at }).catch(() => null);
+    if (g && !g.sweep) {
+      // counted by the app's own Sweep rules; null (no number at all) if it fails
+      g.sweep = await sweepCounts(env, job.user_id, {
+        today: person.today,
+        tz: person.tz,
+      }).catch(() => null);
+    }
     const now = g?.now ?? person.nowMinutes;
     const current = (g?.meetings || []).find((m) => m.start <= now && now < m.end);
     if (current) meetingEndsInMinutes = current.end - now;
@@ -306,10 +315,21 @@ export async function decide(env, job, { at = new Date(), heldSoFar = 0 } = {}) 
         heldSoFar,
         meetingEndsInMinutes: job.moment === 'reminder' ? null : meetingEndsInMinutes,
       });
-  return { ...verdict, person, facts: g ? briefFacts(g) : null };
+  return { ...verdict, person, facts: g ? briefFacts(g, job.moment) : null };
 }
 
-function briefFacts(g) {
+/** The Sweep number for a moment; left out, not guessed, when the count failed. */
+function sweepFact(g, moment) {
+  const n = moment === 'sweep' ? g.sweep?.all : g.sweep?.quick;
+  return Number.isFinite(n) ? { waiting_in_sweep: n } : {};
+}
+
+/**
+ * What a notification may say about the day. The Sweep number is the one the
+ * person will see on tapping: the whole evening Sweep for the Sweep reminder,
+ * the quick sweep (what still needs a decision) for every other moment.
+ */
+export function briefFacts(g, moment) {
   const titles = (list) =>
     (list || [])
       .slice(0, 2)
@@ -324,7 +344,23 @@ function briefFacts(g) {
     first_meeting: g.meetings?.[0] ? clock(g.meetings[0].start) : null,
     due_today: (g.todosDue || []).length,
     due_today_titles: titles(g.todosDue),
-    waiting_in_sweep: (g.overdue || 0) + (g.unsorted || 0),
+    habits_today: (g.habitsForToday || []).length,
+    // a trip, an event or an occasion dated today
+    dated_today: (g.anchors || [])
+      .filter((a) => a.date === g.today && (a.short_label || a.label))
+      .slice(0, 2)
+      .map((a) => a.short_label || a.label),
+    // travel today, from the day record: what it is and when they set off
+    ...(g.day?.travel
+      ? {
+          travel_today: {
+            what: g.day.travel.label || 'travelling',
+            sets_off: Number.isFinite(g.day.travel.departs) ? clock(g.day.travel.departs) : null,
+          },
+        }
+      : {}),
+    // left out, not guessed, when the count failed
+    ...sweepFact(g, moment),
     gremly_age: g.gremlyAge ?? null,
   };
 }

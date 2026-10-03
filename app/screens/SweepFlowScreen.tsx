@@ -157,6 +157,7 @@ import { ClarificationPopup } from '../../components/minddrop/ClarificationPopup
 import { RelationPopup, type RelationResolution } from '../../components/minddrop/RelationPopup';
 import { relationOf } from '../../lib/minddrop/dropRelation';
 import { sweepLog } from '../../lib/debug/sweepLogger';
+import { quickSweepCards } from '../../lib/sweep/quickSweep';
 
 // Gremly mascot for summary step
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -1670,6 +1671,8 @@ interface DecisionStepProps {
   onFinished: (summary: SweepSummary) => void;
   onClose?: () => void;
   sweepIntent?: Exclude<SweepIntent, 'skip'>;
+  /** The quick sweep: only the cards that need a decision (lib/sweep/quickSweep.ts) */
+  quick?: boolean;
   /** DEV ONLY: Jump to specific card index for testing */
   initialCardIndex?: number;
 }
@@ -1711,14 +1714,20 @@ function SweepDecisionStep({
   onClose,
   sweepIntent = 'tomorrow',
   initialCardIndex,
+  quick = false,
 }: DecisionStepProps) {
   // Get candidates from unified store selector (single source of truth)
   const allCandidates = useSweepCandidatesUnified();
   const storeIsLoading = useIsLoading();
+  // the quick sweep asks only about what still needs a decision
+  const deck = useMemo(
+    () => (quick ? quickSweepCards(allCandidates, getDateService().today()) : allCandidates),
+    [quick, allCandidates],
+  );
 
   // Snapshot candidates at session start (prevents items disappearing mid-sweep)
   const { candidatesWithMeta: unsortedCandidatesWithMeta, isLoading } = useSweepSnapshot(
-    allCandidates,
+    deck,
     storeIsLoading,
   );
 
@@ -4229,6 +4238,9 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   const initialIntent = __DEV__ ? route.params?.initialIntent : undefined;
   const initialHub = __DEV__ ? route.params?.initialHub : undefined;
   const demoMode = route.params?.demoMode === true;
+  // The brief's quick sweep: the decision cards only (and splitting a drop
+  // with several things in it), then straight back to the thread
+  const quick = route.params?.quick === true;
 
   // Debug logging for DEV mode step jumping
   sweepLog.debug('[SweepFlowScreen] Route params:', route.params);
@@ -4251,11 +4263,11 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     return () => celebrationController.suppressAgeUpCelebration(false);
   }, []);
 
-  const [step, setStep] = useState<number>(initialStep);
+  const [step, setStep] = useState<number>(quick ? 1 : initialStep);
   // sweepIntent: captured from the intro screen; consumed in Phase 2 (SweepDecisionStep default date).
   // In __DEV__, initialIntent from route params can seed this directly (for test-mode step jumping).
   const [sweepIntent, setSweepIntent] = useState<SweepIntent>(
-    __DEV__ && initialIntent ? initialIntent : 'tomorrow',
+    quick ? 'today' : __DEV__ && initialIntent ? initialIntent : 'tomorrow',
   );
   const [bulkSkipPickerVisible, setBulkSkipPickerVisible] = useState(false);
   const [bulkSkipPickerDate, setBulkSkipPickerDate] = useState<Date>(() => getDateService().now());
@@ -4315,6 +4327,12 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     return multiNotes;
   }, [notes]);
   const hasUnresolvedMultiDrops = unresolvedMultiDrops.length > 0 && !multiSplitComplete;
+
+  // the quick sweep splits a drop with several things in it first, as Sweep does
+  useEffect(() => {
+    if (quick && unresolvedMultiDrops.length > 0) setStep(0.25);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Map notes to UnresolvedMultiDrop format for SweepMultiSplitStep component
   const unresolvedMultiDropsForStep = useMemo(() => {
@@ -4905,13 +4923,15 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   // Handle completing the multi-split step
   const handleMultiSplitComplete = useCallback(() => {
     setMultiSplitComplete(true);
-    // Continue to next step
-    if (hasLockedItems && !lockInCheckpointComplete) {
+    // Continue to next step (the quick sweep has no Lock-In checkpoint)
+    if (quick) {
+      setStep(1);
+    } else if (hasLockedItems && !lockInCheckpointComplete) {
       setStep(0.5); // Go to lock-in checkpoint
     } else {
       setStep(1); // Go to decision cards
     }
-  }, [hasLockedItems, lockInCheckpointComplete]);
+  }, [quick, hasLockedItems, lockInCheckpointComplete]);
 
   // Handle lock-in checkpoint decisions
   const handleLockInContinue = useCallback(
@@ -5001,6 +5021,12 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
 
   const handleDecisionFinished = useCallback(
     async (summary: SweepSummary) => {
+      // the quick sweep ends with the cards: straight back to the brief, and it
+      // is not the evening Sweep (no streak, no habits, journal or summary)
+      if (quick) {
+        navigation.goBack();
+        return;
+      }
       setKeptCount(summary.kept);
       setClearedCount(summary.cleared);
       if (summary.items) {
@@ -5041,7 +5067,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
       // Advance to Habits step
       setStep(2); // Decision → Habits
     },
-    [user, hubMode, guidedAll, addCompletedSection, backToHub],
+    [quick, navigation, user, hubMode, guidedAll, addCompletedSection, backToHub],
   );
 
   const handleBulkSkipConfirm = useCallback(
@@ -5127,13 +5153,14 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
       backToHub();
       return;
     }
-    // From the hub (or guided mode), exit or go to previous step
-    if (step === HUB || step <= 0) {
+    // From the hub (or guided mode), exit or go to previous step; the quick
+    // sweep has nothing before its cards
+    if (step === HUB || step <= 0 || (quick && step <= 1)) {
       navigation.goBack();
       return;
     }
     setStep(step - 1);
-  }, [step, hubMode, guidedAll, HUB, backToHub, navigation]);
+  }, [quick, step, hubMode, guidedAll, HUB, backToHub, navigation]);
 
   // ── Demo: show for ANY user who hasn't completed the demo yet ──
   if (!demoSweepCompletedAt) {
@@ -5305,6 +5332,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
               onClose={handleClose}
               sweepIntent={sweepIntent === 'skip' ? 'tomorrow' : sweepIntent}
               initialCardIndex={initialCardIndex}
+              quick={quick}
             />
           )}
           {step === 2 && sweepIntent === 'week' && (

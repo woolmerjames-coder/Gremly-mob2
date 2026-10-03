@@ -1,8 +1,9 @@
 /**
  * Sweep from the brief and back (Daily brief in Chat).
  *
- * Sweep first (or the day card's Sweep row) opens the real Sweep. Nothing in
- * Sweep changes: on the way in the brief notes what was waiting, and when the
+ * Sweep first (or the day card's Sweep row) opens Sweep's quick mode: only
+ * the swipe cards that still need a decision (selectQuickSweepCandidates).
+ * On the way in the brief notes what was waiting, and when the
  * thread is back on screen it compares. What left Sweep was swept; what now
  * carries today's date, or became a Lock In, was kept for today. Then the
  * thread gets an event line and Gremly's follow-up, worked out from data:
@@ -11,7 +12,7 @@
  */
 
 import { useGremlyStore, isHabitLockedIn } from '../store/useGremlyStore';
-import { selectSweepCandidatesUnified } from '../store/selectors';
+import { selectQuickSweepCandidates } from '../store/selectors';
 import { getDateService } from '../date/DateService';
 import type { BriefOfferMeta, OfferButton } from './types';
 import { planLabel } from './offerFlow';
@@ -56,7 +57,7 @@ function stateOf(id: string): SweepItemState | null {
 export function snapshotSweep(): SweepSnapshot {
   const s = useGremlyStore.getState();
   const candidates = new Map<string, SweepItemState>();
-  for (const { candidate } of selectSweepCandidatesUnified(s as any)) {
+  for (const { candidate } of selectQuickSweepCandidates(s as any)) {
     const st = stateOf(candidate.id);
     if (st) candidates.set(candidate.id, st);
   }
@@ -115,10 +116,13 @@ export function sweepEventText(o: SweepOutcome): string {
   return `Swept ${o.swept} ${o.swept === 1 ? 'thing' : 'things'}${o.kept.length ? `, ${o.kept.length} kept for today` : ''}`;
 }
 
-function names(titles: string[]): string {
-  // titles as the person typed them (changing case by rule gets names wrong)
+/** Two names at most, then a count: "A, B and 4 more" (titles as the person typed them). */
+export function names(titles: string[]): string {
   const t = titles;
-  return t.length <= 1 ? t.join('') : `${t.slice(0, -1).join(', ')} and ${t[t.length - 1]}`;
+  if (t.length <= 1) return t.join('');
+  if (t.length === 2) return `${t[0]} and ${t[1]}`;
+  if (t.length === 3) return `${t[0]}, ${t[1]} and ${t[2]}`;
+  return `${t[0]}, ${t[1]} and ${t.length - 2} more`;
 }
 
 /** Gremly's follow-up after Sweep, and its buttons. */

@@ -58,8 +58,6 @@ jest.mock('lucide-react-native', () => {
   };
 });
 
-jest.mock('../../../lib/brief/flag', () => ({ useBriefInChat: () => true }));
-
 jest.mock('../../../lib/store/useGremlyStore', () => ({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   useGremlyStore: (sel: any) =>

@@ -29,11 +29,7 @@ export interface TrainingHint {
  * Builds a list of contextual hints based on what is missing from the
  * user's training data, sorted by priority. Returns the top 3.
  */
-export function getTrainingHints(
-  data: UserTrainingData,
-  /** Daily brief in Chat: the brief hint opens today's thread at the plan step */
-  opts: { briefInChat?: boolean } = {},
-): TrainingHint[] {
+export function getTrainingHints(data: UserTrainingData): TrainingHint[] {
   const hints: TrainingHint[] = [];
 
   if (data.totalDrops < 3) {
@@ -104,22 +100,14 @@ export function getTrainingHints(
   }
 
   if (data.briefCount === 0 && data.todosCount >= 3) {
-    hints.push(
-      opts.briefInChat
-        ? {
-            text: 'Got enough to plan. Try planning your day with Gremly.',
-            icon: 'Sun',
-            navigateTo: 'Gremly',
-            navigateParams: { mode: 'chat', thread: 'today', step: 'plan', threadKey: 'hint-plan' },
-            priority: 7,
-          }
-        : {
-            text: 'Got enough to plan. Try Morning Brief.',
-            icon: 'Sun',
-            navigateTo: 'MorningBrief',
-            priority: 7,
-          },
-    );
+    // the plan step of today's thread
+    hints.push({
+      text: 'Got enough to plan. Try planning your day with Gremly.',
+      icon: 'Sun',
+      navigateTo: 'Gremly',
+      navigateParams: { mode: 'chat', thread: 'today', step: 'plan', threadKey: 'hint-plan' },
+      priority: 7,
+    });
   }
 
   if (data.daysWithDrops < 3) {

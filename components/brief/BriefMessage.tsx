@@ -11,7 +11,12 @@ import { ChatBubble } from '../chat/ChatBubble';
 import { BriefOfferChips } from './BriefOfferChips';
 import { BriefEventLine } from './BriefEventLine';
 import { briefMetaOf, followsGremly } from '../../lib/brief/messages';
-import type { BriefDayCardMeta, BriefPlanMeta, OfferButton } from '../../lib/brief/types';
+import type {
+  BriefChangesMeta,
+  BriefDayCardMeta,
+  BriefPlanMeta,
+  OfferButton,
+} from '../../lib/brief/types';
 import type { SpaceChatMessage } from '../../lib/types';
 
 export type BriefMessageProps = {
@@ -25,6 +30,7 @@ export type BriefMessageProps = {
   onOfferButton?: (message: SpaceChatMessage, button: OfferButton) => void;
   renderDayCard?: (message: SpaceChatMessage, meta: BriefDayCardMeta) => React.ReactNode;
   renderPlan?: (message: SpaceChatMessage, meta: BriefPlanMeta) => React.ReactNode;
+  renderChanges?: (message: SpaceChatMessage, meta: BriefChangesMeta) => React.ReactNode;
 };
 
 function BriefMessageInner({
@@ -35,6 +41,7 @@ function BriefMessageInner({
   onOfferButton,
   renderDayCard,
   renderPlan,
+  renderChanges,
 }: BriefMessageProps) {
   const meta = briefMetaOf(message);
   if (!meta || meta.superseded) return null;
@@ -77,6 +84,8 @@ function BriefMessageInner({
       return <View style={styles.card}>{renderDayCard?.(message, meta) ?? null}</View>;
     case 'brief-plan':
       return <View style={styles.card}>{renderPlan?.(message, meta) ?? null}</View>;
+    case 'brief-changes':
+      return <View style={styles.card}>{renderChanges?.(message, meta) ?? null}</View>;
     default:
       return null;
   }

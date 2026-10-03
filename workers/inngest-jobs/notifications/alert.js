@@ -61,11 +61,14 @@ export async function reportProblem(
  * @param {string} slug  monitor slug, such as 'notifications-watchdog'
  * @param {'in_progress'|'ok'|'error'} status
  */
-export async function cronCheckIn(env, slug, status, schedule, fetchImpl = fetch) {
+export async function cronCheckIn(env, slug, status, schedule, fetchImpl = fetch, checkInId) {
   const d = parseDsn(env.SENTRY_DSN);
   if (!d) return false;
+  // the same id on the start and the finish pairs them for certain; without it
+  // Sentry guesses, and a finish processed before its start leaves a false timeout
+  const id = checkInId ? `?check_in_id=${encodeURIComponent(checkInId)}` : '';
   try {
-    const res = await fetchImpl(`https://${d.host}/api/${d.project}/cron/${slug}/${d.key}/`, {
+    const res = await fetchImpl(`https://${d.host}/api/${d.project}/cron/${slug}/${d.key}/${id}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
