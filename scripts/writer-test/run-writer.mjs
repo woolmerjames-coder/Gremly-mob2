@@ -49,6 +49,8 @@ const flag = (name) => {
   return i >= 0 ? args[i + 1] : null;
 };
 const RECORD = args.includes('--record');
+// --prompts saves each turn's instructions to out/prompt-<id>.txt and writes nothing else
+const PROMPTS = args.includes('--prompts');
 const only = flag('--only')?.split(',') || null;
 const models = (flag('--models') || Object.keys(WRITERS).join(',')).split(',');
 const limit = Number(flag('--limit') || 0);
@@ -305,7 +307,8 @@ async function write(key, gen, messages) {
 }
 
 // ── run ───────────────────────────────────────────────────────────────────────
-let cases = JSON.parse(readFileSync(`${OUT}cases.json`, 'utf8'));
+// --cases out/<file>.json runs another set of turns in the same shape as cases.json
+let cases = JSON.parse(readFileSync(`${HERE}${flag('--cases') || 'out/cases.json'}`, 'utf8'));
 if (only) cases = cases.filter((c) => only.includes(c.id));
 cases = cases.slice(skip, limit ? skip + limit : undefined);
 
@@ -314,6 +317,15 @@ if (RECORD) {
   mkdirSync(FIX, { recursive: true });
   writeFileSync(`${FIX}reads.json`, JSON.stringify([...seen.keys()].sort(), null, 1));
   console.log(`${seen.size} distinct reads, listed in fixtures/reads.json`);
+  process.exit(0);
+}
+
+if (PROMPTS) {
+  for (const c of cases) {
+    const { triage, gen } = await instructionsFor(c);
+    writeFileSync(`${OUT}prompt-${c.id}.txt`, `${JSON.stringify(triage)}\n\n${gen.systemPrompt}`);
+  }
+  console.log(`saved ${cases.length} prompts`);
   process.exit(0);
 }
 
