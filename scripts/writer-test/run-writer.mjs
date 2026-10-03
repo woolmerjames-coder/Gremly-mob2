@@ -20,7 +20,8 @@ import { buildChatContext } from '../../workers/cortex/context/chatProjection.js
 import { getUserProfile } from '../../workers/cortex/context/userProfile.js';
 import { buildTodayActivity } from '../../workers/cortex/context/todayActivity.js';
 import { buildGeneralChatConfig } from '../../workers/cortex/gremlyPersona.js';
-import { configureModels } from '../../workers/cortex/models.js';
+import { configureModels, models as modelTable } from '../../workers/cortex/models.js';
+import { geminiStream, parseGeminiChunk } from '../../workers/cortex/geminiClient.js';
 
 const HERE = new URL('.', import.meta.url).pathname;
 const OUT = `${HERE}out/`;
@@ -37,6 +38,9 @@ export const WRITERS = {
   'flash-lite-3.5': { provider: 'gemini', model: 'gemini-3.5-flash-lite', price: [0.3, 0.03, 2.5] },
   luna: { provider: 'openai', model: 'gpt-6-luna', effort: 'low', price: [0.1, 0.01, 0.5] },
   'luna-none': { provider: 'openai', model: 'gpt-6-luna', effort: 'none', price: [0.1, 0.01, 0.5] },
+  // the Worker's own path: geminiStream with Ask Gremly's writer (CHAT_MODEL_ASK
+  // below), so the OpenAI call and the stream it reads are the ones that ship
+  ask: { provider: 'worker', model: 'gpt-6-luna', price: [0.1, 0.01, 0.5] },
 };
 
 const args = process.argv.slice(2);
@@ -93,6 +97,9 @@ const env = {
   TRIAGE_ONE_CALL: 'on',
   CHAT_EXTRACTION_V2: 'on',
   SEARCH_REQUIRED_FORCES: 'off',
+  CHAT_MODEL_ASK: 'gpt-6-luna',
+  // CHAT_EFFORT_ASK=low in the environment tries the writer with some thinking
+  CHAT_EFFORT_ASK: process.env.CHAT_EFFORT_ASK || '',
 };
 configureModels(env);
 
@@ -242,6 +249,44 @@ async function writeOpenAI(spec, gen, messages) {
   return { text, first_ms: first, ms: Date.now() - t0, usage: u };
 }
 
+async function writeWorker(spec, gen, messages) {
+  const t0 = Date.now();
+  let first = null;
+  let text = '';
+  let usage = null;
+  const ask = modelTable().ask;
+  const res = await geminiStream(
+    gen.systemPrompt,
+    [{ role: 'system', content: gen.systemPrompt }, ...messages],
+    {
+      label: 'general_chat',
+      temperature: gen.temperature,
+      maxOutputTokens: gen.maxTokens,
+      thinkingLevel: gen.thinkingLevel,
+      model: ask.model,
+      effort: ask.effort,
+      cacheKey: `ask:${USER}`,
+    },
+    env.GOOGLE_API_KEY,
+  );
+  if (!res.ok || !res.body) return { error: `${res.status} ${String(res.error).slice(0, 300)}` };
+  await readSse(res, (j) => {
+    const c = parseGeminiChunk(JSON.stringify(j));
+    if (c.text) {
+      if (first === null) first = Date.now() - t0;
+      text += c.text;
+    }
+    if (j.usageMetadata) usage = j.usageMetadata;
+  });
+  const u = {
+    input: usage?.promptTokenCount || 0,
+    cached: usage?.cachedContentTokenCount || 0,
+    output: (usage?.candidatesTokenCount || 0) + (usage?.thoughtsTokenCount || 0),
+    thinking: usage?.thoughtsTokenCount || 0,
+  };
+  return { text, first_ms: first, ms: Date.now() - t0, usage: u };
+}
+
 function costOf(spec, u) {
   if (!u) return 0;
   const [pin, pcached, pout] = spec.price;
@@ -251,9 +296,11 @@ function costOf(spec, u) {
 async function write(key, gen, messages) {
   const spec = WRITERS[key];
   const r =
-    spec.provider === 'openai'
-      ? await writeOpenAI(spec, gen, messages)
-      : await writeGemini(spec, gen, messages);
+    spec.provider === 'worker'
+      ? await writeWorker(spec, gen, messages)
+      : spec.provider === 'openai'
+        ? await writeOpenAI(spec, gen, messages)
+        : await writeGemini(spec, gen, messages);
   return { model: key, ...r, cost: r.usage ? costOf(spec, r.usage) : 0 };
 }
 

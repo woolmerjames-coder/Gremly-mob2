@@ -1,5 +1,6 @@
 import { DEFAULTS, models } from './models.js';
 import { withAiStep } from '../shared/aiUsage.js';
+import { chatProvider, openaiGenerate, openaiStream } from './openaiChat.js';
 // ============================================================================
 // geminiClient.js — Native Gemini API client for Cortex Proxy Worker
 // ============================================================================
@@ -81,6 +82,18 @@ function buildRequestBody(systemPrompt, contents, config) {
   return body;
 }
 
+function logOpenAIUsage(model, label, u, t0) {
+  console.log('[USAGE]', {
+    model,
+    label: label || null,
+    input: u?.promptTokenCount ?? null,
+    cached: u?.cachedContentTokenCount ?? 0,
+    output: u?.candidatesTokenCount ?? null,
+    thinking: u?.thoughtsTokenCount ?? 0,
+    ms: Date.now() - t0,
+  });
+}
+
 // ── Exported functions ──────────────────────────────────────────────────────
 
 /**
@@ -92,10 +105,30 @@ function buildRequestBody(systemPrompt, contents, config) {
  * @returns {Promise<{ok: boolean, content: string, functionCalls: Array, parts: Array, usage: object, error?: string, status?: number}>}
  */
 export async function geminiGenerate(systemPrompt, messages, config, apiKey) {
-  const model = config.model || models().chat;
+  let model = config.model || models().chat;
   const t0 = Date.now();
-  const url = `${GEMINI_API_BASE}/${model}:generateContent`;
   const contents = config.nativeContents || convertMessages(messages);
+  // An OpenAI writer (CHAT_MODEL_ASK, for one) answers in this function's shape
+  // (openaiChat.js); one that fails is tried once on CHAT_MODEL.
+  if (chatProvider(model) === 'openai') {
+    const out = await openaiGenerate(
+      systemPrompt,
+      contents,
+      { ...config, model },
+      models().keys.openai,
+    );
+    if (out.ok || chatProvider(models().chat) !== 'google') {
+      if (out.ok) logOpenAIUsage(model, config.label, out.usage, t0);
+      return out;
+    }
+    console.log('[Chat] OpenAI writer failed, trying CHAT_MODEL', {
+      model,
+      status: out.status ?? null,
+      error: String(out.error || '').slice(0, 200),
+    });
+    model = models().chat;
+  }
+  const url = `${GEMINI_API_BASE}/${model}:generateContent`;
   const body = buildRequestBody(systemPrompt, contents, config);
 
   let res;
@@ -177,10 +210,33 @@ export async function geminiGenerate(systemPrompt, messages, config, apiKey) {
  * @returns {Promise<Response|{ok: false, status: number, error: string}>}
  */
 export async function geminiStream(systemPrompt, messages, config, apiKey) {
-  const model = config.model || models().chat;
+  let model = config.model || models().chat;
   const t0 = Date.now();
-  const url = `${GEMINI_API_BASE}/${model}:streamGenerateContent?alt=sse`;
   const contents = config.nativeContents || convertMessages(messages);
+  // An OpenAI writer (CHAT_MODEL_ASK, for one) streams in Gemini's shape
+  // (openaiChat.js); one that fails to start is tried once on CHAT_MODEL.
+  if (chatProvider(model) === 'openai') {
+    const res = await openaiStream(
+      systemPrompt,
+      contents,
+      { ...config, model },
+      models().keys.openai,
+    );
+    if (res.ok && res.body) {
+      return new Response(tapGeminiUsage(res.body, { model, label: config.label || null, t0 }), {
+        status: res.status,
+        headers: res.headers,
+      });
+    }
+    if (chatProvider(models().chat) !== 'google') return res;
+    console.log('[Chat] OpenAI writer failed, trying CHAT_MODEL', {
+      model,
+      status: res.status ?? null,
+      error: String(res.error || '').slice(0, 200),
+    });
+    model = models().chat;
+  }
+  const url = `${GEMINI_API_BASE}/${model}:streamGenerateContent?alt=sse`;
   const body = buildRequestBody(systemPrompt, contents, config);
 
   let res;

@@ -45,6 +45,8 @@ Docs (Claude Docs; James comments and edits in them):
   https://claude.ai/code/artifact/0111f10c-cabe-4b88-86ed-8ee46a45a5c0
 - Step 9, general chat on the agent, the plan and James's decisions:
   https://claude.ai/code/artifact/5987a64f-36a7-4307-980d-fecd250bf171
+- Sweep handoff, what the Sweep redesign builds and what step 10 picks up:
+  https://claude.ai/code/artifact/43136371-876e-446a-9371-401bcdd3c036
 
 Each step so far has had its own doc. Keep that going: one doc per step, made
 before the work, filled as it goes, ending with what is next.
@@ -144,6 +146,21 @@ on that surface.
 component here. Carried from step 8: Luna at low thinking, the cached layout,
 chat's own replay scenarios (open conversation, remembering, habits, not only
 plans), and the `find_items` against `entityMatch.js` comparison.
+
+**Chat's writer (step 9, done 3 Oct on `chat-fixes-10.3`).** Ask Gremly's
+quick lane writes on Luna with no thinking (`CHAT_MODEL_ASK`,
+`CHAT_EFFORT_ASK` in models.js). `workers/cortex/openaiChat.js` sends an
+OpenAI model's chat call to the Responses API and answers in Gemini's
+shapes, so `geminiStream` and `geminiGenerate` hand it over and no surface's
+reading code changed; a writer that fails to start is tried once on
+`CHAT_MODEL`. The persona's general section gained "How the conversation
+feels" (semantic, Ask Gremly only). The writer test is `scripts/writer-test`
+(fixtures and outputs stay out of git): 40 of James's turns through the live
+chat path, two blind judges, Luna with the new section 6.9 of 10, Luna
+without it 6.7, the preview 5.2. The other chat surfaces stay on the preview
+until each is checked. Known gap: a "what's coming up" question is answered
+from the preload alone and Luna says when it cannot see the week; the agent
+lane (lookup, with get_day) is the fix.
 
 **Step 11, focused model audit.** After chat and Sweep, a smaller audit of
 only the places that could be better, from replays and real use: a stronger

@@ -12748,11 +12748,18 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
 
             // Search policy
             const searchPolicy = getSearchPolicy(triage.search);
+            // Ask Gremly's writer (CHAT_MODEL_ASK); every call of this reply uses it
+            const askWriter = {
+              model: models().ask.model,
+              effort: models().ask.effort,
+              cacheKey: authenticatedUserId ? `ask:${authenticatedUserId}` : undefined,
+            };
             const streamConfig = {
               label: 'general_chat',
               temperature: genConfig.temperature,
               maxOutputTokens: genConfig.maxTokens,
               thinkingLevel: genConfig.thinkingLevel,
+              ...askWriter,
             };
             if (searchPolicy.attachTool) {
               streamConfig.tools = [makeWebSearchTool(userTimezone)];
@@ -12769,7 +12776,10 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
 
             if (!geminiRes.ok || !geminiRes.body) {
               const errText = geminiRes.error || 'unknown error';
-              console.log('[GeneralChat:Streaming] Gemini error', { error: errText });
+              console.log('[GeneralChat:Streaming] Writer error', {
+                model: askWriter.model,
+                error: errText,
+              });
               await writer.write(
                 encoder.encode(`data: ${JSON.stringify({ error: errText, done: true })}\n\n`),
               );
@@ -12927,6 +12937,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       maxOutputTokens: Math.max(genConfig.maxTokens, 1200),
                       thinkingLevel: genConfig.thinkingLevel,
                       nativeContents: followUpContents,
+                      ...askWriter,
                     },
                     env.GOOGLE_API_KEY,
                   );
@@ -13007,6 +13018,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     temperature: genConfig.temperature,
                     maxOutputTokens: genConfig.maxTokens,
                     thinkingLevel: genConfig.thinkingLevel,
+                    ...askWriter,
                   },
                   env.GOOGLE_API_KEY,
                 );
@@ -13065,6 +13077,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               );
 
               console.log('[GeneralChat:Streaming] Complete', {
+                model: askWriter.model,
                 latency_ms: latency,
                 content_length: fullContent.length,
               });

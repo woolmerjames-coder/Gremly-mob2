@@ -9,6 +9,9 @@
 //   CHAT_MODEL     the Gemini model every chat surface streams from: Ask Gremly,
 //                  Space, World, Chapter, Habit Builder and Entity chat. Falls
 //                  back to GEMINI_FLASH_MODEL, then the default below.
+//   CHAT_MODEL_ASK Ask Gremly's writer on its own (default CHAT_MODEL). An OpenAI
+//                  model is called through openaiChat.js, and CHAT_EFFORT_ASK
+//                  sets how much it thinks before it writes (default none).
 //   HELPER_MODEL   the small fast model behind the helper calls around a chat
 //                  turn: triage, loading message, summaries, extraction, habit
 //                  pre parse and so on. Any single job can be moved on its own
@@ -82,8 +85,14 @@ export function resolveModels(env = {}) {
   for (const [job, varName] of Object.entries(HELPER_JOB_VARS)) {
     jobs[job] = env[varName] || helper;
   }
+  const chat = env.CHAT_MODEL || geminiFlash;
   return {
-    chat: env.CHAT_MODEL || geminiFlash,
+    chat,
+    // Ask Gremly's writer, and its thinking when it is an OpenAI model
+    ask: {
+      model: env.CHAT_MODEL_ASK || chat,
+      effort: env.CHAT_EFFORT_ASK || 'none',
+    },
     helper,
     job: jobs,
     legacyOpenAIChat: env.LEGACY_OPENAI_CHAT_MODEL || DEFAULTS.legacyOpenAIChat,
