@@ -38,6 +38,25 @@ describe('the change card', () => {
     expect(onApply).toHaveBeenCalledWith(['c2']);
   });
 
+  it('says Accept all while every row is ticked, and how many otherwise', () => {
+    const r = render(<ChangeCard meta={META} onApply={jest.fn()} />);
+    expect(r.getByText('Accept all')).toBeTruthy();
+    fireEvent.press(r.getByTestId('change-c1'));
+    expect(r.getByText('Apply 1')).toBeTruthy();
+  });
+
+  it('after Apply, one Undo puts it all back while it can', () => {
+    const onUndo = jest.fn();
+    const applied = { ...META, status: 'applied' as const, applied: ['c1', 'c2'] };
+    const r = render(<ChangeCard meta={applied} onUndo={onUndo} />);
+    fireEvent.press(r.getByTestId('changes-undo'));
+    expect(onUndo).toHaveBeenCalled();
+    expect(render(<ChangeCard meta={applied} />).queryByTestId('changes-undo')).toBeNull();
+    expect(
+      render(<ChangeCard meta={{ ...META, status: 'undone' }} />).getByText('Put back as it was'),
+    ).toBeTruthy();
+  });
+
   it('Not now leaves everything as it is', () => {
     const onDismiss = jest.fn();
     const r = render(<ChangeCard meta={META} onDismiss={onDismiss} />);

@@ -1,13 +1,16 @@
 /**
- * The day turn's card in today's thread (Daily brief in Chat): every change
- * Gremly would make for one message, each with a tick, and Apply or Not now.
- * Nothing changes until Apply. After it, the card shows what was done; Not
- * now folds it to one line.
+ * The card for several changes at once (Gremly agent: one change model),
+ * first used by the day turn in today's thread (Daily brief in Chat): every
+ * change Gremly would make for one message, each with a tick. Accept all
+ * applies every row in one tap; the ticks are there to leave one out, and the
+ * button then applies the ones still ticked. Nothing changes until then.
+ * After it, the card shows what was done with one Undo for all of it; Not now
+ * folds it to one line, and so does Undo once it has put everything back.
  */
 
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { Check, CircleSlash, Square, SquareCheck } from 'lucide-react-native';
+import { Check, CircleSlash, RotateCcw, Square, SquareCheck } from 'lucide-react-native';
 import type { BriefChangesMeta } from '../../lib/brief/types';
 import { BRIEF } from './briefStyles';
 
@@ -17,10 +20,27 @@ export type ChangeCardProps = {
   interactive?: boolean;
   onApply?: (unticked: string[]) => void;
   onDismiss?: () => void;
+  /** Present while what the card did can still be put back */
+  onUndo?: () => void;
 };
 
-export function ChangeCard({ meta, interactive = true, onApply, onDismiss }: ChangeCardProps) {
+export function ChangeCard({
+  meta,
+  interactive = true,
+  onApply,
+  onDismiss,
+  onUndo,
+}: ChangeCardProps) {
   const [unticked, setUnticked] = useState<string[]>(meta.unticked ?? []);
+
+  if (meta.status === 'undone') {
+    return (
+      <View style={styles.collapsed} testID="changes-undone">
+        <RotateCcw size={14} color={BRIEF.faint} strokeWidth={2} />
+        <Text style={styles.collapsedText}>Put back as it was</Text>
+      </View>
+    );
+  }
 
   if (meta.status === 'dismissed') {
     return (
@@ -50,6 +70,17 @@ export function ChangeCard({ meta, interactive = true, onApply, onDismiss }: Cha
             </Text>
           </View>
         ))}
+        {onUndo && done.size > 0 ? (
+          <TouchableOpacity
+            style={[styles.btn, styles.btnSecondary, styles.undo]}
+            onPress={onUndo}
+            disabled={!interactive}
+            accessibilityRole="button"
+            testID="changes-undo"
+          >
+            <Text style={styles.btnText}>Undo</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
     );
   }
@@ -57,6 +88,7 @@ export function ChangeCard({ meta, interactive = true, onApply, onDismiss }: Cha
   const toggle = (cid: string) =>
     setUnticked((u) => (u.includes(cid) ? u.filter((x) => x !== cid) : [...u, cid]));
   const ticked = meta.changes.filter((c) => !unticked.includes(c.cid)).length;
+  const all = ticked === meta.changes.length;
 
   return (
     <View style={styles.card} testID="changes-open">
@@ -90,7 +122,9 @@ export function ChangeCard({ meta, interactive = true, onApply, onDismiss }: Cha
           disabled={!interactive || !ticked}
           testID="changes-apply"
         >
-          <Text style={[styles.btnText, styles.btnTextPrimary]}>Apply</Text>
+          <Text style={[styles.btnText, styles.btnTextPrimary]}>
+            {all ? 'Accept all' : `Apply ${ticked}`}
+          </Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.btn, styles.btnSecondary]}
@@ -130,6 +164,7 @@ const styles = StyleSheet.create({
   btnPrimary: { backgroundColor: BRIEF.moss },
   btnSecondary: { borderWidth: 1, borderColor: BRIEF.chipBorder },
   btnOff: { opacity: 0.5 },
+  undo: { flex: 0, alignSelf: 'flex-start', paddingHorizontal: 18, marginTop: 4 },
   btnText: { fontFamily: 'Inter-SemiBold', fontSize: 14, color: BRIEF.moss },
   btnTextPrimary: { color: BRIEF.white },
   collapsed: {

@@ -1,5 +1,6 @@
 /**
- * An item's history: the changes the user said yes to in chat or Mind Drop,
+ * An item's history: the changes the user said yes to in chat, Mind Drop,
+ * today's thread or Sweep,
  * kept on the item itself (views.change_log), so the item overlay can say
  * "Moved to Mon 5 Oct, 3:00pm" and what it was, above the words they first
  * wrote.
@@ -16,11 +17,14 @@
 import { getDateService } from '../date/DateService';
 import type { EntityCardChange } from '../types';
 
-export type ChangeSource = 'minddrop' | 'chat';
+export type ChangeSource = 'minddrop' | 'chat' | 'thread' | 'sweep';
+
+const SOURCES = new Set<string>(['minddrop', 'chat', 'thread', 'sweep']);
 
 export interface ChangeEntry {
   id: string;
-  field: EntityCardChange['field'];
+  /** The item card's field names, and the change model's for the rest (lib/changes) */
+  field: string;
   /** The value before, as the field stores it. */
   from: string | null;
   /** The value after, as the field stores it. */
@@ -50,6 +54,21 @@ const FIELDS = new Set<string>([
   'body_add',
   'completed',
   'logged',
+  // the change model's other fields (workers/shared/changes/fields.js)
+  'deadline',
+  'length',
+  'start_day',
+  'end_day',
+  'end_time',
+  'reminder_day',
+  'reminder',
+  'list',
+  'part_of_day',
+  'worlds',
+  'chapters',
+  'tags',
+  'pinned',
+  'favourite',
 ]);
 
 /** "Mon 5 Oct" from YYYY-MM-DD. Always the date itself: a history line should not say Today a week later. */
@@ -124,7 +143,8 @@ function isEntry(e: unknown): e is ChangeEntry {
     FIELDS.has(x.field) &&
     typeof x.to === 'string' &&
     typeof x.at === 'string' &&
-    (x.source === 'chat' || x.source === 'minddrop')
+    typeof x.source === 'string' &&
+    SOURCES.has(x.source)
   );
 }
 
@@ -172,6 +192,36 @@ function replacing(views: unknown, entry: ChangeEntry): Views {
 
 function newId(): string {
   return `${getDateService().now().getTime().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+}
+
+/**
+ * The item's views with one entry added, worded by the caller, and how to take
+ * it back out for Undo. With join, the entry replaces the last one instead
+ * (a time that came with the day change just made).
+ */
+export function recordEntry(
+  views: unknown,
+  words: { field: string; from: string | null; to: string; was: string | null; now: string | null },
+  source: ChangeSource,
+  bodyBefore: string | null | undefined,
+  join = false,
+): { views: Views; undo: (current: unknown) => Views } {
+  const log = changeLogOf(views);
+  const last = log[log.length - 1];
+  if (join && last) {
+    const joined: ChangeEntry = { ...last, now: words.now };
+    return { views: replacing(views, joined), undo: (current) => replacing(current, last) };
+  }
+  const entry: ChangeEntry = {
+    id: newId(),
+    ...words,
+    at: getDateService().now().toISOString(),
+    source,
+  };
+  return {
+    views: withEntry(views, entry, bodyBefore),
+    undo: (current) => withoutEntry(current, entry.id),
+  };
 }
 
 /**
@@ -233,6 +283,41 @@ export function changeLine(entry: ChangeEntry): { icon: HistoryIcon; title: stri
       return { icon: 'done', title: 'Marked done' };
     case 'logged':
       return { icon: 'logged', title: `Logged for ${historyDay(entry.to)}` };
+    case 'deadline':
+      return { icon: 'moved', title: entry.now ? `Due ${entry.now}` : 'Deadline taken off' };
+    case 'start_day':
+      return { icon: 'moved', title: entry.now ? `Starts ${entry.now}` : 'Start day taken off' };
+    case 'end_day':
+      return { icon: 'moved', title: entry.now ? `Ends ${entry.now}` : 'End day taken off' };
+    case 'end_time':
+      return { icon: 'moved', title: entry.now ? `Ends at ${entry.now}` : 'End time taken off' };
+    case 'reminder_day':
+      return {
+        icon: 'moved',
+        title: entry.now ? `Reminder on ${entry.now}` : 'Reminder taken off',
+      };
+    case 'length':
+      return { icon: 'note', title: entry.now ? `Takes ${entry.now}` : 'Length taken off' };
+    case 'reminder':
+      return { icon: 'note', title: entry.now ?? 'Reminders changed' };
+    case 'list':
+      return { icon: 'added', title: entry.now ?? 'List updated' };
+    case 'part_of_day':
+      return {
+        icon: 'moved',
+        title: entry.now ? `Set for the ${entry.now}` : 'Part of the day taken off',
+      };
+    case 'worlds':
+    case 'chapters':
+    case 'tags':
+      return { icon: 'note', title: entry.now ?? 'Changed' };
+    case 'pinned':
+      return { icon: 'note', title: entry.to === 'true' ? 'Pinned' : 'Unpinned' };
+    case 'favourite':
+      return {
+        icon: 'note',
+        title: entry.to === 'true' ? 'Marked as a favourite' : 'No longer a favourite',
+      };
     default:
       return { icon: 'note', title: 'Changed' };
   }
@@ -276,7 +361,15 @@ export function changeDetail(entry: ChangeEntry, now: Date): string {
   } else if (entry.field === 'body_add' && entry.now) {
     parts.push(`“${clip(entry.now, 32)}”`);
   }
-  parts.push(entry.source === 'chat' ? 'from chat' : 'from Mind Drop');
+  parts.push(
+    entry.source === 'chat'
+      ? 'from chat'
+      : entry.source === 'thread'
+        ? "from today's thread"
+        : entry.source === 'sweep'
+          ? 'from Sweep'
+          : 'from Mind Drop',
+  );
   const ago = agoWords(entry.at, now);
   if (ago) parts.push(ago);
   return parts.join(' · ');

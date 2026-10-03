@@ -65,9 +65,18 @@ export function normalizeCadence(cadence: string | null | undefined): Cadence {
  * parseFrequencyString("2 times a month") → { cadence: 'monthly', target_per_period: 2 }
  */
 export function parseFrequencyString(frequency: string | null | undefined): FrequencyCanonical {
-  if (!frequency) {
-    return { cadence: 'daily', target_per_period: 1 };
-  }
+  return parseFrequencyStringStrict(frequency) ?? { cadence: 'daily', target_per_period: 1 };
+}
+
+/**
+ * The same reading as parseFrequencyString, but null when the words match
+ * none of the patterns, instead of falling back to daily. For a change the
+ * app is about to save (lib/changes), where a guess would be wrong.
+ */
+export function parseFrequencyStringStrict(
+  frequency: string | null | undefined,
+): FrequencyCanonical | null {
+  if (!frequency) return null;
 
   const freq = frequency.toLowerCase().trim();
 
@@ -140,8 +149,7 @@ export function parseFrequencyString(frequency: string | null | undefined): Freq
     };
   }
 
-  // Default to daily
-  return { cadence: 'daily', target_per_period: 1 };
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

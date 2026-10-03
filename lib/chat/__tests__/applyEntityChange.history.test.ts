@@ -48,35 +48,57 @@ describe('the history an applied change leaves', () => {
   it('the closing line kept on the card names the date, so it is still true tomorrow', async () => {
     const ds = getDateService();
     const todo = { id: 't1', type: 'todo' as const, title: 'Car MOT', due_day: null };
-    const applied = await applyEntityChange(todo, { field: 'due_day', from: null, to: ds.tomorrow() });
+    const applied = await applyEntityChange(todo, {
+      field: 'due_day',
+      from: null,
+      to: ds.tomorrow(),
+    });
     expect(applied.summary).not.toMatch(/tomorrow|today/i);
-    expect(applied.summary).toMatch(/^Car MOT is now (Sun|Mon|Tue|Wed|Thu|Fri|Sat) \d{1,2} [A-Z][a-z]{2}\.$/);
+    expect(applied.summary).toMatch(
+      /^Car MOT is now (Sun|Mon|Tue|Wed|Thu|Fri|Sat) \d{1,2} [A-Z][a-z]{2}\.$/,
+    );
     const habit = { id: 'h1', type: 'habit' as const, title: 'Run', frequency: 'weekly' };
     const logged = await applyEntityChange(habit, { field: 'logged', from: null, to: ds.today() });
     expect(logged.summary).not.toMatch(/today/i);
   });
 
   it('a check-in for several days logs each of them, and Undo takes each back out', async () => {
+    // days that have been: a check-in for a day still to come is never applied
+    const ds = getDateService();
+    const [d1, d2, d3] = [ds.daysAgo(3), ds.daysAgo(2), ds.daysAgo(1)];
     const habit = { id: 'h1', type: 'habit' as const, title: 'Run', frequency: 'weekly' };
     const applied = await applyEntityChange(habit, {
       field: 'logged',
       from: null,
-      to: '2031-10-02',
-      days: ['2031-10-01', '2031-10-02'],
+      to: d2,
+      days: [d1, d2],
     });
     expect(mockState.logHabitCompletionForDate.mock.calls).toEqual([
-      ['h1', '2031-10-01'],
-      ['h1', '2031-10-02'],
+      ['h1', d1],
+      ['h1', d2],
     ]);
-    expect(applied.summary).toMatch(/^Logged Run for .*1 Oct.* and .*2 Oct/);
+    expect(applied.summary).toMatch(/^Logged Run for .+ and .+\.$/);
+    expect(applied.summary).not.toMatch(/today|yesterday/i);
     await applied.revert();
     expect(mockState.removeHabitCompletionForDate.mock.calls).toEqual([
-      ['h1', '2031-10-01'],
-      ['h1', '2031-10-02'],
+      ['h1', d1],
+      ['h1', d2],
     ]);
     // one day, as before
-    await applyEntityChange(habit, { field: 'logged', from: null, to: '2031-10-03' });
-    expect(mockState.logHabitCompletionForDate).toHaveBeenLastCalledWith('h1', '2031-10-03');
+    await applyEntityChange(habit, { field: 'logged', from: null, to: d3 });
+    expect(mockState.logHabitCompletionForDate).toHaveBeenLastCalledWith('h1', d3);
+  });
+
+  it('a day still to come is never logged', async () => {
+    const habit = { id: 'h1', type: 'habit' as const, title: 'Run', frequency: 'weekly' };
+    await expect(
+      applyEntityChange(habit, {
+        field: 'logged',
+        from: null,
+        to: getDateService().addDays(getDateService().today(), 2),
+      }),
+    ).rejects.toThrow('That change did not go through.');
+    expect(mockState.logHabitCompletionForDate).not.toHaveBeenCalled();
   });
 
   it('a Mind Drop move on an appointment: one write, the day, its copy in views, and the history', async () => {

@@ -172,12 +172,19 @@ describe('a change to a field', () => {
   it('changes a habit schedule, and not to the one it already has', () => {
     const r = change({ schedule: { per: 'week', times: 3 } }, habit, 'habit');
     expect(r.ok && r.change.fields.schedule).toEqual({ per: 'week', times: 3 });
-    expect(r.ok && r.change.before.schedule).toEqual({ per: 'day', times: 1 });
+    expect(r.ok && r.change.before.schedule).toEqual({ per: 'day', times: 1, label: 'daily' });
     expect(change({ schedule: { per: 'day', times: 1 } }, habit, 'habit').ok).toBe(false);
   });
 
-  it('keeps event fields for events', () => {
+  it('writes a label out of step with its tracking even when the tracking already agrees', () => {
+    const drifted = { ...habit, frequency: 'weekly' };
+    const r = change({ schedule: { per: 'day', times: 1 } }, drifted, 'habit');
+    expect(r.ok && r.change.fields.schedule).toEqual({ per: 'day', times: 1 });
+  });
+
+  it('keeps event fields for events, or for a note given its date in the same change', () => {
     expect(change({ time: '19:00' }, event, 'note').ok).toBe(true);
+    expect(change({ day: '2026-10-09', time: '19:00' }, note, 'note').ok).toBe(true);
     expect(change({ time: '19:00' }, note, 'note')).toEqual({
       ok: false,
       reason: 'not_an_event:time',
@@ -348,6 +355,10 @@ describe('beforeValue', () => {
     expect(beforeValue('todo', { due_time: '10:00:00' }, 'time')).toBe('10:00');
     expect(beforeValue('todo', todo, 'pinned')).toBe(false);
     expect(beforeValue('todo', todo, 'worlds')).toEqual(['w1']);
-    expect(beforeValue('habit', habit, 'schedule')).toEqual({ per: 'day', times: 1 });
+    expect(beforeValue('habit', habit, 'schedule')).toEqual({
+      per: 'day',
+      times: 1,
+      label: 'daily',
+    });
   });
 });

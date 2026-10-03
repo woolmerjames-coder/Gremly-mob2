@@ -1107,6 +1107,11 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         interactive={!dayTurnRef.current.busy}
         onApply={(unticked) => void dayTurnRef.current.apply(message, unticked)}
         onDismiss={() => void dayTurnRef.current.dismiss(message)}
+        onUndo={
+          dayTurnRef.current.canUndo(message.id)
+            ? () => void dayTurnRef.current.undo(message)
+            : undefined
+        }
       />
     ),
     [],

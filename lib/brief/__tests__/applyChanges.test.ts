@@ -1,31 +1,50 @@
 /**
- * Applying the day turn's card: each change written the way the app writes
- * it, set times kept on today's thread, and what it means for the plan.
+ * Applying the day turn's card: each change goes through the change model
+ * (lib/changes), set times are kept on today's thread, field changes go into
+ * the item's history, everything can be undone, and what it means for the
+ * plan is handed back.
  */
 import { applyDayChanges, changedEventText } from '../applyChanges';
 import { useGremlyStore } from '../../store/useGremlyStore';
 import { patchDailyThreadMeta } from '../../repo/dailyThreadRepo';
 import { useTodayThread } from '../todayThread';
 import type { DayChange } from '../../cortex/CortexClient';
+import { changeLogOf } from '../../chat/changeHistory';
 
 jest.mock('../../store/useGremlyStore', () => ({ useGremlyStore: { getState: jest.fn() } }));
 jest.mock('../../repo/dailyThreadRepo', () => ({ patchDailyThreadMeta: jest.fn() }));
 jest.mock('../../minddrop/ids', () => ({ generateDropId: () => 'uuid-1' }));
 jest.mock('../todayThread', () => ({ useTodayThread: { getState: jest.fn() } }));
 
-const store = {
+const store: any = {
   createTodo: jest.fn(),
   updateTodo: jest.fn(),
   updateHabit: jest.fn(),
   completeTodo: jest.fn(),
+  uncompleteTodo: jest.fn(),
   completeHabit: jest.fn(),
   archiveTodo: jest.fn(),
+  restoreTodo: jest.fn(),
+  deleteTodo: jest.fn(),
 };
 const patchMeta = jest.fn();
 
 beforeEach(() => {
-  for (const f of Object.values(store)) (f as jest.Mock).mockResolvedValue(undefined);
+  for (const f of Object.values(store)) {
+    if (typeof f === 'function') (f as jest.Mock).mockResolvedValue(undefined);
+  }
   store.createTodo.mockResolvedValue({ id: 'new-1' });
+  // the items the card is about, as the store has them
+  store.todos = [
+    { id: 'mum', name: 'Call Mum', due_day: '2026-10-02', due_time: null, views: {} },
+    { id: 'deck', name: 'Finish the deck', due_day: '2026-10-02', views: {} },
+  ];
+  store.habits = [{ id: 'run', name: 'Run', cadence: 'daily', target_per_period: 1 }];
+  store.notes = [];
+  store.habitProgress = [];
+  store.updateTodo.mockImplementation(async (id: string, updates: any) => {
+    store.todos = store.todos.map((t: any) => (t.id === id ? { ...t, ...updates } : t));
+  });
   (useGremlyStore.getState as jest.Mock).mockReturnValue(store);
   (patchDailyThreadMeta as jest.Mock).mockResolvedValue(null);
   (useTodayThread.getState as jest.Mock).mockReturnValue({
@@ -61,7 +80,16 @@ describe('applying the change card', () => {
       ],
       ctx,
     );
-    expect(store.updateTodo).toHaveBeenCalledWith('mum', { due_time: '12:00' });
+    expect(store.updateTodo).toHaveBeenCalledWith(
+      'mum',
+      expect.objectContaining({ due_time: '12:00' }),
+    );
+    // into the item's history, from today's thread
+    expect(changeLogOf(store.todos[0].views)[0]).toMatchObject({
+      field: 'due_time',
+      source: 'thread',
+      now: 'Fri 2 Oct, 12:00pm',
+    });
     const block = {
       id: 'chat:uuid-1',
       title: 'Leave for the airport',
@@ -78,12 +106,45 @@ describe('applying the change card', () => {
       't1',
       expect.objectContaining({ fixed_blocks: [block] }),
     );
-    expect(res).toEqual({
+    expect(res).toMatchObject({
       done: ['c1', 'c2'],
       failed: [],
       plan: { add: [], remove: [], pin: [{ id: 'mum', start: 720 }] },
       frameChanged: true,
     });
+  });
+
+  it('one Undo puts the card back: the time, its history line and the set times', async () => {
+    const res = await applyDayChanges(
+      [
+        change({
+          cid: 'c1',
+          kind: 'retime',
+          id: 'mum',
+          item: 'todo',
+          title: 'Call Mum',
+          start: 720,
+        }),
+        change({ cid: 'c2', kind: 'add_block', title: 'Leave for the airport', start: 750 }),
+      ],
+      ctx,
+    );
+    await res.revert();
+    expect(store.todos[0].due_time).toBeNull();
+    expect(changeLogOf(store.todos[0].views)).toEqual([]);
+    expect(patchDailyThreadMeta).toHaveBeenLastCalledWith('t1', {
+      fixed_blocks: [],
+      fixed_removed: [],
+      skipped_habits: [],
+    });
+  });
+
+  it('a change to an item that is gone is not claimed', async () => {
+    const res = await applyDayChanges(
+      [change({ cid: 'c1', kind: 'rename', id: 'nope', item: 'todo', title: 'Ghost' })],
+      ctx,
+    );
+    expect(res).toMatchObject({ done: [], failed: ['c1'] });
   });
 
   it('moves, finishes and skips take items out of the plan', async () => {
@@ -94,10 +155,14 @@ describe('applying the change card', () => {
       ],
       { ...ctx, inPlan: new Set(['mum', 'run']) },
     );
-    expect(store.updateTodo).toHaveBeenCalledWith('mum', {
-      due_day: '2026-10-05',
-      scheduled_date: '2026-10-05',
-    });
+    expect(store.updateTodo).toHaveBeenCalledWith(
+      'mum',
+      expect.objectContaining({
+        due_day: '2026-10-05',
+        due_date: '2026-10-05',
+        scheduled_date: '2026-10-05',
+      }),
+    );
     expect(res.plan.remove).toEqual(['mum', 'run']);
     expect(patchDailyThreadMeta).toHaveBeenCalledWith(
       't1',

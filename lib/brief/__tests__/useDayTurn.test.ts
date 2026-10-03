@@ -13,6 +13,7 @@ jest.mock('../../cortex/CortexClient', () => ({ callDayTurn: jest.fn() }));
 jest.mock('../applyChanges', () => ({
   applyDayChanges: jest.fn(),
   changedEventText: (n: number) => `Updated ${n} things`,
+  undoneEventText: (n: number) => `Put back ${n} things`,
 }));
 jest.mock('../time', () => ({
   minutesOfDay: () => 544,
@@ -203,6 +204,44 @@ describe('the day turn', () => {
     expect(deps.plan.pauseSync).toHaveBeenCalled();
     expect(deps.plan.resumeSync).toHaveBeenCalled();
     expect(deps.continueBrief).toHaveBeenCalled();
+  });
+
+  it('Undo puts everything back, says so, and moves the plan back to how it was', async () => {
+    (callDayTurn as jest.Mock).mockResolvedValue({
+      ok: true,
+      data: { about_day: true, reply: 'Sure.', changes: CHANGES, checklist: [] },
+    });
+    const revert = jest.fn(async () => undefined);
+    (applyDayChanges as jest.Mock).mockResolvedValue({
+      done: ['c1', 'c2'],
+      failed: [],
+      plan: { add: [], remove: [], pin: [{ id: 'mum', start: 720 }] },
+      frameChanged: true,
+      revert,
+    });
+    const { hook, messages, deps } = harness();
+    await act(async () => {
+      await hook.result.current.run('call mum at 12, leave at 12:30', null);
+    });
+    const card = messages[3];
+    expect(hook.result.current.canUndo(card.id)).toBe(false);
+    await act(async () => {
+      await hook.result.current.apply(card, []);
+    });
+    expect(hook.result.current.canUndo(card.id)).toBe(true);
+    await act(async () => {
+      await hook.result.current.undo(card);
+    });
+    expect(revert).toHaveBeenCalledTimes(1);
+    expect((card.metadata_json as any).status).toBe('undone');
+    expect(messages[messages.length - 1].content).toBe('Put back 2 things');
+    // Call Mum goes back to 11:50, where the plan had it
+    expect(deps.plan.reviseAfterChanges).toHaveBeenLastCalledWith({
+      add: [],
+      remove: [],
+      pin: [{ id: 'mum', start: 710 }],
+    });
+    expect(hook.result.current.canUndo(card.id)).toBe(false);
   });
 
   it('Not now changes nothing and the brief carries on', async () => {

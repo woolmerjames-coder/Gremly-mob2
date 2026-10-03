@@ -148,7 +148,8 @@ export function itemTitle(type, item) {
 export function beforeValue(type, item, field) {
   const def = fieldDef(type, field);
   if (!def || !item) return null;
-  if (def.kind === 'schedule') return scheduleOf(item);
+  // with the label it shows, so a label out of step with its tracking still counts as a change
+  if (def.kind === 'schedule') return { ...scheduleOf(item), label: item.frequency ?? null };
   const raw = item[def.column];
   switch (def.kind) {
     case 'day':
@@ -221,7 +222,11 @@ function readField(type, field, raw, before, ctx) {
     case 'schedule': {
       const v = normSchedule(raw);
       if (!v) return { error: `bad_value:${field}` };
-      return before && sameSchedule(v, before) ? { noop: true } : { value: v };
+      const same =
+        before &&
+        sameSchedule(v, before) &&
+        (before.label == null || before.label === scheduleLabel(v));
+      return same ? { noop: true } : { value: v };
     }
     case 'tags':
     case 'links': {
@@ -286,12 +291,14 @@ function readFields(type, rawFields, item, ctx, { forAdd = false } = {}) {
   if (!rawFields || typeof rawFields !== 'object' || Array.isArray(rawFields)) {
     return { error: 'no_fields' };
   }
+  // a note given a date in the same change is dated from then on
+  const dated = isEvent(item) || (rawFields.day != null && normDay(rawFields.day) !== undefined);
   const fields = {};
   const before = {};
   for (const [field, raw] of Object.entries(rawFields)) {
     const def = fieldDef(type, field);
     if (!def) return { error: `unknown_field:${field}` };
-    if (def.events && !forAdd && !isEvent(item)) return { error: `not_an_event:${field}` };
+    if (def.events && !forAdd && !dated) return { error: `not_an_event:${field}` };
     if (forAdd && raw === null) continue;
     const b = forAdd ? null : beforeValue(type, item, field);
     const r = readField(type, field, raw, b, ctx);

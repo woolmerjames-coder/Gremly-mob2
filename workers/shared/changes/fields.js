@@ -219,8 +219,7 @@ export const TYPES = {
         group: 'main',
         column: 'target_date',
         clear: true,
-        events: true,
-        about: 'for an event, the date it happens',
+        about: 'the date it is about, such as the date an event happens',
       },
       time: {
         kind: 'time',

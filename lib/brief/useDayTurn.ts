@@ -5,8 +5,10 @@
  * against the day (the day record, the plan, the person's items, any open
  * question and the conversation) and returns one change set. Gremly's reply
  * comes first, then one card listing every change with a tick; nothing
- * changes until Apply. Apply writes the ticked changes, adds "Updated 3
- * things", re-fits the plan as one new version, and the brief carries on. A
+ * changes until Accept all (or Apply, with some unticked). That writes the
+ * ticked changes through the change model (lib/changes), adds "Updated 3
+ * things", re-fits the plan as one new version, and the brief carries on.
+ * Undo on the card puts everything back and re-fits the plan again. A
  * message that is not about the day goes to normal chat, as before.
  */
 
@@ -18,7 +20,7 @@ import { selectHabitsDueToday } from '../store/selectors';
 import { getDateService } from '../date/DateService';
 import { briefMetaOf, dayPartAt, visibleThreadMessages } from './messages';
 import { localDateOf, minutesOfDay } from './time';
-import { applyDayChanges, changedEventText } from './applyChanges';
+import { applyDayChanges, changedEventText, undoneEventText } from './applyChanges';
 import { dayRecordFromStore, meetingsFromStore } from '../plan/storePlan';
 import type { PlanChange } from '../plan/usePlanFlow';
 import type { BriefChangesMeta, BriefPlanMeta } from './types';
@@ -27,6 +29,7 @@ export const DAY_TURN_COPY = {
   fallbackReply: "Here's what I'd change.",
   dismissed: "No problem, I've left everything as it is.",
   someFailed: "One of those didn't save. It's marked on the card.",
+  undoFailed: "I couldn't put all of that back. Have a look at the items it changed.",
 };
 
 export interface DayTurnDeps {
@@ -53,6 +56,30 @@ export interface DayTurnDeps {
 function planMetaOf(m: SpaceChatMessage | null | undefined): BriefPlanMeta | null {
   const meta = briefMetaOf(m);
   return meta?.type === 'brief-plan' && !meta.superseded ? (meta as BriefPlanMeta) : null;
+}
+
+/**
+ * What undoing a card means for the plan: what it added comes out, what it
+ * took out goes back where it was, and what it moved goes back to its time.
+ */
+export function inversePlanChange(p: PlanChange, plan: BriefPlanMeta | null): PlanChange {
+  const was = new Map((plan?.items ?? []).map((i) => [i.id, i]));
+  const unplaced = new Set((plan?.unplaced ?? []).map((u) => u.id));
+  return {
+    remove: p.add.map((a) => a.id).filter((id) => !was.has(id) && !unplaced.has(id)),
+    add: p.remove.map((id) => {
+      const i = was.get(id);
+      return {
+        id,
+        kind: i?.kind === 'habit' ? ('habit' as const) : ('todo' as const),
+        start: i ? i.start : null,
+        minutes: i?.minutes ?? null,
+      };
+    }),
+    pin: [...p.pin.map((x) => x.id), ...p.add.map((a) => a.id)]
+      .filter((id) => was.has(id))
+      .map((id) => ({ id, start: was.get(id)!.start })),
+  };
 }
 
 const NOTE_ORDER = ['in the plan', 'due today', 'past its day', 'locked in', 'upcoming', 'no day'];
@@ -165,6 +192,14 @@ export function useDayTurn(deps: DayTurnDeps) {
   const [thinking, setThinking] = useState(false);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
+  // what each applied card can put back, while this screen is open
+  const undoRef = useRef(
+    new Map<
+      string,
+      { revert: () => Promise<void>; inverse: PlanChange; frameChanged: boolean; count: number }
+    >(),
+  );
+  const [undoable, setUndoable] = useState<string[]>([]);
 
   const say = useCallback(async (text: string) => {
     await depsRef.current.appendBriefMessage('assistant', text, {
@@ -240,6 +275,15 @@ export function useDayTurn(deps: DayTurnDeps) {
           inPlan: new Set(plan ? [...plan.items, ...plan.unplaced].map((x) => x.id) : []),
           hasPlan: !!plan,
         });
+        if (res.done.length) {
+          undoRef.current.set(message.id, {
+            revert: res.revert,
+            inverse: inversePlanChange(res.plan, plan),
+            frameChanged: res.frameChanged,
+            count: res.done.length,
+          });
+          setUndoable((u) => [...u, message.id]);
+        }
         await d.patchMessageMetadata(message.id, {
           status: 'applied',
           unticked,
@@ -288,5 +332,51 @@ export function useDayTurn(deps: DayTurnDeps) {
     [say],
   );
 
-  return { thinking, busy, run, apply, dismiss };
+  const undo = useCallback(
+    async (message: SpaceChatMessage) => {
+      const d = depsRef.current;
+      const meta = briefMetaOf(message);
+      const entry = undoRef.current.get(message.id);
+      if (
+        busyRef.current ||
+        meta?.type !== 'brief-changes' ||
+        meta.status !== 'applied' ||
+        !entry
+      ) {
+        return;
+      }
+      busyRef.current = true;
+      setBusy(true);
+      d.plan.pauseSync();
+      try {
+        await entry.revert();
+        undoRef.current.delete(message.id);
+        setUndoable((u) => u.filter((x) => x !== message.id));
+        await d.patchMessageMetadata(message.id, { status: 'undone' });
+        await d.appendBriefMessage('system', undoneEventText(entry.count), {
+          type: 'brief-event',
+          icon: 'saved',
+        });
+        const p = entry.inverse;
+        if (
+          planMetaOf(d.plan.livePlan) &&
+          (p.add.length || p.remove.length || p.pin.length || entry.frameChanged)
+        ) {
+          await d.plan.reviseAfterChanges(p);
+        }
+      } catch (err) {
+        console.warn('[DayTurn] undo failed:', err);
+        await say(DAY_TURN_COPY.undoFailed);
+      } finally {
+        d.plan.resumeSync();
+        busyRef.current = false;
+        setBusy(false);
+      }
+    },
+    [say],
+  );
+
+  const canUndo = useCallback((messageId: string) => undoable.includes(messageId), [undoable]);
+
+  return { thinking, busy, run, apply, dismiss, undo, canUndo };
 }

@@ -177,7 +177,8 @@ export interface BriefChangesMeta extends BriefMetaBase {
   changes: DayChange[];
   /** What was asked, each proposed, needing an answer, not possible here or noted */
   checklist?: { ask: string; status: 'proposed' | 'needs_answer' | 'not_possible' | 'noted' }[];
-  status: 'open' | 'applied' | 'dismissed';
+  /** undone: everything it did was put back with its Undo */
+  status: 'open' | 'applied' | 'dismissed' | 'undone';
   /** Changes the person unticked */
   unticked?: string[];
   /** After Apply: the changes made, and any that could not be */
