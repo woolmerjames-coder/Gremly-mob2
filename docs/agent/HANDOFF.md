@@ -43,6 +43,8 @@ Docs (Claude Docs; James comments and edits in them):
   https://claude.ai/code/artifact/167d9176-a2ff-4419-bbe7-34f71a7ffcbe
 - Step 7, today's thread on the agent, the replay, decisions:
   https://claude.ai/code/artifact/0111f10c-cabe-4b88-86ed-8ee46a45a5c0
+- Step 9, general chat on the agent, the plan and James's decisions:
+  https://claude.ai/code/artifact/5987a64f-36a7-4307-980d-fecd250bf171
 
 Each step so far has had its own doc. Keep that going: one doc per step, made
 before the work, filled as it goes, ending with what is next.
