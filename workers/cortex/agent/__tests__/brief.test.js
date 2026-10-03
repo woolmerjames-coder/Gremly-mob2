@@ -12,6 +12,7 @@ import {
   cacheKeyFor,
   dayContext,
   dayFrameOf,
+  dayMeaning,
   renderDay,
   runBriefTurn,
 } from '../brief.js';
@@ -81,12 +82,20 @@ function scripted(...replies) {
     },
   };
 }
+const asked = [];
 const fakeCtx = {
   env: {},
   userId: USER,
   timezone: 'America/Los_Angeles',
   cache: new Map(),
-  db: { select: async () => [], rpc: async () => [] },
+  db: {
+    asked,
+    select: async (path) => {
+      asked.push(path);
+      return [];
+    },
+    rpc: async () => [],
+  },
 };
 
 beforeEach(() => configureModels({}));
@@ -132,6 +141,28 @@ describe('the day the agent knows', () => {
     // the day changes from message to message, so it is not here (it goes last)
     expect(p).not.toContain('WHAT YOU KNOW ABOUT TODAY');
     expect(p).not.toMatch(/ — | – /);
+    expect(dayContext(req)).toBe(`WHAT YOU KNOW ABOUT TODAY\n${renderDay(req)}`);
+  });
+
+  it("knows what today is about, from Gremly's picture of their day", () => {
+    const dco = {
+      lead_story: {
+        what: 'Anniversary weekend with Dave in San Diego',
+        why_today: 'A multi-day trip celebrating your anniversary, running through Sunday.',
+      },
+      day_frame: { away: { label: 'San Diego anniversary trip', through: '2026-10-04' } },
+      voice_note: 'Keep things warm and unhurried.',
+    };
+    expect(dayMeaning(dco)).toBe(
+      "WHAT TODAY IS ABOUT (Gremly's picture of their day)\n" +
+        '- Anniversary weekend with Dave in San Diego: A multi-day trip celebrating your anniversary, running through Sunday.\n' +
+        '- Away: San Diego anniversary trip, until Sunday 2026-10-04\n' +
+        "- How Gremly's brief is pitching today: Keep things warm and unhurried.",
+    );
+    expect(dayMeaning(null)).toBe('');
+    expect(dayContext(req, dco).indexOf('WHAT TODAY IS ABOUT')).toBeLessThan(
+      dayContext(req, dco).indexOf('TODAY: Friday'),
+    );
     expect(dayContext(req)).toBe(`WHAT YOU KNOW ABOUT TODAY\n${renderDay(req)}`);
   });
 
@@ -208,15 +239,21 @@ describe('a turn', () => {
       }),
     ]);
     expect(lines).toEqual(['Looking at your day', 'Getting the changes ready']);
-    // what it was told: the rules first, the day last, then the conversation and the message
+    // what it was told: the same instructions for every message (cached), then the
+    // conversation, then what it knows right now with their message last
     const sys = m.seen[0].system;
     expect(sys).toContain('YOUR JOB HERE');
-    expect(sys.indexOf('HOW YOU WORK')).toBeLessThan(sys.indexOf('WHAT YOU KNOW ABOUT TODAY'));
-    expect(sys.trim().endsWith(renderDay(readTurnRequest(BODY)))).toBe(true);
+    expect(sys).toContain('HOW YOU WORK');
+    expect(sys).not.toContain('WHAT YOU KNOW ABOUT TODAY');
     expect(m.seen[0].cacheKey).toBe(cacheKeyFor(USER));
-    expect(m.seen[0].system).toContain('- Pack (done)');
     expect(m.seen[0].turns.map((t) => t.role)).toEqual(['assistant', 'user', 'user']);
-    expect(m.seen[0].turns[2].text).toBe(BODY.text);
+    const last = m.seen[0].turns[2].text;
+    expect(last).toContain('- Pack (done)');
+    expect(last).toContain(renderDay(readTurnRequest(BODY)));
+    expect(last.endsWith(`THEIR MESSAGE\n${BODY.text}`)).toBe(true);
+    expect(fakeCtx.db.asked).toContain(
+      `user_daily_state?user_id=eq.${USER}&date=eq.2026-10-02&select=dco&limit=1`,
+    );
   });
 
   it('falls back to the day turn when the agent cannot finish, and says why', async () => {

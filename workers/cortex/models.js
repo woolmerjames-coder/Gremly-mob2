@@ -97,6 +97,12 @@ export function resolveModels(env = {}) {
         brief: env.AGENT_MODEL_BRIEF || '',
         chat: env.AGENT_MODEL_CHAT || '',
       },
+      // how much the model thinks before each step, by surface (AGENT_THINKING_BRIEF,
+      // AGENT_THINKING_CHAT); empty keeps the provider's default for the agent, low
+      thinkingBySurface: {
+        brief: env.AGENT_THINKING_BRIEF || '',
+        chat: env.AGENT_THINKING_CHAT || '',
+      },
     },
     // Behaviour switches for the chat helper split (docs/2026-09-29-chat-helper-model-audit.md).
     // Every default is today's behaviour; the corpus gate applies before any is flipped.

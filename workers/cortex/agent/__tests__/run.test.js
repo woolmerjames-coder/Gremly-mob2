@@ -71,7 +71,11 @@ describe('a turn', () => {
     });
     expect(m.seen[0].system).toContain('PERSONA');
     expect(m.seen[0].system).toContain('YOUR JOB HERE');
-    expect(m.seen[0].system).toContain('Today is Friday 2 October 2026');
+    // the instructions are the same for every message (cached); the date rides with the message
+    expect(m.seen[0].system).not.toContain('Today is');
+    const last = m.seen[0].turns.at(-1).text;
+    expect(last).toContain('Today is Friday 2 October 2026');
+    expect(last.endsWith('THEIR MESSAGE\nhi')).toBe(true);
     expect(m.seen[0].tools.map((t) => t.name)).toEqual([
       'find_items',
       'get_item',
@@ -170,8 +174,9 @@ describe('a turn', () => {
       tasks: [{ ask: 'Call Mum', status: 'done' }],
       deps: { callModel: m.callModel, runTool: tools().runTool },
     });
-    expect(m.seen[0].system).toContain('THE TASK LIST SO FAR');
-    expect(m.seen[0].system).toContain('- Call Mum (done)');
+    expect(m.seen[0].turns.at(-1).text).toContain('THE TASK LIST SO FAR');
+    expect(m.seen[0].turns.at(-1).text).toContain('- Call Mum (done)');
+    expect(m.seen[0].system).not.toContain('THE TASK LIST SO FAR');
     expect(r.tasks).toEqual([
       { ask: 'Move the dentist', status: 'proposed' },
       { ask: 'Book a haircut', status: 'needs_answer' },

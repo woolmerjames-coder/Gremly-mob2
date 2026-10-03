@@ -970,6 +970,12 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   );
   const shownRowsRef = useRef(shownRows);
   shownRowsRef.current = shownRows;
+  // the message Gremly is working on, until it is saved into the thread
+  const lastShown = shownRows[shownRows.length - 1];
+  const pendingShown =
+    dayTurn.pending && !(lastShown?.role === 'user' && lastShown.content === dayTurn.pending)
+      ? dayTurn.pending
+      : null;
 
   // The plan step, once today's thread is on screen with its messages
   useEffect(() => {
@@ -1427,20 +1433,36 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
               ListFooterComponent={
                 (briefWriting || playback.typing || planFlow.typing || dayTurn.thinking) &&
                 isDailyThread ? (
-                  <View style={styles.messageContainer} testID="brief-writing">
-                    <ChatBubble
-                      message={
-                        {
-                          id: 'brief-writing',
-                          role: 'assistant',
-                          content: '',
-                          isStreaming: true,
-                          // what Gremly is doing while it works on a message in the thread
-                          loadingMessage: dayTurn.thinking ? dayTurn.status : null,
-                        } as unknown as SpaceChatMessage
-                      }
-                    />
-                  </View>
+                  <>
+                    {pendingShown ? (
+                      // what they just sent, at once, while Gremly works on it
+                      <View style={styles.messageContainer} testID="day-turn-pending">
+                        <ChatBubble
+                          message={
+                            {
+                              id: 'day-turn-pending',
+                              role: 'user',
+                              content: pendingShown,
+                            } as unknown as SpaceChatMessage
+                          }
+                        />
+                      </View>
+                    ) : null}
+                    <View style={styles.messageContainer} testID="brief-writing">
+                      <ChatBubble
+                        message={
+                          {
+                            id: 'brief-writing',
+                            role: 'assistant',
+                            content: '',
+                            isStreaming: true,
+                            // what Gremly is doing while it works on a message in the thread
+                            loadingMessage: dayTurn.thinking ? dayTurn.status : null,
+                          } as unknown as SpaceChatMessage
+                        }
+                      />
+                    </View>
+                  </>
                 ) : null
               }
             />

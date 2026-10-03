@@ -339,6 +339,65 @@ export const SCENARIOS = [
     },
   },
   {
+    id: 'anniversary-evening',
+    title: '3 October (live test): the evening plans on an anniversary weekend',
+    look: 'The show and the dinner on the card at their times, and a reply that shares in the anniversary the day is about.',
+    today: '2026-10-03',
+    at: '10:55',
+    text: 'We have the comedy show at 6pm and then I think we are going to have dinner at the hotel from say 8.30ish',
+    items: SAT_ITEMS,
+    meetings: [],
+    record: { travel: null, blocks: [] },
+    plan: { status: 'proposal', items: [['taxes', '15:00', 60]] },
+    dco: {
+      lead_story: {
+        what: 'Anniversary weekend with Sam in San Diego',
+        why_today: 'A multi-day trip celebrating their anniversary, running through Sunday.',
+      },
+      day_frame: { away: { label: 'San Diego anniversary trip', through: '2026-10-04' } },
+      voice_note: 'Keep things warm, unhurried, and supportive of them enjoying the trip.',
+    },
+    expect: {
+      aboutDay: true,
+      changes: [
+        { kinds: ['add_block', 'create_todo'], at: '18:00' },
+        { kinds: ['add_block', 'create_todo'], at: '20:30' },
+      ],
+      mentions: ['anniversary'],
+      maxChanges: 3,
+      maxModelCalls: 2,
+    },
+  },
+  {
+    id: 'left-out-stays-out',
+    title: '3 October (live test): what they left out on a card is not offered again',
+    look: 'A run fitted in, with nothing they left out on the last card offered again.',
+    today: '2026-10-03',
+    at: '10:49',
+    history: [
+      { role: 'user', content: "I listened to Blinkist this morning. I probably won't have time for anything else today." },
+      { role: 'assistant', content: "I'd log Blinkist for this morning and take Do taxes and the partner deck out of today's plan." },
+      {
+        role: 'user',
+        content:
+          "(On Gremly's card they accepted: Log Blinkist for Sat 3 Oct. They left out: Take Do taxes out of today's plan; Take Send the partner deck out of today's plan.)",
+      },
+    ],
+    text: "Let's aim for a run with Sam today",
+    items: [
+      ...SAT_ITEMS.map((x) => (x.id === 'deck' ? { ...x, due_day: '2026-10-03', note: 'in the plan' } : x)),
+      { id: 'run', kind: 'habit', title: 'Run', minutes: 45, note: 'habit today' },
+    ],
+    meetings: [],
+    record: { travel: null, blocks: [] },
+    plan: { status: 'proposal', items: [['deck', '13:00', 60], ['taxes', '15:00', 60]] },
+    expect: {
+      aboutDay: true,
+      forbid: ['plan_remove:taxes', 'plan_remove:deck', 'move_day:taxes', 'move_day:deck'],
+      maxModelCalls: 2,
+    },
+  },
+  {
     id: 'week-ahead',
     title: '3 October (live test): what is on next week',
     look: 'The week from Monday to Sunday from their items, nothing invented, nothing on the card, without stopping part way.',

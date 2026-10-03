@@ -25,6 +25,7 @@ import {
   type DayTurnRequest,
 } from '../cortex/CortexClient';
 import { patchDailyThreadMeta } from '../repo/dailyThreadRepo';
+import { rowWords } from '../changes/words';
 import { useTodayThread } from './todayThread';
 import { useGremlyStore } from '../store/useGremlyStore';
 import { selectHabitsDueToday } from '../store/selectors';
@@ -102,6 +103,47 @@ export function inversePlanChange(p: PlanChange, plan: BriefPlanMeta | null): Pl
 
 const NOTE_ORDER = ['in the plan', 'due today', 'past its day', 'locked in', 'upcoming', 'no day'];
 
+/**
+ * What one card came to, in words, for Gremly's history: what they accepted,
+ * what they left out, or that they set it aside or undid it. Their choices on
+ * a card are part of the conversation, so Gremly never offers them again.
+ */
+export function cardOutcomeWords(meta: BriefChangesMeta): string | null {
+  const rows: { cid: string; label: string }[] = meta.card?.length
+    ? meta.card.map((c) => ({ cid: c.cid, label: rowWords(c, { relative: false }) }))
+    : (meta.changes ?? []).map((c) => ({ cid: c.cid, label: c.label }));
+  if (!rows.length) return null;
+  const list = (r: { label: string }[]) => r.map((x) => x.label).join('; ');
+  if (meta.status === 'dismissed') {
+    return `(They set Gremly's card aside and changed nothing: ${list(rows)}.)`;
+  }
+  if (meta.status === 'undone')
+    return `(They accepted Gremly's card, then undid it: ${list(rows)}.)`;
+  if (meta.status !== 'applied') return null;
+  const applied = new Set(meta.applied ?? []);
+  const took = rows.filter((r) => applied.has(r.cid));
+  const left = rows.filter((r) => !applied.has(r.cid));
+  const parts = [];
+  if (took.length) parts.push(`On Gremly's card they accepted: ${list(took)}.`);
+  if (left.length) parts.push(`They left out: ${list(left)}.`);
+  return `(${parts.join(' ')})`;
+}
+
+/** One message as Gremly's history has it: what was said, and what each card came to. */
+function historyEntryOf(
+  m: SpaceChatMessage,
+): { role: 'user' | 'assistant'; content: string } | null {
+  const meta = briefMetaOf(m);
+  if (meta?.type === 'brief-changes') {
+    const words = cardOutcomeWords(meta as BriefChangesMeta);
+    return words ? { role: 'user', content: words } : null;
+  }
+  if ((m.role === 'user' || m.role === 'assistant') && m.content) {
+    return { role: m.role, content: m.content };
+  }
+  return null;
+}
+
 /** What the day turn is told: the day, the plan, their items, the conversation. */
 export function buildDayTurnRequest(
   text: string,
@@ -166,9 +208,9 @@ export function buildDayTurnRequest(
 
   const rec = dayRecordFromStore(date);
   const history = visibleThreadMessages(messages)
-    .filter((m) => (m.role === 'user' || m.role === 'assistant') && m.content)
-    .slice(-12)
-    .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+    .map(historyEntryOf)
+    .filter((h): h is { role: 'user' | 'assistant'; content: string } => !!h)
+    .slice(-12);
 
   return {
     text,
@@ -245,6 +287,8 @@ export function useDayTurn(deps: DayTurnDeps) {
   const [thinking, setThinking] = useState(false);
   /** What Gremly is doing right now, while it works on a message */
   const [status, setStatus] = useState<string | null>(null);
+  /** The message being worked on, shown in the thread at once until it is saved */
+  const [pending, setPending] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   // what each applied card can put back, while this screen is open
@@ -271,6 +315,7 @@ export function useDayTurn(deps: DayTurnDeps) {
       const changes = data?.changes ?? [];
       if (!data?.about_day || (!changes.length && !data.reply)) return false;
       await d.appendBriefMessage('user', text, {});
+      setPending(null);
       setThinking(false);
       await say(data.reply || DAY_TURN_COPY.fallbackReply);
       if (changes.length) {
@@ -300,6 +345,7 @@ export function useDayTurn(deps: DayTurnDeps) {
       const tasks = Array.isArray(data.tasks) ? data.tasks : [];
       if (!reply && !card.length) return false;
       await d.appendBriefMessage('user', text, {});
+      setPending(null);
       setThinking(false);
       await say(reply || DAY_TURN_COPY.fallbackReply);
       if (d.threadId) {
@@ -342,6 +388,7 @@ export function useDayTurn(deps: DayTurnDeps) {
       busyRef.current = true;
       setThinking(true);
       setStatus(null);
+      setPending(text);
       try {
         const res = await callBriefTurn(
           buildBriefTurnRequest(text, question, d.date, d.messages, d.plan.livePlan, d.threadId),
@@ -362,6 +409,7 @@ export function useDayTurn(deps: DayTurnDeps) {
         busyRef.current = false;
         setThinking(false);
         setStatus(null);
+        setPending(null);
       }
     },
     [fromAgent, fromDayTurn],
@@ -501,5 +549,5 @@ export function useDayTurn(deps: DayTurnDeps) {
 
   const canUndo = useCallback((messageId: string) => undoable.includes(messageId), [undoable]);
 
-  return { thinking, status, busy, run, apply, dismiss, undo, canUndo };
+  return { thinking, status, pending, busy, run, apply, dismiss, undo, canUndo };
 }

@@ -28,7 +28,7 @@ import { runAgent } from './run.js';
 import { toolContext } from './tools/index.js';
 import { AGENT_PROMPT_VERSION } from './prompt.js';
 
-export const BRIEF_AGENT_VERSION = `brief-2026-10-03b/${AGENT_PROMPT_VERSION}`;
+export const BRIEF_AGENT_VERSION = `brief-2026-10-03c/${AGENT_PROMPT_VERSION}`;
 
 // the planning day ends here when nothing earlier ends it, as in the day turn
 const DAY_END = 22 * 60;
@@ -114,16 +114,57 @@ export function briefPersona(person) {
     "You are Gremly, a warm, shame-free companion, in the person's thread for today.",
     CARE_RULES,
     `VOICE
-Warm, plain and brief, like a friend who knows their day. Suggest, never instruct. Reply in one to three short sentences of plain chat text, with no headings, lists, bold or emoji. Say what you would change in your own words, as an offer. Say plainly what cannot be done here and why. Ask a question only when you need the answer to act or to understand them, never to offer more. Never invent an item, a time, a day or a fact.`,
+Warm, lively and brief, like a friend who knows their day and is glad to be part of it. Share in what today means to them: when it is about something or someone that matters to them, be openly glad with them, in your own words, and see what they are doing today in its light. Gremly has a playful spark; let it show whenever the moment allows. Suggest, never instruct. Reply in one to three short sentences of plain chat text, with no headings, lists, bold or emoji. Say what you would change in your own words, as an offer. Say plainly what cannot be done here and why. Ask a question only when you need the answer to act or to understand them, never to offer more. Never invent an item, a time, a day or a fact.`,
     PRIVATE_RULES,
     WRITING_RULES,
     personBlock(person),
   ].join('\n\n');
 }
 
-/** What Gremly knows about today, placed last in its instructions. */
-export function dayContext(req) {
-  return `WHAT YOU KNOW ABOUT TODAY\n${renderDay(req)}`;
+/**
+ * What today is about, from Gremly's picture of their day (the DCO the brief
+ * is written from): what the day is for, where they are, and how the brief is
+ * pitching it. Empty when there is no picture of today yet.
+ */
+export function dayMeaning(dco) {
+  if (!dco || typeof dco !== 'object') return '';
+  const lines = [];
+  const lead = dco.lead_story;
+  if (lead?.what) lines.push(`- ${lead.what}${lead.why_today ? `: ${lead.why_today}` : ''}`);
+  const away = dco.day_frame?.away;
+  if (away?.label) {
+    lines.push(
+      `- Away: ${away.label}${away.through ? `, until ${weekdayName(away.through)} ${away.through}` : ''}`,
+    );
+  }
+  const moment = dco.life_moment;
+  if (moment && typeof moment === 'object' && (moment.what || moment.label)) {
+    lines.push(`- In their life right now: ${moment.what || moment.label}`);
+  } else if (typeof moment === 'string' && moment.trim()) {
+    lines.push(`- In their life right now: ${moment.trim()}`);
+  }
+  if (dco.voice_note) lines.push(`- How Gremly's brief is pitching today: ${dco.voice_note}`);
+  return lines.length
+    ? `WHAT TODAY IS ABOUT (Gremly's picture of their day)\n${lines.join('\n')}`
+    : '';
+}
+
+/** What Gremly knows about today, with their latest message: what the day is about, then the day itself. */
+export function dayContext(req, dco = null) {
+  const meaning = dayMeaning(dco);
+  return `WHAT YOU KNOW ABOUT TODAY\n${meaning ? `${meaning}\n\n` : ''}${renderDay(req)}`;
+}
+
+/** Today's picture of the day, if the brief has made one; never stops the turn. */
+async function readDco(ctx, userId, date) {
+  try {
+    const rows = await ctx.db.select(
+      `user_daily_state?user_id=eq.${userId}&date=eq.${date}&select=dco&limit=1`,
+    );
+    return rows?.[0]?.dco || null;
+  } catch {
+    return null;
+  }
 }
 
 /** A short, stable key for one person's turns in today's thread (the provider's prompt cache). */
@@ -160,16 +201,19 @@ export async function runBriefTurn({ env, userId, body, useAgent, dayTurn, onSta
   const req = readTurnRequest(body || {});
   if (!req.date || !req.text) return { engine: 'agent', error: 'nothing to read' };
   const timezone = typeof body?.timezone === 'string' && body.timezone ? body.timezone : 'UTC';
-  const person = deps.person || (await personIdentity(env, userId));
   const day = dayFrameOf(req);
   const ctx = deps.ctx
     ? { ...deps.ctx, today: req.date, day }
     : toolContext(env, { userId, today: req.date, timezone, day });
+  const [person, dco] = await Promise.all([
+    deps.person || personIdentity(env, userId),
+    readDco(ctx, userId, req.date),
+  ]);
 
   const r = await runAgent({
     surface: 'brief',
     persona: briefPersona(person),
-    context: dayContext(req),
+    context: dayContext(req, dco),
     cacheKey: cacheKeyFor(userId),
     history: req.history,
     message: req.text,

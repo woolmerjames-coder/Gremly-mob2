@@ -68,6 +68,8 @@ const flag = (name) => {
 const MODELS = { gemini: 'gemini-3.8-flash', openai: 'gpt-6-luna' };
 const models = (flag('--models') || 'gemini,openai').split(',').filter((m) => MODELS[m]);
 const only = flag('--only');
+// how much the model thinks before each step: none, low (the default), medium
+const thinking = flag('--thinking');
 const repeat = Math.max(1, Number(flag('--repeat') || 1));
 const USER = '0b7c6f0e-1d2a-4c3b-9e8f-112233445566';
 
@@ -141,6 +143,8 @@ function dbFor(s, to) {
         return todos.filter((r) => r.due_day && r.due_day < day);
       }
       if (table === 'habits') return habits;
+      // the day's picture the brief is written from, when the scenario has one
+      if (table === 'user_daily_state') return s.dco ? [{ dco: s.dco }] : [];
       return [];
     },
     rpc: async (fn, a) => {
@@ -231,7 +235,7 @@ async function runOne(s, modelKey) {
       deps: {
         person: { first_name: 'Alex', pronouns: null, identity: {} },
         ctx: { env, userId: USER, timezone: 'America/Los_Angeles', cache: new Map(), db: dbFor(s, to) },
-        models: { model: MODELS[modelKey], fallback: MODELS[modelKey] },
+        models: { model: MODELS[modelKey], fallback: MODELS[modelKey], thinking: thinking || undefined },
         // every tool call and what it said back, for the results file
         agent: {
           runTool: async (ctx, name, input) => {

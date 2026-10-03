@@ -9,6 +9,7 @@ import {
   useDayTurn,
   buildDayTurnRequest,
   buildBriefTurnRequest,
+  cardOutcomeWords,
   DAY_TURN_COPY,
 } from '../useDayTurn';
 import { callBriefTurn } from '../../cortex/CortexClient';
@@ -47,6 +48,10 @@ jest.mock('../../date/DateService', () => ({
       x.setUTCDate(x.getUTCDate() + n);
       return x.toISOString().slice(0, 10);
     },
+    // for the words of a card's rows
+    isToday: () => false,
+    isTomorrow: () => false,
+    fromLocalDate: (d: string) => new Date(`${d}T12:00:00`),
   }),
 }));
 jest.mock('../../store/useGremlyStore', () => ({
@@ -387,6 +392,71 @@ describe('the agent', () => {
     expect(req.items.map((x) => x.id)).toEqual(['mum', 'late', 'deck', 'run']);
   });
 
+  it('hears what each card came to, so a choice made on a card stands', () => {
+    const card = [
+      {
+        cid: 'c1',
+        op: 'log',
+        type: 'habit',
+        id: 'blink',
+        title: 'Blinkist',
+        days: ['2026-10-02'],
+      },
+      {
+        cid: 'c2',
+        op: 'plan',
+        id: 'deck',
+        title: 'Finish the deck',
+        plan: { kind: 'plan_remove', id: 'deck' },
+      },
+    ];
+    const applied = {
+      id: 'k1',
+      role: 'system',
+      content: '',
+      metadata_json: {
+        type: 'brief-changes',
+        status: 'applied',
+        changes: [],
+        card,
+        applied: ['c1'],
+      },
+    } as unknown as SpaceChatMessage;
+    expect(cardOutcomeWords(applied.metadata_json as any)).toBe(
+      "(On Gremly's card they accepted: Log Blinkist for Fri 2 Oct. They left out: Take Finish the deck out of today's plan.)",
+    );
+    expect(
+      cardOutcomeWords({ type: 'brief-changes', status: 'dismissed', changes: [], card } as any),
+    ).toBe(
+      "(They set Gremly's card aside and changed nothing: Log Blinkist for Fri 2 Oct; Take Finish the deck out of today's plan.)",
+    );
+    expect(
+      cardOutcomeWords({ type: 'brief-changes', status: 'open', changes: [], card } as any),
+    ).toBeNull();
+    const said = {
+      id: 'u1',
+      role: 'user',
+      content: 'log blinkist and clear the deck',
+      metadata_json: {},
+    } as any;
+    const req = buildBriefTurnRequest(
+      'and now?',
+      null,
+      '2026-10-02',
+      [PLAN, said, applied],
+      PLAN,
+      't1',
+    );
+    expect(req.history).toEqual([
+      { role: 'user', content: 'log blinkist and clear the deck' },
+      {
+        role: 'user',
+        content:
+          "(On Gremly's card they accepted: Log Blinkist for Fri 2 Oct. They left out: Take Finish the deck out of today's plan.)",
+      },
+    ]);
+  });
+
   it('shows what Gremly is doing while it works, then the reply and its card', async () => {
     const { hook, messages, deps } = harness();
     let release: () => void = () => {};
@@ -410,9 +480,10 @@ describe('the agent', () => {
       pending = hook.result.current.run('call mum at 12, leave at 12:30', null);
       await Promise.resolve();
     });
-    // while it works
+    // while it works, with their message shown at once
     expect(hook.result.current.thinking).toBe(true);
     expect(hook.result.current.status).toBe('Looking at your day');
+    expect(hook.result.current.pending).toBe('call mum at 12, leave at 12:30');
     let handled = false;
     await act(async () => {
       release();
@@ -420,6 +491,8 @@ describe('the agent', () => {
     });
     expect(handled).toBe(true);
     expect(hook.result.current.status).toBeNull();
+    // saved into the thread, so no longer shown on its own
+    expect(hook.result.current.pending).toBeNull();
     expect(messages.slice(1).map((m) => [m.role, (m.metadata_json as any).type ?? null])).toEqual([
       ['user', null],
       ['assistant', 'brief-text'],

@@ -21,7 +21,7 @@
 import { withAiNote, withAiStep } from '../../shared/aiUsage.js';
 import { models } from '../models.js';
 import { callModel as defaultCallModel } from './providers.js';
-import { buildSystem, FINAL_NOTE } from './prompt.js';
+import { buildSystem, FINAL_NOTE, messageWithContext } from './prompt.js';
 import { statusFor } from './status.js';
 import { surfaceOf } from './surfaces.js';
 import { normalizeTasks, tasksReceipt, trackTasks } from './tasks.js';
@@ -30,7 +30,11 @@ import { runTool as defaultRunTool, toolDeclarations, toolsFor } from './tools/i
 /** The model and its fallback for a surface (models.js agent, AGENT_MODEL_<SURFACE>). */
 export function agentModelsFor(surface) {
   const a = models().agent;
-  return { model: a.bySurface?.[surface] || a.model, fallback: a.fallback };
+  return {
+    model: a.bySurface?.[surface] || a.model,
+    fallback: a.fallback,
+    thinking: a.thinkingBySurface?.[surface] || undefined,
+  };
 }
 
 /** The card as the person will see it: rows numbered c1, c2, … */
@@ -83,13 +87,8 @@ export async function runAgent(p) {
   // the tools run with the surface's own versions (tools/index.js)
   const ctx = { ...p.ctx, surface: surface.name };
   let tasks = normalizeTasks(p.tasks);
-  const system = buildSystem(surface, {
-    persona: p.persona,
-    context: p.context,
-    today: p.ctx.today,
-    nowMin: p.nowMin,
-    tasks,
-  });
+  // the same for every message, so it is cached; what changes rides with the message
+  const system = buildSystem(surface, { persona: p.persona });
   const turns = [
     ...(p.history || [])
       .filter((h) => h && typeof h.content === 'string' && h.content.trim())
@@ -98,7 +97,16 @@ export async function runAgent(p) {
         text: h.content,
         provider: null,
       })),
-    { role: 'user', text: p.message },
+    {
+      role: 'user',
+      text: messageWithContext({
+        message: p.message,
+        today: p.ctx.today,
+        nowMin: p.nowMin,
+        tasks,
+        context: p.context,
+      }),
+    },
   ];
 
   const started = now();
@@ -142,7 +150,16 @@ export async function runAgent(p) {
       });
       const call = withAiStep('agent', () =>
         withAiNote(note, () =>
-          callModel({ model, system: sys, turns, tools: decls, final, keys, cacheKey: p.cacheKey }),
+          callModel({
+            model,
+            system: sys,
+            turns,
+            tools: decls,
+            final,
+            keys,
+            cacheKey: p.cacheKey,
+            thinking: chosen.thinking,
+          }),
         ),
       );
       return call.then(

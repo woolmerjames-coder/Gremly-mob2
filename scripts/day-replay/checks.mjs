@@ -14,7 +14,8 @@ const CLAIMS = [
   /\b(i['’]ve|i have)\s+(\w+\s+)?(added|moved|updated|changed|cancell?ed|removed|saved|booked|scheduled|set|put|made|taken|skipped)\b/i,
   /\ball set\b/i,
   /^\s*done\b/i,
-  /\bI\s+(added|moved|updated|changed|cancell?ed|removed|saved|booked|scheduled|put|made|took|skipped|set up|set aside)\b/i,
+  // "I put it in", but not a question or an offer such as "should I put it in"
+  /(?<!\b(?:should|could|would|can|shall|may|might|will|do|did)\s+)\bI\s+(added|moved|updated|changed|cancell?ed|removed|saved|booked|scheduled|put|made|took|skipped|set up|set aside)\b/i,
   /\b(it['’]s|that['’]s|they['’]re|is|are)\s+now\s+(added|moved|updated|changed|cancell?ed|removed|saved|booked|scheduled|in)\b/i,
 ];
 
