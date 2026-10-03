@@ -243,6 +243,7 @@ async function callResponses({
   key,
   thinking,
   maxOutputTokens,
+  cacheKey,
 }) {
   const body = {
     model,
@@ -253,6 +254,10 @@ async function callResponses({
     store: false,
     include: ['reasoning.encrypted_content'],
   };
+  // one person's turns on one surface share a cache key, so each message
+  // reuses the cached rules rather than paying for them again (prompt.js
+  // keeps what changes between messages at the end)
+  if (cacheKey) body.prompt_cache_key = cacheKey;
   if (tools.length) {
     body.tools = tools.map((t) => ({
       type: 'function',

@@ -20,6 +20,8 @@ export interface ApplyResult {
   plan: PlanChange;
   /** Set times or travel changed: the plan is re-fitted even with no item change */
   frameChanged: boolean;
+  /** They accepted Gremly's offer to plan the rest of today */
+  planDay?: boolean;
   /** Puts back everything that was done, in one go */
   revert: () => Promise<void>;
 }
@@ -203,7 +205,8 @@ function planEffectOf(c: Change, createdId: string | null, ctx: CardContext, out
   switch (c.op) {
     case 'plan': {
       const p = c.plan!;
-      if (p.kind === 'add_block' || p.kind === 'remove_block') out.frameChanged = true;
+      if (p.kind === 'plan_day') out.planDay = true;
+      else if (p.kind === 'add_block' || p.kind === 'remove_block') out.frameChanged = true;
       else if (p.kind === 'plan_remove') offPlan(p.id);
       else if (p.kind === 'plan_move' && p.id && p.start != null)
         out.plan.pin.push({ id: p.id, start: p.start });

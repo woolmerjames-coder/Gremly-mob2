@@ -172,7 +172,14 @@ export function asDayChange(c, back) {
   const f = c.fields || {};
   switch (c.op) {
     case 'add':
-      return { kind: 'create_todo', title: c.title, start: toMin(f.time), day: f.day ?? f.deadline ?? null };
+      return {
+        kind: 'create_todo',
+        type: c.type,
+        title: c.title,
+        start: toMin(f.time),
+        day: f.day ?? f.deadline ?? null,
+        bothDates: !!(f.day && f.deadline),
+      };
     case 'change':
       if ('time' in f) return { kind: 'retime', id, title: c.title, start: toMin(f.time), day: f.day ?? null };
       if ('day' in f) return { kind: 'move_day', id, title: c.title, day: f.day };
@@ -270,6 +277,14 @@ const done = await pool(jobs, 4, async ({ s, m }) => {
     output: usage.reduce((a, c) => a + c.output, 0),
     usd: usage.reduce((a, c) => a + (costUsd(c) || 0), 0),
   };
+  if (r.checks && s.expect.maxModelCalls) {
+    r.checks.push({
+      level: 'warn',
+      name: `At most ${s.expect.maxModelCalls} model calls`,
+      ok: r.usage.calls <= s.expect.maxModelCalls,
+      detail: String(r.usage.calls),
+    });
+  }
   const fails = r.checks ? r.checks.filter((c) => c.level === 'fail' && !c.ok) : [];
   const warns = r.checks ? r.checks.filter((c) => c.level === 'warn' && !c.ok) : [];
   console.log(

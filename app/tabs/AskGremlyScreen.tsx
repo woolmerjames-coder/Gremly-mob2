@@ -90,7 +90,6 @@ import { useReducedMotion } from '../../design/animations';
 import { useMascotStore } from '../../lib/store/useMascotStore';
 import { ensureDailyThread, markDailyThreadOnce } from '../../lib/repo/dailyThreadRepo';
 import type {
-  BriefChangesMeta,
   BriefDayCardMeta,
   BriefPlanMeta,
   DailyThreadMeta,
@@ -98,7 +97,7 @@ import type {
 } from '../../lib/brief/types';
 import { livePlanOf, usePlanFlow } from '../../lib/plan/usePlanFlow';
 import { useDayTurn } from '../../lib/brief/useDayTurn';
-import { ChangeCard } from '../../components/brief/ChangeCard';
+import { useRenderChanges } from '../../components/brief/ChangeCard';
 import { dayRecordFromStore } from '../../lib/plan/storePlan';
 import { creditFirstReply } from '../../lib/brief/feeding';
 import { clearFrom } from '../../lib/brief/pinned';
@@ -324,6 +323,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     patchMessageMetadata,
     plan: {
       livePlan: planFlow.livePlan,
+      start: (day) => planFlowRef.current.start(null, { day }),
       reviseAfterChanges: (c) => planFlowRef.current.reviseAfterChanges(c),
       pauseSync: () => planFlowRef.current.pauseSync(),
       resumeSync: () => planFlowRef.current.resumeSync(),
@@ -1101,22 +1101,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     ),
     [],
   );
-  const renderChanges = useCallback(
-    (message: SpaceChatMessage, meta: BriefChangesMeta) => (
-      <ChangeCard
-        meta={meta}
-        interactive={!dayTurnRef.current.busy}
-        onApply={(unticked) => void dayTurnRef.current.apply(message, unticked)}
-        onDismiss={() => void dayTurnRef.current.dismiss(message)}
-        onUndo={
-          dayTurnRef.current.canUndo(message.id)
-            ? () => void dayTurnRef.current.undo(message)
-            : undefined
-        }
-      />
-    ),
-    [],
-  );
+  // drawn again when saving ends and when Undo becomes possible (ChangeCard.tsx)
+  const renderChanges = useRenderChanges(dayTurn);
   const renderPlan = useCallback(
     (message: SpaceChatMessage, meta: BriefPlanMeta) => (
       <BriefPlanBlock

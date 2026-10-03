@@ -283,7 +283,15 @@ export const TYPES = {
 };
 
 /** Day changes in today's thread (the day turn's set times and plan). */
-export const PLAN_KINDS = ['add_block', 'remove_block', 'plan_add', 'plan_remove', 'plan_move'];
+export const PLAN_KINDS = [
+  'add_block',
+  'remove_block',
+  'plan_add',
+  'plan_remove',
+  'plan_move',
+  // make a plan for the rest of today, when there is none on screen
+  'plan_day',
+];
 
 export function fieldsOf(type) {
   return TYPES[type]?.fields || null;

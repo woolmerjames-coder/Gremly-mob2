@@ -8,7 +8,7 @@ export interface Schedule {
   days?: number[];
 }
 export interface PlanChange {
-  kind: 'add_block' | 'remove_block' | 'plan_add' | 'plan_remove' | 'plan_move';
+  kind: 'add_block' | 'remove_block' | 'plan_add' | 'plan_remove' | 'plan_move' | 'plan_day';
   id?: string;
   item?: 'todo' | 'habit';
   title?: string;

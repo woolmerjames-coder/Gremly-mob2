@@ -12,7 +12,7 @@ export const TASK_STATES = ['open', 'proposed', 'needs_answer', 'done', 'not_pos
 const MAX_TASKS = 12;
 const ASK_MAX = 140;
 
-const DESCRIPTION = `Keep the list of what the person has asked for in this conversation and where each ask stands, so nothing they asked for is lost across messages. Use it when they ask for more than one thing, or for something that takes more than one step, and whenever one of those asks moves on. Each ask is short and in their words. A state is open while you are still working on it, proposed when its change is on the card, needs_answer when you have asked them something it depends on, done once it has happened or they accepted it, not_possible when Gremly cannot do it here, and dropped when they no longer want it. Each call replaces the whole list.`;
+const DESCRIPTION = `Keep the list of what the person has asked for in this conversation and where each ask stands, so nothing they asked for is lost across messages. Use it when they ask for more than one thing, or for something that takes more than one step, and whenever one of those asks moves on. Each ask is short and in their words. A state is open while you are still working on it, proposed when its change is on the card, needs_answer when you have asked them something it depends on, done once it has happened or they accepted it, not_possible when Gremly cannot do it here, and dropped when they no longer want it. Each call replaces the whole list. Keep it in the same response as your reply, never in a step of its own; when you put changes on a card, give the list to propose_changes as tasks instead.`;
 
 export const trackTasks = {
   name: 'track_tasks',

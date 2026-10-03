@@ -61,6 +61,8 @@ export interface DayTurnDeps {
   patchMessageMetadata: (messageId: string, patch: Record<string, unknown>) => Promise<void>;
   plan: {
     livePlan: SpaceChatMessage | null;
+    /** Make a plan for the day (Plan with Gremly), when they accept Gremly's offer */
+    start: (day: string) => Promise<void>;
     reviseAfterChanges: (change: PlanChange) => Promise<void>;
     pauseSync: () => void;
     resumeSync: () => void;
@@ -372,6 +374,7 @@ export function useDayTurn(deps: DayTurnDeps) {
       if (busyRef.current || meta?.type !== 'brief-changes' || meta.status !== 'open') return;
       busyRef.current = true;
       setBusy(true);
+      let planDay = false;
       const plan = planMetaOf(d.plan.livePlan);
       const ctx = {
         date: d.date,
@@ -417,6 +420,8 @@ export function useDayTurn(deps: DayTurnDeps) {
         if (plan && (p.add.length || p.remove.length || p.pin.length || res.frameChanged)) {
           await d.plan.reviseAfterChanges(p);
         }
+        // their yes to Gremly's offer to plan the day: the planner takes it from here
+        if (res.planDay && !plan) planDay = true;
       } catch (err) {
         console.warn('[DayTurn] apply failed:', err);
       } finally {
@@ -424,7 +429,9 @@ export function useDayTurn(deps: DayTurnDeps) {
         busyRef.current = false;
         setBusy(false);
       }
-      await depsRef.current.continueBrief();
+      // the planner draws the plan next; otherwise the brief carries on
+      if (planDay) await depsRef.current.plan.start(d.date);
+      else await depsRef.current.continueBrief();
     },
     [say],
   );

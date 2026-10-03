@@ -1,30 +1,69 @@
 /**
  * The card for several changes at once (Gremly agent: one change model),
  * first used by the day turn in today's thread (Daily brief in Chat): every
- * change Gremly would make for one message, each with a tick. Accept all
- * applies every row in one tap; the ticks are there to leave one out, and the
- * button then applies the ones still ticked. Nothing changes until then.
+ * change Gremly would make for one message, each with a tick. Accept (Accept
+ * all when there are several) applies every row in one tap; the ticks are
+ * there to leave one out, and the button then applies the ones still ticked. Nothing changes until then.
  * After it, the card shows what was done with one Undo for all of it; Not now
  * folds it to one line, and so does Undo once it has put everything back.
  */
 
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Check, CircleSlash, RotateCcw, Square, SquareCheck } from 'lucide-react-native';
 import type { BriefChangesMeta } from '../../lib/brief/types';
+import type { SpaceChatMessage } from '../../lib/types';
 import { nameLookup } from '../../lib/changes/apply';
 import { rowWords } from '../../lib/changes/words';
 import { BRIEF } from './briefStyles';
 
 /**
  * The card's rows: the day turn's changes in its own words, or the agent's in
- * the change model's words (Today and Tomorrow while the card is waiting).
+ * the change model's words. Days are named by their date, as Gremly's reply
+ * names them, so the card and the reply always read the same.
  */
 export function rowsOf(meta: BriefChangesMeta): { cid: string; label: string }[] {
   if (!meta.card?.length) return meta.changes;
   const names = nameLookup();
-  const relative = meta.status === 'open';
-  return meta.card.map((c) => ({ cid: c.cid, label: rowWords(c, { relative, names }) }));
+  return meta.card.map((c) => ({ cid: c.cid, label: rowWords(c, { relative: false, names }) }));
+}
+
+/** The apply button: Accept for one row, Accept all for every row of several, else how many. */
+export function applyWords(rows: number, ticked: number): string {
+  if (ticked === rows) return rows === 1 ? 'Accept' : 'Accept all';
+  return `Apply ${ticked}`;
+}
+
+/** What the card needs from today's thread (lib/brief/useDayTurn.ts). */
+export type ChangeCardActions = {
+  busy: boolean;
+  apply: (message: SpaceChatMessage, unticked: string[]) => Promise<void>;
+  dismiss: (message: SpaceChatMessage) => Promise<void>;
+  undo: (message: SpaceChatMessage) => Promise<void>;
+  canUndo: (messageId: string) => boolean;
+};
+
+/**
+ * The thread's renderer for change cards. The thread's rows are memoized, so
+ * a card is drawn again only when this renderer changes: it changes when
+ * saving starts or ends and when Undo becomes possible or is used. Without
+ * that, a card drawn while its changes were being saved kept its buttons
+ * switched off, and Undo never answered.
+ */
+export function useRenderChanges(actions: ChangeCardActions) {
+  const { busy, canUndo, apply, dismiss, undo } = actions;
+  return useCallback(
+    (message: SpaceChatMessage, meta: BriefChangesMeta) => (
+      <ChangeCard
+        meta={meta}
+        interactive={!busy}
+        onApply={(unticked) => void apply(message, unticked)}
+        onDismiss={() => void dismiss(message)}
+        onUndo={canUndo(message.id) ? () => void undo(message) : undefined}
+      />
+    ),
+    [busy, canUndo, apply, dismiss, undo],
+  );
 }
 
 export type ChangeCardProps = {
@@ -102,7 +141,6 @@ export function ChangeCard({
   const toggle = (cid: string) =>
     setUnticked((u) => (u.includes(cid) ? u.filter((x) => x !== cid) : [...u, cid]));
   const ticked = rows.filter((c) => !unticked.includes(c.cid)).length;
-  const all = ticked === rows.length;
 
   return (
     <View style={styles.card} testID="changes-open">
@@ -137,7 +175,7 @@ export function ChangeCard({
           testID="changes-apply"
         >
           <Text style={[styles.btnText, styles.btnTextPrimary]}>
-            {all ? 'Accept all' : `Apply ${ticked}`}
+            {applyWords(rows.length, ticked)}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity

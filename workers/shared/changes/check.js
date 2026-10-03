@@ -334,7 +334,8 @@ function readPlan(plan) {
   if (start === undefined || end === undefined) return { error: 'bad_plan_time' };
   if (plan.kind === 'add_block' && (start == null || !String(plan.title || '').trim()))
     return { error: 'bad_plan' };
-  if (plan.kind !== 'add_block' && !plan.id) return { error: 'bad_plan' };
+  if (plan.kind !== 'add_block' && plan.kind !== 'plan_day' && !plan.id)
+    return { error: 'bad_plan' };
   if (plan.kind === 'plan_move' && start == null) return { error: 'bad_plan_time' };
   return { plan: { ...plan, start, end } };
 }

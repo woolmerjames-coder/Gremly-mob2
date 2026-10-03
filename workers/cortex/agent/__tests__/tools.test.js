@@ -6,7 +6,7 @@
 // turn.
 
 import { TOOLS, runTool, toolDeclarations, toolsFor } from '../tools/index.js';
-import { habitOnDay } from '../tools/getDay.js';
+import { daysToRead, habitOnDay } from '../tools/getDay.js';
 import { fieldListWords, readPlanRow, toModelChange } from '../tools/proposeChanges.js';
 
 const USER = '0b7c6f0e-1d2a-4c3b-9e8f-112233445566';
@@ -461,6 +461,18 @@ describe("propose_changes in today's thread", () => {
     expect(row({ kind: 'add_block', time: '12:30' }).reason).toBe('needs_title');
     expect(row({ kind: 'plan_add', id: NOTE }).reason).toBe('not_today');
     expect(row({ kind: 'add_block', title: 'x', time: '25:00' }).reason).toBe('bad_plan_time');
+    // an offer to plan the day only when there is no plan on screen
+    expect(row({ kind: 'plan_day' }).reason).toBe('has_plan');
+    expect(
+      readPlanRow({ op: 'plan', plan: { kind: 'plan_day' } }, 'c1', { ...day, plan: null }).raw,
+    ).toEqual({
+      cid: 'c1',
+      op: 'plan',
+      type: null,
+      id: null,
+      title: 'Plan the rest of today',
+      plan: { kind: 'plan_day', title: 'Plan the rest of today' },
+    });
     expect(
       readPlanRow({ op: 'plan', plan: { kind: 'plan_add', id: HABIT } }, 'c1', {
         ...day,
@@ -541,5 +553,78 @@ describe('running a tool', () => {
 
   it('has one tool per name', () => {
     expect(new Set(TOOLS.map((t) => t.name)).size).toBe(TOOLS.length);
+  });
+});
+
+describe('get_day over several days', () => {
+  it('reads from date through to, a week at most', () => {
+    expect(daysToRead({}, TODAY)).toEqual([TODAY]);
+    expect(daysToRead({ date: '2026-10-05', to: '2026-10-07' }, TODAY)).toEqual([
+      '2026-10-05',
+      '2026-10-06',
+      '2026-10-07',
+    ]);
+    expect(daysToRead({ date: '2026-10-05', to: '2026-10-30' }, TODAY)).toHaveLength(7);
+    expect(daysToRead({ date: '2026-10-05', to: '2026-10-01' }, TODAY)).toEqual(['2026-10-05']);
+  });
+
+  it('answers a week in one call, reading habits once', async () => {
+    const db = fakeDb({
+      'todos?owner_id': (path) =>
+        path.includes('due_day=eq.2026-10-07')
+          ? [{ id: TODO, name: 'Send the deck', due_time: null, time_estimate_minutes: 30 }]
+          : [],
+      habits: [],
+    });
+    const r = await runTool(ctxWith(db), 'get_day', { date: '2026-10-05', to: '2026-10-11' });
+    expect(r.ok).toBe(true);
+    expect(r.result.days.map((d) => d.date)).toHaveLength(7);
+    expect(r.text).toContain(`Todos for the day: Send the deck (id ${TODO}), 30 min`);
+    expect(r.text.split('\n\n')).toHaveLength(7);
+    expect(db.asked.filter((q) => typeof q === 'string' && q.startsWith('habits?'))).toHaveLength(
+      1,
+    );
+  });
+});
+
+describe('propose_changes and events', () => {
+  it('turns away a kind Gremly does not have with what an event is', async () => {
+    const r = await runTool(
+      { ...ctxWith(fakeDb({ worlds: [], chapters: [] })), surface: 'brief', day: null },
+      'propose_changes',
+      {
+        changes: [
+          {
+            op: 'add',
+            type: 'event',
+            fields: { name: 'Dentist', day: '2026-10-08', time: '10:00' },
+          },
+        ],
+      },
+    );
+    expect(r.result.dropped).toEqual([{ cid: 'c1', reason: 'unknown_type' }]);
+    expect(r.text).toContain('a note with its day and time');
+  });
+
+  it('keeps an event as a note with its day and time', async () => {
+    const r = await runTool(
+      { ...ctxWith(fakeDb({ worlds: [], chapters: [] })), surface: 'brief', day: null },
+      'propose_changes',
+      {
+        changes: [
+          {
+            op: 'add',
+            type: 'note',
+            fields: { name: 'Dentist', day: '2026-10-08', time: '10:00' },
+          },
+        ],
+      },
+    );
+    expect(r.result.changes).toHaveLength(1);
+    expect(r.result.changes[0]).toMatchObject({
+      op: 'add',
+      type: 'note',
+      fields: { day: '2026-10-08', time: '10:00' },
+    });
   });
 });

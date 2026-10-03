@@ -304,4 +304,14 @@ describe("applying the agent's card", () => {
     expect(res.plan.remove).toEqual(['mum']);
     expect(res.plan.pin).toEqual([]);
   });
+
+  it("marks a yes to Gremly's offer to plan the day, for the planner to take over", async () => {
+    const card = [
+      { cid: 'c1', op: 'plan', title: 'Plan the rest of today', plan: { kind: 'plan_day' } },
+    ] as Change[];
+    const res = await applyCardChanges(card, { ...ctx, hasPlan: false, inPlan: new Set() });
+    expect(res.done).toEqual(['c1']);
+    expect(res.planDay).toBe(true);
+    expect(res.frameChanged).toBe(false);
+  });
 });

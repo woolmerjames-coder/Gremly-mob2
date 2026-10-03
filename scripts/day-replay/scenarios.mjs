@@ -13,6 +13,11 @@
  *   maxChanges      at most this many changes
  *   dueBefore       { id or title, before: YYYY-MM-DD }: what gets someone ready
  *                   for a later date is due before it, or Gremly asks (needs_answer)
+ *   oneDate         a new todo has one date, unless the person named a deadline
+ *   offersEvent     { title, day }: the event they mentioned is offered too (warn)
+ *   mentions        words the reply should cover (warn)
+ *   maxModelCalls   at most this many model calls for the message (warn)
+ * A scenario may also carry tasks: Gremly's task list so far in the thread.
  */
 
 const ALEX_ITEMS = [
@@ -20,6 +25,17 @@ const ALEX_ITEMS = [
   { id: 'deck', kind: 'todo', title: 'Send the partner deck', due_day: '2026-10-03', minutes: 60, note: 'upcoming' },
   { id: 'present', kind: 'todo', title: 'Find a present for Sam', due_day: '2026-10-02', minutes: 45, note: 'in the plan' },
   { id: 'calendar', kind: 'todo', title: 'Set up the shared calendar', due_day: '2026-10-02', minutes: 20, note: 'due today' },
+  { id: 'pushups', kind: 'habit', title: 'Pushups', minutes: 10, note: 'habit today' },
+];
+
+
+const SAT_ITEMS = [
+  { id: 'taxes', kind: 'todo', title: 'Do taxes', due_day: '2026-10-03', minutes: 60, note: 'due today' },
+  { id: 'flowers', kind: 'todo', title: 'Water the plants', due_day: '2026-10-04', minutes: 10, note: 'upcoming' },
+  { id: 'deck', kind: 'todo', title: 'Send the partner deck', due_day: '2026-10-05', minutes: 60, note: 'upcoming' },
+  { id: 'gift', kind: 'todo', title: 'Find a present for Sam', due_day: '2026-10-05', minutes: 45, note: 'upcoming' },
+  { id: 'qbr', kind: 'todo', title: 'Schedule the QBR', due_day: '2026-10-08', minutes: 20, note: 'upcoming' },
+  { id: 'vet', kind: 'todo', title: 'Book the vet for Bella', due_day: '2026-10-09', minutes: 15, note: 'upcoming' },
   { id: 'pushups', kind: 'habit', title: 'Pushups', minutes: 10, note: 'habit today' },
 ];
 
@@ -240,5 +256,122 @@ export const SCENARIOS = [
     record: { travel: null, blocks: [] },
     plan: null,
     expect: { aboutDay: true, dueBefore: { title: 'present', before: '2026-10-10' }, maxChanges: 2 },
+  },
+  {
+    id: 'appointment-after-question',
+    title: '3 October (live test): an appointment, its day and time given after Gremly asked',
+    look: 'A card with the appointment on Thursday 8 October at 10:00, as a dated note or a todo with that day and time. Never a reply that it cannot be added.',
+    today: '2026-10-03',
+    at: '09:30',
+    history: [
+      { role: 'user', content: 'add a dentist appointment' },
+      { role: 'assistant', content: 'What day and time is the dentist appointment?' },
+    ],
+    tasks: [{ ask: 'Add a dentist appointment', status: 'needs_answer' }],
+    text: 'Thursday at 10am',
+    items: SAT_ITEMS,
+    meetings: [],
+    record: { travel: null, blocks: [] },
+    plan: null,
+    expect: {
+      aboutDay: true,
+      changes: [{ kinds: ['create_todo'], day: '2026-10-08', at: '10:00' }],
+      maxChanges: 1,
+      maxModelCalls: 3,
+    },
+  },
+  {
+    id: 'gift-for-a-wedding',
+    title: '3 October (live test): a gift for a wedding on the 17th',
+    look: 'A todo for the gift on one day before the 17th, saying why, or a question about when. The wedding itself offered as well.',
+    today: '2026-10-03',
+    at: '09:30',
+    text: "I need a gift for a friend's wedding on the 17th",
+    items: SAT_ITEMS,
+    meetings: [],
+    record: { travel: null, blocks: [] },
+    plan: null,
+    expect: {
+      aboutDay: true,
+      dueBefore: { title: 'gift', before: '2026-10-17' },
+      oneDate: true,
+      offersEvent: { title: 'wedding', day: '2026-10-17' },
+      maxChanges: 2,
+      maxModelCalls: 3,
+    },
+  },
+  {
+    id: 'gift-new-event',
+    title: 'A gift for a wedding on the 17th, with nothing like it on their list',
+    look: 'A todo for the gift on one day before the 17th, saying why, or a question about when; the wedding itself offered on the 17th.',
+    today: '2026-10-03',
+    at: '09:30',
+    text: "I need a gift for a friend's wedding on the 17th",
+    items: SAT_ITEMS.filter((x) => x.id !== 'gift'),
+    meetings: [],
+    record: { travel: null, blocks: [] },
+    plan: null,
+    expect: {
+      aboutDay: true,
+      dueBefore: { title: 'gift', before: '2026-10-17' },
+      oneDate: true,
+      offersEvent: { title: 'wedding', day: '2026-10-17' },
+      maxChanges: 2,
+      maxModelCalls: 2,
+    },
+  },
+  {
+    id: 'plan-offer',
+    title: 'No plan yet and not sure where to start: Gremly offers to plan the day',
+    look: 'An offer to plan the rest of today on the card (plan_day), without waiting to be asked.',
+    today: '2026-10-03',
+    at: '09:30',
+    text: "I've got a free morning and I'm not sure where to start",
+    items: SAT_ITEMS,
+    meetings: [],
+    record: { travel: null, blocks: [] },
+    plan: null,
+    expect: {
+      aboutDay: true,
+      changes: [{ kinds: ['plan_day'] }],
+      maxChanges: 1,
+      maxModelCalls: 2,
+    },
+  },
+  {
+    id: 'week-ahead',
+    title: '3 October (live test): what is on next week',
+    look: 'The week from Monday to Sunday from their items, nothing invented, nothing on the card, without stopping part way.',
+    today: '2026-10-03',
+    at: '09:30',
+    text: 'What do I have on next week?',
+    items: SAT_ITEMS,
+    meetings: [],
+    record: { travel: null, blocks: [] },
+    plan: null,
+    expect: {
+      aboutDay: true,
+      maxChanges: 0,
+      mentions: ['deck', 'qbr', 'vet'],
+      maxModelCalls: 3,
+    },
+  },
+  {
+    id: 'move-a-todo',
+    title: '3 October (live test): move one todo to another day',
+    look: 'One row moving Do taxes to Monday 5 October, offered, in as few calls as possible.',
+    today: '2026-10-03',
+    at: '09:30',
+    text: 'Can I move do taxes to Monday?',
+    items: SAT_ITEMS,
+    meetings: [],
+    record: { travel: null, blocks: [] },
+    plan: null,
+    expect: {
+      aboutDay: true,
+      changes: [{ kinds: ['move_day'], id: 'taxes', day: '2026-10-05' }],
+      maxChanges: 1,
+      maxModelCalls: 2,
+    },
   },
 ];

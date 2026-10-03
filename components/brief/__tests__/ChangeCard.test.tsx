@@ -38,6 +38,11 @@ describe('the change card', () => {
     expect(onApply).toHaveBeenCalledWith(['c2']);
   });
 
+  it('says Accept for one row', () => {
+    const one = { ...META, changes: [META.changes[0]] };
+    expect(render(<ChangeCard meta={one} onApply={jest.fn()} />).getByText('Accept')).toBeTruthy();
+  });
+
   it('says Accept all while every row is ticked, and how many otherwise', () => {
     const r = render(<ChangeCard meta={META} onApply={jest.fn()} />);
     expect(r.getByText('Accept all')).toBeTruthy();
@@ -107,5 +112,49 @@ describe("the agent's card", () => {
     expect(r.getByText('Skip Run today')).toBeTruthy();
     fireEvent.press(r.getByTestId('changes-apply'));
     expect(onApply).toHaveBeenCalledWith([]);
+  });
+});
+
+describe('the card in the thread', () => {
+  // the thread's rows are memoized (BriefMessage), so a card drawn while its
+  // changes were saving must be drawn again once saving ends, or Undo is dead
+  const { act } = require('@testing-library/react-native');
+  const { BriefMessage } = require('../BriefMessage');
+  const { useRenderChanges } = require('../ChangeCard');
+
+  const message = {
+    id: 'm1',
+    chat_id: 't1',
+    role: 'system',
+    content: '',
+    created_at: '2026-10-03T08:49:20Z',
+    metadata_json: { ...META, status: 'applied', applied: ['c1', 'c2'] },
+  };
+
+  it('answers Undo once saving has finished', () => {
+    const undo = jest.fn(async () => {});
+    let setState: (s: { busy: boolean; undoable: string[] }) => void = () => {};
+    function Thread() {
+      const [state, set] = React.useState({ busy: true, undoable: [] as string[] });
+      setState = set;
+      const canUndo = React.useCallback(
+        (id: string) => state.undoable.includes(id),
+        [state.undoable],
+      );
+      const renderChanges = useRenderChanges({
+        busy: state.busy,
+        apply: jest.fn(),
+        dismiss: jest.fn(),
+        undo,
+        canUndo,
+      });
+      return <BriefMessage message={message} renderChanges={renderChanges} />;
+    }
+    const r = render(<Thread />);
+    // drawn while the changes were still being saved
+    expect(r.queryByTestId('changes-undo')).toBeNull();
+    act(() => setState({ busy: false, undoable: ['m1'] }));
+    fireEvent.press(r.getByTestId('changes-undo'));
+    expect(undo).toHaveBeenCalledWith(message);
   });
 });

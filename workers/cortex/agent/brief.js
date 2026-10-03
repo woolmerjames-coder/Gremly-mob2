@@ -28,7 +28,7 @@ import { runAgent } from './run.js';
 import { toolContext } from './tools/index.js';
 import { AGENT_PROMPT_VERSION } from './prompt.js';
 
-export const BRIEF_AGENT_VERSION = `brief-2026-10-03a/${AGENT_PROMPT_VERSION}`;
+export const BRIEF_AGENT_VERSION = `brief-2026-10-03b/${AGENT_PROMPT_VERSION}`;
 
 // the planning day ends here when nothing earlier ends it, as in the day turn
 const DAY_END = 22 * 60;
@@ -72,7 +72,7 @@ export function renderDay(req) {
     }`,
   );
   L.push(
-    `CALENDAR TODAY (time | title; meetings live in their calendar and cannot be changed here): ${
+    `CALENDAR TODAY (time | title; meetings live in their calendar and cannot be changed or copied here): ${
       req.meetings
         .map(
           (m) =>
@@ -104,8 +104,12 @@ export function renderDay(req) {
   return L.join('\n\n');
 }
 
-/** Gremly in today's thread: who it is, the care rules, its voice, the person, and the day. */
-export function briefPersona(person, req) {
+/**
+ * Gremly in today's thread: who it is, the care rules, its voice and the
+ * person. The same from one message to the next, so it is read from the
+ * provider's cache; the day, which changes, is dayContext.
+ */
+export function briefPersona(person) {
   return [
     "You are Gremly, a warm, shame-free companion, in the person's thread for today.",
     CARE_RULES,
@@ -114,8 +118,22 @@ Warm, plain and brief, like a friend who knows their day. Suggest, never instruc
     PRIVATE_RULES,
     WRITING_RULES,
     personBlock(person),
-    `WHAT YOU KNOW ABOUT TODAY\n${renderDay(req)}`,
   ].join('\n\n');
+}
+
+/** What Gremly knows about today, placed last in its instructions. */
+export function dayContext(req) {
+  return `WHAT YOU KNOW ABOUT TODAY\n${renderDay(req)}`;
+}
+
+/** A short, stable key for one person's turns in today's thread (the provider's prompt cache). */
+export function cacheKeyFor(userId) {
+  let h = 0x811c9dc5;
+  for (const ch of String(userId || '')) {
+    h ^= ch.charCodeAt(0);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `gremly-brief-${h.toString(16)}`;
 }
 
 /**
@@ -150,7 +168,9 @@ export async function runBriefTurn({ env, userId, body, useAgent, dayTurn, onSta
 
   const r = await runAgent({
     surface: 'brief',
-    persona: briefPersona(person, req),
+    persona: briefPersona(person),
+    context: dayContext(req),
+    cacheKey: cacheKeyFor(userId),
     history: req.history,
     message: req.text,
     ctx,

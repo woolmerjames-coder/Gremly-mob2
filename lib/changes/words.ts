@@ -2,8 +2,8 @@
  * The words for a change: one line for a row on the card, the button for a
  * card with one change, and the closing line once it is done. Written here
  * from the change and the item, never by the model. Closing lines name the
- * date, so they are still true tomorrow; rows on a card still waiting say
- * Today and Tomorrow.
+ * date, so they are still true tomorrow. A moved item's row says where it was
+ * as well as where it goes.
  */
 import { formatDay, formatDays, formatTime } from '../chat/dayWords';
 import type { Change, Schedule } from './model';
@@ -132,6 +132,21 @@ function fieldPhrases(change: Change, names: NameLookup, opts: Opts): string[] {
   return out;
 }
 
+/**
+ * Where a moved item was, in the same terms as where it goes: its day when
+ * the day changes, its time when only the time changes. Empty when it had
+ * neither, so the row says only where it goes.
+ */
+function movedFrom(change: Change, opts: Opts): string {
+  const f = change.fields ?? {};
+  const b = change.before ?? {};
+  const day = typeof b.day === 'string' ? b.day : null;
+  const time = typeof b.time === 'string' ? b.time : null;
+  if ('day' in f && 'time' in f) return whenWords(day, time, opts);
+  if ('day' in f) return formatDay(day, opts);
+  return formatTime(time);
+}
+
 export type NameLookup = (kind: 'worlds' | 'chapters', id: string) => string;
 const noNames: NameLookup = () => 'a World';
 
@@ -150,7 +165,12 @@ export function rowWords(change: Change, opts: Opts & { names?: NameLookup } = {
     case 'change': {
       const f = change.fields ?? {};
       const phrases = fieldPhrases(change, names, opts);
-      if ('day' in f || 'time' in f) return `Move ${t} to ${phrases.join(', ')}`;
+      if ('day' in f || 'time' in f) {
+        const was = movedFrom(change, opts);
+        return was
+          ? `Move ${t} from ${was} to ${phrases.join(', ')}`
+          : `Move ${t} to ${phrases.join(', ')}`;
+      }
       if (Object.keys(f).length === 1 && 'name' in f) return `Rename ${t} to “${f.name}”`;
       return `${t}: ${phrases.join(', ')}`;
     }
@@ -197,6 +217,8 @@ function planWords(change: Change): string {
       return at ? `Fit ${change.title} in at ${at}` : `Fit ${change.title} in today`;
     case 'plan_remove':
       return `Take ${change.title} out of today's plan`;
+    case 'plan_day':
+      return 'Plan the rest of today';
     default:
       return at ? `Move ${change.title} to ${at}` : `Move ${change.title}`;
   }

@@ -6,6 +6,8 @@
 // and time budget always end in a reply, and a failing model falls back once.
 
 import { runAgent } from '../run.js';
+import { SURFACES } from '../surfaces.js';
+import { aiContext } from '../../../shared/aiUsage.js';
 import { configureModels } from '../../models.js';
 
 const ctx = {
@@ -178,7 +180,8 @@ describe('a turn', () => {
   });
 
   it('at the step cap asks once more with no tools, so there is always a reply', async () => {
-    const loops = Array.from({ length: 4 }, () => ask(['find_items', { query: 'x' }]));
+    const cap = SURFACES.brief.stepCap;
+    const loops = Array.from({ length: cap }, () => ask(['find_items', { query: 'x' }]));
     const m = scripted(...loops, (args) => {
       expect(args.final).toBe(true);
       expect(args.system).toContain('This is the last step for this message');
@@ -192,7 +195,147 @@ describe('a turn', () => {
       deps: { callModel: m.callModel, runTool: tools().runTool },
     });
     expect(r).toMatchObject({ ok: true, reply: 'Here is what I found.', stopped: 'cap' });
-    expect(m.seen).toHaveLength(5);
+    expect(m.seen).toHaveLength(cap + 1);
+  });
+
+  const onCard = (dropped = []) => ({
+    propose_changes: (args) => ({
+      ok: true,
+      text: dropped.length ? 'some dropped' : 'on the card',
+      result: {
+        changes: args.changes.map((n) => ({ cid: `c${n}`, op: 'change', id: `t${n}` })),
+        dropped,
+      },
+    }),
+  });
+
+  it('ends the turn with a reply written alongside its card, when every change made the card', async () => {
+    const m = scripted({
+      ...ask(
+        ['propose_changes', { changes: [1] }],
+        ['track_tasks', { tasks: [{ ask: 'Move it', status: 'proposed' }] }],
+      ),
+      text: "I'd move it to Monday.",
+    });
+    const r = await runAgent({
+      surface: 'brief',
+      persona: 'P',
+      message: 'move it to Monday',
+      ctx,
+      deps: { callModel: m.callModel, runTool: tools(onCard()).runTool },
+    });
+    expect(r).toMatchObject({
+      ok: true,
+      reply: "I'd move it to Monday.",
+      stopped: 'answer',
+      tasks: [{ ask: 'Move it', status: 'proposed' }],
+    });
+    expect(r.card).toEqual([{ cid: 'c1', op: 'change', id: 't1' }]);
+    // one model call for the whole message
+    expect(m.seen).toHaveLength(1);
+  });
+
+  it('takes the reply and the task list from the card itself, in one step', async () => {
+    const m = scripted(
+      ask([
+        'propose_changes',
+        {
+          changes: [1],
+          reply: "I'd move it to Monday.",
+          tasks: [{ ask: 'Move it', status: 'proposed' }],
+        },
+      ]),
+    );
+    const r = await runAgent({
+      surface: 'brief',
+      persona: 'P',
+      message: 'move it to Monday',
+      ctx,
+      deps: { callModel: m.callModel, runTool: tools(onCard()).runTool },
+    });
+    expect(r).toMatchObject({
+      ok: true,
+      reply: "I'd move it to Monday.",
+      stopped: 'answer',
+      tasks: [{ ask: 'Move it', status: 'proposed' }],
+    });
+    expect(m.seen).toHaveLength(1);
+    expect(
+      m.seen[0].tools.find((d) => d.name === 'propose_changes').parameters.properties,
+    ).toHaveProperty('reply');
+  });
+
+  it('takes another step when a change was dropped, so it can be put right', async () => {
+    const m = scripted(
+      { ...ask(['propose_changes', { changes: [1] }]), text: "I'd add it." },
+      (args) => {
+        expect(JSON.stringify(args.turns)).toContain('some dropped');
+        return { ...ask(['propose_changes', { changes: [2] }]), text: "I'd add it on Thursday." };
+      },
+    );
+    let first = true;
+    const t = tools({
+      propose_changes: (args) => {
+        const out = onCard(first ? [{ cid: 'c1', reason: 'unknown_type' }] : []).propose_changes(
+          args,
+        );
+        first = false;
+        return out;
+      },
+    });
+    const r = await runAgent({
+      surface: 'brief',
+      persona: 'P',
+      message: 'add the dentist on Thursday at 10',
+      ctx,
+      deps: { callModel: m.callModel, runTool: t.runTool },
+    });
+    expect(r).toMatchObject({ ok: true, reply: "I'd add it on Thursday.", stopped: 'answer' });
+    expect(m.seen).toHaveLength(2);
+  });
+
+  it("notes on each step's usage row what the step before got back and what this one asked for", async () => {
+    const m = scripted(ask(['find_items', { query: 'x' }]), reply('Found it.'));
+    const notes = [];
+    await aiContext.run({ env: {}, worker: 'cortex', job: 'brief-turn' }, () =>
+      runAgent({
+        surface: 'brief',
+        persona: 'P',
+        message: 'x',
+        ctx,
+        deps: {
+          callModel: async (args) => {
+            notes.push(aiContext.getStore()?.note);
+            return m.callModel(args);
+          },
+          runTool: tools().runTool,
+        },
+      }),
+    );
+    const settled = await Promise.all(notes);
+    expect(settled).toEqual([
+      { agent_step: 1, final: false, got: [], asked: ['find_items'], replied: false },
+      {
+        agent_step: 2,
+        final: false,
+        got: [{ name: 'find_items', ok: true }],
+        asked: [],
+        replied: true,
+      },
+    ]);
+  });
+
+  it('sends the cache key it is given with every step', async () => {
+    const m = scripted(ask(['find_items', { query: 'x' }]), reply('ok'));
+    await runAgent({
+      surface: 'brief',
+      persona: 'P',
+      message: 'x',
+      ctx,
+      cacheKey: 'gremly-brief-abc',
+      deps: { callModel: m.callModel, runTool: tools().runTool },
+    });
+    expect(m.seen.map((a) => a.cacheKey)).toEqual(['gremly-brief-abc', 'gremly-brief-abc']);
   });
 
   it('stops at the time budget the same way', async () => {

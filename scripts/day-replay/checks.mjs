@@ -26,17 +26,18 @@ export function checkTurn(s, out) {
   if (!out.about_day || !e.aboutDay) return checks;
 
   const changes = out.changes || [];
-  const desc = changes.map((c) => `${c.kind}${c.id ? `:${c.id}` : ''}${c.start != null ? `@${c.start}` : ''}`).join(', ');
+  const desc = changes.map((c) => `${c.kind}${c.id ? `:${c.id}` : ''}${c.day ? `/${c.day}` : ''}${c.start != null ? `@${c.start}` : ''}`).join(', ');
   for (const want of e.changes || []) {
     const hit = changes.some(
       (c) =>
         want.kinds.includes(c.kind) &&
         (!want.id || c.id === want.id) &&
         (!want.at || c.start === toMin(want.at)) &&
+        (!want.day || c.day === want.day) &&
         (want.travel === undefined || c.travel === want.travel) &&
         (!want.title || String(c.title || '').toLowerCase().includes(want.title)),
     );
-    add('fail', `Card has ${want.kinds.join('/')}${want.id ? ` ${want.id}` : ''}${want.at ? ` at ${want.at}` : ''}${want.title ? ` "${want.title}"` : ''}`, hit, desc);
+    add('fail', `Card has ${want.kinds.join('/')}${want.id ? ` ${want.id}` : ''}${want.day ? ` on ${want.day}` : ''}${want.at ? ` at ${want.at}` : ''}${want.title ? ` "${want.title}"` : ''}`, hit, desc);
   }
   for (const f of e.forbid || []) {
     const [kind, id] = f.split(':');
@@ -62,6 +63,20 @@ export function checkTurn(s, out) {
     const already = !!item?.due_day && item.due_day < d.before && !changes.some((c) => c.id === item.id && c.day);
     add('fail', `Nothing for it is due on or after ${d.before}`, !late.length, desc);
     add('fail', `It is due before ${d.before}, or Gremly asks when`, forIt.length > 0 || asked || already, `${desc} ${JSON.stringify(out.checklist)}`);
+  }
+  if (e.oneDate) {
+    // a new todo has one date, unless the person named a deadline as well
+    const both = changes.filter((c) => c.bothDates);
+    add('fail', 'A new todo has one date', !both.length, desc);
+  }
+  if (e.offersEvent) {
+    // the event the person mentioned is offered too, on its own day
+    const ev = e.offersEvent;
+    const hit = changes.some((c) => c.day === ev.day && String(c.title || '').toLowerCase().includes(ev.title));
+    add('warn', `Offers the ${ev.title} itself on ${ev.day}`, hit, desc);
+  }
+  for (const words of e.mentions || []) {
+    add('warn', `Reply covers ${words}`, String(out.reply || '').toLowerCase().includes(words), out.reply || '');
   }
   const reply = out.reply || '';
   // the worker replaces a reply that claims a change; the model is judged on its own words

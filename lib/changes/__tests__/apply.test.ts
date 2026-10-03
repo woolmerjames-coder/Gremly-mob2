@@ -297,7 +297,24 @@ describe('the words', () => {
       id: 't1',
       fields: { day: '2026-10-05', time: '15:00' },
     });
-    expect(rowWords(move, { relative: false })).toBe('Move Dentist to Mon 5 Oct, 3:00pm');
+    expect(
+      rowWords(
+        checked({ op: 'plan', title: 'Plan the rest of today', plan: { kind: 'plan_day' } } as any),
+      ),
+    ).toBe('Plan the rest of today');
+    // a moved item's row says where it was as well as where it goes
+    expect(rowWords(move, { relative: false })).toBe(
+      'Move Dentist from Fri 2 Oct, 10:00am to Mon 5 Oct, 3:00pm',
+    );
+    expect(
+      rowWords(
+        { ...move, fields: { day: '2026-10-05' }, before: { day: '2026-10-03' } },
+        { relative: false },
+      ),
+    ).toBe('Move Dentist from Sat 3 Oct to Mon 5 Oct');
+    expect(rowWords({ ...move, before: {} }, { relative: false })).toBe(
+      'Move Dentist to Mon 5 Oct, 3:00pm',
+    );
     expect(doneWords(move)).toBe('Dentist is now Mon 5 Oct, 3:00pm.');
     expect(rowWords(checked({ op: 'convert', type: 'note', id: 'n1', to: 'habit' }))).toBe(
       'Turn Packing into a habit',

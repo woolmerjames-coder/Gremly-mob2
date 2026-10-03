@@ -24,6 +24,8 @@ export function bodyFor(s) {
   return {
     text: s.text,
     question: s.question || null,
+    // Gremly's task list so far in the thread, as the app keeps it (agent only)
+    tasks: s.tasks || [],
     history: s.history || [],
     date: s.today,
     now: toMin(s.at),

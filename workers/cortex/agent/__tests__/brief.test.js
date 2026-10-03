@@ -6,7 +6,15 @@
 // can change the plan on screen and today's set times; the day turn answers
 // when the agent is off or cannot finish; the route streams status lines.
 
-import { briefPersona, briefTurnResponse, dayFrameOf, renderDay, runBriefTurn } from '../brief.js';
+import {
+  briefPersona,
+  briefTurnResponse,
+  cacheKeyFor,
+  dayContext,
+  dayFrameOf,
+  renderDay,
+  runBriefTurn,
+} from '../brief.js';
 import { readTurnRequest } from '../../../inngest-jobs/brief/dayTurn.js';
 import { configureModels } from '../../models.js';
 
@@ -114,15 +122,24 @@ describe('the day the agent knows', () => {
     expect(day.blocks).toEqual([]);
   });
 
-  it("carries Gremly's care rules, voice, the person and the day", () => {
-    const p = briefPersona({ first_name: 'Alex', pronouns: null, identity: {} }, req);
+  it("carries Gremly's care rules, voice and the person, the same from one message to the next", () => {
+    const p = briefPersona({ first_name: 'Alex', pronouns: null, identity: {} });
     expect(p).toContain('HOW TO READ TIME, PLANS AND ABSENCE');
     expect(p).toContain('PRIVATE');
     expect(p).toContain('WRITING');
     expect(p).toContain('Their first name is Alex.');
     expect(p).toContain('no headings, lists, bold or emoji');
-    expect(p).toContain('WHAT YOU KNOW ABOUT TODAY');
+    // the day changes from message to message, so it is not here (it goes last)
+    expect(p).not.toContain('WHAT YOU KNOW ABOUT TODAY');
     expect(p).not.toMatch(/ — | – /);
+    expect(dayContext(req)).toBe(`WHAT YOU KNOW ABOUT TODAY\n${renderDay(req)}`);
+  });
+
+  it('keys the prompt cache by person, without sending their id', () => {
+    expect(cacheKeyFor(USER)).toBe(cacheKeyFor(USER));
+    expect(cacheKeyFor(USER)).not.toBe(cacheKeyFor(MUM));
+    expect(cacheKeyFor(USER)).not.toContain(USER);
+    expect(cacheKeyFor(USER)).toMatch(/^gremly-brief-[0-9a-f]+$/);
   });
 });
 
@@ -191,9 +208,12 @@ describe('a turn', () => {
       }),
     ]);
     expect(lines).toEqual(['Looking at your day', 'Getting the changes ready']);
-    // what it was told: the day, then the conversation, then the message
-    expect(m.seen[0].system).toContain('WHAT YOU KNOW ABOUT TODAY');
-    expect(m.seen[0].system).toContain('YOUR JOB HERE');
+    // what it was told: the rules first, the day last, then the conversation and the message
+    const sys = m.seen[0].system;
+    expect(sys).toContain('YOUR JOB HERE');
+    expect(sys.indexOf('HOW YOU WORK')).toBeLessThan(sys.indexOf('WHAT YOU KNOW ABOUT TODAY'));
+    expect(sys.trim().endsWith(renderDay(readTurnRequest(BODY)))).toBe(true);
+    expect(m.seen[0].cacheKey).toBe(cacheKeyFor(USER));
     expect(m.seen[0].system).toContain('- Pack (done)');
     expect(m.seen[0].turns.map((t) => t.role)).toEqual(['assistant', 'user', 'user']);
     expect(m.seen[0].turns[2].text).toBe(BODY.text);

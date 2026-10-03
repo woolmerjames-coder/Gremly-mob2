@@ -13,6 +13,7 @@ import { OPS, TYPES as FIELD_TYPES, GROUPS, PLAN_KINDS } from '../../../shared/c
 import { checkCard } from '../../../shared/changes/check.js';
 import { loadItem, worldsAndChapters, isId } from './items.js';
 import { arr, bool, day, int, obj, str, strEnum, time } from './schema.js';
+import { trackTasks } from '../tasks.js';
 import { clock, dayWords, trim } from './words.js';
 
 // item changes everywhere; the plan on screen and today's set times only on
@@ -38,6 +39,8 @@ Rules:
 - Fields marked * are ${GROUPS.asked}.
 - Days are YYYY-MM-DD and times HH:MM on a 24 hour clock, worked out from today's date.
 - To empty a field, name it in clear. To add to an item's text rather than replace it, use text_add.
+- Gremly keeps todos, habits and notes. Something that happens on a set day or at a set time whatever they do is an event, and an event is a note with the day it happens and, when known, its time and when it ends. Something they need to do is a todo.
+- A todo has one date, the day to do it; set a deadline only when they name one.
 - A habit is archived only when the person asks to stop it; to leave it out for today, use skip_today.
 - To turn an item into another kind, use convert with to, and fields for the new item.
 Fields and operations by kind of item:
@@ -58,7 +61,7 @@ const FIELDS = obj({
   text_add: str('text to add to what the item says'),
   day: day('the day'),
   time: time('the time'),
-  deadline: day('when a todo is due'),
+  deadline: day('the last day a todo can be done by, only when they name one'),
   length: int('how long, in whole minutes'),
   schedule: obj(
     {
@@ -118,7 +121,10 @@ const FIELDS = obj({
 
 const PLAN = obj(
   {
-    kind: strEnum(PLAN_KINDS, 'what changes in the plan or the set times'),
+    kind: strEnum(
+      PLAN_KINDS,
+      'what changes in the plan or the set times, or plan_day to make a plan',
+    ),
     id: str(
       'the item id for plan_add, plan_remove and plan_move; the set time id for remove_block',
     ),
@@ -131,6 +137,14 @@ const PLAN = obj(
   ['kind'],
   "for plan: a change to the plan on screen or today's set times",
 );
+
+/** What travels with the card: Gremly's reply and the task list, so one step does it all. */
+const WITH_CARD = {
+  reply: str(
+    "your reply to the person, in Gremly's voice, offering what is on the card; shown with the card when every change makes it",
+  ),
+  tasks: trackTasks.parameters.properties.tasks,
+};
 
 function changeSchema({ plan }) {
   const props = {
@@ -151,10 +165,11 @@ function changeSchema({ plan }) {
 
 const DAY_DESCRIPTION = `${DESCRIPTION}
 In today's thread the plan on screen and today's set times change too, with op plan and plan.kind:
-- add_block: a set time today that the day must be planned around and that is not one of their items, with travel true when it is part of their travel. A set time on another day is a new todo with that day and time instead.
+- add_block: a set time today that the day must be planned around and that is not one of their items, with travel true when it is part of their travel. Something new they tell you about on another day is a new item for that day and time instead: a note when it happens whatever they do, a todo when it is something they do.
 - remove_block: one of today's set times that no longer holds, by its id.
 - plan_add fits one of their items for today into the plan on screen, at a time when they gave one; plan_remove takes an item out of the plan; plan_move moves an item in the plan to a new time.
-Calendar meetings live in their calendar and cannot be changed here. When they give a time for something already listed, change that item rather than adding a new one.`;
+- plan_day, when there is no plan on screen: when they accept it, Gremly plans the rest of today from their items, around what is fixed, and shows the plan for them to keep or change.
+Calendar meetings live in their calendar and cannot be changed here, and nothing is added to stand in for one: say plainly that it moves in their calendar. When they give a time for something already listed, change that item rather than adding a new one.`;
 
 const HINTS = {
   no_item: 'no item of theirs has that kind and id; look it up with find_items',
@@ -171,11 +186,14 @@ const HINTS = {
   bad_convert: 'convert needs to, another kind of item',
   no_fields: 'nothing to change was given',
   unknown_op: 'that operation is not one Gremly has',
-  unknown_type: 'that kind of item is not one Gremly has',
+  unknown_type:
+    'Gremly keeps todos, habits and notes; something that happens at a set day or time is a note with its day and time',
   not_here: "the plan and set times change only in today's thread",
   bad_plan: 'that plan change is missing what it needs: a kind, and an id or a title',
   bad_plan_time: 'times are HH:MM on a 24 hour clock',
-  no_plan: 'there is no plan on screen to change; to set a time on an item today, change its time',
+  no_plan:
+    'there is no plan on screen to change; plan_day offers to make one, and to set a time on an item today, change its time',
+  has_plan: 'there is already a plan on screen; change it with plan_add, plan_remove or plan_move',
   not_in_plan: 'that item is not in the plan on screen; plan_add fits it in',
   in_plan: 'it is already in the plan on screen; plan_move changes its time',
   no_block: 'there is no set time today with that id',
@@ -273,6 +291,10 @@ export function readPlanRow(c, cid, day) {
         item.id,
       );
     }
+    case 'plan_day':
+      // Gremly makes the plan when they accept, from their items, around what is fixed
+      if (day.plan) return { reason: 'has_plan' };
+      return row('Plan the rest of today', { kind: 'plan_day' });
     case 'plan_remove':
     case 'plan_move': {
       const placed = inPlan.get(p.id);
@@ -357,9 +379,10 @@ function makeProposeChanges({ plan }) {
   return {
     name: 'propose_changes',
     description: plan ? DAY_DESCRIPTION : DESCRIPTION,
-    parameters: obj({ changes: arr(changeSchema({ plan }), 'the changes, one per item') }, [
-      'changes',
-    ]),
+    parameters: obj(
+      { changes: arr(changeSchema({ plan }), 'the changes, one per item'), ...WITH_CARD },
+      ['changes'],
+    ),
 
     async run(ctx, input = {}) {
       const given = (Array.isArray(input.changes) ? input.changes : []).slice(0, 20);

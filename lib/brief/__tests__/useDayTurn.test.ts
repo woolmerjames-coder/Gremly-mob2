@@ -112,7 +112,8 @@ function harness(onRender?: (r: ReturnType<typeof useDayTurn>) => void) {
       m.metadata_json = { ...m.metadata_json, ...patch };
     }),
     plan: {
-      livePlan: PLAN,
+      livePlan: PLAN as SpaceChatMessage | null,
+      start: jest.fn(async (_day: string) => undefined),
       reviseAfterChanges: jest.fn(async () => undefined),
       pauseSync: jest.fn(),
       resumeSync: jest.fn(),
@@ -469,6 +470,40 @@ describe('the agent', () => {
       remove: [],
       pin: [{ id: 'mum', start: 720 }],
     });
+  });
+
+  it("starts the planner when they accept Gremly's offer to plan the day", async () => {
+    const offer = [
+      { cid: 'c1', op: 'plan', title: 'Plan the rest of today', plan: { kind: 'plan_day' } },
+    ];
+    (callBriefTurn as jest.Mock).mockResolvedValue({
+      ok: true,
+      data: {
+        engine: 'agent',
+        reply: 'Want me to plan the rest of today?',
+        card: offer,
+        tasks: [],
+      },
+    });
+    (applyCardChanges as jest.Mock).mockResolvedValue({
+      done: ['c1'],
+      failed: [],
+      plan: { add: [], remove: [], pin: [] },
+      frameChanged: false,
+      planDay: true,
+      revert: jest.fn(),
+    });
+    const { hook, messages, deps } = harness();
+    deps.plan.livePlan = null;
+    await act(async () => {
+      await hook.result.current.run('what should I do today?', null);
+    });
+    const card = messages.find((m) => (m.metadata_json as any)?.type === 'brief-changes')!;
+    await act(async () => {
+      await hook.result.current.apply(card, []);
+    });
+    expect(deps.plan.start).toHaveBeenCalledWith('2026-10-02');
+    expect(deps.continueBrief).not.toHaveBeenCalled();
   });
 
   it('waits when it asked something back, and carries on when there is nothing to do', async () => {

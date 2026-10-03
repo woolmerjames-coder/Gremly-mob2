@@ -18,7 +18,7 @@
 // and the surface falls back to its old path.
 // ============================================================================
 
-import { withAiStep } from '../../shared/aiUsage.js';
+import { withAiNote, withAiStep } from '../../shared/aiUsage.js';
 import { models } from '../models.js';
 import { callModel as defaultCallModel } from './providers.js';
 import { buildSystem, FINAL_NOTE } from './prompt.js';
@@ -42,7 +42,9 @@ function numbered(changes) {
  * Run one turn of the agent.
  * @param {object} p
  * @param {string} p.surface 'brief' | 'chat' (surfaces.js)
- * @param {string} p.persona the surface's persona, care rules and preloaded context
+ * @param {string} p.persona the surface's persona and care rules, the same from one message to the next
+ * @param {string} [p.context] what the surface knows that changes between messages, placed last
+ * @param {string} [p.cacheKey] groups one person's turns on this surface for the provider's prompt cache
  * @param {{role: 'user'|'assistant', content: string}[]} [p.history] the conversation before this message
  * @param {string} p.message what the person just said
  * @param {object} p.ctx the tools' context (tools/index.js toolContext): env, userId, today, timezone, db
@@ -83,6 +85,7 @@ export async function runAgent(p) {
   let tasks = normalizeTasks(p.tasks);
   const system = buildSystem(surface, {
     persona: p.persona,
+    context: p.context,
     today: p.ctx.today,
     nowMin: p.nowMin,
     tasks,
@@ -101,6 +104,8 @@ export async function runAgent(p) {
   const started = now();
   const steps = [];
   let card = [];
+  // what the last step's tools said, in short, for the next step's usage row
+  let lastResults = [];
   let model = chosen.model;
   let lastStatus = null;
   const status = (line) => {
@@ -128,15 +133,40 @@ export async function runAgent(p) {
     const t0 = now();
     // the last step is told so, so it never blames Gremly for steps it ran out of
     const sys = final && step > 1 ? `${system}\n\n${FINAL_NOTE}` : system;
-    let res = await withAiStep('agent', () =>
-      callModel({ model, system: sys, turns, tools: decls, final, keys }),
-    );
+    // each step's usage row says what the step before it got back and what
+    // this step asked for, so a turn can be read afterwards from the log
+    const ask = () => {
+      let settle;
+      const note = new Promise((resolve) => {
+        settle = resolve;
+      });
+      const call = withAiStep('agent', () =>
+        withAiNote(note, () =>
+          callModel({ model, system: sys, turns, tools: decls, final, keys, cacheKey: p.cacheKey }),
+        ),
+      );
+      return call.then(
+        (r) => {
+          settle({
+            agent_step: step,
+            final,
+            got: lastResults,
+            asked: (r?.calls || []).map((c) => c.name),
+            replied: !!String(r?.text || '').trim(),
+          });
+          return r;
+        },
+        (err) => {
+          settle(null);
+          throw err;
+        },
+      );
+    };
+    let res = await ask();
     if (!res.ok && step === 1 && chosen.fallback && chosen.fallback !== model) {
       steps.push({ kind: 'model', model, ms: now() - t0, ok: false, error: res.error });
       model = chosen.fallback;
-      res = await withAiStep('agent', () =>
-        callModel({ model, system: sys, turns, tools: decls, final, keys }),
-      );
+      res = await ask();
     }
     steps.push({
       kind: 'model',
@@ -174,6 +204,7 @@ export async function runAgent(p) {
       raw: res.raw,
       provider: res.provider,
     });
+    let proposed = null;
     const results = await Promise.all(
       calls.map(async (call) => {
         const t1 = now();
@@ -192,11 +223,43 @@ export async function runAgent(p) {
         const r = allowed
           ? await runTool(ctx, call.name, call.args)
           : { ok: false, text: `${call.name} is not available here.` };
-        if (call.name === 'propose_changes' && r.ok) card = r.result?.changes || [];
+        if (call.name === 'propose_changes') {
+          proposed = { ...r, reply: call.args?.reply };
+          if (r.ok) card = r.result?.changes || [];
+          // the task list can travel with the card
+          if (Array.isArray(call.args?.tasks)) tasks = normalizeTasks(call.args.tasks);
+        }
         steps.push({ kind: 'tool', name: call.name, ms: now() - t1, ok: !!r.ok });
-        return { id: call.id, nativeId: call.nativeId, name: call.name, text: r.text };
+        return {
+          id: call.id,
+          nativeId: call.nativeId,
+          name: call.name,
+          text: r.text,
+          ok: !!r.ok,
+          dropped: (r.result?.dropped || []).map((d) => d.reason),
+        };
       }),
     );
-    turns.push({ role: 'tool', results });
+    lastResults = results.map((x) => ({
+      name: x.name,
+      ok: x.ok !== false,
+      ...(x.dropped?.length ? { dropped: x.dropped } : {}),
+    }));
+    // a reply written with its card is the answer when every change made the
+    // card: no step is spent saying it again (when one was dropped, the next
+    // step sees why and puts it right)
+    const replyWithCard = String(res.text || '').trim() || String(proposed?.reply || '').trim();
+    if (
+      replyWithCard &&
+      proposed?.ok &&
+      !(proposed.result?.dropped || []).length &&
+      calls.every((c) => c.name === 'propose_changes' || c.name === trackTasks.name)
+    ) {
+      return done({ ok: true, reply: replyWithCard, stopped: 'answer' });
+    }
+    turns.push({
+      role: 'tool',
+      results: results.map(({ id, nativeId, name, text }) => ({ id, nativeId, name, text })),
+    });
   }
 }
