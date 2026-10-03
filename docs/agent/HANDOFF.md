@@ -23,11 +23,12 @@ the item search all stay; the middle layer that handles a message changes.
 | 4    | The tools                         | Done                              |
 | 5    | The core loop                     | Done                              |
 | 6    | Triage update                     | Done                              |
-| 7    | The brief on the core             | Done                              |
-| 8    | Replay suites and model choice    | Next                              |
-| 9    | General chat on the core          |                                   |
+| 7    | The brief on the core             | Done, merged to main              |
+| 8    | Replay suites and model choice    | Folded into 7 and 9               |
+| 9    | General chat on the core          | Next                              |
 | 10   | Sweep on the core                 | After the Sweep redesign is built |
-| 11   | Rollout and watching              |                                   |
+| 11   | Focused model audit               | After chat and Sweep              |
+| 12   | Rollout and watching              |                                   |
 
 Docs (Claude Docs; James comments and edits in them):
 
@@ -113,30 +114,40 @@ sent, the message gets chat's correction check (`learnFromTurn`,
 `context/corrections.js`, which checks only the message just sent); the ledger
 reader reads the rest within the hour. Replay:
 `scripts/day-replay/run-agent.sh` (same scenarios and checks as the day turn,
-plus cost per message). On Luna, James's choice: 31 of 33, 5.7s typical,
-9.5s slowest, about 0.04 cents a message. Gemini 3.8 Flash was faster but
-about 1.35 cents a message because none of its input was cached (Luna had
-97% cached); look at Gemini caching in step 8.
+plus cost per message). On Luna at low thinking, James's choice: 54 and 55 of
+57 on 19 scenarios, about 3.8s typical, about 0.02 cents a message in the
+replay. Live on 3 Oct (6 messages): 1.3s to 3.2s a model call, 2s to 5s a
+message (the first, cold, 12s), about 0.09 cents a message with the
+correction check. The day in each message (about 3,700 tokens) is never
+cached; the rules (about 5,200) are cached after the first message. The
+instructions stay the same from message to message and what changes rides in
+the latest message, which is what lets the provider cache them. Gemini 3.8
+Flash was faster but about 1.35 cents a message because none of its input
+was cached.
 
-**Step 8, replays.** Grow `scripts/agent-smoke` into multi turn replays per
-surface. Compare four models: gpt-6-luna (low effort), Gemini 3.5 Flash-Lite
-(low thinking; independent tests measured about 9s to first word at default),
-Gemini 3.8 Flash (promo price until 31 Dec 2026, then double), Claude Sonnet
-5.5 (no Anthropic key yet, and the agent has no Anthropic client yet). Score
-per job, not overall. Also compare `find_items` against the whole-list matcher
-(`entityMatch.js`) before the quick lane moves to the search. One writer per
-surface: the words the person reads come from one model on that surface.
-Thinking on today's thread stays at Luna's low (`AGENT_THINKING_BRIEF` unset,
-James, 3 Oct). Test `none` on a bigger replay here: on the 19 scenarios it
-scored 54 of 57 at about 2.5s typical against low's 51 to 53 at about 3.2s,
-but its replies were sloppier (it once offered to log a run before it
-happened), so it needs more turns than 19 to judge.
+**Step 8, folded into 7 and 9 (James, 3 Oct).** Step 7 made the model
+choice for today's thread (Luna, low thinking, `AGENT_THINKING_BRIEF` unset),
+so a four model comparison there would repeat it. What was left moves to
+step 9: chat starts on Luna at low thinking with the same cached layout, gets
+its own replay scenarios, and compares `find_items` with the whole list
+matcher (`entityMatch.js`) before the quick lane moves to the search. A
+second model is tried on a surface only when its replays or real use show a
+gap. One writer per surface: the words the person reads come from one model
+on that surface.
 
 **Step 9, general chat.** Triage's agent lane goes to `runAgent({ surface:
 'chat' })` with the persona from `gremlyPersona.js` and the preload from
 `buildChatContext`; the quick lane stays as today. Chat's one change card
 (`components/chat/EntityCardMessage.tsx`) and the list card become one
-component here.
+component here. Carried from step 8: Luna at low thinking, the cached layout,
+chat's own replay scenarios (open conversation, remembering, habits, not only
+plans), and the `find_items` against `entityMatch.js` comparison.
+
+**Step 11, focused model audit.** After chat and Sweep, a smaller audit of
+only the places that could be better, from replays and real use: a stronger
+model for harder jobs where it earns its cost, `none` thinking on a bigger
+replay (on today's thread it scored 54 of 57 at about 2.5s against low's 51
+to 53 at about 3.2s, but its replies were sloppier), and Gemini caching.
 
 ## Decisions James has made (keep to them)
 
@@ -179,13 +190,17 @@ component here.
   is an open question in the step 7 doc.
 - Agent replies get no dash cleanup for now (the brief writer's `noDashes`
   turns any dash into a comma, which reads wrong in a time range). The
-  persona settles dashes in steps 7 and 9, the step 8 replays count slips,
+  persona settles dashes in steps 7 and 9, the replays count slips,
   and a cleanup comes only if they still happen: one that writes a range as
   "to" and logs every time it fires.
 - James is staying in this session on Fable rather than switching models at
   step 6; this file still holds everything a fresh session would need.
-- All of this is on `morning-brief-fixes-10.2`; James merges and builds when
-  he chooses.
+- Steps 1 to 7 are merged to main (PR #144, f8de3b13). Step 9 is on
+  `chat-fixes-10.3` (worktree `gremly-mob2.worktrees/chat-fixes-103`). James
+  merges, deploys (inngest-jobs, then cortex) and builds when he chooses.
+- Model audits (James, 3 Oct): no separate bake-off before each surface;
+  start each surface on what works, and audit in one focused pass after chat
+  and Sweep.
 
 ## How to work here
 
