@@ -2,8 +2,8 @@
  * @jest-environment node
  */
 // Usage logging shared by cortex and inngest-jobs: the row each call writes,
-// the route/step job name, the run id, the first chunk time of a stream, and
-// Tavily searches.
+// the route/step job name, the run id, the first chunk time of a stream, the
+// note of what a call decided, and Tavily searches.
 
 import {
   aiContext,
@@ -11,6 +11,7 @@ import {
   jobName,
   priceFor,
   setAiUsage,
+  withAiNote,
   withAiStep,
 } from '../aiUsage';
 
@@ -175,6 +176,47 @@ describe('the row each call writes', () => {
     });
     expect(rows[0].meta.first_chunk_ms).toBeGreaterThanOrEqual(20);
     expect(rows[0].latency_ms).toBeGreaterThanOrEqual(rows[0].meta.first_chunk_ms);
+  });
+
+  it('adds what a call decided to its row, once the caller has read the answer', async () => {
+    provider = async () =>
+      new Response(JSON.stringify({ model: 'gpt-4.1-mini', usage: {} }), {
+        headers: { 'content-type': 'application/json' },
+      });
+    await request({ job: 'general_chat' }, async () => {
+      let settle;
+      const decided = new Promise((resolve) => (settle = resolve));
+      const res = await withAiNote(decided, () =>
+        withAiStep('triage_mode', () =>
+          fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }),
+        ),
+      );
+      await res.json();
+      settle({ triage: { mode: 'quick_ask', lane: 'lookup' } });
+    });
+    expect(rows[0]).toMatchObject({
+      job: 'general_chat/triage_mode',
+      meta: { triage: { mode: 'quick_ask', lane: 'lookup' } },
+    });
+  });
+
+  it('leaves the note off a failed call and off a note that never says anything', async () => {
+    provider = async () => new Response('busy', { status: 503 });
+    await request({ job: 'general_chat' }, () =>
+      withAiNote(Promise.resolve({ triage: { lane: 'agent' } }), () =>
+        fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }),
+      ),
+    );
+    provider = async () => new Response('{}');
+    await request({ job: 'general_chat' }, () =>
+      withAiNote(Promise.resolve(null), () =>
+        fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }),
+      ),
+    );
+    expect(rows.map((r) => [r.ok, r.meta])).toEqual([
+      [false, null],
+      [true, null],
+    ]);
   });
 
   it('logs a Tavily search with no tokens and no price', async () => {

@@ -1,0 +1,161 @@
+{
+ "set": "lane_extra",
+ "runs": [
+  {
+   "tag": "mini1",
+   "model": "gpt-4.1-mini",
+   "variant": "one-call",
+   "turns": 22,
+   "failed_calls": 0,
+   "fell_back": 1,
+   "three_all": {
+    "n": 0,
+    "all": 0,
+    "mode": 0,
+    "depth": 0,
+    "search": 0
+   },
+   "three_general": {
+    "n": 0,
+    "all": 0,
+    "mode": 0,
+    "depth": 0,
+    "search": 0
+   },
+   "lane": {
+    "n": 22,
+    "right": 19,
+    "share": {
+     "quick": 9,
+     "lookup": 0,
+     "agent": 13
+    },
+    "gold_share": {
+     "quick": 7,
+     "lookup": 0,
+     "agent": 15
+    },
+    "misses": {
+     "quick -> agent": 1,
+     "agent -> quick": 2
+    }
+   },
+   "p50_ms": 789,
+   "p90_ms": 1020,
+   "usd_per_1000": 0.5239636363636364
+  },
+  {
+   "tag": "luna1",
+   "model": "gpt-6-luna",
+   "variant": "one-call",
+   "turns": 22,
+   "failed_calls": 0,
+   "fell_back": 0,
+   "three_all": {
+    "n": 0,
+    "all": 0,
+    "mode": 0,
+    "depth": 0,
+    "search": 0
+   },
+   "three_general": {
+    "n": 0,
+    "all": 0,
+    "mode": 0,
+    "depth": 0,
+    "search": 0
+   },
+   "lane": {
+    "n": 22,
+    "right": 17,
+    "share": {
+     "quick": 10,
+     "lookup": 3,
+     "agent": 9
+    },
+    "gold_share": {
+     "quick": 7,
+     "lookup": 0,
+     "agent": 15
+    },
+    "misses": {
+     "agent -> lookup": 3,
+     "agent -> quick": 2
+    }
+   },
+   "p50_ms": 1189,
+   "p90_ms": 2209,
+   "usd_per_1000": 0.13450454545454546
+  },
+  {
+   "tag": "gem1",
+   "model": "gemini-3.8-flash",
+   "variant": "one-call",
+   "turns": 22,
+   "failed_calls": 0,
+   "fell_back": 0,
+   "three_all": {
+    "n": 0,
+    "all": 0,
+    "mode": 0,
+    "depth": 0,
+    "search": 0
+   },
+   "three_general": {
+    "n": 0,
+    "all": 0,
+    "mode": 0,
+    "depth": 0,
+    "search": 0
+   },
+   "lane": {
+    "n": 22,
+    "right": 21,
+    "share": {
+     "quick": 4,
+     "lookup": 0,
+     "agent": 18
+    },
+    "gold_share": {
+     "quick": 7,
+     "lookup": 0,
+     "agent": 15
+    },
+    "misses": {
+     "quick -> agent": 1
+    }
+   },
+   "p50_ms": 1315,
+   "p90_ms": 1979,
+   "usd_per_1000": 1.179443181818182
+  }
+ ],
+ "paired": [
+  {
+   "tag": "luna1",
+   "three": {
+    "better": 0,
+    "worse": 0,
+    "p": 1
+   },
+   "lane": {
+    "better": 3,
+    "worse": 5,
+    "p": 0.7265625
+   }
+  },
+  {
+   "tag": "gem1",
+   "three": {
+    "better": 0,
+    "worse": 0,
+    "p": 1
+   },
+   "lane": {
+    "better": 2,
+    "worse": 0,
+    "p": 0.5
+   }
+  }
+ ]
+}

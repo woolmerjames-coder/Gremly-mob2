@@ -12692,6 +12692,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               search: triage.search,
               personal: triage.personal,
               depth: triage.depth,
+              // recorded only: nothing routes on the lane until step 9 of the agent plan
+              lane: triage.lane || null,
               anchored: anchor ? (anchor.gone ? 'gone' : true) : false,
             });
 

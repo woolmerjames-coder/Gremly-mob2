@@ -1,0 +1,169 @@
+{
+ "set": "lane_test",
+ "runs": [
+  {
+   "tag": "mini1",
+   "model": "gpt-4.1-mini",
+   "variant": "one-call",
+   "turns": 271,
+   "failed_calls": 0,
+   "fell_back": 2,
+   "three_all": {
+    "n": 195,
+    "all": 130,
+    "mode": 150,
+    "depth": 191,
+    "search": 173
+   },
+   "three_general": {
+    "n": 195,
+    "all": 130,
+    "mode": 150,
+    "depth": 191,
+    "search": 173
+   },
+   "lane": {
+    "n": 271,
+    "right": 255,
+    "share": {
+     "quick": 233,
+     "lookup": 1,
+     "agent": 37
+    },
+    "gold_share": {
+     "quick": 208,
+     "lookup": 15,
+     "agent": 48
+    },
+    "misses": {
+     "lookup -> quick": 7,
+     "agent -> quick": 8,
+     "quick -> agent": 1
+    }
+   },
+   "p50_ms": 735,
+   "p90_ms": 868,
+   "usd_per_1000": 0.5447158671586716
+  },
+  {
+   "tag": "luna1",
+   "model": "gpt-6-luna",
+   "variant": "one-call",
+   "turns": 271,
+   "failed_calls": 0,
+   "fell_back": 0,
+   "three_all": {
+    "n": 195,
+    "all": 148,
+    "mode": 172,
+    "depth": 188,
+    "search": 174
+   },
+   "three_general": {
+    "n": 195,
+    "all": 148,
+    "mode": 172,
+    "depth": 188,
+    "search": 174
+   },
+   "lane": {
+    "n": 271,
+    "right": 258,
+    "share": {
+     "quick": 218,
+     "lookup": 17,
+     "agent": 36
+    },
+    "gold_share": {
+     "quick": 208,
+     "lookup": 15,
+     "agent": 48
+    },
+    "misses": {
+     "agent -> quick": 7,
+     "quick -> lookup": 2,
+     "lookup -> quick": 1,
+     "quick -> agent": 2,
+     "agent -> lookup": 1
+    }
+   },
+   "p50_ms": 1022,
+   "p90_ms": 1480,
+   "usd_per_1000": 0.1397029520295203
+  },
+  {
+   "tag": "gem1",
+   "model": "gemini-3.8-flash",
+   "variant": "one-call",
+   "turns": 271,
+   "failed_calls": 0,
+   "fell_back": 0,
+   "three_all": {
+    "n": 195,
+    "all": 161,
+    "mode": 173,
+    "depth": 193,
+    "search": 184
+   },
+   "three_general": {
+    "n": 195,
+    "all": 161,
+    "mode": 173,
+    "depth": 193,
+    "search": 184
+   },
+   "lane": {
+    "n": 271,
+    "right": 261,
+    "share": {
+     "quick": 210,
+     "lookup": 16,
+     "agent": 45
+    },
+    "gold_share": {
+     "quick": 208,
+     "lookup": 15,
+     "agent": 48
+    },
+    "misses": {
+     "lookup -> quick": 2,
+     "agent -> quick": 5,
+     "agent -> lookup": 1,
+     "quick -> agent": 1,
+     "quick -> lookup": 1
+    }
+   },
+   "p50_ms": 1256,
+   "p90_ms": 2238,
+   "usd_per_1000": 1.1104566420664201
+  }
+ ],
+ "paired": [
+  {
+   "tag": "luna1",
+   "three": {
+    "better": 40,
+    "worse": 22,
+    "p": 0.030015864349067292
+   },
+   "lane": {
+    "better": 9,
+    "worse": 6,
+    "p": 0.60723876953125
+   }
+  },
+  {
+   "tag": "gem1",
+   "three": {
+    "better": 43,
+    "worse": 12,
+    "p": 0.000033053764732060564
+   },
+   "lane": {
+    "better": 10,
+    "worse": 4,
+    "p": 0.1795654296875
+   }
+  }
+ ]
+}

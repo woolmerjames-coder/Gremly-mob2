@@ -17,7 +17,9 @@
  * general_chat/triage_mode or general_chat/reply. Every call one request makes
  * shares its run_id, so a chat message's calls add up to its cost. A streamed
  * call also records how long its first chunk took (meta.first_chunk_ms), which
- * is the time to first words.
+ * is the time to first words. A call can also carry a note of what it decided
+ * (withAiNote), which lands in its row's meta, so a decision such as triage's
+ * can be read beside the call that made it.
  *
  * Logging never blocks or breaks the call it records: the response is cloned,
  * read after the caller has it, and every failure here is swallowed.
@@ -103,6 +105,38 @@ export function withAiStep(step, fn, { keep = false } = {}) {
   const store = aiContext.getStore();
   if (!store || !step || (keep && store.step)) return fn();
   return aiContext.run({ ...store, step }, fn);
+}
+
+/**
+ * Run fn with a note for the rows of the calls it makes: what the call
+ * decided, merged into the row's meta. The note may be a promise the caller
+ * settles once it has read the answer; the row waits for it a short while,
+ * after the call has finished, so the call itself never waits. Only a call
+ * that succeeded carries the note.
+ */
+export function withAiNote(note, fn) {
+  const store = aiContext.getStore();
+  if (!store || !note) return fn();
+  return aiContext.run({ ...store, note }, fn);
+}
+
+const NOTE_WAIT_MS = 5000;
+
+async function settleNote(note) {
+  let timer;
+  try {
+    const value = await Promise.race([
+      Promise.resolve(note),
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(null), NOTE_WAIT_MS);
+      }),
+    ]);
+    return value && typeof value === 'object' ? value : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function emptyUsage() {
@@ -295,6 +329,12 @@ async function record({
   if (provider !== 'tavily') parseBody(provider, text, u);
   if (!u.model) u.model = modelFromRequest(provider, url, reqBody);
   const latency = Date.now() - started;
+  const ok = status >= 200 && status < 300;
+  const note = ok && store.note ? await settleNote(store.note) : null;
+  const meta = {
+    ...(streamed && firstChunkMs !== null ? { first_chunk_ms: firstChunkMs } : {}),
+    ...(note || {}),
+  };
   await writeUsageRow(
     store.env,
     {
@@ -311,10 +351,10 @@ async function record({
       cost_usd: costUsd(u),
       latency_ms: latency,
       status,
-      ok: status >= 200 && status < 300,
+      ok,
       batch: false,
       run_id: store.runId || null,
-      meta: streamed && firstChunkMs !== null ? { first_chunk_ms: firstChunkMs } : null,
+      meta: Object.keys(meta).length ? meta : null,
     },
     rawFetch,
   );

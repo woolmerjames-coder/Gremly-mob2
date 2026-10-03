@@ -44,7 +44,8 @@ MINDDROP_RELATE_ENABLED = "true"
 #   AGENT_MODEL               the agent's model on every surface (agent/run.js; default gemini-3.8-flash)
 #   AGENT_FALLBACK_MODEL      tried once when the agent's first step fails (default gpt-6-luna)
 #   AGENT_MODEL_BRIEF, AGENT_MODEL_CHAT  one surface on its own
-#   TRIAGE_ONE_CALL           on: one triage call instead of two (default off)
+#   TRIAGE_ONE_CALL           on: one triage call instead of two (default off); its model is
+#                             MODEL_TRIAGE, and in Ask Gremly it also records the lane
 #   CHAT_EXTRACTION_V2        on: evidence rule, 2,000 cap, JSON mode, skipped on
 #                             chit chat, playful, app help, venting, emotional,
 #                             celebration turns (default off)
@@ -58,16 +59,24 @@ MINDDROP_RELATE_ENABLED = "true"
 
 # The split from docs/2026-09-29-chat-helper-model-audit.md, live since 29 Sep 2026.
 # James judges the chat tone in the app rather than by a replay (his call).
-# The reply path (chat model and triage) is back on the models it ran on before
-# 29 Sep: the live test found the tone had changed, and that change was never
-# put through the corpus gate. Helpers that do not shape the reply stay on Luna.
+# The chat model is back on the model it ran on before 29 Sep: the live test
+# found the tone had changed, and that change was never put through the corpus
+# gate. Helpers that do not shape the reply stay on Luna.
+# Triage (agent plan step 6, replay of 2 Oct 2026 on the audit's 500 locked
+# turns and 293 lane turns): one call on Luna with no thinking, 75% of turns
+# with mode, length and search all right against 68% for the two calls on
+# gpt-4.1-mini, 95% of lanes right, 0.94s typical. It changes the reply's
+# instructions on about half of messages, so James judges the tone in the app.
+# To go back: TRIAGE_ONE_CALL = "off" (the two calls keep gpt-4.1-mini). A
+# failed call is retried once on HELPER_FALLBACK_MODEL.
 CHAT_MODEL = "gemini-3-flash-preview"
 HELPER_MODEL = "gpt-6-luna"
 HELPER_FALLBACK_MODEL = "gemini-3.8-flash"
+MODEL_TRIAGE = "gpt-6-luna"
 MODEL_TRIAGE_MODE = "gpt-4.1-mini"
 MODEL_TRIAGE_SIGNALS = "gpt-4.1-mini"
 MODEL_LOADING_MESSAGE = "gpt-4.1-mini"
-TRIAGE_ONE_CALL = "off"
+TRIAGE_ONE_CALL = "on"
 CHAT_EXTRACTION_V2 = "on"
 SEARCH_REQUIRED_FORCES = "off"
 ENTITY_CARDS = "on"

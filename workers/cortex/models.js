@@ -51,6 +51,7 @@ export const DEFAULTS = {
 
 // Helper jobs and the var that moves each one on its own.
 export const HELPER_JOB_VARS = {
+  triage: 'MODEL_TRIAGE', // triage.js classifyOneCall: mode, signals and the lane in one call (TRIAGE_ONE_CALL)
   triage_mode: 'MODEL_TRIAGE_MODE', // triage.js classifyMode
   triage_signals: 'MODEL_TRIAGE_SIGNALS', // triage.js classifyWithMini: search, personal, depth
   loading_message: 'MODEL_LOADING_MESSAGE', // triage.js generateLoadingMessage

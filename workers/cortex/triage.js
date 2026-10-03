@@ -1,11 +1,17 @@
 import { helperFetch } from './helperClient.js';
 import { models } from './models.js';
+import { withAiNote } from '../shared/aiUsage.js';
 
 /**
  * Chat Triage Classifier (Worker JS version)
  *
- * Two parallel GPT-4.1-nano calls to classify a user message
- * before the main chat generation call.
+ * Classifies a user message before the main chat generation call: two
+ * parallel helper calls (mode, then search, personal and depth), or one call
+ * that returns all four with TRIAGE_ONE_CALL=on. In Ask Gremly the one call
+ * also returns the lane (quick, lookup or agent): what Gremly must do before
+ * it can reply. The lane is recorded with the call in ai_usage and nothing
+ * acts on it yet (step 6 of the agent plan; general chat routes on it in
+ * step 9).
  */
 
 // ============================================================================
@@ -34,6 +40,12 @@ const VALID_SEARCH = ['required', 'maybe', 'none'];
 
 const VALID_PERSONAL = ['deep', 'light', 'none'];
 const VALID_DEPTH = ['brief', 'standard', 'detailed'];
+export const VALID_LANES = ['quick', 'lookup', 'agent'];
+
+// The chat types that ask for a lane: Ask Gremly only. Space, World, Chapter
+// and item chat keep today's triage, since the agent is not planned there, and
+// today's thread has no triage once it moves onto the agent (step 7).
+export const LANE_CHAT_TYPES = ['general'];
 
 // ============================================================================
 // PRESET MAPPING
@@ -104,6 +116,8 @@ export const PRESET_TO_TRIAGE = {
 
 const FALLBACK_MODE = 'exploratory';
 const FALLBACK_SEARCH = 'none';
+// Today's path, so a lane that could not be read changes nothing.
+const FALLBACK_LANE = 'quick';
 
 const FALLBACK_TRIAGE = {
   mode: FALLBACK_MODE,
@@ -139,6 +153,18 @@ MODES:
 When a message has both emotional and task signals, prioritize emotional.
 
 Return ONLY JSON: {"mode":"..."}`;
+
+// What Gremly must do before it can reply well. Semantic rules only: no
+// examples and no word lists. The labelling guide for the replay
+// (scripts/chat-audit/data/LABEL_GUIDE_LANE.md) restates these definitions.
+export const LANE_RULES = `LANE: what Gremly must do before it can reply well.
+- quick: Gremly can reply from the conversation and what it already holds about this person: their story and context, today's plan and what they have done today, the last three days, and what it recalls that bears on the message. Facts about the outside world that a web search can supply also count as quick. Nothing of theirs is asked to change.
+- lookup: Replying well needs facts about the person's own things or past that Gremly may not hold: a particular item of theirs, what is planned on a day other than today, how something has gone over time, what they have of some kind, or something from an earlier conversation. Nothing of theirs is asked to change.
+- agent: The person asks Gremly to make a change to their own things in the app, such as creating, editing, rescheduling, completing, logging, skipping or removing something, or planning things into their days, whether one change or several. Also any message that asks for several separate things to be done.
+
+These count as asking for a change, so they are agent: saying they need or mean to do something new that Gremly could keep for them; accepting or answering Gremly's own offer or question about a change; following up a change they asked for that has not been made.
+These are quick: mentioning something that could change one of their existing things without asking Gremly to change it; telling Gremly something about themselves, or correcting what it believes about them.
+When a message asks for a change and also needs a lookup, it is agent. When unsure, choose quick.`;
 
 // ============================================================================
 // PRIVATE HELPERS
@@ -352,8 +378,11 @@ async function classifyWithMini(userInput, domainNames, profileSnippet, messageC
 // One call variant (TRIAGE_ONE_CALL=on): the two prompts joined, asking for one
 // JSON object. Built from the same prompt text so the definitions cannot drift;
 // only the framing and return lines are new. Tested in the chat helper model
-// audit; identical to scripts/chat-audit/triage-jobs.mjs buildOneCallSystemPrompt.
-export function buildOneCallSystemPrompt(domainNames, profileSnippet, messageCount) {
+// audit; without the lane it is identical to scripts/chat-audit/triage-jobs.mjs
+// buildOneCallSystemPrompt. With { lane: true } the lane rules follow the
+// signals and the answer carries a lane too.
+export function buildOneCallSystemPrompt(domainNames, profileSnippet, messageCount, opts = {}) {
+  const lane = !!opts.lane;
   const mode = MODE_SYSTEM_PROMPT.replace(/Return ONLY JSON:[\s\S]*$/, '').trim();
   const signals = buildSignalsSystemPrompt(domainNames, profileSnippet, messageCount)
     .replace(/Return ONLY JSON:[\s\S]*$/, '')
@@ -366,41 +395,87 @@ export function buildOneCallSystemPrompt(domainNames, profileSnippet, messageCou
     /^Classify three signals for a chat message in a productivity companion app\. The AI has personal context about this user\.\s*/,
     '',
   );
-  return `Classify a chat message in a productivity companion app: one response mode and three signals. The AI has personal context about this user.
+  if (!lane) {
+    return `Classify a chat message in a productivity companion app: one response mode and three signals. The AI has personal context about this user.
 
 ${modeBody}
 
 ${signalsBody}
 
 Return ONLY JSON: {"mode":"...","personal":"...","depth":"...","search":"..."}`;
+  }
+  return `Classify a chat message in a productivity companion app: one response mode, three signals and a lane. The AI has personal context about this user.
+
+${modeBody}
+
+${signalsBody}
+
+${LANE_RULES}
+
+Return ONLY JSON: {"mode":"...","personal":"...","depth":"...","search":"...","lane":"..."}`;
 }
 
-async function classifyOneCall(userInput, domainNames, profileSnippet, messageCount) {
-  const res = await helperFetch('triage_mode', {
-    messages: [
-      {
-        role: 'system',
-        content: buildOneCallSystemPrompt(domainNames, profileSnippet, messageCount),
-      },
-      { role: 'user', content: userInput },
-    ],
-    max_tokens: 80,
-    temperature: 0.1,
-  });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    console.error('[Triage] one call failed', res.status, errText.slice(0, 200));
-    return null;
-  }
-  const json = await res.json();
-  const result = safeParseJsonTriage(json.choices?.[0]?.message?.content || '');
-  return {
-    mode: result?.mode && VALID_MODES.includes(result.mode) ? result.mode : FALLBACK_MODE,
-    personal:
-      result?.personal && VALID_PERSONAL.includes(result.personal) ? result.personal : 'light',
-    depth: result?.depth && VALID_DEPTH.includes(result.depth) ? result.depth : 'standard',
-    search: result?.search && VALID_SEARCH.includes(result.search) ? result.search : 'none',
+/**
+ * Read the one call's answer. A field that is missing or not one of its
+ * values takes its fallback, and is named in `fellBack` so the usage log
+ * shows it rather than hiding it.
+ * @returns {{mode: string, personal: string, depth: string, search: string, lane?: string, fellBack: string[]}}
+ */
+export function readOneCall(content, opts = {}) {
+  const result = safeParseJsonTriage(content || '');
+  const fellBack = [];
+  const pick = (field, valid, fallback) => {
+    const v = result?.[field];
+    if (typeof v === 'string' && valid.includes(v)) return v;
+    fellBack.push(field);
+    return fallback;
   };
+  const out = {
+    mode: pick('mode', VALID_MODES, FALLBACK_MODE),
+    personal: pick('personal', VALID_PERSONAL, 'light'),
+    depth: pick('depth', VALID_DEPTH, 'standard'),
+    search: pick('search', VALID_SEARCH, 'none'),
+  };
+  if (opts.lane) out.lane = pick('lane', VALID_LANES, FALLBACK_LANE);
+  return { ...out, fellBack };
+}
+
+async function classifyOneCall(userInput, domainNames, profileSnippet, messageCount, opts = {}) {
+  // Its own helper job (MODEL_TRIAGE), so switching TRIAGE_ONE_CALL off puts
+  // the two calls back on their own models. What it decided goes on its usage
+  // row (ai_usage job <route>/triage, meta.triage), so each message's lane can
+  // be read beside the call that chose it.
+  let settle = () => {};
+  const decided = new Promise((resolve) => {
+    settle = resolve;
+  });
+  try {
+    const res = await withAiNote(decided, () =>
+      helperFetch('triage', {
+        messages: [
+          {
+            role: 'system',
+            content: buildOneCallSystemPrompt(domainNames, profileSnippet, messageCount, opts),
+          },
+          { role: 'user', content: userInput },
+        ],
+        max_tokens: 80,
+        temperature: 0.1,
+      }),
+    );
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      console.error('[Triage] one call failed', res.status, errText.slice(0, 200));
+      return null;
+    }
+    const json = await res.json();
+    const { fellBack, ...decision } = readOneCall(json.choices?.[0]?.message?.content, opts);
+    if (fellBack.length) console.error('[Triage] one call answer fell back', { fellBack });
+    settle({ triage: fellBack.length ? { ...decision, fell_back: fellBack } : decision });
+    return decision;
+  } finally {
+    settle(null);
+  }
 }
 
 export async function triageMessage(options) {
@@ -422,6 +497,10 @@ export async function triageMessage(options) {
     return PRESET_TO_TRIAGE[preset];
   }
 
+  // The lane comes with the one call only; two calls stay exactly as today.
+  const wantsLane = LANE_CHAT_TYPES.includes(chatType) && models().flags.triageOneCall;
+  const fallback = wantsLane ? { ...FALLBACK_TRIAGE, lane: FALLBACK_LANE } : FALLBACK_TRIAGE;
+
   try {
     const classifierInput = buildClassifierInput(
       userMessage,
@@ -436,9 +515,10 @@ export async function triageMessage(options) {
         domainNames || [],
         profileSnippet || '',
         messageCount || 0,
+        { lane: wantsLane },
       );
       if (one) return { ...one, source: 'classifier' };
-      return FALLBACK_TRIAGE;
+      return fallback;
     }
 
     const [mode, miniSignals] = await Promise.all([
@@ -460,7 +540,7 @@ export async function triageMessage(options) {
       source: 'classifier',
     };
   } catch (err) {
-    console.error('[Triage] Promise.all failed', err);
-    return FALLBACK_TRIAGE;
+    console.error('[Triage] failed', err);
+    return fallback;
   }
 }

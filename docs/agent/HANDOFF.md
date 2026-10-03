@@ -22,8 +22,8 @@ the item search all stay; the middle layer that handles a message changes.
 | 3    | One change model                  | Done                              |
 | 4    | The tools                         | Done                              |
 | 5    | The core loop                     | Done                              |
-| 6    | Triage update                     | Next                              |
-| 7    | The brief on the core             |                                   |
+| 6    | Triage update                     | Done                              |
+| 7    | The brief on the core             | Next                              |
 | 8    | Replay suites and model choice    |                                   |
 | 9    | General chat on the core          |                                   |
 | 10   | Sweep on the core                 | After the Sweep redesign is built |
@@ -38,6 +38,8 @@ Docs (Claude Docs; James comments and edits in them):
 - Step 4, the tools: https://claude.ai/code/artifact/4e1d4c5d-72d0-47b7-a63d-79f3b906f228
 - Step 5, the core, the first run with real models, what is still open:
   https://claude.ai/code/artifact/b3630ed3-f3f7-4d16-8f21-2134b31e864c
+- Step 6, triage and the lane, the replay, decisions:
+  https://claude.ai/code/artifact/167d9176-a2ff-4419-bbe7-34f71a7ffcbe
 
 Each step so far has had its own doc. Keep that going: one doc per step, made
 before the work, filled as it goes, ending with what is next.
@@ -67,19 +69,26 @@ Nothing calls `runAgent` yet.
 
 ## What the next steps need
 
-**Step 6, triage.** Today `workers/cortex/triage.js` runs two gpt-4.1-mini
-calls (mode, and search/personal/depth). Agreed: add a lane (quick, lookup,
-agent) with rules per surface; move to the one call version already built
-behind `TRIAGE_ONE_CALL`; run it on Luna with reasoning off
-(`openAIMinimalEffort` already sends `none` for gpt-6), keeping gpt-4.1-mini as
-the fallback until replay shows Luna is at least as fast. Triage runs alongside
-the item match, so check the critical path in ai_usage (chat is logged by
-route/step now) before and after. The baseline, from James's 9 chats on 3
-October: first model call to the reply's first word 2.7s typical (2.1 to
-3.3s); triage_mode 0.4s, triage_signals 0.7s, entity_match 1.2s, side by side;
-the reply starts when entity_match ends. So the one call triage must finish
-before the match or it adds time. Start time of a call is `created_at` minus
-`latency_ms`; the reply's first word is that plus `meta.first_chunk_ms`.
+**Step 6, triage (done).** `workers/cortex/triage.js`: with
+`TRIAGE_ONE_CALL=on` one call (helper job `triage`, model `MODEL_TRIAGE`,
+Luna with no thinking) returns mode, the three signals and, in Ask Gremly
+only (`LANE_CHAT_TYPES`), the lane: quick, lookup or agent (`LANE_RULES`,
+James's decisions written in). `readOneCall` reads the answer and names any
+field that fell back. The lane is recorded, not acted on: it goes into the
+triage call's ai_usage row as `meta.triage` (through `withAiNote` in
+`workers/shared/aiUsage.js`) and into the `[GeneralChat:Triage]` log. The
+replay is `scripts/chat-audit/run-lane.mjs` and `score-lane.mjs`; lane answers
+are `data/lane_turns.json` with two blind labellers and an adjudicator
+(`LABEL_GUIDE_LANE.md`, `labels_lane_A.json`, `labels_lane_B.json`,
+`adjudicated_lane.json`). Results and James's choices are in the step 6 doc:
+Luna one call 75% of turns with mode, length and search right against 68%
+today, 95% of lanes right, 0.94s typical; Gemini 3.8 Flash was more accurate
+(84%, catches more change requests) but slower and dearer, and James chose
+Luna. Any triage change rewrites the reply's instructions on about half of
+messages, so James judges the tone in the app; `TRIAGE_ONE_CALL=off` goes
+back. Before step 9 routes on the lane, read the real mix from ai_usage
+(`job like '%/triage'`, `meta->'triage'->>'lane'`) and rescore the lane if
+the rules change (any rule change means relabelling with the new guide).
 
 **Step 7, the brief on the core.** The day turn today: the app builds a
 `DayTurnRequest` (`lib/brief/useDayTurn.ts` `buildDayTurnRequest`), cortex
@@ -131,19 +140,26 @@ component here.
 - Budgets per surface: in the steps 1 and 2 doc. Brief card in 6s typical,
   10s slow; chat agent lane 10s slow, up to 3 cents a message; 10 cents a
   person a day all in.
-- Usage logging in cortex works (checked on James's chats of 3 October: one
+- Usage logging in cortex works (checked on James's chats of 2 October: one
   run_id per message, user_id set, `first_chunk_ms` on the reply). Small
   loose ends: the Tavily row's job has no step and no cost, and the running
   summary is written twice for about half of chat messages (look at it in
   step 9; it runs after the reply).
 
-## Open questions for James
-
-- Agent replies and dashes: the brief writer's `noDashes` turns any dash into
-  a comma, which would make a time range read wrong. Lean given in the step 5
-  doc: fix it in the persona first, count slips in the step 8 replays, then
-  add a cleanup only if needed, one that writes ranges as "to" and logs when
-  it fires. Check the step 5 doc for his answer.
+- Lanes (step 6): a change only hinted at stays quick (the item match still
+  offers its card); something new they say they need to do, accepting
+  Gremly's offer of a change, and following up a change never made are
+  agent; telling Gremly about themselves or correcting it is quick; when
+  unsure, quick; quick covers the last three days. Today's thread has no
+  triage: from step 7 every message goes to the agent. Triage runs on Luna
+  in one call, switched on with step 6; James judges the tone in the app.
+- Agent replies get no dash cleanup for now (the brief writer's `noDashes`
+  turns any dash into a comma, which reads wrong in a time range). The
+  persona settles dashes in steps 7 and 9, the step 8 replays count slips,
+  and a cleanup comes only if they still happen: one that writes a range as
+  "to" and logs every time it fires.
+- James is staying in this session on Fable rather than switching models at
+  step 6; this file still holds everything a fresh session would need.
 - All of this is on `morning-brief-fixes-10.2`; James merges and builds when
   he chooses.
 
