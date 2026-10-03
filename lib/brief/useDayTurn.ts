@@ -266,6 +266,7 @@ export function buildBriefTurnRequest(
     ...buildDayTurnRequest(text, question, date, messages, livePlan),
     timezone: getDateService().getTimezone(),
     tasks: tasksOf(threadId),
+    chat_id: threadId,
   };
 }
 

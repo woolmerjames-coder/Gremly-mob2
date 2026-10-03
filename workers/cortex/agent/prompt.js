@@ -9,7 +9,7 @@
 
 import { tasksWords } from './tasks.js';
 
-export const AGENT_PROMPT_VERSION = 'agent-2026-10-03g';
+export const AGENT_PROMPT_VERSION = 'agent-2026-10-03h';
 
 export const CORE_RULES = `HOW YOU WORK
 You can look things up and put changes on a card before you reply. Work like this:

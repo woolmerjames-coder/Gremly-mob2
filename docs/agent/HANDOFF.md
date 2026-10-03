@@ -108,7 +108,10 @@ agent's card from `Change[]` (`ChangeCard` `rowsOf`, `rowWords`) and applies it
 with `applyCardChanges` (plan effects from the change model). The task list
 lives on the thread (`agent_tasks`); the brief waits when a task needs an
 answer. `AGENT_BRIEF` switches it; off, or when the agent cannot finish, the
-day turn answers. Older app builds still call `day-turn`. Replay:
+day turn answers. Older app builds still call `day-turn`. Once the answer is
+sent, the message gets chat's correction check (`learnFromTurn`,
+`context/corrections.js`, which checks only the message just sent); the ledger
+reader reads the rest within the hour. Replay:
 `scripts/day-replay/run-agent.sh` (same scenarios and checks as the day turn,
 plus cost per message). On Luna, James's choice: 31 of 33, 5.7s typical,
 9.5s slowest, about 0.04 cents a message. Gemini 3.8 Flash was faster but
@@ -123,6 +126,11 @@ Gemini 3.8 Flash (promo price until 31 Dec 2026, then double), Claude Sonnet
 per job, not overall. Also compare `find_items` against the whole-list matcher
 (`entityMatch.js`) before the quick lane moves to the search. One writer per
 surface: the words the person reads come from one model on that surface.
+Thinking on today's thread stays at Luna's low (`AGENT_THINKING_BRIEF` unset,
+James, 3 Oct). Test `none` on a bigger replay here: on the 19 scenarios it
+scored 54 of 57 at about 2.5s typical against low's 51 to 53 at about 3.2s,
+but its replies were sloppier (it once offered to log a run before it
+happened), so it needs more turns than 19 to judge.
 
 **Step 9, general chat.** Triage's agent lane goes to `runAgent({ surface:
 'chat' })` with the persona from `gremlyPersona.js` and the preload from

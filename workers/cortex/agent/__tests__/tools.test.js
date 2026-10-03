@@ -393,6 +393,10 @@ describe('propose_changes', () => {
       '- c4: no item of theirs has that kind and id; look it up with find_items',
     );
     expect(r.text).toContain('- c5: the value for time is not valid');
+    // a fix proposed on its own would replace the rows that made it
+    expect(r.text).toContain(
+      'Proposing again puts a new card in place of this one, so a fix goes in with every change above that should stay.',
+    );
   });
 
   it('says when nothing made it', async () => {
@@ -405,6 +409,7 @@ describe('propose_changes', () => {
     );
     expect(r.text).toContain('Nothing made it onto the card.');
     expect(r.text).toContain('- c1: a new item needs a name');
+    expect(r.text).not.toContain('Proposing again');
   });
 });
 

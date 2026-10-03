@@ -18,10 +18,23 @@ export const PRIVATE_RULES = `PRIVATE
 - Anything the person named themselves, such as a habit, a todo or a Chapter title they chose, is theirs to see wherever it lives.`;
 
 /** House style for any text Gremly writes that the person may read. */
+const PLAIN_ENGLISH = `- Plain, warm English. Never use em dashes, en dashes or double hyphens; use commas, full stops or "to" for ranges.`;
+const NO_FEELINGS_OR_ADVICE = `- Never describe someone's feelings for them, and never give advice no one asked for.`;
+
 export const WRITING_RULES = `WRITING
-- Plain, warm English. Never use em dashes, en dashes or double hyphens; use commas, full stops or "to" for ranges.
+${PLAIN_ENGLISH}
 - No ampersands except inside a proper name. No exclamation marks.
-- Never describe someone's feelings for them, and never give advice no one asked for.`;
+${NO_FEELINGS_OR_ADVICE}`;
+
+/**
+ * The same house rules for a conversation (today's thread, and chat once it
+ * runs on the agent): a reply there can share in something with them, so an
+ * exclamation mark is allowed now and then, when it is earned.
+ */
+export const CHAT_WRITING_RULES = `WRITING
+${PLAIN_ENGLISH}
+- No ampersands except inside a proper name. An exclamation mark only now and then, when something is worth celebrating with them, and at most one in a reply.
+${NO_FEELINGS_OR_ADVICE}`;
 
 /**
  * Who the person is, for any prompt that writes about them. Pronouns are never

@@ -165,7 +165,7 @@ function changeSchema({ plan }) {
 
 const DAY_DESCRIPTION = `${DESCRIPTION}
 In today's thread the plan on screen and today's set times change too, with op plan and plan.kind:
-- add_block: a set time today that the day must be planned around and that is not one of their items, with travel true when it is part of their travel. Something new they tell you about on another day is a new item for that day and time instead: a note when it happens whatever they do, a todo when it is something they do.
+- add_block: a set time today that the day must be planned around and that is not one of their items, with travel true when it is part of their travel. It is the whole change for that time, so it is not also made a new item. Something new they tell you about on another day is a new item for that day and time instead: a note when it happens whatever they do, a todo when it is something they do.
 - remove_block: one of today's set times that no longer holds, by its id.
 - plan_add fits one of their items for today into the plan on screen, at a time when they gave one; plan_remove takes an item out of the plan; plan_move moves an item in the plan to a new time.
 - plan_day, when there is no plan on screen: when they accept it, Gremly plans the rest of today from their items, around what is fixed, and shows the plan for them to keep or change.
@@ -462,6 +462,11 @@ function makeProposeChanges({ plan }) {
       if (dropped.length) {
         lines.push('Dropped:');
         for (const d of dropped) lines.push(`- ${d.cid}: ${hint(d.reason)}`);
+        // proposing again replaces this card, so a fix alone would lose the rest
+        if (changes.length)
+          lines.push(
+            'Proposing again puts a new card in place of this one, so a fix goes in with every change above that should stay.',
+          );
       }
       return lines.join('\n');
     },

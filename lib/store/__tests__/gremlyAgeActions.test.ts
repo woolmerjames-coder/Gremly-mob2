@@ -49,6 +49,7 @@ jest.mock('../../supabase/client', () => ({
 import { act } from '@testing-library/react-native';
 import { useGremlyStore } from '../useGremlyStore';
 import { supabase } from '../../supabase/client';
+import { getDateService } from '../../date';
 
 describe('Gremly Age Store Actions', () => {
   const mockRpc = supabase.rpc as jest.Mock;
@@ -345,6 +346,39 @@ describe('Gremly Age Store Actions', () => {
       });
 
       expect(mockFrom).not.toHaveBeenCalled();
+    });
+
+    it("moves the app's day (DateService) with it", async () => {
+      await act(async () => {
+        await useGremlyStore.getState().setDayBoundaryHour(3);
+      });
+
+      expect(getDateService().getDayBoundaryHour()).toBe(3);
+    });
+
+    it("the app's day follows the boundary however the store gets it (the load, sign out)", () => {
+      act(() => {
+        useGremlyStore.setState({ dayBoundaryHour: 4 });
+      });
+      expect(getDateService().getDayBoundaryHour()).toBe(4);
+
+      act(() => {
+        useGremlyStore.setState({ dayBoundaryHour: 0 });
+      });
+      expect(getDateService().getDayBoundaryHour()).toBe(0);
+    });
+
+    it("opening the app starts the app's day at the saved boundary, from the first render", () => {
+      const merge = useGremlyStore.persist.getOptions().merge!;
+      const opened = merge(
+        { dayBoundaryHour: 3, todayRitualDay: null },
+        useGremlyStore.getState(),
+      ) as ReturnType<typeof useGremlyStore.getState>;
+
+      expect(getDateService().getDayBoundaryHour()).toBe(3);
+      // the ritual day, so opening between midnight and 3am is not a new day
+      expect(opened.currentDate).toBe(getDateService().ritualDay());
+      expect(opened.dayBoundaryHour).toBe(3);
     });
 
     it('updates local state even on upsert error (local-first)', async () => {

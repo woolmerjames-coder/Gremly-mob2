@@ -388,6 +388,7 @@ describe('the agent', () => {
       text: 'call mum at 12',
       timezone: 'America/Los_Angeles',
       tasks: [{ ask: 'Pack', status: 'done' }],
+      chat_id: 't1',
     });
     expect(req.items.map((x) => x.id)).toEqual(['mum', 'late', 'deck', 'run']);
   });

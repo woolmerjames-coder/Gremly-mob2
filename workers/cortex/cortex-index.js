@@ -13222,11 +13222,10 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
 
                     // Corrections: when they say Gremly has something about their
                     // life wrong, the context pipeline applies it straight away.
+                    // Only this turn's message is checked (each one once).
                     const correctionCheck = checkForCorrection({
                       conversationText,
-                      userTexts: recentMsgs
-                        .filter((m) => m.role === 'user')
-                        .map((m) => String(m.content || '')),
+                      latest: recentMsgs.filter((m) => m.role === 'user').at(-1)?.content,
                       chatId: body.chatId,
                       userId: authenticatedUserId,
                       env,

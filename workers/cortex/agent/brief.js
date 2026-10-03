@@ -13,12 +13,16 @@
 //
 // When the agent cannot finish, the day turn answers instead, exactly as it
 // did before this step, so the thread always gets an answer.
+//
+// Once the answer is sent, the message reaches Gremly's memory as a chat
+// message does: a correction goes to the context pipeline straight away
+// (learnFromTurn), and the ledger reader reads the rest within the hour.
 // ============================================================================
 
 import {
   CARE_RULES,
+  CHAT_WRITING_RULES,
   PRIVATE_RULES,
-  WRITING_RULES,
   personBlock,
 } from '../../inngest-jobs/careRules.js';
 import { readTurnRequest } from '../../inngest-jobs/brief/dayTurn.js';
@@ -27,8 +31,9 @@ import { personIdentity, weekdayName } from '../../shared/db.js';
 import { runAgent } from './run.js';
 import { toolContext } from './tools/index.js';
 import { AGENT_PROMPT_VERSION } from './prompt.js';
+import { checkForCorrection } from '../context/corrections.js';
 
-export const BRIEF_AGENT_VERSION = `brief-2026-10-03c/${AGENT_PROMPT_VERSION}`;
+export const BRIEF_AGENT_VERSION = `brief-2026-10-03d/${AGENT_PROMPT_VERSION}`;
 
 // the planning day ends here when nothing earlier ends it, as in the day turn
 const DAY_END = 22 * 60;
@@ -116,7 +121,7 @@ export function briefPersona(person) {
     `VOICE
 Warm, lively and brief, like a friend who knows their day and is glad to be part of it. Share in what today means to them: when it is about something or someone that matters to them, be openly glad with them, in your own words, and see what they are doing today in its light. Gremly has a playful spark; let it show whenever the moment allows. Suggest, never instruct. Reply in one to three short sentences of plain chat text, with no headings, lists, bold or emoji. Say what you would change in your own words, as an offer. Say plainly what cannot be done here and why. Ask a question only when you need the answer to act or to understand them, never to offer more. Never invent an item, a time, a day or a fact.`,
     PRIVATE_RULES,
-    WRITING_RULES,
+    CHAT_WRITING_RULES,
     personBlock(person),
   ].join('\n\n');
 }
@@ -237,9 +242,56 @@ export async function runBriefTurn({ env, userId, body, useAgent, dayTurn, onSta
   return fromDayTurn({ agent_error: String(r.error || 'failed').slice(0, 200), agent: how });
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Whether today's thread answers the message itself. One it does not answer
+ * (nothing to say and no card) goes on to normal chat in the app (useDayTurn),
+ * and chat runs its own correction check on it, so it is checked there, once.
+ */
+export function answeredInThread(result) {
+  if (!result || result.error) return false;
+  if (result.engine === 'agent')
+    return !!(String(result.reply || '').trim() || result.card?.length);
+  return !!(result.about_day && (result.reply || result.changes?.length));
+}
+
+/**
+ * After the answer is sent, what they just said reaches Gremly's memory the way
+ * a chat message does: when they say Gremly has something about their life
+ * wrong, the context pipeline corrects it straight away. The message is the one
+ * checked; the conversation before it and the reply are its background.
+ *
+ * @param {object} p
+ * @param {object} p.env
+ * @param {string} p.userId
+ * @param {object} p.body the app's request
+ * @param {object|null} p.result what answered, as the route sends it
+ * @param {object} [p.deps] { checkForCorrection } for tests
+ * @returns {Promise<{sent: number}>}
+ */
+export async function learnFromTurn({ env, userId, body, result, deps = {} }) {
+  const req = readTurnRequest(body || {});
+  if (!req.text || !answeredInThread(result)) return { sent: 0 };
+  const lines = req.history.map((m) => `${m.role === 'user' ? 'User' : 'Gremly'}: ${m.content}`);
+  lines.push(`User: ${req.text}`);
+  if (typeof result?.reply === 'string' && result.reply) lines.push(`Gremly: ${result.reply}`);
+  const check = deps.checkForCorrection || checkForCorrection;
+  return check({
+    conversationText: lines.join('\n\n'),
+    latest: req.text,
+    chatId: typeof body?.chat_id === 'string' && UUID.test(body.chat_id) ? body.chat_id : null,
+    userId,
+    env,
+    surface: 'brief',
+  });
+}
+
 /**
  * The route's answer: status lines while the turn runs, then the result, as
- * server-sent events ({ status } lines, then { done: true, ... }).
+ * server-sent events ({ status } lines, then { done: true, ... }). The stream
+ * closes with the result; learning from the turn runs after that, so it adds
+ * no wait.
  */
 export function briefTurnResponse({ waitUntil, ...p }) {
   const { readable, writable } = new TransformStream();
@@ -255,9 +307,10 @@ export function briefTurnResponse({ waitUntil, ...p }) {
     }
   };
   const work = (async () => {
+    let result = null;
     try {
       await send({ ping: true });
-      const result = await runBriefTurn({ ...p, onStatus: (line) => void send({ status: line }) });
+      result = await runBriefTurn({ ...p, onStatus: (line) => void send({ status: line }) });
       await send({ done: true, ...result });
     } catch (err) {
       console.error('[BriefTurn] failed', err);
@@ -270,6 +323,14 @@ export function briefTurnResponse({ waitUntil, ...p }) {
         // already closed
       }
     }
+    if (result)
+      await learnFromTurn({
+        env: p.env,
+        userId: p.userId,
+        body: p.body,
+        result,
+        deps: p.deps?.learn,
+      }).catch((err) => console.warn('[BriefTurn] learning from the turn failed', err?.message));
   })();
   if (typeof waitUntil === 'function') waitUntil(work);
   return new Response(readable, {

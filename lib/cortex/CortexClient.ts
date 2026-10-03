@@ -2288,6 +2288,8 @@ export interface BriefTurnRequest extends DayTurnRequest {
   timezone: string;
   /** The agent's task list so far in today's thread */
   tasks: AgentTask[];
+  /** Today's thread, so a correction said in it is filed against it */
+  chat_id: string;
 }
 
 /**

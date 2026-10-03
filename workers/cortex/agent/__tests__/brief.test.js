@@ -13,15 +13,18 @@ import {
   dayContext,
   dayFrameOf,
   dayMeaning,
+  learnFromTurn,
   renderDay,
   runBriefTurn,
 } from '../brief.js';
 import { readTurnRequest } from '../../../inngest-jobs/brief/dayTurn.js';
+import { CHAT_WRITING_RULES } from '../../../inngest-jobs/careRules.js';
 import { configureModels } from '../../models.js';
 
 const MUM = '11111111-1111-4111-8111-111111111111';
 const PUSHUPS = '22222222-2222-4222-8222-222222222222';
 const USER = '0b7c6f0e-1d2a-4c3b-9e8f-112233445566';
+const CHAT = '3c9f1a52-7d1e-4b8a-9c3f-5e6d7a8b9c0d';
 
 const BODY = {
   text: 'I need to call my parents at 12 and then leave for the airport at 12:30',
@@ -136,6 +139,9 @@ describe('the day the agent knows', () => {
     expect(p).toContain('HOW TO READ TIME, PLANS AND ABSENCE');
     expect(p).toContain('PRIVATE');
     expect(p).toContain('WRITING');
+    // a conversation may celebrate with them now and then (the brief itself may not)
+    expect(p).toContain(CHAT_WRITING_RULES);
+    expect(p).not.toContain('No exclamation marks.');
     expect(p).toContain('Their first name is Alex.');
     expect(p).toContain('no headings, lists, bold or emoji');
     // the day changes from message to message, so it is not here (it goes last)
@@ -319,5 +325,100 @@ describe('the route', () => {
       card: [],
     });
     expect(waited).toHaveLength(1);
+  });
+
+  it('learns from the message once the stream has closed', async () => {
+    const m = scripted(reply('Glad you caught that.'));
+    const checked = [];
+    const waited = [];
+    const res = briefTurnResponse({
+      env: {},
+      userId: USER,
+      body: { ...BODY, text: 'the dinner is Sunday, not today', chat_id: CHAT },
+      useAgent: true,
+      dayTurn: async () => null,
+      deps: {
+        person: {},
+        ctx: fakeCtx,
+        agent: { callModel: m.callModel },
+        learn: { checkForCorrection: async (a) => (checked.push(a), { sent: 1 }) },
+      },
+      waitUntil: (p) => waited.push(p),
+    });
+    await res.text();
+    await waited[0];
+    expect(checked).toHaveLength(1);
+    expect(checked[0]).toMatchObject({
+      latest: 'the dinner is Sunday, not today',
+      chatId: CHAT,
+      userId: USER,
+      surface: 'brief',
+    });
+  });
+});
+
+describe('learning from the turn', () => {
+  it('checks the message just sent, with the conversation and the reply as background', async () => {
+    const checked = [];
+    const r = await learnFromTurn({
+      env: {},
+      userId: USER,
+      body: { ...BODY, chat_id: CHAT },
+      result: { engine: 'agent', reply: 'Done, both are on the card.' },
+      deps: { checkForCorrection: async (a) => (checked.push(a), { sent: 0 }) },
+    });
+    expect(r).toEqual({ sent: 0 });
+    expect(checked[0].latest).toBe(BODY.text);
+    expect(checked[0].conversationText).toBe(
+      [
+        ...BODY.history.map((m) => `${m.role === 'user' ? 'User' : 'Gremly'}: ${m.content}`),
+        `User: ${BODY.text}`,
+        'Gremly: Done, both are on the card.',
+      ].join('\n\n'),
+    );
+    expect(checked[0].chatId).toBe(CHAT);
+  });
+
+  it('files without a thread when the app sends none', async () => {
+    const checked = [];
+    await learnFromTurn({
+      env: {},
+      userId: USER,
+      body: { ...BODY, chat_id: 'not-a-thread' },
+      result: { engine: 'agent', reply: 'Noted.', card: [] },
+      deps: { checkForCorrection: async (a) => (checked.push(a), { sent: 0 }) },
+    });
+    expect(checked[0].chatId).toBeNull();
+  });
+
+  it('leaves a message the thread does not answer to normal chat, which checks it there', async () => {
+    const checked = [];
+    const check = async (a) => (checked.push(a), { sent: 0 });
+    for (const result of [
+      { engine: 'agent', reply: '  ', card: [] },
+      { engine: 'day_turn', about_day: false, reply: 'Not about today.' },
+      { engine: 'day_turn', about_day: true, reply: '', changes: [] },
+      { engine: 'agent', error: 'nothing to read' },
+      null,
+    ]) {
+      const r = await learnFromTurn({
+        env: {},
+        userId: USER,
+        body: BODY,
+        result,
+        deps: { checkForCorrection: check },
+      });
+      expect(r).toEqual({ sent: 0 });
+    }
+    expect(checked).toHaveLength(0);
+    // the day turn answering in the thread is checked like the agent
+    await learnFromTurn({
+      env: {},
+      userId: USER,
+      body: BODY,
+      result: { engine: 'day_turn', about_day: true, reply: 'Moved it.', changes: [] },
+      deps: { checkForCorrection: check },
+    });
+    expect(checked).toHaveLength(1);
   });
 });

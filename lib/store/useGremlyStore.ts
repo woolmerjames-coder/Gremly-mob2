@@ -1813,6 +1813,9 @@ export const useGremlyStore = create<GremlyState>()(
               firstTodayVisitCompletedAt:
                 (cortexPrefs?.first_today_visit_completed_at as string) ?? null,
               todayRitualDay: ritualDay,
+              // the app's day is the same ritual day (DateService follows the
+              // boundary, followDayBoundary at the end of this file)
+              currentDate: ritualDay,
               todayDropsCount: ritualProgress?.drops_count ?? 0,
               todaySweepsCount: ritualProgress?.sweeps_count ?? 0,
               todayRitualCompletedAt: ritualProgress?.ritual_completed_at ?? null,
@@ -2401,8 +2404,8 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) return;
 
-          // Local-first: update DateService + Zustand before Supabase (offline-safe)
-          getDateService().setDayBoundaryHour(hour);
+          // Local-first: the store (and with it DateService, followDayBoundary
+          // below) before Supabase (offline-safe)
           set({ dayBoundaryHour: hour });
 
           const { error } = await supabase
@@ -11251,6 +11254,12 @@ export const useGremlyStore = create<GremlyState>()(
             );
           if (!persistedState) return currentState;
 
+          // The app's day starts at the saved boundary from the first render
+          // (followDayBoundary keeps DateService in step after this)
+          getDateService().setDayBoundaryHour(
+            persistedState.dayBoundaryHour ?? currentState.dayBoundaryHour,
+          );
+
           // Day-aware hydration: keep cached gauge values on same-day
           // re-opens, only reset on day boundaries (Soul Document v8)
           const dayBoundaryHour = persistedState.dayBoundaryHour ?? 4;
@@ -11266,8 +11275,10 @@ export const useGremlyStore = create<GremlyState>()(
             isLoading: false,
             isInitialized: false,
             lastSyncedAt: null,
-            // Always use fresh date on app start
-            currentDate: getDateService().today(),
+            // Always use fresh date on app start: the ritual day, as the day
+            // rollover (useDayRollover) reads it, so opening the app between
+            // midnight and the day boundary is not taken for a new day
+            currentDate: getDateService().ritualDay(),
             // Day-aware gauge state: preserve on same-day, reset on day boundary.
             // On day boundary, initialize() will re-populate from Supabase.
             feedingGaugeValue: isSameRitualDay ? persistedState.feedingGaugeValue : 0,
@@ -11317,6 +11328,27 @@ export const useGremlyStore = create<GremlyState>()(
     ),
   ),
 );
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DAY BOUNDARY
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The app's day starts at the person's day boundary hour, the hour the server's
+ * day starts too (brief, notifications). DateService.ritualDay() reads that
+ * hour, so DateService follows the store's value: the saved copy sets it when
+ * the app opens (merge, above), and this keeps it in step with every change
+ * after that (the load from Supabase, Settings, sign out). Before this, only a
+ * change in Settings reached DateService, so after midnight the app was on the
+ * next day while the server was not.
+ */
+function followDayBoundary() {
+  useGremlyStore.subscribe((state, prev) => {
+    if (state.dayBoundaryHour !== prev.dayBoundaryHour)
+      getDateService().setDayBoundaryHour(state.dayBoundaryHour);
+  });
+}
+followDayBoundary();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SELECTORS
