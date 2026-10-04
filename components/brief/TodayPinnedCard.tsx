@@ -2,9 +2,10 @@
  * The pinned Today card at the top of Chat's fresh home (Daily brief in
  * Chat): today's thread, one tap away. While the brief waits unread it says
  * so; after that its status line is the locked plan (count and next item) or
- * the shape of the rest of the day. In the evening its line is the wrap up:
- * waiting, where it was left, or done (lib/wrapup/words.ts, pinnedLine), and
- * while it is offered a tap starts it or picks it up. Its mark follows the
+ * the shape of the rest of the day. While the wrap up is offered, under way
+ * or done its line is the wrap up: waiting, where it was left, or done
+ * (lib/wrapup/words.ts, pinnedLine), and while it is offered a tap starts it
+ * or picks it up. That is the evening, or earlier once Today is all done. Its mark follows the
  * part of the day: the sun, the cup, the moon.
  */
 
@@ -23,7 +24,7 @@ export type TodayPinnedCardProps = {
   onPress: () => void;
   /** The part of the day, for the mark; day when left out */
   phase?: HomePhase;
-  /** The evening's line: the wrap up waiting, part way or done; null before the evening */
+  /** The wrap up's line: waiting, part way or done; null while it is not offered */
   wrapLine?: string | null;
   /** The wrap up is waiting to be noticed: a dot on the mark */
   wrapNudge?: boolean;

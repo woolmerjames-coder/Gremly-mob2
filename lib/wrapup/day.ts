@@ -5,6 +5,7 @@
  */
 import { getDateService } from '../date/DateService';
 import { localMinutesToIso } from '../brief/time';
+import { EVENING_START_HOUR } from '../chat/homeChips';
 import type { WrapDay } from './words';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -17,6 +18,8 @@ export interface WrapNow {
   words: WrapDay;
   /** From 5pm, or after midnight before their day ends */
   evening: boolean;
+  /** The part of the day, for the journal entry's plain title */
+  part: 'morning' | 'afternoon' | 'evening';
   dayEndHour: number;
   /** When their day started, in ms */
   dayStartMs: number;
@@ -33,11 +36,20 @@ export function wrapNow(): WrapNow {
   const tomorrow = ds.addDays(day, 1);
   const late = ds.isInLateNightPeriod();
   const dayEndHour = ds.getDayBoundaryHour();
+  const hour = ds.getHour();
+  const evening = late || hour >= EVENING_START_HOUR;
   return {
     day,
     tomorrow,
-    words: { weekday: weekdayOf(day), tomorrow: late ? weekdayOf(tomorrow) : 'tomorrow', late },
-    evening: late || ds.getHour() >= 17,
+    words: {
+      weekday: weekdayOf(day),
+      tomorrow: late ? weekdayOf(tomorrow) : 'tomorrow',
+      late,
+      // before the evening the day is not over: nothing says tonight or night
+      early: !evening,
+    },
+    evening,
+    part: evening ? 'evening' : hour < 12 ? 'morning' : 'afternoon',
     dayEndHour,
     // in the person's time zone, which is not always the phone's
     dayStartMs: new Date(localMinutesToIso(day, dayEndHour * 60)).getTime(),

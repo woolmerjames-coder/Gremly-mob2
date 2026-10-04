@@ -37,6 +37,11 @@ export interface WrapDay {
   tomorrow: string;
   /** True after midnight, before their day ends */
   late: boolean;
+  /**
+   * True before the evening. A wrap up can be started at any hour, and before
+   * the evening the day is not over, so nothing says tonight or night.
+   */
+  early?: boolean;
 }
 
 const tomorrowCap = (d: WrapDay) => cap(d.tomorrow);
@@ -105,6 +110,53 @@ export const WRAP_COPY = {
   weekToast: 'The week planner',
 } as const;
 
+/**
+ * The words that say tonight or night, and what they are before the evening,
+ * when the day is not over yet. WRAP_COPY holds the evening's.
+ */
+const EARLY_COPY = {
+  notNow: 'Not now',
+  declined: "No problem. It's all here whenever you want it.",
+  journalAsk: 'How is today going?',
+  journalAskOnly: 'Of course. How is today going?',
+  journalSkip: 'Skip',
+  journalMoodAsk: 'Sure. How does today feel?',
+  journalMoodSaved: "Saved. That's today's reflection.",
+  habitsSavedHeading: "Today's check in",
+  habitsNone: 'None yet',
+  habitsNothing: "No problem. There's still time today.",
+  habitNoAnswer: 'No answer yet',
+  journalNone: 'No journal yet',
+  leaveRest: "Sure. They'll be here later.",
+  leaveRestOne: "Sure. It'll be here later.",
+  bye: 'Thanks, Gremly',
+} as const;
+
+export type PartWords = { readonly [K in keyof typeof EARLY_COPY]: string };
+
+const EVENING_COPY: PartWords = {
+  notNow: WRAP_COPY.notTonight,
+  declined: WRAP_COPY.notTonightReply,
+  journalAsk: WRAP_COPY.journalAsk,
+  journalAskOnly: WRAP_COPY.journalAskOnly,
+  journalSkip: WRAP_COPY.journalSkip,
+  journalMoodAsk: WRAP_COPY.journalMoodAsk,
+  journalMoodSaved: WRAP_COPY.journalMoodSaved,
+  habitsSavedHeading: WRAP_COPY.habitsSavedHeading,
+  habitsNone: WRAP_COPY.habitsNone,
+  habitsNothing: WRAP_COPY.habitsNothing,
+  habitNoAnswer: 'No answer tonight',
+  journalNone: 'No journal tonight',
+  leaveRest: WRAP_COPY.leaveRest,
+  leaveRestOne: WRAP_COPY.leaveRestOne,
+  bye: WRAP_COPY.nightButton,
+};
+
+/** The evening's words, or the day's when the wrap up is done before the evening. */
+export function partWords(early: boolean | undefined): PartWords {
+  return early ? EARLY_COPY : EVENING_COPY;
+}
+
 /** Gremly's first line: the day, by name. */
 export function openerLine(d: WrapDay, firstName: string | null, evening: boolean): string {
   const name = firstName ? `, ${firstName}` : '';
@@ -121,14 +173,14 @@ export function missedLine(titles: string[]): string {
 
 /** The offer: how many cards, and about how long. */
 export function offerLine(cards: number, d: WrapDay): string {
-  const when = d.late ? `before ${d.tomorrow}` : 'tonight';
-  if (cards === 1) return `One thing to sort ${when}. Want to go through it?`;
-  return `${cap(things(cards))} to sort ${when}, ${sweepMinutes(cards)}. Want to go through them?`;
+  const when = d.late ? ` before ${d.tomorrow}` : d.early ? '' : ' tonight';
+  if (cards === 1) return `One thing to sort${when}. Want to go through it?`;
+  return `${cap(things(cards))} to sort${when}, ${sweepMinutes(cards)}. Want to go through them?`;
 }
 
-/** A night with no cards. */
-export function clearLine(planned: { done: number; total: number } | null, late: boolean): string {
-  const when = late ? 'left to sort' : 'to sort tonight';
+/** Nothing to sort: a clear night, or a clear day so far. */
+export function clearLine(planned: { done: number; total: number } | null, d: WrapDay): string {
+  const when = d.late ? 'left to sort' : d.early ? 'to sort' : 'to sort tonight';
   if (planned && planned.total > 0 && planned.done >= planned.total) {
     return `Everything you planned got done, and there's nothing ${when}.`;
   }
@@ -152,7 +204,7 @@ export function sortedLine(letGo: number): string {
 /** The cards were closed part way. */
 export function partialLine(sorted: number, left: number, d: WrapDay): string {
   const them = left === 1 ? 'it' : 'them';
-  return `${cap(numberWord(sorted))} sorted and saved. Want to finish the last ${left === 1 ? 'one' : numberWord(left)}, or leave ${them} for ${d.tomorrow}?`;
+  return `${cap(numberWord(sorted))} sorted and saved. Want to finish the last ${left === 1 ? 'one' : numberWord(left)}, or leave ${them} for ${d.early ? 'later' : d.tomorrow}?`;
 }
 
 /** Coming back after Not tonight. */
@@ -177,6 +229,8 @@ export function habitsSavedLine(p: {
   streak?: { title: string; days: number } | null;
   held: string[];
   notHeld: string[];
+  /** Before the evening */
+  early?: boolean;
 }): string {
   const parts: string[] = [];
   if (p.logged > 0 && p.streak && p.streak.days >= 3) {
@@ -184,7 +238,7 @@ export function habitsSavedLine(p: {
   } else if (p.logged > 0 || p.held.length) {
     parts.push(WRAP_COPY.habitsLogged);
   } else if (!p.notHeld.length) {
-    parts.push(WRAP_COPY.habitsNothing);
+    parts.push(partWords(p.early).habitsNothing);
   }
   if (p.held.length) parts.push(`Well done holding ${listWords(p.held)}.`);
   if (p.notHeld.length) {
@@ -249,7 +303,10 @@ export function planTomorrowButton(d: WrapDay): string {
   return d.late ? `Plan ${d.tomorrow}` : 'Plan tomorrow';
 }
 
-export function nightLine(firstName: string | null): string {
+/** The last line: good night, or before the evening the rest of the day. */
+export function nightLine(firstName: string | null, early = false): string {
+  if (early)
+    return firstName ? `Enjoy the rest of your day, ${firstName}.` : 'Enjoy the rest of your day.';
   return firstName ? `Night, ${firstName}. Sleep well.` : 'Night. Sleep well.';
 }
 
@@ -289,8 +346,8 @@ export function teaserLine(
 }
 
 /**
- * The pinned card's line in the evening: the wrap up waiting, where it was
- * left, or done.
+ * The pinned card's line while the wrap up is offered or under way: waiting,
+ * where it was left, or done.
  */
 export function pinnedLine(p: {
   /** Where tonight's wrap up has got to; null when it has not started */
@@ -299,6 +356,8 @@ export function pinnedLine(p: {
   cards: number;
   journal: boolean;
   fed: boolean;
+  /** Before the evening */
+  early?: boolean;
 }): string {
   const waiting =
     p.cards > 0
@@ -306,7 +365,9 @@ export function pinnedLine(p: {
       : 'Wrap up today: a look back at your day';
   if (!p.step) return waiting;
   if (p.step === 'declined') {
-    if (!p.journal) return 'Not tonight. Here whenever you want it.';
+    if (!p.journal) {
+      return p.early ? 'Here whenever you want it.' : 'Not tonight. Here whenever you want it.';
+    }
     return p.cards > 0 ? 'Journal saved. The cards are waiting.' : 'Journal saved.';
   }
   if (p.step === 'done' || p.step === 'close') {
@@ -364,7 +425,6 @@ export const CARD_COPY = {
   undo: 'Undo',
   saved: 'Saved',
   journalRemoved: 'Taken back out of your journal',
-  journalNone: 'No journal tonight',
   journalMoods: 'Moods',
   journalSave: 'Save',
   journalSkip: 'Skip',
@@ -373,7 +433,6 @@ export const CARD_COPY = {
   habitHold: 'Did it hold today?',
   habitHeld: 'Held today',
   habitNotHeld: 'Not today, and that is okay',
-  habitNoAnswer: 'No answer tonight',
   habitLogged: 'Logged',
   habitNotToday: 'Not today',
 } as const;

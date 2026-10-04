@@ -25,21 +25,40 @@ describe('homePhase', () => {
 });
 
 describe('homeChipsFor', () => {
-  const keys = (phase: 'morning' | 'day' | 'evening', wrapOffered = false) =>
-    homeChipsFor(phase, wrapOffered).map((c) => c.key);
+  const keys = (
+    phase: 'morning' | 'day' | 'evening',
+    day: { wrap?: boolean; planned?: boolean } = {},
+  ) =>
+    homeChipsFor(phase, { wrap: day.wrap ?? true, planned: day.planned ?? false }).map(
+      (c) => c.key,
+    );
 
-  it('plans in the morning, thinks in the day, wraps up in the evening', () => {
+  it('the first chip is the ritual: plan the day, wrap it up, then tomorrow', () => {
+    // the morning, before today has a plan
     expect(keys('morning')).toEqual(['plan_day', 'this_week', 'think']);
-    expect(keys('day')).toEqual(['think', 'this_week', 'habits']);
-    expect(keys('evening', true)).toEqual(['wrap_up', 'tomorrow', 'think']);
+    // once it has one, the wrap up is there, whatever the hour
+    expect(keys('morning', { planned: true })).toEqual(['wrap_up', 'this_week', 'think']);
+    // from midday it is there with or without a plan
+    expect(keys('day')).toEqual(['wrap_up', 'think', 'this_week']);
+    expect(keys('evening')).toEqual(['wrap_up', 'tomorrow', 'think']);
   });
 
-  it('offers no wrap up once it is finished', () => {
-    expect(keys('evening', false)).toEqual(['tomorrow', 'think', 'habits']);
+  it('moves on to tomorrow once the day is wrapped up', () => {
+    expect(keys('morning', { planned: true, wrap: false })).toEqual([
+      'tomorrow',
+      'this_week',
+      'think',
+    ]);
+    expect(keys('day', { wrap: false })).toEqual(['tomorrow', 'think', 'this_week']);
+    expect(keys('evening', { wrap: false })).toEqual(['tomorrow', 'think', 'habits']);
+  });
+
+  it('still plans the day first in the morning, even when the wrap up could start', () => {
+    expect(keys('morning', { wrap: true, planned: false })[0]).toBe('plan_day');
   });
 
   it('marks the wrap up in the evening colour', () => {
-    expect(homeChipsFor('evening', true)[0]).toMatchObject({
+    expect(homeChipsFor('evening', { wrap: true, planned: false })[0]).toMatchObject({
       label: 'Wrap up today',
       evening: true,
     });

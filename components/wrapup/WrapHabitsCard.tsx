@@ -7,7 +7,7 @@ import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Check } from 'lucide-react-native';
 import type { SweepHabitsMeta } from '../../lib/brief/types';
-import { CARD_COPY, WRAP_COPY, alreadyLogged } from '../../lib/wrapup/words';
+import { CARD_COPY, WRAP_COPY, alreadyLogged, partWords } from '../../lib/wrapup/words';
 import { BRIEF } from '../brief/briefStyles';
 import { wrapStyles } from './wrapStyles';
 
@@ -23,6 +23,8 @@ export function WrapHabitsCard({ meta, interactive = true, onSave, onAll }: Wrap
   const [done, setDone] = useState<string[]>([]);
   const [held, setHeld] = useState<Record<string, 'held' | 'not'>>({});
   const saved = meta.status === 'saved';
+  // asked before the evening, the card does not say tonight
+  const words = partWords(meta.early);
   const shownDone = saved ? (meta.done ?? []) : done;
   const shownHeld = saved ? (meta.held ?? {}) : held;
   const builds = meta.habits.filter((h) => h.kind === 'build');
@@ -43,7 +45,7 @@ export function WrapHabitsCard({ meta, interactive = true, onSave, onAll }: Wrap
     <View style={wrapStyles.card} testID="wrap-habits">
       <View style={wrapStyles.head}>
         <Text style={wrapStyles.title}>
-          {saved ? WRAP_COPY.habitsSavedHeading : WRAP_COPY.habitsHeading}
+          {saved ? words.habitsSavedHeading : WRAP_COPY.habitsHeading}
         </Text>
         {saved ? (
           <View style={wrapStyles.tag}>
@@ -108,7 +110,7 @@ export function WrapHabitsCard({ meta, interactive = true, onSave, onAll }: Wrap
                     ? CARD_COPY.habitHeld
                     : value === 'not'
                       ? CARD_COPY.habitNotHeld
-                      : CARD_COPY.habitNoAnswer
+                      : words.habitNoAnswer
                   : CARD_COPY.habitHold}
               </Text>
             </View>
@@ -147,7 +149,7 @@ export function WrapHabitsCard({ meta, interactive = true, onSave, onAll }: Wrap
             testID="wrap-habits-save"
           >
             <Text style={[wrapStyles.btnText, wrapStyles.btnTextPrimary]}>
-              {picked ? WRAP_COPY.habitsSave : WRAP_COPY.habitsNone}
+              {picked ? WRAP_COPY.habitsSave : words.habitsNone}
             </Text>
           </Pressable>
           {onAll ? (

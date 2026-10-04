@@ -21,6 +21,7 @@ import {
 
 const EVENING: WrapDay = { weekday: 'Wednesday', tomorrow: 'tomorrow', late: false };
 const LATE: WrapDay = { weekday: 'Wednesday', tomorrow: 'Thursday', late: true };
+const EARLY: WrapDay = { weekday: 'Wednesday', tomorrow: 'tomorrow', late: false, early: true };
 
 test('the opener names the day, and the person when their name is known', () => {
   expect(openerLine(EVENING, 'James', true)).toBe("Evening, James. Here's your Wednesday.");
@@ -50,11 +51,11 @@ test('the offer counts the cards and the minutes', () => {
 });
 
 test('a clear night says so, with the plan when there was one', () => {
-  expect(clearLine({ done: 5, total: 5 }, false)).toBe(
+  expect(clearLine({ done: 5, total: 5 }, EVENING)).toBe(
     "Everything you planned got done, and there's nothing to sort tonight.",
   );
-  expect(clearLine(null, false)).toBe('Nothing to sort tonight.');
-  expect(clearLine({ done: 2, total: 5 }, true)).toBe('Nothing left to sort.');
+  expect(clearLine(null, EVENING)).toBe('Nothing to sort tonight.');
+  expect(clearLine({ done: 2, total: 5 }, LATE)).toBe('Nothing left to sort.');
 });
 
 test('closing the cards part way offers the rest once', () => {
@@ -163,7 +164,14 @@ test('nothing a person reads uses a dash as punctuation', () => {
     openerLine(LATE, 'James', true),
     missedLine(['A']),
     offerLine(7, LATE),
-    clearLine(null, true),
+    clearLine(null, LATE),
+    clearLine(null, EARLY),
+    offerLine(3, EARLY),
+    partialLine(2, 3, EARLY),
+    words.partWords(true),
+    words.partWords(false),
+    words.nightLine('James', true),
+    words.pinnedLine({ step: 'declined', cards: 2, journal: false, fed: false, early: true }),
     partialLine(2, 3, LATE),
     habitsLine(2, 2),
     skippedLine(2, 2, 2, LATE),
@@ -188,4 +196,39 @@ test('nothing a person reads uses a dash as punctuation', () => {
   ]);
   expect(lines.length).toBeGreaterThan(40);
   for (const line of lines) expect(line).not.toMatch(/[—–]| - /);
+});
+
+test('before the evening nothing says tonight or night', () => {
+  expect(offerLine(5, EARLY)).toBe(
+    'Five things to sort, about two minutes. Want to go through them?',
+  );
+  expect(offerLine(1, EARLY)).toBe('One thing to sort. Want to go through it?');
+  expect(clearLine(null, EARLY)).toBe('Nothing to sort.');
+  expect(clearLine({ done: 3, total: 3 }, EARLY)).toBe(
+    "Everything you planned got done, and there's nothing to sort.",
+  );
+  expect(partialLine(2, 3, EARLY)).toBe(
+    'Two sorted and saved. Want to finish the last three, or leave them for later?',
+  );
+  expect(words.nightLine('James', true)).toBe('Enjoy the rest of your day, James.');
+  expect(words.nightLine(null, true)).toBe('Enjoy the rest of your day.');
+  const early = words.partWords(true);
+  expect(early.notNow).toBe('Not now');
+  expect(early.journalSkip).toBe('Skip');
+  expect(early.bye).toBe('Thanks, Gremly');
+  const said: string[] = Object.values(early);
+  said.push(offerLine(5, EARLY), clearLine(null, EARLY), partialLine(2, 3, EARLY));
+  said.push(words.nightLine('James', true));
+  said.push(
+    words.pinnedLine({ step: 'declined', cards: 2, journal: false, fed: false, early: true }),
+  );
+  for (const line of said) expect(line).not.toMatch(/tonight|night/i);
+});
+
+test("in the evening the words are the evening's", () => {
+  const evening = words.partWords(false);
+  expect(evening.notNow).toBe('Not tonight');
+  expect(evening.journalSkip).toBe('Skip tonight');
+  expect(evening.bye).toBe('Night, Gremly');
+  expect(words.partWords(undefined)).toBe(evening);
 });

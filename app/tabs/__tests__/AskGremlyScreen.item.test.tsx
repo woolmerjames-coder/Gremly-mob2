@@ -52,6 +52,8 @@ const mockChat = {
 jest.mock('../../../hooks/useChatMessages', () => ({ useChatMessages: () => mockChat }));
 
 const mockStoreState: any = {
+  todos: [],
+  habits: [],
   generalChatAutoTitle: null,
   generalChatExtractions: [],
   generalChatRunningSummary: null,
@@ -69,10 +71,12 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
   return { useGremlyStore };
 });
 
-// the chat home's wrap up cards read the whole store; an item chat never shows them
+// the chat home's wrap up cards and Today's progress read the whole store; an
+// item chat never shows them
 jest.mock('../../../lib/store/selectors', () => ({
   ...jest.requireActual('../../../lib/store/selectors'),
   selectWrapUp: () => ({ cards: [] }),
+  selectTodayProgress: () => ({ completedCount: 0, totalEligible: 0, percent: 0, fraction: 0 }),
 }));
 // the wrap up's journal reads the session when it loads; no chat here signs in
 jest.mock('../../../lib/cortex/getSessionToken', () => ({ getSessionToken: async () => null }));

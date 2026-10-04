@@ -138,6 +138,35 @@ describe('the habits card', () => {
   });
 });
 
+describe('cards asked before the evening', () => {
+  it('do not say tonight', () => {
+    const habits = {
+      type: 'sweep-habits' as const,
+      date: DAY,
+      habits: [{ id: 'h3', title: 'No coffee', kind: 'break' as const }],
+      already: [],
+      status: 'open' as const,
+      early: true,
+    };
+    const open = render(<WrapHabitsCard meta={habits} onSave={jest.fn()} />);
+    expect(open.getByText('None yet')).toBeTruthy();
+    const saved = render(<WrapHabitsCard meta={{ ...habits, status: 'saved', held: {} }} />);
+    expect(saved.getByText("Today's check in")).toBeTruthy();
+    expect(saved.getByText('No answer yet')).toBeTruthy();
+    const journal = render(
+      <WrapJournalCard
+        meta={{ type: 'sweep-journal', date: DAY, status: 'skipped', early: true }}
+      />,
+    );
+    expect(journal.getByText('No journal yet')).toBeTruthy();
+    // and in the evening they do
+    const evening = render(
+      <WrapJournalCard meta={{ type: 'sweep-journal', date: DAY, status: 'skipped' }} />,
+    );
+    expect(evening.getByText('No journal tonight')).toBeTruthy();
+  });
+});
+
 describe('the journal card', () => {
   const saved = {
     type: 'sweep-journal' as const,

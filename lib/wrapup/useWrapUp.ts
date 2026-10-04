@@ -93,7 +93,8 @@ import {
   pastCards,
   sweepCounts,
 } from './state';
-import { WRAP_COPY, habitsSavedLine, nightLine } from './words';
+import { touchedTonight } from './teaser';
+import { WRAP_COPY, habitsSavedLine, nightLine, partWords } from './words';
 
 const STEP_PAUSE_MS = 350;
 
@@ -462,7 +463,8 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
     setAwaiting(null);
     if (w.journal_only) {
       setStep('declined', { journal_only: false });
-      await save([say(nightLine(readNow().firstName))]);
+      const { now, firstName } = readNow();
+      await save([say(nightLine(firstName, now.words.early))]);
       return;
     }
     if (w.path === 'skip') return toClose();
@@ -478,7 +480,7 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
     setStep('journal');
     // the box saves to the journal from here; the pill above it says so
     setAwaiting('journal');
-    await save(journalAskMsgs(!!w.journal_only));
+    await save(journalAskMsgs(!!w.journal_only, now.words.early));
   }, [save, afterJournal]);
 
   const toHabits = useCallback(async () => {
@@ -486,7 +488,7 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
     const { rows, already } = habitsToCheckIn(st.habits, st.habitProgress ?? [], now.day);
     if (!rows.length) return toJournal();
     setStep('habits');
-    await save(habitsMsgs(rows, already, now.day));
+    await save(habitsMsgs(rows, already, now.day, now.words.early));
   }, [save, toJournal]);
 
   const start = useCallback(async () => {
@@ -610,6 +612,11 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
         const w = currentWrap();
         if (!w) return start();
         const { now, cards, skipsLeft } = readNow();
+        // turned down earlier in the day, and now it is the evening: that no
+        // was about then. Tonight opens on the day as it stands now
+        if (w.step === 'declined' && now.evening && !touchedTonight(w, now.dayEndHour)) {
+          return start();
+        }
         const left = cardsLeft(w, cards);
         if (w.step === 'declined') {
           if (!left.length) {
@@ -723,13 +730,20 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
             const { st, now } = readNow();
             setAwaiting(null);
             setStep('declined');
-            await save(notTonightMsgs(button, journalDone(currentWrap(), st.notes, now.day)));
+            await save(
+              notTonightMsgs(
+                button,
+                journalDone(currentWrap(), st.notes, now.day),
+                now.words.early,
+              ),
+            );
             return;
           }
           case 'sweep_leave': {
             const w = currentWrap();
-            const left = cardsLeft(w, readNow().cards).length;
-            await save(leaveRestMsgs(button, left));
+            const { now, cards } = readNow();
+            const left = cardsLeft(w, cards).length;
+            await save(leaveRestMsgs(button, left, now.words));
             if (pastCards(w)) return buttonsBack();
             await settle('cards');
             await pause();
@@ -742,7 +756,14 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
           case 'journal_mood': {
             const { now } = readNow();
             setAwaiting(null);
-            await save(moodAskMsgs(button, now.day, journalTitle(now.words.weekday, false)));
+            await save(
+              moodAskMsgs(
+                button,
+                now.day,
+                journalTitle(now.words.weekday, false, now.part),
+                now.words.early,
+              ),
+            );
             return;
           }
           case 'journal_skip':
@@ -769,7 +790,7 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
             return;
           case 'night': {
             const { now, firstName } = readNow();
-            await save(nightMsgs(button, firstName, now.day));
+            await save(nightMsgs(button, firstName, now.day, now.words.early));
             setStep('done', { finished_at: getDateService().nowTimestamp() });
             useMascotStore.getState().requestMode(store().isFedToday ? 'fed' : 'waving');
             return;
@@ -849,17 +870,27 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
           moods: [],
           day: now.day,
           weekday: now.words.weekday,
+          part: now.part,
         });
         if (!res.ok) {
           // not saved: their words go back in the box, and the journal waits as it was
           depsRef.current.restoreDraft?.(text);
-          await save([say(WRAP_COPY.journalFailed), ...journalAskMsgs(false).map(noWords)]);
+          await save([
+            say(WRAP_COPY.journalFailed),
+            ...journalAskMsgs(false, now.words.early).map(noWords),
+          ]);
           setAwaiting('journal');
           return;
         }
         holdUndo(`journal:${res.noteId}`, res.revert);
         const out = await save(
-          journalSavedMsgs({ day: now.day, noteId: res.noteId, title: res.title, text: words }),
+          journalSavedMsgs({
+            day: now.day,
+            noteId: res.noteId,
+            title: res.title,
+            text: words,
+            early: now.words.early,
+          }),
         );
         updateWrap((x) => (x ? { ...x, journal: 'written' } : x));
         creditJournal();
@@ -934,6 +965,7 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
                 notHeld: Object.keys(held)
                   .filter((id) => held[id] === 'not')
                   .map(titleOf),
+                early: card.early,
               }),
             ),
           ]);
@@ -959,6 +991,7 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
             moods,
             day: card.date,
             weekday: now.words.weekday,
+            part: now.part,
           });
           if (!res.ok) {
             await save([say(WRAP_COPY.journalFailed)]);
@@ -968,7 +1001,7 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
           await patch(message.id, { status: 'saved', note_id: res.noteId, moods });
           updateWrap((x) => (x ? { ...x, journal: 'mood' } : x));
           creditJournal();
-          await save([say(WRAP_COPY.journalMoodSaved)]);
+          await save([say(partWords(now.words.early).journalMoodSaved)]);
           await pause();
           await afterJournal();
         }),

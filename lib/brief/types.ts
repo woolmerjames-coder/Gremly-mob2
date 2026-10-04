@@ -266,6 +266,8 @@ export interface SweepHabitsMeta extends BriefMetaBase {
   /** After saving: the habits logged, and what each break habit got */
   done?: string[];
   held?: Record<string, 'held' | 'not'>;
+  /** Asked before the evening, so the card's words do not say tonight */
+  early?: boolean;
 }
 
 /** Tonight's journal entry, or the mood picked instead. */
@@ -278,6 +280,8 @@ export interface SweepJournalMeta extends BriefMetaBase {
   title?: string;
   text?: string;
   moods?: string[];
+  /** Asked before the evening, so the card's words do not say tonight */
+  early?: boolean;
 }
 
 /** An item shown so it can be opened: the one a question was about. */
@@ -327,6 +331,12 @@ export type WrapStep =
  */
 export interface WrapUpState {
   started_at: string;
+  /**
+   * When the person last did anything in it. A wrap up can be started at any
+   * hour, and one opened or turned down before the evening must not quiet the
+   * evening's nudge: only what happened in the evening does.
+   */
+  touched_at?: string;
   step: WrapStep;
   /** How it went: the cards, a skip (moved on), or nothing to sort */
   path?: 'cards' | 'skip' | 'clear' | null;

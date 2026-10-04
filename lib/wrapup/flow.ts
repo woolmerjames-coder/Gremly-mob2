@@ -33,6 +33,7 @@ import {
   offerLine,
   openerLine,
   partialLine,
+  partWords,
   planTomorrowButton,
   questionsIntro,
   resumeLine,
@@ -107,7 +108,7 @@ export function offerButtons(d: WrapDay, skipsLeft: number): OfferButton[] {
       ? [{ id: 'sweep_skip', label: moveAllButton(d), action: 'sweep_skip' as const }]
       : []),
     { id: 'plan_week', label: WRAP_COPY.planWeek, action: 'plan_week' },
-    { id: 'not_tonight', label: WRAP_COPY.notTonight, action: 'not_tonight' },
+    { id: 'not_tonight', label: partWords(d.early).notNow, action: 'not_tonight' },
   ];
 }
 
@@ -139,7 +140,7 @@ export function openingMsgs(p: {
     out.push(say(missedLine(p.recap.missed.map((m) => m.title))));
   }
   if (p.cards > 0) out.push(cardsOffer(offerLine(p.cards, p.day), p.day, p.skipsLeft));
-  else out.push(say(clearLine(p.recap.planned ?? null, p.day.late)));
+  else out.push(say(clearLine(p.recap.planned ?? null, p.day)));
   return out;
 }
 
@@ -184,8 +185,9 @@ export function sortedMsgs(letGo: number): WrapMsg[] {
   return [receiptMsg(), say(sortedLine(letGo))];
 }
 
-export function leaveRestMsgs(button: OfferButton, left: number): WrapMsg[] {
-  return [tapped(button), say(left === 1 ? WRAP_COPY.leaveRestOne : WRAP_COPY.leaveRest)];
+export function leaveRestMsgs(button: OfferButton, left: number, d: WrapDay): WrapMsg[] {
+  const w = partWords(d.early);
+  return [tapped(button), say(left === 1 ? w.leaveRestOne : w.leaveRest)];
 }
 
 /** New things dropped after the wrap up was finished. */
@@ -195,29 +197,40 @@ export function newSinceMsgs(n: number): WrapMsg[] {
 
 // ── habits ───────────────────────────────────────────────────────────────────
 
-export function habitsMsgs(rows: SweepHabitRow[], already: string[], day: string): WrapMsg[] {
+export function habitsMsgs(
+  rows: SweepHabitRow[],
+  already: string[],
+  day: string,
+  early = false,
+): WrapMsg[] {
   const build = rows.filter((r) => r.kind === 'build').length;
   return [
     say(habitsLine(build, rows.length - build)),
-    card({ type: 'sweep-habits', date: day, habits: rows, already, status: 'open' }),
+    card({
+      type: 'sweep-habits',
+      date: day,
+      habits: rows,
+      already,
+      status: 'open',
+      ...(early ? { early: true } : {}),
+    }),
   ];
 }
 
 // ── the journal ──────────────────────────────────────────────────────────────
 
-export function journalButtons(): OfferButton[] {
+export function journalButtons(early = false): OfferButton[] {
   return [
     { id: 'journal_write', label: WRAP_COPY.journalWrite, action: 'journal_write', primary: true },
     { id: 'journal_mood', label: WRAP_COPY.journalMood, action: 'journal_mood' },
-    { id: 'journal_skip', label: WRAP_COPY.journalSkip, action: 'journal_skip' },
+    { id: 'journal_skip', label: partWords(early).journalSkip, action: 'journal_skip' },
   ];
 }
 
 /** Gremly asks about the day. The box saves to the journal from here. */
-export function journalAskMsgs(only: boolean): WrapMsg[] {
-  return [
-    offer(only ? WRAP_COPY.journalAskOnly : WRAP_COPY.journalAsk, 'journal', journalButtons()),
-  ];
+export function journalAskMsgs(only: boolean, early = false): WrapMsg[] {
+  const w = partWords(early);
+  return [offer(only ? w.journalAskOnly : w.journalAsk, 'journal', journalButtons(early))];
 }
 
 export function journalSavedMsgs(p: {
@@ -225,6 +238,7 @@ export function journalSavedMsgs(p: {
   noteId: string;
   title: string;
   text: string;
+  early?: boolean;
 }): WrapMsg[] {
   return [
     say(WRAP_COPY.journalSaved),
@@ -236,16 +250,29 @@ export function journalSavedMsgs(p: {
       title: p.title,
       text: p.text,
       moods: [],
+      ...(p.early ? { early: true } : {}),
     }),
   ];
 }
 
 /** Just pick a mood: the card to pick on, nothing saved yet. */
-export function moodAskMsgs(button: OfferButton, day: string, title: string): WrapMsg[] {
+export function moodAskMsgs(
+  button: OfferButton,
+  day: string,
+  title: string,
+  early = false,
+): WrapMsg[] {
   return [
     tapped(button),
-    say(WRAP_COPY.journalMoodAsk),
-    card({ type: 'sweep-journal', date: day, status: 'mood', title, moods: [] }),
+    say(partWords(early).journalMoodAsk),
+    card({
+      type: 'sweep-journal',
+      date: day,
+      status: 'mood',
+      title,
+      moods: [],
+      ...(early ? { early: true } : {}),
+    }),
   ];
 }
 
@@ -280,7 +307,7 @@ export function closeButtons(d: WrapDay, canPlan: boolean): OfferButton[] {
     ...(canPlan
       ? [{ id: 'plan_tomorrow', label: planTomorrowButton(d), action: 'plan_tomorrow' as const }]
       : []),
-    { id: 'night', label: WRAP_COPY.nightButton, action: 'night', primary: true },
+    { id: 'night', label: partWords(d.early).bye, action: 'night', primary: true },
   ];
 }
 
@@ -300,18 +327,28 @@ export function nightOnlyMsgs(d: WrapDay): WrapMsg[] {
   return [offer('', 'wrap_close', closeButtons(d, false))];
 }
 
-export function nightMsgs(button: OfferButton, firstName: string | null, day: string): WrapMsg[] {
-  return [tapped(button), say(nightLine(firstName)), card({ type: 'sweep-end', date: day })];
+export function nightMsgs(
+  button: OfferButton,
+  firstName: string | null,
+  day: string,
+  early = false,
+): WrapMsg[] {
+  return [tapped(button), say(nightLine(firstName, early)), card({ type: 'sweep-end', date: day })];
 }
 
 // ── the other choices on the offer ───────────────────────────────────────────
 
-/** Not tonight: nothing is lost, and the journal stays one tap away. */
-export function notTonightMsgs(button: OfferButton, journalDone: boolean): WrapMsg[] {
-  if (journalDone) return [tapped(button), say(WRAP_COPY.notTonightReply)];
+/** Not tonight, or Not now before the evening: nothing is lost, and the journal stays one tap away. */
+export function notTonightMsgs(
+  button: OfferButton,
+  journalDone: boolean,
+  early = false,
+): WrapMsg[] {
+  const reply = partWords(early).declined;
+  if (journalDone) return [tapped(button), say(reply)];
   return [
     tapped(button),
-    offer(WRAP_COPY.notTonightReply, 'wrap_declined', [
+    offer(reply, 'wrap_declined', [
       { id: 'journal_only', label: WRAP_COPY.journalOnly, action: 'journal_only' },
     ]),
   ];
@@ -352,7 +389,7 @@ export function buttonsAgain(
     case 'partial':
       return p.left > 0 ? [offer('', 'wrap_partial', partialButtons(p.left))] : [];
     case 'journal':
-      return p.journalDone ? [] : [offer('', 'journal', journalButtons())];
+      return p.journalDone ? [] : [offer('', 'journal', journalButtons(p.day.early))];
     case 'questions':
       return p.question
         ? [

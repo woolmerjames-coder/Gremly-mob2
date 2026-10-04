@@ -219,6 +219,51 @@ describe('the wrap up in the thread', () => {
     expect(offerOf(again('declined')[0]).kind).toBe('wrap_declined');
     // nothing to put back while a card is open
     expect(again('habits')).toEqual([]);
-    expect(again('still')).toEqual([]);
+  });
+
+  it("before the evening the buttons and lines use the day's words", () => {
+    const EARLY: WrapDay = { ...DAY, early: true };
+    const labels = (m: WrapMsg) => offerOf(m).buttons.map((b) => b.label);
+    const opening = openingMsgs({
+      clock: '2:10 PM',
+      recap,
+      day: EARLY,
+      firstName: 'Sam',
+      evening: false,
+      cards: 5,
+      skipsLeft: 3,
+    });
+    expect(opening[1].content).toBe("Here's your Wednesday so far, Sam.");
+    expect(labels(opening[opening.length - 1])).toContain('Not now');
+    expect(labels(journalAskMsgs(false, true)[0])).toEqual([
+      'Write a few lines',
+      'Just pick a mood',
+      'Skip',
+    ]);
+    expect(journalAskMsgs(false, true)[0].content).toBe('How is today going?');
+    expect(labels(closeMsgs({ day: EARLY, meetings: 0, lined: [], canPlan: true })[0])).toEqual([
+      'Plan tomorrow',
+      'Thanks, Gremly',
+    ]);
+    // the buttons put back for a step keep to the same words
+    const again = buttonsAgain('journal', {
+      day: EARLY,
+      skipsLeft: 3,
+      left: 0,
+      journalDone: false,
+      question: null,
+      canPlan: true,
+    });
+    expect(labels(again[0])).toContain('Skip');
+    // and in the evening they are the evening's
+    expect(labels(journalAskMsgs(false)[0])).toContain('Skip tonight');
+    // the habits card is told, so its own words follow
+    expect(
+      habitsMsgs([{ id: 'h1', title: 'Run', kind: 'build' }], [], '2026-09-30', true)[1].meta,
+    ).toMatchObject({ early: true });
+    expect(
+      (habitsMsgs([{ id: 'h1', title: 'Run', kind: 'build' }], [], '2026-09-30')[1].meta as any)
+        .early,
+    ).toBeUndefined();
   });
 });

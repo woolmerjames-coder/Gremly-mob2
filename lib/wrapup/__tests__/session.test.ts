@@ -37,6 +37,16 @@ beforeEach(() => {
 });
 
 describe('the wrap up session', () => {
+  it('stamps every change, so the evening can tell it from earlier in the day', () => {
+    loadWrap('t1', newWrapState(AT, ['a']));
+    expect(currentWrap()?.touched_at).toBeUndefined();
+    updateWrap((w) => (w ? { ...w, step: 'declined' } : w));
+    expect(Date.parse(currentWrap()?.touched_at ?? '')).not.toBeNaN();
+    // clearing it leaves nothing to stamp
+    updateWrap(() => null);
+    expect(currentWrap()).toBeNull();
+  });
+
   it('takes the state from the thread once, then keeps its own copy', () => {
     loadWrap('t1', newWrapState(AT, ['a']));
     updateWrap((w) => (w ? { ...w, step: 'habits' } : w));

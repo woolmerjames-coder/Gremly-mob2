@@ -1,44 +1,75 @@
 /**
- * When the evening wrap up is offered from outside the thread: the dot on
- * CHAT and Gremly's line on Drop and Today (the nudge), and the pinned card,
- * the chip and the Today button (the offer). Worked out from the part of the
- * day, what tonight's wrap up has already done, and the cards waiting.
+ * When the wrap up is offered from outside the thread, worked out from the
+ * part of the day, what today's wrap up has already done, and the cards
+ * waiting. Three things, kept apart on purpose:
  *
- * - Not yet started: nudged and offered, with or without cards (a night with
- *   nothing to sort still has habits and the journal).
- * - Left part way: nudged and offered, to pick it up.
- * - Not tonight: offered and never nudged, so nobody is nagged after saying no.
- * - Finished: neither, unless new things were dropped since. Then it comes
- *   back once, for the new ones only.
+ * - start: it can be started or picked up now. This never waits for the
+ *   evening, so the way in is always there (the Wrap up today chip). A day
+ *   can be over at 2pm.
+ * - offer: the pinned card and the Today button say so. In the evening, once
+ *   it is under way, or as soon as everything on Today is done.
+ * - nudge: the dot on CHAT and Gremly's line on Drop and Today. The evening
+ *   only, so nothing nags in the afternoon.
+ *
+ * By what it has done:
+ * - Not yet started: it can be started at any hour; nudged in the evening.
+ * - Left part way: offered, to pick it up; nudged in the evening.
+ * - Turned down in the evening: offered and never nudged, so nobody is nagged
+ *   after saying no. Turned down earlier in the day was about then, not about
+ *   tonight: the evening nudges as if it had not started.
+ * - Finished: nothing, for the rest of the day. New things dropped since
+ *   bring it back in the evening, once, for the new ones only.
  */
+import { minutesOfDay } from '../brief/time';
 import type { WrapUpState } from '../brief/types';
-import type { HomePhase } from '../chat/homeChips';
+import { homePhase, type HomePhase } from '../chat/homeChips';
 import { cardsLeft, newSince } from './state';
 
 export interface EveningTeaser {
   /** The dot on CHAT and Gremly's line on Drop and Today */
   nudge: boolean;
-  /** The pinned card, the chip and the Today button offer the wrap up */
+  /** The pinned card and the Today button offer the wrap up */
   offer: boolean;
-  /** Cards to sort: all of tonight's, or only the new ones once it was finished */
+  /** It can be started or picked up now, whatever the hour: the Wrap up today chip */
+  start: boolean;
+  /** Cards to sort: all of today's, or only the new ones once it was finished */
   cards: number;
 }
 
-const NONE: EveningTeaser = { nudge: false, offer: false, cards: 0 };
+const NONE: EveningTeaser = { nudge: false, offer: false, start: false, cards: 0 };
 
 export function eveningTeaser(p: {
   phase: HomePhase;
   wrap: WrapUpState | null | undefined;
   cards: { candidate: { id: string } }[];
+  /** Everything on Today is done */
+  dayDone?: boolean;
+  /** It was last touched in the evening, not earlier in the day */
+  touchedTonight?: boolean;
 }): EveningTeaser {
-  if (p.phase !== 'evening') return NONE;
+  const evening = p.phase === 'evening';
   const wrap = p.wrap;
-  if (!wrap) return { nudge: true, offer: true, cards: p.cards.length };
+  if (!wrap) {
+    return { nudge: evening, offer: evening || !!p.dayDone, start: true, cards: p.cards.length };
+  }
   if (wrap.step === 'close' || wrap.step === 'done') {
-    const fresh = newSince(wrap, p.cards).length;
-    return fresh ? { nudge: true, offer: true, cards: fresh } : NONE;
+    const fresh = evening ? newSince(wrap, p.cards).length : 0;
+    return fresh ? { nudge: true, offer: true, start: true, cards: fresh } : NONE;
   }
   const left = cardsLeft(wrap, p.cards).length;
-  if (wrap.step === 'declined') return { nudge: false, offer: true, cards: left };
-  return { nudge: true, offer: true, cards: left };
+  if (wrap.step === 'declined') {
+    if (!evening) return { nudge: false, offer: !!p.dayDone, start: true, cards: left };
+    return { nudge: !p.touchedTonight, offer: true, start: true, cards: left };
+  }
+  return { nudge: evening, offer: true, start: true, cards: left };
+}
+
+/** The wrap up was last touched in the evening (or after midnight), not earlier in the day. */
+export function touchedTonight(
+  wrap: Pick<WrapUpState, 'started_at' | 'touched_at'> | null | undefined,
+  boundaryHour: number,
+): boolean {
+  const at = wrap?.touched_at || wrap?.started_at;
+  if (!at) return false;
+  return homePhase(minutesOfDay(at), boundaryHour) === 'evening';
 }

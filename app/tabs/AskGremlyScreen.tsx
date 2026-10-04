@@ -1149,9 +1149,12 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     () => cardsLeft(sessionWrap, wrapCards).length,
     [sessionWrap, wrapCards],
   );
-  // the evening's ways in: the pinned card's line and the Wrap up today chip
+  // the ways into the wrap up: the pinned card's line and the Wrap up today chip
   const wrapTeaser = useEveningTeaser();
-  const homeChips = useMemo(() => homeChipsFor(phase, wrapTeaser.offer), [phase, wrapTeaser.offer]);
+  const homeChips = useMemo(
+    () => homeChipsFor(phase, { wrap: wrapTeaser.start, planned: wrapTeaser.planned }),
+    [phase, wrapTeaser.start, wrapTeaser.planned],
+  );
   greetingWaitingRef.current = { briefUnread: briefUnreadHere, toDecide };
   const freshHome = !activeChat && !item && !aboutItem;
   const openWrapUp = useCallback(() => {

@@ -50,9 +50,16 @@ export function knownMoods(value: unknown): Mood[] {
   return out;
 }
 
-/** "Wednesday evening" for written lines, "Evening reflection" for moods alone. */
-export function journalTitle(weekday: string, written: boolean): string {
-  return written ? `${weekday} evening` : 'Evening reflection';
+/**
+ * "Wednesday evening" for written lines, "Evening reflection" for moods
+ * alone. One written before the evening is named for that part of the day.
+ */
+export function journalTitle(
+  weekday: string,
+  written: boolean,
+  part: 'morning' | 'afternoon' | 'evening' = 'evening',
+): string {
+  return written ? `${weekday} ${part}` : `${part[0].toUpperCase()}${part.slice(1)} reflection`;
 }
 
 function sweepViews(day: string, moods: Mood[]) {
@@ -152,11 +159,13 @@ export async function saveJournal(p: {
   day: string;
   /** That day's name, for the entry's title */
   weekday: string;
+  /** The part of the day it is written in; the evening when left out */
+  part?: 'morning' | 'afternoon' | 'evening';
 }): Promise<JournalSaved> {
   const text = p.text.trim();
   const moods = knownMoods(p.moods);
   if (!text && !moods.length) return { ok: false, message: 'Nothing to save.' };
-  const title = journalTitle(p.weekday, !!text);
+  const title = journalTitle(p.weekday, !!text, p.part);
   try {
     const created = await store().createNote({
       subtype: 'journal',

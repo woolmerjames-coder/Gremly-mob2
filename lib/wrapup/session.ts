@@ -86,7 +86,9 @@ export function updateWrap(
 ): WrapUpState | null {
   const s = useWrapSession.getState();
   if (!s.threadId) return s.wrap;
-  const next = change(s.wrap);
+  const changed = change(s.wrap);
+  // every change is the person doing something: stamp it (WrapUpState.touched_at)
+  const next = changed ? { ...changed, touched_at: getDateService().nowTimestamp() } : changed;
   useWrapSession.setState({ wrap: next });
   persist(s.threadId, next);
   return next;

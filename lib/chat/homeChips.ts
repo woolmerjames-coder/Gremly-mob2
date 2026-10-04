@@ -19,13 +19,20 @@ export type HomeChip = {
   evening?: boolean;
 };
 
+/**
+ * When the evening starts: 5pm. The evening's nudges start here (the dot, the
+ * line, the notification). The workers use the same hour
+ * (workers/inngest-jobs/notifications/send.js). Keep the two in step.
+ */
+export const EVENING_START_HOUR = 17;
+
 /** The part of the day from the minute of the day and the person's day boundary hour. */
 export function homePhase(minutes: number, boundaryHour: number): HomePhase {
   const hour = Math.floor(minutes / 60);
   // before the day boundary it is still last night
   if (hour < boundaryHour) return 'evening';
   if (hour < 12) return 'morning';
-  if (hour < 17) return 'day';
+  if (hour < EVENING_START_HOUR) return 'day';
   return 'evening';
 }
 
@@ -39,19 +46,31 @@ const CHIPS: Record<HomeChipKey, HomeChip> = {
 };
 
 /**
- * The chips for a part of the day. Wrap up today shows in the evening while
- * the wrap up is offered: until it is finished (lib/wrapup/teaser.ts).
+ * The chips for a part of the day. The first is the day's ritual, so the way
+ * into each one is always there, whatever the hour: Plan my day in the morning
+ * until today has a plan, then Wrap up today until the day is wrapped up
+ * (lib/wrapup/teaser.ts, `start`), then Tomorrow.
  */
-export function homeChipsFor(phase: HomePhase, wrapOffered: boolean): HomeChip[] {
-  const keys: HomeChipKey[] =
+export function homeChipsFor(
+  phase: HomePhase,
+  day: {
+    /** The wrap up can be started or picked up now */
+    wrap: boolean;
+    /** Today has a plan */
+    planned: boolean;
+  },
+): HomeChip[] {
+  const ritual: HomeChipKey =
+    phase === 'morning' && !day.planned ? 'plan_day' : day.wrap ? 'wrap_up' : 'tomorrow';
+  const rest: HomeChipKey[] =
     phase === 'morning'
-      ? ['plan_day', 'this_week', 'think']
+      ? ['this_week', 'think']
       : phase === 'day'
-        ? ['think', 'this_week', 'habits']
-        : wrapOffered
-          ? ['wrap_up', 'tomorrow', 'think']
-          : ['tomorrow', 'think', 'habits'];
-  return keys.map((k) => CHIPS[k]);
+        ? ['think', 'this_week']
+        : ritual === 'wrap_up'
+          ? ['tomorrow', 'think']
+          : ['think', 'habits'];
+  return [ritual, ...rest].map((k) => CHIPS[k]);
 }
 
 /** What a chip sends to Gremly; null for the chips that open something instead. */

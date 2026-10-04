@@ -26,7 +26,7 @@ import {
   dedupeKey,
 } from './policy';
 import { writeCopy, reminderCopy, clearNightCopy } from './copy';
-import { dayEndHourFrom } from '../../shared/day.js';
+import { dayEndHourFrom, EVENING_START_HOUR } from '../../shared/day.js';
 import { buildMessage, sendToExpo, getReceipts, DEAD_DEVICE_ERRORS, ALERT_ERRORS } from './expo';
 import { reportProblem } from './alert';
 import { reminderStillFiresAt } from './planner';
@@ -150,6 +150,18 @@ export function dayStartIso(person) {
   return new Date(midnight + hour * 3600000).toISOString();
 }
 
+/**
+ * The wrap up was last touched in the evening (or after midnight, before
+ * their day ends), not earlier in the day. The app's touchedTonight
+ * (lib/wrapup/teaser.ts). With no time on it, it counts as seen.
+ */
+export function touchedTonight(sweep, tz, dayEndHour) {
+  const at = sweep?.touched_at || sweep?.started_at;
+  if (!at) return true;
+  const minutes = minutesIn(tz, at);
+  return minutes >= EVENING_START_HOUR * 60 || minutes < dayEndHour * 60;
+}
+
 /** Is the reason for this notification still true? Returns { ok, reason, facts }. */
 export async function stillTrue(env, person, job, at = new Date()) {
   const d = db(env);
@@ -187,15 +199,20 @@ export async function stillTrue(env, person, job, at = new Date()) {
       );
       if (swept?.length)
         return { ok: false, reason: `They swept at ${clock(minutesIn(tz, swept[0].created_at))}` };
-      // The wrap up lives in today's thread. Once it has been opened there
-      // (started, part way, or Not tonight) they have seen it: no nudge after.
+      // The wrap up lives in today's thread. Once it has been opened there in
+      // the evening (started, part way, or Not tonight) they have seen it: no
+      // nudge after. It can be started at any hour, and one opened or turned
+      // down earlier in the day says nothing about tonight: the nudge still goes.
       const [thread] =
         (await d.select(
           `scope_chats?user_id=eq.${uid}&chat_type=eq.daily&metadata_json->>ritual_day=eq.${ritualDay}&select=sweep:metadata_json->sweep&limit=1`,
         )) || [];
-      const step = thread?.sweep?.step;
-      if (step === 'declined') return { ok: false, reason: 'They said not tonight' };
-      if (step) return { ok: false, reason: 'They had already opened the wrap up' };
+      const sweep = thread?.sweep;
+      const dayEndHour = dayEndHourFrom(person.cortex?.day_boundary_hour);
+      if (sweep?.step && touchedTonight(sweep, tz, dayEndHour)) {
+        if (sweep.step === 'declined') return { ok: false, reason: 'They said not tonight' };
+        return { ok: false, reason: 'They had already opened the wrap up' };
+      }
       return { ok: true };
     }
     case 'habit_checkin': {

@@ -22,6 +22,12 @@ function addDays(day, n) {
 export const DEFAULT_DAY_END_HOUR = 3;
 
 /**
+ * When the evening starts: 5pm, the app's EVENING_START_HOUR
+ * (lib/chat/homeChips.ts). The evening's nudges start here. Keep the two in step.
+ */
+export const EVENING_START_HOUR = 17;
+
+/**
  * The hour their day ends from what is saved for them. Midnight (0) is a
  * choice and is kept; nothing saved means the default.
  */

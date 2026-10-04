@@ -164,6 +164,9 @@ describe('the wrap up journal', () => {
   it('names the entry and keeps only moods the app knows', () => {
     expect(journalTitle('Wednesday', true)).toBe('Wednesday evening');
     expect(journalTitle('Wednesday', false)).toBe('Evening reflection');
+    // one written before the evening is named for that part of the day
+    expect(journalTitle('Wednesday', true, 'afternoon')).toBe('Wednesday afternoon');
+    expect(journalTitle('Wednesday', false, 'morning')).toBe('Morning reflection');
     expect(knownMoods(['Good', 'good', 'sleepy', 'TIRED'])).toEqual(['good', 'tired']);
     expect(knownMoods('calm')).toEqual(['calm']);
     expect(knownMoods(null)).toEqual([]);

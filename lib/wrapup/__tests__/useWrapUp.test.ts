@@ -73,13 +73,26 @@ jest.mock('../questions', () => ({
   ...jest.requireActual('../questions'),
   fetchWrapQuestions: () => mockFetchQuestions(),
 }));
+// when the wrap up was last touched: in the evening, unless a test says earlier
+let mockTouchedTonight = true;
+jest.mock('../teaser', () => ({
+  touchedTonight: () => mockTouchedTonight,
+}));
 let mockLate = false;
+// before the evening: the wrap up started at 2pm
+let mockEarly = false;
 jest.mock('../day', () => ({
   wrapNow: () => ({
     day: '2026-09-30',
     tomorrow: '2026-10-01',
-    words: { weekday: 'Wednesday', tomorrow: mockLate ? 'Thursday' : 'tomorrow', late: mockLate },
-    evening: true,
+    words: {
+      weekday: 'Wednesday',
+      tomorrow: mockLate ? 'Thursday' : 'tomorrow',
+      late: mockLate,
+      early: mockEarly,
+    },
+    evening: !mockEarly,
+    part: mockEarly ? 'afternoon' : 'evening',
     dayEndHour: 3,
     dayStartMs: Date.parse('2026-09-30T10:00:00Z'),
   }),
@@ -189,6 +202,8 @@ beforeEach(() => {
   resetWrapSession();
   seq = 0;
   mockLate = false;
+  mockEarly = false;
+  mockTouchedTonight = true;
   mockCards = [card('a'), card('b'), card('n', 'note')];
   mockJournalNote = null;
   Object.keys(mockState).forEach((k) => delete mockState[k]);
@@ -490,6 +505,7 @@ describe('the wrap up: the journal', () => {
       moods: [],
       day: DAY,
       weekday: 'Wednesday',
+      part: 'evening',
     });
     const said = t.said();
     expect(said).toContainEqual(['brief-reply', 'Tired but pleased.']);
@@ -851,6 +867,26 @@ describe('the wrap up: the other choices', () => {
     expect(currentWrap()?.step).toBe('offer');
   });
 
+  it("a Not now from earlier in the day is not tonight's answer: the evening opens afresh", async () => {
+    mockEarly = true;
+    const t = setup();
+    await act(() => t.hook.result.current.open());
+    await act(() => t.hook.result.current.handleButton(...t.button('not_tonight')));
+    expect(currentWrap()?.step).toBe('declined');
+    // the evening comes, and they open it from the nudge
+    mockEarly = false;
+    mockTouchedTonight = false;
+    await act(() => t.hook.result.current.open());
+    expect(currentWrap()?.step).toBe('offer');
+    const said = t.messages.map((m) => m.content);
+    expect(said).toContain("Evening, Sam. Here's your Wednesday.");
+    expect(t.last().content).toBe(
+      'Three things to sort tonight, about a minute. Want to go through them?',
+    );
+    const offer = t.last().metadata_json as unknown as BriefOfferMeta;
+    expect(offer.buttons.map((b) => b.label)).toContain('Not tonight');
+  });
+
   it('Plan my week opens the week planner and leaves the offer as it is', async () => {
     const t = setup();
     await act(() => t.hook.result.current.open());
@@ -929,5 +965,73 @@ describe('the wrap up: after midnight', () => {
     await act(() => t.hook.result.current.handleButton(...t.button('sweep_skip')));
     expect(mockApplyDecision.mock.calls.every((c) => c[0].dueDateStr === TOMORROW)).toBe(true);
     expect(t.said()).toContainEqual(['brief-event', 'Moved 2 todos to Thursday']);
+  });
+});
+
+describe('the wrap up: before the evening', () => {
+  beforeEach(() => {
+    mockEarly = true;
+  });
+
+  it('opens on the day so far, and nothing says tonight', async () => {
+    const t = setup();
+    await act(() => t.hook.result.current.open());
+    expect(t.messages[1].content).toBe("Here's your Wednesday so far, Sam.");
+    expect(t.last().content).toBe('Three things to sort, about a minute. Want to go through them?');
+    const offer = t.last().metadata_json as unknown as BriefOfferMeta;
+    expect(offer.buttons.map((b) => b.label)).toEqual([
+      'Sweep now',
+      'Move it all to tomorrow',
+      'Plan my week',
+      'Not now',
+    ]);
+    // every change is stamped, so the evening knows this was earlier in the day
+    expect(currentWrap()?.touched_at).toBeTruthy();
+  });
+
+  it('Not now leaves it all where it is, with the journal one tap away', async () => {
+    const t = setup();
+    await act(() => t.hook.result.current.open());
+    await act(() => t.hook.result.current.handleButton(...t.button('not_tonight')));
+    expect(t.last().content).toBe("No problem. It's all here whenever you want it.");
+    expect(currentWrap()?.step).toBe('declined');
+    expect(mockCompleted).not.toHaveBeenCalled();
+    await act(() => t.hook.result.current.handleButton(...t.button('journal_only')));
+    expect(t.last().content).toBe('Of course. How is today going?');
+  });
+
+  it("goes through to the close in the day's words", async () => {
+    mockState.habits = [{ id: 'h1', name: 'Blinkist', start_date: '2026-09-01', cadence: 'daily' }];
+    mockMeetings.mockReturnValue([]);
+    const t = await clearNight();
+    expect(t.messages[3].content).toBe('Nothing to sort.');
+    // the habits card knows it was asked before the evening
+    expect(t.card('sweep-habits').metadata_json).toMatchObject({ early: true });
+    await act(() => t.hook.result.current.habits.save(t.card('sweep-habits'), [], {}));
+    expect(t.messages.map((m) => m.content)).toContain("No problem. There's still time today.");
+    expect(t.last().content).toBe('How is today going?');
+    const journal = t.last().metadata_json as unknown as BriefOfferMeta;
+    expect(journal.buttons.map((b) => b.label)).toEqual([
+      'Write a few lines',
+      'Just pick a mood',
+      'Skip',
+    ]);
+    await toQuestions(t);
+    const close = t.last().metadata_json as unknown as BriefOfferMeta;
+    expect(close.buttons.map((b) => b.label)).toEqual(['Plan tomorrow', 'Thanks, Gremly']);
+    await act(() => t.hook.result.current.handleButton(...t.button('night')));
+    expect(t.said()).toContainEqual(['brief-text', 'Enjoy the rest of your day, Sam.']);
+    expect(currentWrap()?.step).toBe('done');
+    expect(t.messages.every((m) => !/tonight|night/i.test(m.content ?? ''))).toBe(true);
+  });
+
+  it('a journal entry written before the evening is named for that part of the day', async () => {
+    const t = await clearNight();
+    await act(async () => {
+      await t.hook.result.current.takeTyped('Good morning of work.');
+    });
+    expect(mockSaveJournal).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Good morning of work.', part: 'afternoon' }),
+    );
   });
 });

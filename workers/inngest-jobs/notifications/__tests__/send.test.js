@@ -18,10 +18,12 @@ import {
   CANARY_WORDS,
   briefFacts,
   compose,
+  touchedTonight,
 } from '../send';
 import { gatherBrief } from '../../brief/data';
 import { writeDailyBrief } from '../../brief/index';
 import { reportProblem } from '../alert';
+import { jsonCall } from '../../context/llm';
 
 jest.mock('../../context/llm', () => ({ jsonCall: jest.fn() }));
 jest.mock('../alert', () => ({ reportProblem: jest.fn(), cronCheckIn: jest.fn() }));
@@ -205,8 +207,8 @@ describe('decide', () => {
     expect(v.facts).toMatchObject({ weekday: 'Thursday', meetings_today: 0 });
   });
 
-  it('names the number the wrap up will show: todos simply due today are on their own card', async () => {
-    // Sweep's whole list would say 3 here; the wrap up offers one card to sort
+  it('names the number the wrap up will show: todos due today are cards like any other', async () => {
+    // two due today and one with no day are cards; the one due next week is not
     gatherBrief.mockResolvedValue({
       now: 18 * 60,
       meetings: [],
@@ -222,7 +224,7 @@ describe('decide', () => {
     ];
     mockTables.notes = [];
     const v = await decide(ON, job, { at: AT });
-    expect(v.facts.waiting_in_sweep).toBe(1);
+    expect(v.facts.waiting_in_sweep).toBe(3);
   });
 
   it('gives the words what makes a day not clear: habits, Sweep and what is dated today', async () => {
@@ -325,6 +327,27 @@ describe('decide', () => {
     // a thread with no wrap up yet (the morning brief only) changes nothing
     mockTables.scope_chats = [{ sweep: null }];
     expect((await decide(ON, job, { at: AT })).action).toBe('send');
+  });
+
+  it('still goes out when the wrap up was only opened or turned down earlier in the day', async () => {
+    // London: 2pm is before the evening, 5:30pm is in it
+    const early = { started_at: '2026-10-01T13:00:00Z', touched_at: '2026-10-01T13:05:00Z' };
+    mockTables.scope_chats = [{ sweep: { step: 'declined', ...early } }];
+    expect((await decide(ON, job, { at: AT })).action).toBe('send');
+    mockTables.scope_chats = [{ sweep: { step: 'partial', ...early } }];
+    expect((await decide(ON, job, { at: AT })).action).toBe('send');
+    // started earlier, picked up again in the evening: they have seen it tonight
+    mockTables.scope_chats = [
+      { sweep: { step: 'partial', ...early, touched_at: '2026-10-01T16:30:00Z' } },
+    ];
+    expect(await decide(ON, job, { at: AT })).toMatchObject({
+      action: 'drop',
+      reason: 'They had already opened the wrap up',
+    });
+    // after midnight, before their day ends, is still the evening
+    mockTables.cortex_preferences = [{ day_boundary_hour: 3 }];
+    expect(touchedTonight({ touched_at: '2026-10-01T23:30:00Z' }, 'Europe/London', 3)).toBe(true);
+    expect(touchedTonight({ touched_at: '2026-10-01T09:00:00Z' }, 'Europe/London', 3)).toBe(false);
   });
 
   it('drops and reports a wake far past its time', async () => {
@@ -496,7 +519,6 @@ describe('compose', () => {
     });
   });
   it('says one fixed line on a night with nothing to sort, without the writer', async () => {
-    const { jsonCall } = require('../../context/llm');
     const w = await compose({}, { user_id: USER, moment: 'sweep' }, person, {
       weekday: 'Thursday',
       waiting_in_sweep: 0,

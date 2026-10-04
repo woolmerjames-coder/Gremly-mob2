@@ -8,7 +8,7 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Check, NotebookPen, Pencil, Undo2 } from 'lucide-react-native';
 import type { SweepJournalMeta } from '../../lib/brief/types';
 import { ALL_MOODS, MOOD_CONFIG, type Mood } from '../../lib/shared/moods';
-import { CARD_COPY, journalLabel } from '../../lib/wrapup/words';
+import { CARD_COPY, journalLabel, partWords } from '../../lib/wrapup/words';
 import { BRIEF } from '../brief/briefStyles';
 import { wrapStyles } from './wrapStyles';
 
@@ -47,7 +47,7 @@ export function WrapJournalCard({
       <View style={wrapStyles.collapsed} testID={`wrap-journal-${meta.status}`}>
         <NotebookPen size={14} color={BRIEF.faint} strokeWidth={2} />
         <Text style={wrapStyles.collapsedText}>
-          {meta.status === 'removed' ? CARD_COPY.journalRemoved : CARD_COPY.journalNone}
+          {meta.status === 'removed' ? CARD_COPY.journalRemoved : partWords(meta.early).journalNone}
         </Text>
       </View>
     );

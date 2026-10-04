@@ -27,8 +27,14 @@ describe('the day being wrapped up', () => {
     const now = wrapNow();
     expect(now.day).toBe('2026-09-30');
     expect(now.tomorrow).toBe('2026-10-01');
-    expect(now.words).toEqual({ weekday: 'Wednesday', tomorrow: 'tomorrow', late: false });
+    expect(now.words).toEqual({
+      weekday: 'Wednesday',
+      tomorrow: 'tomorrow',
+      late: false,
+      early: false,
+    });
     expect(now.evening).toBe(true);
+    expect(now.part).toBe('evening');
     expect(now.dayEndHour).toBe(3);
     expect(tomorrowLabel()).toBe('Tomorrow');
   });
@@ -38,7 +44,13 @@ describe('the day being wrapped up', () => {
     const now = wrapNow();
     expect(now.day).toBe('2026-09-30');
     expect(now.tomorrow).toBe('2026-10-01');
-    expect(now.words).toEqual({ weekday: 'Wednesday', tomorrow: 'Thursday', late: true });
+    expect(now.words).toEqual({
+      weekday: 'Wednesday',
+      tomorrow: 'Thursday',
+      late: true,
+      early: false,
+    });
+    expect(now.part).toBe('evening');
     expect(now.evening).toBe(true);
     expect(tomorrowLabel()).toBe('Thursday');
   });
@@ -53,9 +65,26 @@ describe('the day being wrapped up', () => {
     at('2026-10-01T10:30:00Z'); // 3:30 AM on Thursday
     const now = wrapNow();
     expect(now.day).toBe('2026-10-01');
-    expect(now.words).toEqual({ weekday: 'Thursday', tomorrow: 'tomorrow', late: false });
+    // before the evening the day is not over: its words do not say tonight
+    expect(now.words).toEqual({
+      weekday: 'Thursday',
+      tomorrow: 'tomorrow',
+      late: false,
+      early: true,
+    });
     expect(now.evening).toBe(false);
     expect(tomorrowLabel()).toBe('Tomorrow');
+  });
+
+  it('names the part of the day, for a journal entry written before the evening', () => {
+    at('2026-09-30T16:00:00Z'); // 9 AM
+    expect(wrapNow()).toMatchObject({ part: 'morning', evening: false });
+    expect(wrapNow().words.early).toBe(true);
+    at('2026-09-30T21:00:00Z'); // 2 PM
+    expect(wrapNow()).toMatchObject({ part: 'afternoon', evening: false });
+    at('2026-10-01T03:00:00Z'); // 8 PM
+    expect(wrapNow()).toMatchObject({ part: 'evening', evening: true });
+    expect(wrapNow().words.early).toBe(false);
   });
 
   it('is not evening in the afternoon, and is from 5 PM', () => {

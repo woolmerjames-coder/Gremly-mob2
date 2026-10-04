@@ -60,6 +60,18 @@ Where the code is:
   The prototype shows one. A todo that was due today and did not happen is a
   swipe card like any other, with every choice a card has. Move it all to
   tomorrow is the quick way out on a busy night.
+- The wrap up can be started at any hour, from his review on 4 Oct. A day can
+  be over at 2pm. The first chip on Chat is the day's ritual: Plan my day
+  until today has a plan or midday, then Wrap up today, then Tomorrow. The
+  Today button and the pinned card offer it in the evening, once it is under
+  way, or as soon as everything on Today is done. The nudges (the dot,
+  Gremly's line, the notification) stay in the evening. A no or a part way
+  stop before the evening does not quiet the evening: the state is stamped
+  each time it is touched (`WrapUpState.touched_at`), and the app
+  (`lib/wrapup/teaser.ts`) and the notification (`send.js`, `touchedTonight`)
+  both read it. Before the evening the fixed lines use day words, nothing says
+  tonight or night (`partWords` in `lib/wrapup/words.ts`). Step 10's wording
+  has to cover both.
 - The journal is protected: asked on every path, one tap away after Not
   tonight. A reply to the journal question saves straight to the journal, the
   box says so, an X sends the message to Gremly instead, and the entry has

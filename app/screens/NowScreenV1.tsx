@@ -865,7 +865,8 @@ export default function NowScreenV1() {
               pressed && styles.headerButtonPressed,
             ]}
             onPress={
-              // in the evening this is the way into the wrap up, until it is done
+              // the way into the wrap up while it is offered: in the evening, once it
+              // is under way, or as soon as everything on Today is done
               wrapTeaser.offer
                 ? () =>
                     navigation.navigate('Tabs', {
