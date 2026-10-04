@@ -78,7 +78,11 @@ import { scheduleDcoRefresh } from '../../lib/brief/dcoRefresh';
 import { TodayPinnedCard } from '../../components/brief/TodayPinnedCard';
 import { useReducedMotion } from '../../design/animations';
 import { useMascotStore } from '../../lib/store/useMascotStore';
-import { ensureDailyThread, markDailyThreadOnce } from '../../lib/repo/dailyThreadRepo';
+import {
+  ensureDailyThread,
+  markDailyThreadOnce,
+  patchDailyThreadMeta,
+} from '../../lib/repo/dailyThreadRepo';
 import type {
   BriefDayCardMeta,
   BriefPlanMeta,
@@ -102,6 +106,8 @@ import {
 import { opFromButton } from '../../lib/plan/planFlow';
 import { BriefPlanBlock } from '../../components/brief/BriefPlanBlock';
 import { HomeChips } from '../../components/home/HomeChips';
+import { chatCardMeta, chatHistoryOf, useChatCard } from '../../lib/chat/useChatCard';
+import type { AgentTask } from '../../lib/cortex/CortexClient';
 import { useKeyboardOpen } from '../../hooks/useKeyboardOpen';
 import { chipPrompt, homeChipsFor, homePhase, type HomeChipKey } from '../../lib/chat/homeChips';
 import { useNowMinutes } from '../../lib/brief/useDayCard';
@@ -112,6 +118,12 @@ const LINEN = '#F9F6F1';
 
 // What Gremly says on the fresh home until his greeting arrives, or if it cannot
 const GREETING_FALLBACK = "What's on your mind?";
+
+/** The agent's task list kept on a chat (agent plan step 9). */
+function agentTasksOf(chat: SpaceChat): AgentTask[] {
+  const tasks = (chat.metadata_json as { agent_tasks?: unknown } | null | undefined)?.agent_tasks;
+  return Array.isArray(tasks) ? (tasks as AgentTask[]) : [];
+}
 
 /** An item's own chat (components/chat/ItemChatScreen.tsx) */
 export type ItemChatOptions = {
@@ -416,6 +428,21 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     if (activeChat && aboutRef.current) clearAbout();
   }, [activeChat, clearAbout]);
 
+  // the agent's task list, kept on the chat so asks carry across messages
+  const keepAgentTasks = useCallback(async (chat: SpaceChat, tasks: AgentTask[]) => {
+    const patch = { agent_tasks: tasks };
+    setActiveChat((prev) =>
+      prev && prev.id === chat.id
+        ? { ...prev, metadata_json: { ...((prev.metadata_json as object) ?? {}), ...patch } }
+        : prev,
+    );
+    try {
+      await patchDailyThreadMeta(chat.id, patch);
+    } catch (err) {
+      console.warn('[AskGremly] could not keep the task list:', err);
+    }
+  }, []);
+
   const sendToChat = useCallback(
     async (
       chat: SpaceChat,
@@ -450,9 +477,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       // still be the previous chat's for a moment, so they are not used.
       // (today's thread: what is shown, so an offer held back is not sent as said)
       const prior = opts.fresh ? [] : visibleThreadMessages(messages);
-      const conversationHistory = prior
-        .filter((m) => m.role === 'user' || m.role === 'assistant')
-        .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+      // what was said, and what each of Gremly's cards came to
+      const conversationHistory = chatHistoryOf(prior);
       // a chat about a drop starts with Gremly's opener, which names the item
       if (opts.fresh && opts.lead) {
         conversationHistory.unshift({ role: 'assistant', content: opts.lead });
@@ -497,6 +523,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
           // a correction made in today's thread is marked as made on the brief
           chatSurface: chat.chat_type === 'daily' ? 'brief' : 'chat',
           briefQuestion: opts.briefQuestion ?? null,
+          // the agent's task list kept on this chat, so asks carry across messages
+          agentTasks: opts.fresh ? [] : agentTasksOf(chat),
         },
         {
           onChunk: (delta: string) => {
@@ -513,6 +541,11 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             wordBufferRef.current.push(...delta.split(/(?<=\s)/));
           },
           onSearching: (query: string, isLoadingHint?: boolean) => {
+            // the agent's status lines say it is still working, as a chunk would
+            if (receivedChunks || isLoadingHint) {
+              if (streamTimeoutRef.current) clearTimeout(streamTimeoutRef.current);
+              streamTimeoutRef.current = setTimeout(handleStreamTimeout, 15000);
+            }
             const msgId = streamingMessageIdRef.current;
             if (msgId) {
               updateStreamingSearching(msgId, true, query);
@@ -548,6 +581,22 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                   }),
                 );
               }
+            }
+            const agent = richResult?.agent;
+            if (agent) {
+              // the agent answered: its card under the reply, and the chat's task list
+              if (agent.card?.length) {
+                await appendBriefMessage(
+                  'system',
+                  '',
+                  chatCardMeta(
+                    agent.card,
+                    agent.tasks ?? [],
+                    agent.prompt_version,
+                  ) as unknown as Record<string, unknown>,
+                );
+              }
+              void keepAgentTasks(chat, agent.tasks ?? []);
             }
             if (richResult?.entity_card) {
               await appendEntityCard(richResult.entity_card);
@@ -603,6 +652,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       finalizeStreamingMessage,
       cancelStreaming,
       appendEntityCard,
+      appendBriefMessage,
+      keepAgentTasks,
     ],
   );
 
@@ -1132,8 +1183,16 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     ),
     [],
   );
+  // Ask Gremly's agent card (agent plan step 9): the same card, in a chat
+  const chatCard = useChatCard({
+    appendBriefMessage,
+    patchMessageMetadata,
+    say: async (text) => {
+      await appendAssistantMessage(text);
+    },
+  });
   // drawn again when saving ends and when Undo becomes possible (ChangeCard.tsx)
-  const renderChanges = useRenderChanges(dayTurn);
+  const renderChanges = useRenderChanges(isDailyThread ? dayTurn : chatCard);
   const renderPlan = useCallback(
     (message: SpaceChatMessage, meta: BriefPlanMeta) => (
       <BriefPlanBlock
