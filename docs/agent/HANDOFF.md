@@ -197,6 +197,25 @@ quick lane keeps its own card (`EntityCardMessage`) until the agent lane is
 on for everyone, and `find_items` is compared with `entityMatch.js` before
 the quick lane moves to the search.
 
+**Chat's agent, faster (step 9, 4 Oct).** Each agent step is a model call of
+1.5 to 2s, and a change took three (search, read, card). Now the agent starts
+with what it needs, as today's thread does: the week ahead gives each todo
+its id (`formatWeekAhead(week, { ids: true })`, the agent only; the week comes
+back from `buildChatContext` through `opts.keep`), the items that share words
+with the message are searched before the first step (`prefetchForChat`,
+started alongside triage), and the chat job says to answer from those and ask
+for other lookups together. `propose_changes` takes an id from what the agent
+knows, not only from a tool. Triage starts once the profile and domain names
+are read, with the rest of the context loading alongside it. Chat replay: 72
+of 72, 3.1s typical against 5.4s, 1.8 steps against 2.4. Thinking `none` was
+tried and was no faster (more steps). The loading line is on Luna
+(`MODEL_LOADING_MESSAGE`, checked with `scripts/chat-replay/loading.sh`).
+Space, World and Chapter chat stay on `CHAT_MODEL` (no messages in 90 days);
+an item's chat is Ask Gremly's path. The old item matcher (`entityMatch.js`,
+Gemini 3.8 Flash) costs about 0.5 cents a message, against 0.03 for the agent,
+and the quick lane waits for it: compare it with `find_items` when the agent
+lane goes to everyone.
+
 **Step 11, focused model audit.** After chat and Sweep, a smaller audit of
 only the places that could be better, from replays and real use: a stronger
 model for harder jobs where it earns its cost, `none` thinking on a bigger
