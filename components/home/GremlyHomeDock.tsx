@@ -21,6 +21,17 @@ export type HomeChatApi = {
   isSending: () => boolean;
 };
 
+/**
+ * A pill above the box in Chat: the next message is not an ordinary one (it is
+ * saved to the journal, or answers Gremly's question), with an X to send it
+ * to Gremly instead.
+ */
+export type ChatTag = {
+  label: string;
+  kind: 'journal' | 'question';
+  onCancel: () => void;
+};
+
 export type HomeDockApi = {
   /** The Drop page hands over its input block; null takes it away */
   setDock: (node: React.ReactNode) => void;
@@ -31,6 +42,8 @@ export type HomeDockApi = {
   setChatSending: (sending: boolean) => void;
   /** The Chat page asks for different words in the empty box (null for the usual) */
   setChatPlaceholder: (text: string | null) => void;
+  /** The Chat page says what the next message is, above the box (null for an ordinary message) */
+  setChatTag: (tag: ChatTag | null) => void;
   /** The Chat page reports when the conversation is being scrolled */
   setChatScrolling: (scrolling: boolean) => void;
   /** Puts text into the shared box (a prompt another screen opened Chat with) */
@@ -50,6 +63,8 @@ export type HomeModeState = {
   chatScrolling: boolean;
   /** Words for the empty box in Chat mode, such as "Type your answer…"; null for the usual */
   chatPlaceholder: string | null;
+  /** What the next message is, shown above the box; null for an ordinary message */
+  chatTag: ChatTag | null;
 };
 
 export const HomeDockContext = createContext<HomeDockApi | null>(null);

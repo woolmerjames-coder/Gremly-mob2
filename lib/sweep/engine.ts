@@ -613,7 +613,9 @@ export async function markSweepCompleted(
   summary: { kept: number; cleared: number },
 ): Promise<{ streak: number }> {
   const now = getDateService().now();
-  const todayDate = getDateService().today(); // YYYY-MM-DD (local timezone)
+  // the streak counts the person's day, which after midnight is still
+  // yesterday until their day ends: a Sweep at 12:30am belongs to the evening
+  const todayDate = getDateService().ritualDay();
 
   try {
     // 1. Insert event for analytics/history

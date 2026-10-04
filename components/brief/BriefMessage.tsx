@@ -14,7 +14,9 @@ import { briefMetaOf, followsGremly } from '../../lib/brief/messages';
 import type {
   BriefChangesMeta,
   BriefDayCardMeta,
+  BriefMeta,
   BriefPlanMeta,
+  OfferAction,
   OfferButton,
 } from '../../lib/brief/types';
 import type { SpaceChatMessage } from '../../lib/types';
@@ -31,6 +33,10 @@ export type BriefMessageProps = {
   renderDayCard?: (message: SpaceChatMessage, meta: BriefDayCardMeta) => React.ReactNode;
   renderPlan?: (message: SpaceChatMessage, meta: BriefPlanMeta) => React.ReactNode;
   renderChanges?: (message: SpaceChatMessage, meta: BriefChangesMeta) => React.ReactNode;
+  /** The evening wrap up's cards (lib/wrapup), drawn by the screen that owns the wrap up */
+  renderWrap?: (message: SpaceChatMessage, meta: BriefMeta) => React.ReactNode;
+  /** Buttons left out of a live offer for now (Write a few lines, while the box already saves to the journal) */
+  hiddenActions?: OfferAction[];
 };
 
 function BriefMessageInner({
@@ -42,6 +48,8 @@ function BriefMessageInner({
   renderDayCard,
   renderPlan,
   renderChanges,
+  renderWrap,
+  hiddenActions,
 }: BriefMessageProps) {
   const meta = briefMetaOf(message);
   if (!meta || meta.superseded) return null;
@@ -70,8 +78,13 @@ function BriefMessageInner({
           {message.content ? <ChatBubble message={message} hideMark={followsGremly(prev)} /> : null}
           {live ? (
             <BriefOfferChips
-              buttons={meta.buttons}
+              buttons={
+                hiddenActions?.length
+                  ? meta.buttons.filter((b) => !hiddenActions.includes(b.action))
+                  : meta.buttons
+              }
               disabled={!interactive}
+              hint={meta.hint}
               onPress={(b) => onOfferButton?.(message, b)}
             />
           ) : null}
@@ -86,6 +99,16 @@ function BriefMessageInner({
       return <View style={styles.card}>{renderPlan?.(message, meta) ?? null}</View>;
     case 'brief-changes':
       return <View style={styles.card}>{renderChanges?.(message, meta) ?? null}</View>;
+    case 'sweep-recap':
+    case 'sweep-receipt':
+    case 'sweep-still':
+    case 'sweep-habits':
+    case 'sweep-journal':
+    case 'sweep-item':
+    case 'sweep-end': {
+      const drawn = renderWrap?.(message, meta);
+      return drawn ? <View style={styles.card}>{drawn}</View> : null;
+    }
     default:
       return null;
   }

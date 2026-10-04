@@ -4388,11 +4388,13 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     return () => celebrationController.suppressAgeUpCelebration(false);
   }, []);
 
-  const [step, setStep] = useState<number>(quick ? 1 : initialStep);
+  // Plan my week, from the wrap up's offer: straight to the week's chooser
+  const weekEntry = route.params?.week === true;
+  const [step, setStep] = useState<number>(quick ? 1 : weekEntry ? 0.1 : initialStep);
   // sweepIntent: captured from the intro screen; consumed in Phase 2 (SweepDecisionStep default date).
   // In __DEV__, initialIntent from route params can seed this directly (for test-mode step jumping).
   const [sweepIntent, setSweepIntent] = useState<SweepIntent>(
-    quick ? 'today' : __DEV__ && initialIntent ? initialIntent : 'tomorrow',
+    quick ? 'today' : weekEntry ? 'week' : __DEV__ && initialIntent ? initialIntent : 'tomorrow',
   );
   const [bulkSkipPickerVisible, setBulkSkipPickerVisible] = useState(false);
   const [bulkSkipPickerDate, setBulkSkipPickerDate] = useState<Date>(() => getDateService().now());
@@ -4402,7 +4404,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   // existing steps (0, 0.25, 0.5, 0.75, 1, 2, 3, 4).
   const HUB = 0.1;
   const EVENTS = 0.2; // Events spoke sentinel
-  const [hubMode, setHubMode] = useState(false);
+  const [hubMode, setHubMode] = useState(weekEntry);
   const [completedSections, setCompletedSections] = useState<Set<string>>(new Set());
   const [guidedAll, setGuidedAll] = useState(false);
   const [activeSection, setActiveSection] = useState<HubSectionKey | null>(null);

@@ -13,10 +13,12 @@ type Props = {
   buttons: OfferButton[];
   onPress: (button: OfferButton) => void;
   disabled?: boolean;
+  /** A quiet line under the buttons */
+  hint?: string;
   testID?: string;
 };
 
-export function BriefOfferChips({ buttons, onPress, disabled, testID }: Props) {
+export function BriefOfferChips({ buttons, onPress, disabled, hint, testID }: Props) {
   if (!buttons.length) return null;
   return (
     <View style={styles.row} testID={testID ?? 'brief-offer-chips'}>
@@ -34,6 +36,11 @@ export function BriefOfferChips({ buttons, onPress, disabled, testID }: Props) {
           <Text style={[styles.label, b.primary && styles.primaryLabel]}>{b.label}</Text>
         </TouchableOpacity>
       ))}
+      {hint ? (
+        <Text style={styles.hint} testID="brief-offer-hint">
+          {hint}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -71,5 +78,13 @@ const styles = StyleSheet.create({
   },
   primaryLabel: {
     color: BRIEF.linen,
+  },
+  hint: {
+    flexBasis: '100%',
+    textAlign: 'right',
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    color: BRIEF.faint,
+    marginTop: -2,
   },
 });

@@ -353,9 +353,15 @@ export interface WrapUpState {
   /** The cards there were when it started, so later ones are known as new */
   items: string[];
   decisions: SweepRecord[];
+  /** Todos still open today that were moved on with one tap, or with a skip */
+  moved?: { id: string; title: string }[];
+  /** When the cards were settled (sorted, left, moved on, or none): the Sweep counts as done */
+  settled_at?: string | null;
   /** How many cards feeding has been credited for */
   credited?: number;
   journal?: 'written' | 'mood' | 'skipped' | null;
+  /** Gremly has been fed for tonight's entry (once a night) */
+  journal_fed?: boolean;
   /** After Not tonight: only the journal was wanted */
   journal_only?: boolean;
   /** Gremly's questions asked tonight */

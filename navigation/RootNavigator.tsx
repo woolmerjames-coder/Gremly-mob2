@@ -101,6 +101,8 @@ export type RootStackParamList = {
          * brief's Sweep first, only the cards that need a decision.
          */
         cards?: 'wrap' | 'quick';
+        /** Straight to the week planner (Plan my week) */
+        week?: boolean;
       }
     | undefined;
   ArchivedItems: { searchQuery?: string } | undefined;

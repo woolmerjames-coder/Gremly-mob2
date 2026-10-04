@@ -45,7 +45,7 @@ export type TabParamList = {
         /** Daily brief in Chat: open today's thread (the notification, Plan with Gremly) */
         thread?: 'today';
         /** With thread: jump to a step of the brief once it has played ('plan') */
-        step?: 'plan';
+        step?: 'plan' | 'wrap';
         /** With step 'plan': plan tomorrow instead of today (Plan tomorrow, after Sweep) */
         planDay?: 'tomorrow';
         /** Changes on every request, so the same thread can be asked for twice */

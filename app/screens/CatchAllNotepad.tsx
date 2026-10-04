@@ -75,6 +75,7 @@ import { useAuth } from '../../providers/AuthProvider';
 import { useRepo } from '../../providers/RepoProvider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useHomeDock, useHomeMode } from '../../components/home/GremlyHomeDock';
+import { ReplyTag } from '../../components/wrapup/ReplyTag';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
 import {
   MidConfidenceChips,
@@ -3263,6 +3264,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             </Pressable>
           </Reanimated.View>
         )}
+        {/* In Chat, what the next message is when it is not an ordinary one:
+            saved to the journal, or an answer to Gremly's question */}
+        {chatMode && homeMode?.chatTag ? (
+          <View style={styles.replyTag} pointerEvents="box-none">
+            <ReplyTag
+              label={homeMode.chatTag.label}
+              kind={homeMode.chatTag.kind}
+              onCancel={homeMode.chatTag.onCancel}
+            />
+          </View>
+        ) : null}
         {/* Gremly perched on input - always visible */}
         <Animated.View
           style={[styles.inputGremly, styles.inputGremlyTuckOrigin, gremlyTuckStyle]}
@@ -3902,6 +3914,13 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
     inputGremlyPress: {
       flex: 1,
+    },
+    // sits just above the box, on the left, clear of Gremly on the right
+    replyTag: {
+      position: 'absolute',
+      top: -38,
+      left: 2,
+      zIndex: 12,
     },
     inputContainerCompact: {
       minHeight: 0,

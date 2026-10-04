@@ -90,3 +90,24 @@ export function keptFor(state: WrapUpState | null | undefined, day: string): str
     .filter((d) => !d.undone_at && d.out === 'kept' && d.type === 'todo' && d.fields?.day === day)
     .map((d) => d.title);
 }
+
+/** Counts for the receipt: what is kept and let go now, with what was put back left out. */
+export function sweepCounts(records: SweepRecord[]): {
+  kept: number;
+  letGo: number;
+  left: number;
+  back: number;
+  decided: number;
+} {
+  const live = records.filter((r) => !r.undone_at);
+  const kept = live.filter((r) => r.out === 'kept').length;
+  const letGo = live.filter((r) => r.out === 'let_go').length;
+  const left = live.filter((r) => r.out === 'left').length;
+  return {
+    kept,
+    letGo,
+    left,
+    back: records.length - live.length,
+    decided: kept + letGo,
+  };
+}

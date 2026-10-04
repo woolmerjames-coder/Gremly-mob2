@@ -96,6 +96,13 @@ export const WRAP_COPY = {
   stillMoved: 'Moved',
   stillLeft: 'No problem, they stay where they are.',
   stillLeftOne: 'No problem, it stays where it is.',
+  stillFailed: "I couldn't move them just now. They are still on today.",
+  stillUndone: 'Put back on today.',
+  stillStays: 'Stays on today',
+  stillOnToday: 'Still on today',
+  stillLeftLine: 'Left on today',
+  stillLeaveAll: 'Leave them on today',
+  stillLeaveAllOne: 'Leave it on today',
   // habits
   habitsHeading: 'Habits still open',
   habitsHint: 'Tap what happened',
@@ -183,6 +190,17 @@ export function stillApply(n: number, total: number, d: WrapDay): string {
   if (n === total && total === 1) return `Move it to ${d.tomorrow}`;
   if (n === total) return `Move all ${numberWord(total)} to ${d.tomorrow}`;
   return `Move ${n} to ${d.tomorrow}`;
+}
+
+/** Under the card once they are moved: said with its Undo. */
+export function stillMovedLine(n: number, toWord: string): string {
+  return `Done. ${n === 1 ? "It's" : "They're"} down for ${toWord}.`;
+}
+
+/** A row on the card: where the todo goes, or went. */
+export function stillRowWords(toWord: string): { from: string; going: string; moved: string } {
+  const to = toWord === 'tomorrow' ? 'Tomorrow' : toWord;
+  return { from: 'Today', going: to, moved: `Moved to ${toWord}` };
 }
 
 export function habitsLine(build: number, breaking: number): string {
@@ -309,4 +327,113 @@ export function newSinceLine(n: number): string {
   return n === 1
     ? 'One new thing since we wrapped up. Sort it now, or leave it for the morning?'
     : `${cap(things(n))} new since we wrapped up. Sort them now, or leave them for the morning?`;
+}
+
+// ── the cards in the thread ──────────────────────────────────────────────────
+
+const SHORT_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const SHORT_MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+/** "Wed 30 Sep" for a YYYY-MM-DD day. */
+export function shortDate(day: string): string {
+  const d = new Date(`${day}T12:00:00Z`);
+  if (Number.isNaN(d.getTime())) return day;
+  return `${SHORT_DAYS[d.getUTCDay()]} ${d.getUTCDate()} ${SHORT_MONTHS[d.getUTCMonth()]}`;
+}
+
+export const CARD_COPY = {
+  recapHide: 'Hide the list',
+  recapTodo: 'Todo',
+  recapHabit: 'Habit',
+  recapMissed: 'Not today',
+  receiptPutBack: 'Put back',
+  undo: 'Undo',
+  saved: 'Saved',
+  journalRemoved: 'Taken back out of your journal',
+  journalNone: 'No journal tonight',
+  journalMoods: 'Moods',
+  journalSave: 'Save',
+  journalSkip: 'Skip',
+  journalDone: 'Done',
+  itemOpen: 'Open it',
+  habitHold: 'Did it hold today?',
+  habitHeld: 'Held today',
+  habitNotHeld: 'Not today, and that is okay',
+  habitNoAnswer: 'No answer tonight',
+  habitLogged: 'Logged',
+  habitNotToday: 'Not today',
+} as const;
+
+/** "4 of 5 planned" */
+export function plannedTag(p: { done: number; total: number }): string {
+  return `${p.done} of ${p.total} planned`;
+}
+
+/** The four counts on the recap card, each with its word. */
+export function recapCells(c: {
+  todos: number;
+  habits: number;
+  meetings: number;
+  drops: number;
+}): [number, string][] {
+  return [
+    [c.todos, c.todos === 1 ? 'todo done' : 'todos done'],
+    [c.habits, c.habits === 1 ? 'habit' : 'habits'],
+    [c.meetings, c.meetings === 1 ? 'meeting' : 'meetings'],
+    [c.drops, c.drops === 1 ? 'drop' : 'drops'],
+  ];
+}
+
+export function recapMore(n: number): string {
+  return n === 1 ? 'See the one thing you finished' : `See the ${n} things you finished`;
+}
+
+export function receiptTitle(decided: number): string {
+  return `Swept ${decided} ${decided === 1 ? 'thing' : 'things'}`;
+}
+
+/** "4 kept, 1 let go, 1 put back, 2 still to sort" */
+export function receiptParts(c: {
+  kept: number;
+  letGo: number;
+  back: number;
+  left: number;
+  toSort: number;
+}): string {
+  const parts: string[] = [];
+  if (c.kept) parts.push(`${c.kept} kept`);
+  if (c.letGo) parts.push(`${c.letGo} let go`);
+  if (c.back) parts.push(`${c.back} put back`);
+  if (c.toSort) parts.push(`${c.toSort} still to sort`);
+  else if (c.left) parts.push(`${c.left} left for next time`);
+  return parts.join(', ');
+}
+
+/** "Journal, Wed 30 Sep" */
+export function journalLabel(day: string): string {
+  return `Journal, ${shortDate(day)}`;
+}
+
+/** "Already logged today: Run, Social Media Posts" */
+export function alreadyLogged(names: string[]): string {
+  return `Already logged today: ${names.join(', ')}`;
+}
+
+/** "Event, Fri 2 Oct" under the item a question was about. */
+export function itemSub(kind: 'todo' | 'habit' | 'note', when?: string): string {
+  const what = kind === 'todo' ? 'Todo' : kind === 'habit' ? 'Habit' : 'Note';
+  return when ? `${what}, ${when}` : what;
 }

@@ -31,6 +31,8 @@ interface WrapSession {
   cardsDecided: number;
   /** The cards are on screen */
   cardsOpen: boolean;
+  /** The cards were opened and the thread has not picked up from them yet */
+  cardsVisited: boolean;
 }
 
 export const useWrapSession = create<WrapSession>(() => ({
@@ -40,6 +42,7 @@ export const useWrapSession = create<WrapSession>(() => ({
   undoable: {},
   cardsDecided: 0,
   cardsOpen: false,
+  cardsVisited: false,
 }));
 
 const reverts = new Map<string, () => Promise<void>>();
@@ -73,6 +76,7 @@ export function loadWrap(threadId: string, wrap: WrapUpState | null | undefined)
     undoable: {},
     cardsDecided: 0,
     cardsOpen: false,
+    cardsVisited: false,
   });
 }
 
@@ -127,7 +131,14 @@ export async function runUndo(key: string): Promise<boolean> {
 
 /** The cards are opening: count this visit's decisions from none. */
 export function cardsOpened(): void {
-  useWrapSession.setState({ cardsOpen: true, cardsDecided: 0 });
+  useWrapSession.setState({ cardsOpen: true, cardsVisited: true, cardsDecided: 0 });
+}
+
+/** The thread is back on screen: true once after each visit to the cards. */
+export function takeCardsVisit(): boolean {
+  const visited = useWrapSession.getState().cardsVisited;
+  if (visited) useWrapSession.setState({ cardsVisited: false });
+  return visited;
 }
 
 export function cardsClosed(): void {
@@ -164,5 +175,6 @@ export function resetWrapSession(): void {
     undoable: {},
     cardsDecided: 0,
     cardsOpen: false,
+    cardsVisited: false,
   });
 }

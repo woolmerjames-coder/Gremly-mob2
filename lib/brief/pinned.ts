@@ -105,12 +105,13 @@ let threadRequests = 0;
  * Each call gets its own key, so the same request twice still opens it.
  */
 export function todayThreadParams(
-  step?: 'plan',
+  /** plan: the planner. wrap: the evening wrap up, started or picked up where it was left */
+  step?: 'plan' | 'wrap',
   planDay?: 'tomorrow',
 ): {
   mode: 'chat';
   thread: 'today';
-  step?: 'plan';
+  step?: 'plan' | 'wrap';
   planDay?: 'tomorrow';
   threadKey: string;
 } {
@@ -119,7 +120,7 @@ export function todayThreadParams(
     mode: 'chat',
     thread: 'today',
     ...(step ? { step } : {}),
-    ...(step && planDay ? { planDay } : {}),
+    ...(step === 'plan' && planDay ? { planDay } : {}),
     threadKey: `today-${threadRequests}`,
   };
 }

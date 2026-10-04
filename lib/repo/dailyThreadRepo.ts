@@ -45,10 +45,35 @@ export async function getDailyThread(
 }
 
 /**
+ * The thread's metadata is one JSON value, changed by reading it, merging and
+ * writing it back. Several parts of the app do that (the brief's stamps, the
+ * plan, the agent's tasks, the evening wrap up), so each change waits for the
+ * one before it: two that overlapped would each write back what they read,
+ * and the second would undo the first.
+ */
+const turns = new Map<string, Promise<unknown>>();
+function inTurn<T>(threadId: string, work: () => Promise<T>): Promise<T> {
+  const before = turns.get(threadId) ?? Promise.resolve();
+  const mine = before.then(work, work);
+  turns.set(
+    threadId,
+    mine.catch(() => undefined),
+  );
+  return mine;
+}
+
+/**
  * Merge fields into the thread's metadata (seen_at, answered_at,
  * plan_locked_at...). Fields already set are kept unless the patch names them.
  */
-export async function patchDailyThreadMeta(
+export function patchDailyThreadMeta(
+  threadId: string,
+  patch: Partial<DailyThreadMeta>,
+): Promise<DailyThread | null> {
+  return inTurn(threadId, () => patchNow(threadId, patch));
+}
+
+async function patchNow(
   threadId: string,
   patch: Partial<DailyThreadMeta>,
 ): Promise<DailyThread | null> {
@@ -74,7 +99,14 @@ export async function patchDailyThreadMeta(
  * with the time now, unless it already has one. Returns the stamp kept, and
  * whether it was made by this call.
  */
-export async function markDailyThreadOnce(
+export function markDailyThreadOnce(
+  threadId: string,
+  field: 'seen_at' | 'answered_at' | 'plan_locked_at',
+): Promise<{ at: string; fresh: boolean } | null> {
+  return inTurn(threadId, () => markOnceNow(threadId, field));
+}
+
+async function markOnceNow(
   threadId: string,
   field: 'seen_at' | 'answered_at' | 'plan_locked_at',
 ): Promise<{ at: string; fresh: boolean } | null> {

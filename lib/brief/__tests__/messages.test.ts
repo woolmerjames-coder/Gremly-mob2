@@ -4,6 +4,7 @@ import {
   followsGremly,
   isBriefMessage,
   liveOfferId,
+  liveQuestion,
   visibleThreadMessages,
 } from '../messages';
 import type { SpaceChatMessage } from '../../types';
@@ -75,5 +76,39 @@ describe('brief messages', () => {
     expect(dayPartAt(12)).toBe('afternoon');
     expect(dayPartAt(16)).toBe('afternoon');
     expect(dayPartAt(17)).toBe('evening');
+  });
+});
+
+describe("Gremly's question in the thread", () => {
+  const question = (wrap: boolean) =>
+    msg('q', 'assistant', {
+      type: 'brief-offer',
+      kind: 'question',
+      question_id: 'q1',
+      buttons: [],
+      ...(wrap ? { wrap: true } : {}),
+    });
+
+  it('is the live question when it is the last thing said', () => {
+    expect(liveQuestion([question(false)])?.id).toBe('q');
+  });
+
+  it('is left to the wrap up when it was asked there', () => {
+    // a message typed under it after the X is an ordinary one, not its answer
+    expect(liveQuestion([question(true)])).toBeNull();
+  });
+
+  it('knows the wrap up cards as thread messages', () => {
+    for (const type of [
+      'sweep-recap',
+      'sweep-receipt',
+      'sweep-still',
+      'sweep-habits',
+      'sweep-journal',
+      'sweep-item',
+      'sweep-end',
+    ]) {
+      expect(isBriefMessage(msg(type, 'system', { type }))).toBe(true);
+    }
   });
 });

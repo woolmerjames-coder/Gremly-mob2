@@ -42,6 +42,7 @@ import GremlyModeSwitch, { type HomeMode } from '../../components/home/GremlyMod
 import {
   HomeDockContext,
   HomeModeContext,
+  type ChatTag,
   type HomeChatApi,
   type HomeDockApi,
   type HomeModeState,
@@ -89,6 +90,7 @@ export default function GremlyHomeScreen() {
   const [dock, setDock] = useState<React.ReactNode>(null);
   const [chatSending, setChatSending] = useState(false);
   const [chatPlaceholder, setChatPlaceholder] = useState<string | null>(null);
+  const [chatTag, setChatTag] = useState<ChatTag | null>(null);
   const [chatScrolling, setChatScrollingState] = useState(false);
   const scrollSettleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Gremly steps aside as soon as the conversation moves, and comes back a
@@ -156,6 +158,7 @@ export default function GremlyHomeScreen() {
       getChat: () => chatApiRef.current,
       setChatSending,
       setChatPlaceholder,
+      setChatTag,
       setChatScrolling,
       prefillDraft: (text) => {
         if (draftSetterRef.current) draftSetterRef.current(text);
@@ -176,8 +179,8 @@ export default function GremlyHomeScreen() {
     [setChatScrolling],
   );
   const modeState = useMemo<HomeModeState>(
-    () => ({ mode, chatSending, chatScrolling, chatPlaceholder }),
-    [mode, chatSending, chatScrolling, chatPlaceholder],
+    () => ({ mode, chatSending, chatScrolling, chatPlaceholder, chatTag }),
+    [mode, chatSending, chatScrolling, chatPlaceholder, chatTag],
   );
   const switchTucked = keyboardOpen && mode === 'chat';
   const pendingModeRef = useRef<HomeMode | null>(null);

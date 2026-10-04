@@ -1,0 +1,208 @@
+/**
+ * Tonight's journal entry in the thread: what was written, its moods, and
+ * Undo. Just pick a mood shows the same card with the moods to pick from and
+ * nothing saved until Save.
+ */
+import React, { useState } from 'react';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Check, NotebookPen, Pencil, Undo2 } from 'lucide-react-native';
+import type { SweepJournalMeta } from '../../lib/brief/types';
+import { ALL_MOODS, MOOD_CONFIG, type Mood } from '../../lib/shared/moods';
+import { CARD_COPY, journalLabel } from '../../lib/wrapup/words';
+import { BRIEF } from '../brief/briefStyles';
+import { wrapStyles } from './wrapStyles';
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const JOURNAL_GREMLY = require('../../assets/mascot/JournalGremly.png');
+
+export type WrapJournalCardProps = {
+  meta: SweepJournalMeta;
+  interactive?: boolean;
+  /** Just pick a mood: save the moods as tonight's reflection */
+  onSaveMoods?: (moods: Mood[]) => void;
+  onSkipMoods?: () => void;
+  /** Change the moods on a saved entry */
+  onEditMoods?: (moods: Mood[]) => void;
+  /** Present while the entry can still be taken back out */
+  onUndo?: () => void;
+};
+
+function known(moods: string[] | undefined): Mood[] {
+  return (moods ?? []).filter((m): m is Mood => (ALL_MOODS as readonly string[]).includes(m));
+}
+
+export function WrapJournalCard({
+  meta,
+  interactive = true,
+  onSaveMoods,
+  onSkipMoods,
+  onEditMoods,
+  onUndo,
+}: WrapJournalCardProps) {
+  const [picked, setPicked] = useState<Mood[]>(() => known(meta.moods));
+  const [editing, setEditing] = useState(false);
+
+  if (meta.status === 'removed' || meta.status === 'skipped') {
+    return (
+      <View style={wrapStyles.collapsed} testID={`wrap-journal-${meta.status}`}>
+        <NotebookPen size={14} color={BRIEF.faint} strokeWidth={2} />
+        <Text style={wrapStyles.collapsedText}>
+          {meta.status === 'removed' ? CARD_COPY.journalRemoved : CARD_COPY.journalNone}
+        </Text>
+      </View>
+    );
+  }
+
+  const picking = meta.status === 'mood';
+  const choosing = picking || editing;
+  const shown = choosing ? picked : known(meta.moods);
+  const toggle = (m: Mood) =>
+    setPicked((p) => (p.includes(m) ? p.filter((x) => x !== m) : [...p, m]));
+
+  return (
+    <View style={wrapStyles.card} testID="wrap-journal">
+      <View style={styles.head}>
+        <Image source={JOURNAL_GREMLY} style={styles.mascot} />
+        <View style={wrapStyles.rowBody}>
+          <Text style={wrapStyles.kicker}>{journalLabel(meta.date)}</Text>
+          <Text style={wrapStyles.title} numberOfLines={2}>
+            {meta.title}
+          </Text>
+        </View>
+        {picking ? null : (
+          <View style={wrapStyles.tag}>
+            <Check size={12} color={BRIEF.moss} strokeWidth={2.6} />
+            <Text style={wrapStyles.tagText}>{CARD_COPY.saved}</Text>
+          </View>
+        )}
+      </View>
+      {meta.text ? <Text style={styles.text}>{meta.text}</Text> : null}
+      <View style={styles.moods}>
+        {choosing
+          ? ALL_MOODS.map((m) => {
+              const on = picked.includes(m);
+              return (
+                <Pressable
+                  key={m}
+                  style={[styles.mood, on && styles.moodOn]}
+                  onPress={() => toggle(m)}
+                  disabled={!interactive}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: on }}
+                  accessibilityLabel={MOOD_CONFIG[m].label}
+                  testID={`wrap-mood-${m}`}
+                >
+                  <Text style={[styles.moodText, on && styles.moodTextOn]}>
+                    {MOOD_CONFIG[m].label}
+                  </Text>
+                </Pressable>
+              );
+            })
+          : shown.map((m) => (
+              <View key={m} style={[styles.mood, styles.moodOn]}>
+                <Text style={[styles.moodText, styles.moodTextOn]}>{MOOD_CONFIG[m].label}</Text>
+              </View>
+            ))}
+        {choosing ? null : (
+          <>
+            {onEditMoods ? (
+              <Pressable
+                style={[styles.mood, styles.more]}
+                onPress={() => {
+                  setPicked(known(meta.moods));
+                  setEditing(true);
+                }}
+                disabled={!interactive}
+                accessibilityRole="button"
+                testID="wrap-journal-moods"
+              >
+                <Pencil size={12} color={BRIEF.moss} strokeWidth={2.2} />
+                <Text style={styles.moodText}>{CARD_COPY.journalMoods}</Text>
+              </Pressable>
+            ) : null}
+            {onUndo ? (
+              <Pressable
+                style={[styles.mood, styles.more]}
+                onPress={onUndo}
+                disabled={!interactive}
+                accessibilityRole="button"
+                testID="wrap-journal-undo"
+              >
+                <Undo2 size={12} color={BRIEF.moss} strokeWidth={2.2} />
+                <Text style={styles.moodText}>{CARD_COPY.undo}</Text>
+              </Pressable>
+            ) : null}
+          </>
+        )}
+      </View>
+      {picking ? (
+        <View style={wrapStyles.actions}>
+          <Pressable
+            style={[
+              wrapStyles.btn,
+              wrapStyles.btnGrow,
+              wrapStyles.btnPrimary,
+              !picked.length && wrapStyles.btnOff,
+            ]}
+            onPress={() => onSaveMoods?.(picked)}
+            disabled={!interactive || !picked.length}
+            accessibilityRole="button"
+            testID="wrap-journal-save"
+          >
+            <Text style={[wrapStyles.btnText, wrapStyles.btnTextPrimary]}>
+              {CARD_COPY.journalSave}
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[wrapStyles.btn, wrapStyles.btnSecondary]}
+            onPress={onSkipMoods}
+            disabled={!interactive}
+            accessibilityRole="button"
+            testID="wrap-journal-skip"
+          >
+            <Text style={wrapStyles.btnText}>{CARD_COPY.journalSkip}</Text>
+          </Pressable>
+        </View>
+      ) : editing ? (
+        <View style={wrapStyles.actions}>
+          <Pressable
+            style={[wrapStyles.btn, wrapStyles.btnGrow, wrapStyles.btnPrimary]}
+            onPress={() => {
+              setEditing(false);
+              onEditMoods?.(picked);
+            }}
+            disabled={!interactive}
+            accessibilityRole="button"
+            testID="wrap-journal-done"
+          >
+            <Text style={[wrapStyles.btnText, wrapStyles.btnTextPrimary]}>
+              {CARD_COPY.journalDone}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  head: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  mascot: { width: 44, height: 44, resizeMode: 'contain' },
+  text: { fontFamily: 'Inter-Regular', fontSize: 15, lineHeight: 22, color: BRIEF.mossInk },
+  moods: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  mood: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    borderColor: BRIEF.chipBorder,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: BRIEF.white,
+  },
+  moodOn: { borderColor: BRIEF.peri, backgroundColor: '#ECEEFA' },
+  more: { borderStyle: 'dashed' },
+  moodText: { fontFamily: 'Inter-SemiBold', fontSize: 12.5, color: BRIEF.moss },
+  moodTextOn: { color: BRIEF.periInk },
+});
