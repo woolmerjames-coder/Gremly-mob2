@@ -13,12 +13,16 @@
 // ============================================================================
 
 import { chatAgentPersona } from '../gremlyPersona.js';
+import { formatWeekAhead } from '../context/weekAhead.js';
 import { localDateOf, minutesIn } from '../../shared/calendar.js';
 import { runAgent } from './run.js';
-import { toolContext } from './tools/index.js';
+import { runTool, toolContext } from './tools/index.js';
 import { AGENT_PROMPT_VERSION } from './prompt.js';
 
-export const CHAT_AGENT_VERSION = `chat-2026-10-03a/${AGENT_PROMPT_VERSION}`;
+export const CHAT_AGENT_VERSION = `chat-2026-10-04a/${AGENT_PROMPT_VERSION}`;
+
+/** How many of their items the search before the first step offers. */
+const FOUND_LIMIT = 8;
 
 /** The lanes the agent answers in Ask Gremly. */
 export const AGENT_LANES = ['lookup', 'agent'];
@@ -39,9 +43,47 @@ export function agentChatFor(setting, userId) {
 }
 
 /**
- * What the agent knows that changes between messages, the same preload the
- * quick lane's writer reads: who they are, today so far, the conversation in
- * short, the item a chat is about, and their life and week.
+ * Their items that share words with the message, searched the way find_items
+ * searches, before the agent's first step: a change to one of them, or the
+ * check that something new is not already there, then needs no step of its
+ * own. Never throws; a search that fails leaves the section out.
+ */
+export async function foundForMessage(ctx, message) {
+  const query = String(message || '')
+    .trim()
+    .slice(0, 200);
+  if (!query) return '';
+  const r = await runTool(ctx, 'find_items', { query, limit: FOUND_LIMIT });
+  if (!r.ok) return '';
+  const head = 'THEIR ITEMS THAT SHARE WORDS WITH THIS MESSAGE (open ones, searched just now)';
+  return r.result?.items?.length ? `${head}\n${r.text}` : `${head}: none.`;
+}
+
+/** The search above for a message on its way in, started alongside triage (cortex-index.js). */
+export function prefetchForChat(env, { userId, timezone, message }) {
+  const tz = timezone || 'UTC';
+  const ctx = {
+    ...toolContext(env, { userId, today: localDateOf(tz, Date.now()), timezone: tz }),
+    surface: 'chat',
+  };
+  return foundForMessage(ctx, message).catch(() => '');
+}
+
+/** The preload's week ahead with its todos' ids, for the agent alone (the writer reads it without). */
+function weekWithIds(sessionContext, week) {
+  const text = sessionContext || '';
+  if (!week) return text;
+  const plain = formatWeekAhead(week);
+  const withIds = formatWeekAhead(week, { ids: true });
+  if (plain && text.includes(plain)) return text.replace(plain, () => withIds);
+  return [text, withIds].filter(Boolean).join('\n\n');
+}
+
+/**
+ * What the agent knows that changes between messages: the preload the quick
+ * lane's writer reads (who they are, today so far, the conversation in short,
+ * the item a chat is about, their life and week), with the week's todos
+ * carrying their ids, and their items that share words with the message.
  */
 export function chatContext({
   profileText,
@@ -49,6 +91,8 @@ export function chatContext({
   runningSummary,
   anchor,
   sessionContext,
+  week,
+  found,
 }) {
   return [
     profileText ? `ABOUT THIS USER\n${profileText}` : '',
@@ -57,7 +101,8 @@ export function chatContext({
     anchor && !anchor.gone && anchor.id
       ? `THIS CHAT IS ABOUT ONE OF THEIR ITEMS: the ${anchor.type} "${anchor.title}" (id ${anchor.id})`
       : '',
-    sessionContext || '',
+    weekWithIds(sessionContext, week),
+    typeof found === 'string' ? found : '',
   ]
     .filter(Boolean)
     .join('\n\n');
@@ -81,7 +126,7 @@ export function chatCacheKey(userId) {
  * @param {string} p.timezone
  * @param {{role: string, content: string}[]} p.messages the conversation, ending with their message
  * @param {object[]} [p.tasks] the task list kept on the chat
- * @param {object} p.preload for chatContext
+ * @param {object} p.preload for chatContext; found may be a promise (the search started alongside triage), else the search runs here
  * @param {(line: string) => void} [p.onStatus]
  * @param {object} [p.deps] { ctx, models, agent, now } for tests and replays
  * @returns {Promise<object>} ok with reply, card and tasks, or not ok with why
@@ -108,10 +153,14 @@ export async function runChatTurn({
   const at = deps.now ? deps.now() : Date.now();
   const today = localDateOf(tz, at);
   const ctx = deps.ctx ? { ...deps.ctx, today } : toolContext(env, { userId, today, timezone: tz });
+  const found =
+    preload.found !== undefined
+      ? await Promise.resolve(preload.found).catch(() => '')
+      : await foundForMessage({ ...ctx, surface: 'chat' }, last.content).catch(() => '');
   const r = await runAgent({
     surface: 'chat',
     persona: chatAgentPersona(),
-    context: chatContext(preload),
+    context: chatContext({ ...preload, found }),
     cacheKey: chatCacheKey(userId),
     history: turns.slice(0, -1).map((m) => ({ role: m.role, content: m.content })),
     message: last.content,

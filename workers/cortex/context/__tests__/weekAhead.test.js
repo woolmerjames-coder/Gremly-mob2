@@ -101,7 +101,7 @@ test('each of the seven days, in their time zone, with what is on it', () => {
   // cancelled by title or by the daily context are left out
   expect(on('2026-10-05').meetings.map((m) => m.title)).toEqual(['Team huddle']);
   expect(on('2026-10-06').meetings.map((m) => m.title)).toEqual(['Vet']);
-  expect(on('2026-10-06').todos).toEqual([{ title: 'Book flights', due_time: null }]);
+  expect(on('2026-10-06').todos).toEqual([{ id: 't2', title: 'Book flights', due_time: null }]);
   expect(on('2026-10-07').meetings.map((m) => m.title)).toEqual(['Dinner with Jen']);
   // the all day entry is on Friday, not on Thursday evening where they are
   expect(on('2026-10-08').allDay).toEqual([]);
@@ -121,6 +121,14 @@ test('in words: times where they are, clear days said to be clear, what is still
   expect(text).toContain('Fri 9 Oct: all day: Office closed; US office closed');
   expect(text).toContain('Still open from before today: Tax form (was Tue 29 Sep)');
   expect(formatWeekAhead(null)).toBe('');
+});
+
+test('with ids, for the agent: each todo carries its id, and the words are otherwise the same', () => {
+  const plain = formatWeekAhead(week());
+  const text = formatWeekAhead(week(), { ids: true });
+  expect(text).toContain('Tue 6 Oct: 9:30am to 10:00am Vet. todos: Book flights (id t2)');
+  expect(text).toMatch(/Still open from before today: Tax form \(id [^)]+\) \(was Tue 29 Sep\)/);
+  expect(text.replace(/ \(id [^)]+\)/g, '')).toBe(plain);
 });
 
 test('an all day entry covers the dates it was stored for, whatever the time zone', () => {

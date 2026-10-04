@@ -97,13 +97,17 @@ export function weekFrom({
       allDay,
       todos: (todos || [])
         .filter((t) => t.due_day === date)
-        .map((t) => ({ title: title(t), due_time: t.due_time || null })),
+        .map((t) => ({ id: t.id || null, title: title(t), due_time: t.due_time || null })),
     });
   }
   return {
     first,
     days,
-    overdue: (overdue || []).map((t) => ({ title: title(t), due_day: t.due_day })),
+    overdue: (overdue || []).map((t) => ({
+      id: t.id || null,
+      title: title(t),
+      due_day: t.due_day,
+    })),
   };
 }
 
@@ -113,9 +117,14 @@ function some(list, n, words) {
   return shown.join('; ');
 }
 
-/** The week in words for the reply's instructions. */
-export function formatWeekAhead(week) {
+/**
+ * The week in words for the reply's instructions. With ids (for the agent,
+ * agent/chat.js) each todo carries the id the agent's tools take, so a change
+ * to one of them needs no lookup first.
+ */
+export function formatWeekAhead(week, { ids = false } = {}) {
   if (!week) return '';
+  const idOf = (t) => (ids && t.id ? ` (id ${t.id})` : '');
   const lines = [
     "=== THE WEEK AHEAD (their calendar and the todos they've planned, read just now) ===",
     'The next seven days as the app has them. A day with nothing listed has nothing on their calendar and no todos planned for it. When they ask about the days ahead, answer from this, and when a day is clear, say so rather than filling it in.',
@@ -133,7 +142,7 @@ export function formatWeekAhead(week) {
     if (day.allDay.length) parts.push(`all day: ${some(day.allDay, 5, (a) => trim(a.title, 60))}`);
     if (day.todos.length)
       parts.push(
-        `todos: ${some(day.todos, MOST_A_DAY, (t) => `${trim(t.title, 60)}${t.due_time ? ` at ${clock(t.due_time)}` : ''}`)}`,
+        `todos: ${some(day.todos, MOST_A_DAY, (t) => `${trim(t.title, 60)}${idOf(t)}${t.due_time ? ` at ${clock(t.due_time)}` : ''}`)}`,
       );
     lines.push(
       `${dayWords(day.date, week.first)}: ${parts.length ? parts.join('. ') : 'nothing planned'}`,
@@ -141,7 +150,7 @@ export function formatWeekAhead(week) {
   }
   if (week.overdue.length)
     lines.push(
-      `Still open from before today: ${some(week.overdue, 10, (t) => `${trim(t.title, 60)} (was ${dayWords(t.due_day)})`)}`,
+      `Still open from before today: ${some(week.overdue, 10, (t) => `${trim(t.title, 60)}${idOf(t)} (was ${dayWords(t.due_day)})`)}`,
     );
   return lines.join('\n');
 }

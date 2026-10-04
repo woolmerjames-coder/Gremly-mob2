@@ -431,6 +431,7 @@ function formatRecentDelta(delta) {
  * @param {string} opts.spaceId - For space chat
  * @param {string} opts.entityTitle - For entity chat
  * @param {string} opts.entitySpaceId - For entity chat (space the entity belongs to, if any)
+ * @param {object} [opts.keep] - Ask Gremly: given an object, the week ahead it read is kept on it as keep.week
  * @param {object} env
  * @returns {Promise<string>} Formatted context string ready for system prompt injection
  */
@@ -473,7 +474,10 @@ export async function buildChatContext(userId, lane, opts, env) {
     const focusStr = formatDailyFocusForChat(dailyFocus);
     if (focusStr) parts.push(focusStr);
 
-    // 1b. The week ahead: their calendar and planned todos, day by day
+    // 1b. The week ahead: their calendar and planned todos, day by day. The
+    // week itself is kept for the caller that asked (Ask Gremly's agent gives
+    // its todos their ids, agent/chat.js).
+    if (opts?.keep) opts.keep.week = week;
     const weekStr = formatWeekAhead(week);
     if (weekStr) parts.push(weekStr);
 

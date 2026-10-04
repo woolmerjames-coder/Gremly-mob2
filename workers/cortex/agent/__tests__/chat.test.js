@@ -7,6 +7,7 @@
 import { agentChatFor, chatContext, runChatTurn, AGENT_LANES, chatCacheKey } from '../chat.js';
 import { chatAgentPersona, buildGeneralChatConfig } from '../../gremlyPersona.js';
 import { configureModels } from '../../models.js';
+import { formatWeekAhead } from '../../context/weekAhead.js';
 
 beforeEach(() => configureModels({}));
 
@@ -59,6 +60,34 @@ describe("Gremly's chat voice on the agent", () => {
     expect(chatContext({ anchor: { id: 't1', gone: true } })).toBe('');
     expect(chatCacheKey('u1')).toBe(chatCacheKey('u1'));
     expect(chatCacheKey('u1')).not.toBe(chatCacheKey('u2'));
+  });
+
+  it("gives the week's todos their ids, for the agent alone, and adds the items its message names", () => {
+    const week = {
+      first: '2026-10-03',
+      days: [
+        { date: '2026-10-03', meetings: [], allDay: [], todos: [] },
+        {
+          date: '2026-10-04',
+          meetings: [],
+          allDay: [],
+          todos: [{ id: 'v1', title: 'Take Bella to the vet', due_time: '10:00:00' }],
+        },
+      ],
+      overdue: [],
+    };
+    const plain = formatWeekAhead(week);
+    const c = chatContext({
+      sessionContext: `=== TODAY ===\n\n${plain}\n\n=== LIFE MAP ===`,
+      week,
+      found: 'THEIR ITEMS THAT SHARE WORDS WITH THIS MESSAGE (open ones, searched just now): none.',
+    });
+    expect(c).toContain('Take Bella to the vet (id v1) at 10:00am');
+    expect(c).not.toContain(plain);
+    expect(c).toContain('=== LIFE MAP ===');
+    expect(c.endsWith('searched just now): none.')).toBe(true);
+    // a week the preload lost on the way is still given, after it
+    expect(chatContext({ sessionContext: '=== TODAY ===', week })).toContain('(id v1)');
   });
 });
 
@@ -134,6 +163,44 @@ describe('one turn', () => {
     expect(turns.at(-1).text).toContain('ABOUT THIS USER\nIDENTITY: James');
     expect(turns.at(-1).text.endsWith('THEIR MESSAGE\nMove the vet to Friday')).toBe(true);
     expect(seen[0].system).toContain('YOUR JOB HERE\nThis is a conversation with the person');
+  });
+
+  it('reads the items its message names before the first step: started alongside triage, or here', async () => {
+    const contexts = [];
+    const callModel = async (args) => {
+      contexts.push(args.turns.at(-1).text);
+      return {
+        ok: true,
+        provider: 'openai-responses',
+        text: 'Friday is clear.',
+        calls: [],
+        raw: [],
+      };
+    };
+    const base = {
+      env: {},
+      userId: 'u1',
+      timezone: 'UTC',
+      messages: [{ role: 'user', content: 'Move the vet to Friday' }],
+    };
+    await runChatTurn({
+      ...base,
+      preload: { found: Promise.resolve('THEIR ITEMS THAT SHARE WORDS: the vet') },
+      deps: { ctx, agent: { callModel } },
+    });
+    expect(contexts[0]).toContain('THEIR ITEMS THAT SHARE WORDS: the vet');
+    const asked = [];
+    const db = {
+      rpc: async (fn, a) => {
+        asked.push([fn, a.p_query]);
+        return [{ type: 'todo', id: 'v1', title: 'Vet', day: null, time: null, state: 'open' }];
+      },
+    };
+    await runChatTurn({ ...base, deps: { ctx: { ...ctx, db }, agent: { callModel } } });
+    expect(asked).toEqual([['find_items', 'Move the vet to Friday']]);
+    expect(contexts[1]).toContain(
+      '(open ones, searched just now)\n1 found, best first:\n- todo | id v1 | Vet',
+    );
   });
 
   it('says it could not finish, so the quick lane answers', async () => {

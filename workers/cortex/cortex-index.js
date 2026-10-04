@@ -171,7 +171,7 @@ import { buildTodayActivity } from './context/todayActivity.js';
 import { getAgeGuidance } from './context/gremlyAge.js';
 import { triageMessage, generateLoadingMessage, callMini } from './triage';
 import { briefTurnResponse } from './agent/brief.js';
-import { AGENT_LANES, agentChatFor, runChatTurn } from './agent/chat.js';
+import { AGENT_LANES, agentChatFor, prefetchForChat, runChatTurn } from './agent/chat.js';
 import {
   geminiGenerate,
   geminiStream,
@@ -12742,14 +12742,20 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               );
             }
 
-            // Context loading — general lane (no spaceId)
+            // Context loading — general lane (no spaceId). Triage needs only the
+            // profile and the domain names, so it starts as soon as those are read,
+            // while the rest (the life context, the week ahead, today so far) loads
+            // alongside it; all of it is in hand before the reply is written.
             let sessionContextStr = '';
             let userProfile = null;
             let cachedDomains = [];
             let generalTodayActivity = null;
-            if (authenticatedUserId) {
-              try {
-                const [chatContext, profile, domains, todayAct] = await Promise.all([
+            // the week ahead buildChatContext read, for the agent's ids (agent/chat.js)
+            const contextKeep = {};
+            const tContext = Date.now();
+            let contextMs = null;
+            const contextRead = authenticatedUserId
+              ? Promise.all([
                   buildChatContext(
                     authenticatedUserId,
                     'general',
@@ -12757,24 +12763,25 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       message: lastUserText(body),
                       timezone: userTimezone,
                       currentChatId: body.chatId || null,
+                      keep: contextKeep,
                     },
                     env,
                   ),
+                  buildTodayActivity(authenticatedUserId, userTimezone, env).catch((err) => {
+                    console.error('[GeneralChat] Context error', err);
+                    return null;
+                  }),
+                ]).then((r) => {
+                  contextMs = Date.now() - tContext;
+                  return r;
+                })
+              : Promise.resolve(['', null]);
+            if (authenticatedUserId) {
+              try {
+                [userProfile, cachedDomains] = await Promise.all([
                   getUserProfile(authenticatedUserId, env),
                   getCachedDomainNames(authenticatedUserId, env),
-                  buildTodayActivity(authenticatedUserId, userTimezone, env),
                 ]);
-                sessionContextStr = chatContext;
-                userProfile = profile;
-                cachedDomains = domains;
-                generalTodayActivity = todayAct;
-                if (sessionContextStr || userProfile) {
-                  console.log('[GeneralChat] Context loaded', {
-                    userId: authenticatedUserId.slice(0, 8),
-                    contextLength: sessionContextStr?.length || 0,
-                    hasProfile: !!userProfile,
-                  });
-                }
               } catch (err) {
                 console.error('[GeneralChat] Context error', err);
               }
@@ -12813,6 +12820,23 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 })
               : Promise.resolve(null);
 
+            // Lookups and changes go to the agent for accounts on AGENT_CHAT, from
+            // app builds that can draw its card. For those, the search for the
+            // items this message names starts now, so it is ready when triage
+            // hands the message to the agent (agent/chat.js).
+            const agentEligible =
+              !!authenticatedUserId &&
+              body.agentCard === true &&
+              body.chatSurface !== 'brief' &&
+              agentChatFor(models().flags.agentChat, authenticatedUserId);
+            const agentFound = agentEligible
+              ? prefetchForChat(env, {
+                  userId: authenticatedUserId,
+                  timezone: userTimezone,
+                  message: lastUserText(body),
+                })
+              : null;
+
             const triageFromClassifier = await triageMessage({
               userMessage: lastUserMsg,
               previousExchange,
@@ -12826,17 +12850,24 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             });
             const triageMs = Date.now() - tLane;
 
+            // the rest of the context, read while triage ran
+            [sessionContextStr, generalTodayActivity] = await contextRead;
+            sessionContextStr = sessionContextStr || '';
+            if (sessionContextStr || userProfile) {
+              console.log('[GeneralChat] Context loaded', {
+                userId: authenticatedUserId.slice(0, 8),
+                contextLength: sessionContextStr.length,
+                hasProfile: !!userProfile,
+                contextMs,
+                triageMs,
+              });
+            }
+
             // Lookups and changes on the agent (agent plan step 9): for accounts on
             // AGENT_CHAT, from app builds that can draw its card. The item card is
             // the quick lane's, so the matcher is not waited for. When the agent
             // cannot finish, the quick lane's writer below answers.
-            if (
-              authenticatedUserId &&
-              body.agentCard === true &&
-              body.chatSurface !== 'brief' &&
-              AGENT_LANES.includes(triageFromClassifier.lane) &&
-              agentChatFor(models().flags.agentChat, authenticatedUserId)
-            ) {
+            if (agentEligible && AGENT_LANES.includes(triageFromClassifier.lane)) {
               const answered = await answerWithAgent({
                 env,
                 ctx,
@@ -12850,9 +12881,15 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   runningSummary: body.runningSummary || '',
                   anchor: anchorEntity,
                   sessionContext: sessionContextStr,
+                  week: contextKeep.week,
+                  found: agentFound,
                 },
                 send: (obj) => writer.write(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`)),
-                timing: { triage_ms: triageMs, lane: triageFromClassifier.lane },
+                timing: {
+                  context_ms: contextMs,
+                  triage_ms: triageMs,
+                  lane: triageFromClassifier.lane,
+                },
               });
               if (answered) return;
             }
