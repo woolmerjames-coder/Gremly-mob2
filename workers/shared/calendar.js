@@ -96,14 +96,96 @@ export function meetingsFrom({ synced, noteEvents, quickEvents, tz, cancelledIds
   return { meetings, allDay };
 }
 
+/**
+ * Whether an all day entry covers a date. Calendars store an all day entry
+ * from midnight UTC on its first day, with its end at midnight after its last
+ * day or a second before it, so the dates are the same wherever the person is.
+ */
+export function allDayCovers(e, date) {
+  if (!e?.is_all_day || !e.start_at) return false;
+  const from = Date.parse(`${date}T00:00:00Z`);
+  const start = Date.parse(e.start_at);
+  if (!(start < from + 864e5)) return false;
+  if (e.end_at) return Date.parse(e.end_at) > from;
+  return start >= from;
+}
+
+// An all day entry that began up to this many days before the first day read
+// still shows on the days it lasts into.
+const ALL_DAY_LOOKBACK = 62;
+
+// A timed entry this long fills a day, as an all day entry does when another
+// time zone's calendar holds one (midnight to midnight there).
+const FILLS_A_DAY_MS = 20 * 3600e3;
+
+const SYNCED_FIELDS = 'select=id,title,start_at,end_at,is_all_day&order=start_at.asc';
+
+/** The date an instant falls on where the person is. */
+export function localDateOf(tz, at) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(
+    at instanceof Date ? at : new Date(at),
+  );
+}
+
+function fillsADay(e) {
+  return (
+    !e.is_all_day &&
+    Boolean(e.end_at) &&
+    Date.parse(e.end_at) - Date.parse(e.start_at) >= FILLS_A_DAY_MS
+  );
+}
+
+/** Whether a timed entry long enough to fill a day covers a date: it spans that day's noon where the person is. */
+export function fillsDate(e, date, tz) {
+  const noon = Date.parse(localStartIso(tz, date)) + 12 * 3600e3;
+  return Date.parse(e.start_at) <= noon && Date.parse(e.end_at) > noon;
+}
+
+/**
+ * Synced entries for the days first to last: { timed, allDay, long }. A timed
+ * entry belongs to the day its start falls on where the person is; an all day
+ * entry to every date it covers (allDayCovers); a timed entry long enough to
+ * fill a day to the dates whose noon it spans (fillsDate), as an all day entry.
+ * The all day read is separate because a local day west of UTC holds the UTC
+ * midnight that starts the next day's all day entry, and the timed read starts
+ * a day early so an entry that fills a day is found from the evening before.
+ */
+export function syncedRange(d, userId, tz, first, last = first) {
+  const timed = d.select(
+    `synced_calendar_events?owner_id=eq.${userId}&archived=eq.false&start_at=gte.${encodeURIComponent(localStartIso(tz, addDays(first, -1)))}&start_at=lt.${encodeURIComponent(localStartIso(tz, addDays(last, 1)))}&${SYNCED_FIELDS}&limit=300`,
+  );
+  const allDay = d.select(
+    `synced_calendar_events?owner_id=eq.${userId}&archived=eq.false&is_all_day=eq.true&start_at=gte.${addDays(first, -ALL_DAY_LOOKBACK)}T00:00:00Z&start_at=lt.${addDays(last, 1)}T00:00:00Z&${SYNCED_FIELDS}&limit=100`,
+  );
+  return Promise.all([timed, allDay]).then(([t, a]) => {
+    const rows = (t || []).filter((e) => !e.is_all_day);
+    return {
+      timed: rows.filter((e) => {
+        if (fillsADay(e)) return false;
+        const day = localDateOf(tz, e.start_at);
+        return day >= first && day <= last;
+      }),
+      long: rows.filter(fillsADay),
+      allDay: (a || []).filter((e) => e.is_all_day),
+    };
+  });
+}
+
+/** The synced entries of one date from a syncedRange read, ready for meetingsFrom. */
+export function syncedOn(range, date, tz) {
+  return [
+    ...(range?.timed || []).filter((e) => localDateOf(tz, e.start_at) === date),
+    ...(range?.allDay || []).filter((e) => allDayCovers(e, date)),
+    ...(range?.long || [])
+      .filter((e) => fillsDate(e, date, tz))
+      .map((e) => ({ ...e, is_all_day: true })),
+  ];
+}
+
 /** The selects meetingsFrom reads, for one person's day. */
 export function calendarSelects(d, userId, tz, today) {
-  const dayStart = localStartIso(tz, today);
-  const dayEnd = localStartIso(tz, addDays(today, 1));
   return [
-    d.select(
-      `synced_calendar_events?owner_id=eq.${userId}&archived=eq.false&start_at=gte.${encodeURIComponent(dayStart)}&start_at=lt.${encodeURIComponent(dayEnd)}&select=id,title,start_at,end_at,is_all_day&order=start_at.asc&limit=100`,
-    ),
+    syncedRange(d, userId, tz, today).then((range) => syncedOn(range, today, tz)),
     d.select(
       `notes?owner_id=eq.${userId}&subtype=eq.event&archived=eq.false&external_source=is.null&target_date=eq.${today}&select=id,title,event_time,end_date&limit=50`,
     ),

@@ -9,6 +9,9 @@
 //   CHAT_MODEL     the Gemini model every chat surface streams from: Ask Gremly,
 //                  Space, World, Chapter, Habit Builder and Entity chat. Falls
 //                  back to GEMINI_FLASH_MODEL, then the default below.
+//   CHAT_MODEL_ASK Ask Gremly's writer on its own (default CHAT_MODEL). An OpenAI
+//                  model is called through openaiChat.js, and CHAT_EFFORT_ASK
+//                  sets how much it thinks before it writes (default none).
 //   HELPER_MODEL   the small fast model behind the helper calls around a chat
 //                  turn: triage, loading message, summaries, extraction, habit
 //                  pre parse and so on. Any single job can be moved on its own
@@ -56,6 +59,7 @@ export const HELPER_JOB_VARS = {
   triage_signals: 'MODEL_TRIAGE_SIGNALS', // triage.js classifyWithMini: search, personal, depth
   loading_message: 'MODEL_LOADING_MESSAGE', // triage.js generateLoadingMessage
   running_summary: 'MODEL_RUNNING_SUMMARY', // generateRunningSummary, generateEntityChatSummary
+  chat_title: 'MODEL_CHAT_TITLE', // Ask Gremly's chat title, written with the Save items pill (CHAT_PILL_SPLIT)
   chat_full_summary: 'MODEL_CHAT_FULL_SUMMARY', // type chat-full-summary
   chat_extraction: 'MODEL_CHAT_EXTRACTION', // Ask Gremly background extraction behind the Save items pill
   general_greeting: 'MODEL_GENERAL_GREETING', // type general-greeting
@@ -82,8 +86,14 @@ export function resolveModels(env = {}) {
   for (const [job, varName] of Object.entries(HELPER_JOB_VARS)) {
     jobs[job] = env[varName] || helper;
   }
+  const chat = env.CHAT_MODEL || geminiFlash;
   return {
-    chat: env.CHAT_MODEL || geminiFlash,
+    chat,
+    // Ask Gremly's writer, and its thinking when it is an OpenAI model
+    ask: {
+      model: env.CHAT_MODEL_ASK || chat,
+      effort: env.CHAT_EFFORT_ASK || 'none',
+    },
     helper,
     job: jobs,
     legacyOpenAIChat: env.LEGACY_OPENAI_CHAT_MODEL || DEFAULTS.legacyOpenAIChat,
@@ -124,6 +134,10 @@ export function resolveModels(env = {}) {
       // Today's thread on the agent (agent/brief.js). Off: the day turn answers,
       // as before. Only app builds that call brief-turn see either.
       agentBrief: env.AGENT_BRIEF === 'on',
+      // Ask Gremly's lookups and changes on the agent (agent/chat.js): "on" for
+      // everyone, or user ids separated by commas while it is tried; only app
+      // builds that can draw the agent's card are sent there.
+      agentChat: env.AGENT_CHAT || '',
     },
     // A helper call that fails on its model is retried once on this model, if set.
     helperFallback: env.HELPER_FALLBACK_MODEL || '',

@@ -53,6 +53,11 @@ export interface SpaceChatStreamingResult {
   fetchedUrl?: { url: string; title: string } | null;
   /** Whether the Save items pill and a late card may follow this turn (general chat) */
   extraction?: 'running' | 'skipped';
+  /**
+   * Ask Gremly: the agent answered (a lookup or a change), with its card in the
+   * change model's shape and the chat's task list; nothing changes until they tap
+   */
+  agent?: { card: Change[]; tasks: AgentTask[]; prompt_version?: string } | null;
 }
 
 /**
@@ -522,6 +527,8 @@ export function callGeneralChatStreaming(
     chatSurface?: 'brief' | 'chat';
     /** Today's thread: the brief's question this message replies to, so the reply takes the answer in */
     briefQuestion?: string | null;
+    /** The agent's task list kept on this chat, so asks carry across messages */
+    agentTasks?: AgentTask[];
   },
   callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
 ): { close: () => void } {
@@ -566,6 +573,9 @@ export function callGeneralChatStreaming(
       turnId: opts.turnId ?? null,
       chatSurface: opts.chatSurface ?? 'chat',
       briefQuestion: opts.briefQuestion ?? null,
+      // this build draws the agent's card, so lookups and changes can go to it
+      agentCard: true,
+      agentTasks: opts.agentTasks ?? [],
       userId: opts.userId,
       currentTime: nowTimestamp(),
       timezone: getDateService().getTimezone(),
@@ -612,6 +622,7 @@ export function callGeneralChatStreaming(
           search_query: data.search_query,
           fetchedUrl: data.fetchedUrl ?? null,
           extraction: data.extraction,
+          agent: data.agent ?? null,
         };
         log('GENERAL_CHAT_STREAM_DONE', { contentLength: finalContent.length });
         (callbacks.onComplete as any)(finalContent, richResult);
@@ -1918,7 +1929,14 @@ export async function callJournalAnalyze(
   }
 }
 
-export async function callGeneralGreeting(userId: string): Promise<string | null> {
+/**
+ * Gremly's line on Chat's fresh home. What waits in the app (the unread brief,
+ * things to decide tonight) is sent so the line can mention it in passing.
+ */
+export async function callGeneralGreeting(
+  userId: string,
+  waiting: { briefUnread?: boolean; toDecide?: number } = {},
+): Promise<string | null> {
   const baseUrl = readCortexUrl();
   if (!baseUrl) return null;
   try {
@@ -1934,6 +1952,8 @@ export async function callGeneralGreeting(userId: string): Promise<string | null
         type: 'general-greeting',
         userId,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        brief_unread: waiting.briefUnread === true,
+        to_decide: waiting.toDecide ?? 0,
       }),
     });
     if (!res.ok) {

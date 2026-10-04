@@ -34,7 +34,7 @@ export function fieldListWords() {
 
 const DESCRIPTION = `Put changes to the person's items on a card for them to accept with a tap. Nothing changes until they do. Each call puts a new card in place of the last one, so include every change you want on it. Each change is checked against the item as it is now; the result says which changes are on the card and why any were dropped, so you can fix one and propose it again, or tell the person. Only say Gremly is offering a change that is on the card.
 Rules:
-- Name an item by the id find_items, get_item or get_day gave you; never guess an id.
+- Name an item by an id you were given, in what you know or by a tool; never guess an id.
 - Put everything for one item in one change.
 - Fields marked * are ${GROUPS.asked}.
 - Days are YYYY-MM-DD and times HH:MM on a 24 hour clock, worked out from today's date.

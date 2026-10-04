@@ -171,6 +171,7 @@ import { buildTodayActivity } from './context/todayActivity.js';
 import { getAgeGuidance } from './context/gremlyAge.js';
 import { triageMessage, generateLoadingMessage, callMini } from './triage';
 import { briefTurnResponse } from './agent/brief.js';
+import { AGENT_LANES, agentChatFor, prefetchForChat, runChatTurn } from './agent/chat.js';
 import {
   geminiGenerate,
   geminiStream,
@@ -207,6 +208,10 @@ import { handleHabitRead } from './habitRead.js';
 import { fetchItemDetail, itemDetailText, handleItemTopics } from './itemDetail.js';
 import { configureModels, models, helperModel } from './models.js';
 import { helperFetch } from './helperClient.js';
+import { greetingFacts, greetingPrompt } from './greeting.js';
+import { readWeekAhead } from './context/weekAhead.js';
+import { clock } from './agent/tools/words.js';
+import { minutesIn } from '../shared/calendar.js';
 import { executeTavilySearch, formatSearchBrief } from './webSearch.js';
 import { aiContext, installAiUsageLogging, setAiUsage } from '../shared/aiUsage.js';
 import { briefNoCardSection, briefQuestionSection } from './briefTurn.js';
@@ -229,7 +234,7 @@ import {
   withValidDays,
   buildChatExtractionPrompt,
   buildPillPrompt,
-  buildSummaryPrompt,
+  buildTitlePrompt,
   withEvidenceRule,
   withEditsRule,
   evidenceGrounded,
@@ -2118,6 +2123,7 @@ async function getDailyFocusForChat(userId, env, timezone = 'UTC') {
       briefHeadline: dco.brief_headline || null,
       namedAnchors: dco.named_anchors || [],
       todayFocus: dco.today_focus || [],
+      leadStory: dco.lead_story || null,
     };
   } catch (err) {
     console.warn('[getDailyFocusForChat] Failed:', err.message);
@@ -2265,6 +2271,140 @@ function truncateAtSentence(text, maxChars) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // RUNNING SUMMARY — fire-and-forget after Space Chat replies
 // ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * One Ask Gremly message answered by the agent (agent/chat.js): status lines
+ * while it works, then its reply and its card on the chat's stream, then what
+ * follows every reply (the chat's summary, an item chat's summary and the
+ * correction check). The Save items pill is skipped: the agent puts anything
+ * new worth keeping on its card. False when the agent could not finish, so the
+ * quick lane's writer answers instead.
+ */
+async function answerWithAgent({
+  env,
+  ctx,
+  body,
+  userId,
+  timezone,
+  messages,
+  preload,
+  send,
+  timing,
+}) {
+  const t0 = Date.now();
+  const turn = await runChatTurn({
+    env,
+    userId,
+    timezone,
+    messages,
+    tasks: Array.isArray(body.agentTasks) ? body.agentTasks : [],
+    preload,
+    onStatus: (line) => {
+      send({ searching: true, query: line, isLoadingHint: true }).catch(() => {});
+    },
+  });
+  if (!turn.ok) {
+    console.warn('[GeneralChat:Agent] the agent could not finish, the writer answers', {
+      error: turn.error,
+      model: turn.model,
+      ms: turn.ms,
+    });
+    return false;
+  }
+  const reply = turn.reply;
+  const latency = Date.now() - t0;
+  await send({ delta: reply, done: false });
+  await send({
+    done: true,
+    full_content: reply,
+    save_suggestion: null,
+    entity_card: null,
+    // the agent offers anything new on its card, so no Save items pill follows
+    extraction: 'skipped',
+    agent: {
+      card: turn.card,
+      tasks: turn.tasks,
+      model: turn.model,
+      ms: turn.ms,
+      tools: turn.tools,
+      prompt_version: turn.prompt_version,
+    },
+    timing: { ...timing, reply_ms: latency },
+    latency_ms: latency,
+  });
+  console.log('[GeneralChat:Agent] Complete', {
+    model: turn.model,
+    ms: turn.ms,
+    tools: turn.tools,
+    card: turn.card.length,
+    lane: timing.lane,
+  });
+
+  // what follows every reply, after it is sent
+  if (body.chatId) {
+    const said = messages.filter((m) => m.role !== 'system');
+    const headers = {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+    };
+    ctx.waitUntil(
+      (async () => {
+        try {
+          const prev = await fetch(
+            `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=running_summary`,
+            { headers },
+          );
+          const rows = prev?.ok ? await prev.json().catch(() => []) : [];
+          await generateRunningSummary(
+            said,
+            reply,
+            body.chatId,
+            null,
+            rows?.[0]?.running_summary || null,
+            env,
+            timezone,
+          );
+        } catch (err) {
+          console.warn('[GeneralChat:Agent] Summary failed:', err.message);
+        }
+      })(),
+    );
+    const anchor = preload.anchor;
+    if (anchor && !anchor.gone && anchor.id) {
+      ctx.waitUntil(
+        generateEntityChatSummary(
+          said,
+          reply,
+          anchor.id,
+          anchor.type,
+          anchor.title,
+          null,
+          null,
+          env,
+          timezone,
+        ).catch((err) =>
+          console.warn('[GeneralChat:Agent] Item chat summary failed:', err.message),
+        ),
+      );
+    }
+    // when they say Gremly has something about their life wrong, the context
+    // pipeline applies it straight away; only this message is checked
+    const recent = [...said, { role: 'assistant', content: reply }].slice(-20);
+    ctx.waitUntil(
+      checkForCorrection({
+        conversationText: recent
+          .map((m) => `${m.role === 'user' ? 'User' : 'Gremly'}: ${m.content}`)
+          .join('\n\n'),
+        latest: said.filter((m) => m.role === 'user').at(-1)?.content,
+        chatId: body.chatId,
+        userId,
+        env,
+        surface: 'chat',
+      }).catch((e) => console.warn('[GeneralChat:Agent] Correction check failed:', e?.message)),
+    );
+  }
+  return true;
+}
 
 async function generateRunningSummary(
   conversationMessages,
@@ -4211,7 +4351,12 @@ After the user confirms and locks in a habit, check the existing habits listed i
         }
 
         try {
-          const dailyFocus = await getDailyFocusForChat(authenticatedUserId, env, userTimezone);
+          // the daily context, and what is still on the calendar today
+          const [dailyFocus, week] = await Promise.all([
+            getDailyFocusForChat(authenticatedUserId, env, userTimezone),
+            readWeekAhead(authenticatedUserId, userTimezone, env),
+          ]);
+          // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
           const now = new Date();
           const timeStr = new Intl.DateTimeFormat('en-US', {
             hour: 'numeric',
@@ -4223,41 +4368,36 @@ After the user confirms and locks in a habit, check the existing habits listed i
             weekday: 'long',
             timeZone: userTimezone,
           }).format(now);
-
-          const focusSnippet = dailyFocus
+          const nowMinutes = minutesIn(userTimezone, now);
+          const hour = Math.floor(nowMinutes / 60);
+          const today = week?.days?.[0];
+          const laterToday = today
             ? [
-                dailyFocus.lifeMoment && `Life moment: ${dailyFocus.lifeMoment}`,
-                dailyFocus.briefHeadline && `Headline: "${dailyFocus.briefHeadline}"`,
-                dailyFocus.namedAnchors?.length > 0 &&
-                  `People: ${dailyFocus.namedAnchors.map((a) => a.label).join(', ')}`,
-                dailyFocus.todayFocus?.length > 0 && `Focus: ${dailyFocus.todayFocus.join(', ')}`,
-              ]
-                .filter(Boolean)
-                .join('\n')
-            : '';
-
-          const prompt = `Generate a 1-2 sentence contextual greeting for Gremly, a productivity companion. This shows on the home screen when the user opens the chat tab.
-
-Current time: ${timeStr} on ${dayStr}.
-${focusSnippet ? `\nUSER CONTEXT:\n${focusSnippet}` : 'No context available.'}
-
-Rules:
-- It is currently ${timeStr}. Be time-appropriate. Late evening means winding down or looking ahead to tomorrow, not starting a busy day.
-- Reference ONE specific detail from the context by name: a person, a project, an event, a milestone. If you can't name something specific, say "What's on your mind?" and nothing else.
-- Write like a friend who already knows what's going on. No introductions, no offers to help.
-- No productivity language. No "organize", "tasks", "stay on track", "moment to breathe", "focus".
-- No questions that a customer service bot would ask.
-- No exclamation marks.
-- Under 25 words.
-
-Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
+                ...today.meetings
+                  .filter((m) => m.start >= nowMinutes)
+                  .map((m) => `${clock(m.start)} ${m.title}`),
+                ...today.allDay.map((a) => `all day: ${a.title}`),
+              ].slice(0, 6)
+            : [];
+          const prompt = greetingPrompt({
+            timeStr,
+            dayStr,
+            hour,
+            facts: greetingFacts({
+              focus: dailyFocus,
+              laterToday,
+              // sent by app builds that know them
+              briefUnread: body.brief_unread === true,
+              toDecide: Number(body.to_decide) || 0,
+            }),
+          });
 
           const res = await helperFetch('general_greeting', {
             messages: [
               { role: 'system', content: prompt },
-              { role: 'user', content: 'Generate greeting.' },
+              { role: 'user', content: 'Write the line.' },
             ],
-            max_tokens: 60,
+            max_tokens: 80,
             temperature: 0.7,
           });
 
@@ -12602,14 +12742,20 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               );
             }
 
-            // Context loading — general lane (no spaceId)
+            // Context loading — general lane (no spaceId). Triage needs only the
+            // profile and the domain names, so it starts as soon as those are read,
+            // while the rest (the life context, the week ahead, today so far) loads
+            // alongside it; all of it is in hand before the reply is written.
             let sessionContextStr = '';
             let userProfile = null;
             let cachedDomains = [];
             let generalTodayActivity = null;
-            if (authenticatedUserId) {
-              try {
-                const [chatContext, profile, domains, todayAct] = await Promise.all([
+            // the week ahead buildChatContext read, for the agent's ids (agent/chat.js)
+            const contextKeep = {};
+            const tContext = Date.now();
+            let contextMs = null;
+            const contextRead = authenticatedUserId
+              ? Promise.all([
                   buildChatContext(
                     authenticatedUserId,
                     'general',
@@ -12617,24 +12763,25 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       message: lastUserText(body),
                       timezone: userTimezone,
                       currentChatId: body.chatId || null,
+                      keep: contextKeep,
                     },
                     env,
                   ),
+                  buildTodayActivity(authenticatedUserId, userTimezone, env).catch((err) => {
+                    console.error('[GeneralChat] Context error', err);
+                    return null;
+                  }),
+                ]).then((r) => {
+                  contextMs = Date.now() - tContext;
+                  return r;
+                })
+              : Promise.resolve(['', null]);
+            if (authenticatedUserId) {
+              try {
+                [userProfile, cachedDomains] = await Promise.all([
                   getUserProfile(authenticatedUserId, env),
                   getCachedDomainNames(authenticatedUserId, env),
-                  buildTodayActivity(authenticatedUserId, userTimezone, env),
                 ]);
-                sessionContextStr = chatContext;
-                userProfile = profile;
-                cachedDomains = domains;
-                generalTodayActivity = todayAct;
-                if (sessionContextStr || userProfile) {
-                  console.log('[GeneralChat] Context loaded', {
-                    userId: authenticatedUserId.slice(0, 8),
-                    contextLength: sessionContextStr?.length || 0,
-                    hasProfile: !!userProfile,
-                  });
-                }
               } catch (err) {
                 console.error('[GeneralChat] Context error', err);
               }
@@ -12673,6 +12820,23 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 })
               : Promise.resolve(null);
 
+            // Lookups and changes go to the agent for accounts on AGENT_CHAT, from
+            // app builds that can draw its card. For those, the search for the
+            // items this message names starts now, so it is ready when triage
+            // hands the message to the agent (agent/chat.js).
+            const agentEligible =
+              !!authenticatedUserId &&
+              body.agentCard === true &&
+              body.chatSurface !== 'brief' &&
+              agentChatFor(models().flags.agentChat, authenticatedUserId);
+            const agentFound = agentEligible
+              ? prefetchForChat(env, {
+                  userId: authenticatedUserId,
+                  timezone: userTimezone,
+                  message: lastUserText(body),
+                })
+              : null;
+
             const triageFromClassifier = await triageMessage({
               userMessage: lastUserMsg,
               previousExchange,
@@ -12685,6 +12849,51 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               messageCount: messages.length,
             });
             const triageMs = Date.now() - tLane;
+
+            // the rest of the context, read while triage ran
+            [sessionContextStr, generalTodayActivity] = await contextRead;
+            sessionContextStr = sessionContextStr || '';
+            if (sessionContextStr || userProfile) {
+              console.log('[GeneralChat] Context loaded', {
+                userId: authenticatedUserId.slice(0, 8),
+                contextLength: sessionContextStr.length,
+                hasProfile: !!userProfile,
+                contextMs,
+                triageMs,
+              });
+            }
+
+            // Lookups and changes on the agent (agent plan step 9): for accounts on
+            // AGENT_CHAT, from app builds that can draw its card. The item card is
+            // the quick lane's, so the matcher is not waited for. When the agent
+            // cannot finish, the quick lane's writer below answers.
+            if (agentEligible && AGENT_LANES.includes(triageFromClassifier.lane)) {
+              const answered = await answerWithAgent({
+                env,
+                ctx,
+                body,
+                userId: authenticatedUserId,
+                timezone: userTimezone,
+                messages,
+                preload: {
+                  profileText: userProfile?.profileText,
+                  todayActivity: generalTodayActivity,
+                  runningSummary: body.runningSummary || '',
+                  anchor: anchorEntity,
+                  sessionContext: sessionContextStr,
+                  week: contextKeep.week,
+                  found: agentFound,
+                },
+                send: (obj) => writer.write(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`)),
+                timing: {
+                  context_ms: contextMs,
+                  triage_ms: triageMs,
+                  lane: triageFromClassifier.lane,
+                },
+              });
+              if (answered) return;
+            }
+
             // the card (started alongside triage) decides the reply shape, so it is awaited here
             const entityMatch = await entityCardPromise;
             const entityCard = entityMatch?.card || null;
@@ -12699,7 +12908,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               search: triage.search,
               personal: triage.personal,
               depth: triage.depth,
-              // recorded only: nothing routes on the lane until step 9 of the agent plan
+              // lookup and agent go to the agent for accounts on AGENT_CHAT (above)
               lane: triage.lane || null,
               anchored: anchor ? (anchor.gone ? 'gone' : true) : false,
             });
@@ -12748,11 +12957,18 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
 
             // Search policy
             const searchPolicy = getSearchPolicy(triage.search);
+            // Ask Gremly's writer (CHAT_MODEL_ASK); every call of this reply uses it
+            const askWriter = {
+              model: models().ask.model,
+              effort: models().ask.effort,
+              cacheKey: authenticatedUserId ? `ask:${authenticatedUserId}` : undefined,
+            };
             const streamConfig = {
               label: 'general_chat',
               temperature: genConfig.temperature,
               maxOutputTokens: genConfig.maxTokens,
               thinkingLevel: genConfig.thinkingLevel,
+              ...askWriter,
             };
             if (searchPolicy.attachTool) {
               streamConfig.tools = [makeWebSearchTool(userTimezone)];
@@ -12769,7 +12985,10 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
 
             if (!geminiRes.ok || !geminiRes.body) {
               const errText = geminiRes.error || 'unknown error';
-              console.log('[GeneralChat:Streaming] Gemini error', { error: errText });
+              console.log('[GeneralChat:Streaming] Writer error', {
+                model: askWriter.model,
+                error: errText,
+              });
               await writer.write(
                 encoder.encode(`data: ${JSON.stringify({ error: errText, done: true })}\n\n`),
               );
@@ -12927,6 +13146,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       maxOutputTokens: Math.max(genConfig.maxTokens, 1200),
                       thinkingLevel: genConfig.thinkingLevel,
                       nativeContents: followUpContents,
+                      ...askWriter,
                     },
                     env.GOOGLE_API_KEY,
                   );
@@ -13007,6 +13227,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     temperature: genConfig.temperature,
                     maxOutputTokens: genConfig.maxTokens,
                     thinkingLevel: genConfig.thinkingLevel,
+                    ...askWriter,
                   },
                   env.GOOGLE_API_KEY,
                 );
@@ -13065,6 +13286,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               );
 
               console.log('[GeneralChat:Streaming] Complete', {
+                model: askWriter.model,
                 latency_ms: latency,
                 content_length: fullContent.length,
               });
@@ -13274,23 +13496,24 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                         temperature: pillSplit ? 0 : 0.1,
                       };
                       if (extractionV2) extractReq.response_format = { type: 'json_object' };
+                      // the title on its own (the running summary is written once, above)
                       const summaryReq = pillSplit
                         ? {
                             messages: [
                               {
                                 role: 'system',
-                                content: buildSummaryPrompt({ runningSummary, conversationText }),
+                                content: buildTitlePrompt({ runningSummary, conversationText }),
                               },
-                              { role: 'user', content: 'Write the title and summary.' },
+                              { role: 'user', content: 'Write the title.' },
                             ],
-                            max_tokens: 300,
+                            max_tokens: 80,
                             temperature: 0.2,
                             response_format: { type: 'json_object' },
                           }
                         : null;
                       const [extractRes, summaryRes2] = await Promise.all([
                         helperFetch('chat_extraction', extractReq),
-                        summaryReq ? helperFetch('running_summary', summaryReq) : null,
+                        summaryReq ? helperFetch('chat_title', summaryReq) : null,
                       ]);
                       if (extractRes.ok) {
                         const extractJson = await extractRes.json();

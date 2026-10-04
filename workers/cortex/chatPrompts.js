@@ -513,13 +513,17 @@ Return ONLY valid JSON:
 {"extractions":[{"id":"<8 random characters>","type":"todo|habit|note|event","title":"...","body":"...","evidence":"...","same_as":"<id from the list, only when it is that item>","due_date":"YYYY-MM-DD or null","frequency":"string or null","confidence":0-100,"date_text":"string or null","resolved_date":"YYYY-MM-DD or null","date_confidence":"exact|approximate|unknown or null","date_range_start":"YYYY-MM-DD or null","date_range_end":"YYYY-MM-DD or null"}],"edits":[{"entity_id":"<id from the list>","type":"todo|habit|note","field":"due_day|due_time|name|frequency|logged|completed|body_add","value":"...","evidence":"..."}]}`;
 }
 
-/** The chat's title and running summary, on their own. */
-export function buildSummaryPrompt({ runningSummary, conversationText }) {
-  return `You write the title and the running summary of a conversation between a user and Gremly, their companion in a personal productivity app.
+/**
+ * The chat's title, on its own call beside the Save items pill. The running
+ * summary is written once, by generateRunningSummary; this call used to write
+ * one too and only the title was kept.
+ */
+export function buildTitlePrompt({ runningSummary, conversationText }) {
+  return `You write the title of a conversation between a user and Gremly, their companion in a personal productivity app.
 ${runningSummary ? `\nSUMMARY OF EARLIER MESSAGES (not shown below):\n${runningSummary}\n` : ''}
 CONVERSATION:
 ${conversationText}
 
-The title is three to six words in the user's own terms. The summary is one sentence covering the whole conversation from its start, including what the earlier summary covers, so someone reading only the summary knows what was discussed and decided.
-Return ONLY valid JSON: {"chat_summary":{"title":"...","summary":"..."}}`;
+The title is three to six words in the user's own terms, naming what the whole conversation is about, including what the earlier summary covers.
+Return ONLY valid JSON: {"chat_summary":{"title":"..."}}`;
 }

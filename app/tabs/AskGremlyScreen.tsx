@@ -40,17 +40,7 @@ import { supabase } from '../../lib/supabase/client';
 import { nowTimestamp, getDateService } from '../../lib/date/DateService';
 import MascotLottie from '../components/MascotLottie';
 import * as Haptics from 'expo-haptics';
-import {
-  Clock,
-  SquarePen,
-  ChevronLeft,
-  Bookmark,
-  Target,
-  Sparkles,
-  CalendarDays,
-  ChevronRight,
-  X,
-} from 'lucide-react-native';
+import { Clock, SquarePen, ChevronLeft, Bookmark, ChevronRight, X } from 'lucide-react-native';
 import { NavigationRouteContext, useNavigation } from '@react-navigation/native';
 import type {
   EntityCardEntity,
@@ -88,7 +78,11 @@ import { scheduleDcoRefresh } from '../../lib/brief/dcoRefresh';
 import { TodayPinnedCard } from '../../components/brief/TodayPinnedCard';
 import { useReducedMotion } from '../../design/animations';
 import { useMascotStore } from '../../lib/store/useMascotStore';
-import { ensureDailyThread, markDailyThreadOnce } from '../../lib/repo/dailyThreadRepo';
+import {
+  ensureDailyThread,
+  markDailyThreadOnce,
+  patchDailyThreadMeta,
+} from '../../lib/repo/dailyThreadRepo';
 import type {
   BriefDayCardMeta,
   BriefPlanMeta,
@@ -111,16 +105,25 @@ import {
 } from '../../lib/brief/sweepHandoff';
 import { opFromButton } from '../../lib/plan/planFlow';
 import { BriefPlanBlock } from '../../components/brief/BriefPlanBlock';
+import { HomeChips } from '../../components/home/HomeChips';
+import { chatCardMeta, chatHistoryOf, useChatCard } from '../../lib/chat/useChatCard';
+import type { AgentTask } from '../../lib/cortex/CortexClient';
+import { useKeyboardOpen } from '../../hooks/useKeyboardOpen';
+import { chipPrompt, homeChipsFor, homePhase, type HomeChipKey } from '../../lib/chat/homeChips';
+import { useNowMinutes } from '../../lib/brief/useDayCard';
+import { selectQuickSweepCount } from '../../lib/store/selectors';
 
 const MOSS = '#2E5540';
 const LINEN = '#F9F6F1';
 
-// The brief answers "what should I focus on today?", so it is not a starter
-const BRIEF_STARTERS = [
-  { icon: Sparkles, label: 'Help me think through something' },
-  { icon: CalendarDays, label: "What's coming up this week?" },
-  { icon: Target, label: 'How am I doing with my habits?' },
-];
+// What Gremly says on the fresh home until his greeting arrives, or if it cannot
+const GREETING_FALLBACK = "What's on your mind?";
+
+/** The agent's task list kept on a chat (agent plan step 9). */
+function agentTasksOf(chat: SpaceChat): AgentTask[] {
+  const tasks = (chat.metadata_json as { agent_tasks?: unknown } | null | undefined)?.agent_tasks;
+  return Array.isArray(tasks) ? (tasks as AgentTask[]) : [];
+}
 
 /** An item's own chat (components/chat/ItemChatScreen.tsx) */
 export type ItemChatOptions = {
@@ -212,7 +215,10 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   const [saveSheetVisible, setSaveSheetVisible] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [savingChat, setSavingChat] = useState(false);
-  const [greeting, setGreeting] = useState<string>("What's on your mind?");
+  // null until Gremly's greeting arrives, so the bubble does not change under you
+  const [greeting, setGreeting] = useState<string | null>(null);
+  // what waits in the app, for the greeting to mention (set further down)
+  const greetingWaitingRef = useRef({ briefUnread: false, toDecide: 0 });
 
   // Chat opened about a drop ("Talk it through"): Gremly's fixed opener shows
   // instead of the greeting, and nothing is sent until the user replies
@@ -225,8 +231,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     // an item's chat, which opens with Gremly's line about the item instead
     if (item || aboutRef.current || params?.talkAbout) return;
     if (!activeChat && userId) {
-      callGeneralGreeting(userId).then((g) => {
-        if (g) setGreeting(g);
+      callGeneralGreeting(userId, greetingWaitingRef.current).then((g) => {
+        setGreeting(g || GREETING_FALLBACK);
       });
     }
   }, [activeChat, userId]);
@@ -422,6 +428,21 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     if (activeChat && aboutRef.current) clearAbout();
   }, [activeChat, clearAbout]);
 
+  // the agent's task list, kept on the chat so asks carry across messages
+  const keepAgentTasks = useCallback(async (chat: SpaceChat, tasks: AgentTask[]) => {
+    const patch = { agent_tasks: tasks };
+    setActiveChat((prev) =>
+      prev && prev.id === chat.id
+        ? { ...prev, metadata_json: { ...((prev.metadata_json as object) ?? {}), ...patch } }
+        : prev,
+    );
+    try {
+      await patchDailyThreadMeta(chat.id, patch);
+    } catch (err) {
+      console.warn('[AskGremly] could not keep the task list:', err);
+    }
+  }, []);
+
   const sendToChat = useCallback(
     async (
       chat: SpaceChat,
@@ -456,9 +477,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       // still be the previous chat's for a moment, so they are not used.
       // (today's thread: what is shown, so an offer held back is not sent as said)
       const prior = opts.fresh ? [] : visibleThreadMessages(messages);
-      const conversationHistory = prior
-        .filter((m) => m.role === 'user' || m.role === 'assistant')
-        .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+      // what was said, and what each of Gremly's cards came to
+      const conversationHistory = chatHistoryOf(prior);
       // a chat about a drop starts with Gremly's opener, which names the item
       if (opts.fresh && opts.lead) {
         conversationHistory.unshift({ role: 'assistant', content: opts.lead });
@@ -503,6 +523,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
           // a correction made in today's thread is marked as made on the brief
           chatSurface: chat.chat_type === 'daily' ? 'brief' : 'chat',
           briefQuestion: opts.briefQuestion ?? null,
+          // the agent's task list kept on this chat, so asks carry across messages
+          agentTasks: opts.fresh ? [] : agentTasksOf(chat),
         },
         {
           onChunk: (delta: string) => {
@@ -519,6 +541,11 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             wordBufferRef.current.push(...delta.split(/(?<=\s)/));
           },
           onSearching: (query: string, isLoadingHint?: boolean) => {
+            // the agent's status lines say it is still working, as a chunk would
+            if (receivedChunks || isLoadingHint) {
+              if (streamTimeoutRef.current) clearTimeout(streamTimeoutRef.current);
+              streamTimeoutRef.current = setTimeout(handleStreamTimeout, 15000);
+            }
             const msgId = streamingMessageIdRef.current;
             if (msgId) {
               updateStreamingSearching(msgId, true, query);
@@ -554,6 +581,22 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                   }),
                 );
               }
+            }
+            const agent = richResult?.agent;
+            if (agent) {
+              // the agent answered: its card under the reply, and the chat's task list
+              if (agent.card?.length) {
+                await appendBriefMessage(
+                  'system',
+                  '',
+                  chatCardMeta(
+                    agent.card,
+                    agent.tasks ?? [],
+                    agent.prompt_version,
+                  ) as unknown as Record<string, unknown>,
+                );
+              }
+              void keepAgentTasks(chat, agent.tasks ?? []);
             }
             if (richResult?.entity_card) {
               await appendEntityCard(richResult.entity_card);
@@ -609,6 +652,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       finalizeStreamingMessage,
       cancelStreaming,
       appendEntityCard,
+      appendBriefMessage,
+      keepAgentTasks,
     ],
   );
 
@@ -996,6 +1041,37 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   const briefUnreadHere = useTodayThread((st) => isBriefUnread(st.thread));
   // the brief starts on the second day of training, so the pinned card does too
   const gremlyAge = useGremlyStore((st) => st.gremlyAge);
+
+  // Chat's fresh home: Gremly's greeting and chips that follow the part of the
+  // day. Inside the Gremly home they sit at the foot of this page, left of
+  // Gremly, so the shared box and Gremly stay exactly where they are on Drop
+  const nowMinutes = useNowMinutes();
+  const dayBoundaryHour = useGremlyStore((st) => st.dayBoundaryHour);
+  const phase = homePhase(nowMinutes, dayBoundaryHour);
+  const toDecide = useGremlyStore(selectQuickSweepCount);
+  const homeChips = useMemo(() => homeChipsFor(phase, toDecide), [phase, toDecide]);
+  greetingWaitingRef.current = { briefUnread: briefUnreadHere, toDecide };
+  const freshHome = !activeChat && !item && !aboutItem;
+  const openWrapUp = useCallback(() => {
+    navigation.navigate('Sweep', { quick: true });
+  }, [navigation]);
+  const pressChip = useCallback(
+    (key: HomeChipKey) => {
+      if (key === 'plan_day') {
+        void openTodayThread();
+        return;
+      }
+      if (key === 'wrap_up') {
+        openWrapUp();
+        return;
+      }
+      const prompt = chipPrompt(key);
+      if (prompt) void handleSend(prompt);
+    },
+    [openTodayThread, openWrapUp, handleSend],
+  );
+  // put away while typing, for room to read
+  const keyboardOpen = useKeyboardOpen();
   const jumpPending = !!(
     params?.thread ||
     params?.talkAbout ||
@@ -1107,8 +1183,16 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     ),
     [],
   );
+  // Ask Gremly's agent card (agent plan step 9): the same card, in a chat
+  const chatCard = useChatCard({
+    appendBriefMessage,
+    patchMessageMetadata,
+    say: async (text) => {
+      await appendAssistantMessage(text);
+    },
+  });
   // drawn again when saving ends and when Undo becomes possible (ChangeCard.tsx)
-  const renderChanges = useRenderChanges(dayTurn);
+  const renderChanges = useRenderChanges(isDailyThread ? dayTurn : chatCard);
   const renderPlan = useCallback(
     (message: SpaceChatMessage, meta: BriefPlanMeta) => (
       <BriefPlanBlock
@@ -1520,10 +1604,14 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                     date={getDateService().ritualDay()}
                     unread={briefUnreadHere}
                     onPress={() => void openTodayThread()}
+                    phase={phase}
+                    toDecide={toDecide}
+                    onWrapUp={openWrapUp}
                   />
                 </View>
               ) : null}
-              <Text style={[styles.greeting, embedded && styles.greetingTop]}>{greeting}</Text>
+              {/* Inside the Gremly home the greeting and chips sit by the shared box */}
+              {!embedded && <Text style={styles.greeting}>{greeting ?? GREETING_FALLBACK}</Text>}
 
               {/* Inside the Gremly home, Gremly stays perched on the input (as on
                   the Drop page) so he does not jump when switching pages */}
@@ -1539,22 +1627,9 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                 </Pressable>
               )}
 
-              <View style={styles.startersContainer}>
-                {BRIEF_STARTERS.map(({ icon: Icon, label }) => (
-                  <TouchableOpacity
-                    key={label}
-                    style={styles.starterCard}
-                    onPress={() => handleSend(label)}
-                    activeOpacity={0.75}
-                  >
-                    <View style={styles.starterGlyph}>
-                      <Icon size={16} color={MOSS} strokeWidth={2} />
-                    </View>
-                    <Text style={styles.starterLabel}>{label}</Text>
-                    <ChevronRight size={16} color="rgba(46,85,64,0.4)" strokeWidth={2} />
-                  </TouchableOpacity>
-                ))}
-              </View>
+              {!embedded && (
+                <HomeChips chips={homeChips} onPress={pressChip} style={styles.homeChips} />
+              )}
             </View>
           )}
         </View>
@@ -1570,6 +1645,18 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
               onPress={() => setSaveSheetVisible(true)}
               style={styles.savePillEmbedded}
             />
+            {/* Chat's fresh home: Gremly's greeting and the chips, left of him */}
+            {freshHome && !keyboardOpen ? (
+              <View style={styles.homeFoot} pointerEvents="box-none" testID="chat-home-foot">
+                {greeting ? (
+                  <View style={styles.homeGreeting} testID="chat-home-greeting">
+                    <Text style={styles.homeGreetingText}>{greeting}</Text>
+                  </View>
+                ) : null}
+                {/* left of Gremly the room is narrow: the chips wrap, so none hides behind him */}
+                <HomeChips chips={homeChips} onPress={pressChip} wrap />
+              </View>
+            ) : null}
             {/* The drop this chat is about, attached to what you send next */}
             {aboutItem && !activeChat ? (
               <View style={styles.aboutChip} testID="chat-about-chip">
@@ -1946,9 +2033,6 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     paddingTop: 4,
   },
-  greetingTop: {
-    marginBottom: 16,
-  },
   greeting: {
     fontFamily: 'Inter-Medium',
     fontSize: 15,
@@ -1985,12 +2069,42 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     marginBottom: 18,
   },
-  startersContainer: {
-    width: '100%',
+  homeChips: {
+    flexGrow: 0,
+    marginTop: 8,
     paddingHorizontal: 24,
-    gap: 10,
-    zIndex: 2,
   },
+  // the foot of Chat's fresh home: just above the shared box, left of where
+  // Gremly perches on it, the greeting with its tail towards him
+  homeFoot: {
+    position: 'absolute',
+    left: 16,
+    right: 104,
+    bottom: 8,
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  homeGreeting: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderBottomRightRadius: 6,
+    borderWidth: 1,
+    borderColor: '#ECEAE4',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    shadowColor: '#28322C',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  homeGreetingText: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 16,
+    lineHeight: 22,
+    color: '#2B3630',
+  },
+
   starterCard: {
     flexDirection: 'row',
     alignItems: 'center',

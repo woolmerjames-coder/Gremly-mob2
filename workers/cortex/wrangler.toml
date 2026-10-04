@@ -33,6 +33,9 @@ MINDDROP_RELATE_ENABLED = "true"
 # Every other model the Worker calls is chosen in models.js; a var here overrides
 # its default. To move a model, set the var and deploy; the corpus gate comes first.
 #   CHAT_MODEL                the Gemini model behind every chat surface (default gemini-3-flash-preview)
+#   CHAT_MODEL_ASK            Ask Gremly's writer on its own (default CHAT_MODEL); an OpenAI
+#                             model goes through openaiChat.js
+#   CHAT_EFFORT_ASK           how much an OpenAI writer thinks before it writes (default none)
 #   HELPER_MODEL              the small model behind triage, loading message, summaries,
 #                             extraction, habit pre parse and so on (default gpt-4.1-mini)
 #   MODEL_<JOB>               one helper job on its own, for example MODEL_TRIAGE_MODE or
@@ -44,6 +47,8 @@ MINDDROP_RELATE_ENABLED = "true"
 #   AGENT_MODEL               the agent's model on every surface (agent/run.js; default gemini-3.8-flash)
 #   AGENT_FALLBACK_MODEL      tried once when the agent's first step fails (default gpt-6-luna)
 #   AGENT_MODEL_BRIEF, AGENT_MODEL_CHAT  one surface on its own
+#   AGENT_CHAT                on, or user ids: Ask Gremly's lookups and changes on the agent
+#                             (agent/chat.js), for app builds that send agentCard
 #   AGENT_BRIEF               on: today's thread on the agent (agent/brief.js, type brief-turn);
 #                             off: the day turn answers brief-turn, as before. Only app builds
 #                             from step 7 on call brief-turn; older builds keep calling day-turn
@@ -73,12 +78,24 @@ MINDDROP_RELATE_ENABLED = "true"
 # To go back: TRIAGE_ONE_CALL = "off" (the two calls keep gpt-4.1-mini). A
 # failed call is retried once on HELPER_FALLBACK_MODEL.
 CHAT_MODEL = "gemini-3-flash-preview"
+# Ask Gremly's writer on Luna with no thinking (agent plan step 9, writer test of
+# 3 Oct 2026: 40 of James's turns through the live chat path, two blind judges).
+# Luna with the new tone section scored 6.9 of 10 against 5.2 for the preview and
+# was the better reply on 33 of 40 turns, at about 1.0s to the first word and
+# 0.08 cents a reply against 0.9s and 0.45 cents. Gemini 3.7 and 3.8 Flash scored
+# like Luna at eight times the cost. A writer that fails to start is tried once
+# on CHAT_MODEL. To go back: remove this line.
+CHAT_MODEL_ASK = "gpt-6-luna"
 HELPER_MODEL = "gpt-6-luna"
 HELPER_FALLBACK_MODEL = "gemini-3.8-flash"
 MODEL_TRIAGE = "gpt-6-luna"
 MODEL_TRIAGE_MODE = "gpt-4.1-mini"
 MODEL_TRIAGE_SIGNALS = "gpt-4.1-mini"
-MODEL_LOADING_MESSAGE = "gpt-4.1-mini"
+# The line Ask Gremly shows while it works, on Luna since 4 Oct: on the chat
+# replay's 18 messages its lines read truer to what was asked; it takes about
+# 1s against 0.6s, and runs alongside the reply, so the reply comes no later
+# (scripts/chat-replay/loading.sh). To go back: "gpt-4.1-mini".
+MODEL_LOADING_MESSAGE = "gpt-6-luna"
 TRIAGE_ONE_CALL = "on"
 # Today's thread on the agent (agent plan step 7), on Luna by James's choice:
 # the day turn's replay suite (11 messages) passed 20 of 22 runs at 5.4s typical
@@ -88,6 +105,11 @@ TRIAGE_ONE_CALL = "on"
 # the agent cannot finish, the day turn answers.
 AGENT_BRIEF = "on"
 AGENT_MODEL_BRIEF = "gpt-6-luna"
+# Ask Gremly's lookups and changes on the agent (agent plan step 9), on Luna at
+# low thinking. On for James's account only while he tries it; "on" turns it on
+# for everyone. Only app builds that can draw the agent's card are sent to it.
+AGENT_CHAT = "05a3c53d-b242-4b5f-a0db-83004c8e3892"
+AGENT_MODEL_CHAT = "gpt-6-luna"
 AGENT_FALLBACK_MODEL = "gemini-3.8-flash"
 CHAT_EXTRACTION_V2 = "on"
 SEARCH_REQUIRED_FORCES = "off"

@@ -90,6 +90,16 @@ describe('Worker vars override the defaults', () => {
     ).toBe('gemini-3.8-flash');
   });
 
+  test("Ask Gremly's writer follows CHAT_MODEL unless it has its own", () => {
+    expect(resolveModels({ CHAT_MODEL: 'gemini-3.8-flash' }).ask).toEqual({
+      model: 'gemini-3.8-flash',
+      effort: 'none',
+    });
+    const m = resolveModels({ CHAT_MODEL_ASK: 'gpt-6-luna', CHAT_EFFORT_ASK: 'low' });
+    expect(m.ask).toEqual({ model: 'gpt-6-luna', effort: 'low' });
+    expect(m.chat).toBe('gemini-3-flash-preview');
+  });
+
   test('a single job var wins over HELPER_MODEL', () => {
     const m = resolveModels({ HELPER_MODEL: 'gpt-6-luna', MODEL_TRIAGE_MODE: 'gpt-5-nano' });
     expect(m.job.triage_mode).toBe('gpt-5-nano');

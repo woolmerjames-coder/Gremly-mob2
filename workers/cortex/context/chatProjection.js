@@ -20,6 +20,7 @@
  * Fetch the user's Life Map. KV cached 2 hours.
  */
 import { getLifePack, recallForMessage } from './lifeContext.js';
+import { formatWeekAhead, readWeekAhead } from './weekAhead.js';
 
 /** The person's latest message text from a chat request body. */
 export function lastUserText(body) {
@@ -139,6 +140,7 @@ export async function getDailyFocusForChat(userId, env) {
       briefHeadline: dco?.brief_headline || null,
       weekRecap: dco?.week_recap || [],
       weekMoodArc: dco?.week_mood_arc || null,
+      cancelledCalendarIds: dco?.cancelled_calendar_ids || [],
     };
 
     if (env.CONTEXT_CACHE) {
@@ -251,10 +253,9 @@ function formatDailyFocusForChat(focus) {
   if (focus.tone) parts.push(`Tone today: ${focus.tone}`);
   if (focus.briefHeadline) parts.push(`Today's headline: "${focus.briefHeadline}"`);
 
-  if (focus.leadStory) {
-    parts.push(
-      `Lead story: ${focus.leadStory.domain} → ${focus.leadStory.thread}: ${focus.leadStory.detail}`,
-    );
+  const lead = focus.leadStory;
+  if (lead?.what) {
+    parts.push(`Lead story: ${lead.what}${lead.why_today ? `. ${lead.why_today}` : ''}`);
   }
 
   if (focus.todayFocus && focus.todayFocus.length > 0) {
@@ -430,6 +431,7 @@ function formatRecentDelta(delta) {
  * @param {string} opts.spaceId - For space chat
  * @param {string} opts.entityTitle - For entity chat
  * @param {string} opts.entitySpaceId - For entity chat (space the entity belongs to, if any)
+ * @param {object} [opts.keep] - Ask Gremly: given an object, the week ahead it read is kept on it as keep.week
  * @param {object} env
  * @returns {Promise<string>} Formatted context string ready for system prompt injection
  */
@@ -440,15 +442,23 @@ export async function buildChatContext(userId, lane, opts, env) {
     const timezone = opts?.timezone || 'UTC';
     const currentChatId = opts?.currentChatId;
 
-    // Fetch all context in parallel
-    const [lifeMap, dailyFocus, recentDelta, temporalAnchors, chatSummaries, lifePack, recall] = await Promise.all([
+    // Fetch all context in parallel. Ask Gremly also reads the week ahead.
+    const focusRead = getDailyFocusForChat(userId, env);
+    const weekRead =
+      lane === 'general'
+        ? readWeekAhead(userId, timezone, env, {
+            cancelledIds: focusRead.then((f) => f?.cancelledCalendarIds || []),
+          })
+        : Promise.resolve(null);
+    const [lifeMap, dailyFocus, recentDelta, temporalAnchors, chatSummaries, lifePack, recall, week] = await Promise.all([
       getLifeMapForChat(userId, env),
-      getDailyFocusForChat(userId, env),
+      focusRead,
       fetchRecentActivityDelta(userId, env),
       fetchTemporalAnchors(userId, timezone, env),
       fetchRecentChatSummaries(userId, currentChatId, env),
       getLifePack(userId, env),
       opts?.message ? recallForMessage(userId, opts.message, env) : Promise.resolve(''),
+      weekRead,
     ]);
 
     const todayStr = new Intl.DateTimeFormat('en-CA', {
@@ -463,6 +473,13 @@ export async function buildChatContext(userId, lane, opts, env) {
     // 1. Daily focus (life moment, tone, today's headline)
     const focusStr = formatDailyFocusForChat(dailyFocus);
     if (focusStr) parts.push(focusStr);
+
+    // 1b. The week ahead: their calendar and planned todos, day by day. The
+    // week itself is kept for the caller that asked (Ask Gremly's agent gives
+    // its todos their ids, agent/chat.js).
+    if (opts?.keep) opts.keep.week = week;
+    const weekStr = formatWeekAhead(week);
+    if (weekStr) parts.push(weekStr);
 
     // 2. Temporal anchors (upcoming events/deadlines from conversations)
     if (temporalAnchors) {

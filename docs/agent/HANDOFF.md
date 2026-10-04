@@ -23,11 +23,12 @@ the item search all stay; the middle layer that handles a message changes.
 | 4    | The tools                         | Done                              |
 | 5    | The core loop                     | Done                              |
 | 6    | Triage update                     | Done                              |
-| 7    | The brief on the core             | Done                              |
-| 8    | Replay suites and model choice    | Next                              |
-| 9    | General chat on the core          |                                   |
+| 7    | The brief on the core             | Done, merged to main              |
+| 8    | Replay suites and model choice    | Folded into 7 and 9               |
+| 9    | General chat on the core          | Built, James testing              |
 | 10   | Sweep on the core                 | After the Sweep redesign is built |
-| 11   | Rollout and watching              |                                   |
+| 11   | Focused model audit               | After chat and Sweep              |
+| 12   | Rollout and watching              |                                   |
 
 Docs (Claude Docs; James comments and edits in them):
 
@@ -42,6 +43,10 @@ Docs (Claude Docs; James comments and edits in them):
   https://claude.ai/code/artifact/167d9176-a2ff-4419-bbe7-34f71a7ffcbe
 - Step 7, today's thread on the agent, the replay, decisions:
   https://claude.ai/code/artifact/0111f10c-cabe-4b88-86ed-8ee46a45a5c0
+- Step 9, general chat on the agent, the plan and James's decisions:
+  https://claude.ai/code/artifact/5987a64f-36a7-4307-980d-fecd250bf171
+- Sweep handoff, what the Sweep redesign builds and what step 10 picks up:
+  https://claude.ai/code/artifact/43136371-876e-446a-9371-401bcdd3c036
 
 Each step so far has had its own doc. Keep that going: one doc per step, made
 before the work, filled as it goes, ending with what is next.
@@ -113,30 +118,109 @@ sent, the message gets chat's correction check (`learnFromTurn`,
 `context/corrections.js`, which checks only the message just sent); the ledger
 reader reads the rest within the hour. Replay:
 `scripts/day-replay/run-agent.sh` (same scenarios and checks as the day turn,
-plus cost per message). On Luna, James's choice: 31 of 33, 5.7s typical,
-9.5s slowest, about 0.04 cents a message. Gemini 3.8 Flash was faster but
-about 1.35 cents a message because none of its input was cached (Luna had
-97% cached); look at Gemini caching in step 8.
+plus cost per message). On Luna at low thinking, James's choice: 54 and 55 of
+57 on 19 scenarios, about 3.8s typical, about 0.02 cents a message in the
+replay. Live on 3 Oct (6 messages): 1.3s to 3.2s a model call, 2s to 5s a
+message (the first, cold, 12s), about 0.09 cents a message with the
+correction check. The day in each message (about 3,700 tokens) is never
+cached; the rules (about 5,200) are cached after the first message. The
+instructions stay the same from message to message and what changes rides in
+the latest message, which is what lets the provider cache them. Gemini 3.8
+Flash was faster but about 1.35 cents a message because none of its input
+was cached.
 
-**Step 8, replays.** Grow `scripts/agent-smoke` into multi turn replays per
-surface. Compare four models: gpt-6-luna (low effort), Gemini 3.5 Flash-Lite
-(low thinking; independent tests measured about 9s to first word at default),
-Gemini 3.8 Flash (promo price until 31 Dec 2026, then double), Claude Sonnet
-5.5 (no Anthropic key yet, and the agent has no Anthropic client yet). Score
-per job, not overall. Also compare `find_items` against the whole-list matcher
-(`entityMatch.js`) before the quick lane moves to the search. One writer per
-surface: the words the person reads come from one model on that surface.
-Thinking on today's thread stays at Luna's low (`AGENT_THINKING_BRIEF` unset,
-James, 3 Oct). Test `none` on a bigger replay here: on the 19 scenarios it
-scored 54 of 57 at about 2.5s typical against low's 51 to 53 at about 3.2s,
-but its replies were sloppier (it once offered to log a run before it
-happened), so it needs more turns than 19 to judge.
+**Step 8, folded into 7 and 9 (James, 3 Oct).** Step 7 made the model
+choice for today's thread (Luna, low thinking, `AGENT_THINKING_BRIEF` unset),
+so a four model comparison there would repeat it. What was left moves to
+step 9: chat starts on Luna at low thinking with the same cached layout, gets
+its own replay scenarios, and compares `find_items` with the whole list
+matcher (`entityMatch.js`) before the quick lane moves to the search. A
+second model is tried on a surface only when its replays or real use show a
+gap. One writer per surface: the words the person reads come from one model
+on that surface.
 
 **Step 9, general chat.** Triage's agent lane goes to `runAgent({ surface:
 'chat' })` with the persona from `gremlyPersona.js` and the preload from
 `buildChatContext`; the quick lane stays as today. Chat's one change card
 (`components/chat/EntityCardMessage.tsx`) and the list card become one
-component here.
+component here. Carried from step 8: Luna at low thinking, the cached layout,
+chat's own replay scenarios (open conversation, remembering, habits, not only
+plans), and the `find_items` against `entityMatch.js` comparison.
+
+**Chat's writer (step 9, done 3 Oct on `chat-fixes-10.3`).** Ask Gremly's
+quick lane writes on Luna with no thinking (`CHAT_MODEL_ASK`,
+`CHAT_EFFORT_ASK` in models.js). `workers/cortex/openaiChat.js` sends an
+OpenAI model's chat call to the Responses API and answers in Gemini's
+shapes, so `geminiStream` and `geminiGenerate` hand it over and no surface's
+reading code changed; a writer that fails to start is tried once on
+`CHAT_MODEL`. The persona's general section gained "How the conversation
+feels" (semantic, Ask Gremly only). The writer test is `scripts/writer-test`
+(fixtures and outputs stay out of git): 40 of James's turns through the live
+chat path, two blind judges, Luna with the new section 6.9 of 10, Luna
+without it 6.7, the preview 5.2. The other chat surfaces stay on the preview
+until each is checked. Ask Gremly's preload now carries the
+week ahead (`workers/cortex/context/weekAhead.js`: the calendar and planned
+todos for the next seven days, read live), so questions about the days ahead
+are answered from them; before, chat had only the week so far.
+
+**Chat home (step 9, 3 Oct).** From the mockup James approved
+(https://claude.ai/artifact/RxvQRqbb722VymHacdNQB5): the three starter
+buttons are gone; Gremly's greeting sits in a speech bubble and a row of
+chips (`lib/chat/homeChips.ts`) below it, at the foot of the Chat page, left
+of where Gremly perches. The shared box (`CatchAllNotepad`) is left exactly as
+it is on Drop, so the box and Gremly stay still when the pages slide (James,
+3 Oct: the mockup's one line box made them jump).
+The Today card's mark and line follow the part of the day, and in the
+evening, while things wait for a decision, it offers to wrap up (the quick
+Sweep for now; the Sweep redesign repoints it). The greeting prompt
+(`workers/cortex/greeting.js`) is semantic and knows the hour, what is still
+on the calendar today, and what waits in the app.
+
+**Chat's agent lane (step 9, 3 Oct).** Triage's lookup and agent lanes go
+to `runChatTurn` (`workers/cortex/agent/chat.js`, the chat surface, Luna via
+`AGENT_MODEL_CHAT`) when the account is in `AGENT_CHAT` (James's id for now;
+`on` is everyone) and the app sent `agentCard`, which only new builds do.
+The persona is `chatAgentPersona()`: the quick lane's, without its saving
+rules or the date, so it caches. Status lines show while it works; the done
+event carries the card and the task list; the app draws the card with
+`lib/chat/useChatCard.ts` (Accept through `applyChanges`, Undo, Dismiss),
+puts what was done with each card into the history, and keeps the task list
+on the chat's `metadata_json.agent_tasks`. If the agent fails, the writer
+answers. The pill split's companion call now writes only the title
+(`buildTitlePrompt`, job `chat_title`), so the running summary is written
+once. The replay is `scripts/chat-replay` (twelve kinds of message, every
+name made up): 36 of 36 on Luna at about 4.7s and 0.03 cents a message.
+One agent rule came from it (`agent-2026-10-03i`): a yes in words to an
+offered change puts that change on the card as offered (accept and follow up
+13 of 16 before, 16 of 16 after; the day replay unchanged). Still open: the
+quick lane keeps its own card (`EntityCardMessage`) until the agent lane is
+on for everyone, and `find_items` is compared with `entityMatch.js` before
+the quick lane moves to the search.
+
+**Chat's agent, faster (step 9, 4 Oct).** Each agent step is a model call of
+1.5 to 2s, and a change took three (search, read, card). Now the agent starts
+with what it needs, as today's thread does: the week ahead gives each todo
+its id (`formatWeekAhead(week, { ids: true })`, the agent only; the week comes
+back from `buildChatContext` through `opts.keep`), the items that share words
+with the message are searched before the first step (`prefetchForChat`,
+started alongside triage), and the chat job says to answer from those and ask
+for other lookups together. `propose_changes` takes an id from what the agent
+knows, not only from a tool. Triage starts once the profile and domain names
+are read, with the rest of the context loading alongside it. Chat replay: 72
+of 72, 3.1s typical against 5.4s, 1.8 steps against 2.4. Thinking `none` was
+tried and was no faster (more steps). The loading line is on Luna
+(`MODEL_LOADING_MESSAGE`, checked with `scripts/chat-replay/loading.sh`).
+Space, World and Chapter chat stay on `CHAT_MODEL` (no messages in 90 days);
+an item's chat is Ask Gremly's path. The old item matcher (`entityMatch.js`,
+Gemini 3.8 Flash) costs about 0.5 cents a message, against 0.03 for the agent,
+and the quick lane waits for it: compare it with `find_items` when the agent
+lane goes to everyone.
+
+**Step 11, focused model audit.** After chat and Sweep, a smaller audit of
+only the places that could be better, from replays and real use: a stronger
+model for harder jobs where it earns its cost, `none` thinking on a bigger
+replay (on today's thread it scored 54 of 57 at about 2.5s against low's 51
+to 53 at about 3.2s, but its replies were sloppier), and Gemini caching.
 
 ## Decisions James has made (keep to them)
 
@@ -179,13 +263,20 @@ component here.
   is an open question in the step 7 doc.
 - Agent replies get no dash cleanup for now (the brief writer's `noDashes`
   turns any dash into a comma, which reads wrong in a time range). The
-  persona settles dashes in steps 7 and 9, the step 8 replays count slips,
+  persona settles dashes in steps 7 and 9, the replays count slips,
   and a cleanup comes only if they still happen: one that writes a range as
   "to" and logs every time it fires.
 - James is staying in this session on Fable rather than switching models at
   step 6; this file still holds everything a fresh session would need.
-- All of this is on `morning-brief-fixes-10.2`; James merges and builds when
-  he chooses.
+- Steps 1 to 7 are merged to main (PR #144, f8de3b13). Step 9 is on
+  `chat-fixes-10.3` (worktree `gremly-mob2.worktrees/chat-fixes-103`). James
+  merges, deploys (inngest-jobs, then cortex) and builds when he chooses.
+- Model audits (James, 3 Oct): no separate bake-off before each surface;
+  start each surface on what works, and audit in one focused pass after chat
+  and Sweep.
+- Ask Gremly's agent lane (James, 4 Oct): on for his account until Sweep is
+  done; straight after step 10, `AGENT_CHAT = "on"` for everyone, before the
+  TestFlight build. The quick lane's card and the item matcher swap follow it.
 
 ## How to work here
 

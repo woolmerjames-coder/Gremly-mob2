@@ -40,6 +40,7 @@ test('flags default to today', () => {
     entityCards: false,
     pillSplit: false,
     agentBrief: false,
+    agentChat: '',
   });
   expect(m.helperFallback).toBe('');
 });
