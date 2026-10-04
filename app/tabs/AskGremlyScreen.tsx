@@ -1594,7 +1594,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                     <Text style={styles.homeGreetingText}>{greeting}</Text>
                   </View>
                 ) : null}
-                <HomeChips chips={homeChips} onPress={pressChip} style={styles.homeFootChips} />
+                {/* left of Gremly the room is narrow: the chips wrap, so none hides behind him */}
+                <HomeChips chips={homeChips} onPress={pressChip} wrap />
               </View>
             ) : null}
             {/* The drop this chat is about, attached to what you send next */}
@@ -2044,10 +2045,7 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: '#2B3630',
   },
-  homeFootChips: {
-    flexGrow: 0,
-    alignSelf: 'stretch',
-  },
+
   starterCard: {
     flexDirection: 'row',
     alignItems: 'center',
