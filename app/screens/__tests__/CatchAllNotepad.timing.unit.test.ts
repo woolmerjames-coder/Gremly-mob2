@@ -177,3 +177,37 @@ describe('Timing Chips Logic', () => {
     });
   });
 });
+
+describe('Timing chips after midnight, before the day ends', () => {
+  // 12:30 AM on Saturday 8 November 2025. The day ends at 3 AM, so for the
+  // person it is still Friday 7 November.
+  const { getDateService } = require('../../../lib/date/DateService');
+  let was: number;
+  const dayOf = (iso: string | null) => {
+    const d = new Date(iso as string);
+    const two = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:00`;
+  };
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2025-11-08T00:30:00'));
+    was = getDateService().getDayBoundaryHour();
+    getDateService().setDayBoundaryHour(3);
+  });
+
+  afterEach(() => {
+    getDateService().setDayBoundaryHour(was);
+    jest.useRealTimers();
+  });
+
+  it('Today is still Friday, and Tomorrow is Saturday', () => {
+    expect(dayOf(timingOptionToDate('today'))).toBe('2025-11-07 17:00');
+    expect(dayOf(timingOptionToDate('tomorrow'))).toBe('2025-11-08 09:00');
+  });
+
+  it('counts the weekend and Monday from Friday', () => {
+    expect(dayOf(timingOptionToDate('this-weekend'))).toBe('2025-11-08 10:00');
+    expect(dayOf(timingOptionToDate('monday'))).toBe('2025-11-10 09:00');
+  });
+});

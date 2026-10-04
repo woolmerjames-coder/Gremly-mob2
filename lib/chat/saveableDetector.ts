@@ -129,7 +129,7 @@ export function resolveRelativeDate(indicator: string | undefined): string | und
   if (!indicator) return undefined;
 
   const normalized = indicator.toLowerCase().trim();
-  const today = getDateService().now();
+  const today = getDateService().dayNow();
   today.setHours(0, 0, 0, 0);
 
   // Helper to format date as YYYY-MM-DD

@@ -24,7 +24,10 @@ export interface TimeRangeResult {
  * @param range - Time range selection
  * @param now - Optional date to use as "now" (for testing determinism)
  */
-export function computeTimeRange(range: HubV1TimeRange, now: Date = getDateService().now()): TimeRangeResult {
+export function computeTimeRange(
+  range: HubV1TimeRange,
+  now: Date = getDateService().now(),
+): TimeRangeResult {
   if (range === 'all') return {};
 
   let start: Date;
@@ -264,11 +267,12 @@ export function suggestShortTitle(text: string, maxWords = 5): string {
  * @param dateStr - ISO date string
  * @param now - Optional reference date (for testing)
  */
-export function formatJournalDate(dateStr: string, now: Date = getDateService().now()): string {
+export function formatJournalDate(dateStr: string, now?: Date): string {
   // Use DateService for timezone-safe parsing of YYYY-MM-DD strings
   const ds = getDateService();
-  const dateDay = dateStr.match(/^\d{4}-\d{2}-\d{2}$/) ? dateStr : ds.toLocalDate(new Date(dateStr));
-  const diffDays = ds.daysBetween(dateDay, ds.toLocalDate(now));
+  // the person's day the entry was written in, against the person's today
+  const dateDay = ds.dayOf(dateStr) ?? ds.toLocalDate(new Date(dateStr));
+  const diffDays = ds.daysBetween(dateDay, now ? ds.dayOf(now) : ds.today());
 
   if (diffDays === 0) return 'Today';
   if (diffDays === 1) return 'Yesterday';

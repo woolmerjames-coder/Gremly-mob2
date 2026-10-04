@@ -192,7 +192,7 @@ export async function fetchSweepCandidatesForUser(
         const isDueToday = dueDay !== null && dueDay === todayDay;
 
         // Compute isCreatedToday: createdAt is on today's date
-        const createdDay = getDateService().extractLocalDate(row.created_at);
+        const createdDay = getDateService().dayOf(row.created_at);
         const isCreatedToday = createdDay === todayDay;
 
         candidates.push({
@@ -223,7 +223,7 @@ export async function fetchSweepCandidatesForUser(
     const processNoteRows = (rows: any[]) => {
       for (const row of rows) {
         // Compute isCreatedToday: createdAt is on today's date
-        const createdDay = getDateService().extractLocalDate(row.created_at);
+        const createdDay = getDateService().dayOf(row.created_at);
         const isCreatedToday = createdDay === todayDay;
 
         // Extract attachments from the joined log_photos

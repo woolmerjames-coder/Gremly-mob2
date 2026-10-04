@@ -35,8 +35,7 @@ export interface UseMorningBriefReturn {
  * Get today's date string in YYYY-MM-DD format (local time)
  */
 function getTodayDateString(): string {
-  const now = getDateService().now();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  return getDateService().today();
 }
 
 export function useMorningBrief(): UseMorningBriefReturn {

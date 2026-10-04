@@ -417,9 +417,7 @@ export default function HubScreen() {
 
       const date = item.updated_at || item.created_at;
       const dateFormatted = date
-        ? getDateService().formatDateForDisplay(
-            getDateService().extractLocalDate(date) ?? date.split('T')[0],
-          )
+        ? getDateService().formatDateForDisplay(getDateService().dayOf(date) ?? date.split('T')[0])
         : undefined;
 
       // Get tags for this item from the item's tags field (store data)
@@ -846,7 +844,7 @@ export default function HubScreen() {
   const formatJournalDate = useCallback((dateStr: string): string => {
     const ds = getDateService();
     const today = ds.today();
-    const itemDate = ds.extractLocalDate(dateStr) ?? dateStr.split('T')[0];
+    const itemDate = ds.dayOf(dateStr) ?? dateStr.split('T')[0];
 
     if (itemDate === today) return 'Today';
     if (itemDate === ds.addDays(today, -1)) return 'Yesterday';

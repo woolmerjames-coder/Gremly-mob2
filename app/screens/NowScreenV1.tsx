@@ -342,7 +342,7 @@ export default function NowScreenV1() {
   const lastSweepCompletedAt = useGremlyStore((s) => s.lastSweepCompletedAt);
   const hasSweepedToday = useMemo(() => {
     if (!lastSweepCompletedAt) return false;
-    const sweepDay = getDateService().extractLocalDate(lastSweepCompletedAt);
+    const sweepDay = getDateService().dayOf(lastSweepCompletedAt);
     return sweepDay === todayStr;
   }, [lastSweepCompletedAt, todayStr]);
 
@@ -462,7 +462,8 @@ export default function NowScreenV1() {
 
   // NowData for header (computed locally)
   const nowData = useMemo(() => {
-    const now = getDateService().now();
+    // the person's day: after midnight Today still shows the day it has been
+    const now = getDateService().dayNow();
 
     // Just the date, no greeting (NowHeader adds its own greeting)
     const dateTimeLabel = format(now, 'EEEE, MMMM d');
@@ -1370,8 +1371,8 @@ function TodayFocusList({
   // Merge events and tasks into chronological lists per block
   const unifiedByBlock = useMemo(() => {
     const blocks = ['morning', 'afternoon', 'evening', 'anytime', 'allday'] as const;
-    const now = getDateService().now();
-    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    // minutes into the person's day: after midnight nothing of today is still ahead
+    const nowMinutes = getDateService().minutesIntoDay();
     const result: Record<
       string,
       Array<{

@@ -1079,8 +1079,8 @@ export function selectHabitLastActivity(
     (p) => p.habit_id === habitId,
   );
 
-  const today = getDateService().now();
-  const todayStr = today.toISOString().slice(0, 10);
+  // the person's day, in their time zone
+  const todayStr = getDateService().today();
   const todayMonth = todayStr.slice(0, 7); // YYYY-MM
 
   const msPerDay = 1000 * 60 * 60 * 24;
@@ -1325,7 +1325,7 @@ function computeHabitWeekGrid(
   habitId: string,
   weeksBack: number,
 ): HabitWeekGrid {
-  const now = getDateService().now();
+  const now = getDateService().dayNow();
   const currentWeekStart = startOfIsoWeek(now);
 
   // Build one boolean per week, from (weeksBack-1) weeks ago to current week
@@ -1640,7 +1640,7 @@ function computeWorldPulse(
   }
 
   // 2. build week buckets, oldest -> newest
-  const now = getDateService().now();
+  const now = getDateService().dayNow();
   const currentWeekStart = startOfISOWeek(now);
   const oldestWeekStart = new Date(currentWeekStart);
   oldestWeekStart.setDate(oldestWeekStart.getDate() - (numWeeks - 1) * 7);

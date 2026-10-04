@@ -123,6 +123,19 @@ export interface DayBoundaryOption {
  */
 export const DEFAULT_DAY_END_HOUR = 3;
 
+const WEEKDAY_NAMES = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+];
+
+/** A day kept in a timestamp column: UTC midnight, with or without an offset. */
+const DATE_ONLY_TIMESTAMP = /^(\d{4}-\d{2}-\d{2})[T ]00:00:00(?:\.000)?(?:Z|\+00(?::00)?)?$/;
+
 export const DAY_BOUNDARY_OPTIONS: DayBoundaryOption[] = [
   { value: 0, label: 'Midnight' },
   { value: 3, label: '3:00 AM' },
@@ -201,12 +214,10 @@ export class DateService {
     return this.clock();
   }
 
+  /** The weekday of the person's day ("Wednesday"), see today(). */
   getDayOfWeek(): string {
-    const formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: this.timezone,
-      weekday: 'long',
-    });
-    return formatter.format(this.now());
+    const d = this.fromLocalDate(this.today());
+    return d ? WEEKDAY_NAMES[d.getDay()] : '';
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -214,18 +225,60 @@ export class DateService {
   // ═══════════════════════════════════════════════════════════════════
 
   /**
-   * Get today's date as YYYY-MM-DD in user's local timezone.
-   * This is the canonical way to get "today" for all date comparisons.
+   * The person's day as YYYY-MM-DD: the one "today" for the whole app.
+   *
+   * It is the date on the clock in their time zone until midnight, and it is
+   * still that date after midnight until their day ends (dayBoundaryHour, 3 AM
+   * unless they chose otherwise). So at 12:30 AM on Thursday it is still
+   * Wednesday: what is due today, what was done today, the habits for today
+   * and the thread for today all mean Wednesday, and tomorrow is Thursday.
+   *
+   * For the date on the clock, whatever the day end, use calendarDay(). That
+   * is rarely what a screen wants.
    *
    * ⚠️ DO NOT use `new Date().toISOString().split('T')[0]` - that's a timezone bug!
-   *
-   * @returns LocalDateString - Today's date in local timezone
    *
    * @example
    * const today = dateService.today(); // "2025-01-14"
    */
   today(): string {
+    return this.dayOfMoment(this.now());
+  }
+
+  /** The date on the clock in their time zone, whatever their day end. */
+  calendarDay(): string {
     return this.toLocalDate(this.now());
+  }
+
+  /**
+   * The person's day a moment falls in: its date in their time zone, or the
+   * date before when it is after midnight and before their day ends. Use it
+   * for anything that happened at a moment (made, done, skipped, logged) and
+   * is compared with today().
+   *
+   * A plain date ("2025-01-14") or a date kept as UTC midnight is a day
+   * already, not a moment, and comes back as it is.
+   */
+  dayOf(at: Date): string;
+  dayOf(at: string | null | undefined): string | null;
+  dayOf(at: Date | string | null | undefined): string | null {
+    if (at && typeof at === 'object') return this.dayOfMoment(at);
+    if (!at || typeof at !== 'string') return null;
+    // a day, not a moment
+    if (/^\d{4}-\d{2}-\d{2}$/.test(at)) return at;
+    const dateOnly = at.match(DATE_ONLY_TIMESTAMP);
+    if (dateOnly) return dateOnly[1];
+    const moment = new Date(at);
+    return isNaN(moment.getTime()) ? null : this.dayOfMoment(moment);
+  }
+
+  /** The person's day a Date falls in ('' for an invalid one). */
+  private dayOfMoment(at: Date): string {
+    if (isNaN(at.getTime())) return '';
+    const p = this.wallParts(at);
+    const two = (n: number) => String(n).padStart(2, '0');
+    const day = `${p.year}-${two(p.month)}-${two(p.day)}`;
+    return this.dayBoundaryHour > 0 && p.hour < this.dayBoundaryHour ? this.addDays(day, -1) : day;
   }
 
   /**
@@ -253,64 +306,64 @@ export class DateService {
   }
 
   /**
-   * Get the UTC ISO timestamp for midnight (00:00:00.000) of a local YYYY-MM-DD date.
-   * Useful for querying timestamptz columns that store UTC values.
+   * The moment a person's day starts, as a UTC ISO timestamp: the day end
+   * hour on that date in their time zone (midnight when the day end is
+   * midnight). For querying timestamptz columns for "what happened that day".
    *
-   * @param localDay - YYYY-MM-DD string in user's timezone
-   * @returns UTC ISO string, e.g. "2025-01-15T08:00:00.000Z" for America/Los_Angeles
+   * @param localDay - YYYY-MM-DD
+   * @returns UTC ISO string, e.g. "2025-01-15T08:00:00.000Z" for midnight in America/Los_Angeles
    */
   startOfDayUtc(localDay: string): string {
-    const parts = localDay.split('-').map(Number);
-    const localMidnight = new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0, 0);
-    // Compute UTC offset for this timezone at this moment
-    const utcMs = localMidnight.getTime();
-    const localStr = new Intl.DateTimeFormat('en-US', {
-      timeZone: this.timezone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    }).format(new Date(utcMs));
-    // Parse formatted local time to get the offset
-    const m = localStr.match(/(\d+)\/(\d+)\/(\d+),?\s+(\d+):(\d+):(\d+)/);
-    if (!m) return new Date(`${localDay}T00:00:00Z`).toISOString();
-    const formatted = new Date(+m[3], +m[1] - 1, +m[2], +m[4] === 24 ? 0 : +m[4], +m[5], +m[6]);
-    const offsetMs = formatted.getTime() - utcMs;
-    // midnight local = midnight - offset in UTC
-    const midnightUtc = new Date(localMidnight.getTime() - offsetMs);
-    return midnightUtc.toISOString();
+    return this.wallToUtc(localDay, this.dayBoundaryHour).toISOString();
   }
 
   /**
-   * Get the UTC ISO timestamp for the last moment (23:59:59.999) of a local YYYY-MM-DD date.
-   * Useful for querying timestamptz columns that store UTC values.
+   * The last moment of a person's day, as a UTC ISO timestamp: one millisecond
+   * before the next day starts.
    *
-   * @param localDay - YYYY-MM-DD string in user's timezone
+   * @param localDay - YYYY-MM-DD
    * @returns UTC ISO string, e.g. "2025-01-16T07:59:59.999Z" for America/Los_Angeles
    */
   endOfDayUtc(localDay: string): string {
-    const parts = localDay.split('-').map(Number);
-    const localEnd = new Date(parts[0], parts[1] - 1, parts[2], 23, 59, 59, 999);
-    const utcMs = localEnd.getTime();
-    const localStr = new Intl.DateTimeFormat('en-US', {
-      timeZone: this.timezone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    }).format(new Date(utcMs));
-    const m = localStr.match(/(\d+)\/(\d+)\/(\d+),?\s+(\d+):(\d+):(\d+)/);
-    if (!m) return new Date(`${localDay}T23:59:59.999Z`).toISOString();
-    const formatted = new Date(+m[3], +m[1] - 1, +m[2], +m[4] === 24 ? 0 : +m[4], +m[5], +m[6]);
-    const offsetMs = formatted.getTime() - utcMs;
-    const endUtc = new Date(localEnd.getTime() - offsetMs);
-    return endUtc.toISOString();
+    const next = this.wallToUtc(this.addDays(localDay, 1), this.dayBoundaryHour);
+    return new Date(next.getTime() - 1).toISOString();
+  }
+
+  /** The instant a wall clock time on a date happens in their time zone. */
+  private wallToUtc(localDay: string, hour: number): Date {
+    const [y, m, d] = localDay.split('-').map(Number);
+    const wanted = Date.UTC(y, m - 1, d, hour, 0, 0, 0);
+    // first guess: the wall time as if it were UTC, then corrected by the
+    // zone's offset at that moment (twice, for the days the clocks change)
+    let guess = wanted;
+    for (let i = 0; i < 2; i++) {
+      const p = this.wallParts(new Date(guess));
+      guess += wanted - Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+    }
+    return new Date(guess);
+  }
+
+  /** A moment's wall clock date and time in their time zone. */
+  private wallParts(at: Date): {
+    year: number;
+    month: number;
+    day: number;
+    hour: number;
+    minute: number;
+    second: number;
+  } {
+    const parts = this.formatter('parts').formatToParts(at);
+    const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+    const hour = get('hour');
+    return {
+      year: get('year'),
+      month: get('month'),
+      day: get('day'),
+      // Intl may return 24 for midnight in some engines
+      hour: hour === 24 ? 0 : hour,
+      minute: get('minute'),
+      second: get('second'),
+    };
   }
 
   /**
@@ -351,14 +404,55 @@ export class DateService {
    * }
    */
   getHour(): number {
-    const formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: this.timezone,
-      hour: 'numeric',
-      hour12: false,
-    });
-    const hour = parseInt(formatter.format(this.now()), 10);
-    // Intl may return 24 for midnight in some engines
-    return hour === 24 ? 0 : hour;
+    return this.hourOf(this.now());
+  }
+
+  /** The hour (0-23) on the clock in their time zone at a moment. */
+  private hourOf(at: Date): number {
+    return this.wallParts(at).hour;
+  }
+
+  /**
+   * The formatters this service reads the clock with, made once for each time
+   * zone: making one is slow, and today() is asked for all the time.
+   */
+  private formatters = new Map<string, Intl.DateTimeFormat>();
+  private formatter(kind: 'date' | 'parts'): Intl.DateTimeFormat {
+    const key = `${kind}:${this.timezone}`;
+    let made = this.formatters.get(key);
+    if (!made) {
+      made =
+        kind === 'date'
+          ? new Intl.DateTimeFormat('en-CA', {
+              timeZone: this.timezone,
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+            })
+          : new Intl.DateTimeFormat('en-US', {
+              timeZone: this.timezone,
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+              hour12: false,
+            });
+      this.formatters.set(key, made);
+    }
+    return made;
+  }
+
+  /**
+   * Minutes into the person's day, now. The minutes since midnight on the
+   * clock until midnight; after it, until their day ends, it runs on past 24
+   * hours, so the small hours come after the evening and not before the
+   * morning. For "what is still ahead today".
+   */
+  minutesIntoDay(): number {
+    const p = this.wallParts(this.now());
+    return p.hour * 60 + p.minute + (this.isInLateNightPeriod() ? 24 * 60 : 0);
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -366,16 +460,33 @@ export class DateService {
   // ═══════════════════════════════════════════════════════════════════
 
   /**
-   * Get the current "ritual day" based on dayBoundaryHour.
-   * If the current hour is before dayBoundaryHour, returns yesterday's date.
-   * Otherwise returns today's date.
+   * The person's day. The same as today(): the whole app counts from the day
+   * end now. Kept for the callers that asked for it by this name.
    */
   ritualDay(): string {
-    const hour = this.getHour();
-    if (this.dayBoundaryHour > 0 && hour < this.dayBoundaryHour) {
-      return this.addDays(this.toLocalDate(this.now()), -1);
-    }
-    return this.toLocalDate(this.now());
+    return this.today();
+  }
+
+  /**
+   * Now, for reading the date. The same moment as now() until midnight, and
+   * the last minute of the person's day once the clock has passed midnight
+   * and their day has not ended.
+   *
+   * Use it wherever a Date is turned into a day: its date, weekday, month, a
+   * start of today, "tomorrow" counted from it. Then it agrees with today().
+   * For the time of day, or how long ago something was, use now().
+   */
+  dayNow(): Date {
+    return this.dayAnchor();
+  }
+
+  private dayAnchor(): Date {
+    const now = this.now();
+    if (!this.isInLateNightPeriod()) return now;
+    const d = this.fromLocalDate(this.today());
+    if (!d) return now;
+    d.setHours(23, 59, 0, 0);
+    return d;
   }
 
   /**
@@ -409,9 +520,8 @@ export class DateService {
    * @param dateStr - YYYY-MM-DD string (defaults to today's ritual day)
    */
   startOfRitualDay(dateStr?: string): Date {
-    const d = dateStr || this.today();
-    const [y, m, day] = d.split('-').map(Number);
-    return new Date(y, m - 1, day, this.dayBoundaryHour, 0, 0, 0);
+    // in their time zone, which is not always the phone's
+    return this.wallToUtc(dateStr || this.today(), this.dayBoundaryHour);
   }
 
   setDayBoundaryHour(hour: number): void {
@@ -466,7 +576,8 @@ export class DateService {
   parseNaturalDate(input: string, referenceDate?: Date): ParsedDate | null {
     if (!input || !input.trim()) return null;
 
-    const ref = referenceDate || this.now();
+    // "tomorrow" counts from the person's day, also after midnight
+    const ref = referenceDate || this.dayAnchor();
     const text = input.trim();
 
     // Stage 1: Custom patterns
@@ -802,13 +913,7 @@ export class DateService {
    */
   toLocalDate(date: Date | null | undefined): string {
     if (!date || isNaN(date.getTime())) return '';
-    const formatter = new Intl.DateTimeFormat('en-CA', {
-      timeZone: this.timezone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    });
-    return formatter.format(date);
+    return this.formatter('date').format(date);
   }
 
   /**
@@ -880,7 +985,7 @@ export class DateService {
     const month = months[date.getMonth()];
     const dayNum = date.getDate();
     const year = date.getFullYear();
-    const currentYear = this.now().getFullYear();
+    const currentYear = this.dayAnchor().getFullYear();
 
     if (year !== currentYear) {
       return `${month} ${dayNum}, ${year}`;
@@ -955,7 +1060,7 @@ export class DateService {
     const month = months[date.getMonth()];
     const dayNum = date.getDate();
     const year = date.getFullYear();
-    const currentYear = this.now().getFullYear();
+    const currentYear = this.dayAnchor().getFullYear();
 
     if (year !== currentYear) {
       return `${weekday}, ${month} ${dayNum}, ${year}`;
@@ -1034,8 +1139,7 @@ export class DateService {
    * @returns true if the timestamp is today in local time
    */
   isTimestampToday(isoTimestamp: string | null | undefined): boolean {
-    const localDay = this.extractLocalDate(isoTimestamp);
-    return this.isToday(localDay);
+    return this.isToday(this.dayOf(isoTimestamp));
   }
 
   /**
@@ -1046,7 +1150,7 @@ export class DateService {
    * @returns true if timestamp is within the window
    */
   isTimestampWithinDays(isoTimestamp: string | null | undefined, days: number): boolean {
-    const localDay = this.extractLocalDate(isoTimestamp);
+    const localDay = this.dayOf(isoTimestamp);
     if (!localDay) return false;
     const cutoff = this.addDays(this.today(), -days);
     return localDay >= cutoff;
@@ -1105,7 +1209,7 @@ export class DateService {
    */
   getNextWeekday(weekday: number, from?: Date): Date {
     // Create a new Date to avoid mutating the input or clock
-    const date = from ? new Date(from.getTime()) : new Date(this.now().getTime());
+    const date = from ? new Date(from.getTime()) : new Date(this.dayAnchor().getTime());
     const currentDay = date.getDay();
     let daysUntil = weekday - currentDay;
     if (daysUntil <= 0) daysUntil += 7; // Always get NEXT occurrence
@@ -1116,13 +1220,13 @@ export class DateService {
   }
 
   getEndOfMonth(referenceDate?: Date): string {
-    const ref = referenceDate || this.now();
+    const ref = referenceDate || this.dayAnchor();
     const lastDay = new Date(ref.getFullYear(), ref.getMonth() + 1, 0, 12, 0, 0);
     return this.toLocalDate(lastDay);
   }
 
   getEndOfYear(referenceDate?: Date): string {
-    const ref = referenceDate || this.now();
+    const ref = referenceDate || this.dayAnchor();
     return `${ref.getFullYear()}-12-31`;
   }
 
@@ -1171,7 +1275,9 @@ export function createDateService(config?: DateServiceConfig): DateService {
  */
 export function getDateService(): DateService {
   if (!instance) {
-    instance = new DateService();
+    // the app's one service starts on the default day end, so today() is
+    // right from the first read, before their saved hour has loaded
+    instance = new DateService({ dayBoundaryHour: DEFAULT_DAY_END_HOUR });
   }
   return instance;
 }

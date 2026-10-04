@@ -1072,7 +1072,7 @@ function StaleTriageCard({ card }: { card: WSV2StaleTriageCard }) {
   const handleRemind = useCallback(
     async (item: MatchedStaleItem) => {
       triggerLight();
-      const tomorrow = addDays(getDateService().now(), 1);
+      const tomorrow = addDays(getDateService().dayNow(), 1);
       const dateStr = format(tomorrow, 'yyyy-MM-dd');
 
       const reminder: ItemReminder = {
@@ -1262,7 +1262,7 @@ function StaleTriageCard({ card }: { card: WSV2StaleTriageCard }) {
                         >
                           <Pressable
                             onPress={() => {
-                              const tomorrow = addDays(getDateService().now(), 1);
+                              const tomorrow = addDays(getDateService().dayNow(), 1);
                               const dateStr = format(tomorrow, 'yyyy-MM-dd');
                               handleDateSelect(item, dateStr, 'Tomorrow');
                             }}
@@ -1276,7 +1276,7 @@ function StaleTriageCard({ card }: { card: WSV2StaleTriageCard }) {
 
                           <Pressable
                             onPress={() => {
-                              const monday = nextMonday(getDateService().now());
+                              const monday = nextMonday(getDateService().dayNow());
                               const dateStr = format(monday, 'yyyy-MM-dd');
                               handleDateSelect(item, dateStr, 'Next Week');
                             }}
@@ -1290,7 +1290,7 @@ function StaleTriageCard({ card }: { card: WSV2StaleTriageCard }) {
 
                           <Pressable
                             onPress={() => {
-                              const twoWeeks = addDays(getDateService().now(), 14);
+                              const twoWeeks = addDays(getDateService().dayNow(), 14);
                               const dateStr = format(twoWeeks, 'yyyy-MM-dd');
                               handleDateSelect(item, dateStr, 'In 2 Weeks');
                             }}

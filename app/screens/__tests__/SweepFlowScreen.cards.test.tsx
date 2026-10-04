@@ -590,9 +590,9 @@ describe('SweepFlowScreen - the cards after midnight, before the day ends', () =
     ds.setDayBoundaryHour(was.hour);
   });
 
-  it('the clock and the person disagree about today', () => {
-    expect(getDateService().today()).toBe('2026-10-01');
-    expect(getDateService().ritualDay()).toBe('2026-09-30');
+  it('the clock says Thursday, and today is still Wednesday', () => {
+    expect(getDateService().calendarDay()).toBe('2026-10-01');
+    expect(getDateService().today()).toBe('2026-09-30');
   });
 
   it('names the next day on a card by its weekday, and means the day after the one being wrapped up', async () => {

@@ -1042,7 +1042,8 @@ export function getTimingChips(): Array<{ option: TimingOption; label: string }>
  * Converts timing option to ISO date string
  */
 export function timingOptionToDate(option: TimingOption): string | null {
-  const now = getDateService().now();
+  // counted from the person's day, so after midnight Today is still their today
+  const now = getDateService().dayNow();
 
   switch (option) {
     case 'today':
@@ -1197,9 +1198,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const storeHabits = useGremlyStore((s) => s.habits);
 
   const storeDropsToday = useMemo(() => {
-    const todayStart = getDateService().now();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayISO = todayStart.toISOString();
+    // the person's day: it starts at their day end, not at midnight
+    const todayISO = getDateService().startOfRitualDay().toISOString();
 
     let count = 0;
     for (const item of storeTodos) {
@@ -1216,9 +1216,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   // Actionable drops only (todos + habits) — used for milestone speech at 5/10
   const actionableDropsToday = useMemo(() => {
-    const todayStart = getDateService().now();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayISO = todayStart.toISOString();
+    // the person's day: it starts at their day end, not at midnight
+    const todayISO = getDateService().startOfRitualDay().toISOString();
 
     let count = 0;
     for (const item of storeTodos) {

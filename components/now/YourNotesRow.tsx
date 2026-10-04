@@ -14,7 +14,7 @@
 
 import React from 'react';
 import { TouchableOpacity, View, StyleSheet } from 'react-native';
-import { format, isToday, isYesterday, parseISO, differenceInDays } from 'date-fns';
+import { format, parseISO, differenceInDays } from 'date-fns';
 import { getDateService } from '../../lib/date';
 import { BookOpen, Lightbulb, FileText } from 'lucide-react-native';
 import { Box, Text } from '../../ui';
@@ -67,13 +67,16 @@ interface YourNotesRowProps {
 function formatTimestamp(dateString: string): string {
   try {
     const date = parseISO(dateString);
-    const now = getDateService().now();
+    const ds = getDateService();
+    const now = ds.now();
+    // the person's day the note was made in
+    const day = ds.dayOf(dateString);
 
-    if (isToday(date)) {
+    if (day === ds.today()) {
       return 'today';
     }
 
-    if (isYesterday(date)) {
+    if (day === ds.yesterday()) {
       return 'yesterday';
     }
 

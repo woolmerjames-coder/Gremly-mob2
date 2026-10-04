@@ -92,7 +92,7 @@ function formatWeekRange(weekStartDate: string): string {
 }
 
 function formatCurrentWeekRange(): string {
-  const now = getDateService().now();
+  const now = getDateService().dayNow();
   const day = now.getDay() || 7;
   const start = new Date(now);
   start.setDate(start.getDate() - (day - 1));

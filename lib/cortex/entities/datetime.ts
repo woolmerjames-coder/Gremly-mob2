@@ -103,7 +103,7 @@ const WEEKDAYS: Record<string, number> = {
   saturday: 6,
 };
 
-export function parseDue(input: string, now: Date = getDateService().now()): ParsedDue | null {
+export function parseDue(input: string, now: Date = getDateService().dayNow()): ParsedDue | null {
   if (!input || !input.trim()) return null;
   const text = input.trim();
   const low = text.toLowerCase();

@@ -35,7 +35,9 @@ import {
   Trash2,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { format, parseISO, isToday, isTomorrow, isFuture, differenceInDays } from 'date-fns';
+import { format, parseISO, differenceInDays } from 'date-fns';
+// today, for these, is the person's day (it lasts until their day end)
+import { isToday, isTomorrow, isFuture } from '../../lib/date/dayCompare';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { BRAND } from '../../design/brand';
 import { useEventsForSpace, useGoalsForSpace, useSpaceById } from '../../lib/store/selectors';
@@ -100,7 +102,7 @@ function formatTime(time24: string): string {
  */
 function formatCountdown(targetDate: string, isPastDate: boolean): string {
   const date = parseISO(targetDate);
-  const today = getDateService().now();
+  const today = getDateService().dayNow();
   today.setHours(0, 0, 0, 0);
 
   const days = Math.abs(differenceInDays(date, today));
@@ -166,7 +168,8 @@ function GoalBlock({
   // checkIns now passed as prop - no hook here
   const hasDate = Boolean(goal.target_date);
   const isPastDate =
-    hasDate && parseISO(goal.target_date!).getTime() < getDateService().now().setHours(0, 0, 0, 0);
+    hasDate &&
+    parseISO(goal.target_date!).getTime() < getDateService().dayNow().setHours(0, 0, 0, 0);
   const countdown = hasDate ? formatCountdown(goal.target_date!, isPastDate) : null;
 
   const handleSave = useCallback(() => {
@@ -459,7 +462,7 @@ export function SpaceJourneyModal({
   // UI state
   const [showPast, setShowPast] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(getDateService().now());
+  const [selectedDate, setSelectedDate] = useState(getDateService().dayNow());
   const [newEventTitle, setNewEventTitle] = useState('');
   const [showTitleInput, setShowTitleInput] = useState(false);
   const [isCreating, setIsCreating] = useState(false);

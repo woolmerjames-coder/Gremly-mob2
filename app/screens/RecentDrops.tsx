@@ -3144,7 +3144,7 @@ const RecentDrops: React.FC<{
       const todayCutoff = start.getTime();
 
       // 3 days ago at start of day (for "Show older" toggle)
-      const threeDaysAgo = getDateService().now();
+      const threeDaysAgo = getDateService().dayNow();
       threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
       threeDaysAgo.setHours(0, 0, 0, 0);
       const olderCutoff = threeDaysAgo.getTime();

@@ -150,7 +150,7 @@ export function SweepIntentionStep({
   // Review-mode metadata: dates for the context line shown when editing an existing intention.
   const reviewMeta = useMemo(() => {
     if (!existingIntention) return null;
-    const createdLocalDate = ds.extractLocalDate(existingIntention.created_at);
+    const createdLocalDate = ds.dayOf(existingIntention.created_at);
     const nextWeekLabelDate = ds.addDays(existingIntention.target_date ?? selectedMonday, 7);
     return {
       createdLabel: createdLocalDate ? formatShortDate(createdLocalDate) : '',

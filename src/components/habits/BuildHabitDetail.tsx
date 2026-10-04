@@ -150,7 +150,7 @@ export function BuildHabitDetail({
   const logHabitCompletionForDate = useGremlyStore((s) => s.logHabitCompletionForDate);
   const removeHabitCompletionForDate = useGremlyStore((s) => s.removeHabitCompletionForDate);
 
-  const today = useMemo(() => dateService.now(), []);
+  const today = useMemo(() => dateService.dayNow(), []);
   const todayISO = useMemo(() => toLocalISO(today), [today]);
   const currentMonth = today.getMonth();
   const currentYear = today.getFullYear();

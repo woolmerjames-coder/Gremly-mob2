@@ -126,7 +126,7 @@ export function mapJournalToForm(j: Note | AppRecord): FormJournal {
   const journal = j as Note;
 
   return {
-    date: journal.date || dateService.extractLocalDate(journal.created_at) || dateService.today(),
+    date: journal.date || dateService.dayOf(journal.created_at) || dateService.today(),
     entry: journal.body || '',
     mood: journal.mood ?? null, // Now supports array or legacy single value
     details: {

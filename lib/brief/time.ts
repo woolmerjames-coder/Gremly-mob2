@@ -37,8 +37,7 @@ export function minutesOfDay(iso?: string | null): number {
  * small hours come after the evening and not before the morning.
  */
 export function minutesOfTheirDay(): number {
-  const late = getDateService().isInLateNightPeriod();
-  return minutesOfDay() + (late ? 24 * 60 : 0);
+  return getDateService().minutesIntoDay();
 }
 
 /** The local YYYY-MM-DD of an instant. */

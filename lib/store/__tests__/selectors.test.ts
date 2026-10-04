@@ -2568,3 +2568,96 @@ describe('selectSweepCandidatesUnified: held drops', () => {
     expect(ids.slice(0, 3)).toEqual(['held', 'unclear', 'overdue']);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// One day end: after midnight, before the day ends, today is still yesterday
+// ═══════════════════════════════════════════════════════════════════════════════
+
+import { getDateService as realDateService } from '../../date/DateService';
+import { selectHabitsDueToday, selectTodosCompletedToday } from '../selectors';
+
+describe('after midnight, before the day ends', () => {
+  // The clock: 12:30 AM on Tuesday 16 December 2025. The day ends at 3 AM,
+  // so for the person it is still Monday 15 December.
+  const ds = realDateService();
+  let was: number;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2025-12-16T00:30:00Z'));
+    was = ds.getDayBoundaryHour();
+    ds.setDayBoundaryHour(3);
+  });
+
+  afterEach(() => {
+    ds.setDayBoundaryHour(was);
+    jest.useRealTimers();
+  });
+
+  it('today is still Monday', () => {
+    expect(ds.calendarDay()).toBe('2025-12-16');
+    expect(ds.today()).toBe('2025-12-15');
+  });
+
+  it("Monday's todos are still due today, and Tuesday's are not yet", () => {
+    const state = makeState({
+      todos: [
+        makeTodo({ id: 'mon', due_day: '2025-12-15' }),
+        makeTodo({ id: 'tue', due_day: '2025-12-16' }),
+        makeTodo({ id: 'sun', due_day: '2025-12-14' }),
+      ],
+    });
+    expect(selectTodosDueToday(state as any).map((t) => t.id)).toEqual(['mon']);
+    // Monday's is not past its day until the day ends
+    expect(selectOverdueTodos(state as any).map((t) => t.id)).toEqual(['sun']);
+  });
+
+  it('a todo ticked off after midnight was done today', () => {
+    const state = makeState({
+      todos: [
+        makeTodo({ id: 'late', due_day: '2025-12-15', completed_at: '2025-12-16T00:10:00Z' }),
+        makeTodo({ id: 'evening', due_day: '2025-12-15', completed_at: '2025-12-15T21:00:00Z' }),
+        // 1 AM on Monday belonged to Sunday
+        makeTodo({ id: 'sunday', due_day: '2025-12-14', completed_at: '2025-12-15T01:00:00Z' }),
+      ],
+    });
+    expect(
+      selectTodosCompletedToday(state as any)
+        .map((t) => t.id)
+        .sort(),
+    ).toEqual(['evening', 'late']);
+  });
+
+  it('a habit for Mondays is still on, and one for Tuesdays is not yet', () => {
+    const state = makeState({
+      habits: [
+        makeHabit({ id: 'mondays', cadence: 'weekly', days_active: [1] }),
+        makeHabit({ id: 'tuesdays', cadence: 'weekly', days_active: [2] }),
+        makeHabit({ id: 'daily', cadence: 'daily' }),
+      ],
+      habitProgress: [],
+    });
+    expect(
+      selectHabitsDueToday(state as any)
+        .map((h) => h.id)
+        .sort(),
+    ).toEqual(['daily', 'mondays']);
+  });
+
+  it('a habit logged for Monday counts as done today', () => {
+    const state = makeState({
+      habits: [makeHabit({ id: 'daily', cadence: 'daily' })],
+      habitProgress: [makeHabitProgress('daily', '2025-12-15')],
+    });
+    expect(selectHabitsDueToday(state as any)).toHaveLength(0);
+  });
+
+  it('a drop made after midnight was made today', () => {
+    const state = makeState({
+      todos: [
+        makeTodo({ id: 'late-drop', due_day: null as any, created_at: '2025-12-16T00:20:00Z' }),
+      ],
+    });
+    expect(selectRecentDrops(state as any).map((t) => t.id)).toEqual(['late-drop']);
+  });
+});

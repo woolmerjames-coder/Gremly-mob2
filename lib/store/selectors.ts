@@ -117,7 +117,7 @@ export const selectCompletionsThisWeek = createSelector(
 export const selectCompletionsThisMonth = createSelector(
   [selectHabitProgress],
   (progress): Map<string, number> => {
-    const now = ds().now();
+    const now = ds().dayNow();
     const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
     const map = new Map<string, number>();
 
@@ -419,7 +419,7 @@ function isHabitDueToday(
     case 'weekly':
       // Option A: specific days mode (days_active array)
       if (daysActive && daysActive.length > 0) {
-        const todayDayOfWeek = ds().now().getDay();
+        const todayDayOfWeek = ds().dayNow().getDay();
         // days_active contains day numbers (0-6) or day names
         const isDayActive = daysActive.some((day) => {
           if (typeof day === 'number') return day === todayDayOfWeek;
@@ -521,7 +521,7 @@ export const selectOverdueTodos = createSelector([selectActiveTodos], (todos): T
   const result = todos.filter((t) => {
     if (!t.due_day || t.due_day >= today) return false;
     // Check if skipped today
-    const skippedDay = ds().extractLocalDate(t.skipped_in_sweep_at);
+    const skippedDay = ds().dayOf(t.skipped_in_sweep_at);
     if (skippedDay === today) {
       console.log(
         '[selectOverdueTodos] Excluding skipped item:',
@@ -548,10 +548,10 @@ export const selectUnscheduledTodosForMiniSweep = createSelector(
     const threeDaysAgo = getDaysAgoDayString(3);
     const result = todos.filter((t) => {
       if (t.due_day) return false; // Must be unscheduled
-      const createdDay = ds().extractLocalDate(t.created_at);
+      const createdDay = ds().dayOf(t.created_at);
       if (!createdDay || createdDay < threeDaysAgo) return false;
       // Check if skipped today
-      const skippedDay = ds().extractLocalDate(t.skipped_in_sweep_at);
+      const skippedDay = ds().dayOf(t.skipped_in_sweep_at);
       if (skippedDay === today) {
         console.log(
           '[selectUnscheduledTodosForMiniSweep] Excluding skipped item:',
@@ -588,10 +588,10 @@ export const selectRecentDrops = createSelector([selectUndatedTodos], (todos): T
   const today = getTodayDayString();
   const threeDaysAgo = getDaysAgoDayString(3);
   return todos.filter((t) => {
-    const createdDay = ds().extractLocalDate(t.created_at);
+    const createdDay = ds().dayOf(t.created_at);
     if (!createdDay || createdDay < threeDaysAgo) return false;
     // Exclude if skipped today
-    const skippedDay = ds().extractLocalDate(t.skipped_in_sweep_at);
+    const skippedDay = ds().dayOf(t.skipped_in_sweep_at);
     if (skippedDay === today) return false;
     return true;
   });
@@ -601,7 +601,7 @@ export const selectRecentDrops = createSelector([selectUndatedTodos], (todos): T
 export const selectForgottenTodos = createSelector([selectUndatedTodos], (todos): Todo[] => {
   const fiveDaysAgo = getDaysAgoDayString(5);
   return todos.filter((t) => {
-    const createdDay = ds().extractLocalDate(t.created_at);
+    const createdDay = ds().dayOf(t.created_at);
     return createdDay && createdDay < fiveDaysAgo;
   });
 });
@@ -684,7 +684,7 @@ export const selectSweepCandidateCount = createSelector(
 export const selectSweepIdeas = createSelector([selectNotes], (notes): Note[] => {
   const sevenDaysAgo = getDaysAgoDayString(7);
   return notes.filter((n) => {
-    const createdDay = ds().extractLocalDate(n.created_at);
+    const createdDay = ds().dayOf(n.created_at);
     return n.subtype === 'idea' && !n.archived && createdDay && createdDay >= sevenDaysAgo;
   });
 });
@@ -799,7 +799,7 @@ export function sweepCandidatesAsOf(
         continue;
       }
 
-      const createdDay = ds().extractLocalDate(note.created_at);
+      const createdDay = ds().dayOf(note.created_at);
       const isCreatedToday = createdDay === today;
       const wasSkipped = !!note.skipped_in_sweep_at;
 
@@ -972,7 +972,7 @@ export const selectRecentJournals = createSelector([selectJournals], (journals):
   const sevenDaysAgo = getDaysAgoDayString(7);
   return journals
     .filter((j) => {
-      const createdDay = ds().extractLocalDate(j.created_at);
+      const createdDay = ds().dayOf(j.created_at);
       return createdDay && createdDay >= sevenDaysAgo;
     })
     .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
@@ -987,7 +987,7 @@ export const selectIdeas = createSelector([selectActiveNotes], (notes): Note[] =
 export const selectForgottenIdeas = createSelector([selectIdeas], (ideas): Note[] => {
   const sevenDaysAgo = getDaysAgoDayString(7);
   return ideas.filter((i) => {
-    const createdDay = ds().extractLocalDate(i.created_at);
+    const createdDay = ds().dayOf(i.created_at);
     return createdDay && createdDay < sevenDaysAgo;
   });
 });
@@ -997,7 +997,7 @@ export const selectYourNotes = createSelector([selectActiveNotes], (notes): Note
   const sevenDaysAgo = getDaysAgoDayString(7);
 
   return notes.filter((n) => {
-    const createdDay = ds().extractLocalDate(n.created_at) ?? '';
+    const createdDay = ds().dayOf(n.created_at) ?? '';
     const isRecent = createdDay >= sevenDaysAgo;
     const isNotCatchall = n.subtype !== 'catchall';
     return isRecent && isNotCatchall;
@@ -1323,7 +1323,7 @@ export const selectHubHabits = createSelector([selectHabits], (habits) =>
 function computeHabitWeeklyStatus(habit: Habit, completionsThisWeek: number): HabitWeeklyStatus {
   const cadence = habit.cadence ?? 'daily';
   const target = habit.target_per_period ?? (cadence === 'daily' ? 7 : 1);
-  const today = ds().now();
+  const today = ds().dayNow();
   const dayOfWeek = today.getDay(); // 0 = Sunday
   const daysRemaining = 7 - dayOfWeek; // days left including today
 
@@ -1380,7 +1380,7 @@ export const selectHabitsUpToDateCount = createSelector(
     const sevenDaysAgo = getDaysAgoDayString(7);
 
     const upToDate = habits.filter((habit) => {
-      const lastCheckedIn = ds().extractLocalDate(habit.last_checked_in_at);
+      const lastCheckedIn = ds().dayOf(habit.last_checked_in_at);
       const cadence = habit.cadence ?? 'daily';
 
       if (!lastCheckedIn) return false; // Never checked in
@@ -2065,7 +2065,7 @@ export type TimelineDay = {
 
 /** Get current week's date range (Sunday to Saturday) */
 function getWeekDateRange(): string[] {
-  const now = ds().now();
+  const now = ds().dayNow();
   const dayOfWeek = now.getDay(); // 0 = Sunday
   const weekStart = new Date(now);
   weekStart.setDate(now.getDate() - dayOfWeek);

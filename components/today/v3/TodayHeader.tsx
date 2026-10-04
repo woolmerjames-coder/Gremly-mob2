@@ -7,7 +7,7 @@ import { format } from 'date-fns';
 import { useAuth } from '../../../providers/AuthProvider';
 import TodayProgressHeader, { type TodayProgressItem } from './TodayProgressHeader';
 
-function formatLongDate(d: Date = getDateService().now()): string {
+function formatLongDate(d: Date = getDateService().dayNow()): string {
   return format(d, 'EEEE, MMMM d');
 }
 

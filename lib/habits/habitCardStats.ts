@@ -382,7 +382,7 @@ export function computeHabitCardStats(
   }
   const trackingSince =
     (habit.start_date as string | null) ??
-    (habit.created_at ? ds.extractLocalDate(habit.created_at) : null) ??
+    (habit.created_at ? ds.dayOf(habit.created_at) : null) ??
     null;
   // ── Status ───────────────────────────────────────────────────────────────
   let status: HabitCardStats['status'];

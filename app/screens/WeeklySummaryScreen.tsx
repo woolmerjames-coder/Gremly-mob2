@@ -1170,7 +1170,7 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
     async (item: StaleEntity) => {
       triggerLight();
 
-      const tomorrow = addDays(getDateService().now(), 1);
+      const tomorrow = addDays(getDateService().dayNow(), 1);
       const dateStr = format(tomorrow, 'yyyy-MM-dd');
 
       // Default reminder time: use time_window if available, else 9am
@@ -1384,7 +1384,7 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
                         >
                           <Pressable
                             onPress={() => {
-                              const tomorrow = addDays(getDateService().now(), 1);
+                              const tomorrow = addDays(getDateService().dayNow(), 1);
                               const dateStr = format(tomorrow, 'yyyy-MM-dd');
                               handleDateSelect(item, dateStr, 'Tomorrow');
                             }}
@@ -1398,7 +1398,7 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
 
                           <Pressable
                             onPress={() => {
-                              const monday = nextMonday(getDateService().now());
+                              const monday = nextMonday(getDateService().dayNow());
                               const dateStr = format(monday, 'yyyy-MM-dd');
                               handleDateSelect(item, dateStr, 'Next Week');
                             }}
@@ -1412,7 +1412,7 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
 
                           <Pressable
                             onPress={() => {
-                              const twoWeeks = addDays(getDateService().now(), 14);
+                              const twoWeeks = addDays(getDateService().dayNow(), 14);
                               const dateStr = format(twoWeeks, 'yyyy-MM-dd');
                               handleDateSelect(item, dateStr, 'In 2 Weeks');
                             }}

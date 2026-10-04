@@ -131,7 +131,7 @@ function calculateWeekStatus(
  * Main hook for NOW page data
  * Uses stale-while-revalidate pattern: keeps existing data visible during reload
  */
-export function useNowData(today: Date = getDateService().now()): UseNowDataReturn {
+export function useNowData(today: Date = getDateService().dayNow()): UseNowDataReturn {
   const repo = useRepo();
   const { user } = useAuth();
   const errorCountRef = useRef(0);

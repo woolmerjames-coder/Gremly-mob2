@@ -123,7 +123,7 @@ function formatDueDate(dueDay?: string | null): string {
   if (!dueDay) return '';
   try {
     const date = new Date(dueDay + 'T00:00:00');
-    const today = getDateService().now();
+    const today = getDateService().dayNow();
     today.setHours(0, 0, 0, 0);
     const diffMs = date.getTime() - today.getTime();
     const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));

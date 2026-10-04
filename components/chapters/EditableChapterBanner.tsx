@@ -34,7 +34,7 @@ function computeCountdown(chapter: Chapter): { label: string; urgent: boolean } 
     return { label: `day ${dayOfTotal} of ${totalDays}`, urgent: dayOfTotal >= totalDays - 3 };
   }
 
-  const days = differenceInDays(parseLocalYMD(chapter.end_date), getDateService().now());
+  const days = differenceInDays(parseLocalYMD(chapter.end_date), getDateService().dayNow());
   if (days < 0) return { label: `${Math.abs(days)} days overdue`, urgent: true };
   if (days === 0) return { label: 'today', urgent: true };
   if (days === 1) return { label: 'in 1 day', urgent: true };

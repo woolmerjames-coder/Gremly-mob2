@@ -1,5 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
-import { isToday, parseISO } from 'date-fns';
+import { parseISO } from 'date-fns';
+// today is the person's day (it lasts until their day end)
+import { isToday } from '../date/dayCompare';
 import { Alert, Platform, ToastAndroid } from 'react-native';
 import type { AppRecord, Note, Todo, Habit, ID, Space, Tag, Person, EntityType } from '../types';
 import {
@@ -2096,7 +2098,7 @@ export class SupabaseRepo implements IRepo {
         // nearDue requires due_time - only if due today and has time
         if (dueDay === todayStr && t.due_time) {
           const [hours, minutes] = t.due_time.split(':').map(Number);
-          const dueDateTime = getDateService().now();
+          const dueDateTime = getDateService().dayNow();
           dueDateTime.setHours(hours, minutes, 0, 0);
           const msUntilDue = dueDateTime.getTime() - now.getTime();
           nearDue = msUntilDue > 0 && msUntilDue < 3 * 60 * 60 * 1000;

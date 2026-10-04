@@ -419,11 +419,8 @@ describe('startOfRitualDay', () => {
       timezone: 'America/New_York',
     });
     const result = ds.startOfRitualDay('2026-01-15');
-    expect(result.getFullYear()).toBe(2026);
-    expect(result.getMonth()).toBe(0); // January
-    expect(result.getDate()).toBe(15);
-    expect(result.getHours()).toBe(0);
-    expect(result.getMinutes()).toBe(0);
+    // midnight in New York (EST, UTC-5), whatever time zone the phone is in
+    expect(result.toISOString()).toBe('2026-01-15T05:00:00.000Z');
   });
 
   it('returns 4 AM when dayBoundaryHour=4', () => {
@@ -433,9 +430,8 @@ describe('startOfRitualDay', () => {
     });
     ds.setDayBoundaryHour(4);
     const result = ds.startOfRitualDay('2026-01-15');
-    expect(result.getHours()).toBe(4);
-    expect(result.getMinutes()).toBe(0);
-    expect(result.getDate()).toBe(15);
+    // 4 AM in New York
+    expect(result.toISOString()).toBe('2026-01-15T09:00:00.000Z');
   });
 
   it('defaults to today when no date argument', () => {
@@ -444,10 +440,8 @@ describe('startOfRitualDay', () => {
       timezone: 'America/New_York',
     });
     const result = ds.startOfRitualDay();
-    // 18:00 UTC = 14:00 EDT, so today() = '2026-06-20'
-    expect(result.getFullYear()).toBe(2026);
-    expect(result.getMonth()).toBe(5); // June
-    expect(result.getDate()).toBe(20);
+    // 18:00 UTC = 14:00 EDT, so today() = '2026-06-20', which starts at midnight EDT
+    expect(result.toISOString()).toBe('2026-06-20T04:00:00.000Z');
   });
 
   it('differs from fromLocalDate (noon vs boundary hour)', () => {
@@ -457,8 +451,131 @@ describe('startOfRitualDay', () => {
     });
     const ritual = ds.startOfRitualDay('2026-01-15');
     const local = ds.fromLocalDate('2026-01-15');
-    // fromLocalDate anchors at noon, startOfRitualDay at boundary hour (0)
-    expect(ritual.getHours()).toBe(0);
+    // fromLocalDate anchors at noon on the phone, startOfRitualDay at the day's start
+    expect(ritual.toISOString()).toBe('2026-01-15T05:00:00.000Z');
     expect(local!.getHours()).toBe(12);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// One day end: today() is the person's day everywhere
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('one day end for the whole app', () => {
+  // 12:30 AM on Thursday 1 October 2026 in Los Angeles (PDT, UTC-7)
+  const late = () =>
+    createDateService({
+      clock: () => new Date('2026-10-01T07:30:00Z'),
+      timezone: 'America/Los_Angeles',
+      dayBoundaryHour: 3,
+    });
+
+  it('after midnight today is still yesterday, until the day ends', () => {
+    const ds = late();
+    expect(ds.calendarDay()).toBe('2026-10-01');
+    expect(ds.today()).toBe('2026-09-30');
+    expect(ds.ritualDay()).toBe('2026-09-30');
+    expect(ds.tomorrow()).toBe('2026-10-01');
+    expect(ds.yesterday()).toBe('2026-09-29');
+    expect(ds.getDayOfWeek()).toBe('Wednesday');
+    expect(ds.isToday('2026-09-30')).toBe(true);
+    expect(ds.isTomorrow('2026-10-01')).toBe(true);
+    // Wednesday's todo is not past its day yet
+    expect(ds.isOverdue('2026-09-30')).toBe(false);
+    expect(ds.isOverdue('2026-09-29')).toBe(true);
+    // the week it sits in starts on the Monday before Wednesday
+    expect(ds.getStartOfWeek()).toBe('2026-09-28');
+  });
+
+  it('turns over at the day end, not before', () => {
+    const at = (iso: string) =>
+      createDateService({
+        clock: () => new Date(iso),
+        timezone: 'America/Los_Angeles',
+        dayBoundaryHour: 3,
+      }).today();
+    expect(at('2026-10-01T06:59:00Z')).toBe('2026-09-30'); // 11:59 PM
+    expect(at('2026-10-01T09:59:00Z')).toBe('2026-09-30'); // 2:59 AM
+    expect(at('2026-10-01T10:00:00Z')).toBe('2026-10-01'); // 3:00 AM
+  });
+
+  it('is the date on the clock when the day ends at midnight', () => {
+    const ds = createDateService({
+      clock: () => new Date('2026-10-01T07:30:00Z'),
+      timezone: 'America/Los_Angeles',
+      dayBoundaryHour: 0,
+    });
+    expect(ds.today()).toBe('2026-10-01');
+    expect(ds.dayOf('2026-10-01T07:30:00Z')).toBe('2026-10-01');
+  });
+
+  it('says which day a moment fell in', () => {
+    const ds = late();
+    // done at 12:10 AM on Thursday: that was Wednesday
+    expect(ds.dayOf('2026-10-01T07:10:00Z')).toBe('2026-09-30');
+    // done at 9 PM on Wednesday
+    expect(ds.dayOf('2026-10-01T04:00:00Z')).toBe('2026-09-30');
+    // done at 2:30 AM on Wednesday: that was Tuesday
+    expect(ds.dayOf('2026-09-30T09:30:00Z')).toBe('2026-09-29');
+    // done at 3:00 AM on Thursday: Thursday
+    expect(ds.dayOf('2026-10-01T10:00:00Z')).toBe('2026-10-01');
+    expect(ds.dayOf(new Date('2026-10-01T07:10:00Z'))).toBe('2026-09-30');
+  });
+
+  it('leaves a plain day, or a day kept as UTC midnight, as it is', () => {
+    const ds = late();
+    expect(ds.dayOf('2026-10-01')).toBe('2026-10-01');
+    expect(ds.dayOf('2026-10-01T00:00:00Z')).toBe('2026-10-01');
+    expect(ds.dayOf('2026-10-01 00:00:00+00')).toBe('2026-10-01');
+    expect(ds.dayOf(null)).toBeNull();
+    expect(ds.dayOf('not a date')).toBeNull();
+  });
+
+  it('counts what was done after midnight as done today', () => {
+    const ds = late();
+    expect(ds.isTimestampToday('2026-10-01T07:10:00Z')).toBe(true); // 12:10 AM Thursday
+    expect(ds.isTimestampToday('2026-09-30T20:00:00Z')).toBe(true); // 1 PM Wednesday
+    expect(ds.isTimestampToday('2026-09-30T09:00:00Z')).toBe(false); // 2 AM Wednesday: Tuesday
+    expect(ds.isTimestampWithinDays('2026-09-30T09:00:00Z', 1)).toBe(true);
+    expect(ds.isTimestampWithinDays('2026-09-29T09:00:00Z', 1)).toBe(false);
+  });
+
+  it('starts and ends a day at the day end, in their time zone', () => {
+    const ds = late();
+    // Wednesday runs from 3 AM Wednesday to just before 3 AM Thursday
+    expect(ds.startOfDayUtc('2026-09-30')).toBe('2026-09-30T10:00:00.000Z');
+    expect(ds.endOfDayUtc('2026-09-30')).toBe('2026-10-01T09:59:59.999Z');
+    expect(ds.startOfRitualDay().toISOString()).toBe('2026-09-30T10:00:00.000Z');
+    // a midnight day end keeps midnight to midnight
+    const midnight = createDateService({
+      clock: () => new Date('2026-10-01T07:30:00Z'),
+      timezone: 'America/Los_Angeles',
+    });
+    expect(midnight.startOfDayUtc('2026-01-15')).toBe('2026-01-15T08:00:00.000Z');
+    expect(midnight.endOfDayUtc('2026-01-15')).toBe('2026-01-16T07:59:59.999Z');
+  });
+
+  it("counts date words from the person's day", () => {
+    const ds = late();
+    // typed at 12:30 AM on Thursday, while it is still Wednesday for them
+    expect(ds.parseNaturalDate('call mum tomorrow')?.date).toBe('2026-10-01');
+    expect(ds.parseNaturalDate('pay rent today')?.date).toBe('2026-09-30');
+    expect(ds.parseNaturalDate('review on friday')?.date).toBe('2026-10-02');
+    // the next Monday after Wednesday
+    expect(ds.toLocalDate(ds.getNextWeekday(1))).toBe('2026-10-05');
+    expect(ds.formatForChip('2026-09-30')).toBe('Today');
+    expect(ds.formatForChip('2026-10-01')).toBe('Tomorrow');
+  });
+
+  it('holds over the night the clocks change', () => {
+    // clocks go back on 1 November 2026 in Los Angeles
+    const ds = createDateService({
+      clock: () => new Date('2026-11-01T20:00:00Z'),
+      timezone: 'America/Los_Angeles',
+      dayBoundaryHour: 3,
+    });
+    expect(ds.startOfDayUtc('2026-10-31')).toBe('2026-10-31T10:00:00.000Z'); // 3 AM PDT
+    expect(ds.startOfDayUtc('2026-11-01')).toBe('2026-11-01T11:00:00.000Z'); // 3 AM PST
+    expect(ds.endOfDayUtc('2026-10-31')).toBe('2026-11-01T10:59:59.999Z');
   });
 });

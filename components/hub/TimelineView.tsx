@@ -106,17 +106,14 @@ function formatDayLabel(dateKey: string, todayKey: string, yesterdayKey: string)
  * Get the YYYY-MM-DD date key from an ISO timestamp
  */
 function getDateKey(isoString: string): string {
-  return getDateService().extractLocalDate(isoString) ?? '';
+  return getDateService().dayOf(isoString) ?? '';
 }
 
 /**
  * Get yesterday's date key
  */
 function getYesterdayKey(): string {
-  const ds = getDateService();
-  const yesterday = ds.now();
-  yesterday.setDate(yesterday.getDate() - 1);
-  return ds.extractLocalDate(yesterday.toISOString()) ?? '';
+  return getDateService().yesterday();
 }
 
 /**

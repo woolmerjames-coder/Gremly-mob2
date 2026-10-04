@@ -3052,7 +3052,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       const targetDate = parseISO(state.log.target_date);
       const endDate = state.log.end_date ? parseISO(state.log.end_date) : null;
       const eventTime = state.log.event_time;
-      const today = getDateService().now();
+      // the person's day: after midnight Today is still their today
+      const today = getDateService().dayNow();
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
       const isToday = isSameDay(targetDate, today);
@@ -5715,11 +5716,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             variant="ghost"
                             onPress={() => {
                               if (d === '__token:today') {
-                                handleTodoDueChange(getDateService().now(), {
+                                handleTodoDueChange(getDateService().dayNow(), {
                                   label: 'Today',
                                 });
                               } else if (d === '__token:tomorrow') {
-                                handleTodoDueChange(addDays(getDateService().now(), 1), {
+                                handleTodoDueChange(addDays(getDateService().dayNow(), 1), {
                                   label: 'Tomorrow',
                                 });
                               } else {
@@ -5733,7 +5734,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   }
                                 } catch (e) {
                                   // Use today as fallback
-                                  setSelectedDate(getDateService().now());
+                                  setSelectedDate(getDateService().dayNow());
                                 }
                                 setDateModalTarget('todo_deadline');
                                 store.setUI({ showDateModal: true });
@@ -5829,13 +5830,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       <Box row gap={2} style={{ flexWrap: 'wrap' }}>
                         <Pressable
                           onPress={() => {
-                            const today = getDateService().now();
                             if (dateModalTarget === 'reminder') {
-                              store.setReminderAt(today.toISOString());
+                              // a reminder is a moment: now
+                              store.setReminderAt(getDateService().now().toISOString());
                               store.setUI({ showDateModal: false });
                               setDateModalTarget(null);
                             } else {
-                              handleDateConfirm(today);
+                              // a date is a day: the person's today
+                              handleDateConfirm(getDateService().dayNow());
                             }
                           }}
                           style={({ pressed }) => ({
@@ -5864,13 +5866,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         </Pressable>
                         <Pressable
                           onPress={() => {
-                            const tomorrow = addDays(getDateService().now(), 1);
                             if (dateModalTarget === 'reminder') {
-                              store.setReminderAt(tomorrow.toISOString());
+                              // a reminder is a moment: this time tomorrow
+                              store.setReminderAt(addDays(getDateService().now(), 1).toISOString());
                               store.setUI({ showDateModal: false });
                               setDateModalTarget(null);
                             } else {
-                              handleDateConfirm(tomorrow);
+                              // a date is a day: the day after the person's today
+                              handleDateConfirm(addDays(getDateService().dayNow(), 1));
                             }
                           }}
                           style={({ pressed }) => ({
@@ -6440,7 +6443,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     </Pressable>
                     <Pressable
                       onPress={() => {
-                        store.setHabitStartDate(format(getDateService().now(), 'yyyy-MM-dd'));
+                        store.setHabitStartDate(getDateService().today());
                         store.setUI({ showHabitStartDatePicker: false });
                       }}
                       style={{
@@ -6844,7 +6847,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     setIsExpandedEditor(false);
                   }}
                   journalDateTime={
-                    effectiveLogSubtype === 'journal' ? getDateService().now() : undefined
+                    effectiveLogSubtype === 'journal' ? getDateService().dayNow() : undefined
                   }
                   isChecklistMode={isChecklistMode}
                   onToggleChecklistMode={() => {

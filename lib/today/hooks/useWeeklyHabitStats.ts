@@ -394,7 +394,7 @@ function computeHabitStats(
  */
 export function useWeeklyHabitStats(habits: RawHabit[]): WeeklyHabitStats[] {
   return useMemo(() => {
-    const today = getDateService().now();
+    const today = getDateService().dayNow();
     today.setHours(23, 59, 59, 999); // End of today for comparison
 
     // Use rolling 7 days instead of calendar week
@@ -435,7 +435,7 @@ export function getWeeklySummary(stats: WeeklyHabitStats[]): WeeklySummary {
  * Uses rolling 7-day window ending today
  */
 export function computeWeeklyHabitStats(habits: RawHabit[]): WeeklyHabitStats[] {
-  const today = getDateService().now();
+  const today = getDateService().dayNow();
   today.setHours(23, 59, 59, 999);
 
   const { days: weekDays, labels: dayLabels, todayIndex } = getRolling7Days(today);

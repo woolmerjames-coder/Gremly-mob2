@@ -92,7 +92,7 @@ export function formatDateForChip(dateStr: string | null | undefined): string {
     const date = new Date(year, month - 1, day);
 
     // Get today and tomorrow in local timezone
-    const today = getDateService().now();
+    const today = getDateService().dayNow();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);

@@ -205,7 +205,7 @@ export function BreakHabitDetail({
     }
   }, [whyDraft, habit.id, habit.why_string, habit.notes, updateHabit]);
 
-  const today = useMemo(() => dateService.now(), []);
+  const today = useMemo(() => dateService.dayNow(), []);
   const todayISO = useMemo(() => toLocalISO(today), [today]);
   const currentMonth = today.getMonth();
   const currentYear = today.getFullYear();

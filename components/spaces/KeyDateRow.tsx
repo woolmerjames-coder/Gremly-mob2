@@ -8,7 +8,9 @@
 
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { format, parseISO, isToday, isPast, differenceInDays } from 'date-fns';
+import { format, parseISO, differenceInDays } from 'date-fns';
+// today, for these, is the person's day (it lasts until their day end)
+import { isToday, isPast } from '../../lib/date/dayCompare';
 import { Star } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import type { Note } from '../../lib/types';

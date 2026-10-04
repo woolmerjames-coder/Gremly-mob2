@@ -18,7 +18,7 @@ function truncate(text: string, max: number): string {
 }
 
 function resolveCountdown(chapter: Chapter): string | null {
-  const now = getDateService().now();
+  const now = getDateService().dayNow();
   if (chapter.chapter_type === 'bounded' || chapter.chapter_type === 'milestone') {
     if (!chapter.end_date) return null;
     const days = differenceInCalendarDays(new Date(chapter.end_date), now);

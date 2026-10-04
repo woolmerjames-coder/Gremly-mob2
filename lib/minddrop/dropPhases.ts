@@ -186,7 +186,7 @@ async function callPhase2(
     const dayOfWeek = new Intl.DateTimeFormat('en-US', {
       weekday: 'long',
       timeZone: getDateService().getTimezone(),
-    }).format(getDateService().now());
+    }).format(getDateService().dayNow());
     const timezone = getDateService().getTimezone();
 
     console.log('[PrefillDate:4-Phase2] Sending userSelectedDate:', prefillDate || null);
@@ -281,7 +281,7 @@ async function callPhase2b(
     const dayOfWeek = new Intl.DateTimeFormat('en-US', {
       weekday: 'long',
       timeZone: getDateService().getTimezone(),
-    }).format(getDateService().now());
+    }).format(getDateService().dayNow());
     const timezone = getDateService().getTimezone();
 
     const res = await fetch(cortexUrl, {

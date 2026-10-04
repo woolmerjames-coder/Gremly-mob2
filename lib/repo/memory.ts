@@ -743,7 +743,7 @@ export class MemoryRepo implements IRepo {
         // nearDue requires due_time - only if due today and has time
         if (dueDay === day && t.due_time) {
           const [hours, minutes] = t.due_time.split(':').map(Number);
-          const dueDateTime = getDateService().now();
+          const dueDateTime = getDateService().dayNow();
           dueDateTime.setHours(hours, minutes, 0, 0);
           const msUntilDue = dueDateTime.getTime() - now.getTime();
           nearDue = msUntilDue > 0 && msUntilDue < 3 * 60 * 60 * 1000;

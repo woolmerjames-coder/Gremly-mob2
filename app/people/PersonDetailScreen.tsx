@@ -216,7 +216,7 @@ export default function PersonDetailScreen() {
             <Text style={styles.itemTitle}>{getItemTitle(item)}</Text>
             <Text style={styles.itemDate}>
               {getDateService().formatForChip(
-                getDateService().extractLocalDate(item.updated_at || item.created_at),
+                getDateService().dayOf(item.updated_at || item.created_at),
               )}
             </Text>
           </TouchableOpacity>

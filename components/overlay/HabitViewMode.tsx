@@ -537,8 +537,8 @@ export default function HabitViewMode({
   );
   const completedCount = rolling7Days.filter((d) => d.isCompleted).length;
   const todayDate = ds.fromLocalDate(todayIso);
-  const currentYear = todayDate?.getFullYear() ?? getDateService().now().getFullYear();
-  const currentMonth = todayDate?.getMonth() ?? getDateService().now().getMonth();
+  const currentYear = todayDate?.getFullYear() ?? getDateService().dayNow().getFullYear();
+  const currentMonth = todayDate?.getMonth() ?? getDateService().dayNow().getMonth();
 
   // Calculate monthly adherence
   const currentMonthAdherence = useMemo(

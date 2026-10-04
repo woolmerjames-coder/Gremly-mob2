@@ -119,12 +119,12 @@ function normalizeDueDate(raw?: string | null): string | null {
   const dow = d.toLowerCase();
   if (DAY_ABBR[dow]) return DAY_ABBR[dow];
   if (/^tomorrow$/i.test(d)) {
-    const now = getDateService().now();
+    const now = getDateService().dayNow();
     now.setDate(now.getDate() + 1);
     return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][now.getDay()];
   }
   if (/^today$/i.test(d)) {
-    const now = getDateService().now();
+    const now = getDateService().dayNow();
     return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][now.getDay()];
   }
   // Month name + day (keep as e.g., "Jan 2")

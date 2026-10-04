@@ -369,7 +369,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // Compute weekly habit progress from store items + timeline data
   const weekly = useMemo(() => {
-    const start = startOfWeek(getDateService().now());
+    const start = startOfWeek(getDateService().dayNow());
     const weekDates = Array.from({ length: 7 }, (_v, i) => addDays(start, i));
     const weekISO = dateService.toLocalDate(start);
 
@@ -2629,7 +2629,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                             : getRelativeTime(c.updated_at)
                         }
                         lastActive={getDateService().formatForChip(
-                          getDateService().extractLocalDate(c.updated_at),
+                          getDateService().dayOf(c.updated_at),
                         )}
                         onOpen={() => handleChatPress(c.id)}
                         onMenu={() => {}}
@@ -3006,7 +3006,7 @@ function buildLastVisitedLabel(items: AppRecord[], chats: SpaceChat[]): string {
 
 // v22 helpers
 function buildMockWeek(selectedISO: string) {
-  const start = startOfWeek(getDateService().now());
+  const start = startOfWeek(getDateService().dayNow());
   const todayISO = dateService.today();
   return Array.from({ length: 7 }, (_, i) => {
     const d = addDays(start, i);
@@ -3035,7 +3035,7 @@ function buildCalendarDays(items: AppRecord[]): Array<{
   hasNotes?: boolean;
   hasHabits?: boolean;
 }> {
-  const start = startOfWeek(getDateService().now());
+  const start = startOfWeek(getDateService().dayNow());
   const days = Array.from({ length: 7 }, (_v, i) => addDays(start, i));
 
   return days.map((d) => {

@@ -3240,7 +3240,7 @@ export const useGremlyStore = create<GremlyState>()(
 
           const ds = getDateService();
           const loadedAt = ds.nowTimestamp();
-          const sevenDaysAgoDay = ds.addDays(ds.toLocalDate(ds.now()), -7);
+          const sevenDaysAgoDay = ds.addDays(ds.calendarDay(), -7);
           const sevenDaysAgoIso = `${sevenDaysAgoDay}${loadedAt.slice(10)}`;
 
           try {

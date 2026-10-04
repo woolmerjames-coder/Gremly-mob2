@@ -170,7 +170,7 @@ export function buildHabitInsightInput(
     const lo = ds.addDays(p.occurred_day, -windowDays);
     const hi = ds.addDays(p.occurred_day, windowDays);
     for (const n of journalNotes) {
-      const noteDate = n.target_date ?? ds.extractLocalDate(n.created_at);
+      const noteDate = n.target_date ?? ds.dayOf(n.created_at);
       if (!noteDate || noteDate < lo || noteDate > hi) continue;
       const snippet = (n.body ?? '').slice(0, 80);
       if (!journalNearCompletions.includes(snippet)) {

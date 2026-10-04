@@ -250,7 +250,7 @@ function computeCadenceWeeks(
     buckets.set(key, (buckets.get(key) ?? 0) + 1);
   }
 
-  const today = getDateService().now();
+  const today = getDateService().dayNow();
   const windowEnd = startOfIsoWeek(today);
   const result: CadenceWeek[] = [];
   for (let i = weeksBack - 1; i >= 0; i--) {

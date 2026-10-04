@@ -37,7 +37,7 @@ export function UnfoldingProgress({ chapter }: UnfoldingProgressProps) {
 
 function OutcomeProgress({ chapter }: { chapter: Chapter }) {
   const days = chapter.start_date
-    ? differenceInCalendarDays(getDateService().now(), new Date(chapter.start_date)) + 1
+    ? differenceInCalendarDays(getDateService().dayNow(), new Date(chapter.start_date)) + 1
     : null;
 
   const parts: string[] = [];
@@ -57,7 +57,7 @@ function OutcomeProgress({ chapter }: { chapter: Chapter }) {
 function ExperienceProgress({ chapter }: { chapter: Chapter }) {
   if (!chapter.start_date) return null;
 
-  const now = getDateService().now();
+  const now = getDateService().dayNow();
   const days = Math.max(1, differenceInCalendarDays(now, new Date(chapter.start_date)) + 1);
 
   if (!chapter.end_date) {

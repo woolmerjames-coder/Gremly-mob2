@@ -199,9 +199,8 @@ export function getItemsBySpace(spaceId: string | null): MindDropItem[] {
  */
 export function getTodayItems(): MindDropItem[] {
   const { items } = useMindDropStore.getState();
-  const startOfToday = getDateService().now();
-  startOfToday.setHours(0, 0, 0, 0);
-  const startOfTodayISO = startOfToday.toISOString();
+  // the person's day: it starts at their day end, not at midnight
+  const startOfTodayISO = getDateService().startOfRitualDay().toISOString();
 
   return Object.values(items).filter((item) => item.createdAt >= startOfTodayISO);
 }
