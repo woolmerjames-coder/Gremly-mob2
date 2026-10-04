@@ -35,7 +35,7 @@ export async function readWeekAhead(userId, timezone, env, { cancelledIds = [] }
     const [synced, noteEvents, quickEvents, todos, overdue] = await Promise.all([
       syncedRange(d, u, tz, first, last),
       d.select(
-        `notes?owner_id=eq.${u}&subtype=eq.event&archived=eq.false&external_source=is.null&target_date=gte.${first}&target_date=lte.${last}&select=id,title,event_time,target_date,end_date&limit=200`,
+        `notes?owner_id=eq.${u}&subtype=eq.event&archived=eq.false&external_source=is.null&or=(target_date.gte.${first},end_date.gte.${first})&target_date=lte.${last}&select=id,title,event_time,target_date,end_date&limit=200`,
       ),
       d.select(
         `calendar_events?owner_id=eq.${u}&event_date=gte.${first}&event_date=lte.${last}&select=id,title,event_time,duration_minutes,event_date&limit=200`,

@@ -5,11 +5,36 @@
  * its calendar and planned todos, in the person's time zone, an all day entry
  * on the dates it covers, and a clear day said to be clear.
  */
-import { formatWeekAhead, weekFrom } from '../weekAhead.js';
+import { formatWeekAhead, readWeekAhead, weekFrom } from '../weekAhead.js';
 import { allDayCovers, calendarSelects } from '../../../shared/calendar.js';
 
 const TZ = 'America/Los_Angeles';
 const FIRST = '2026-10-03'; // a Saturday
+
+test('the week read includes an event already underway until its end date', async () => {
+  jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-03T19:00:00Z'));
+  const paths = [];
+  jest.spyOn(global, 'fetch').mockImplementation(async (url) => {
+    const parsed = new URL(url);
+    const query = parsed.searchParams;
+    paths.push(parsed);
+    const rows =
+      parsed.pathname.endsWith('/notes') &&
+      query.get('or') === `(target_date.gte.${FIRST},end_date.gte.${FIRST})` &&
+      query.get('target_date') === 'lte.2026-10-09'
+        ? [{ id: 'trip', title: 'Trip', target_date: '2026-10-01', end_date: '2026-10-04' }]
+        : [];
+    return { ok: true, text: async () => JSON.stringify(rows) };
+  });
+  const result = await readWeekAhead('u1', TZ, {
+    SUPABASE_URL: 'https://example.test',
+    SUPABASE_SERVICE_KEY: 'test-key',
+  });
+  expect(paths.filter((p) => p.pathname.endsWith('/notes'))).toHaveLength(1);
+  expect(result.days[0].allDay).toEqual([{ id: 'trip', title: 'Trip' }]);
+  expect(result.days[1].allDay).toEqual([{ id: 'trip', title: 'Trip' }]);
+  expect(result.days[2].allDay).toEqual([]);
+});
 
 const week = () =>
   weekFrom({
