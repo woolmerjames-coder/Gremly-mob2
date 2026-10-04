@@ -72,7 +72,7 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
 // the chat home's wrap up cards read the whole store; an item chat never shows them
 jest.mock('../../../lib/store/selectors', () => ({
   ...jest.requireActual('../../../lib/store/selectors'),
-  selectWrapUp: () => ({ cards: [], still: [] }),
+  selectWrapUp: () => ({ cards: [] }),
 }));
 // the wrap up's journal reads the session when it loads; no chat here signs in
 jest.mock('../../../lib/cortex/getSessionToken', () => ({ getSessionToken: async () => null }));

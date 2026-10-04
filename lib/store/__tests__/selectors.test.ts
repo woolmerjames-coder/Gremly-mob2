@@ -2661,3 +2661,38 @@ describe('after midnight, before the day ends', () => {
     expect(selectRecentDrops(state as any).map((t) => t.id)).toEqual(['late-drop']);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// The wrap up's cards: a todo due today that did not happen is a card
+// ═══════════════════════════════════════════════════════════════════════════════
+
+import { selectWrapUp } from '../selectors';
+
+describe("the wrap up's cards", () => {
+  const ds = realDateService();
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2025-12-15T20:00:00Z'));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('a todo due today that did not happen is a swipe card, with the overdue ones', () => {
+    expect(ds.today()).toBe('2025-12-15');
+    const state = makeState({
+      todos: [
+        makeTodo({ id: 'today', due_day: '2025-12-15' }),
+        makeTodo({ id: 'overdue', due_day: '2025-12-12' }),
+        makeTodo({ id: 'tomorrow', due_day: '2025-12-16' }),
+        makeTodo({ id: 'done', due_day: '2025-12-15', completed_at: '2025-12-15T10:00:00Z' }),
+      ],
+    });
+    const ids = selectWrapUp(state as any)
+      .cards.map((c) => c.candidate.id)
+      .sort();
+    expect(ids).toEqual(['overdue', 'today']);
+  });
+});

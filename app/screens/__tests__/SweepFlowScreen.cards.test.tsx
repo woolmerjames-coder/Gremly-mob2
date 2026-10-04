@@ -72,7 +72,6 @@ jest.mock('../../../lib/store/selectors', () => ({
         noteCardType: candidate.kind === 'note' ? mockNoteCardType : null,
       },
     })),
-    still: [],
   }),
   useActiveSpaces: () => [],
   useSkipBudget: () => ({ used: 0, remaining: 3, total: 3, canSkip: true }),

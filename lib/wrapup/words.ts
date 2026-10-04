@@ -88,21 +88,6 @@ export const WRAP_COPY = {
   everythingPlaced: 'Everything has a place now.',
   leaveRest: "Sure. They'll be in the morning brief.",
   leaveRestOne: "Sure. It'll be in the morning brief.",
-  // still open today
-  stillHeading: 'Still open today',
-  stillHint: 'Untick any to leave',
-  stillLeave: 'Leave them',
-  stillLeaveOne: 'Leave it',
-  stillMoved: 'Moved',
-  stillLeft: 'No problem, they stay where they are.',
-  stillLeftOne: 'No problem, it stays where it is.',
-  stillFailed: "I couldn't move them just now. They are still on today.",
-  stillUndone: 'Put back on today.',
-  stillStays: 'Stays on today',
-  stillOnToday: 'Still on today',
-  stillLeftLine: 'Left on today',
-  stillLeaveAll: 'Leave them on today',
-  stillLeaveAllOne: 'Leave it on today',
   // habits
   habitsHeading: 'Habits still open',
   habitsHint: 'Tap what happened',
@@ -128,13 +113,10 @@ export function openerLine(d: WrapDay, firstName: string | null, evening: boolea
   return `Here's your ${d.weekday} so far${name ? `${name}.` : '.'}`;
 }
 
-/** What was on today's plan and did not happen, said once. */
-export function missedLine(titles: string[], hasCards: boolean): string {
-  const where = hasCards ? 'after the cards' : 'in a moment';
-  if (titles.length === 1) {
-    return `One thing you planned didn't happen: ${titles[0]}. I'll bring it up ${where}.`;
-  }
-  return `${cap(things(titles.length))} you planned didn't happen. I'll bring them up ${where}.`;
+/** What was on today's plan and did not happen, said once. The recap card lists them. */
+export function missedLine(titles: string[]): string {
+  if (titles.length === 1) return `One thing you planned didn't happen: ${titles[0]}.`;
+  return `${cap(things(titles.length))} you planned didn't happen.`;
 }
 
 /** The offer: how many cards, and about how long. */
@@ -176,29 +158,6 @@ export function partialLine(sorted: number, left: number, d: WrapDay): string {
 /** Coming back after Not tonight. */
 export function resumeLine(cards: number): string {
   return `Sure. ${cap(things(cards))} to sort, ${sweepMinutes(cards)}.`;
-}
-
-export function stillLine(n: number, d: WrapDay): string {
-  if (n === 1) return `One todo from today is still open. Move it to ${d.tomorrow}?`;
-  return `${cap(numberWord(n))} todos from today are still open. Move them to ${d.tomorrow}?`;
-}
-
-export function stillApply(n: number, total: number, d: WrapDay): string {
-  if (n === total && total === 2) return `Move both to ${d.tomorrow}`;
-  if (n === total && total === 1) return `Move it to ${d.tomorrow}`;
-  if (n === total) return `Move all ${numberWord(total)} to ${d.tomorrow}`;
-  return `Move ${n} to ${d.tomorrow}`;
-}
-
-/** Under the card once they are moved: said with its Undo. */
-export function stillMovedLine(n: number, toWord: string): string {
-  return `Done. ${n === 1 ? "It's" : "They're"} down for ${toWord}.`;
-}
-
-/** A row on the card: where the todo goes, or went. */
-export function stillRowWords(toWord: string): { from: string; going: string; moved: string } {
-  const to = toWord === 'tomorrow' ? 'Tomorrow' : toWord;
-  return { from: 'Today', going: to, moved: `Moved to ${toWord}` };
 }
 
 export function habitsLine(build: number, breaking: number): string {

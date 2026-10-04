@@ -203,42 +203,29 @@ describe("the evening wrap up's cards", () => {
   const today = '2026-09-30';
   const tz = 'America/Los_Angeles';
 
-  it('leaves todos simply due today for their own card', () => {
+  it('a todo due today that did not happen is a card like any other', () => {
     const todos = [
       { id: 'due1', due_day: today },
       { id: 'due2', due_day: today },
       { id: 'late', due_day: '2026-09-28' },
       { id: 'undated', due_day: null },
+      { id: 'later', due_day: '2026-10-03' },
     ];
     const e = eveningItems({ todos, notes: [], today, tz });
-    expect(e.todos.map((t) => t.id)).toEqual(['late', 'undated']);
-    expect(e.still.map((t) => t.id)).toEqual(['due1', 'due2']);
-    expect(countBoth({ todos, notes: [], today, tz })).toMatchObject({
-      all: 4,
-      evening: 2,
-      stillOpen: 2,
-    });
-  });
-
-  it('keeps a due today todo as a card when there is something to decide about it', () => {
-    const todos = [
-      { id: 'asks', due_day: today, needs_clarification: true },
-      { id: 'skipped', due_day: today, skipped_in_sweep_at: '2026-09-29T20:00:00Z' },
-      { id: 'back', due_day: today, resurface_at: today },
-      { id: 'plain', due_day: today },
-    ];
-    const e = eveningItems({ todos, notes: [], today, tz });
-    expect(e.todos.map((t) => t.id)).toEqual(['asks', 'skipped', 'back']);
-    expect(e.still.map((t) => t.id)).toEqual(['plain']);
+    expect(e.todos.map((t) => t.id)).toEqual(['due1', 'due2', 'late', 'undated']);
+    expect(countBoth({ todos, notes: [], today, tz })).toMatchObject({ all: 4, evening: 4 });
   });
 
   it("counts from the person's day after midnight", () => {
-    // 12:30am on 1 Oct, their day still 30 Sep: a todo due 30 Sep is still open
-    // today, not past its day
-    const todos = [{ id: 'a', due_day: '2026-09-30' }];
+    // 12:30am on 1 Oct, their day still 30 Sep: a todo due 1 Oct is tomorrow's,
+    // not a card tonight
+    const todos = [
+      { id: 'a', due_day: '2026-09-30' },
+      { id: 'b', due_day: '2026-10-01' },
+    ];
     const c = countBoth({ todos, notes: [], today: '2026-10-01', tz, day: '2026-09-30' });
-    expect(c).toMatchObject({ evening: 0, stillOpen: 1 });
-    // counted from the calendar date it would be a card past its day
-    expect(countBoth({ todos, notes: [], today: '2026-10-01', tz }).evening).toBe(1);
+    expect(c.evening).toBe(1);
+    // counted from the calendar date both would be cards
+    expect(countBoth({ todos, notes: [], today: '2026-10-01', tz }).evening).toBe(2);
   });
 });

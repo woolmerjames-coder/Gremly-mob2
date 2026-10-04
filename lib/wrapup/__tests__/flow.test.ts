@@ -17,7 +17,6 @@ import {
   questionsStartMsgs,
   skippedMsgs,
   sortedMsgs,
-  stillMsgs,
   type WrapMsg,
 } from '../flow';
 import type { BriefOfferMeta, SweepRecapMeta } from '../../brief/types';
@@ -108,19 +107,6 @@ describe('the wrap up in the thread', () => {
     const msgs = sortedMsgs(1);
     expect(types(msgs)).toEqual(['sweep-receipt', 'brief-text']);
     expect(msgs[1].content).toBe("All sorted. One let go, and that's fine.");
-  });
-
-  it('puts the todos still open on one card, open', () => {
-    const msgs = stillMsgs(
-      [
-        { id: 'a', title: 'Book the car service' },
-        { id: 'b', title: 'Renew gym pass' },
-      ],
-      { day: '2026-09-30', to: '2026-10-01' },
-      DAY,
-    );
-    expect(types(msgs)).toEqual(['brief-text', 'sweep-still']);
-    expect(msgs[1].meta).toMatchObject({ status: 'open', to: '2026-10-01', to_word: 'tomorrow' });
   });
 
   it('asks about habits by what is open', () => {

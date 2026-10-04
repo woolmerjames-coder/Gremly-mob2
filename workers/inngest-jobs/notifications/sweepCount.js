@@ -77,28 +77,16 @@ function asks(row) {
 }
 
 /**
- * The evening wrap up's cards (lib/wrapup/cards.ts, splitForWrapUp): Sweep's
- * cards without the todos that were simply due today. Those have nothing to
- * decide, so the wrap up gathers them on one card of their own (Still open
- * today). A due today todo that asks a question, was skipped in an earlier
- * Sweep or was brought back for today is still a card. Keep the two in step.
+ * The evening wrap up's cards (the app's selectWrapUp): Sweep's cards counted
+ * from the person's day. A todo that was due that day and did not happen is a
+ * card like any other. Keep the two in step.
  *
  * `today` is the person's day, which after midnight is still yesterday until
  * their day ends.
  */
 export function eveningItems(input) {
-  const { today } = input;
   const { todos, notes } = sweepItems(input);
-  const plainDueToday = (t) =>
-    t.due_day === today &&
-    !asks(t) &&
-    !t.skipped_in_sweep_at &&
-    !(t.resurface_at && t.resurface_at <= today);
-  return {
-    todos: todos.filter((t) => !plainDueToday(t)),
-    notes,
-    still: todos.filter(plainDueToday),
-  };
+  return { todos, notes };
 }
 
 /**
@@ -178,9 +166,8 @@ export function countBoth({ todos = [], notes = [], lastSweepAt = null, today, t
   const evening = eveningItems({ todos, notes, today: day || today, tz });
   return {
     all: countSweep({ todos, notes, today, tz }),
-    // what the evening wrap up will offer to sort, and the todos still open that day
+    // what the evening wrap up will offer to sort
     evening: evening.todos.length + evening.notes.length,
-    stillOpen: evening.still.length,
     quick: q.pastDay.length + q.noDay.length + q.other.length + q.notes.length,
     pastDay: q.pastDay.length,
     noDay: q.noDay.length,
@@ -194,7 +181,7 @@ export function countBoth({ todos = [], notes = [], lastSweepAt = null, today, t
 /**
  * Sweep's counts: the evening wrap up's cards, the quick sweep's (the
  * morning), and Sweep's whole list, with what the quick sweep holds:
- * { all, evening, stillOpen, quick, pastDay, noDay, other, notes, newSince, lastSweepAt }.
+ * { all, evening, quick, pastDay, noDay, other, notes, newSince, lastSweepAt }.
  */
 export async function sweepCounts(env, userId, { today, tz, day = null }) {
   const rows = await readSweepRows(env, userId);

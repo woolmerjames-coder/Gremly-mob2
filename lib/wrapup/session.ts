@@ -25,7 +25,7 @@ interface WrapSession {
   wrap: WrapUpState | null;
   /** What the next typed message is, when the wrap up is waiting for one */
   awaiting: Awaiting;
-  /** Keys whose Undo is still held (a decision's cid, or still, journal, habits) */
+  /** Keys whose Undo is still held (a decision's cid, or journal, habits) */
   undoable: Record<string, true>;
   /** Decisions made since the cards were last opened */
   cardsDecided: number;

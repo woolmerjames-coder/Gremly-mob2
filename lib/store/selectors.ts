@@ -17,7 +17,6 @@ import { getDateService } from '../date';
 import { isRelationPending } from '../minddrop/dropRelation';
 import { sweepCardAsks } from '../sweep/sweepOrder';
 import { quickSweepCards } from '../sweep/quickSweep';
-import { splitForWrapUp } from '../wrapup/cards';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // DATE HELPERS
@@ -911,8 +910,9 @@ export function sweepCandidatesAsOf(
 }
 
 /**
- * Tonight's wrap up, counted from the person's day (lib/wrapup/cards.ts): the
- * swipe cards, and the todos that were simply due today and are still open.
+ * Tonight's wrap up, counted from the person's day: Sweep's cards, every one
+ * of them a swipe card. A todo that was due today and did not happen is a
+ * card like any other, with every choice a card has.
  */
 export const selectWrapUp = createSelector(
   [
@@ -926,10 +926,7 @@ export const selectWrapUp = createSelector(
   ],
   (todos, notes, spaces, worlds, dropWorldLinks) => {
     const day = ds().ritualDay();
-    return splitForWrapUp(
-      sweepCandidatesAsOf(todos, notes, spaces, worlds, dropWorldLinks, day),
-      day,
-    );
+    return { cards: sweepCandidatesAsOf(todos, notes, spaces, worlds, dropWorldLinks, day) };
   },
 );
 

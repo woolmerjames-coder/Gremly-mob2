@@ -102,7 +102,6 @@ describe("Gremly's question in the thread", () => {
     for (const type of [
       'sweep-recap',
       'sweep-receipt',
-      'sweep-still',
       'sweep-habits',
       'sweep-journal',
       'sweep-item',

@@ -15,8 +15,6 @@ import {
   openerLine,
   partialLine,
   skippedLine,
-  stillApply,
-  stillLine,
   sweepMinutes,
   type WrapDay,
 } from '../words';
@@ -33,12 +31,10 @@ test('the opener names the day, and the person when their name is known', () => 
 });
 
 test('what was planned and did not happen is said once', () => {
-  expect(missedLine(['Book the car service'], true)).toBe(
-    "One thing you planned didn't happen: Book the car service. I'll bring it up after the cards.",
+  expect(missedLine(['Book the car service'])).toBe(
+    "One thing you planned didn't happen: Book the car service.",
   );
-  expect(missedLine(['A', 'B'], false)).toBe(
-    "Two things you planned didn't happen. I'll bring them up in a moment.",
-  );
+  expect(missedLine(['A', 'B'])).toBe("Two things you planned didn't happen.");
 });
 
 test('the offer counts the cards and the minutes', () => {
@@ -68,15 +64,6 @@ test('closing the cards part way offers the rest once', () => {
   expect(partialLine(4, 1, LATE)).toBe(
     'Four sorted and saved. Want to finish the last one, or leave it for Thursday?',
   );
-});
-
-test('still open today, for one, two and more', () => {
-  expect(stillLine(2, EVENING)).toBe('Two todos from today are still open. Move them to tomorrow?');
-  expect(stillLine(1, LATE)).toBe('One todo from today is still open. Move it to Thursday?');
-  expect(stillApply(2, 2, EVENING)).toBe('Move both to tomorrow');
-  expect(stillApply(1, 2, EVENING)).toBe('Move 1 to tomorrow');
-  expect(stillApply(1, 1, LATE)).toBe('Move it to Thursday');
-  expect(stillApply(4, 4, EVENING)).toBe('Move all four to tomorrow');
 });
 
 test('the habit lines', () => {
@@ -174,11 +161,10 @@ test('nothing a person reads uses a dash as punctuation', () => {
   collect(words.WRAP_COPY);
   collect([
     openerLine(LATE, 'James', true),
-    missedLine(['A'], true),
+    missedLine(['A']),
     offerLine(7, LATE),
     clearLine(null, true),
     partialLine(2, 3, LATE),
-    stillLine(3, LATE),
     habitsLine(2, 2),
     skippedLine(2, 2, 2, LATE),
     closeLine(LATE, 2, ['a']),
@@ -193,7 +179,6 @@ test('nothing a person reads uses a dash as punctuation', () => {
     words.CARD_COPY,
     words.TODAY_BUTTON,
     words.receiptParts({ kept: 1, letGo: 1, back: 1, left: 1, toSort: 0 }),
-    words.stillMovedLine(2, 'Thursday'),
     words.journalLabel('2026-09-30'),
     words.resumeLine(4),
     words.sortedLine(2),

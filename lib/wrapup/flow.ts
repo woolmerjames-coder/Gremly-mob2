@@ -17,7 +17,6 @@ import type {
   SweepHabitRow,
   SweepRecapMeta,
 } from '../brief/types';
-import type { StillOpen } from './cards';
 import type { WrapQuestion } from './questions';
 import { questionButtons } from './questions';
 import {
@@ -40,7 +39,6 @@ import {
   skippedLine,
   skipsHint,
   sortedLine,
-  stillLine,
   type WrapDay,
 } from './words';
 
@@ -138,14 +136,7 @@ export function openingMsgs(p: {
     card({ ...p.recap, type: 'sweep-recap' }),
   ];
   if (p.recap.missed.length) {
-    out.push(
-      say(
-        missedLine(
-          p.recap.missed.map((m) => m.title),
-          p.cards > 0,
-        ),
-      ),
-    );
+    out.push(say(missedLine(p.recap.missed.map((m) => m.title))));
   }
   if (p.cards > 0) out.push(cardsOffer(offerLine(p.cards, p.day), p.day, p.skipsLeft));
   else out.push(say(clearLine(p.recap.planned ?? null, p.day.late)));
@@ -200,26 +191,6 @@ export function leaveRestMsgs(button: OfferButton, left: number): WrapMsg[] {
 /** New things dropped after the wrap up was finished. */
 export function newSinceMsgs(n: number): WrapMsg[] {
   return [offer(newSinceLine(n), 'wrap_partial', partialButtons(n))];
-}
-
-// ── still open today ─────────────────────────────────────────────────────────
-
-export function stillMsgs(
-  still: StillOpen[],
-  p: { day: string; to: string },
-  d: WrapDay,
-): WrapMsg[] {
-  return [
-    say(stillLine(still.length, d)),
-    card({
-      type: 'sweep-still',
-      date: p.day,
-      to: p.to,
-      to_word: d.tomorrow,
-      todos: still,
-      status: 'open',
-    }),
-  ];
 }
 
 // ── habits ───────────────────────────────────────────────────────────────────

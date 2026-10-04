@@ -98,7 +98,6 @@ import { cardsLeft, pastCards } from '../../lib/wrapup/state';
 import { WRAP_COPY } from '../../lib/wrapup/words';
 import { WrapRecapCard } from '../../components/wrapup/WrapRecapCard';
 import { WrapReceiptCard } from '../../components/wrapup/WrapReceiptCard';
-import { WrapStillCard } from '../../components/wrapup/WrapStillCard';
 import { WrapHabitsCard } from '../../components/wrapup/WrapHabitsCard';
 import { WrapJournalCard } from '../../components/wrapup/WrapJournalCard';
 import { WrapItemCard } from '../../components/wrapup/WrapItemCard';
@@ -1354,20 +1353,6 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
               undoable={live ? wrapUndoable : {}}
               onUndo={(cid) => void w.undoDecision(cid)}
               interactive={!wrapBusy}
-            />
-          );
-        case 'sweep-still':
-          return (
-            <WrapStillCard
-              meta={meta}
-              interactive={live && !wrapBusy}
-              onMove={(ids) => void w.still.move(message, ids)}
-              onLeave={() => void w.still.leave(message)}
-              onUndo={
-                live && wrapUndoable[`still:${message.id}`]
-                  ? () => void w.still.undo(message)
-                  : undefined
-              }
             />
           );
         case 'sweep-habits':

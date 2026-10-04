@@ -16,7 +16,6 @@ const BRIEF_TYPES: ReadonlySet<string> = new Set<BriefMessageType>([
   'brief-changes',
   'sweep-recap',
   'sweep-receipt',
-  'sweep-still',
   'sweep-habits',
   'sweep-journal',
   'sweep-item',

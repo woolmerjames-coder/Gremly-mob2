@@ -28,7 +28,6 @@ export type BriefMessageType =
   // the evening wrap up in the same thread (lib/wrapup)
   | 'sweep-recap'
   | 'sweep-receipt'
-  | 'sweep-still'
   | 'sweep-habits'
   | 'sweep-journal'
   | 'sweep-item'
@@ -247,23 +246,6 @@ export interface SweepReceiptMeta extends BriefMetaBase {
   type: 'sweep-receipt';
 }
 
-/**
- * Still open today: todos that were due today and did not happen, moved on
- * with one tap. Each move is the change model's change to the todo's day.
- */
-export interface SweepStillMeta extends BriefMetaBase {
-  type: 'sweep-still';
-  /** The day being wrapped up */
-  date: string;
-  /** The day they move to, and its word when the card was made (tomorrow, or its weekday) */
-  to: string;
-  to_word: string;
-  todos: { id: string; title: string }[];
-  status: 'open' | 'moved' | 'left' | 'undone';
-  /** The todos that were moved */
-  moved?: string[];
-}
-
 export interface SweepHabitRow {
   id: string;
   title: string;
@@ -320,7 +302,6 @@ export type BriefMeta =
   | BriefChangesMeta
   | SweepRecapMeta
   | SweepReceiptMeta
-  | SweepStillMeta
   | SweepHabitsMeta
   | SweepJournalMeta
   | SweepItemMeta
@@ -331,7 +312,6 @@ export type WrapStep =
   | 'offer' // Gremly has opened on the day and offered the cards
   | 'cards' // the cards are open
   | 'partial' // the cards were closed part way
-  | 'still' // todos still open today
   | 'habits'
   | 'journal'
   | 'questions'
@@ -353,8 +333,6 @@ export interface WrapUpState {
   /** The cards there were when it started, so later ones are known as new */
   items: string[];
   decisions: SweepRecord[];
-  /** Todos still open today that were moved on with one tap, or with a skip */
-  moved?: { id: string; title: string }[];
   /** When the cards were settled (sorted, left, moved on, or none): the Sweep counts as done */
   settled_at?: string | null;
   /** How many cards feeding has been credited for */

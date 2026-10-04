@@ -21,10 +21,10 @@ James's docs for this work (Claude Docs):
 The evening Sweep is a conversation with Gremly in today's thread, the same
 thread the morning brief opened. In order: a recap of the day, the offer, the
 swipe cards (the existing cards, opened over the thread, each decision saved
-as it is made), a receipt with Undo, Still open today, habits, the journal,
-up to two of Gremly's open questions, and the close with Plan tomorrow. A skip
-night skips only the cards. A clear night has no cards. After Not tonight the
-journal is one tap away.
+as it is made), a receipt with Undo, habits, the journal, up to two of
+Gremly's open questions, and the close with Plan tomorrow. A skip night skips
+only the cards. A clear night has no cards. After Not tonight the journal is
+one tap away.
 
 Every line Gremly says in it is a fixed sentence filled in from the day. No
 model writes any of it.
@@ -56,6 +56,10 @@ Where the code is:
 
 - The prototype is the spec. Where code and prototype disagree, the prototype
   wins, and he is told first.
+- One exception, from his review on 4 Oct: there is no Still open today card.
+  The prototype shows one. A todo that was due today and did not happen is a
+  swipe card like any other, with every choice a card has. Move it all to
+  tomorrow is the quick way out on a busy night.
 - The journal is protected: asked on every path, one tap away after Not
   tonight. A reply to the journal question saves straight to the journal, the
   box says so, an X sends the message to Gremly instead, and the entry has

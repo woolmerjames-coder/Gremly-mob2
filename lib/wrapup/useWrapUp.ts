@@ -1,8 +1,8 @@
 /**
  * The evening wrap up in today's thread.
  *
- * Gremly opens on the day, offers the Sweep cards, then goes through the
- * todos still open today, habits, the journal, his questions and the close,
+ * Gremly opens on the day, offers the Sweep cards, then goes through
+ * habits, the journal, his questions and the close,
  * all in the thread the morning brief opened. This hook does the work for
  * each step and adds what flow.ts says the step puts in the thread. Where it
  * has got to is kept on the thread (session.ts), so it can be left and picked
@@ -20,7 +20,6 @@ import type {
   PlanItem,
   SweepHabitsMeta,
   SweepJournalMeta,
-  SweepStillMeta,
   WrapStep,
   WrapUpState,
 } from '../brief/types';
@@ -65,7 +64,6 @@ import {
   say,
   skippedMsgs,
   sortedMsgs,
-  stillMsgs,
   tapped,
   typed,
   type WrapMsg,
@@ -138,13 +136,12 @@ function store(): any {
 function readNow() {
   const st = store();
   const now = wrapNow();
-  const { cards, still } = selectWrapUp(st);
+  const { cards } = selectWrapUp(st);
   const name = typeof st.userName === 'string' ? st.userName.trim() : '';
   return {
     st,
     now,
     cards,
-    still,
     skipsLeft: Math.max(0, WEEKLY_SKIP_BUDGET - (st.skipsUsedLast7Days ?? 0)),
     firstName: name ? name.split(/\s+/)[0] : null,
   };
@@ -196,11 +193,6 @@ export interface WrapUp {
   /** Keys whose Undo is still held */
   undoable: Record<string, true>;
   undoDecision: (cid: string) => Promise<void>;
-  still: {
-    move: (message: SpaceChatMessage, ids: string[]) => Promise<void>;
-    leave: (message: SpaceChatMessage) => Promise<void>;
-    undo: (message: SpaceChatMessage) => Promise<void>;
-  };
   habits: {
     save: (
       message: SpaceChatMessage,
@@ -402,7 +394,7 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
       ).catch((err) => console.warn('[WrapUp] could not credit the wrap up:', err));
     }
     const { now } = readNow();
-    const lined = [...keptFor(w, now.tomorrow), ...(w.moved ?? []).map((m) => m.title)];
+    const lined = keptFor(w, now.tomorrow);
     await save(
       closeMsgs({
         day: now.words,
@@ -497,15 +489,6 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
     await save(habitsMsgs(rows, already, now.day));
   }, [save, toJournal]);
 
-  /** Todos that were due today and did not happen, on one card. A skip has already moved them. */
-  const toStill = useCallback(async () => {
-    const w = currentWrap();
-    const { now, still } = readNow();
-    if (!still.length || w?.path === 'skip') return toHabits();
-    setStep('still');
-    await save(stillMsgs(still, { day: now.day, to: now.tomorrow }, now.words));
-  }, [save, toHabits]);
-
   const start = useCallback(async () => {
     const d = depsRef.current;
     await store()
@@ -544,8 +527,8 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
     if (cards.length) return;
     await settle('clear');
     await pause();
-    await toStill();
-  }, [save, pause, settle, toStill]);
+    await toHabits();
+  }, [save, pause, settle, toHabits]);
 
   /** One receipt in the thread: an earlier one is put away when a new one is added. */
   const receiptsAway = useCallback(async () => {
@@ -601,8 +584,8 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
     if (extra) return buttonsBack();
     await settle('cards');
     await pause();
-    await toStill();
-  }, [save, pause, settle, toStill, receiptsAway, creditCards, buttonsBack]);
+    await toHabits();
+  }, [save, pause, settle, toHabits, receiptsAway, creditCards, buttonsBack]);
 
   const backFromCards = useCallback(() => run(cardsBack), [run, cardsBack]);
   const resume = useCallback(() => run(buttonsBack), [run, buttonsBack]);
@@ -631,7 +614,7 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
         if (w.step === 'declined') {
           if (!left.length) {
             await settle('clear');
-            return toStill();
+            return toHabits();
           }
           // coming back after Not tonight: the same choices, said once more
           setStep('offer', {
@@ -656,7 +639,7 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
         }
         await buttonsBack();
       }),
-    [run, save, start, settle, toStill, cardsBack, buttonsBack],
+    [run, save, start, settle, toHabits, cardsBack, buttonsBack],
   );
 
   // ── the offer's other choices ──────────────────────────────────────────────
@@ -664,7 +647,7 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
   /** Move it all on: one of the weekly skips. It skips only the cards; habits and the journal still come. */
   const skipNight = useCallback(
     async (button: OfferButton) => {
-      const { now, cards, still } = readNow();
+      const { now, cards } = readNow();
       const left = cardsLeft(currentWrap(), cards);
       const todoCards = left.filter((c) => c.candidate.kind === 'todo');
       let moved = 0;
@@ -679,19 +662,6 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
         recordDecision(res.record, res.revert);
         moved += 1;
       }
-      // the todos still open today move with them
-      const movedStill: { id: string; title: string }[] = [];
-      for (const t of still) {
-        const res = await applySweepDecision({
-          candidateId: t.id,
-          candidateKind: 'todo',
-          action: 'keep',
-          dueDateStr: now.tomorrow,
-        });
-        if (!res.ok) continue;
-        movedStill.push(t);
-        moved += 1;
-      }
       const st = store();
       if (st.userId) {
         const { error } = await supabase
@@ -700,9 +670,7 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
         if (error) console.warn('[WrapUp] could not record the skip:', error);
         await st.refreshSkipBudget?.()?.catch(() => undefined);
       }
-      updateWrap((x) =>
-        x ? { ...x, path: 'skip', moved: [...(x.moved ?? []), ...movedStill] } : x,
-      );
+      updateWrap((x) => (x ? { ...x, path: 'skip' } : x));
       await save(
         skippedMsgs(
           button,
@@ -765,7 +733,7 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
             if (pastCards(w)) return buttonsBack();
             await settle('cards');
             await pause();
-            return toStill();
+            return toHabits();
           }
           case 'journal_only':
             await save([tapped(button)]);
@@ -818,7 +786,7 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
       pause,
       settle,
       skipNight,
-      toStill,
+      toHabits,
       toJournal,
       afterJournal,
       answered,
@@ -915,77 +883,6 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
   const undoOne = useCallback(async (cid: string) => {
     await undoDecision(cid);
   }, []);
-
-  const stillLeave = useCallback(
-    async (message: SpaceChatMessage, n: number) => {
-      await patch(message.id, { status: 'left' });
-      await save([say(n === 1 ? WRAP_COPY.stillLeftOne : WRAP_COPY.stillLeft)]);
-      await pause();
-      await toHabits();
-    },
-    [patch, save, pause, toHabits],
-  );
-
-  const still = {
-    /** Move the ticked todos to the day the card names. Each is the change model's change to its day. */
-    move: useCallback(
-      (message: SpaceChatMessage, ids: string[]) =>
-        run(async () => {
-          const meta = briefMetaOf(message);
-          if (meta?.type !== 'sweep-still' || meta.status !== 'open') return;
-          const card = meta as SweepStillMeta;
-          const picked = card.todos.filter((t) => ids.includes(t.id));
-          if (!picked.length) return stillLeave(message, card.todos.length);
-          const reverts: Array<() => Promise<void>> = [];
-          const moved: { id: string; title: string }[] = [];
-          for (const t of picked) {
-            const res = await applySweepDecision({
-              candidateId: t.id,
-              candidateKind: 'todo',
-              action: 'keep',
-              dueDateStr: card.to,
-            });
-            if (!res.ok) continue;
-            reverts.push(res.revert);
-            moved.push(t);
-          }
-          if (!moved.length) {
-            await save([say(WRAP_COPY.stillFailed)]);
-            return;
-          }
-          holdUndo(`still:${message.id}`, async () => {
-            for (const r of [...reverts].reverse()) await r();
-          });
-          await patch(message.id, { status: 'moved', moved: moved.map((t) => t.id) });
-          updateWrap((x) => (x ? { ...x, moved: [...(x.moved ?? []), ...moved] } : x));
-          await pause();
-          await toHabits();
-        }),
-      [run, patch, save, pause, toHabits, stillLeave],
-    ),
-    leave: useCallback(
-      (message: SpaceChatMessage) =>
-        run(async () => {
-          const meta = briefMetaOf(message);
-          if (meta?.type !== 'sweep-still' || meta.status !== 'open') return;
-          await stillLeave(message, (meta as SweepStillMeta).todos.length);
-        }),
-      [run, stillLeave],
-    ),
-    undo: useCallback(
-      async (message: SpaceChatMessage) => {
-        const meta = briefMetaOf(message);
-        if (meta?.type !== 'sweep-still' || meta.status !== 'moved') return;
-        if (!(await runUndo(`still:${message.id}`))) return;
-        const back = new Set((meta as SweepStillMeta).moved ?? []);
-        await patch(message.id, { status: 'undone', moved: [] });
-        updateWrap((x) =>
-          x ? { ...x, moved: (x.moved ?? []).filter((m) => !back.has(m.id)) } : x,
-        );
-      },
-      [patch],
-    ),
-  };
 
   const habits = {
     /** Log what happened today. Each check in is the change model's log, on the person's day. */
@@ -1129,7 +1026,6 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
     wrap,
     undoable,
     undoDecision: undoOne,
-    still,
     habits,
     journal,
   };

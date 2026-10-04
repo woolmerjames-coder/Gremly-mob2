@@ -6,7 +6,6 @@ import React from 'react';
 import { fireEvent, render } from '@testing-library/react-native';
 import { WrapRecapCard } from '../WrapRecapCard';
 import { WrapReceiptCard } from '../WrapReceiptCard';
-import { WrapStillCard } from '../WrapStillCard';
 import { WrapHabitsCard } from '../WrapHabitsCard';
 import { WrapJournalCard } from '../WrapJournalCard';
 import { WrapItemCard } from '../WrapItemCard';
@@ -101,64 +100,6 @@ describe('the receipt', () => {
       <WrapReceiptCard decisions={[rec('a')]} toSort={2} undoable={{}} onUndo={jest.fn()} />,
     );
     expect(r.getByText('1 kept, 2 still to sort')).toBeTruthy();
-  });
-});
-
-describe('still open today', () => {
-  const meta = {
-    type: 'sweep-still' as const,
-    date: DAY,
-    to: '2026-10-01',
-    to_word: 'tomorrow',
-    todos: [
-      { id: 's1', title: 'Book the car service' },
-      { id: 's2', title: 'Renew gym pass' },
-    ],
-    status: 'open' as const,
-  };
-
-  it('moves the ticked ones, and the button says how many', () => {
-    const onMove = jest.fn();
-    const r = render(<WrapStillCard meta={meta} onMove={onMove} onLeave={jest.fn()} />);
-    expect(r.getByText('Move both to tomorrow')).toBeTruthy();
-    fireEvent.press(r.getByTestId('wrap-still-row-s1'));
-    expect(r.getByText('Move 1 to tomorrow')).toBeTruthy();
-    expect(r.getByText('Stays on today')).toBeTruthy();
-    fireEvent.press(r.getByTestId('wrap-still-move'));
-    expect(onMove).toHaveBeenCalledWith(['s2']);
-  });
-
-  it('offers only to leave them when none is ticked', () => {
-    const onLeave = jest.fn();
-    const r = render(<WrapStillCard meta={meta} onMove={jest.fn()} onLeave={onLeave} />);
-    fireEvent.press(r.getByTestId('wrap-still-row-s1'));
-    fireEvent.press(r.getByTestId('wrap-still-row-s2'));
-    expect(r.queryByTestId('wrap-still-move')).toBeNull();
-    expect(r.getByText('Leave them on today')).toBeTruthy();
-    fireEvent.press(r.getByTestId('wrap-still-leave'));
-    expect(onLeave).toHaveBeenCalledTimes(1);
-  });
-
-  it('says they are moved, with one Undo while it is held', () => {
-    const onUndo = jest.fn();
-    const moved = { ...meta, status: 'moved' as const, moved: ['s1', 's2'] };
-    const r = render(<WrapStillCard meta={moved} onUndo={onUndo} />);
-    expect(r.getByText('Moved')).toBeTruthy();
-    expect(r.getAllByText('Moved to tomorrow')).toHaveLength(2);
-    expect(r.getByTestId('wrap-still-done').props.children[0]).toBe(
-      "Done. They're down for tomorrow.",
-    );
-    fireEvent.press(r.getByTestId('wrap-still-undo'));
-    expect(onUndo).toHaveBeenCalledTimes(1);
-    // no Undo once the app has let go of it
-    expect(render(<WrapStillCard meta={moved} />).queryByTestId('wrap-still-undo')).toBeNull();
-  });
-
-  it('names the weekday after midnight, and folds when they were left', () => {
-    const late = render(<WrapStillCard meta={{ ...meta, to_word: 'Thursday' }} />);
-    expect(late.getByText('Move both to Thursday')).toBeTruthy();
-    const left = render(<WrapStillCard meta={{ ...meta, status: 'left' }} />);
-    expect(left.getByText('Left on today')).toBeTruthy();
   });
 });
 

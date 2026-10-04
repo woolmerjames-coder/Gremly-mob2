@@ -101,7 +101,6 @@ function BriefMessageInner({
       return <View style={styles.card}>{renderChanges?.(message, meta) ?? null}</View>;
     case 'sweep-recap':
     case 'sweep-receipt':
-    case 'sweep-still':
     case 'sweep-habits':
     case 'sweep-journal':
     case 'sweep-item':
