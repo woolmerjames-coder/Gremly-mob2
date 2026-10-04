@@ -31,6 +31,16 @@ export function minutesOfDay(iso?: string | null): number {
   return p.hour * 60 + p.minute;
 }
 
+/**
+ * Minutes into the person's day, now. The same as minutesOfDay until
+ * midnight; after it, until their day ends, it runs on past 24 hours, so the
+ * small hours come after the evening and not before the morning.
+ */
+export function minutesOfTheirDay(): number {
+  const late = getDateService().isInLateNightPeriod();
+  return minutesOfDay() + (late ? 24 * 60 : 0);
+}
+
 /** The local YYYY-MM-DD of an instant. */
 export function localDateOf(iso: string): string | null {
   return getDateService().extractLocalDate(iso);

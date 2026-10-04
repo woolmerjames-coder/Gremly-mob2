@@ -716,15 +716,15 @@ describe('selectSweepCandidatesUnified', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // commitment (lock-in) filtering - NEW TESTS FOR SWEEP BRANCH
+  // The old Lock In flag (commitment) no longer keeps anything out of Sweep
   // ─────────────────────────────────────────────────────────────────────────────
 
-  describe('commitment (lock-in) filtering', () => {
-    it('excludes todos with commitment=true from sweep candidates', () => {
+  describe('the old Lock In flag', () => {
+    it('does not keep a todo out of sweep candidates', () => {
       const state = makeState({
         todos: [
-          makeTodo({ id: 't1', due_day: '2025-12-10', commitment: true }), // Locked-in - excluded
-          makeTodo({ id: 't2', due_day: '2025-12-10', commitment: false }), // Not locked - included
+          makeTodo({ id: 't1', due_day: '2025-12-10', commitment: true }), // an old flag, left on
+          makeTodo({ id: 't2', due_day: '2025-12-10', commitment: false }),
         ],
       });
 
@@ -733,8 +733,7 @@ describe('selectSweepCandidatesUnified', () => {
         .filter((i) => i.candidate.kind === 'todo')
         .map((item) => item.candidate.id);
 
-      expect(todoIds).not.toContain('t1'); // Locked - excluded
-      expect(todoIds).toContain('t2'); // Not locked - included
+      expect(todoIds.sort()).toEqual(['t1', 't2']);
     });
 
     it('never includes habits in sweep candidates', () => {
@@ -1188,153 +1187,10 @@ describe('selectCompletionsThisWeek', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// selectTodayLockedItems - NEW TESTS FOR MORNING BRIEF
+// selectTodayActiveItems: what is on Today
 // ═══════════════════════════════════════════════════════════════════════════════
 
-import { selectLockedTodos, selectTodayLockedItems, selectTodayActiveItems } from '../selectors';
-
-describe('selectLockedTodos', () => {
-  beforeEach(() => {
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date('2025-12-15T10:00:00Z'));
-  });
-
-  afterEach(() => {
-    jest.useRealTimers();
-  });
-
-  it('returns todos with commitment = true and due today', () => {
-    const state = makeState({
-      todos: [
-        makeTodo({ id: 't1', commitment: true, archived: false, due_day: '2025-12-15' }),
-        makeTodo({ id: 't2', commitment: false, archived: false, due_day: '2025-12-15' }),
-        makeTodo({ id: 't3', commitment: true, archived: false, due_day: '2025-12-15' }),
-      ],
-    });
-
-    const result = selectLockedTodos(state as any);
-
-    expect(result).toHaveLength(2);
-    expect(result.map((t) => t.id).sort()).toEqual(['t1', 't3']);
-  });
-
-  it('excludes archived todos even if commitment is true', () => {
-    const state = makeState({
-      todos: [
-        makeTodo({ id: 't1', commitment: true, archived: true, due_day: '2025-12-15' }),
-        makeTodo({ id: 't2', commitment: true, archived: false, due_day: '2025-12-15' }),
-      ],
-    });
-
-    const result = selectLockedTodos(state as any);
-
-    expect(result).toHaveLength(1);
-    expect(result[0].id).toBe('t2');
-  });
-
-  it('excludes completed todos even if commitment is true', () => {
-    const state = makeState({
-      todos: [
-        makeTodo({
-          id: 't1',
-          commitment: true,
-          completed_at: '2025-12-15T10:00:00Z',
-          due_day: '2025-12-15',
-        }),
-        makeTodo({ id: 't2', commitment: true, completed_at: null, due_day: '2025-12-15' }),
-      ],
-    });
-
-    const result = selectLockedTodos(state as any);
-
-    expect(result).toHaveLength(1);
-    expect(result[0].id).toBe('t2');
-  });
-
-  it('returns empty array when no locked todos', () => {
-    const state = makeState({
-      todos: [
-        makeTodo({ id: 't1', commitment: false, due_day: '2025-12-15' }),
-        makeTodo({ id: 't2', commitment: undefined, due_day: '2025-12-15' }),
-      ],
-    });
-
-    const result = selectLockedTodos(state as any);
-
-    expect(result).toHaveLength(0);
-  });
-});
-
-describe('selectTodayLockedItems', () => {
-  beforeEach(() => {
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date('2025-12-15T10:00:00Z'));
-  });
-
-  afterEach(() => {
-    jest.useRealTimers();
-  });
-
-  it('combines locked todos and locked habits', () => {
-    const state = makeState({
-      todos: [
-        makeTodo({ id: 't1', commitment: true, due_day: '2025-12-15' }),
-        makeTodo({ id: 't2', commitment: false, due_day: '2025-12-15' }),
-      ],
-      habits: [
-        makeHabit({ id: 'h1', commitment_until: '2025-12-31', cadence: 'daily' }),
-        makeHabit({ id: 'h2', cadence: 'daily' }),
-      ],
-      habitProgress: [], // No completions today
-    });
-
-    const result = selectTodayLockedItems(state as any);
-
-    expect(result).toHaveLength(2);
-    expect(result.map((i) => i.id).sort()).toEqual(['h1', 't1']);
-  });
-
-  it('only includes habits due today that are locked', () => {
-    const state = makeState({
-      todos: [],
-      habits: [
-        makeHabit({ id: 'h1', commitment_until: '2025-12-31', cadence: 'daily' }),
-        makeHabit({
-          id: 'h2',
-          commitment_until: '2025-12-31',
-          cadence: 'weekly',
-          days_active: [1],
-        }), // Monday - today is Monday Dec 15
-        makeHabit({
-          id: 'h3',
-          commitment_until: '2025-12-31',
-          cadence: 'weekly',
-          days_active: [3],
-        }), // Wednesday - not today
-      ],
-      habitProgress: [],
-    });
-
-    const result = selectTodayLockedItems(state as any);
-
-    // h1 (daily) and h2 (Monday) should be included, h3 (Wednesday) not
-    expect(result.map((i) => i.id)).toContain('h1');
-  });
-
-  it('excludes habits already completed today', () => {
-    const habit = makeHabit({ id: 'h1', commitment_until: '2025-12-31', cadence: 'daily' });
-    const state = makeState({
-      todos: [],
-      habits: [habit],
-      habitProgress: [makeHabitProgress('h1', '2025-12-15')], // Completed today
-    });
-
-    const result = selectTodayLockedItems(state as any);
-
-    // Habit was completed today, so not in locked items
-    expect(result).toHaveLength(0);
-  });
-});
+import { selectTodayActiveItems, selectTodayProgress } from '../selectors';
 
 describe('selectTodayActiveItems', () => {
   beforeEach(() => {
@@ -1346,9 +1202,10 @@ describe('selectTodayActiveItems', () => {
     jest.useRealTimers();
   });
 
-  it('excludes locked items from active items', () => {
+  it('holds everything due today, with no separate locked list', () => {
     const state = makeState({
       todos: [
+        // old Lock In flags left on a todo and a habit make no difference
         makeTodo({ id: 't1', commitment: true, due_day: '2025-12-15' }),
         makeTodo({ id: 't2', commitment: false, due_day: '2025-12-15' }),
       ],
@@ -1361,9 +1218,23 @@ describe('selectTodayActiveItems', () => {
 
     const result = selectTodayActiveItems(state as any);
 
-    // Only non-locked items
-    expect(result).toHaveLength(2);
-    expect(result.map((i) => i.id).sort()).toEqual(['h2', 't2']);
+    expect(result.map((i) => i.id).sort()).toEqual(['h1', 'h2', 't1', 't2']);
+  });
+
+  it('counts each item once in the day progress', () => {
+    const state = makeState({
+      todos: [
+        makeTodo({ id: 't1', commitment: true, due_day: '2025-12-15' }),
+        makeTodo({ id: 't2', due_day: '2025-12-15', completed_at: '2025-12-15T09:00:00Z' }),
+      ],
+      habits: [],
+      habitProgress: [],
+    });
+
+    expect(selectTodayProgress(state as any)).toMatchObject({
+      completedCount: 1,
+      totalEligible: 2,
+    });
   });
 });
 

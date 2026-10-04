@@ -2,18 +2,28 @@
  * The plan card in today's thread (Daily brief in Chat): a summary line, a
  * load bar, and a timeline of the rest of the day with meetings greyed, the
  * planned items and the free gaps. A proposal can lose items (×), gain them
- * (Add something), be locked in or put aside (Not now). A locked plan points
- * to Today. Earlier versions fold to one line.
+ * (Add something), be said yes to or put aside (Not now). A plan said yes to
+ * is on its day: today's points to Today. Earlier versions fold to one line.
+ * There is no separate locked state: something is on Today or it is not.
  */
 
 import React from 'react';
 import { Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { ArrowRight, Check, Clock, Lock, Plus, Repeat, X } from 'lucide-react-native';
+import { ArrowRight, Check, Clock, Plus, Repeat, X } from 'lucide-react-native';
 import type { BriefPlanMeta } from '../../lib/brief/types';
 import type { DayMeeting } from '../../lib/brief/dayCard';
 import type { DayBlock } from '../../lib/brief/dayRecord';
 import { clock, ampm } from '../../lib/brief/dayCard';
-import { duration, otherDayTitle, planHeading, planSummary } from '../../lib/plan/planFlow';
+import {
+  duration,
+  notSetLine,
+  planDay,
+  planDayTitle,
+  planHeading,
+  planSummary,
+  setTag,
+  yesLabel,
+} from '../../lib/plan/planFlow';
 import { getDateService } from '../../lib/date/DateService';
 import { PLAN_DAY_END } from '../../lib/plan/slotFitter';
 import { BRIEF } from './briefStyles';
@@ -29,7 +39,8 @@ export type PlanCardProps = {
   interactive?: boolean;
   onRemove?: (id: string) => void;
   onAdd?: () => void;
-  onLock?: () => void;
+  /** Yes to the proposal: it goes on its day */
+  onYes?: () => void;
   onDismiss?: () => void;
   onShowAgain?: () => void;
   onSeeToday?: () => void;
@@ -112,11 +123,14 @@ export function PlanCard({
   interactive = true,
   onRemove,
   onAdd,
-  onLock,
+  onYes,
   onDismiss,
   onShowAgain,
   onSeeToday,
 }: PlanCardProps) {
+  // the plan's day in the person's words: their day ends at their day end
+  const ds = getDateService();
+  const day = planDay(meta.date, ds.ritualDay(), ds.isInLateNightPeriod());
   if (meta.status === 'replaced') {
     return (
       <View style={styles.collapsed} testID="plan-replaced">
@@ -129,7 +143,7 @@ export function PlanCard({
     return (
       <View style={styles.collapsed} testID="plan-dismissed">
         <Clock size={14} color={BRIEF.faint} strokeWidth={2} />
-        <Text style={[styles.collapsedText, styles.flex]}>Plan not locked in</Text>
+        <Text style={[styles.collapsedText, styles.flex]}>{notSetLine(day)}</Text>
         <TouchableOpacity onPress={onShowAgain} disabled={!interactive} testID="plan-show-again">
           <Text style={styles.link}>Show it again</Text>
         </TouchableOpacity>
@@ -137,7 +151,8 @@ export function PlanCard({
     );
   }
 
-  const locked = meta.status === 'locked';
+  // said yes to (the stored status keeps its old name)
+  const set = meta.status === 'locked';
   const from = meta.from ?? 0;
   const end = Math.max(from, planEnd);
   const span = Math.max(1, end - from);
@@ -152,18 +167,16 @@ export function PlanCard({
   const planMin = meta.items.reduce((a, x) => a + (x.end - x.start), 0);
 
   return (
-    <View style={styles.card} testID={locked ? 'plan-locked' : 'plan-proposal'}>
+    <View style={styles.card} testID={set ? 'plan-set' : 'plan-proposal'}>
       <View style={styles.head}>
         <View style={styles.flex}>
-          <Text style={styles.title}>
-            {otherDayTitle(meta.date, getDateService().today()) ?? planHeading(from)}
-          </Text>
+          <Text style={styles.title}>{planDayTitle(day) ?? planHeading(from)}</Text>
           <Text style={styles.sub}>{planSummary(meta, busy, end)}</Text>
         </View>
-        {locked ? (
+        {set ? (
           <View style={[styles.tag, styles.tagDone]}>
             <Check size={13} color={BRIEF.white} strokeWidth={2.5} />
-            <Text style={[styles.tagText, styles.tagTextDone]}>Locked in</Text>
+            <Text style={[styles.tagText, styles.tagTextDone]}>{setTag(day)}</Text>
           </View>
         ) : (
           <View style={[styles.tag, styles.tagProp]}>
@@ -238,7 +251,7 @@ export function PlanCard({
                       : `${duration(r.end - r.start)}${r.reason ? `, ${r.reason}` : ''}`}
                 </Text>
               </View>
-              {r.type === 'item' && !locked ? (
+              {r.type === 'item' && !set ? (
                 <Pressable
                   onPress={() => onRemove?.(r.id)}
                   disabled={!interactive}
@@ -256,11 +269,13 @@ export function PlanCard({
         )}
       </View>
 
-      {locked ? (
-        <TouchableOpacity style={styles.seeToday} onPress={onSeeToday} testID="plan-see-today">
-          <Text style={styles.link}>See it on Today</Text>
-          <ArrowRight size={15} color={BRIEF.moss} strokeWidth={2} />
-        </TouchableOpacity>
+      {set ? (
+        day.today ? (
+          <TouchableOpacity style={styles.seeToday} onPress={onSeeToday} testID="plan-see-today">
+            <Text style={styles.link}>See it on Today</Text>
+            <ArrowRight size={15} color={BRIEF.moss} strokeWidth={2} />
+          </TouchableOpacity>
+        ) : null
       ) : (
         <>
           <TouchableOpacity
@@ -275,12 +290,12 @@ export function PlanCard({
           <View style={styles.actions}>
             <TouchableOpacity
               style={[styles.btn, styles.btnPrimary, !meta.items.length && styles.btnOff]}
-              onPress={onLock}
+              onPress={onYes}
               disabled={!interactive || !meta.items.length}
-              testID="plan-lock"
+              testID="plan-yes"
             >
-              <Lock size={15} color={BRIEF.white} strokeWidth={2} />
-              <Text style={[styles.btnText, styles.btnTextPrimary]}>Lock it in</Text>
+              <Check size={15} color={BRIEF.white} strokeWidth={2.5} />
+              <Text style={[styles.btnText, styles.btnTextPrimary]}>{yesLabel(day)}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.btn, styles.btnSecondary]}

@@ -53,10 +53,12 @@ export function getTrainingHints(data: UserTrainingData): TrainingHint[] {
   }
 
   if (data.totalSweeps < 2) {
+    // tonight's wrap up, in today's thread
     hints.push({
-      text: 'Sweep every evening. Takes 2 minutes.',
+      text: 'Wrap up every evening. Takes 2 minutes.',
       icon: 'Moon',
-      navigateTo: 'Sweep',
+      navigateTo: 'Gremly',
+      navigateParams: { mode: 'chat', thread: 'today', step: 'wrap', threadKey: 'hint-wrap' },
       priority: 2,
     });
   }
@@ -82,9 +84,10 @@ export function getTrainingHints(data: UserTrainingData): TrainingHint[] {
 
   if (data.journalCount === 0) {
     hints.push({
-      text: 'Try journaling during your next sweep.',
+      text: 'Try journaling in your next wrap up.',
       icon: 'BookOpen',
-      navigateTo: 'Sweep',
+      navigateTo: 'Gremly',
+      navigateParams: { mode: 'chat', thread: 'today', step: 'wrap', threadKey: 'hint-journal' },
       priority: 5,
     });
   }

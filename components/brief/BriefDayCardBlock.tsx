@@ -8,7 +8,6 @@ import { useNavigation } from '@react-navigation/native';
 import { DayCard, type DayCardRow } from './DayCard';
 import { DueTodaySheet, type DueTab } from './DueTodaySheet';
 import { useDayCard } from '../../lib/brief/useDayCard';
-import { useGremlyStore } from '../../lib/store/useGremlyStore';
 
 type Props = {
   date: string;
@@ -34,14 +33,6 @@ export function BriefDayCardBlock({ date, onReply, onSweep, inPlan }: Props) {
     [date, navigation, onReply, onSweep],
   );
 
-  const onLockIn = useCallback((id: string, kind: 'todo' | 'habit') => {
-    const store = useGremlyStore.getState();
-    store
-      .addCommitment(id, kind)
-      .then(() => store.commitLockInItems(1))
-      .catch((err: unknown) => console.warn('[DailyBrief] lock in failed:', err));
-  }, []);
-
   return (
     <>
       <DayCard data={data} onRow={onRow} />
@@ -51,7 +42,6 @@ export function BriefDayCardBlock({ date, onReply, onSweep, inPlan }: Props) {
         data={data}
         initialTab={sheet ?? 'todos'}
         inPlan={inPlan}
-        onLockIn={onLockIn}
         calm={data.returnDay}
       />
     </>

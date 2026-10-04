@@ -8,7 +8,7 @@ import { useEffect } from 'react';
 import { AppState } from 'react-native';
 import { getDateService } from '../date/DateService';
 import { useGremlyStore } from '../store/useGremlyStore';
-import { expireOldLockIns, resetStaleAssignments } from '../plan/storePlan';
+import { resetStaleAssignments } from '../plan/storePlan';
 import { useTodayThread } from './todayThread';
 
 let lastResetDay: string | null = null;
@@ -26,17 +26,17 @@ export function useTodayThreadSync(): void {
     void useTodayThread.getState().refresh();
   }, [userId, ritualDay]);
 
-  // A new day: yesterday's planned times come off Today
+  // A new day: yesterday's planned times come off Today. The day is the
+  // person's (it ends at their day end, not at midnight), so a plan still
+  // shows on Today in the small hours.
   const loaded = useGremlyStore((s) => s.todos.length + s.habits.length > 0);
   useEffect(() => {
     if (!userId || !loaded) return;
-    const today = getDateService().today();
+    const today = getDateService().ritualDay();
     if (lastResetDay === today) return;
     lastResetDay = today;
     const n = resetStaleAssignments(today);
     if (n) console.log(`[DailyBrief] cleared ${n} planned times from earlier days`);
-    const locks = expireOldLockIns(today);
-    if (locks) console.log(`[DailyBrief] ended ${locks} Lock Ins from earlier days`);
   }, [userId, loaded, ritualDay]);
 
   useEffect(() => {

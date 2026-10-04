@@ -6,8 +6,10 @@
  */
 
 import React from 'react';
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import type { SweepCandidate } from '../../../lib/sweep/types';
+import { emitOverlaySaved } from '../../../lib/events/overlaySaved';
+import { getDateService } from '../../../lib/date/DateService';
 
 // Mock sweep engine
 const mockFetchSweepCandidates = jest.fn<Promise<SweepCandidate[]>, [string, any]>();
@@ -43,6 +45,8 @@ jest.mock('../../../lib/wrapup/session', () => ({
 
 // Mock store selectors - useSweepCandidatesUnified returns candidates with meta from store
 let mockCandidates: SweepCandidate[] = [];
+// Which kind of note card a note is drawn as (general notes can be made a todo)
+let mockNoteCardType: 'general' | null = null;
 jest.mock('../../../lib/store/selectors', () => ({
   __esModule: true,
   useSweepCandidatesUnified: () =>
@@ -56,27 +60,29 @@ jest.mock('../../../lib/store/selectors', () => ({
         resurfacingDate: null,
         spaceName: null,
         spaceId: null,
-        isLockedIn: false,
         gremlyResponse: 'Test gremly response',
       },
     })),
-  useSweepIntroStats: () => ({ stats: { urgentCount: 0, pendingCount: 0 }, isLoading: false }),
   useIsLoading: () => false,
   selectWrapUp: () => ({
-    cards: mockCandidates.map((candidate) => ({ candidate, meta: { gremlyResponse: 'Test' } })),
+    cards: mockCandidates.map((candidate) => ({
+      candidate,
+      meta: {
+        gremlyResponse: 'Test',
+        noteCardType: candidate.kind === 'note' ? mockNoteCardType : null,
+      },
+    })),
     still: [],
   }),
   useActiveSpaces: () => [],
   useSkipBudget: () => ({ used: 0, remaining: 3, total: 3, canSkip: true }),
-  selectTodayLockedItems: () => [], // No locked items in tests
-  selectTodayLockedItemsIncludingCompleted: () => [], // No locked items in tests
 }));
 
 jest.mock('../../../lib/store/useGremlyStore', () => {
   // Create the mock hook function
   const mockUseGremlyStore = (selector: (state: any) => any) => {
     const state = {
-      todos: [],
+      todos: mockStoreTodos,
       notes: mockLiveNotes,
       habits: [],
       worlds: [],
@@ -366,6 +372,7 @@ describe('SweepFlowScreen - the cards on their own', () => {
     jest.clearAllMocks();
     mockRouteParams = { cards: 'wrap' };
     mockCandidates = [mockTodoCandidate, mockNoteCandidate];
+    mockNoteCardType = null;
     mockStoreTodos = [];
     mockStoreNotes = [];
     mockLiveNotes = [];
@@ -484,6 +491,59 @@ describe('SweepFlowScreen - the cards on their own', () => {
     alert.mockRestore();
   });
 
+  it('saves the decision on the new todo when a note was turned into one on its card', async () => {
+    mockCandidates = [mockNoteCandidate];
+    mockNoteCardType = 'general';
+    const result = render(<SweepFlowScreen navigation={mockNavigation} />);
+    await waitFor(() => result.getByText('Test note'));
+
+    // Make it a todo opens the item sheet to make the todo
+    fireEvent.press(result.getByText('Make it a todo'));
+    expect(mockOpenCreate).toHaveBeenCalledWith(expect.objectContaining({ type: 'todo' }));
+
+    // the sheet saved the new todo: the card becomes that todo, in place
+    mockStoreTodos = [
+      {
+        id: 'todo-new',
+        name: 'Test note',
+        owner_id: 'test-user-id',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ];
+    act(() => {
+      emitOverlaySaved({ id: 'todo-new', type: 'todo' } as any);
+    });
+
+    await waitFor(() => result.getByRole('button', { name: 'Keep this item' }));
+    fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
+
+    // the old Sweep wrote this to the note that had just been put away
+    await waitFor(() => expect(mockApply).toHaveBeenCalledTimes(1));
+    expect(mockApply.mock.calls[0][0]).toMatchObject({
+      candidateId: 'todo-new',
+      candidateKind: 'todo',
+    });
+    expect(mockApply.mock.calls.some((c) => c[0].candidateId === 'note-1')).toBe(false);
+  });
+
+  it('opened with neither cards nor the week, hands over to the wrap up in the thread', async () => {
+    mockRouteParams = {};
+    const replace = jest.fn();
+    const result = render(<SweepFlowScreen navigation={{ ...mockNavigation, replace }} />);
+
+    await waitFor(() => expect(replace).toHaveBeenCalledTimes(1));
+    expect(replace.mock.calls[0][0]).toBe('Tabs');
+    expect(replace.mock.calls[0][1]).toMatchObject({
+      screen: 'Gremly',
+      params: { mode: 'chat', thread: 'today', step: 'wrap' },
+    });
+    // nothing of the old evening Sweep, and no cards, is drawn on the way
+    expect(result.queryByText('Test task')).toBeNull();
+    expect(result.queryByText('Lead me through it all')).toBeNull();
+    expect(mockApply).not.toHaveBeenCalled();
+  });
+
   it('saves each decision in the morning quick sweep too, without the wrap up record', async () => {
     mockRouteParams = { cards: 'quick' };
     const result = render(<SweepFlowScreen navigation={mockNavigation} />);
@@ -493,5 +553,85 @@ describe('SweepFlowScreen - the cards on their own', () => {
     await waitFor(() => result.getByText('Test note'));
     expect(mockRecord).not.toHaveBeenCalled();
     expect(mockCardsOpened).not.toHaveBeenCalled();
+  });
+});
+
+describe('SweepFlowScreen - the cards after midnight, before the day ends', () => {
+  // 12:30 AM on Thursday 1 October in Los Angeles. The day ends at 3 AM, so
+  // for the person it is still Wednesday 30 September.
+  const ds = getDateService() as any;
+  let was: { clock: () => Date; timezone: string; hour: number };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    was = { clock: ds.clock, timezone: ds.getTimezone(), hour: ds.getDayBoundaryHour() };
+    ds.clock = () => new Date('2026-10-01T07:30:00Z');
+    ds.setTimezone('America/Los_Angeles');
+    ds.setDayBoundaryHour(3);
+
+    mockRouteParams = { cards: 'wrap' };
+    mockCandidates = [mockTodoCandidate];
+    mockNoteCardType = null;
+    mockStoreTodos = [];
+    mockStoreNotes = [];
+    mockLiveNotes = [];
+    mockWrap = null;
+    mockFetchSweepCandidates.mockResolvedValue([]);
+    mockApply.mockImplementation(async (d: { candidateId: string; candidateKind: 'todo' }) =>
+      saved(d.candidateId, d.candidateKind),
+    );
+  });
+
+  afterEach(() => {
+    ds.clock = was.clock;
+    ds.setTimezone(was.timezone);
+    ds.setDayBoundaryHour(was.hour);
+  });
+
+  it('the clock and the person disagree about today', () => {
+    expect(getDateService().today()).toBe('2026-10-01');
+    expect(getDateService().ritualDay()).toBe('2026-09-30');
+  });
+
+  it('Tomorrow on a card is the day after the day being wrapped up', async () => {
+    const result = render(<SweepFlowScreen navigation={mockNavigation} />);
+    await waitFor(() => result.getByText('Test task'));
+
+    fireEvent.press(result.getByText('Tomorrow'));
+    fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
+
+    await waitFor(() => expect(mockApply).toHaveBeenCalledTimes(1));
+    // Thursday: the person's tomorrow, which the clock already calls today
+    expect(mockApply.mock.calls[0][0]).toMatchObject({
+      candidateId: 'todo-1',
+      action: 'keep',
+      dueDateStr: '2026-10-01',
+    });
+  });
+
+  it('Today on a card is the day being wrapped up', async () => {
+    const result = render(<SweepFlowScreen navigation={mockNavigation} />);
+    await waitFor(() => result.getByText('Test task'));
+
+    fireEvent.press(result.getByText('Today'));
+    fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
+
+    await waitFor(() => expect(mockApply).toHaveBeenCalledTimes(1));
+    expect(mockApply.mock.calls[0][0]).toMatchObject({
+      candidateId: 'todo-1',
+      action: 'keep',
+      dueDateStr: '2026-09-30',
+    });
+  });
+
+  it('Next Week on a card is the Monday after the day being wrapped up', async () => {
+    const result = render(<SweepFlowScreen navigation={mockNavigation} />);
+    await waitFor(() => result.getByText('Test task'));
+
+    fireEvent.press(result.getByText('Next Week'));
+    fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
+
+    await waitFor(() => expect(mockApply).toHaveBeenCalledTimes(1));
+    expect(mockApply.mock.calls[0][0]).toMatchObject({ dueDateStr: '2026-10-05' });
   });
 });

@@ -1,58 +1,120 @@
-import { expireOldLockIns, lockInDay } from '../storePlan';
+import { lockPlanItems, placedOn } from '../storePlan';
+import { DEFAULT_TIME_BLOCK_PREFERENCES } from '../../capacity/capacityTypes';
+import type { PlanItem } from '../../brief/types';
 
-const mockState: any = { todos: [], habits: [], removeCommitment: jest.fn() };
+const mockState: any = {};
 jest.mock('../../store/useGremlyStore', () => ({
   useGremlyStore: { getState: () => mockState },
-  isHabitLockedIn: () => false,
+}));
+jest.mock('../../brief/feeding', () => ({
+  withFeedAnimation: (credit: () => Promise<unknown>) => credit(),
+}));
+jest.mock('../../brief/todayThread', () => ({
+  useTodayThread: { getState: () => ({ thread: null }) },
+}));
+jest.mock('../../brief/time', () => ({
+  localMinutesToIso: (day: string, m: number) =>
+    `${day}T${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}:00`,
+  localDateOf: (iso: string) => iso.slice(0, 10),
 }));
 
-const todo = (id: string, extra: Record<string, unknown>) => ({
-  id,
-  name: id,
-  archived: false,
-  completed_at: null,
-  commitment: true,
-  ...extra,
-});
+const item = (id: string, kind: PlanItem['kind'], start: number, extra = {}): PlanItem =>
+  ({ id, kind, title: id, start, end: start + 30, ...extra }) as PlanItem;
 
-describe('the day a Lock In is for', () => {
-  it('is the day it was made, or the next day when the todo is due then', () => {
-    expect(lockInDay('2026-10-01', null)).toBe('2026-10-01');
-    expect(lockInDay('2026-10-01', '2026-10-01')).toBe('2026-10-01');
-    // locked in last night for today, or moved to tomorrow at the checkpoint
-    expect(lockInDay('2026-10-01', '2026-10-02')).toBe('2026-10-02');
-    // the Sage deck: locked in by Thursday's plan, due Saturday
-    expect(lockInDay('2026-10-01', '2026-10-03')).toBe('2026-10-01');
-    expect(lockInDay('2026-10-01', '2026-09-28')).toBe('2026-10-01');
-    expect(lockInDay(null, '2026-01-05')).toBe('2026-01-05');
+beforeEach(() => {
+  Object.assign(mockState, {
+    todos: [],
+    habits: [],
+    timeBlockPreferences: DEFAULT_TIME_BLOCK_PREFERENCES,
+    isFedToday: false,
+    feedingGaugeValue: 0,
+    createTodo: jest.fn(async (t: any) => ({ id: 'new-todo', ...t })),
+    updateTodo: jest.fn(async () => undefined),
+    updateHabit: jest.fn(async () => undefined),
+    saveBrief: jest.fn(async () => undefined),
+    creditPlanItems: jest.fn(async () => undefined),
+    // the old Lock In: saying yes to a plan must never reach for it
+    addCommitment: jest.fn(async () => undefined),
   });
 });
 
-describe('Lock Ins last the day they were for', () => {
-  beforeEach(() => {
-    mockState.removeCommitment = jest.fn(async () => undefined);
-  });
-
-  it('ends a Lock In made on an earlier day, and keeps today’s', () => {
+describe('what a plan gave a time on a day', () => {
+  it('is the todos and habits placed on that day, and nothing flagged the old way', () => {
     mockState.todos = [
-      // locked in on 1 October (Los Angeles), still open on the 2nd
-      todo('deck', { commitment_started_at: '2026-10-01T21:04:28Z', due_day: '2026-10-03' }),
-      todo('present', { commitment_started_at: '2026-10-02T15:13:53Z', due_day: '2026-10-02' }),
-      // done, or not a Lock In: left alone
-      todo('plumber', {
-        commitment_started_at: '2026-10-01T21:04:28Z',
-        completed_at: '2026-10-02T02:52:39Z',
-      }),
-      todo('loose', { commitment: false, commitment_started_at: '2026-09-01T10:00:00Z' }),
-      // an old row with no start: its due date decides
-      todo('legacy', { commitment_started_at: null, due_day: '2026-01-05' }),
-      // locked in at 9pm last night for today: it holds
-      todo('tonight', { commitment_started_at: '2026-10-02T04:00:00Z', due_day: '2026-10-02' }),
+      { id: 'deck', scheduled_start_iso: '2026-10-01T09:00:00' },
+      { id: 'tomorrow', scheduled_start_iso: '2026-10-02T09:00:00' },
+      { id: 'flagged', scheduled_start_iso: null, commitment: true },
     ];
-    expect(expireOldLockIns('2026-10-02')).toBe(2);
-    expect(mockState.removeCommitment.mock.calls.map((c: unknown[]) => c[0])).toEqual([
-      'deck',
-      'legacy',
-    ]);
+    mockState.habits = [
+      { id: 'run', scheduled_start_iso: '2026-10-01T18:00:00' },
+      { id: 'until', scheduled_start_iso: null, commitment_until: '2026-10-09' },
+    ];
+    expect([...placedOn('2026-10-01')].sort()).toEqual(['deck', 'run']);
+    expect([...placedOn('2026-10-02')]).toEqual(['tomorrow']);
+  });
+});
+
+describe('saying yes to a plan', () => {
+  it('gives each item its time on the day, with no Lock In on any of them', async () => {
+    const res = await lockPlanItems(
+      '2026-10-01',
+      [item('deck', 'todo', 9 * 60), item('run', 'habit', 18 * 60)],
+      [],
+    );
+    expect(mockState.updateTodo).toHaveBeenCalledWith('deck', {
+      daily_block: 'morning',
+      scheduled_start_iso: '2026-10-01T09:00:00',
+    });
+    expect(mockState.updateHabit).toHaveBeenCalledWith('run', {
+      daily_block: 'evening',
+      scheduled_start_iso: '2026-10-01T18:00:00',
+    });
+    expect(mockState.addCommitment).not.toHaveBeenCalled();
+    for (const call of [...mockState.updateTodo.mock.calls, ...mockState.updateHabit.mock.calls]) {
+      expect(Object.keys(call[1]).some((k) => /commit|locked/.test(k))).toBe(false);
+    }
+    expect(res.items.map((x) => x.id)).toEqual(['deck', 'run']);
+  });
+
+  it('makes a suggestion into a todo due that day', async () => {
+    const res = await lockPlanItems(
+      '2026-10-01',
+      [item('fact-1', 'reach', 10 * 60, { title: 'Book the car service', minutes: 15 })],
+      [],
+    );
+    expect(mockState.createTodo).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Book the car service', due_day: '2026-10-01' }),
+    );
+    expect(res.created).toEqual(['Book the car service']);
+    expect(res.items[0]).toMatchObject({ id: 'new-todo', kind: 'todo' });
+  });
+
+  it('takes the time off what an earlier plan placed and this one leaves out', async () => {
+    await lockPlanItems(
+      '2026-10-01',
+      [item('deck', 'todo', 9 * 60)],
+      [item('deck', 'todo', 8 * 60), item('old', 'todo', 11 * 60), item('walk', 'habit', 12 * 60)],
+    );
+    const clear = { daily_block: null, scheduled_start_iso: null };
+    expect(mockState.updateTodo).toHaveBeenCalledWith('old', clear);
+    expect(mockState.updateHabit).toHaveBeenCalledWith('walk', clear);
+    expect(mockState.updateTodo).not.toHaveBeenCalledWith('deck', clear);
+  });
+
+  it('writes the day row in time order and feeds for the items, whichever day the plan is for', async () => {
+    await lockPlanItems(
+      '2026-10-02',
+      [item('late', 'todo', 19 * 60), item('early', 'todo', 9 * 60), item('run', 'habit', 13 * 60)],
+      [],
+    );
+    expect(mockState.saveBrief).toHaveBeenCalledWith(
+      expect.objectContaining({
+        date: '2026-10-02',
+        morning_sequence: [{ id: 'early', type: 'todo' }],
+        day_sequence: [{ id: 'run', type: 'habit' }],
+        evening_sequence: [{ id: 'late', type: 'todo' }],
+      }),
+    );
+    expect(mockState.creditPlanItems).toHaveBeenCalledWith(3);
   });
 });

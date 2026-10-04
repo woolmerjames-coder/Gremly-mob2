@@ -296,7 +296,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     () => (isDailyThread ? liveOfferId(rows) : null),
     [isDailyThread, rows],
   );
-  // Planning in today's thread: the plan card, its changes and Lock it in
+  // Planning in today's thread: the plan card, its changes and saying yes to it
   const threadDay =
     (activeChat?.metadata_json as Partial<DailyThreadMeta> | null | undefined)?.ritual_day ??
     getDateService().ritualDay();
@@ -1317,8 +1317,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         interactive={!planFlowRef.current.typing}
         onRemove={(id) => void planFlowRef.current.removeItem(message, id)}
         onAdd={(id, kind) => void planFlowRef.current.addItem(message, id, kind)}
-        onLock={() =>
-          void planFlowRef.current.lock(message).then(() => wrapUpRef.current.afterPlan())
+        onYes={() =>
+          void planFlowRef.current.accept(message).then(() => wrapUpRef.current.afterPlan())
         }
         onDismiss={() =>
           void planFlowRef.current.dismiss(message).then(() => wrapUpRef.current.afterPlan())

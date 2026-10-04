@@ -59,7 +59,6 @@ import {
   ChevronRight,
   Trash2,
   Camera,
-  Diamond,
   Maximize2,
   Star,
   FileText,
@@ -147,7 +146,6 @@ import { ChecklistProgress } from './ChecklistProgress';
 import LinkedItemsSection from './LinkedItemsSection';
 import LinkedEventPicker from './LinkedEventPicker';
 import { TodoPreviewModal } from './TodoPreviewModal';
-import { env } from '../../lib/env';
 import { ClarificationPopup } from '../minddrop/ClarificationPopup';
 import { hasActionableList, type ExtractedListItem, type ListItem } from '../../lib/lists';
 import { TypePill, TypePickerDropdown, deriveEntityType, getTypeConfig } from './TypePicker';
@@ -162,7 +160,6 @@ import {
   originalLabelWords,
   showsOriginalLabel,
 } from '../../lib/chat/changeHistory';
-import { ToggleSwitch } from './ToggleSwitch';
 
 const BASE_LABEL: Record<BaseType, string> = { log: 'Note', todo: 'To-Do', habit: 'Habit' };
 
@@ -1392,27 +1389,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const textInputRef = useRef<TextInput | null>(null);
   const prevConversionMetaRef = useRef(conversionMeta);
 
-  // feature flag for commitments (soft rollout)
-  const commitmentsOn = env.feature.commitments;
   const currentTagsRef = useRef<TagKey[]>(state.tags);
   currentTagsRef.current = state.tags;
   const hasLoadedEditTagsRef = useRef(false);
-
-  async function canEnableCommitment(): Promise<boolean> {
-    try {
-      if (typeof (repo as any).countActiveCommitments === 'function') {
-        const n = await (repo as any).countActiveCommitments();
-        return n < 3;
-      }
-      if (typeof (repo as any).listCommitments === 'function') {
-        const items = await (repo as any).listCommitments();
-        return (items?.length ?? 0) < 3;
-      }
-    } catch (e) {
-      // ignore and allow by default
-    }
-    return true;
-  }
 
   // Derive spaces from store (no useEffect needed)
   const spaces = storeSpaces || [];
@@ -2435,9 +2414,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
 
   const overlaySubtitle = state.compactTitle?.trim() ?? '';
-
-  // Derived "Lock In" state from commitment field
-  const isLockedIn = !!state.commitment && (baseType === 'todo' || baseType === 'habit');
 
   // Log timestamp and mood (Phase L2)
   const logTimestampLabel = isLog
@@ -3636,19 +3612,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 </View>
               )}
 
-              {/* Lock In badge */}
-              {isLockedIn ? (
-                <View
-                  style={[
-                    styles.lockedBadge,
-                    { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
-                  ]}
-                >
-                  <Diamond size={12} color="#2E5540" fill="#2E5540" />
-                  <Text style={styles.lockedBadgeText}>Locked In</Text>
-                </View>
-              ) : null}
-
               {/* Habit Build/Break toggle */}
               {baseType === 'habit' && !isViewMode && (
                 <HabitModeToggle
@@ -4351,37 +4314,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 </Text>
                               }
                               onPress={() => toggleRow('linked')}
-                            />
-                          )}
-
-                          {commitmentsOn && (
-                            <StaticRow
-                              icon={Diamond}
-                              label="Lock In"
-                              right={
-                                <ToggleSwitch
-                                  on={isLockedIn}
-                                  onToggle={async () => {
-                                    if (!state.commitment) {
-                                      const ok = await canEnableCommitment();
-                                      if (!ok) return;
-                                    }
-                                    pushUndoEntry('commitment', {
-                                      commitment: state.commitment,
-                                      commitmentNote: state.commitmentNote,
-                                      commitmentStartedAt: state.commitmentStartedAt,
-                                    });
-                                    store.setCommitment(!state.commitment);
-                                    try {
-                                      eventBus.emit('OverlayCommitmentToggled', {
-                                        on: !state.commitment,
-                                      });
-                                    } catch {
-                                      /* fire-and-forget */
-                                    }
-                                  }}
-                                />
-                              }
                             />
                           )}
 
@@ -5155,37 +5087,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 </Text>
                               }
                               onPress={() => toggleRow('linked')}
-                            />
-                          )}
-
-                          {commitmentsOn && (
-                            <StaticRow
-                              icon={Diamond}
-                              label="Lock In"
-                              right={
-                                <ToggleSwitch
-                                  on={isLockedIn}
-                                  onToggle={async () => {
-                                    if (!state.commitment) {
-                                      const ok = await canEnableCommitment();
-                                      if (!ok) return;
-                                    }
-                                    pushUndoEntry('commitment', {
-                                      commitment: state.commitment,
-                                      commitmentNote: state.commitmentNote,
-                                      commitmentStartedAt: state.commitmentStartedAt,
-                                    });
-                                    store.setCommitment(!state.commitment);
-                                    try {
-                                      eventBus.emit('OverlayCommitmentToggled', {
-                                        on: !state.commitment,
-                                      });
-                                    } catch {
-                                      /* fire-and-forget */
-                                    }
-                                  }}
-                                />
-                              }
                             />
                           )}
 
@@ -6867,7 +6768,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       color: storeUI.saving || !canSave ? 'rgba(255,255,255,0.6)' : '#FFFFFF',
                     }}
                   >
-                    {storeUI.saving ? 'Saving...' : isLockedIn ? 'Lock It In →' : 'Save'}
+                    {storeUI.saving ? 'Saving...' : 'Save'}
                   </Text>
                 </Pressable>
               </View>

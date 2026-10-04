@@ -73,7 +73,7 @@ export default function TodayV4LanesView() {
   const repo = useRepo();
   const { openEdit } = useUnifiedOverlayController();
   const commitmentsEnabled = useMemo(
-    () => (process.env.EXPO_PUBLIC_FEATURE_COMMITMENTS ?? 'on').toLowerCase(),
+    () => (process.env.EXPO_PUBLIC_FEATURE_COMMITMENTS ?? 'off').toLowerCase(),
     [],
   );
   const showCommitments = useMemo(

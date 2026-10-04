@@ -4,9 +4,8 @@
  * habits in two tabs. Habits show where they are for the week, with the
  * Behind tag from the behind this week rule.
  *
- * In view mode each row can be locked in for today, which puts it at the top
- * of Today, without leaving the chat. In add mode (from the plan card) each
- * row is added to the plan instead.
+ * In view mode a row shows the time the plan gave it, or that it is in the
+ * plan. In add mode (from the plan card) each row can be added to the plan.
  */
 
 import React, { useState } from 'react';
@@ -19,12 +18,11 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Check, Lock, Plus, X } from 'lucide-react-native';
+import { Plus, X } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Habit, Todo } from '../../lib/types';
 import type { DayCardData, HabitWeek } from '../../lib/brief/useDayCard';
 import { ampm, clock } from '../../lib/brief/dayCard';
-import { isHabitLockedIn } from '../../lib/store/useGremlyStore';
 import { BRIEF } from './briefStyles';
 
 export type DueTab = 'todos' | 'habits';
@@ -38,7 +36,6 @@ type Props = {
   mode?: 'view' | 'add';
   /** Ids already in the live plan (add mode, and "In the plan" in view mode) */
   inPlan?: Set<string>;
-  onLockIn?: (id: string, kind: 'todo' | 'habit') => void;
   onAdd?: (id: string, kind: 'todo' | 'habit') => void;
   /** On a return day the Behind tag stays calm */
   calm?: boolean;
@@ -69,7 +66,6 @@ export function DueTodaySheet({
   initialTab = 'todos',
   mode = 'view',
   inPlan,
-  onLockIn,
   onAdd,
   calm,
 }: Props) {
@@ -82,7 +78,7 @@ export function DueTodaySheet({
   const plannedAt = (id: string) => data.planned.find((p) => p.id === id);
   const weekOf = new Map<string, HabitWeek>(data.habitWeeks.map((w) => [w.habit.id, w]));
 
-  const action = (id: string, kind: 'todo' | 'habit', locked: boolean) => {
+  const action = (id: string, kind: 'todo' | 'habit') => {
     if (mode === 'add') {
       if (inPlan?.has(id)) return <Text style={styles.info}>In the plan</Text>;
       return (
@@ -101,26 +97,7 @@ export function DueTodaySheet({
     const at = plannedAt(id);
     if (at) return <Text style={styles.info}>{`${clock(at.start)} ${ampm(at.start)}`}</Text>;
     if (inPlan?.has(id)) return <Text style={styles.info}>In the plan</Text>;
-    if (locked) {
-      return (
-        <View style={[styles.act, styles.actOn]} testID={`due-locked-${id}`}>
-          <Check size={14} color={BRIEF.linen} strokeWidth={2.5} />
-          <Text style={[styles.actText, styles.actTextOn]}>Locked in</Text>
-        </View>
-      );
-    }
-    return (
-      <TouchableOpacity
-        style={styles.act}
-        onPress={() => onLockIn?.(id, kind)}
-        accessibilityRole="button"
-        accessibilityLabel="Lock in for today"
-        testID={`due-lock-${id}`}
-      >
-        <Lock size={13} color={BRIEF.moss} strokeWidth={2.2} />
-        <Text style={styles.actText}>Lock in</Text>
-      </TouchableOpacity>
-    );
+    return null;
   };
 
   const todoRow = (t: Todo) => {
@@ -133,7 +110,7 @@ export function DueTodaySheet({
           </Text>
           <Text style={styles.meta}>{meta}</Text>
         </View>
-        {action(t.id, 'todo', t.commitment === true)}
+        {action(t.id, 'todo')}
       </View>
     );
   };
@@ -167,7 +144,7 @@ export function DueTodaySheet({
             ) : null}
           </View>
         </View>
-        {action(h.id, 'habit', isHabitLockedIn(h))}
+        {action(h.id, 'habit')}
       </View>
     );
   };
@@ -378,17 +355,10 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 10,
   },
-  actOn: {
-    backgroundColor: BRIEF.moss,
-    borderColor: BRIEF.moss,
-  },
   actText: {
     fontFamily: 'PlusJakartaSans-SemiBold',
     fontSize: 13,
     color: BRIEF.moss,
-  },
-  actTextOn: {
-    color: BRIEF.linen,
   },
   info: {
     fontFamily: 'Inter-Medium',

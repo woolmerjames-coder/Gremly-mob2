@@ -62,7 +62,6 @@ export function useMiniSweepGate(): UseMiniSweepGateReturn {
         !t.completed_at &&
         t.due_day === todayDate &&
         !t.daily_block &&
-        !t.commitment &&
         t.created_at != null &&
         getDateService().extractLocalDate(t.created_at) === todayDate,
     );

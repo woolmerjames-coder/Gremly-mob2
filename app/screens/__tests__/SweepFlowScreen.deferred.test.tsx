@@ -38,16 +38,12 @@ jest.mock('../../../lib/store/selectors', () => ({
         resurfacingDate: null,
         spaceName: null,
         spaceId: null,
-        isLockedIn: false,
         gremlyResponse: 'Test gremly response',
       },
     })),
-  useSweepIntroStats: () => ({ stats: { urgentCount: 0, pendingCount: 0 }, isLoading: false }),
   useIsLoading: () => false,
   useActiveSpaces: () => [],
   useSkipBudget: () => ({ used: 0, remaining: 3, total: 3, canSkip: true }),
-  selectTodayLockedItems: () => [], // No locked items in tests
-  selectTodayLockedItemsIncludingCompleted: () => [], // No locked items in tests
 }));
 
 jest.mock('../../../lib/store/useGremlyStore', () => {
@@ -138,22 +134,6 @@ const mockArchiveHabit = jest.fn().mockResolvedValue(undefined);
 let mockStoreTodos: any[] = [];
 let mockStoreNotes: any[] = [];
 
-// Mock useSweepIntroStats hook
-jest.mock('../../../lib/sweep/useSweepIntroStats', () => ({
-  __esModule: true,
-  useSweepIntroStats: () => ({
-    stats: {
-      completed: { todos: [], habits: [] },
-      dropped: { todos: [], habits: [], notes: [] },
-      isFirstSweep: false,
-      cutoffTimestamp: new Date().toISOString(),
-    },
-    isLoading: false,
-    error: null,
-    refetch: jest.fn(),
-  }),
-}));
-
 // Mock Supabase client
 jest.mock('../../../lib/supabase/client', () => ({
   __esModule: true,
@@ -217,6 +197,17 @@ jest.mock('../../../lib/today/useTodayInteractions', () => ({
   }),
 }));
 
+// The week planner's habits step is its own screen with its own tests: here it
+// only has to show that the cards handed over to it
+jest.mock('../../components/sweep/SweepHabitsCheckInStep', () => {
+  const React = require('react');
+  const { Text } = require('react-native');
+  return {
+    __esModule: true,
+    SweepHabitsCheckInStep: () => React.createElement(Text, null, 'Week habits step'),
+  };
+});
+
 // Mock navigation
 const mockGoBack = jest.fn();
 jest.mock('@react-navigation/native', () => {
@@ -231,7 +222,7 @@ jest.mock('@react-navigation/native', () => {
       effect();
     },
     useRoute: () => ({
-      params: {},
+      params: { week: true },
     }),
   };
 });
@@ -327,14 +318,6 @@ const mockNoteCandidate: SweepCandidate = {
   } as any,
 };
 
-const INTRO_DECISION_LABEL =
-  /Close out today|Wrap up today|Plan today|Anything for today\?|Set up tomorrow instead/;
-
-function pressIntroDecisionIntent(result: ReturnType<typeof render>) {
-  const button = result.getAllByText(INTRO_DECISION_LABEL)[0];
-  fireEvent.press(button);
-}
-
 const mockNoteCandidate2: SweepCandidate = {
   id: 'note-2',
   kind: 'note',
@@ -358,16 +341,16 @@ const mockNoteCandidate2: SweepCandidate = {
 };
 
 /**
- * Helper to render and navigate to decision step (step 1)
+ * Helper to render and get to the cards. Sweep's whole list, saved at the
+ * end, is the week planner's now: open it and take the guided path.
  */
 async function renderAtDecisionStep() {
   const result = render(<SweepFlowScreen navigation={mockNavigation} />);
 
-  // Step 0: Intro - tap a non-week intent row to go to Decision
   await waitFor(() => {
-    expect(result.getAllByText(INTRO_DECISION_LABEL).length).toBeGreaterThan(0);
+    expect(result.getByText('Lead me through it all')).toBeTruthy();
   });
-  pressIntroDecisionIntent(result);
+  fireEvent.press(result.getByText('Lead me through it all'));
 
   return result;
 }
@@ -468,7 +451,7 @@ describe('SweepFlowScreen - Deferred Commit Pattern', () => {
 
       // Should auto-advance to Habits step after last card
       await waitFor(() => {
-        result.getByText('Habits today');
+        result.getByText('Week habits step');
       });
 
       // Now the mutations should have been committed (may be async)
@@ -515,7 +498,7 @@ describe('SweepFlowScreen - Deferred Commit Pattern', () => {
 
       // Should advance to Habits step
       await waitFor(() => {
-        result.getByText('Habits today');
+        result.getByText('Week habits step');
       });
 
       // No mutations should have been called for skip
@@ -574,7 +557,7 @@ describe('SweepFlowScreen - Deferred Commit Pattern', () => {
 
       // Wait for habits step
       await waitFor(() => {
-        result.getByText('Habits today');
+        result.getByText('Week habits step');
       });
 
       // Verify correct mutations (may be async)

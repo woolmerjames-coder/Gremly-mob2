@@ -189,6 +189,56 @@ export function otherDayTitle(day: string, today: string): string | null {
   return new Intl.DateTimeFormat('en-GB', { weekday: 'long', timeZone: 'UTC' }).format(new Date(b));
 }
 
+function weekdayName(day: string): string {
+  const at = Date.UTC(+day.slice(0, 4), +day.slice(5, 7) - 1, +day.slice(8, 10));
+  return new Intl.DateTimeFormat('en-GB', { weekday: 'long', timeZone: 'UTC' }).format(
+    new Date(at),
+  );
+}
+
+/** How a plan's day is named. */
+export interface PlanDay {
+  /** The plan is for the person's own day */
+  today: boolean;
+  /** "today", "tomorrow", or the weekday when tomorrow would be misread */
+  word: string;
+  /** The weekday the plan is for */
+  weekday: string;
+}
+
+/**
+ * The words for a plan's day. today is the person's day, which ends at their
+ * day end and not at midnight. late is the time after midnight before it
+ * ends: the clock already says the next day then, so that day goes by its
+ * weekday instead of "tomorrow".
+ */
+export function planDay(day: string, today: string, late = false): PlanDay {
+  const weekday = weekdayName(day);
+  if (day === today) return { today: true, word: 'today', weekday };
+  const next = otherDayTitle(day, today) === 'Tomorrow';
+  return { today: false, word: next && !late ? 'tomorrow' : weekday, weekday };
+}
+
+/** The card's title for a plan made for another day; null for today's. */
+export function planDayTitle(d: PlanDay): string | null {
+  return d.today ? null : d.word.charAt(0).toUpperCase() + d.word.slice(1);
+}
+
+/** The button that says yes to a proposal. */
+export function yesLabel(d: PlanDay): string {
+  return d.today ? 'Put it on Today' : `That's ${d.word}`;
+}
+
+/** The tag on a plan that was said yes to. */
+export function setTag(d: PlanDay): string {
+  return d.today ? 'On Today' : `On ${d.weekday}`;
+}
+
+/** The one line a plan folds to after Not now. */
+export function notSetLine(d: PlanDay): string {
+  return d.today ? 'Plan not set' : 'Plan not set. The morning brief will have it.';
+}
+
 /** "Your day", "Your afternoon", "Your evening": from where the plan starts. */
 export function planHeading(from: number): string {
   if (from < 12 * 60) return 'Your day';
@@ -277,9 +327,9 @@ export const PLAN_COPY = {
   noRoom: "There isn't a clear stretch left today to fit anything in, so I'd leave it as it is.",
   noRoomTravel: "There isn't a clear stretch left before you set off, so I'd leave it as it is.",
   dismissed: "No problem. It'll be right here if you want it later.",
-  alreadyLocked: "It's already locked in. Tell me what to change and I'll rework it.",
-  relock: ' Lock it in again to update Today.',
-  relockAfterChanges: "Here's the plan with those changes. Lock it in again to update Today.",
+  dismissedOtherDay: 'No problem. The morning brief will bring it.',
+  again: ' Say yes again to keep the change.',
+  againAfterChanges: "Here's the plan with those changes. Say yes again to keep them.",
   thanks: 'Any time.',
   keptReason: 'Kept for today',
 };
@@ -289,7 +339,8 @@ export function changeText(
   op: PlanOp,
   title: string,
   placed: PlanItem | undefined,
-  wasLocked: boolean,
+  /** The plan had already been said yes to: the changed one needs a yes again */
+  wasSet: boolean,
 ): string {
   const name = title;
   let text: string;
@@ -302,7 +353,7 @@ export function changeText(
     text = placed
       ? `Done, ${name} is at ${spoken(placed.start)} now. Everything else stays where it was.`
       : `I couldn't find room for ${name} then, so I've left it off.`;
-  return wasLocked ? text + PLAN_COPY.relock : text;
+  return wasSet ? text + PLAN_COPY.again : text;
 }
 
 /** Gremly's line when something chosen did not fit. */
@@ -314,12 +365,25 @@ export function unplacedText(unplaced: UnplacedItem[]): string | null {
     : `I couldn't find good gaps for ${names} today, so they're not in the plan.`;
 }
 
-/** Gremly's line after Lock it in. */
-export function lockText(created: string[]): string {
-  let t = "Locked in. It's all on Today, with plenty of room left.";
+/** Gremly's line after a plan is said yes to. */
+export function yesText(created: string[], d: PlanDay): string {
+  let t = d.today
+    ? "That's all on Today, with plenty of room left."
+    : "Done. It'll be on Today when you wake up.";
   if (created.length)
     t += ` I've added ${namesOf(created)} as ${created.length === 1 ? 'a todo' : 'todos'} too.`;
   return t;
+}
+
+/** Gremly's line after Not now. */
+export function dismissedText(d: PlanDay): string {
+  return d.today ? PLAN_COPY.dismissed : PLAN_COPY.dismissedOtherDay;
+}
+
+/** Gremly's line when a plan is asked for and the day already has one. */
+export function alreadySetText(d: PlanDay): string {
+  const where = d.today ? 'on Today' : `set for ${d.word}`;
+  return `It's already ${where}. Tell me what to change and I'll rework it.`;
 }
 
 /**

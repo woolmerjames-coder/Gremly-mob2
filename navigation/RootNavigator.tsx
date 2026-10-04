@@ -25,7 +25,6 @@ import SpaceHomeScreen from '../app/spaces/SpaceHomeScreen';
 import ChatThreadScreen from '../app/spaces/ChatThreadScreen';
 import { ListsScreen } from '../app/screens/ListsScreen';
 import ArchivedItemsScreen from '../app/screens/ArchivedItemsScreen';
-import SweepTestScreen from '../app/screens/SweepTestScreen';
 import CalendarScreen from '../app/screens/CalendarScreen';
 import HabitsScreen from '../app/screens/HabitsScreen';
 import HabitDetailScreen from '../app/screens/HabitDetailScreen';
@@ -90,11 +89,8 @@ export type RootStackParamList = {
   Lists: undefined;
   Sweep:
     | {
-        initialStep?: number;
-        initialCardIndex?: number;
+        /** The first run demo, from the unlock card on Drop */
         demoMode?: boolean;
-        initialIntent?: 'today' | 'tomorrow' | 'week';
-        initialHub?: boolean;
         /**
          * The cards on their own, opened from today's thread, each decision
          * saved as it is made, then back. wrap: tonight's wrap up. quick: the
@@ -120,7 +116,6 @@ export type RootStackParamList = {
   WeeklySummary: { weekStartDate?: string } | undefined;
   WeeklySummaryV2: { weekStartDate?: string } | undefined;
   WeeklyArchive: undefined;
-  SweepTest: undefined; // DEV only
   HubScreen: undefined;
   WorldDetail: { worldId: string };
   ChapterDetail: { chapterId: string };
@@ -404,13 +399,6 @@ export default function RootNavigator() {
               name="RecentItems"
               component={RecentItems}
               options={{ title: 'Recent Items', presentation: 'modal', headerShown: true }}
-            />
-          )}
-          {__DEV__ && (
-            <Stack.Screen
-              name="SweepTest"
-              component={SweepTestScreen}
-              options={{ title: 'Sweep Test Mode', presentation: 'modal', headerShown: false }}
             />
           )}
           {__DEV__ && (

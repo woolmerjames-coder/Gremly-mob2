@@ -182,7 +182,7 @@ const HELP_CONTENT: Record<ScreenType, HelpContent> = {
     steps: [
       {
         icon: <CalendarCheck size={ICON_SIZE} color={ICON_COLOR} />,
-        text: 'Pick what matters today and lock in 1\u20133 items',
+        text: 'Pick what matters today and put it on Today',
       },
       {
         icon: <Sparkles size={ICON_SIZE} color={ICON_COLOR} />,

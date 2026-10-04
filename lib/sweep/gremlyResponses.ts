@@ -21,14 +21,12 @@ import { getDateService } from '../date/DateService';
  *
  * @param candidate - The sweep candidate item
  * @param isNew - True if this is the first time in Sweep (never skipped)
- * @param isLockedIn - True if commitment === true (locked-in item)
  * @param rescheduleCount - Number of times this todo has been rescheduled in Sweep
  * @returns A shame-free, supportive message string
  */
 export function getGremlyResponse(
   candidate: SweepCandidate,
   isNew: boolean,
-  isLockedIn: boolean,
   rescheduleCount: number = 0,
 ): string {
   const { kind, raw, isOverdue, isDueToday } = candidate;
@@ -62,11 +60,6 @@ export function getGremlyResponse(
       }
 
       return `You asked me to remind you about this ${timeAgo}.`;
-    }
-
-    // Locked-in items get priority messaging
-    if (isLockedIn) {
-      return "You locked this one in. How's it coming along?";
     }
 
     // Progressive messaging based on reschedule count

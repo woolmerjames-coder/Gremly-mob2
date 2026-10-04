@@ -1,15 +1,17 @@
 /**
  * The plan's reads and writes against the app's store (Daily brief in Chat):
- * the candidate pool and the day's meetings as they are now, and Lock it in.
+ * the candidate pool and the day's meetings as they are now, and saying yes
+ * to a plan.
  *
- * Lock it in writes daily_block and scheduled_start_iso on each todo and habit
- * (the fields Today reads), makes a reach fact into a todo, makes each item a
- * Lock In commitment for today, writes the day's daily_briefs row with its
- * sequences, and credits feeding (5% an item, the day's cap of three shared).
- * Items an earlier lock placed that the new plan leaves out lose their time.
+ * Saying yes writes daily_block and scheduled_start_iso on each todo and habit
+ * (the fields Today reads), makes a reach fact into a todo, writes the day's
+ * daily_briefs row with its sequences, and credits feeding (5% an item, three
+ * items a day). Items an earlier plan placed that the new one leaves out lose
+ * their time. There is no separate locked state on the items: something is on
+ * Today or it is not.
  */
 
-import { useGremlyStore, isHabitLockedIn } from '../store/useGremlyStore';
+import { useGremlyStore } from '../store/useGremlyStore';
 import { selectHabitsDueToday, selectTodosDueToday } from '../store/selectors';
 import { getDateService, nowTimestamp } from '../date/DateService';
 import { getTimeBlockBoundaries } from '../capacity/capacityHelpers';
@@ -28,7 +30,8 @@ import { useTodayThread } from '../brief/todayThread';
 export function poolFromStore(): Candidate[] {
   const s = useGremlyStore.getState();
   const ds = getDateService();
-  const today = ds.today();
+  // the person's day: it ends at their day end, not at midnight
+  const today = ds.ritualDay();
   const monday = ds.startOfWeekMonday(today);
   const progress = (s.habitProgress ?? []) as {
     habit_id: string;
@@ -49,7 +52,7 @@ export function poolFromStore(): Candidate[] {
     habits: s.habits,
     doneThisWeek: doneSinceMonday(progress, monday, today),
     doneToday: new Set(progress.filter((p) => p.occurred_day === today).map((p) => p.habit_id)),
-    lockedHabitIds: new Set(s.habits.filter((h) => isHabitLockedIn(h)).map((h) => h.id)),
+    placedIds: placedOn(today),
     daysGone: dayOfWeekNumber(today, monday),
     claims: brief?.claims ?? [],
     reach: brief?.reach ?? null,
@@ -84,7 +87,7 @@ export function candidateFromStore(id: string, kind: 'todo' | 'habit'): Candidat
  */
 export function poolForDay(day: string): Candidate[] {
   const ds = getDateService();
-  const today = ds.today();
+  const today = ds.ritualDay();
   if (day === today) return poolFromStore();
   const s = useGremlyStore.getState();
   const monday = ds.startOfWeekMonday(day);
@@ -109,7 +112,7 @@ export function poolForDay(day: string): Candidate[] {
     habits: s.habits,
     doneThisWeek: monday <= today ? doneSinceMonday(progress, monday, today) : new Map(),
     doneToday: new Set(),
-    lockedHabitIds: new Set(),
+    placedIds: new Set(),
     daysGone: dayOfWeekNumber(day, monday),
     claims: [],
     reach: null,
@@ -118,46 +121,18 @@ export function poolForDay(day: string): Candidate[] {
   });
 }
 
-/**
- * The day a todo's Lock In is for: the day it was made, or the next day when
- * the todo is due then (locked in the evening for tomorrow, or moved to
- * tomorrow at Sweep's Lock-In checkpoint). A todo due further out was locked
- * in for the day it was made. The worker reads it the same way
- * (workers/inngest-jobs/notifications/sweepCount.js, lockedIn).
- */
-export function lockInDay(startedDay: string | null, dueDay: string | null): string | null {
-  if (!startedDay) return dueDay;
-  if (dueDay && dueDay > startedDay && dueDay <= getDateService().addDays(startedDay, 1)) {
-    return dueDay;
-  }
-  return startedDay;
-}
-
-/**
- * A new day: a todo's Lock In lasts the day it was for (lockInDay), so one
- * for an earlier day comes off and does not return in Sweep or in the plan.
- * Habits keep their own end date (commitment_until).
- */
-export function expireOldLockIns(today: string): number {
+/** The todos and habits an earlier plan gave a time on this day. */
+export function placedOn(day: string): Set<string> {
   const s = useGremlyStore.getState();
-  let expired = 0;
-  for (const t of s.todos) {
-    if (!t.commitment || t.completed_at || t.archived) continue;
-    const started = t.commitment_started_at ? localDateOf(t.commitment_started_at) : null;
-    const day = lockInDay(started, t.due_day ?? null);
-    if (!day || day >= today) continue;
-    expired++;
-    void s
-      .removeCommitment(t.id, 'todo')
-      .catch((err: unknown) => console.warn('[Plan] could not expire a Lock In', t.id, err));
-  }
-  return expired;
+  const on = (x: { scheduled_start_iso?: string | null }) =>
+    !!x.scheduled_start_iso && localDateOf(x.scheduled_start_iso) === day;
+  return new Set([...s.todos.filter(on), ...s.habits.filter(on)].map((x) => x.id));
 }
 
 /**
  * A new day: times placed on earlier days come off their todos and habits,
  * so yesterday's plan never shows on Today. Times placed for today (a plan
- * locked yesterday for tomorrow) or later stay.
+ * made last night for tomorrow) or later stay.
  */
 export function resetStaleAssignments(today: string): number {
   const s = useGremlyStore.getState();
@@ -243,7 +218,7 @@ function blockFor(start: number): 'morning' | 'day' | 'evening' {
 export interface LockResult {
   /** Titles of suggestions that became todos */
   created: string[];
-  /** The items as locked (reach facts now carry their new todo ids) */
+  /** The items as placed (reach facts now carry their new todo ids) */
   items: PlanItem[];
 }
 
@@ -252,7 +227,6 @@ export async function lockPlanItems(
   items: PlanItem[],
   earlier: PlanItem[],
 ): Promise<LockResult> {
-  const forToday = date === getDateService().today();
   const store = useGremlyStore.getState();
   const created: string[] = [];
   const locked: PlanItem[] = [];
@@ -280,7 +254,7 @@ export async function lockPlanItems(
     locked.push({ ...item, id, kind });
   }
 
-  // what an earlier lock placed and this plan leaves out goes back to unplanned
+  // what an earlier plan placed and this one leaves out goes back to unplanned
   const keep = new Set(items.map((x) => x.id));
   for (const old of earlier) {
     if (keep.has(old.id) || old.kind === 'reach') continue;
@@ -289,20 +263,7 @@ export async function lockPlanItems(
     else await store.updateTodo(old.id, clear);
   }
 
-  // every locked item is a Lock In commitment for today (a plan for tomorrow
-  // is not: Lock In is about today)
   const s = useGremlyStore.getState();
-  for (const x of forToday ? locked : []) {
-    const already =
-      x.kind === 'habit'
-        ? s.habits.some((h) => h.id === x.id && isHabitLockedIn(h))
-        : s.todos.some((t) => t.id === x.id && t.commitment);
-    if (!already) {
-      await s
-        .addCommitment(x.id, x.kind === 'habit' ? 'habit' : 'todo', null, 1)
-        .catch((err: unknown) => console.warn('[Plan] could not lock in', x.id, err));
-    }
-  }
 
   // the day's daily_briefs row, in time order within each block
   const seq = {
@@ -323,8 +284,7 @@ export async function lockPlanItems(
     })
     .catch((err: unknown) => console.warn('[Plan] could not save the day', err));
 
-  if (forToday) {
-    await withFeedAnimation(() => s.commitLockInItems(locked.length)).catch(() => undefined);
-  }
+  // feeding: 5% an item, three items a day across every plan said yes to
+  await withFeedAnimation(() => s.creditPlanItems(locked.length)).catch(() => undefined);
   return { created, items: locked };
 }

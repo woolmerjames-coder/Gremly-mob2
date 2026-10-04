@@ -493,3 +493,64 @@ describe('isHabitLockedIn', () => {
     expect(isHabitLockedIn(habit)).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// creditPlanItems: saying yes to a plan feeds 5% an item, three items a day
+// ---------------------------------------------------------------------------
+
+describe('creditPlanItems', () => {
+  const credit = jest.fn();
+
+  beforeEach(() => {
+    // stands in for the gauge: records the contribution as the store does, boost included
+    credit.mockImplementation(async (source: string, value: number) => {
+      const s = useGremlyStore.getState();
+      const boost = s.graduatedAt ? 1 : 1.25;
+      useGremlyStore.setState({
+        feedingContributions: [
+          ...s.feedingContributions,
+          { source, value: value * boost, timestamp: '2025-12-15T10:00:00Z' },
+        ],
+      } as any);
+      return { newValue: 0, justFed: false };
+    });
+    useGremlyStore.setState({
+      feedingContributions: [],
+      graduatedAt: '2025-01-01T00:00:00Z',
+      addGaugeContribution: credit,
+      refreshTrainingReadiness: jest.fn().mockResolvedValue(undefined),
+    } as any);
+  });
+
+  it('feeds 5% an item', async () => {
+    await useGremlyStore.getState().creditPlanItems(2);
+    expect(credit).toHaveBeenCalledTimes(1);
+    expect(credit.mock.calls[0][0]).toBe('lock_in');
+    expect(credit.mock.calls[0][1]).toBeCloseTo(0.1, 5);
+  });
+
+  it('stops at three items a day, however many plans the day has', async () => {
+    await useGremlyStore.getState().creditPlanItems(2);
+    await useGremlyStore.getState().creditPlanItems(2);
+    await useGremlyStore.getState().creditPlanItems(4);
+    // 2 items, then the 1 left, then nothing
+    expect(credit.mock.calls.map((c) => Math.round(c[1] * 100))).toEqual([10, 5]);
+  });
+
+  it('gives one plan of five items the three', async () => {
+    await useGremlyStore.getState().creditPlanItems(5);
+    expect(credit.mock.calls.map((c) => Math.round(c[1] * 100))).toEqual([15]);
+  });
+
+  it('counts the same three while the training boost is on', async () => {
+    useGremlyStore.setState({ graduatedAt: null } as any);
+    await useGremlyStore.getState().creditPlanItems(3);
+    await useGremlyStore.getState().creditPlanItems(1);
+    expect(credit.mock.calls.map((c) => Math.round(c[1] * 100))).toEqual([15]);
+  });
+
+  it('feeds nothing for a plan with nothing in it', async () => {
+    await useGremlyStore.getState().creditPlanItems(0);
+    expect(credit).not.toHaveBeenCalled();
+  });
+});

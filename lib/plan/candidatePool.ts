@@ -3,7 +3,7 @@
  *
  * In: todos due today (which includes anything kept from Sweep today, since
  * Sweep dates it today), habits on for today or behind this week, items
- * already on Today (Lock In commitments), the DCO's claims on today, and the
+ * already on Today (an earlier plan gave them a time), the DCO's claims on today, and the
  * DCO's reach item. Never in: anything past its date and unsorted drops;
  * those belong to Sweep. Done and archived items are left out too.
  *
@@ -39,15 +39,15 @@ export interface PoolInput {
   today: string;
   todosDueToday: Todo[];
   habitsDueToday: Habit[];
-  /** Every active todo and habit, for claims, commitments and behind */
+  /** Every active todo and habit, for claims, what is on Today and behind */
   todos: Todo[];
   habits: Habit[];
   /** Completions this week (Monday on), by habit id */
   doneThisWeek: Map<string, number>;
   /** Habits already done today */
   doneToday: Set<string>;
-  /** Habits locked in (a Lock In commitment still running) */
-  lockedHabitIds: Set<string>;
+  /** Todos and habits an earlier plan already gave a time on this day */
+  placedIds: Set<string>;
   /** 1 on Monday to 7 on Sunday */
   daysGone: number;
   claims: DcoClaim[];
@@ -73,10 +73,10 @@ export function windowFor(
 }
 
 /** Open todos that are not past their date (undated only when already on Today). */
-function plannableTodo(t: Todo, today: string): boolean {
+function plannableTodo(t: Todo, input: PoolInput): boolean {
   if (t.archived || t.completed_at) return false;
-  if (t.due_day && t.due_day < today) return false;
-  if (!t.due_day && !t.commitment) return false;
+  if (t.due_day && t.due_day < input.today) return false;
+  if (!t.due_day && !input.placedIds.has(t.id)) return false;
   return true;
 }
 
@@ -96,7 +96,7 @@ export function buildCandidatePool(input: PoolInput): Candidate[] {
   const habitById = new Map(input.habits.map((h) => [h.id, h]));
 
   const addTodo = (t: Todo, why: string, source: CandidateSource) => {
-    if (seen.has(t.id) || !plannableTodo(t, input.today)) return;
+    if (seen.has(t.id) || !plannableTodo(t, input)) return;
     seen.add(t.id);
     out.push({
       id: t.id,
@@ -145,11 +145,9 @@ export function buildCandidatePool(input: PoolInput): Candidate[] {
   }
   // 2. Already on Today
   if (input.forToday !== false) {
-    // a Lock In counts for the day it is due, as Today shows it (selectLockedTodos)
-    for (const t of input.todos)
-      if (t.commitment && t.due_day === input.today) addTodo(t, 'On Today', 'today');
-    for (const h of input.habits)
-      if (input.lockedHabitIds.has(h.id)) addHabit(h, 'On Today', 'today');
+    // what an earlier plan gave a time today (this morning's, or last night's for today)
+    for (const t of input.todos) if (input.placedIds.has(t.id)) addTodo(t, 'On Today', 'today');
+    for (const h of input.habits) if (input.placedIds.has(h.id)) addHabit(h, 'On Today', 'today');
   }
   // 3. Habits behind this week
   for (const h of input.habits) if (behind(h)) addHabit(h, `${weekLine(h)}, behind`, 'behind');

@@ -53,7 +53,6 @@ import {
   CalendarDays,
   AlertTriangle,
   Lightbulb,
-  Lock,
   ChevronDown,
   ChevronUp,
   ChevronLeft,
@@ -71,6 +70,7 @@ import { maybeAsk } from '../../lib/notifications/ask';
 import type { ItemReminder } from '../../lib/types';
 import { triggerLight, triggerSuccess } from '../../lib/haptics';
 import { getDateService } from '../../lib/date';
+import { todayThreadParams } from '../../lib/brief/pinned';
 import { useMindDropSubmit } from '../../hooks/useMindDropSubmit';
 import type {
   WeeklySummaryContent,
@@ -704,10 +704,9 @@ function InsightCard({
       triggerLight();
       switch (ins.actionType) {
         case 'open_cleanup':
-          navigation.navigate('Sweep');
-          break;
         case 'open_sweep':
-          navigation.navigate('Sweep');
+          // tonight's wrap up, in today's thread
+          navigation.navigate('Tabs', { screen: 'Gremly', params: todayThreadParams('wrap') });
           break;
         case 'open_habits':
           navigation.navigate('Habits');
@@ -846,7 +845,8 @@ function InsightsStackCard({
       switch (ins.actionType) {
         case 'open_cleanup':
         case 'open_sweep':
-          navigation.navigate('Sweep');
+          // tonight's wrap up, in today's thread
+          navigation.navigate('Tabs', { screen: 'Gremly', params: todayThreadParams('wrap') });
           break;
         case 'open_habits':
           navigation.navigate('Habits');
@@ -948,7 +948,7 @@ const staleStyles = StyleSheet.create({
     gap: 8,
     marginTop: 10,
   },
-  lockInBtn: {
+  todayBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
@@ -957,7 +957,7 @@ const staleStyles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: WS.sage, // #BFD8C0
   },
-  lockInText: {
+  todayText: {
     fontSize: 13,
     fontFamily: 'Inter-Medium',
     color: WS.sageDark, // #2E5540
@@ -1120,14 +1120,15 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
     [totalCount],
   );
 
-  const handleLockIn = useCallback(
+  // Do it today: the todo is dated today, so it is on Today
+  const handleDoToday = useCallback(
     async (item: StaleEntity) => {
       triggerLight();
       const today = getDateService().today();
       if (item.entityType === 'todo') {
-        await updateTodo(item.id, { locked_in: true, due_day: today });
+        await updateTodo(item.id, { due_day: today });
       }
-      // Habits don't have due_day — just lock in
+      // Habits have no due day: this only takes it off the list
       triageItem(item.id);
     },
     [updateTodo, triageItem],
@@ -1327,14 +1328,14 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
                       {/* Action buttons */}
                       <View style={staleStyles.actionRow}>
                         <Pressable
-                          onPress={() => handleLockIn(item)}
+                          onPress={() => handleDoToday(item)}
                           style={({ pressed }) => [
-                            staleStyles.lockInBtn,
+                            staleStyles.todayBtn,
                             pressed && { opacity: 0.8 },
                           ]}
                         >
-                          <Lock size={16} color={WS.sageDark} strokeWidth={2} />
-                          <Text style={staleStyles.lockInText}>Lock In</Text>
+                          <Zap size={16} color={WS.sageDark} strokeWidth={2} />
+                          <Text style={staleStyles.todayText}>Do today</Text>
                         </Pressable>
 
                         <Pressable

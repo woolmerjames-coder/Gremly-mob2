@@ -1,28 +1,23 @@
 /**
- * Sweep Flow Screen - Evening Sweep wizard container
+ * Sweep Flow Screen: the decision cards, and the week planner.
  *
- * Full-screen flow for the Evening Sweep ritual:
- * - Step 0: Intro ("Ready to Sweep?")
- * - Step 0.25: Multi-Split (if user has unresolved multi-drops)
- * - Step 0.5: Lock-In Checkpoint (if user has locked items)
- * - Step 1: Decision cards
- * - Step 2: Habits check-in
- * - Step 3: Mood check-in
- * - Step 4: Summary/celebration
+ * The evening Sweep itself is the wrap up in today's thread (lib/wrapup).
+ * This screen is what it opens, and what Plan my week opens:
+ * - cards: 'wrap' | 'quick': the decision cards on their own, from the thread.
+ *   Step 0.25 splits a drop with several things in it first, step 1 is the
+ *   cards, each decision saved as it is made.
+ * - week: the week planner. Its chooser, then step 1 cards, step 2 habits,
+ *   events, step 3 intention, step 4 summary.
+ * Opened with neither, it sends the person to the wrap up.
  */
 
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   View,
   StyleSheet,
-  Text as RNText,
-  TextInput,
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
   ActivityIndicator,
   Pressable,
-  Animated,
   TouchableOpacity,
   Image,
   Modal,
@@ -30,12 +25,9 @@ import {
   Dimensions,
   Alert,
 } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import Reanimated, {
   FadeIn,
   FadeInUp,
-  FadeOutDown,
-  Layout,
   Easing as ReanimatedEasing,
   useSharedValue,
   useAnimatedStyle,
@@ -51,33 +43,18 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Screen, Text, Button } from '../../ui';
 import { Icon } from '../../design-system/Icon';
-import {
-  Flame,
-  Sparkles,
-  CheckCircle,
-  Check,
-  Lightbulb,
-  Repeat,
-  ArrowRight,
-  ChevronRight,
-  Calendar,
-  Sun,
-  Moon,
-  CalendarDays,
-} from 'lucide-react-native';
+import { Flame, Sparkles, CheckCircle } from 'lucide-react-native';
 import { useAuth } from '../../providers/AuthProvider';
 import { BRAND } from '../../design/brand';
-import { triggerLight } from '../../lib/haptics';
 import { getDateService } from '../../lib/date';
 // Zustand store - used for all Sweep data operations
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import type { ClarificationWhen } from '../../lib/minddrop/clarification';
 import { useWeekDays } from '../../lib/store/weekGridSelectors';
-import { useNeedsMindDropTutorial, useCanCreate } from '../../lib/store/lifecycleSelectors';
+import { useCanCreate } from '../../lib/store/lifecycleSelectors';
 import {
   useActiveSpaces,
   useIsLoading,
-  useSkipBudget,
   useSweepCandidatesUnified,
 } from '../../lib/store/selectors';
 
@@ -112,7 +89,7 @@ import { useOverlayController } from '../../hooks/useOverlayController';
 import { useMascotActions } from '../../hooks/useMascotActions';
 import celebrationController from '../../app/features/celebration/CelebrationController';
 import MascotLottie from '../components/MascotLottie';
-import { calculateSweepContribution, GAUGE_WEIGHTS } from '../../lib/constants/soulDocument';
+import { calculateSweepContribution } from '../../lib/constants/soulDocument';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { OverlayComponent } from '../../components/overlay';
 import {
@@ -129,30 +106,12 @@ import type { AppRecord } from '../../lib/types';
 
 import AgeUpCelebrationModal from '../../components/ritual/AgeUpCelebrationModal';
 import { getTierForAge } from '../../lib/constants/soulDocument';
-import { LockInCheckpointStep } from '../components/sweep/LockInCheckpointStep';
 import { SweepIntentionStep } from '../components/sweep/SweepIntentionStep';
 import { SweepHubChooser, type HubSectionKey } from '../components/sweep/SweepHubChooser';
 import { SweepHabitsCheckInStep } from '../components/sweep/SweepHabitsCheckInStep';
 import { SweepEventsStep } from '../components/sweep/SweepEventsStep';
-import {
-  selectTodayLockedItems,
-  selectTodayLockedItemsIncludingCompleted,
-  selectWrapUp,
-} from '../../lib/store/selectors';
+import { selectWrapUp } from '../../lib/store/selectors';
 
-// Sweep habit components and helpers
-import { SweepHabitRow } from '../../src/sweep/SweepHabitRow';
-import {
-  groupHabitsForSweep,
-  isHabitsEmpty,
-  type HabitWithMeta,
-} from '../../lib/sweep/habitHelpers';
-import { useSweepIntroStats } from '../../lib/sweep/useSweepIntroStats';
-import { ALL_MOODS, MOOD_CONFIG, type Mood } from '../../lib/shared/moods';
-import { CompletionBadges } from '../../components/sweep/CompletionBadges';
-import { SweepCelebrationTransition } from '../../components/sweep/SweepCelebrationTransition';
-import { SweepInstructionsModal } from '../../components/sweep/SweepInstructionsModal';
-import { SweepCompletedModal } from '../../components/sweep/SweepCompletedModal';
 import { SweepEndCard } from '../../components/sweep/SweepEndCard';
 import { SweepEndItemList } from '../../components/sweep/SweepEndItemList';
 import { ClarificationPopup } from '../../components/minddrop/ClarificationPopup';
@@ -168,16 +127,11 @@ import {
   recordDecision as recordWrapDecision,
 } from '../../lib/wrapup/session';
 import { cardsLeft } from '../../lib/wrapup/state';
+import { todayThreadParams } from '../../lib/brief/pinned';
 
 // Gremly mascot for summary step
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const GREMLY_MASCOT_CELEBRATE = require('../../assets/mascot/sweepcomplete.png');
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const GREMLY_JOURNAL = require('../../assets/mascot/JournalGremly.png');
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const GREMLY_HABIT = require('../../assets/mascot/habitgremly.png');
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const GREMLY_SWEEP_INTRO = require('../../assets/mascot/sweepintrogremly.png');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Cortex URL helpers (same pattern as JournalFullScreen.tsx)
@@ -199,20 +153,6 @@ interface Props {
   navigation?: NativeStackNavigationProp<RootStackParamList, 'Sweep'>;
 }
 
-interface StepProps {
-  onContinue: (data?: { habitsChecked?: number; journalWritten?: boolean }) => void;
-}
-
-// Journal prompts for inspiration
-const JOURNAL_PROMPTS = [
-  'What are you grateful for today?',
-  'What would have made today better?',
-  'What small moment brought you joy?',
-  'How is your energy right now?',
-  "What's weighing on your mind?",
-  'What are you looking forward to tomorrow?',
-];
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Step Components
 // ─────────────────────────────────────────────────────────────────────────────
@@ -223,1428 +163,13 @@ const JOURNAL_PROMPTS = [
 
 export type SweepIntent = 'today' | 'tomorrow' | 'week' | 'skip';
 
-function computeIntentProminence(lastSweepCompletedAt: string | null): {
-  primary: SweepIntent;
-  isEvening: boolean;
-  missedYesterday: boolean;
-} {
-  const ds = getDateService();
-  const hour = ds.now().getHours();
-  const isEvening = hour >= 15;
-  const lastDay = lastSweepCompletedAt ? ds.toLocalDate(new Date(lastSweepCompletedAt)) : null;
-  const missedYesterday = lastDay ? ds.daysBetween(lastDay, ds.today()) >= 1 : true;
-  const primary: SweepIntent = isEvening ? 'tomorrow' : 'today';
-  return { primary, isEvening, missedYesterday };
-}
-
-// TODO(cleanup-ledger): consolidate into BRAND
-const INTRO_CARD_BG = '#FCFAF6';
-const INTRO_TINT_MOUND = '#E3EDE0';
-const INTRO_TINT_SAGE = '#F2F7F0';
-const INTRO_TINT_PERI = 'rgba(156,166,224,0.18)';
-const INTRO_TINT_GOLD = 'rgba(224,196,122,0.20)';
-const INTRO_GOLD_CHIP = 'rgba(224,196,122,0.35)';
-const INTRO_GOLD_DEEP = '#A8842F';
-const INTRO_PERI_DEEP = '#7A86CC';
-const INTRO_SOFT_SHADOW = {
-  shadowColor: '#000',
-  shadowOffset: { width: 0, height: 2 },
-  shadowOpacity: 0.06,
-  shadowRadius: 8,
-  elevation: 2,
-};
-
 /**
- * Step 0: Intro ("Ready to Sweep?")
+ * The decision cards: items that need a decision (keep, bring back later,
+ * let go), one at a time.
  *
- * Welcome screen that introduces the Sweep ritual.
- * Shows what's ahead with a secondary link to see completed items.
- */
-function SweepIntroStep({
-  onStart,
-  onHelpPress,
-  onClose,
-}: {
-  onStart: (intent: SweepIntent) => void;
-  onHelpPress?: () => void;
-  onClose?: () => void;
-}) {
-  const { stats, isLoading } = useSweepIntroStats();
-  const gremlyAge = useGremlyStore.getState().gremlyAge;
-  const lastSweepCompletedAt = useGremlyStore((state) => state.lastSweepCompletedAt);
-  const candidates = useSweepCandidatesUnified();
-  const { remaining, total, canSkip } = useSkipBudget();
-  const refreshSkipBudget = useGremlyStore((s) => s.refreshSkipBudget);
-
-  useEffect(() => {
-    refreshSkipBudget();
-  }, [refreshSkipBudget]);
-
-  // Count items by type
-  const todoCount = candidates.filter((c) => c.candidate.kind === 'todo').length;
-  const habitCount = candidates.filter((c) => c.candidate.kind === 'habit').length;
-  const eventCount = candidates.filter(
-    (c) => c.candidate.kind === 'note' && (c.candidate.raw as any)?.target_date,
-  ).length;
-  const noteCount = candidates.filter(
-    (c) => c.candidate.kind === 'note' && !(c.candidate.raw as any)?.target_date,
-  ).length;
-  const totalCount = todoCount + habitCount + eventCount + noteCount;
-
-  // Time estimate
-  const getTimeEstimate = () => {
-    if (totalCount <= 4) return '~ 1 min ~';
-    if (totalCount <= 8) return '~ 2 min ~';
-    if (totalCount <= 15) return '~ 3 min ~';
-    return '~ 5 min ~';
-  };
-
-  // First time user
-  const isFirstTime = stats?.isFirstSweep || gremlyAge === 0;
-
-  // Intent prominence
-  const { primary, isEvening, missedYesterday } = computeIntentProminence(lastSweepCompletedAt);
-
-  // Last sweep text
-  const getLastSweepText = () => {
-    if (!lastSweepCompletedAt) {
-      return 'Your first sweep!';
-    }
-
-    const ds = getDateService();
-    const lastDay = ds.toLocalDate(new Date(lastSweepCompletedAt));
-    const diffDays = ds.daysBetween(lastDay, ds.today());
-
-    if (diffDays === 0) {
-      return 'Last sweep: earlier today';
-    } else if (diffDays === 1) {
-      return 'Last sweep: yesterday';
-    } else {
-      return `Last sweep: ${diffDays} days ago`;
-    }
-  };
-
-  // When-line: "Tuesday evening"
-  const _introNow = getDateService().now();
-  const _introHour = _introNow.getHours();
-  const _introWeekdays = [
-    'Sunday',
-    'Monday',
-    'Tuesday',
-    'Wednesday',
-    'Thursday',
-    'Friday',
-    'Saturday',
-  ];
-  const introWeekday = _introWeekdays[_introNow.getDay()];
-  const introDaypart = _introHour < 12 ? 'morning' : _introHour < 18 ? 'afternoon' : 'evening';
-  const introWhenLine = `${introWeekday} ${introDaypart}`;
-
-  // Scene: mound + mascot + sparkles (shared between empty and normal states)
-  const introScene = (
-    <View style={styles.introScene}>
-      <View style={styles.introMound} />
-      <View style={styles.introSparkle1}>
-        <Sparkles size={15} color={BRAND.colors.goldenPear} />
-      </View>
-      <View style={styles.introSparkle2}>
-        <Sparkles size={9} color={BRAND.colors.goldenPear} />
-      </View>
-      <View style={styles.introSparkle3}>
-        <Sparkles size={7} color={BRAND.colors.goldenPear} />
-      </View>
-      <Pressable
-        onPress={onHelpPress}
-        style={styles.introMascotPressable}
-        accessibilityRole="button"
-        accessibilityLabel="Get help"
-      >
-        <Image source={GREMLY_SWEEP_INTRO} style={styles.introMascotImage} resizeMode="contain" />
-      </Pressable>
-    </View>
-  );
-
-  // Edge case: nothing to sweep
-  if (totalCount === 0 && !isLoading) {
-    return (
-      <View style={styles.introContainer}>
-        {introScene}
-        <View style={styles.introBubbleWrap}>
-          <View style={styles.introBubble}>
-            <View style={styles.introBubbleTail} />
-            <Text style={styles.introBubbleText}>All clear. Nothing's piled up, enjoy it.</Text>
-          </View>
-        </View>
-        <Text style={styles.introTitle}>All clear!</Text>
-        <Text style={styles.introWhenLine}>{introWhenLine}</Text>
-        <View style={{ flex: 1 }} />
-        <TouchableOpacity style={styles.secondaryButton} onPress={onClose}>
-          <Text style={styles.secondaryButtonText}>Back to Today</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  // Build bubble text with bold counts
-  const buildBubbleText = (): React.ReactNode => {
-    if (isFirstTime) {
-      return <Text style={styles.introBubbleText}>{"Let's clear the path for tomorrow."}</Text>;
-    }
-    const parts: string[] = [];
-    if (todoCount > 0) parts.push(`${todoCount} ${todoCount === 1 ? 'todo' : 'todos'}`);
-    if (eventCount > 0) parts.push(`${eventCount} ${eventCount === 1 ? 'event' : 'events'}`);
-    if (noteCount > 0) parts.push(`${noteCount} ${noteCount === 1 ? 'idea' : 'ideas'}`);
-    if (habitCount > 0) parts.push(`${habitCount} ${habitCount === 1 ? 'habit' : 'habits'}`);
-    const joinParts = (p: string[]): string => {
-      if (p.length === 0) return '';
-      if (p.length === 1) return p[0];
-      if (p.length === 2) return `${p[0]} and ${p[1]}`;
-      return `${p.slice(0, -1).join(', ')}, and ${p[p.length - 1]}`;
-    };
-    const countStr = joinParts(parts);
-    if (missedYesterday) {
-      return (
-        <Text style={styles.introBubbleText}>
-          Yesterday got away from us. No big deal, let's set up today instead.
-        </Text>
-      );
-    }
-    if (isEvening) {
-      const verb = totalCount === 1 ? 'has' : 'have';
-      return (
-        <Text style={styles.introBubbleText}>
-          <Text style={styles.introBubbleTextBold}>{countStr}</Text>
-          {` ${verb} piled up. Let's line things up for tomorrow.`}
-        </Text>
-      );
-    }
-    const timeEst = getTimeEstimate().replace(/~/g, '').trim();
-    return (
-      <Text style={styles.introBubbleText}>
-        <Text style={styles.introBubbleTextBold}>{countStr}</Text>
-        {` waiting. Clear your mind in about ${timeEst}.`}
-      </Text>
-    );
-  };
-
-  // Sorted intents: primary first, week last
-  const sortedIntents = (
-    [
-      {
-        intent: 'today' as SweepIntent,
-        Icon: Sun,
-        title: isEvening
-          ? primary === 'today'
-            ? 'Wrap up today'
-            : 'Anything for today?'
-          : primary === 'today'
-            ? 'Plan today'
-            : 'Anything for today?',
-        subtitle: isEvening
-          ? primary === 'today'
-            ? 'What still matters before bed'
-            : "Wrap up what's left"
-          : primary === 'today'
-            ? "Decide what's for today"
-            : "Wrap up what's left",
-      },
-      {
-        intent: 'tomorrow' as SweepIntent,
-        Icon: Moon,
-        title: primary === 'tomorrow' ? 'Close out today' : 'Set up tomorrow instead',
-        subtitle:
-          primary === 'tomorrow' ? 'Decide what carries to tomorrow' : 'Skip today, plan tomorrow',
-      },
-      {
-        intent: 'week' as SweepIntent,
-        Icon: CalendarDays,
-        title: 'Plan my week',
-        subtitle: 'Spread things across the days',
-      },
-    ] as {
-      intent: SweepIntent;
-      Icon: React.ComponentType<any>;
-      title: string;
-      subtitle: string;
-    }[]
-  ).sort((a, b) => {
-    if (a.intent === 'week') return 1;
-    if (b.intent === 'week') return -1;
-    if (a.intent === primary) return -1;
-    if (b.intent === primary) return 1;
-    return 0;
-  });
-
-  return (
-    <View style={styles.introContainer}>
-      {introScene}
-
-      {/* Speech bubble */}
-      <View style={styles.introBubbleWrap}>
-        <View style={styles.introBubble}>
-          <View style={styles.introBubbleTail} />
-          {buildBubbleText()}
-        </View>
-      </View>
-
-      {/* Title */}
-      <Text style={styles.introTitle}>{isFirstTime ? 'Welcome to Sweep!' : 'A quick sweep'}</Text>
-
-      {/* When-line */}
-      <Text style={styles.introWhenLine}>{introWhenLine}</Text>
-
-      {/* Grouped intent card */}
-      <View style={styles.intentsGroup}>
-        {sortedIntents.map(({ intent, Icon, title, subtitle }, idx) => {
-          const isPrimary = intent === primary;
-          const isWeek = intent === 'week';
-          const isLastRow = idx === sortedIntents.length - 1;
-          const chipBg = isPrimary ? INTRO_GOLD_CHIP : isWeek ? INTRO_TINT_PERI : INTRO_TINT_SAGE;
-          const iconColor = isPrimary
-            ? INTRO_GOLD_DEEP
-            : isWeek
-              ? INTRO_PERI_DEEP
-              : BRAND.colors.mossGreen;
-          return (
-            <TouchableOpacity
-              key={intent}
-              style={[
-                styles.intentRow,
-                isPrimary && styles.intentRowHighlight,
-                isLastRow && styles.intentRowLast,
-              ]}
-              activeOpacity={0.8}
-              onPress={() => {
-                triggerLight();
-                onStart(intent);
-              }}
-            >
-              {isPrimary && <View style={styles.intentAccent} />}
-              <View style={[styles.intentChip, { backgroundColor: chipBg }]}>
-                <Icon size={19} strokeWidth={2} color={iconColor} />
-              </View>
-              <View style={styles.intentTextWrap}>
-                {isPrimary && (
-                  <Text style={styles.intentPickTag}>
-                    {isEvening ? "Tonight's pick" : "Today's pick"}
-                  </Text>
-                )}
-                <Text
-                  style={[styles.intentTitle, isPrimary && styles.intentTitleHighlight]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.85}
-                >
-                  {title}
-                </Text>
-                <Text style={styles.intentSubtitle}>{subtitle}</Text>
-              </View>
-              {isPrimary ? (
-                <ArrowRight size={16} color={INTRO_GOLD_DEEP} />
-              ) : (
-                <ChevronRight size={16} color={BRAND.colors.inkMuted} />
-              )}
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      {/* Footer - pushed to bottom with flex spacer */}
-      <View style={{ flex: 1, maxHeight: 24 }} />
-      <View style={styles.bulkSkipDivider} />
-      <Pressable
-        onPress={() => {
-          if (canSkip) {
-            triggerLight();
-            onStart('skip');
-          }
-        }}
-        style={({ pressed }) => [
-          styles.bulkSkipRow,
-          pressed && canSkip && styles.bulkSkipRowPressed,
-          !canSkip && styles.bulkSkipRowLocked,
-        ]}
-        accessibilityRole="button"
-        accessibilityState={{ disabled: !canSkip }}
-        accessibilityLabel={
-          canSkip
-            ? `Skip today and move everything forward. ${remaining} of ${total} weekly skips left.`
-            : 'No weekly skips left this week.'
-        }
-      >
-        <View style={styles.bulkSkipTextWrap}>
-          <RNText
-            style={[styles.bulkSkipTitle, !canSkip && styles.bulkSkipTitleLocked]}
-            numberOfLines={1}
-          >
-            {canSkip ? 'Tired? Skip today' : 'No skips left this week'}
-          </RNText>
-          <RNText style={styles.bulkSkipSub} numberOfLines={1}>
-            {canSkip
-              ? `Move it all forward · ${remaining} left`
-              : 'Refills as the week rolls forward'}
-          </RNText>
-        </View>
-        {canSkip && <ChevronRight size={17} color="#B5B2A8" />}
-      </Pressable>
-      <Text style={styles.lastSweepText}>{getLastSweepText()}</Text>
-    </View>
-  );
-}
-
-/**
- * Step 1: Decision Cards
- *
- * Shows items that need decisions (keep, clear, skip).
- * This is the core of the Sweep experience.
- */
-
-/**
- * Step 2: Mood Check-in
- *
- * Asks the user how they're feeling during the sweep.
- * Optionally allows a journal entry to reflect on the day.
- *
- * On Continue:
- * - If mood or journal text is provided, creates a journal note
- * - Tags the note with sweep_reflection metadata
- *
- * MIGRATED: Now uses Zustand store's createNote instead of useRepo
- */
-function SweepMoodStep({ onContinue }: StepProps) {
-  // Store mutations and data
-  const createNote = useGremlyStore((state) => state.createNote);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const updateNote = useGremlyStore((state) => state.updateNote);
-  const notes = useGremlyStore((state) => state.notes);
-  const isTrainingMode = useNeedsMindDropTutorial();
-  const overlay = useGlobalOverlay();
-  const canCreate = useCanCreate();
-  const moodNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-
-  // Get recent entries since last sweep
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { stats, isLoading: statsLoading } = useSweepIntroStats();
-
-  // State
-  const [selectedMoods, setSelectedMoods] = useState<Mood[]>([]);
-  const [journalText, setJournalText] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
-  const [isEntriesExpanded, setIsEntriesExpanded] = useState(false);
-  const [activePrompt, setActivePrompt] = useState<string | null>(null);
-  const [promptIndex, setPromptIndex] = useState(0);
-
-  // Animation for chevron rotation
-  const chevronRotation = useRef(new Animated.Value(0)).current;
-
-  // Compute recent entries (journals created since last sweep, excluding sweep reflections)
-  const recentEntries = useMemo(() => {
-    if (!stats?.cutoffTimestamp) return [];
-    const cutoff = stats.cutoffTimestamp;
-    return notes
-      .filter((n) => {
-        // Must not be archived and have a created_at after cutoff
-        if (n.archived || !n.created_at || n.created_at <= cutoff) return false;
-        // Only show journal entries (not log-idea, log-general, etc.)
-        if (n.subtype !== 'journal') return false;
-        // Exclude previous sweep reflection notes
-        if (n.views?.sweep_reflection) return false;
-        return true;
-      })
-      .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
-      .slice(0, 5); // Limit to 5 entries
-  }, [notes, stats?.cutoffTimestamp]);
-
-  const hasRecentEntries = recentEntries.length > 0;
-
-  // Toggle mood selection (multi-select)
-  const toggleMood = useCallback((mood: Mood) => {
-    setSelectedMoods((prev) => {
-      if (prev.includes(mood)) {
-        return prev.filter((m) => m !== mood);
-      } else {
-        return [...prev, mood];
-      }
-    });
-  }, []);
-
-  // Toggle entries expansion
-  const toggleEntriesExpanded = useCallback(() => {
-    const toValue = isEntriesExpanded ? 0 : 1;
-    Animated.timing(chevronRotation, {
-      toValue,
-      duration: 200,
-      useNativeDriver: true,
-    }).start();
-    setIsEntriesExpanded(!isEntriesExpanded);
-  }, [isEntriesExpanded, chevronRotation]);
-
-  // Cycle through prompts
-  const handlePromptPress = useCallback(() => {
-    if (activePrompt) {
-      // Go to next prompt
-      const nextIndex = (promptIndex + 1) % JOURNAL_PROMPTS.length;
-      setPromptIndex(nextIndex);
-      setActivePrompt(JOURNAL_PROMPTS[nextIndex]);
-    } else {
-      // Show first prompt
-      setActivePrompt(JOURNAL_PROMPTS[0]);
-      setPromptIndex(0);
-    }
-  }, [activePrompt, promptIndex]);
-
-  // Format relative time
-  const formatRelativeTime = useCallback((isoDate: string): string => {
-    const date = new Date(isoDate);
-    const ds = getDateService();
-    const now = ds.now();
-    const diffMs = now.getTime() - date.getTime();
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = ds.daysBetween(ds.toLocalDate(date), ds.today());
-
-    if (diffHours < 1) return 'Just now';
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays === 1) return 'Yesterday';
-    return `${diffDays}d ago`;
-  }, []);
-
-  // Open entry in overlay view mode
-  const handleOpenEntry = useCallback(
-    (entry: (typeof notes)[0]) => {
-      overlay.openEdit({ record: entry as any, spaceId: null });
-    },
-    [overlay],
-  );
-
-  // Save and continue
-  const handleContinue = useCallback(async () => {
-    const hasContent = selectedMoods.length > 0 || journalText.trim().length > 0;
-
-    // If nothing to save, just continue
-    if (!hasContent) {
-      onContinue({ journalWritten: false });
-      return;
-    }
-
-    if (!canCreate) {
-      moodNavigation.navigate('TrialEndPaywall', { source: 'expiry' });
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      const userText = journalText.trim();
-      const sweepViews = {
-        sweep_origin: true,
-        sweep_reflection: true,
-        sweep_date: getDateService().today(),
-        sweep_moods: selectedMoods,
-      };
-
-      // Create a journal note for the sweep reflection
-      const createdNote = await createNote({
-        subtype: 'journal',
-        title: userText || 'Evening reflection',
-        body: userText || undefined,
-        mood: selectedMoods.length > 0 ? selectedMoods : null,
-        origin: 'manual',
-        canonicalType: 'log',
-        journal_subtype: 'reflection',
-        tags: ['reflection', 'sweep'],
-        views: sweepViews,
-      });
-
-      const noteId = createdNote?.id;
-
-      // Fire-and-forget enrichment (don't block Sweep progression)
-      if (noteId && userText) {
-        (async () => {
-          try {
-            const cortexUrl = readCortexUrl();
-            if (!cortexUrl) {
-              sweepLog.warn('[SweepJournal] Missing cortex URL, skipping enrichment');
-              return;
-            }
-            const sessionToken = await getSessionToken();
-
-            const ds = getDateService();
-            const currentDateStr = ds.today();
-            const dayOfWeek = ds.getDayOfWeek();
-            const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-
-            sweepLog.debug('[SweepJournal] Running Phase 1.5a + Phase 2 enrichment');
-
-            // Run Phase 1.5a and Phase 2 in parallel
-            const [phase15aResult, phase2Result] = await Promise.all([
-              // Phase 1.5a: Smart title + confirmation message
-              (async () => {
-                try {
-                  const res = await fetch(cortexUrl, {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      Authorization: `Bearer ${sessionToken}`,
-                    },
-                    body: JSON.stringify({
-                      type: 'enrich-phase1-5a',
-                      text: userText,
-                      bucket: 'log',
-                      subtype: 'journal',
-                    }),
-                  });
-                  if (!res.ok) return null;
-                  return await res.json();
-                } catch (err) {
-                  sweepLog.warn('[SweepJournal] Phase 1.5a failed:', err);
-                  return null;
-                }
-              })(),
-              // Phase 2: Tags, mood, people, energy type
-              (async () => {
-                try {
-                  const res = await fetch(cortexUrl, {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      Authorization: `Bearer ${sessionToken}`,
-                    },
-                    body: JSON.stringify({
-                      type: 'enrich-phase2',
-                      text: userText,
-                      bucket: 'log',
-                      subtype: 'journal',
-                      currentDate: currentDateStr,
-                      dayOfWeek,
-                      timezone,
-                    }),
-                  });
-                  if (!res.ok) return null;
-                  return await res.json();
-                } catch (err) {
-                  sweepLog.warn('[SweepJournal] Phase 2 failed:', err);
-                  return null;
-                }
-              })(),
-            ]);
-
-            sweepLog.debug(
-              '[SweepJournal] Phase 1.5a result:',
-              JSON.stringify(phase15aResult, null, 2),
-            );
-            sweepLog.debug('[SweepJournal] Phase 2 result:', JSON.stringify(phase2Result, null, 2));
-
-            // Build update payload
-            const updatePayload: any = {};
-
-            // Smart title from Phase 1.5a
-            if (phase15aResult?.smart_title) {
-              updatePayload.title = phase15aResult.smart_title;
-            }
-
-            // Tags: merge AI tags with existing sweep tags
-            const aiTags = Array.isArray(phase2Result?.tags) ? phase2Result.tags : [];
-            if (aiTags.length > 0) {
-              updatePayload.tags = [...new Set(['reflection', 'sweep', ...aiTags])];
-            }
-
-            // People extraction (merge as @name tags)
-            if (Array.isArray(phase2Result?.people) && phase2Result.people.length > 0) {
-              const peopleTags = phase2Result.people
-                .map((name: string) => {
-                  const normalized = name
-                    .trim()
-                    .toLowerCase()
-                    .replace(/\s+/g, '-')
-                    .replace(/[^a-z0-9-]/g, '');
-                  return normalized ? `@${normalized}` : null;
-                })
-                .filter((t: string | null): t is string => t !== null && t.length >= 2);
-              if (peopleTags.length > 0) {
-                const existingTags = updatePayload.tags || ['reflection', 'sweep'];
-                updatePayload.tags = [...new Set([...existingTags, ...peopleTags])];
-              }
-            }
-
-            // Mood: AI mood supplements user-selected moods
-            if (phase2Result?.mood) {
-              updatePayload.mood = phase2Result.mood;
-            }
-
-            // Energy type
-            if (phase2Result?.energy_type) {
-              updatePayload.energy_type = phase2Result.energy_type;
-            }
-
-            // Views: preserve sweep views, add confirmation message + AI mood
-            if (phase15aResult?.confirmation_message || phase2Result?.mood) {
-              updatePayload.views = {
-                ...sweepViews,
-                ...(phase15aResult?.confirmation_message && {
-                  confirmation_message: phase15aResult.confirmation_message,
-                }),
-                ...(phase2Result?.mood && { ai_mood: phase2Result.mood }),
-              };
-            }
-
-            // Patch the note if we have any updates
-            if (Object.keys(updatePayload).length > 0) {
-              sweepLog.debug(
-                '[SweepJournal] Updating note with payload:',
-                JSON.stringify(updatePayload, null, 2),
-              );
-              await useGremlyStore.getState().updateNote(noteId, updatePayload);
-              sweepLog.debug('[SweepJournal] Enrichment complete for note:', noteId);
-            }
-          } catch (error) {
-            sweepLog.error('[SweepJournal] Background enrichment failed:', error);
-            // Silent failure — the note is already saved with basic data
-          }
-        })();
-      }
-
-      onContinue({ journalWritten: true });
-    } catch (error) {
-      sweepLog.warn('[SweepMoodStep] Failed to save reflection:', error);
-      onContinue({ journalWritten: false });
-    } finally {
-      setIsSaving(false);
-    }
-  }, [canCreate, moodNavigation, createNote, selectedMoods, journalText, onContinue]);
-
-  const handleSkip = useCallback(() => {
-    onContinue({ journalWritten: false });
-  }, [onContinue]);
-
-  // Chevron rotation interpolation
-  const chevronRotateStyle = {
-    transform: [
-      {
-        rotate: chevronRotation.interpolate({
-          inputRange: [0, 1],
-          outputRange: ['0deg', '180deg'],
-        }),
-      },
-    ],
-  };
-
-  return (
-    <KeyboardAvoidingView
-      style={styles.moodStepContainer}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={100}
-    >
-      <ScrollView
-        style={styles.scrollContainer}
-        contentContainerStyle={styles.moodScrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Header Section with Mascot */}
-        <View style={styles.moodHeaderRow}>
-          <View style={styles.moodHeaderText}>
-            <Text variant="title" style={styles.moodStepTitle}>
-              How was your day?
-            </Text>
-            <Text
-              style={[styles.moodStepSubcopy, isTrainingMode && styles.moodStepSubcopyTraining]}
-            >
-              {isTrainingMode
-                ? 'Training mode \u2014 journal daily to help your Gremly learn faster. Optional, but worth it.'
-                : 'Everything here is optional,\njust a moment to pause.'}
-            </Text>
-          </View>
-          <Image
-            source={GREMLY_JOURNAL}
-            style={styles.moodMascotImage}
-            resizeMode="contain"
-            accessibilityLabel="Gremly journal mascot"
-          />
-        </View>
-
-        {/* Recent Entries Section (Collapsible) */}
-        {hasRecentEntries && (
-          <View style={styles.recentEntriesSection}>
-            <Pressable
-              style={styles.recentEntriesHeader}
-              onPress={toggleEntriesExpanded}
-              accessibilityRole="button"
-              accessibilityLabel={`${recentEntries.length} thoughts saved since last sweep. Tap to ${isEntriesExpanded ? 'collapse' : 'expand'}`}
-            >
-              <View style={styles.recentEntriesHeaderLeft}>
-                <Icon name="Check" size="xs" color={BRAND.colors.mossGreen} strokeWidth={2} />
-                <Text style={styles.recentEntriesHeaderText}>
-                  {recentEntries.length} thought{recentEntries.length !== 1 ? 's' : ''} saved
-                </Text>
-              </View>
-              <Animated.View style={chevronRotateStyle}>
-                <Icon name="ChevronDown" size="xs" color={BRAND.colors.inkMuted} strokeWidth={2} />
-              </Animated.View>
-            </Pressable>
-
-            {isEntriesExpanded && (
-              <View style={styles.recentEntriesList}>
-                {recentEntries.map((entry) => (
-                  <Pressable
-                    key={entry.id}
-                    style={({ pressed }) => [
-                      styles.recentEntryCard,
-                      pressed && styles.recentEntryCardPressed,
-                    ]}
-                    onPress={() => handleOpenEntry(entry)}
-                  >
-                    <Text style={styles.recentEntryTime}>
-                      {formatRelativeTime(entry.created_at)}
-                    </Text>
-                    <Text style={styles.recentEntryPreview} numberOfLines={1}>
-                      {entry.title || entry.body || 'Untitled'}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-            )}
-          </View>
-        )}
-
-        {/* Journal Input Section */}
-        <View style={styles.journalSection}>
-          {/* Prompt line (optional) */}
-          {activePrompt && (
-            <View style={styles.promptLine}>
-              <Icon name="Lightbulb" size="xs" color={BRAND.colors.mossGreen} strokeWidth={1.8} />
-              <Text style={styles.promptText}>{activePrompt}</Text>
-            </View>
-          )}
-
-          {/* Journal TextInput with prompt button */}
-          <View style={styles.journalInputWrapper}>
-            <TextInput
-              style={styles.journalInput}
-              placeholder="Today felt like..."
-              placeholderTextColor={BRAND.colors.inkMuted}
-              multiline
-              value={journalText}
-              onChangeText={setJournalText}
-              textAlignVertical="top"
-            />
-            <Pressable
-              style={({ pressed }) => [styles.promptButton, pressed && styles.promptButtonPressed]}
-              onPress={handlePromptPress}
-            >
-              <Icon name="Lightbulb" size="xs" color={BRAND.colors.mossGreen} strokeWidth={1.8} />
-              <Text style={styles.promptButtonLabel}>{activePrompt ? 'next' : 'prompt'}</Text>
-            </Pressable>
-          </View>
-        </View>
-
-        {/* Mood Chips Section (Multi-select) */}
-        <View style={styles.moodChipsSection}>
-          <Text style={styles.moodChipsLabel}>Tag a mood</Text>
-          <View style={styles.moodChipsGrid}>
-            {ALL_MOODS.map((mood) => {
-              const config = MOOD_CONFIG[mood];
-              const isSelected = selectedMoods.includes(mood);
-              return (
-                <Pressable
-                  key={mood}
-                  style={({ pressed }) => [
-                    styles.moodChip,
-                    isSelected && styles.moodChipSelected,
-                    pressed && styles.moodChipPressed,
-                  ]}
-                  onPress={() => toggleMood(mood)}
-                >
-                  <Text style={[styles.moodChipLabel, isSelected && styles.moodChipLabelSelected]}>
-                    {config.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-          {selectedMoods.length > 1 && (
-            <Text style={styles.moodChipsHelper}>{selectedMoods.length} moods selected</Text>
-          )}
-        </View>
-      </ScrollView>
-
-      {/* Footer Actions */}
-      <View style={styles.moodFooter}>
-        <TouchableOpacity
-          style={[styles.continueButton, isSaving && styles.continueButtonDisabled]}
-          onPress={handleContinue}
-          disabled={isSaving}
-          activeOpacity={0.8}
-        >
-          <View style={styles.continueButtonContent}>
-            <Text style={styles.continueButtonText}>{isSaving ? 'Saving...' : 'Continue'}</Text>
-            {!isSaving && (
-              <Icon name="ArrowRight" size="sm" color={BRAND.colors.mossGreen} strokeWidth={2.5} />
-            )}
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.skipButton} onPress={handleSkip} disabled={isSaving}>
-          <Text style={styles.skipButtonText}>Skip for now</Text>
-        </TouchableOpacity>
-      </View>
-    </KeyboardAvoidingView>
-  );
-}
-
-/**
- * Step 3: Habits Check-in
- *
- * Swipe-to-complete habit rows grouped by cadence (daily/weekly/monthly).
- * Shows streak for daily habits, progress for weekly/monthly.
- * Completed habits shown in muted section at bottom.
- *
- * REDESIGNED: Uses SweepHabitRow with swipe gesture instead of checkboxes.
- * Uses Reanimated Layout animations for smooth card transitions between sections.
- */
-
-// Animation config for habit row transitions - calm, intentional feel
-const HABIT_ANIM_DURATION = 450;
-const HABIT_ANIM_EASING = ReanimatedEasing.bezier(0.4, 0, 0.2, 1); // Material Design standard
-
-function SweepHabitsStep({ onContinue }: StepProps) {
-  const overlay = useGlobalOverlay();
-  // Get raw data from Zustand store
-  const habits = useGremlyStore((state) => state.habits);
-  const habitProgress = useGremlyStore((state) => state.habitProgress);
-  const completeHabit = useGremlyStore((state) => state.completeHabit);
-  const uncompleteHabit = useGremlyStore((state) => state.uncompleteHabit);
-  const loading = useIsLoading();
-  const [showHabitsHelp, setShowHabitsHelp] = useState(false);
-  const [datePickerHabitId, setDatePickerHabitId] = useState<string | null>(null);
-  const [showDatePicker, setShowDatePicker] = useState(false);
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Session state - tracks toggles during this sweep (not committed yet)
-  // ─────────────────────────────────────────────────────────────────────────
-  // Habits that were NOT completed before but user toggled ON
-  const [sessionCompletions, setSessionCompletions] = useState<Set<string>>(new Set());
-  // Habits that WERE completed before but user toggled OFF
-  const [sessionUncompletions, setSessionUncompletions] = useState<Set<string>>(new Set());
-  // Habits that are "pending" move - showing completion animation before moving to Already Done
-  const [pendingMoves, setPendingMoves] = useState<Set<string>>(new Set());
-  // Ref to track pending timeouts for cleanup
-  const pendingTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
-
-  // Group habits by cadence and compute metadata
-  const groupedHabits = useMemo(() => {
-    // Filter to non-archived habits
-    const activeHabits = habits.filter((h) => !h.archived);
-    return groupHabitsForSweep(activeHabits, habitProgress);
-  }, [habits, habitProgress]);
-
-  // Calculate open count considering session toggles
-  const openCount = useMemo(() => {
-    let count = 0;
-
-    // Count habits in each open section that are visually not completed
-    [...groupedHabits.daily, ...groupedHabits.weekly, ...groupedHabits.monthly].forEach((item) => {
-      const isVisuallyCompleted =
-        sessionCompletions.has(item.habit.id) ||
-        (!sessionUncompletions.has(item.habit.id) && item.isCompletedToday);
-      if (!isVisuallyCompleted) {
-        count++;
-      }
-    });
-
-    // Also count any from completed section that user toggled OFF
-    groupedHabits.completed.forEach((item) => {
-      if (sessionUncompletions.has(item.habit.id)) {
-        count++;
-      }
-    });
-
-    return count;
-  }, [groupedHabits, sessionCompletions, sessionUncompletions]);
-  const isEmpty = useMemo(() => isHabitsEmpty(groupedHabits), [groupedHabits]);
-
-  // Handle toggle from SweepHabitRow - adds delay before moving to Already Done
-  const handleSetStartDate = useCallback(async (habitId: string, startDate: string) => {
-    try {
-      const updateHabit = useGremlyStore.getState().updateHabit;
-      await updateHabit(habitId, { start_date: startDate });
-    } catch (error) {
-      sweepLog.error('[SweepHabitsStep] Failed to set start date:', habitId, error);
-    } finally {
-      setShowDatePicker(false);
-      setDatePickerHabitId(null);
-    }
-  }, []);
-
-  const handleToggle = useCallback((habitId: string, completed: boolean) => {
-    // Clear any existing timeout for this habit
-    const existingTimeout = pendingTimeoutsRef.current.get(habitId);
-    if (existingTimeout) {
-      clearTimeout(existingTimeout);
-      pendingTimeoutsRef.current.delete(habitId);
-    }
-
-    if (completed) {
-      // User toggled ON - immediately update completion state but delay the move
-      setSessionCompletions((prev) => {
-        const next = new Set(prev);
-        next.add(habitId);
-        return next;
-      });
-      setSessionUncompletions((prev) => {
-        const next = new Set(prev);
-        next.delete(habitId);
-        return next;
-      });
-
-      // Add to pending moves (habit stays in place during animation)
-      setPendingMoves((prev) => {
-        const next = new Set(prev);
-        next.add(habitId);
-        return next;
-      });
-
-      // After delay, remove from pending - Reanimated Layout handles the animation
-      const timeout = setTimeout(() => {
-        setPendingMoves((prev) => {
-          const next = new Set(prev);
-          next.delete(habitId);
-          return next;
-        });
-        pendingTimeoutsRef.current.delete(habitId);
-      }, 1500); // 1.5 second delay to show completion animation
-
-      pendingTimeoutsRef.current.set(habitId, timeout);
-    } else {
-      // User toggled OFF - Reanimated handles the animation automatically
-      setSessionUncompletions((prev) => {
-        const next = new Set(prev);
-        next.add(habitId);
-        return next;
-      });
-      setSessionCompletions((prev) => {
-        const next = new Set(prev);
-        next.delete(habitId);
-        return next;
-      });
-      // Remove from pending if it was there
-      setPendingMoves((prev) => {
-        const next = new Set(prev);
-        next.delete(habitId);
-        return next;
-      });
-    }
-  }, []);
-
-  // Cleanup timeouts on unmount
-  useEffect(() => {
-    return () => {
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      pendingTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      pendingTimeoutsRef.current.clear();
-    };
-  }, []);
-
-  // Determine if a habit should visually appear completed
-  // Takes into account: original state + session toggles
-  const isHabitVisuallyCompleted = useCallback(
-    (habitId: string, wasCompletedToday: boolean): boolean => {
-      // If user explicitly toggled it ON this session, show as completed
-      if (sessionCompletions.has(habitId)) return true;
-      // If user explicitly toggled it OFF this session, show as not completed
-      if (sessionUncompletions.has(habitId)) return false;
-      // Otherwise, use the original state
-      return wasCompletedToday;
-    },
-    [sessionCompletions, sessionUncompletions],
-  );
-
-  // Computed sections that react to session state
-  // Habits from "completed" that were toggled OFF move to their cadence section
-  // Habits from active sections that were toggled ON move to completed (after delay)
-  const displaySections = useMemo(() => {
-    // Helper to adjust completedThisPeriod based on session state
-    const adjustProgress = (item: HabitWithMeta): HabitWithMeta => {
-      const wasCompletedBefore = item.isCompletedToday;
-      const isNowCompleted = isHabitVisuallyCompleted(item.habit.id, wasCompletedBefore);
-
-      // If completion state changed, adjust the count
-      if (isNowCompleted && !wasCompletedBefore) {
-        // Newly completed this session - increment count
-        return { ...item, completedThisPeriod: item.completedThisPeriod + 1 };
-      } else if (!isNowCompleted && wasCompletedBefore) {
-        // Uncompleted this session - decrement count
-        return { ...item, completedThisPeriod: Math.max(0, item.completedThisPeriod - 1) };
-      }
-      return item;
-    };
-
-    // Start with items that were uncompleted from the completed section
-    const uncompletedFromDone = groupedHabits.completed
-      .filter((item) => sessionUncompletions.has(item.habit.id))
-      .map(adjustProgress);
-
-    // Filter each section: remove items toggled ON (unless pending), add items toggled OFF from completed
-    const filterSection = (items: HabitWithMeta[], cadence: 'daily' | 'weekly' | 'monthly') => {
-      // Keep items that aren't visually completed OR are pending move (still showing animation)
-      const remaining = items.filter(
-        (item) =>
-          !isHabitVisuallyCompleted(item.habit.id, item.isCompletedToday) ||
-          pendingMoves.has(item.habit.id),
-      );
-      // Add back any uncompleted items from the completed section that belong to this cadence
-      const restored = uncompletedFromDone.filter((item) => item.cadence === cadence);
-      return [...remaining.map(adjustProgress), ...restored];
-    };
-
-    // Get items that are now visually completed (either originally or newly toggled ON)
-    // BUT exclude items that are still pending (waiting for animation delay)
-    const allItems = [
-      ...groupedHabits.daily,
-      ...groupedHabits.weekly,
-      ...groupedHabits.monthly,
-      ...groupedHabits.completed,
-    ];
-    const visuallyCompleted = allItems
-      .filter(
-        (item) =>
-          isHabitVisuallyCompleted(item.habit.id, item.isCompletedToday) &&
-          !pendingMoves.has(item.habit.id),
-      )
-      .map(adjustProgress);
-
-    return {
-      daily: filterSection(groupedHabits.daily, 'daily'),
-      weekly: filterSection(groupedHabits.weekly, 'weekly'),
-      monthly: filterSection(groupedHabits.monthly, 'monthly'),
-      completed: visuallyCompleted,
-      needsSetup: groupedHabits.needsSetup,
-    };
-  }, [groupedHabits, sessionUncompletions, isHabitVisuallyCompleted, pendingMoves]);
-
-  // Commit all session changes to Zustand and continue
-  const handleContinue = useCallback(async () => {
-    // Batch complete all newly completed habits
-    const completionPromises = Array.from(sessionCompletions).map(async (habitId) => {
-      try {
-        await completeHabit(habitId);
-      } catch (error) {
-        sweepLog.error('[SweepHabitsStep] Failed to complete habit:', habitId, error);
-      }
-    });
-
-    // Batch uncomplete all newly uncompleted habits
-    const uncompletionPromises = Array.from(sessionUncompletions).map(async (habitId) => {
-      try {
-        await uncompleteHabit(habitId);
-      } catch (error) {
-        sweepLog.error('[SweepHabitsStep] Failed to uncomplete habit:', habitId, error);
-      }
-    });
-
-    // Wait for all to complete
-    await Promise.all([...completionPromises, ...uncompletionPromises]);
-
-    // Continue to next step with count of habits checked
-    onContinue({ habitsChecked: sessionCompletions.size });
-  }, [sessionCompletions, sessionUncompletions, completeHabit, uncompleteHabit, onContinue]);
-
-  // Render a single habit row with layout animations
-  const renderHabitRow = useCallback(
-    (item: HabitWithMeta, index: number, array: HabitWithMeta[]) => (
-      <Reanimated.View
-        key={item.habit.id}
-        entering={FadeInUp.duration(HABIT_ANIM_DURATION).easing(HABIT_ANIM_EASING)}
-        exiting={FadeOutDown.duration(HABIT_ANIM_DURATION).easing(HABIT_ANIM_EASING)}
-        layout={Layout.duration(HABIT_ANIM_DURATION).easing(HABIT_ANIM_EASING)}
-      >
-        <SweepHabitRow
-          id={item.habit.id}
-          name={item.habit.name}
-          cadence={item.cadence}
-          streakDays={item.streakDays}
-          completedThisPeriod={item.completedThisPeriod}
-          targetPerPeriod={item.targetPerPeriod}
-          isAheadOfTarget={item.isAheadOfTarget}
-          frequencyLabel={item.frequencyLabel}
-          isCompleted={isHabitVisuallyCompleted(item.habit.id, item.isCompletedToday)}
-          onToggle={handleToggle}
-          showDivider={index < array.length - 1}
-          isBreakHabit={item.isBreakHabit}
-          lastCompletedAt={item.lastCompletedAt}
-        />
-      </Reanimated.View>
-    ),
-    [handleToggle, isHabitVisuallyCompleted],
-  );
-
-  // Render a section with header
-  const renderSection = useCallback(
-    (title: string, items: HabitWithMeta[]) => {
-      if (items.length === 0) return null;
-      return (
-        <View style={styles.habitsSection}>
-          <View style={styles.habitsSectionHeader}>
-            <View style={styles.habitsSectionLine} />
-            <Text style={styles.habitsSectionTitle}>{title}</Text>
-            <View style={styles.habitsSectionLine} />
-          </View>
-          {items.map((item, index) => renderHabitRow(item, index, items))}
-        </View>
-      );
-    },
-    [renderHabitRow],
-  );
-
-  // Loading state
-  if (loading) {
-    return (
-      <View style={styles.wrapUpStepContainer}>
-        <View style={styles.wrapUpHeaderSection}>
-          <Text variant="title" style={styles.wrapUpStepTitle}>
-            Habits today
-          </Text>
-          <Text style={styles.wrapUpStepSubcopy}>Slide to mark what you managed today.</Text>
-        </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={BRAND.colors.mossGreen} />
-        </View>
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.wrapUpStepContainer}>
-      <ScrollView
-        style={styles.scrollContainer}
-        contentContainerStyle={styles.wrapUpScrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Header Section */}
-        <View style={styles.wrapUpHeaderSection}>
-          <View style={styles.habitsHeaderRow}>
-            <View style={styles.habitsHeaderText}>
-              <Text variant="title" style={styles.wrapUpStepTitle}>
-                Habits today
-              </Text>
-              <Text style={styles.wrapUpStepSubcopy}>Slide to mark what you managed today.</Text>
-            </View>
-            <Pressable onPress={() => setShowHabitsHelp(true)}>
-              <Image source={GREMLY_HABIT} style={styles.habitsMascot} />
-            </Pressable>
-          </View>
-        </View>
-
-        <GremlyHelpCard
-          visible={showHabitsHelp}
-          onDismiss={() => setShowHabitsHelp(false)}
-          screen="sweep-habits"
-        />
-
-        {isEmpty ? (
-          <View style={styles.wrapUpEmptyContainer}>
-            <Text variant="body" style={styles.wrapUpEmptyText}>
-              No habits to check off — you're all set!
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.habitsContainer}>
-            {/* Needs Setup Section — FIRST */}
-            {displaySections.needsSetup.length > 0 && (
-              <View style={styles.habitsNeedsSetupSection}>
-                <View style={styles.habitsSectionHeader}>
-                  <View style={styles.habitsSectionLine} />
-                  <Text style={styles.habitsNeedsSetupTitle}>Needs a start date</Text>
-                  <View style={styles.habitsSectionLine} />
-                </View>
-                <Text style={styles.needsSetupSubtext}>Tap to set a date and start tracking</Text>
-                <View>
-                  {displaySections.needsSetup.map((item, index) => (
-                    <Reanimated.View
-                      key={item.habit.id}
-                      entering={FadeIn.duration(HABIT_ANIM_DURATION).easing(HABIT_ANIM_EASING)}
-                      layout={Layout.duration(HABIT_ANIM_DURATION).easing(HABIT_ANIM_EASING)}
-                    >
-                      <TouchableOpacity
-                        style={[
-                          styles.needsSetupHabitRow,
-                          index < displaySections.needsSetup.length - 1 &&
-                            styles.needsSetupHabitRowBorder,
-                        ]}
-                        onPress={() => {
-                          setDatePickerHabitId(item.habit.id);
-                          setShowDatePicker(true);
-                        }}
-                        activeOpacity={0.7}
-                      >
-                        <View style={styles.needsSetupHabitInfo}>
-                          <Text style={styles.needsSetupHabitName} numberOfLines={1}>
-                            {item.habit.name}
-                          </Text>
-                          <Text style={styles.needsSetupHabitFrequency}>{item.frequencyLabel}</Text>
-                        </View>
-                        <View style={styles.needsSetupBadge}>
-                          <Icon name="Calendar" size="xs" color={'#7B87D4'} strokeWidth={2} />
-                          <Text style={styles.needsSetupBadgeText}>Set date</Text>
-                          <Icon
-                            name="ChevronRight"
-                            size="xs"
-                            color={BRAND.colors.inkMuted}
-                            strokeWidth={2}
-                          />
-                        </View>
-                      </TouchableOpacity>
-                    </Reanimated.View>
-                  ))}
-                </View>
-              </View>
-            )}
-
-            {/* Daily Habits */}
-            {renderSection('Daily', displaySections.daily)}
-
-            {/* Weekly Habits */}
-            {renderSection('Weekly', displaySections.weekly)}
-
-            {/* Monthly Habits */}
-            {renderSection('Monthly', displaySections.monthly)}
-
-            {/* Completed Section */}
-            {displaySections.completed.length > 0 && (
-              <View style={styles.habitsCompletedSection}>
-                <View style={styles.habitsSectionHeader}>
-                  <View style={styles.habitsSectionLine} />
-                  <Text style={styles.habitsCompletedTitle}>Already done</Text>
-                  <View style={styles.habitsSectionLine} />
-                </View>
-                {displaySections.completed.map((item, index) => (
-                  <Reanimated.View
-                    key={item.habit.id}
-                    entering={FadeIn.duration(HABIT_ANIM_DURATION).easing(HABIT_ANIM_EASING)}
-                    exiting={FadeOutDown.duration(HABIT_ANIM_DURATION).easing(HABIT_ANIM_EASING)}
-                    layout={Layout.duration(HABIT_ANIM_DURATION).easing(HABIT_ANIM_EASING)}
-                  >
-                    <TouchableOpacity
-                      style={[
-                        styles.completedHabitRow,
-                        index < displaySections.completed.length - 1 &&
-                          styles.completedHabitRowBorder,
-                      ]}
-                      onPress={() => handleToggle(item.habit.id, false)}
-                      activeOpacity={0.7}
-                    >
-                      <Icon
-                        name="Check"
-                        size="xs"
-                        color={BRAND.colors.mossGreen}
-                        strokeWidth={2.5}
-                      />
-                      <Text style={styles.completedHabitName} numberOfLines={1}>
-                        {item.habit.name}
-                      </Text>
-                      <View style={styles.completedHabitRight}>
-                        <Text style={styles.completedHabitMeta}>
-                          {item.cadence === 'daily'
-                            ? 'today'
-                            : `${item.completedThisPeriod}/${item.targetPerPeriod} ${item.cadence === 'weekly' ? 'wk' : 'mo'}`}
-                        </Text>
-                        <Icon
-                          name="RotateCcw"
-                          size="xs"
-                          color={BRAND.colors.inkMuted}
-                          strokeWidth={2}
-                        />
-                      </View>
-                    </TouchableOpacity>
-                  </Reanimated.View>
-                ))}
-              </View>
-            )}
-
-            {/* Needs Setup Section — moved to top */}
-          </View>
-        )}
-      </ScrollView>
-
-      {/* Action Button */}
-      <View style={styles.wrapUpButtonContainer}>
-        {/* Open habits reminder */}
-        {openCount > 0 && (
-          <Text style={styles.wrapUpOpenItemsReminder}>
-            {openCount} habit{openCount !== 1 ? 's' : ''} open.
-          </Text>
-        )}
-        {openCount === 0 && !isEmpty && (
-          <Text style={styles.wrapUpOpenItemsReminder}>All habits done! 🎉</Text>
-        )}
-        <TouchableOpacity
-          style={styles.wrapUpContinueButton}
-          onPress={handleContinue}
-          activeOpacity={0.8}
-        >
-          <View style={styles.wrapUpContinueButtonContent}>
-            <Text style={styles.wrapUpContinueButtonText}>Continue</Text>
-            <Icon name="ArrowRight" size="sm" color={BRAND.colors.mossGreen} strokeWidth={2.5} />
-          </View>
-        </TouchableOpacity>
-      </View>
-
-      {/* Start Date Picker for unstarted habits */}
-      <Modal
-        visible={showDatePicker}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowDatePicker(false)}
-      >
-        <Pressable
-          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' }}
-          onPress={() => setShowDatePicker(false)}
-        />
-        <View style={styles.startDateSheet}>
-          <View style={styles.startDateSheetHandle} />
-          <Text style={styles.startDateSheetTitle}>When do you want to start?</Text>
-          {[
-            { label: 'Start tomorrow', getValue: () => getDateService().tomorrow() },
-            {
-              label: 'Start Monday',
-              getValue: () => {
-                const ds = getDateService();
-                return ds.toLocalDate(ds.getNextWeekday(1));
-              },
-            },
-          ].map(({ label, getValue }) => (
-            <TouchableOpacity
-              key={label}
-              style={styles.startDateOption}
-              onPress={() => {
-                if (datePickerHabitId) handleSetStartDate(datePickerHabitId, getValue());
-              }}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.startDateOptionText}>{label}</Text>
-            </TouchableOpacity>
-          ))}
-          <TouchableOpacity
-            style={[styles.startDateOption, styles.startDateOptionLast]}
-            onPress={() => setShowDatePicker(false)}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.startDateOptionText, { color: BRAND.colors.inkMuted }]}>
-              Not now
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </Modal>
-    </View>
-  );
-}
-
-/**
- * Step 2: Decision Cards
- *
- * Shows items that need a decision (keep, defer, archive).
- * This is the main triage step of the Evening Sweep.
- *
- * Fetches candidates from the sweep engine and allows the user
- * to triage each item one at a time.
+ * Opened from today's thread they are tonight's wrap up cards (or the brief's
+ * quick sweep) and each decision is saved as it is made. In the week planner
+ * they are Sweep's whole list and are saved at the end, as before.
  */
 
 /** How long All sorted stays up before the cards close back to the thread. */
@@ -1669,8 +194,6 @@ interface DecisionStepProps {
   saveEach?: boolean;
   /** A decision was saved: its record, and its Undo */
   onSaved?: (record: SweepRecord, revert: () => Promise<void>) => void;
-  /** DEV ONLY: Jump to specific card index for testing */
-  initialCardIndex?: number;
 }
 
 /**
@@ -1709,7 +232,6 @@ function SweepDecisionStep({
   onFinished,
   onClose,
   sweepIntent = 'tomorrow',
-  initialCardIndex,
   cards = 'all',
   saveEach = false,
   onSaved,
@@ -1759,10 +281,8 @@ function SweepDecisionStep({
   const spaces = useActiveSpaces();
   const overlayController = useOverlayController();
 
-  // Local state for navigation - use initialCardIndex in DEV mode only
-  const [currentIndex, setCurrentIndex] = useState(
-    __DEV__ && initialCardIndex !== undefined ? initialCardIndex : 0,
-  );
+  // Which card is up
+  const [currentIndex, setCurrentIndex] = useState(0);
 
   // Track summary stats for the sweep completion screen
   const [stats, setStats] = useState<SweepSummary>({ kept: 0, cleared: 0 });
@@ -3831,10 +2351,6 @@ interface SummaryStepProps {
     habits: SweepSummaryItem[];
   };
   gremlyAge: number;
-  lockInCompleted: number;
-  lockInTotal: number;
-  habitsCheckedCount: number;
-  journalWritten: boolean;
   onDone: () => void;
   onPlanTomorrow: () => void;
   onNavigateBack: () => void;
@@ -3844,10 +2360,6 @@ function SweepSummaryStep({
   keptCount,
   clearedCount,
   items,
-  lockInCompleted,
-  lockInTotal,
-  habitsCheckedCount,
-  journalWritten,
   onDone,
   onPlanTomorrow,
   onNavigateBack,
@@ -3872,10 +2384,8 @@ function SweepSummaryStep({
 
   // Calculate projected contribution for display
   const sweepContribution = useMemo(() => {
-    const baseSweep = calculateSweepContribution(totalProcessed, false);
-    const journalBonus = journalWritten ? GAUGE_WEIGHTS.JOURNAL_BONUS : 0;
-    return baseSweep + journalBonus;
-  }, [totalProcessed, journalWritten]);
+    return calculateSweepContribution(totalProcessed, false);
+  }, [totalProcessed]);
 
   const projectedPercent = Math.min(
     Math.round((preSweepGaugeRef.current + sweepContribution) * 100),
@@ -4031,9 +2541,7 @@ function SweepSummaryStep({
     // After a beat (1.2s), fire the optimistic gauge preview
     // This updates the store, MascotLottie reacts and shows the fill rising
     const timer = setTimeout(() => {
-      const { justCrossedFed } = useGremlyStore
-        .getState()
-        .previewSweepGauge(totalProcessed, journalWritten);
+      const { justCrossedFed } = useGremlyStore.getState().previewSweepGauge(totalProcessed, false);
 
       // Trigger the correct Lottie animation
       if (justCrossedFed) {
@@ -4059,7 +2567,7 @@ function SweepSummaryStep({
 
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/immutability
-  }, [page, totalProcessed, journalWritten]);
+  }, [page, totalProcessed]);
 
   // Handle Done: fire server reconciliation, navigate
   const handleDone = useCallback(() => {
@@ -4067,17 +2575,14 @@ function SweepSummaryStep({
     if (totalProcessed > 0) {
       useGremlyStore
         .getState()
-        .completeSweepSession(totalProcessed, journalWritten)
+        .completeSweepSession(totalProcessed, false)
         .catch((err: unknown) => {
           sweepLog.warn('[SweepFlowScreen] Sweep gauge reconciliation failed:', err);
         });
     }
     // Navigate back directly, bypassing old age-up check
     onNavigateBack();
-  }, [totalProcessed, journalWritten, onNavigateBack]);
-
-  // Build showBadges (same as before)
-  const showBadges = lockInTotal > 0 || habitsCheckedCount > 0 || journalWritten;
+  }, [totalProcessed, onNavigateBack]);
 
   // ─── PAGE 1: SWEEP STATS ───
   if (page === 1) {
@@ -4111,19 +2616,6 @@ function SweepSummaryStep({
             <Text style={styles.summarySubtext}>
               Your mind is {totalProcessed} {totalProcessed === 1 ? 'item' : 'items'} lighter.
             </Text>
-          )}
-
-          {/* Completion Badges */}
-          {showBadges && (
-            <>
-              <CompletionBadges
-                lockInCompleted={lockInCompleted}
-                lockInTotal={lockInTotal}
-                habitsChecked={habitsCheckedCount}
-                journalWritten={journalWritten}
-              />
-              <View style={styles.summaryDivider} />
-            </>
           )}
 
           {/* Expandable Summary */}
@@ -4348,12 +2840,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   const navigationHook = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const navigation = navProp || navigationHook;
 
-  // Get route params for DEV mode step jumping
   const route = useRoute<RouteProp<RootStackParamList, 'Sweep'>>();
-  const initialStep = __DEV__ ? (route.params?.initialStep ?? 0) : 0;
-  const initialCardIndex = __DEV__ ? route.params?.initialCardIndex : undefined;
-  const initialIntent = __DEV__ ? route.params?.initialIntent : undefined;
-  const initialHub = __DEV__ ? route.params?.initialHub : undefined;
   const demoMode = route.params?.demoMode === true;
   // The cards on their own, opened from today's thread: tonight's wrap up, or
   // the brief's quick sweep in the morning. Only the decision cards (and
@@ -4367,19 +2854,9 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     return () => cardsClosed();
   }, [cardsMode]);
 
-  // Debug logging for DEV mode step jumping
-  sweepLog.debug('[SweepFlowScreen] Route params:', route.params);
-  sweepLog.debug(
-    '[SweepFlowScreen] initialStep:',
-    initialStep,
-    'initialCardIndex:',
-    initialCardIndex,
-  );
-
   const { user } = useAuth();
   const demoSweepCompletedAt = useGremlyStore((s) => s.demoSweepCompletedAt);
   const canCreate = useCanCreate();
-  const bulkSkipSweep = useGremlyStore((state) => state.bulkSkipSweep);
 
   // Suppress the global age-up modal while sweep screen is active.
   // The sweep has its own local AgeUpCelebrationModal shown post-summary.
@@ -4388,37 +2865,30 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     return () => celebrationController.suppressAgeUpCelebration(false);
   }, []);
 
-  // Plan my week, from the wrap up's offer: straight to the week's chooser
+  // This screen is two things now. Opened with cards, it is the decision
+  // cards on their own, from today's thread. Opened with week, it is the week
+  // planner (Plan my week), which starts on its chooser. The evening Sweep
+  // itself is the wrap up in today's thread (lib/wrapup): anything that still
+  // opens this screen with neither is sent there.
   const weekEntry = route.params?.week === true;
-  const [step, setStep] = useState<number>(quick ? 1 : weekEntry ? 0.1 : initialStep);
-  // sweepIntent: captured from the intro screen; consumed in Phase 2 (SweepDecisionStep default date).
-  // In __DEV__, initialIntent from route params can seed this directly (for test-mode step jumping).
-  const [sweepIntent, setSweepIntent] = useState<SweepIntent>(
-    quick ? 'today' : weekEntry ? 'week' : __DEV__ && initialIntent ? initialIntent : 'tomorrow',
-  );
-  const [bulkSkipPickerVisible, setBulkSkipPickerVisible] = useState(false);
-  const [bulkSkipPickerDate, setBulkSkipPickerDate] = useState<Date>(() => getDateService().now());
+  const evening = !quick && !weekEntry && !demoMode;
+  useEffect(() => {
+    if (!evening || !demoSweepCompletedAt) return;
+    navigation.replace('Tabs', { screen: 'Gremly', params: todayThreadParams('wrap') } as never);
+  }, [evening, demoSweepCompletedAt, navigation]);
 
   // ── Week-mode hub state ──────────────────────────────────────────────────
   // Sentinel step value for the hub chooser screen. Must not collide with
-  // existing steps (0, 0.25, 0.5, 0.75, 1, 2, 3, 4).
+  // existing steps (0.25, 0.75, 1, 2, 3, 4).
   const HUB = 0.1;
   const EVENTS = 0.2; // Events spoke sentinel
-  const [hubMode, setHubMode] = useState(weekEntry);
+  const [step, setStep] = useState<number>(quick ? 1 : HUB);
+  // The cards from the thread sort for today; the week planner for the week
+  const sweepIntent: SweepIntent = quick ? 'today' : 'week';
+  const hubMode = !quick;
   const [completedSections, setCompletedSections] = useState<Set<string>>(new Set());
   const [guidedAll, setGuidedAll] = useState(false);
   const [activeSection, setActiveSection] = useState<HubSectionKey | null>(null);
-
-  // Check if user has locked items for lock-in checkpoint (including completed ones for celebration)
-  const lockedItems = useGremlyStore(selectTodayLockedItems);
-  const allLockedItems = useGremlyStore(selectTodayLockedItemsIncludingCompleted);
-  const hasLockedItems = allLockedItems.length > 0;
-
-  // Track if lock-in checkpoint was shown
-  const [lockInCheckpointComplete, setLockInCheckpointComplete] = useState(false);
-
-  // Track if multi-split step was shown
-  const [multiSplitComplete, setMultiSplitComplete] = useState(false);
 
   // Get unresolved multi-drops from NOTES (not queueItems - they're promoted before sweep starts)
   // Multi-drops are stored as notes with views.is_multi=true and views.minddrop_stage='multi_pending'
@@ -4453,7 +2923,6 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     }
     return multiNotes;
   }, [notes]);
-  const hasUnresolvedMultiDrops = unresolvedMultiDrops.length > 0 && !multiSplitComplete;
 
   // the quick sweep splits a drop with several things in it first, as Sweep does
   useEffect(() => {
@@ -4500,20 +2969,8 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   }, [unresolvedMultiDrops]);
 
   // Track sweep stats across the session
-  const [keptCount, setKeptCount] = useState(() => {
-    // Initialize mock data if jumping directly to summary in DEV mode
-    if (__DEV__ && initialStep === 4) {
-      return 5;
-    }
-    return 0;
-  });
-  const [clearedCount, setClearedCount] = useState(() => {
-    // Initialize mock data if jumping directly to summary in DEV mode
-    if (__DEV__ && initialStep === 4) {
-      return 3;
-    }
-    return 0;
-  });
+  const [keptCount, setKeptCount] = useState(0);
+  const [clearedCount, setClearedCount] = useState(0);
 
   // Track detailed item breakdown for summary display
   const [summaryItems, setSummaryItems] = useState<SweepSummary['items']>(undefined);
@@ -4523,137 +2980,6 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   const [summaryDidAgeUp, setSummaryDidAgeUp] = useState(false);
   const [showAgeUpModal, setShowAgeUpModal] = useState(false);
   const [celebrationAge, setCelebrationAge] = useState(0);
-
-  // Celebration transition and modal state
-  const [showCelebration, setShowCelebration] = useState(true);
-  const [showInstructionsModal, setShowInstructionsModal] = useState(false);
-  const [showCompletedModal, setShowCompletedModal] = useState(false);
-
-  // Get completed items for celebration
-  const { stats: introStats } = useSweepIntroStats();
-  const completedItems = useMemo(() => {
-    if (!introStats) return [];
-    return [
-      ...introStats.completed.todos.map((t) => ({ id: t.id, name: t.name, type: 'todo' as const })),
-      ...introStats.completed.habits.map((h) => ({
-        id: h.id,
-        name: h.name,
-        type: 'habit' as const,
-      })),
-    ];
-  }, [introStats]);
-
-  const [dcoSnapshot] = useState(() => {
-    const dco = useGremlyStore.getState().dco;
-    sweepLog.debug('[SweepFlow] DCO snapshot:', dco?.tone, dco?.life_moment);
-    return {
-      tone: dco?.tone ?? null,
-      lifeMoment: dco?.life_moment ?? null,
-      namedAnchors: dco?.named_anchors ?? [],
-    };
-  });
-
-  // Calendar events that have already happened today
-  const [completedEvents] = useState(() => {
-    const calendarEventsMap = useGremlyStore.getState().calendarEvents;
-    const today = useGremlyStore.getState().currentDate;
-    const todayEvents = calendarEventsMap[today] || [];
-    const now = getDateService().now();
-
-    return todayEvents
-      .filter((event) => {
-        if (event.isAllDay) return true;
-        const endTime = new Date(event.endAt);
-        return endTime <= now;
-      })
-      .map((event) => ({
-        id: event.id,
-        title: event.title,
-      }));
-  });
-
-  // Drops captured today
-  const [dropsCount] = useState(() => {
-    const notes = useGremlyStore.getState().notes;
-    const today = useGremlyStore.getState().currentDate;
-    return notes.filter((n) => {
-      if (n.archived) return false;
-      if (!n.created_at || !n.created_at.startsWith(today)) return false;
-      // Exclude calendar-synced event notes (auto-imported, not user drops)
-      if (n.subtype === 'event' && n.external_source != null) return false;
-      return true;
-    }).length;
-  });
-
-  // Track completion badges data
-  const [habitsCheckedCount, setHabitsCheckedCount] = useState(0);
-  const [journalWritten, setJournalWritten] = useState(false);
-
-  // DEV MODE: Sync step from route params when they change (for test mode jumping)
-  // Using requestAnimationFrame to defer state updates and avoid cascading render warning
-  useEffect(() => {
-    if (__DEV__ && route.params?.initialStep !== undefined) {
-      sweepLog.debug('[SweepFlowScreen] useEffect: Setting step to', route.params.initialStep);
-      const initialStepValue = route.params.initialStep;
-
-      // Defer state updates to next frame to avoid cascading render warning
-      const frameId = requestAnimationFrame(() => {
-        setStep(initialStepValue);
-
-        // Set mock summary data when jumping to summary step
-        if (initialStepValue === 4) {
-          sweepLog.debug('[SweepFlowScreen] Setting mock summary data for step 4');
-          setKeptCount(5);
-          setClearedCount(3);
-          setSummaryGremlyAge(7);
-          setSummaryDidAgeUp(true);
-          setSummaryItems({
-            todos: [
-              { id: '1', name: 'Call Mom', outcome: 'scheduled', scheduledDate: 'Tomorrow' },
-              { id: '2', name: 'Buy groceries', outcome: 'scheduled', scheduledDate: 'Next Week' },
-              { id: '3', name: 'Old project idea', outcome: 'archived' },
-            ],
-            thoughts: [
-              { id: '4', name: 'Book recommendation from Sarah', outcome: 'kept' },
-              { id: '5', name: 'Random note about plants', outcome: 'archived' },
-            ],
-            habits: [
-              { id: '6', name: 'Morning meditation', outcome: 'logged' },
-              { id: '7', name: 'Exercise', outcome: 'skipped' },
-            ],
-          });
-        }
-      });
-
-      return () => cancelAnimationFrame(frameId);
-    }
-  }, [route.params?.initialStep]);
-
-  // DEV MODE: Sync sweepIntent from route params when they change (for test mode intent jumping)
-  useEffect(() => {
-    if (__DEV__ && route.params?.initialIntent) {
-      setSweepIntent(route.params.initialIntent);
-    }
-  }, [route.params?.initialIntent]);
-
-  // DEV MODE: Activate hub when initialHub param is set (bypasses handleIntroStart)
-  useEffect(() => {
-    if (__DEV__ && route.params?.initialHub && route.params?.initialIntent === 'week') {
-      setHubMode(true);
-      setGuidedAll(false);
-      setCompletedSections(new Set());
-      setActiveSection(null);
-      setStep(HUB);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route.params?.initialHub, route.params?.initialIntent]);
-
-  // Debug: log step changes
-  useEffect(() => {
-    if (__DEV__) {
-      sweepLog.debug('[SweepFlowScreen] Step changed to:', step);
-    }
-  }, [step]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Global Overlay State - render overlay ON TOP of Sweep modal
@@ -4705,38 +3031,6 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     },
     [overlayClose],
   );
-
-  const handleIntroStart = (intent: SweepIntent) => {
-    setSweepIntent(intent);
-    sweepLog.debug('[SweepFlowScreen] handleIntroStart:', {
-      hasUnresolvedMultiDrops,
-      unresolvedMultiDropsCount: unresolvedMultiDrops.length,
-      hasLockedItems,
-      lockInCheckpointComplete,
-    });
-    if (intent === 'skip') {
-      setBulkSkipPickerDate(getDateService().now());
-      setBulkSkipPickerVisible(true);
-      return;
-    }
-    // Week mode opens the hub chooser instead of linear decisions
-    if (intent === 'week') {
-      setHubMode(true);
-      setGuidedAll(false);
-      setCompletedSections(new Set());
-      setActiveSection(null);
-      setStep(HUB);
-      return;
-    }
-    // Check for unresolved multi-drops first
-    if (hasUnresolvedMultiDrops) {
-      setStep(0.25); // Go to multi-split step
-    } else if (hasLockedItems && !lockInCheckpointComplete) {
-      setStep(0.5); // Go to lock-in checkpoint
-    } else {
-      setStep(1); // Go to decision cards
-    }
-  };
 
   // ── Hub helpers ──────────────────────────────────────────────────────────
   const backToHub = useCallback(() => {
@@ -5047,103 +3341,29 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     [canCreate, navigation],
   );
 
-  // Handle completing the multi-split step
+  // Splitting is done: on to the cards
   const handleMultiSplitComplete = useCallback(() => {
-    setMultiSplitComplete(true);
-    // Continue to next step (the quick sweep has no Lock-In checkpoint)
-    if (quick) {
-      setStep(1);
-    } else if (hasLockedItems && !lockInCheckpointComplete) {
-      setStep(0.5); // Go to lock-in checkpoint
-    } else {
-      setStep(1); // Go to decision cards
-    }
-  }, [quick, hasLockedItems, lockInCheckpointComplete]);
+    setStep(1);
+  }, []);
 
-  // Handle lock-in checkpoint decisions
-  const handleLockInContinue = useCallback(
-    (decisions: Map<string, 'done' | 'tomorrow' | 'archive'>) => {
-      // Navigate IMMEDIATELY - don't wait for processing
-      setLockInCheckpointComplete(true);
-      setStep(1); // Proceed to decision cards
-
-      // Process decisions in background (fire and forget)
-      const processDecisions = async () => {
-        const { updateTodo, archiveTodo, archiveHabit, completeHabit } = useGremlyStore.getState();
-        const ds = getDateService();
-        const tomorrow = ds.addDays(ds.today(), 1);
-
-        for (const [itemId, decision] of decisions) {
-          const item = lockedItems.find((i) => i.id === itemId);
-          if (!item) continue;
-
-          const isTodo = 'name' in item && !('frequency' in item);
-
-          try {
-            switch (decision) {
-              case 'done':
-                if (isTodo) {
-                  await updateTodo(itemId, { completed_at: getDateService().nowTimestamp() });
-                } else {
-                  await completeHabit(itemId);
-                }
-                break;
-              case 'tomorrow':
-                if (isTodo) {
-                  await updateTodo(itemId, {
-                    scheduled_date: tomorrow, // New canonical field
-                    due_day: tomorrow, // Keep for backwards compat
-                    due_date: tomorrow,
-                  });
-                }
-                // Habits automatically stay locked for tomorrow
-                break;
-              case 'archive':
-                if (isTodo) {
-                  await archiveTodo(itemId);
-                } else {
-                  await archiveHabit(itemId);
-                }
-                break;
-            }
-          } catch (err) {
-            sweepLog.warn('[LockIn] Failed to process decision for', itemId, err);
-          }
-        }
-      };
-
-      // Fire and forget - don't block navigation
-      processDecisions().catch((err) => {
-        sweepLog.warn('[LockIn] Failed to process decisions:', err);
-      });
-    },
-    [lockedItems],
-  );
-
-  const handleMoodContinue = (data?: { habitsChecked?: number; journalWritten?: boolean }) => {
-    if (data?.journalWritten !== undefined) {
-      setJournalWritten(data.journalWritten);
-    }
-    // In hub a-la-carte mode the intention slide is the 'intention' spoke
+  const handleIntentionContinue = () => {
+    // Picked on its own from the chooser, the intention goes back to it
     if (hubMode && !guidedAll) {
       addCompletedSection('intention');
       backToHub();
       return;
     }
-    setStep(4); // Mood/Intention → Summary
+    setStep(4); // Intention → Summary
   };
 
-  const handleWrapUpContinue = (data?: { habitsChecked?: number; journalWritten?: boolean }) => {
-    if (data?.habitsChecked !== undefined) {
-      setHabitsCheckedCount(data.habitsChecked);
-    }
-    // In hub a-la-carte mode the habits deck is the 'habits' spoke
+  const handleHabitsContinue = () => {
+    // Picked on its own from the chooser, the habits deck goes back to it
     if (hubMode && !guidedAll) {
       addCompletedSection('habits');
       backToHub();
       return;
     }
-    setStep(sweepIntent === 'week' ? EVENTS : 3); // Week: Habits → Events; Evening: Habits → step 3
+    setStep(EVENTS); // Habits → Events
   };
 
   const handleDecisionFinished = useCallback(
@@ -5195,40 +3415,6 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
       setStep(2); // Decision → Habits
     },
     [quick, navigation, user, hubMode, guidedAll, addCompletedSection, backToHub],
-  );
-
-  const handleBulkSkipConfirm = useCallback(
-    async (pickedDate: Date) => {
-      try {
-        const ds = getDateService();
-        const targetDateStr = ds.toLocalDate(pickedDate);
-        const { movedCount } = await bulkSkipSweep(targetDateStr);
-
-        if (user?.id) {
-          const result = await markSweepCompleted(user.id, supabase, {
-            kept: 0,
-            cleared: movedCount,
-          });
-          const { setSweepPreferences, totalSweepCount } = useGremlyStore.getState();
-          setSweepPreferences({
-            lastSweepCompletedAt: getDateService().nowTimestamp(),
-            sweepStreak: result.streak,
-            totalSweepCount: totalSweepCount + 1,
-          });
-        }
-
-        triggerLight();
-        setBulkSkipPickerVisible(false);
-        setKeptCount(0);
-        setClearedCount(movedCount);
-        setSummaryItems({ todos: [], thoughts: [], habits: [] });
-        setStep(4);
-      } catch (err) {
-        sweepLog.error('[SweepFlowScreen] Failed to bulk skip from intro:', err);
-        setBulkSkipPickerVisible(false);
-      }
-    },
-    [bulkSkipSweep, user],
   );
 
   const handleSummaryDone = () => {
@@ -5304,6 +3490,16 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     );
   }
 
+  // Opened with neither cards nor week: nothing to show here, the effect
+  // above is taking the person to the wrap up in today's thread
+  if (evening) {
+    return (
+      <Screen edges={['top', 'bottom']} padded={false} style={styles.screenBackground}>
+        {null}
+      </Screen>
+    );
+  }
+
   return (
     <>
       <Screen
@@ -5311,9 +3507,8 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
         padded={false}
         style={step === 1 ? styles.screenBackgroundDecision : styles.screenBackground}
       >
-        {/* Conditional Header - Different for decision step and lock-in checkpoint */}
-        {step !== 1 && step !== 0.5 ? (
-          /* Standard Header for Intro, Mood, Wrap-up, Summary steps */
+        {/* The cards carry their own header */}
+        {step !== 1 ? (
           <View style={styles.header}>
             {/* Left - back chevron */}
             <TouchableOpacity
@@ -5326,23 +3521,13 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
               <Icon name="ChevronLeft" size="md" color={BRAND.colors.charcoalInk} strokeWidth={2} />
             </TouchableOpacity>
 
-            {/* Center - subtle title (long-press for test mode in DEV) */}
-            <Pressable
-              style={styles.headerCenter}
-              onLongPress={() => {
-                if (__DEV__) {
-                  triggerLight();
-                  navigation.navigate('SweepTest');
-                }
-              }}
-              delayLongPress={500}
-            >
+            {/* Center - subtle title */}
+            <View style={styles.headerCenter}>
               <View style={styles.headerModeIndicator}>
                 <Icon name="Sparkles" size="xs" color="rgba(46, 85, 64, 0.50)" strokeWidth={1.5} />
                 <Text style={styles.headerModeLabel}>Sweep</Text>
-                {__DEV__ && <Text style={styles.devIndicator}>•</Text>}
               </View>
-            </Pressable>
+            </View>
 
             {/* Right close button */}
             <TouchableOpacity
@@ -5358,38 +3543,11 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
         ) : null}
 
         {/* Step Content - Full-bleed for decision step */}
-        {(() => {
-          sweepLog.debug('[SweepFlowScreen] Rendering step:', step);
-          return null;
-        })()}
         <View
           style={
-            step === 1
-              ? styles.contentDecision
-              : step === 0.5 || step === HUB
-                ? styles.contentLockIn
-                : styles.content
+            step === 1 ? styles.contentDecision : step === HUB ? styles.contentHub : styles.content
           }
         >
-          {step === 0 && (!showCelebration || completedItems.length === 0) && (
-            <>
-              {sweepLog.debug('[SweepFlowScreen] Rendering SweepIntroStep')}
-              <SweepIntroStep
-                onStart={handleIntroStart}
-                onHelpPress={() => setShowInstructionsModal(true)}
-                onClose={handleClose}
-              />
-              <SweepInstructionsModal
-                visible={showInstructionsModal}
-                onClose={() => setShowInstructionsModal(false)}
-              />
-              <SweepCompletedModal
-                visible={showCompletedModal}
-                onClose={() => setShowCompletedModal(false)}
-                completedItems={completedItems}
-              />
-            </>
-          )}
           {step === HUB && sweepIntent === 'week' && (
             <SweepHubChooser
               completed={completedSections}
@@ -5435,40 +3593,18 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
               onComplete={handleMultiSplitComplete}
             />
           )}
-          {step === 0.75 && sweepIntent === 'week' && (
-            <SweepIntentionStep
-              weekStartDate={getDateService().getStartOfWeek()}
-              onContinue={() => {
-                if (hasUnresolvedMultiDrops) setStep(0.25);
-                else if (hasLockedItems && !lockInCheckpointComplete) setStep(0.5);
-                else setStep(1);
-              }}
-              onSkip={() => {
-                if (hasUnresolvedMultiDrops) setStep(0.25);
-                else if (hasLockedItems && !lockInCheckpointComplete) setStep(0.5);
-                else setStep(1);
-              }}
-            />
-          )}
-          {step === 0.5 && (
-            <LockInCheckpointStep onContinue={handleLockInContinue} onClose={handleClose} />
-          )}
           {step === 1 && (
             <SweepDecisionStep
               onFinished={handleDecisionFinished}
               onClose={handleClose}
-              sweepIntent={sweepIntent === 'skip' ? 'tomorrow' : sweepIntent}
-              initialCardIndex={initialCardIndex}
+              sweepIntent={sweepIntent}
               cards={cardsMode ?? 'all'}
               saveEach={quick}
               onSaved={cardsMode === 'wrap' ? recordWrapDecision : undefined}
             />
           )}
           {step === 2 && sweepIntent === 'week' && (
-            <SweepHabitsCheckInStep onFinish={handleWrapUpContinue} />
-          )}
-          {step === 2 && sweepIntent !== 'week' && (
-            <SweepHabitsStep onContinue={handleWrapUpContinue} />
+            <SweepHabitsCheckInStep onFinish={handleHabitsContinue} />
           )}
           {step === EVENTS && sweepIntent === 'week' && (
             <SweepEventsStep onFinish={handleEventsFinish} />
@@ -5476,63 +3612,29 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
           {step === 3 && sweepIntent === 'week' && (
             <SweepIntentionStep
               weekStartDate={getDateService().getStartOfWeek()}
-              onContinue={handleMoodContinue}
-              onSkip={handleMoodContinue}
+              onContinue={handleIntentionContinue}
+              onSkip={handleIntentionContinue}
             />
           )}
-          {step === 3 && sweepIntent !== 'week' && (
-            <SweepMoodStep onContinue={handleMoodContinue} />
+          {step === 4 && (
+            <SweepSummaryStep
+              keptCount={keptCount}
+              clearedCount={clearedCount}
+              items={summaryItems}
+              gremlyAge={summaryGremlyAge}
+              onDone={handleSummaryDone}
+              onNavigateBack={() => navigation.goBack()}
+              onPlanTomorrow={() => {
+                // Close sweep first, then emit event for NowScreenV1 to open tomorrow brief
+                navigation.goBack();
+                setTimeout(() => {
+                  eventBus.emit('openTomorrowBrief', {});
+                }, 300); // Small delay to let sweep dismissal animation complete
+              }}
+            />
           )}
-          {step === 4 &&
-            (sweepLog.debug(
-              '[SweepFlowScreen] Rendering SweepSummaryStep with kept:',
-              keptCount,
-              'cleared:',
-              clearedCount,
-            ),
-            (
-              <SweepSummaryStep
-                keptCount={keptCount}
-                clearedCount={clearedCount}
-                items={summaryItems}
-                gremlyAge={summaryGremlyAge}
-                lockInCompleted={
-                  allLockedItems.filter(
-                    (item) => 'completed_at' in item && item.completed_at !== null,
-                  ).length
-                }
-                lockInTotal={allLockedItems.length}
-                habitsCheckedCount={habitsCheckedCount}
-                journalWritten={journalWritten}
-                onDone={handleSummaryDone}
-                onNavigateBack={() => navigation.goBack()}
-                onPlanTomorrow={() => {
-                  // Close sweep first, then emit event for NowScreenV1 to open tomorrow brief
-                  navigation.goBack();
-                  setTimeout(() => {
-                    eventBus.emit('openTomorrowBrief', {});
-                  }, 300); // Small delay to let sweep dismissal animation complete
-                }}
-              />
-            ))}
         </View>
       </Screen>
-
-      {/* Celebration Overlay - Full screen, covers header */}
-      {step === 0 && showCelebration && completedItems.length > 0 && (
-        <View style={styles.celebrationOverlay}>
-          <SweepCelebrationTransition
-            completedItems={completedItems}
-            completedEvents={completedEvents}
-            dropsCount={dropsCount}
-            dcoTone={dcoSnapshot.tone}
-            dcoLifeMoment={dcoSnapshot.lifeMoment}
-            dcoNamedAnchors={dcoSnapshot.namedAnchors}
-            onComplete={() => setShowCelebration(false)}
-            onSkip={() => setShowCelebration(false)}
-          />
-        </View>
-      )}
 
       {/* Local Overlay Portal - renders ON TOP of Sweep modal
           Since Sweep is presented as a modal, the global OverlayHost renders
@@ -5557,70 +3659,6 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
         </View>
       ) : null}
 
-      {/* Bulk skip date picker (same native picker used by sweep card quick-date flows) */}
-      <Modal
-        visible={bulkSkipPickerVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setBulkSkipPickerVisible(false)}
-      >
-        <View style={styles.bulkSkipPickerModalRoot}>
-          <Pressable
-            style={styles.bulkSkipPickerBackdrop}
-            onPress={() => setBulkSkipPickerVisible(false)}
-          />
-          <View style={styles.bulkSkipPickerSheet}>
-            <Text style={styles.bulkSkipPickerTitle}>Pick a day to move everything</Text>
-            {Platform.OS === 'ios' ? (
-              <>
-                <DateTimePicker
-                  value={bulkSkipPickerDate}
-                  mode="date"
-                  display="inline"
-                  onChange={(_, date) => {
-                    if (date) setBulkSkipPickerDate(date);
-                  }}
-                />
-                <View style={styles.bulkSkipPickerActions}>
-                  <TouchableOpacity
-                    style={styles.bulkSkipPickerCancelButton}
-                    onPress={() => setBulkSkipPickerVisible(false)}
-                  >
-                    <Text style={styles.bulkSkipPickerCancelText}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.bulkSkipPickerConfirmButton}
-                    onPress={() => {
-                      void handleBulkSkipConfirm(bulkSkipPickerDate);
-                    }}
-                  >
-                    <Text style={styles.bulkSkipPickerConfirmText}>Move all</Text>
-                  </TouchableOpacity>
-                </View>
-              </>
-            ) : (
-              <DateTimePicker
-                value={bulkSkipPickerDate}
-                mode="date"
-                display="default"
-                onChange={(event, date) => {
-                  if (event.type === 'dismissed') {
-                    setBulkSkipPickerVisible(false);
-                    return;
-                  }
-                  if (!date) {
-                    setBulkSkipPickerVisible(false);
-                    return;
-                  }
-                  setBulkSkipPickerDate(date);
-                  void handleBulkSkipConfirm(date);
-                }}
-              />
-            )}
-          </View>
-        </View>
-      </Modal>
-
       {/* Age-Up Celebration Modal */}
       <AgeUpCelebrationModal
         visible={showAgeUpModal}
@@ -5639,9 +3677,6 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  // ─────────────────────────────────────────────────────────────────────────
-  // Screen & Header - Linen Cream background throughout
-  // ─────────────────────────────────────────────────────────────────────────
   screenBackground: {
     backgroundColor: BRAND.colors.linenCream,
   },
@@ -5663,10 +3698,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerLeft: {
-    flex: 1,
-    alignItems: 'flex-start',
-  },
   headerModeIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -5678,18 +3709,9 @@ const styles = StyleSheet.create({
     color: 'rgba(34, 34, 34, 0.75)', // Charcoal at 75% opacity
     letterSpacing: 0.2,
   },
-  devIndicator: {
-    fontSize: 10,
-    color: 'rgba(46, 85, 64, 0.10)', // Very subtle mossGreen at 10% opacity
-    marginLeft: 2,
-  },
   headerCenter: {
     flex: 1,
     alignItems: 'center',
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: 'center',
   },
   headerCloseButton: {
     width: 40,
@@ -5703,736 +3725,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     backgroundColor: BRAND.colors.linenCream,
   },
-  celebrationOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 100,
-  },
   contentDecision: {
     flex: 1,
     paddingHorizontal: 0, // Full-bleed for decision step
     backgroundColor: '#FFFFFF', // White background for decision step
   },
-  contentLockIn: {
+  contentHub: {
     flex: 1,
-    paddingHorizontal: 0, // Full-bleed for lock-in checkpoint
+    paddingHorizontal: 0, // Full-bleed for the week chooser
     backgroundColor: BRAND.colors.linenCream,
   },
   stepContainer: {
     flex: 1,
     paddingTop: 24,
-    backgroundColor: BRAND.colors.linenCream,
-  },
-  stepTitle: {
-    marginBottom: 8,
-  },
-  stepDescription: {
-    marginBottom: 24,
-  },
-  // ─────────────────────────────────────────────────────────────────────────
-  // SweepIntroStep styles
-  // ─────────────────────────────────────────────────────────────────────────
-  introContainer: {
-    flex: 1,
-    backgroundColor: BRAND.colors.linenCream,
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingTop: 4,
-    paddingBottom: 16,
-  },
-  // Scene: mound + mascot + sparkles
-  introScene: {
-    width: 230,
-    height: 178,
-    marginTop: 14,
-  },
-  introMound: {
-    position: 'absolute',
-    bottom: 6,
-    left: 10,
-    width: 210,
-    height: 56,
-    backgroundColor: INTRO_TINT_MOUND,
-    borderRadius: 999,
-  },
-  introMascotPressable: {
-    position: 'absolute',
-    bottom: 18,
-    left: 51,
-  },
-  introMascotImage: {
-    width: 128,
-    height: 128,
-  },
-  introSparkle1: {
-    position: 'absolute',
-    right: 30,
-    top: 54,
-  },
-  bulkSkipPickerModalRoot: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  bulkSkipPickerBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  bulkSkipPickerSheet: {
-    backgroundColor: '#F9F6F1',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 18,
-  },
-  bulkSkipPickerTitle: {
-    fontSize: 16,
-    color: BRAND.colors.charcoalInk,
-    textAlign: 'center',
-    marginBottom: 8,
-    fontFamily: 'Inter-SemiBold',
-  },
-  bulkSkipPickerActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 10,
-    marginTop: 8,
-  },
-  bulkSkipPickerCancelButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: '#ECE7DD',
-  },
-  bulkSkipPickerCancelText: {
-    color: BRAND.colors.charcoalInk,
-    fontSize: 14,
-    fontFamily: 'Inter-Medium',
-  },
-  bulkSkipPickerConfirmButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: BRAND.colors.mossGreen,
-  },
-  bulkSkipPickerConfirmText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontFamily: 'Inter-SemiBold',
-  },
-  introSparkle2: {
-    position: 'absolute',
-    right: 52,
-    top: 96,
-  },
-  introSparkle3: {
-    position: 'absolute',
-    left: 34,
-    top: 74,
-  },
-  // Speech bubble
-  introBubbleWrap: {
-    maxWidth: 300,
-    width: '100%',
-    marginTop: 6,
-  },
-  introBubble: {
-    backgroundColor: BRAND.colors.surface,
-    borderRadius: 18,
-    paddingVertical: 13,
-    paddingHorizontal: 16,
-    ...INTRO_SOFT_SHADOW,
-  },
-  introBubbleTail: {
-    position: 'absolute',
-    top: -7,
-    left: '50%',
-    marginLeft: -7,
-    width: 14,
-    height: 14,
-    backgroundColor: BRAND.colors.surface,
-    borderRadius: 3,
-    transform: [{ rotate: '45deg' }],
-  },
-  introBubbleText: {
-    fontSize: 14,
-    lineHeight: 20,
-    fontFamily: BRAND.typography.body.fontFamily,
-    color: BRAND.colors.inkSubtle,
-    textAlign: 'center',
-  },
-  introBubbleTextBold: {
-    fontFamily: BRAND.typography.bodyMedium.fontFamily,
-    color: BRAND.colors.charcoalInk,
-  },
-  // Title + when-line
-  introTitle: {
-    fontSize: 28,
-    lineHeight: 38,
-    fontFamily: BRAND.typography.header.fontFamily,
-    color: BRAND.colors.mossGreen,
-    textAlign: 'center',
-    marginTop: 18,
-    paddingTop: 2,
-    includeFontPadding: true,
-  },
-  introWhenLine: {
-    fontSize: 13.5,
-    fontFamily: BRAND.typography.bodyMedium.fontFamily,
-    color: BRAND.colors.inkMuted,
-    textAlign: 'center',
-    marginTop: 3,
-  },
-  // Grouped intent card
-  intentsGroup: {
-    width: '100%',
-    marginTop: 22,
-    backgroundColor: INTRO_CARD_BG,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.05)',
-    ...INTRO_SOFT_SHADOW,
-    overflow: 'hidden',
-  },
-  intentRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 13,
-    paddingVertical: 15,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(34,34,34,0.07)',
-  },
-  intentRowLast: {
-    borderBottomWidth: 0,
-  },
-  intentRowHighlight: {
-    backgroundColor: INTRO_TINT_GOLD,
-    borderBottomColor: 'rgba(224,196,122,0.35)',
-    paddingVertical: 17,
-  },
-  intentAccent: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: 4,
-    backgroundColor: BRAND.colors.goldenPear,
-  },
-  intentChip: {
-    width: 40,
-    height: 40,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  intentTextWrap: {
-    flex: 1,
-  },
-  intentPickTag: {
-    fontSize: 9.5,
-    fontFamily: BRAND.typography.bodyMedium.fontFamily,
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-    color: INTRO_GOLD_DEEP,
-    marginBottom: 3,
-  },
-  intentTitle: {
-    fontSize: 16.5,
-    fontFamily: BRAND.typography.header.fontFamily,
-    color: BRAND.colors.charcoalInk,
-  },
-  intentTitleHighlight: {
-    fontSize: 17.5,
-  },
-  intentSubtitle: {
-    fontSize: 12,
-    fontFamily: BRAND.typography.bodyMedium.fontFamily,
-    color: BRAND.colors.inkMuted,
-    marginTop: 1,
-  },
-  // Footer
-  bulkSkipDivider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: '#E2DDD0',
-    marginHorizontal: 20,
-    marginTop: 8,
-    marginBottom: 4,
-  },
-  bulkSkipRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 0,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-  },
-  bulkSkipRowPressed: {
-    opacity: 0.6,
-  },
-  bulkSkipRowLocked: {
-    opacity: 0.55,
-  },
-  bulkSkipChip: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: '#EDE9DD',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bulkSkipChipLocked: {
-    backgroundColor: '#ECE9E1',
-  },
-  bulkSkipTextWrap: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  bulkSkipTitle: {
-    fontSize: 15,
-    fontFamily: 'PlusJakartaSans-Bold',
-    fontWeight: '500',
-    color: '#5A564E',
-    marginBottom: 2,
-  },
-  bulkSkipTitleLocked: {
-    color: '#9C9A92',
-  },
-  bulkSkipSub: {
-    fontSize: 12,
-    fontFamily: 'Inter-Regular',
-    fontWeight: '400',
-    color: '#9C9A92',
-  },
-  lastSweepText: {
-    fontSize: 11.5,
-    fontFamily: BRAND.typography.bodyMedium.fontFamily,
-    color: BRAND.colors.inkMuted,
-    textAlign: 'center',
-    marginBottom: 20,
-    paddingBottom: 4,
-  },
-  secondaryButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-  },
-  secondaryButtonText: {
-    color: BRAND.colors.mossGreen,
-    fontSize: 15,
-    fontFamily: BRAND.typography.bodyMedium.fontFamily,
-  },
-  // ─────────────────────────────────────────────────────────────────────────
-  // SweepMoodStep styles - Journal-First Redesign
-  // ─────────────────────────────────────────────────────────────────────────
-  moodStepContainer: {
-    flex: 1,
-    paddingTop: 8,
-    backgroundColor: BRAND.colors.linenCream,
-  },
-  scrollContainer: {
-    flex: 1,
-  },
-  moodScrollContent: {
-    paddingBottom: 32,
-    paddingHorizontal: 20,
-    paddingTop: 48,
-  },
-  // Header Row with Mascot
-  moodHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 24,
-  },
-  moodHeaderText: {
-    flex: 1,
-  },
-  moodMascotImage: {
-    width: 86,
-    height: 86,
-    opacity: 0.9,
-    marginLeft: 8,
-    marginTop: -12,
-  },
-  moodStepTitle: {
-    fontSize: 22,
-    fontWeight: '600',
-    color: BRAND.colors.charcoalInk,
-    marginBottom: 12,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(191, 216, 192, 0.5)',
-    letterSpacing: -0.3,
-  },
-  moodStepSubcopy: {
-    fontSize: 15,
-    fontWeight: '400',
-    color: 'rgba(34, 34, 34, 0.75)',
-    lineHeight: 22,
-  },
-  moodStepSubcopyTraining: {
-    color: BRAND.colors.mossGreen,
-    fontSize: 13,
-    fontFamily: 'Inter-Medium',
-    lineHeight: 19,
-  },
-  // Recent Entries Section (Collapsible)
-  recentEntriesSection: {
-    marginBottom: 16,
-    borderRadius: BRAND.radius.lg,
-    backgroundColor: 'rgba(191, 216, 192, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(191, 216, 192, 0.30)',
-    overflow: 'hidden',
-  },
-  recentEntriesHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-  },
-  recentEntriesHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  recentEntriesHeaderText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: BRAND.colors.charcoalInk,
-  },
-  recentEntriesList: {
-    paddingHorizontal: 14,
-    paddingBottom: 12,
-    gap: 6,
-  },
-  recentEntryCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: BRAND.radius.md,
-    backgroundColor: 'rgba(255, 255, 255, 0.5)',
-  },
-  recentEntryCardPressed: {
-    backgroundColor: 'rgba(191, 216, 192, 0.25)',
-  },
-  recentEntryTime: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: BRAND.colors.inkMuted,
-    width: 60,
-  },
-  recentEntryPreview: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: '400',
-    color: BRAND.colors.charcoalInk,
-  },
-  // Journal Input Section
-  journalSection: {
-    marginBottom: 28,
-  },
-  promptLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 10,
-    paddingLeft: 4,
-  },
-  promptText: {
-    fontSize: 13,
-    fontWeight: '500',
-    fontStyle: 'italic',
-    color: BRAND.colors.mossGreen,
-  },
-  journalInputWrapper: {
-    position: 'relative',
-  },
-  journalInput: {
-    backgroundColor: BRAND.colors.linenCream,
-    borderRadius: BRAND.radius.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(191, 216, 192, 0.30)',
-    padding: 16,
-    paddingBottom: 44, // Room for prompt button
-    fontSize: 16,
-    color: BRAND.colors.charcoalInk,
-    minHeight: 120,
-    lineHeight: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 3,
-    elevation: 1,
-  },
-  promptButton: {
-    position: 'absolute',
-    bottom: 10,
-    right: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: BRAND.radius.md,
-    backgroundColor: 'rgba(191, 216, 192, 0.25)',
-  },
-  promptButtonPressed: {
-    backgroundColor: 'rgba(191, 216, 192, 0.40)',
-  },
-  promptButtonLabel: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: BRAND.colors.mossGreen,
-    textTransform: 'lowercase',
-  },
-  // Mood Chips Section (Multi-select)
-  moodChipsSection: {
-    marginBottom: 24,
-    marginTop: 8,
-  },
-  moodChipsLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: BRAND.colors.charcoalInk,
-    marginBottom: 14,
-    textAlign: 'center',
-  },
-  moodChipsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: 5,
-  },
-  moodChip: {
-    paddingVertical: 5,
-    paddingHorizontal: 6,
-    borderRadius: BRAND.radius.sm,
-    backgroundColor: 'rgba(191, 216, 192, 0.18)',
-    borderWidth: 1,
-    borderColor: 'rgba(191, 216, 192, 0.40)',
-  },
-  moodChipSelected: {
-    backgroundColor: 'rgba(191, 216, 192, 0.50)',
-    borderColor: BRAND.colors.mossGreen,
-    borderWidth: 1.5,
-  },
-  moodChipPressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.98 }],
-  },
-  moodChipLabel: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: BRAND.colors.charcoalInk,
-  },
-  moodChipLabelSelected: {
-    color: BRAND.colors.mossGreen,
-    fontWeight: '600',
-  },
-  moodChipsHelper: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: BRAND.colors.inkMuted,
-    marginTop: 8,
-  },
-  // Footer Actions
-  moodFooter: {
-    paddingTop: 8,
-    paddingBottom: 16,
-    paddingHorizontal: 12,
-    gap: 8,
-    backgroundColor: BRAND.colors.linenCream,
-  },
-  continueButton: {
-    backgroundColor: BRAND.colors.sageMist,
-    borderRadius: BRAND.radius.xl,
-    height: 54,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
-    elevation: 3,
-  },
-  continueButtonContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  continueButtonDisabled: {
-    opacity: 0.6,
-  },
-  continueButtonText: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: BRAND.colors.mossGreen,
-  },
-  skipButton: {
-    alignItems: 'center',
-    paddingVertical: 12,
-    marginTop: 4,
-  },
-  skipButtonText: {
-    color: 'rgba(34, 34, 34, 0.60)',
-    fontSize: 15,
-    fontWeight: '500',
-  },
-  // ─────────────────────────────────────────────────────────────────────────
-  // SweepHabitsStep styles - Gremly Brand Reskin (matched to Mood step)
-  // ─────────────────────────────────────────────────────────────────────────
-  wrapUpStepContainer: {
-    flex: 1,
-    paddingTop: 28, // Match mood step top padding
-    backgroundColor: BRAND.colors.linenCream,
-  },
-  wrapUpScrollContent: {
-    paddingBottom: 48, // Generous bottom spacing
-    paddingHorizontal: 4,
-  },
-  wrapUpHeaderSection: {
-    marginBottom: 24, // Gap to first section header
-    paddingHorizontal: 12,
-  },
-  habitsHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-  },
-  habitsHeaderText: {
-    flex: 1,
-    paddingRight: 12,
-  },
-  habitsMascot: {
-    width: 80,
-    height: 80,
-    resizeMode: 'contain',
-  },
-  wrapUpStepTitle: {
-    fontSize: 20, // Match mood step header size
-    fontWeight: '600', // Semibold to match mood step
-    color: BRAND.colors.charcoalInk,
-    marginBottom: 12, // Space to subheader
-    letterSpacing: -0.3,
-  },
-  wrapUpStepSubcopy: {
-    fontSize: 13, // Match mood step subcopy
-    fontWeight: '400', // Regular
-    color: 'rgba(34, 34, 34, 0.75)', // Charcoal at 75%
-    lineHeight: 19,
-    marginBottom: 8, // Gap to first section header
-  },
-  wrapUpProgressSummary: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: 'rgba(34, 34, 34, 0.65)', // Charcoal at 65%
-    lineHeight: 16,
-  },
-  wrapUpDivider: {
-    // Kept but not rendered - airy design
-    height: 1,
-    backgroundColor: BRAND.colors.borderSubtle,
-    marginHorizontal: 12,
-    marginBottom: 28,
-  },
-  wrapUpEmptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 48,
-    paddingHorizontal: 24,
-  },
-  wrapUpEmptyText: {
-    textAlign: 'center',
-    fontSize: 17,
-    fontWeight: '600',
-    color: BRAND.colors.charcoalInk,
-    marginBottom: 8,
-  },
-  wrapUpEmptySubtext: {
-    textAlign: 'center',
-    fontSize: 15,
-    color: 'rgba(34, 34, 34, 0.7)',
-  },
-  wrapUpSection: {
-    marginBottom: 24,
-    paddingHorizontal: 12,
-  },
-  wrapUpSectionHeader: {
-    marginBottom: 12,
-  },
-  wrapUpSectionTitle: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: 'rgba(46, 85, 64, 0.80)', // Moss Green at 80%
-    textTransform: 'uppercase',
-    letterSpacing: 1.2,
-    marginBottom: 8,
-  },
-  wrapUpSectionAccent: {
-    height: 1,
-    backgroundColor: 'rgba(191, 216, 192, 0.50)', // Sage Mist @ 50%
-  },
-  wrapUpItemsList: {
-    gap: 12, // Generous spacing between cards
-  },
-  wrapUpItemRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    backgroundColor: 'rgba(191, 216, 192, 0.18)', // Sage Mist @ 18% (match mood chips)
-    borderRadius: BRAND.radius.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(191, 216, 192, 0.40)', // Sage border
-  },
-  wrapUpItemRowBorder: {
-    // No longer used - cards are separate now
-  },
-  wrapUpItemRowChecked: {
-    borderColor: BRAND.colors.mossGreen, // Moss Green when checked
-  },
-  wrapUpItemName: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: '500',
-    color: BRAND.colors.charcoalInk,
-    marginRight: 12,
-  },
-  wrapUpCheckboxContainer: {
-    minWidth: 48,
-    minHeight: 48,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  wrapUpCheckbox: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
-    borderWidth: 1.5,
-    borderColor: 'rgba(191, 216, 192, 0.60)', // Sage border
-    backgroundColor: BRAND.colors.linenCream,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  wrapUpCheckboxChecked: {
-    borderColor: BRAND.colors.mossGreen,
-    backgroundColor: BRAND.colors.mossGreen,
-  },
-  wrapUpCheckmark: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-    lineHeight: 18,
-    textAlign: 'center',
-  },
-  wrapUpButtonContainer: {
-    paddingTop: 8,
-    paddingBottom: 16,
-    paddingHorizontal: 12,
     backgroundColor: BRAND.colors.linenCream,
   },
   buttonContainer: {
@@ -6466,213 +3771,7 @@ const styles = StyleSheet.create({
     color: '#2E5540',
     opacity: 0.8,
   },
-  wrapUpOpenItemsReminder: {
-    fontSize: 13,
-    fontWeight: '400',
-    color: 'rgba(34, 34, 34, 0.60)', // Charcoal at 60%
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  wrapUpContinueButton: {
-    backgroundColor: BRAND.colors.sageMist, // Soft sage fill
-    borderRadius: BRAND.radius.xl, // Pill shape
-    height: 54,
-    alignItems: 'center',
-    justifyContent: 'center',
-    // Soft CTA shadow
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    elevation: 4,
-  },
-  wrapUpContinueButtonContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  wrapUpContinueButtonText: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: BRAND.colors.mossGreen,
-  },
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Habits Step Styles (Phase 3 redesign)
-  // ─────────────────────────────────────────────────────────────────────────
-  habitsContainer: {
-    paddingHorizontal: 12,
-  },
-  habitsSection: {
-    marginBottom: 8,
-  },
-  habitsSectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-    marginTop: 8,
-    paddingHorizontal: 8,
-  },
-  habitsSectionLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: BRAND.colors.borderSubtle,
-  },
-  habitsSectionTitle: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: BRAND.colors.inkMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    paddingHorizontal: 12,
-  },
-  habitsCompletedSection: {
-    marginTop: 24,
-    opacity: 0.7,
-  },
-  habitsCompletedTitle: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: BRAND.colors.mossGreen,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    paddingHorizontal: 12,
-  },
-  // Needs Setup Section styles
-  habitsNeedsSetupSection: {
-    marginTop: 0,
-    marginBottom: 24,
-    backgroundColor: 'rgba(156, 166, 224, 0.18)',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(156, 166, 224, 0.5)',
-    overflow: 'hidden',
-    paddingBottom: 4,
-  },
-  habitsNeedsSetupTitle: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#7B87D4',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    paddingHorizontal: 16,
-    paddingTop: 14,
-  },
-  needsSetupSubtext: {
-    fontSize: 13,
-    color: BRAND.colors.inkMuted,
-    textAlign: 'center',
-    marginBottom: 8,
-    marginTop: 2,
-    paddingHorizontal: 16,
-  },
-  needsSetupHabitRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-  },
-  needsSetupHabitRowBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(156, 166, 224, 0.35)',
-  },
-  needsSetupHabitInfo: {
-    flex: 1,
-    marginRight: 12,
-  },
-  needsSetupHabitName: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: BRAND.colors.charcoalInk,
-    marginBottom: 2,
-  },
-  needsSetupHabitFrequency: {
-    fontSize: 13,
-    color: BRAND.colors.inkMuted,
-  },
-  needsSetupBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(156, 166, 224, 0.25)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  needsSetupBadgeText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#7B87D4',
-  },
-  completedHabitRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    gap: 8,
-  },
-  completedHabitRowBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: BRAND.colors.borderSubtle,
-  },
-  completedHabitName: {
-    flex: 1,
-    fontSize: 14,
-    color: BRAND.colors.inkSubtle,
-    textDecorationLine: 'line-through',
-  },
-  completedHabitRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  completedHabitMeta: {
-    fontSize: 12,
-    color: BRAND.colors.inkMuted,
-  },
-  startDateSheet: {
-    backgroundColor: BRAND.colors.surface,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingHorizontal: 24,
-    paddingBottom: 40,
-    paddingTop: 12,
-  },
-  startDateSheetHandle: {
-    width: 36,
-    height: 4,
-    backgroundColor: BRAND.colors.borderSubtle,
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: 20,
-  },
-  startDateSheetTitle: {
-    fontSize: 17,
-    fontFamily: 'PlusJakartaSans-Bold',
-    color: BRAND.colors.charcoalInk,
-    marginBottom: 16,
-  },
-  startDateOption: {
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: BRAND.colors.borderSubtle,
-  },
-  startDateOptionLast: {
-    borderBottomWidth: 0,
-  },
-  startDateOptionText: {
-    fontSize: 16,
-    color: BRAND.colors.charcoalInk,
-  },
-
-  // Legacy styles kept for other steps
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: BRAND.colors.linenCream,
-  },
   // SweepDecisionStep styles - White background with sage card
   decisionStepContainer: {
     flex: 1,
@@ -6774,12 +3873,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: BRAND.colors.inkSubtle,
   },
-  decisionPlaceholder: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 48,
-  },
   decisionLoadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -6811,47 +3904,6 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 0,
   },
-  decisionCardKind: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: BRAND.colors.inkSubtle,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 8,
-  },
-  decisionCardDate: {
-    marginTop: 12,
-  },
-  decisionActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
-    paddingVertical: 16,
-  },
-  decisionActionButton: {
-    flex: 1,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: BRAND.radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  decisionActionClear: {
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
-  },
-  decisionActionKeep: {
-    backgroundColor: BRAND.colors.sageMist,
-  },
-  decisionActionTextClear: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: BRAND.colors.inkSubtle,
-  },
-  decisionActionTextKeep: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: BRAND.colors.mossGreen,
-  },
   // SweepSummaryStep styles
   summaryContainer: {
     flex: 1,
@@ -6878,23 +3930,6 @@ const styles = StyleSheet.create({
     color: BRAND.colors.inkMuted,
     textAlign: 'center',
     marginBottom: 12,
-  },
-  tomorrowSection: {
-    marginTop: 12,
-    width: '100%',
-  },
-  tomorrowHeader: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: BRAND.colors.charcoalInk,
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  tomorrowSubtitleText: {
-    fontSize: 14,
-    color: BRAND.colors.inkMuted,
-    textAlign: 'center',
-    marginTop: 4,
   },
   summaryMascotContainer: {
     alignItems: 'center',
@@ -7017,56 +4052,6 @@ const styles = StyleSheet.create({
     color: BRAND.colors.inkMuted,
     marginTop: 4,
   },
-  ageContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-    gap: 8,
-  },
-  ageCount: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: BRAND.colors.charcoalInk,
-    lineHeight: 36,
-  },
-  ageLabel: {
-    fontSize: 17,
-    color: BRAND.colors.inkMuted,
-    lineHeight: 24,
-  },
-  summaryDivider: {
-    width: 80,
-    height: 1,
-    backgroundColor: BRAND.colors.borderSubtle,
-    alignSelf: 'center',
-    marginVertical: 6,
-  },
-  summaryStatsContainer: {
-    backgroundColor: BRAND.colors.surface,
-    borderRadius: BRAND.radius.md,
-    borderWidth: 1,
-    borderColor: BRAND.colors.borderSubtle,
-    padding: 16,
-    marginTop: 8,
-  },
-  summaryStatRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: BRAND.colors.borderSubtle,
-  },
-  summaryStatLabel: {
-    fontSize: 15,
-    color: BRAND.colors.charcoalInk,
-  },
-  summaryStatValue: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: BRAND.colors.mossGreen,
-  },
   summaryEmptyContainer: {
     paddingVertical: 32,
     paddingHorizontal: 16,
@@ -7082,72 +4067,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     gap: 6,
   },
-  summarySubheading: {
-    fontSize: 15,
-    color: BRAND.colors.charcoalInk,
-    textAlign: 'center',
-    marginBottom: 6,
-  },
-  summarySubheadingMuted: {
-    fontSize: 14,
-    color: BRAND.colors.inkMuted,
-    marginTop: 8,
-    marginBottom: 4,
-  },
-  archivedSubheading: {
-    fontSize: 15,
-    color: BRAND.colors.inkMuted,
-    textAlign: 'center',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  summarySection: {
-    backgroundColor: BRAND.colors.surface,
-    borderRadius: BRAND.radius.md,
-    borderWidth: 1,
-    borderColor: BRAND.colors.borderSubtle,
-    overflow: 'hidden',
-    marginBottom: 6,
-  },
-  summarySectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    backgroundColor: BRAND.colors.surface,
-    borderRadius: BRAND.radius.md,
-    borderWidth: 1,
-    borderColor: BRAND.colors.borderSubtle,
-  },
-  summarySectionTitle: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: BRAND.colors.charcoalInk,
-  },
-  summarySectionContent: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: BRAND.colors.borderSubtle,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-  },
-  summaryItemRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 10,
-  },
-  summaryItemName: {
-    fontSize: 14,
-    color: BRAND.colors.charcoalInk,
-    flex: 1,
-    marginRight: 12,
-  },
-  summaryItemOutcome: {
-    fontSize: 13,
-    color: BRAND.colors.inkMuted,
-    fontStyle: 'italic',
-  },
   // Overlay styles (rendered locally to appear above modal)
   overlayContainer: {
     ...StyleSheet.absoluteFillObject,
@@ -7155,10 +4074,6 @@ const styles = StyleSheet.create({
     elevation: 1000,
   },
   overlayScrim: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  overlayBackdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.5)',
   },

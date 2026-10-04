@@ -15,20 +15,20 @@ the item search all stay; the middle layer that handles a message changes.
 
 ## The plan and where it stands
 
-| Step | What                              | Status                            |
-| ---- | --------------------------------- | --------------------------------- |
-| 1    | Map what exists (reuse map)       | Done                              |
-| 2    | Measure today, budget per surface | Done                              |
-| 3    | One change model                  | Done                              |
-| 4    | The tools                         | Done                              |
-| 5    | The core loop                     | Done                              |
-| 6    | Triage update                     | Done                              |
-| 7    | The brief on the core             | Done, merged to main              |
-| 8    | Replay suites and model choice    | Folded into 7 and 9               |
-| 9    | General chat on the core          | Built, James testing              |
-| 10   | Sweep on the core                 | After the Sweep redesign is built |
-| 11   | Focused model audit               | After chat and Sweep              |
-| 12   | Rollout and watching              |                                   |
+| Step | What                              | Status                          |
+| ---- | --------------------------------- | ------------------------------- |
+| 1    | Map what exists (reuse map)       | Done                            |
+| 2    | Measure today, budget per surface | Done                            |
+| 3    | One change model                  | Done                            |
+| 4    | The tools                         | Done                            |
+| 5    | The core loop                     | Done                            |
+| 6    | Triage update                     | Done                            |
+| 7    | The brief on the core             | Done, merged to main            |
+| 8    | Replay suites and model choice    | Folded into 7 and 9             |
+| 9    | General chat on the core          | Built, James testing            |
+| 10   | Sweep on the core                 | Next. Redesign built, see below |
+| 11   | Focused model audit               | After chat and Sweep            |
+| 12   | Rollout and watching              |                                 |
 
 Docs (Claude Docs; James comments and edits in them):
 
@@ -47,6 +47,9 @@ Docs (Claude Docs; James comments and edits in them):
   https://claude.ai/code/artifact/5987a64f-36a7-4307-980d-fecd250bf171
 - Sweep handoff, what the Sweep redesign builds and what step 10 picks up:
   https://claude.ai/code/artifact/43136371-876e-446a-9371-401bcdd3c036
+- The Sweep redesign's build plan and status (the wrap up in today's thread):
+  https://claude.ai/code/artifact/57fedd81-a249-4ab0-9918-e06904ce0759
+- In this repo, the list step 10 starts from: `docs/agent/SWEEP_STEP10.md`.
 
 Each step so far has had its own doc. Keep that going: one doc per step, made
 before the work, filled as it goes, ending with what is next.
@@ -230,8 +233,9 @@ to 53 at about 3.2s, but its replies were sloppier), and Gemini caching.
   Worlds, Chapters, tags, pinned, favourite) only change when the person asks
   for that field; never suggested, never asked about.
 - Turning one kind of item into another: built in step 3.
-- Lock ins and commitments: off limits; they are being removed with the Sweep
-  redesign.
+- Lock ins and commitments: removed from the app in the Sweep redesign
+  (`sweep-updates-10.04`). The columns stay. What is left on Gremly's side is
+  listed in `docs/agent/SWEEP_STEP10.md`, rows 15 and 16.
 - Every change needs a tap; a card with several changes has Accept all.
 - Habits whose label and tracking disagree: list them; Gremly asks when it is
   unclear (Sweep redesign) and updates from the answer.

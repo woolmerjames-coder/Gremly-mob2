@@ -2,7 +2,7 @@
  * The Sweep count a notification may name: the app's own rules
  * (selectSweepCandidatesUnified), so the number matches what Sweep shows.
  */
-import { countBoth, countSweep, eveningItems, lockedIn, quickSweepItems } from '../sweepCount';
+import { countBoth, countSweep, eveningItems, quickSweepItems } from '../sweepCount';
 
 const today = '2026-10-01';
 const tz = 'America/Los_Angeles';
@@ -25,10 +25,9 @@ describe('countSweep: todos', () => {
     expect(countSweep({ todos, today, tz })).toBe(4);
   });
 
-  it('leaves out later todos, locked in ones and ones resurfacing later', () => {
+  it('leaves out later todos, done ones and ones resurfacing later', () => {
     const todos = [
       todo({ due_day: '2026-10-05' }),
-      todo({ due_day: today, commitment: true }),
       todo({ resurface_at: '2026-10-03' }),
       todo({ due_day: today, completed_at: '2026-10-01T17:00:00Z' }),
     ];
@@ -123,41 +122,13 @@ describe('countSweep: notes', () => {
   });
 });
 
-describe('a Lock In lasts its own day', () => {
-  it('counts a todo locked in yesterday as no longer locked in', () => {
+describe('the old Lock In flag', () => {
+  it('keeps nothing out of the count: Lock In is gone from the app', () => {
     const todos = [
-      // locked in by yesterday's plan, never done
-      todo({
-        due_day: '2026-09-30',
-        commitment: true,
-        commitment_started_at: '2026-09-30T16:00:00Z',
-      }),
-      // locked in this morning for today
       todo({ due_day: today, commitment: true, commitment_started_at: '2026-10-01T15:00:00Z' }),
+      todo({ due_day: '2026-09-30', commitment: true }),
     ];
-    expect(lockedIn(todos[0], today, tz)).toBe(false);
-    expect(lockedIn(todos[1], today, tz)).toBe(true);
-    expect(countSweep({ todos, today, tz })).toBe(1);
-  });
-
-  it('a Lock In made last night for today still holds', () => {
-    // 9pm on 30 Sep in Los Angeles, due 1 Oct: the day it was for is today
-    const t = todo({
-      due_day: today,
-      commitment: true,
-      commitment_started_at: '2026-10-01T04:00:00Z',
-    });
-    expect(lockedIn(t, today, tz)).toBe(true);
-  });
-
-  it('a Lock In from an earlier plan ends, even when the todo is due later', () => {
-    // the Sage deck: locked in on 30 Sep, due 3 Oct
-    const t = todo({
-      due_day: '2026-10-03',
-      commitment: true,
-      commitment_started_at: '2026-09-30T16:00:00Z',
-    });
-    expect(lockedIn(t, today, tz)).toBe(false);
+    expect(countSweep({ todos, today, tz })).toBe(2);
   });
 });
 
