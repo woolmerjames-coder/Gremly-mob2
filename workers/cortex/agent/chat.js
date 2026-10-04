@@ -60,13 +60,26 @@ export async function foundForMessage(ctx, message) {
 }
 
 /** The search above for a message on its way in, started alongside triage (cortex-index.js). */
-export function prefetchForChat(env, { userId, timezone, message }) {
+export function prefetchForChat(env, { userId, timezone, message, today = null }) {
   const tz = timezone || 'UTC';
-  const ctx = {
-    ...toolContext(env, { userId, today: localDateOf(tz, Date.now()), timezone: tz }),
-    surface: 'chat',
-  };
-  return foundForMessage(ctx, message).catch(() => '');
+  // today: the person's day when the caller knows it (a day or a promise of
+  // one, workers/shared/day.js), the calendar's date when it does not
+  return Promise.resolve(today)
+    .catch(() => null)
+    .then((theirDay) =>
+      foundForMessage(
+        {
+          ...toolContext(env, {
+            userId,
+            today: theirDay || localDateOf(tz, Date.now()),
+            timezone: tz,
+          }),
+          surface: 'chat',
+        },
+        message,
+      ),
+    )
+    .catch(() => '');
 }
 
 /** The preload's week ahead with its todos' ids, for the agent alone (the writer reads it without). */
@@ -126,7 +139,7 @@ export function chatCacheKey(userId) {
  * @param {string} p.timezone
  * @param {{role: string, content: string}[]} p.messages the conversation, ending with their message
  * @param {object[]} [p.tasks] the task list kept on the chat
- * @param {object} p.preload for chatContext; found may be a promise (the search started alongside triage), else the search runs here
+ * @param {object} p.preload for chatContext; found may be a promise (the search started alongside triage), else the search runs here; today is the person's day when the caller knows it (workers/shared/day.js)
  * @param {(line: string) => void} [p.onStatus]
  * @param {object} [p.deps] { ctx, models, agent, now } for tests and replays
  * @returns {Promise<object>} ok with reply, card and tasks, or not ok with why
@@ -151,7 +164,8 @@ export async function runChatTurn({
   if (!last || last.role !== 'user') return { ok: false, error: 'no message' };
   const tz = timezone || 'UTC';
   const at = deps.now ? deps.now() : Date.now();
-  const today = localDateOf(tz, at);
+  // their day, which after midnight is still yesterday until their day ends
+  const today = preload.today || localDateOf(tz, at);
   const ctx = deps.ctx ? { ...deps.ctx, today } : toolContext(env, { userId, today, timezone: tz });
   const found =
     preload.found !== undefined

@@ -234,3 +234,66 @@ test("one day's calendar puts an all day entry on its own date, not the evening 
   expect(friday.map((e) => e.title)).toEqual(['Office closed', 'US office closed']);
   expect(paths.filter((p) => p.startsWith('synced_calendar_events'))).toHaveLength(4);
 });
+
+test('the week starts on their day when it is given: after midnight that is still yesterday', async () => {
+  // 1:46am on Sunday 4 Oct where they are; with a day that ends at 3am it is still Saturday for them
+  jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-04T08:46:00Z'));
+  const asked = [];
+  jest.spyOn(global, 'fetch').mockImplementation(async (url) => {
+    asked.push(new URL(url));
+    return { ok: true, text: async () => '[]' };
+  });
+  const env = { SUPABASE_URL: 'https://example.test', SUPABASE_SERVICE_KEY: 'test-key' };
+
+  const theirs = await readWeekAhead('u1', TZ, env, { today: Promise.resolve('2026-10-03') });
+  expect(theirs.first).toBe('2026-10-03');
+  expect(theirs.days.map((d) => d.date).slice(0, 3)).toEqual([
+    '2026-10-03',
+    '2026-10-04',
+    '2026-10-05',
+  ]);
+  // so "tomorrow" is the Sunday, and the todos read start from their day
+  expect(formatWeekAhead(theirs)).toContain('Sun 4 Oct (tomorrow)');
+  const todosRead = asked.find(
+    (u) => u.pathname.endsWith('/todos') && u.searchParams.getAll('due_day').length === 2,
+  );
+  expect(todosRead.searchParams.getAll('due_day')).toEqual(['gte.2026-10-03', 'lte.2026-10-09']);
+
+  // with no day given, and with one that could not be read, it is the calendar's date
+  expect((await readWeekAhead('u1', TZ, env)).first).toBe('2026-10-04');
+  expect(
+    (await readWeekAhead('u1', TZ, env, { today: Promise.reject(new Error('down')) })).first,
+  ).toBe('2026-10-04');
+});
+
+test('every todo planned for a day is named, so the whole list can be given when asked', () => {
+  const many = (n) =>
+    Array.from({ length: n }, (_, i) => ({
+      id: `m${i + 1}`,
+      name: `Thing ${i + 1}`,
+      due_day: '2026-10-05',
+    }));
+  const weekWith = (n) =>
+    weekFrom({
+      first: FIRST,
+      tz: TZ,
+      synced: { timed: [], long: [], allDay: [] },
+      noteEvents: [],
+      quickEvents: [],
+      todos: many(n),
+      overdue: [],
+      cancelledIds: [],
+    });
+
+  const text = formatWeekAhead(weekWith(47), { ids: true });
+  expect(text).toContain('Thing 1 (id m1)');
+  expect(text).toContain('Thing 16 (id m16)');
+  expect(text).toContain('Thing 47 (id m47)');
+  expect(text).not.toContain('more (');
+
+  // past what one day's read holds, the count is still said
+  const over = formatWeekAhead(weekWith(53));
+  expect(over).toContain('Thing 50');
+  expect(over).not.toContain('Thing 51');
+  expect(over).toContain('and 3 more (53 in all)');
+});

@@ -4,7 +4,14 @@
 // Ask Gremly on the agent (workers/cortex/agent/chat.js): who it is on for,
 // what it knows, and one turn end to end with a scripted model.
 
-import { agentChatFor, chatContext, runChatTurn, AGENT_LANES, chatCacheKey } from '../chat.js';
+import {
+  agentChatFor,
+  chatContext,
+  prefetchForChat,
+  runChatTurn,
+  AGENT_LANES,
+  chatCacheKey,
+} from '../chat.js';
 import { chatAgentPersona, buildGeneralChatConfig } from '../../gremlyPersona.js';
 import { configureModels } from '../../models.js';
 import { formatWeekAhead } from '../../context/weekAhead.js';
@@ -201,6 +208,65 @@ describe('one turn', () => {
     expect(contexts[1]).toContain(
       '(open ones, searched just now)\n1 found, best first:\n- todo | id v1 | Vet',
     );
+  });
+
+  it('counts today from their day when it is given: after midnight it is still yesterday', async () => {
+    const seen = [];
+    const tools = [];
+    const callModel = async (args) => {
+      seen.push(args.turns.at(-1).text);
+      return {
+        ok: true,
+        provider: 'openai-responses',
+        text: 'Sunday is light.',
+        calls: [],
+        raw: [],
+      };
+    };
+    const runTool = async (toolCtx) => {
+      tools.push(toolCtx.today);
+      return { ok: true, text: '', result: {} };
+    };
+    const base = {
+      env: {},
+      userId: 'u1',
+      timezone: 'America/Los_Angeles',
+      messages: [{ role: 'user', content: "What's on tomorrow?" }],
+      // 1:46am on Sunday 4 October where they are
+      deps: {
+        ctx,
+        agent: { callModel, runTool },
+        now: () => Date.parse('2026-10-04T08:46:00Z'),
+      },
+    };
+    // their day ends at 3am, so it is still Saturday for them
+    await runChatTurn({ ...base, preload: { found: '', today: '2026-10-03' } });
+    expect(seen[0]).toContain('Today is Saturday 3 October 2026, and it is 1:46am');
+    // with no day given it is the calendar's date, as before
+    await runChatTurn({ ...base, preload: { found: '' } });
+    expect(seen[1]).toContain('Today is Sunday 4 October 2026, and it is 1:46am');
+  });
+
+  it('names the days of the items a message finds from their day too', async () => {
+    const env = { SUPABASE_URL: 'https://example.test', SUPABASE_SERVICE_KEY: 'test-key' };
+    // 1:46am on Sunday 4 October where they are
+    jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-04T08:46:00Z'));
+    jest.spyOn(global, 'fetch').mockImplementation(async () => ({
+      ok: true,
+      text: async () =>
+        JSON.stringify([
+          { type: 'todo', id: 'v1', title: 'Vet', day: '2026-10-04', time: null, state: 'open' },
+        ]),
+    }));
+    const args = { userId: 'u1', timezone: 'America/Los_Angeles', message: 'the vet' };
+    // their day ends at 3am, so Sunday is still tomorrow for them
+    const theirs = await prefetchForChat(env, { ...args, today: Promise.resolve('2026-10-03') });
+    expect(theirs).toContain('Vet | Sun 4 Oct (tomorrow)');
+    // with no day given, and with one that could not be read, it is the calendar's date
+    expect(await prefetchForChat(env, args)).toContain('Vet | Sun 4 Oct (today)');
+    expect(
+      await prefetchForChat(env, { ...args, today: Promise.reject(new Error('down')) }),
+    ).toContain('Vet | Sun 4 Oct (today)');
   });
 
   it('says it could not finish, so the quick lane answers', async () => {

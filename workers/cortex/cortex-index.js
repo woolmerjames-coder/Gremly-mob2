@@ -210,6 +210,7 @@ import { configureModels, models, helperModel } from './models.js';
 import { helperFetch } from './helperClient.js';
 import { greetingFacts, greetingPrompt } from './greeting.js';
 import { readWeekAhead } from './context/weekAhead.js';
+import { personNow } from '../shared/day.js';
 import { clock } from './agent/tools/words.js';
 import { minutesIn } from '../shared/calendar.js';
 import { executeTavilySearch, formatSearchBrief } from './webSearch.js';
@@ -4351,10 +4352,12 @@ After the user confirms and locks in a habit, check the existing habits listed i
         }
 
         try {
+          // their day: after midnight it is still yesterday until their day ends
+          const theirDay = await personNow(env, authenticatedUserId, userTimezone);
           // the daily context, and what is still on the calendar today
           const [dailyFocus, week] = await Promise.all([
             getDailyFocusForChat(authenticatedUserId, env, userTimezone),
-            readWeekAhead(authenticatedUserId, userTimezone, env),
+            readWeekAhead(authenticatedUserId, userTimezone, env, { today: theirDay.today }),
           ]);
           // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
           const now = new Date();
@@ -4364,12 +4367,15 @@ After the user confirms and locks in a habit, check the existing habits listed i
             hour12: true,
             timeZone: userTimezone,
           }).format(now);
+          // the weekday of their day, read at noon so no time zone moves it
           const dayStr = new Intl.DateTimeFormat('en-US', {
             weekday: 'long',
-            timeZone: userTimezone,
-          }).format(now);
-          const nowMinutes = minutesIn(userTimezone, now);
-          const hour = Math.floor(nowMinutes / 60);
+            timeZone: 'UTC',
+          }).format(new Date(`${theirDay.today}T12:00:00Z`));
+          const clockMinutes = minutesIn(userTimezone, now);
+          const hour = Math.floor(clockMinutes / 60);
+          // after midnight on their day, everything on that day's calendar has passed
+          const nowMinutes = theirDay.late ? clockMinutes + 24 * 60 : clockMinutes;
           const today = week?.days?.[0];
           const laterToday = today
             ? [
@@ -12752,6 +12758,13 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             let generalTodayActivity = null;
             // the week ahead buildChatContext read, for the agent's ids (agent/chat.js)
             const contextKeep = {};
+            // their day, for everything here that says today or tomorrow: after
+            // midnight it is still yesterday until their day ends (shared/day.js)
+            const theirDayRead = authenticatedUserId
+              ? personNow(env, authenticatedUserId, userTimezone)
+                  .then((n) => n.today)
+                  .catch(() => null)
+              : Promise.resolve(null);
             const tContext = Date.now();
             let contextMs = null;
             const contextRead = authenticatedUserId
@@ -12764,10 +12777,13 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       timezone: userTimezone,
                       currentChatId: body.chatId || null,
                       keep: contextKeep,
+                      today: theirDayRead,
                     },
                     env,
                   ),
-                  buildTodayActivity(authenticatedUserId, userTimezone, env).catch((err) => {
+                  buildTodayActivity(authenticatedUserId, userTimezone, env, {
+                    today: theirDayRead,
+                  }).catch((err) => {
                     console.error('[GeneralChat] Context error', err);
                     return null;
                   }),
@@ -12834,6 +12850,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   userId: authenticatedUserId,
                   timezone: userTimezone,
                   message: lastUserText(body),
+                  today: theirDayRead,
                 })
               : null;
 
@@ -12883,6 +12900,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   sessionContext: sessionContextStr,
                   week: contextKeep.week,
                   found: agentFound,
+                  today: await theirDayRead,
                 },
                 send: (obj) => writer.write(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`)),
                 timing: {

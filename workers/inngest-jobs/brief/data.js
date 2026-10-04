@@ -13,6 +13,7 @@ import {
   meetingsFrom,
   minutesIn,
 } from '../../shared/calendar.js';
+import { personDay } from '../../shared/day.js';
 import { buildDcoV4, writeDco } from '../context/daily';
 import { dayOfWeekNumber, isBehindThisWeek, mondayOf, weeklyTarget } from './behind';
 import { readThreadReaction } from './reaction';
@@ -74,9 +75,9 @@ export function clashesOf(meetings) {
   return out;
 }
 
-/** The ritual day: before the person's Day Boundary hour it is still yesterday. */
+/** The ritual day: before the person's Day Boundary hour it is still yesterday (shared/day.js). */
 export function ritualDayFor(today, nowMin, boundaryHour) {
-  return boundaryHour > 0 && nowMin < boundaryHour * 60 ? addDays(today, -1) : today;
+  return personDay(today, nowMin, boundaryHour);
 }
 
 /** Today's DCO, built now if the 4am job has not made one (a first open after a month away). */

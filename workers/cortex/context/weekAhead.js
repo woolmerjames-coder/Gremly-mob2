@@ -17,17 +17,28 @@ import { addDays, clock, dayWords, trim } from '../agent/tools/words.js';
 
 export const WEEK_DAYS = 7;
 const MOST_A_DAY = 15;
+// Every todo planned for a day is named, up to what get_day reads for one day,
+// so the whole list can be given when they ask for it.
+const MOST_TODOS_A_DAY = 50;
 
 /**
  * Read the week: { first, days: [{ date, meetings, allDay, todos }], overdue }.
  * cancelledIds (a list, or a promise of one) are calendar entries known to be
- * cancelled. A read that fails is logged and the week is left out of the
- * reply's context.
+ * cancelled. today (a day, or a promise of one) is the person's day, which is
+ * still yesterday after midnight until their day ends (workers/shared/day.js);
+ * the calendar's date when it is not given. A read that fails is logged and
+ * the week is left out of the reply's context.
  */
-export async function readWeekAhead(userId, timezone, env, { cancelledIds = [] } = {}) {
+export async function readWeekAhead(
+  userId,
+  timezone,
+  env,
+  { cancelledIds = [], today = null } = {},
+) {
   if (!userId) return null;
   const tz = timezone || 'UTC';
-  const first = localDateOf(tz, Date.now());
+  const theirDay = await Promise.resolve(today).catch(() => null);
+  const first = theirDay || localDateOf(tz, Date.now());
   const last = addDays(first, WEEK_DAYS - 1);
   const d = db(env);
   const u = userId;
@@ -142,7 +153,7 @@ export function formatWeekAhead(week, { ids = false } = {}) {
     if (day.allDay.length) parts.push(`all day: ${some(day.allDay, 5, (a) => trim(a.title, 60))}`);
     if (day.todos.length)
       parts.push(
-        `todos: ${some(day.todos, MOST_A_DAY, (t) => `${trim(t.title, 60)}${idOf(t)}${t.due_time ? ` at ${clock(t.due_time)}` : ''}`)}`,
+        `todos: ${some(day.todos, MOST_TODOS_A_DAY, (t) => `${trim(t.title, 60)}${idOf(t)}${t.due_time ? ` at ${clock(t.due_time)}` : ''}`)}`,
       );
     lines.push(
       `${dayWords(day.date, week.first)}: ${parts.length ? parts.join('. ') : 'nothing planned'}`,
