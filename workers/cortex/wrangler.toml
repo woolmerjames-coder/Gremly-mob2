@@ -91,7 +91,11 @@ HELPER_FALLBACK_MODEL = "gemini-3.8-flash"
 MODEL_TRIAGE = "gpt-6-luna"
 MODEL_TRIAGE_MODE = "gpt-4.1-mini"
 MODEL_TRIAGE_SIGNALS = "gpt-4.1-mini"
-MODEL_LOADING_MESSAGE = "gpt-4.1-mini"
+# The line Ask Gremly shows while it works, on Luna since 4 Oct: on the chat
+# replay's 18 messages its lines read truer to what was asked; it takes about
+# 1s against 0.6s, and runs alongside the reply, so the reply comes no later
+# (scripts/chat-replay/loading.sh). To go back: "gpt-4.1-mini".
+MODEL_LOADING_MESSAGE = "gpt-6-luna"
 TRIAGE_ONE_CALL = "on"
 # Today's thread on the agent (agent plan step 7), on Luna by James's choice:
 # the day turn's replay suite (11 messages) passed 20 of 22 runs at 5.4s typical
