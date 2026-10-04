@@ -25,7 +25,7 @@ the item search all stay; the middle layer that handles a message changes.
 | 6    | Triage update                     | Done                              |
 | 7    | The brief on the core             | Done, merged to main              |
 | 8    | Replay suites and model choice    | Folded into 7 and 9               |
-| 9    | General chat on the core          | Next                              |
+| 9    | General chat on the core          | Built, James testing              |
 | 10   | Sweep on the core                 | After the Sweep redesign is built |
 | 11   | Focused model audit               | After chat and Sweep              |
 | 12   | Rollout and watching              |                                   |
@@ -175,6 +175,27 @@ evening, while things wait for a decision, it offers to wrap up (the quick
 Sweep for now; the Sweep redesign repoints it). The greeting prompt
 (`workers/cortex/greeting.js`) is semantic and knows the hour, what is still
 on the calendar today, and what waits in the app.
+
+**Chat's agent lane (step 9, 3 Oct).** Triage's lookup and agent lanes go
+to `runChatTurn` (`workers/cortex/agent/chat.js`, the chat surface, Luna via
+`AGENT_MODEL_CHAT`) when the account is in `AGENT_CHAT` (James's id for now;
+`on` is everyone) and the app sent `agentCard`, which only new builds do.
+The persona is `chatAgentPersona()`: the quick lane's, without its saving
+rules or the date, so it caches. Status lines show while it works; the done
+event carries the card and the task list; the app draws the card with
+`lib/chat/useChatCard.ts` (Accept through `applyChanges`, Undo, Dismiss),
+puts what was done with each card into the history, and keeps the task list
+on the chat's `metadata_json.agent_tasks`. If the agent fails, the writer
+answers. The pill split's companion call now writes only the title
+(`buildTitlePrompt`, job `chat_title`), so the running summary is written
+once. The replay is `scripts/chat-replay` (twelve kinds of message, every
+name made up): 36 of 36 on Luna at about 4.7s and 0.03 cents a message.
+One agent rule came from it (`agent-2026-10-03i`): a yes in words to an
+offered change puts that change on the card as offered (accept and follow up
+13 of 16 before, 16 of 16 after; the day replay unchanged). Still open: the
+quick lane keeps its own card (`EntityCardMessage`) until the agent lane is
+on for everyone, and `find_items` is compared with `entityMatch.js` before
+the quick lane moves to the search.
 
 **Step 11, focused model audit.** After chat and Sweep, a smaller audit of
 only the places that could be better, from replays and real use: a stronger
