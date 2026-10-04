@@ -15,22 +15,10 @@
 
 import { createContext, useContext } from 'react';
 import type React from 'react';
-import type { HomeChip, HomeChipKey } from '../../lib/chat/homeChips';
 
 export type HomeChatApi = {
   send: (text: string) => void;
   isSending: () => boolean;
-  /** A chip above the box was tapped */
-  pressChip?: (key: HomeChipKey) => void;
-};
-
-/**
- * What the Chat page's fresh home shows around the box: Gremly's greeting, in
- * a speech bubble beside him, and the chips above the box.
- */
-export type ChatHome = {
-  greeting: string | null;
-  chips: HomeChip[];
 };
 
 export type HomeDockApi = {
@@ -43,8 +31,6 @@ export type HomeDockApi = {
   setChatSending: (sending: boolean) => void;
   /** The Chat page asks for different words in the empty box (null for the usual) */
   setChatPlaceholder: (text: string | null) => void;
-  /** The Chat page's fresh home: the greeting and chips (null in a conversation) */
-  setChatHome: (home: ChatHome | null) => void;
   /** The Chat page reports when the conversation is being scrolled */
   setChatScrolling: (scrolling: boolean) => void;
   /** Puts text into the shared box (a prompt another screen opened Chat with) */
@@ -64,8 +50,6 @@ export type HomeModeState = {
   chatScrolling: boolean;
   /** Words for the empty box in Chat mode, such as "Type your answer…"; null for the usual */
   chatPlaceholder: string | null;
-  /** The greeting and chips while Chat shows its fresh home; null otherwise */
-  chatHome: ChatHome | null;
 };
 
 export const HomeDockContext = createContext<HomeDockApi | null>(null);

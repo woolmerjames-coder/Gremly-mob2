@@ -165,11 +165,11 @@ are answered from them; before, chat had only the week so far.
 
 **Chat home (step 9, 3 Oct).** From the mockup James approved
 (https://claude.ai/artifact/RxvQRqbb722VymHacdNQB5): the three starter
-buttons are gone; Gremly's greeting sits in a speech bubble beside him and a
-row of chips (`lib/chat/homeChips.ts`) sits above the box, both drawn by the
-shared box (`CatchAllNotepad`) from `chatHome` on the home dock
-(`components/home/GremlyHomeDock.tsx`), with chip taps routed back to the
-Chat page. The box in Chat is always one line with the send arrow inside.
+buttons are gone; Gremly's greeting sits in a speech bubble and a row of
+chips (`lib/chat/homeChips.ts`) below it, at the foot of the Chat page, left
+of where Gremly perches. The shared box (`CatchAllNotepad`) is left exactly as
+it is on Drop, so the box and Gremly stay still when the pages slide (James,
+3 Oct: the mockup's one line box made them jump).
 The Today card's mark and line follow the part of the day, and in the
 evening, while things wait for a decision, it offers to wrap up (the quick
 Sweep for now; the Sweep redesign repoints it). The greeting prompt

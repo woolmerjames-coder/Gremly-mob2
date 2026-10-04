@@ -42,7 +42,6 @@ import GremlyModeSwitch, { type HomeMode } from '../../components/home/GremlyMod
 import {
   HomeDockContext,
   HomeModeContext,
-  type ChatHome,
   type HomeChatApi,
   type HomeDockApi,
   type HomeModeState,
@@ -90,11 +89,6 @@ export default function GremlyHomeScreen() {
   const [dock, setDock] = useState<React.ReactNode>(null);
   const [chatSending, setChatSending] = useState(false);
   const [chatPlaceholder, setChatPlaceholder] = useState<string | null>(null);
-  const [chatHome, setChatHomeState] = useState<ChatHome | null>(null);
-  // the same greeting and chips again change nothing, so the pages do not re-render
-  const setChatHome = useCallback((home: ChatHome | null) => {
-    setChatHomeState((prev) => (JSON.stringify(prev) === JSON.stringify(home) ? prev : home));
-  }, []);
   const [chatScrolling, setChatScrollingState] = useState(false);
   const scrollSettleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Gremly steps aside as soon as the conversation moves, and comes back a
@@ -162,7 +156,6 @@ export default function GremlyHomeScreen() {
       getChat: () => chatApiRef.current,
       setChatSending,
       setChatPlaceholder,
-      setChatHome,
       setChatScrolling,
       prefillDraft: (text) => {
         if (draftSetterRef.current) draftSetterRef.current(text);
@@ -180,11 +173,11 @@ export default function GremlyHomeScreen() {
         focusRef.current = focus;
       },
     }),
-    [setChatScrolling, setChatHome],
+    [setChatScrolling],
   );
   const modeState = useMemo<HomeModeState>(
-    () => ({ mode, chatSending, chatScrolling, chatPlaceholder, chatHome }),
-    [mode, chatSending, chatScrolling, chatPlaceholder, chatHome],
+    () => ({ mode, chatSending, chatScrolling, chatPlaceholder }),
+    [mode, chatSending, chatScrolling, chatPlaceholder],
   );
   const switchTucked = keyboardOpen && mode === 'chat';
   const pendingModeRef = useRef<HomeMode | null>(null);

@@ -181,7 +181,9 @@ describe('an item chat outside any screen', () => {
     );
     await findByTestId('item-starters-loading');
     expect(queryByTestId('item-starter-expand')).toBeNull();
-    give([{ key: 'topic-0', label: 'JR pass', prompt: 'Do I need the JR pass?', icon: () => null }]);
+    give([
+      { key: 'topic-0', label: 'JR pass', prompt: 'Do I need the JR pass?', icon: () => null },
+    ]);
     await findByTestId('item-starter-topic-0');
     expect(queryByTestId('item-starters-loading')).toBeNull();
     fireEvent.press(getByTestId('item-starter-topic-0'));
@@ -226,5 +228,18 @@ describe('an item chat outside any screen', () => {
     const { getByLabelText } = render(<AskGremlyScreen item={opened} />);
     fireEvent.press(getByLabelText('Close'));
     expect(opened.onClose).toHaveBeenCalled();
+  });
+});
+
+describe("Chat's fresh home in the Gremly home", () => {
+  it("shows Gremly's greeting and the chips at the foot of the page", async () => {
+    const { callGeneralGreeting } = require('../../../lib/cortex/CortexClient');
+    callGeneralGreeting.mockResolvedValueOnce('Morning. Your brief is ready whenever you are.');
+    const { findByText, getByTestId } = render(<AskGremlyScreen embedded />);
+    expect(await findByText('Morning. Your brief is ready whenever you are.')).toBeTruthy();
+    expect(getByTestId('chat-home-foot')).toBeTruthy();
+    expect(getByTestId('home-chips')).toBeTruthy();
+    // what waits in the app goes with the greeting request
+    expect(callGeneralGreeting).toHaveBeenCalledWith('u1', { briefUnread: false, toDecide: 0 });
   });
 });

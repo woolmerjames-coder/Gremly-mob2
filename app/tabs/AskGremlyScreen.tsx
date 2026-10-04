@@ -102,6 +102,7 @@ import {
 import { opFromButton } from '../../lib/plan/planFlow';
 import { BriefPlanBlock } from '../../components/brief/BriefPlanBlock';
 import { HomeChips } from '../../components/home/HomeChips';
+import { useKeyboardOpen } from '../../hooks/useKeyboardOpen';
 import { chipPrompt, homeChipsFor, homePhase, type HomeChipKey } from '../../lib/chat/homeChips';
 import { useNowMinutes } from '../../lib/brief/useDayCard';
 import { selectQuickSweepCount } from '../../lib/store/selectors';
@@ -696,8 +697,6 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   const homeDock = useHomeDock();
   const handleSendRef = useRef(handleSend);
   handleSendRef.current = handleSend;
-  // a chip above the shared box, set once the chips are worked out below
-  const pressChipRef = useRef<(key: HomeChipKey) => void>(() => {});
   const sendingRef = useRef(sending);
   sendingRef.current = sending;
   useEffect(() => {
@@ -707,7 +706,6 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         void handleSendRef.current(text);
       },
       isSending: () => sendingRef.current,
-      pressChip: (key) => pressChipRef.current(key),
     });
     return () => homeDock.registerChat(null);
   }, [embedded, homeDock]);
@@ -994,7 +992,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   const gremlyAge = useGremlyStore((st) => st.gremlyAge);
 
   // Chat's fresh home: Gremly's greeting and chips that follow the part of the
-  // day; inside the Gremly home both sit by the shared box (GremlyHomeDock)
+  // day. Inside the Gremly home they sit at the foot of this page, left of
+  // Gremly, so the shared box and Gremly stay exactly where they are on Drop
   const nowMinutes = useNowMinutes();
   const dayBoundaryHour = useGremlyStore((st) => st.dayBoundaryHour);
   const phase = homePhase(nowMinutes, dayBoundaryHour);
@@ -1020,17 +1019,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     },
     [openTodayThread, openWrapUp, handleSend],
   );
-  pressChipRef.current = pressChip;
-  useEffect(() => {
-    if (!embedded || !homeDock) return;
-    homeDock.setChatHome(freshHome ? { greeting, chips: homeChips } : null);
-  }, [embedded, homeDock, freshHome, greeting, homeChips]);
-  useEffect(
-    () => () => {
-      if (embedded && homeDock) homeDock.setChatHome(null);
-    },
-    [embedded, homeDock],
-  );
+  // put away while typing, for room to read
+  const keyboardOpen = useKeyboardOpen();
   const jumpPending = !!(
     params?.thread ||
     params?.talkAbout ||
@@ -1596,6 +1586,17 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
               onPress={() => setSaveSheetVisible(true)}
               style={styles.savePillEmbedded}
             />
+            {/* Chat's fresh home: Gremly's greeting and the chips, left of him */}
+            {freshHome && !keyboardOpen ? (
+              <View style={styles.homeFoot} pointerEvents="box-none" testID="chat-home-foot">
+                {greeting ? (
+                  <View style={styles.homeGreeting} testID="chat-home-greeting">
+                    <Text style={styles.homeGreetingText}>{greeting}</Text>
+                  </View>
+                ) : null}
+                <HomeChips chips={homeChips} onPress={pressChip} style={styles.homeFootChips} />
+              </View>
+            ) : null}
             {/* The drop this chat is about, attached to what you send next */}
             {aboutItem && !activeChat ? (
               <View style={styles.aboutChip} testID="chat-about-chip">
@@ -2012,6 +2013,40 @@ const styles = StyleSheet.create({
     flexGrow: 0,
     marginTop: 8,
     paddingHorizontal: 24,
+  },
+  // the foot of Chat's fresh home: just above the shared box, left of where
+  // Gremly perches on it, the greeting with its tail towards him
+  homeFoot: {
+    position: 'absolute',
+    left: 16,
+    right: 104,
+    bottom: 8,
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  homeGreeting: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderBottomRightRadius: 6,
+    borderWidth: 1,
+    borderColor: '#ECEAE4',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    shadowColor: '#28322C',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  homeGreetingText: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 16,
+    lineHeight: 22,
+    color: '#2B3630',
+  },
+  homeFootChips: {
+    flexGrow: 0,
+    alignSelf: 'stretch',
   },
   starterCard: {
     flexDirection: 'row',
