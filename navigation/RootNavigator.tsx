@@ -95,8 +95,12 @@ export type RootStackParamList = {
         demoMode?: boolean;
         initialIntent?: 'today' | 'tomorrow' | 'week';
         initialHub?: boolean;
-        /** The brief's quick sweep: only the cards that need a decision, then back */
-        quick?: boolean;
+        /**
+         * The cards on their own, opened from today's thread, each decision
+         * saved as it is made, then back. wrap: tonight's wrap up. quick: the
+         * brief's Sweep first, only the cards that need a decision.
+         */
+        cards?: 'wrap' | 'quick';
       }
     | undefined;
   ArchivedItems: { searchQuery?: string } | undefined;

@@ -1053,7 +1053,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   greetingWaitingRef.current = { briefUnread: briefUnreadHere, toDecide };
   const freshHome = !activeChat && !item && !aboutItem;
   const openWrapUp = useCallback(() => {
-    navigation.navigate('Sweep', { quick: true });
+    navigation.navigate('Sweep', { cards: 'quick' });
   }, [navigation]);
   const pressChip = useCallback(
     (key: HomeChipKey) => {
@@ -1129,7 +1129,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         offer: meta?.type === 'brief-offer' ? meta : null,
       });
       // the quick sweep: only the cards that still need a decision, then back here
-      navigation.navigate('Sweep', { quick: true });
+      navigation.navigate('Sweep', { cards: 'quick' });
     },
     [activeChat, navigation],
   );

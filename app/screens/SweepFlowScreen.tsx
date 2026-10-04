@@ -28,6 +28,7 @@ import {
   Modal,
   Vibration,
   Dimensions,
+  Alert,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Reanimated, {
@@ -136,6 +137,7 @@ import { SweepEventsStep } from '../components/sweep/SweepEventsStep';
 import {
   selectTodayLockedItems,
   selectTodayLockedItemsIncludingCompleted,
+  selectWrapUp,
 } from '../../lib/store/selectors';
 
 // Sweep habit components and helpers
@@ -158,6 +160,14 @@ import { RelationPopup, type RelationResolution } from '../../components/minddro
 import { relationOf } from '../../lib/minddrop/dropRelation';
 import { sweepLog } from '../../lib/debug/sweepLogger';
 import { quickSweepCards } from '../../lib/sweep/quickSweep';
+import { applySweepDecision, type SweepDecision, type SweepRecord } from '../../lib/changes/sweep';
+import {
+  cardsClosed,
+  cardsOpened,
+  currentWrap,
+  recordDecision as recordWrapDecision,
+} from '../../lib/wrapup/session';
+import { cardsLeft } from '../../lib/wrapup/state';
 
 // Gremly mascot for summary step
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -192,36 +202,6 @@ interface Props {
 interface StepProps {
   onContinue: (data?: { habitsChecked?: number; journalWritten?: boolean }) => void;
 }
-
-// Decision tracking for sweep (stores decisions before committing)
-type SweepDecision = {
-  candidateId: string;
-  candidateKind: 'todo' | 'note';
-  action: 'keep' | 'clear' | 'skip';
-
-  // Todo scheduling
-  dueDateStr?: string;
-
-  // Todo/Event reminders (push notifications)
-  reminderDateStr?: string;
-  reminderTime?: string;
-
-  // Note resurfacing (sweep re-entry, NO notification)
-  resurfaceDateStr?: string;
-
-  // Note actions
-  noteAction?: 'fine' | 'resurface' | 'maketodo';
-  resurfaceTiming?: 'nextweek' | '2weeks' | 'pick';
-
-  // Space assignment
-  spaceId?: string;
-
-  // Event reminder
-  eventReminder?: 'daybefore' | 'weekbefore' | 'custom';
-
-  // Event prep todo
-  prepTodoText?: string;
-};
 
 // Journal prompts for inspiration
 const JOURNAL_PROMPTS = [
@@ -1667,12 +1647,28 @@ function SweepHabitsStep({ onContinue }: StepProps) {
  * to triage each item one at a time.
  */
 
+/** How long All sorted stays up before the cards close back to the thread. */
+const ALL_SORTED_MS = 900;
+
 interface DecisionStepProps {
   onFinished: (summary: SweepSummary) => void;
   onClose?: () => void;
   sweepIntent?: Exclude<SweepIntent, 'skip'>;
-  /** The quick sweep: only the cards that need a decision (lib/sweep/quickSweep.ts) */
-  quick?: boolean;
+  /**
+   * Which cards. all: Sweep's full list (the week). quick: only the cards
+   * that need a decision before the day is planned (lib/sweep/quickSweep.ts).
+   * wrap: tonight's wrap up, counted from the person's day, without the ones
+   * already settled tonight (lib/wrapup).
+   */
+  cards?: 'all' | 'quick' | 'wrap';
+  /**
+   * Save each decision as it is made (lib/changes/sweep.ts), so closing part
+   * way loses nothing. There is no going back to an earlier card: what was
+   * decided is put back with its Undo, from the thread.
+   */
+  saveEach?: boolean;
+  /** A decision was saved: its record, and its Undo */
+  onSaved?: (record: SweepRecord, revert: () => Promise<void>) => void;
   /** DEV ONLY: Jump to specific card index for testing */
   initialCardIndex?: number;
 }
@@ -1714,16 +1710,21 @@ function SweepDecisionStep({
   onClose,
   sweepIntent = 'tomorrow',
   initialCardIndex,
-  quick = false,
+  cards = 'all',
+  saveEach = false,
+  onSaved,
 }: DecisionStepProps) {
   // Get candidates from unified store selector (single source of truth)
   const allCandidates = useSweepCandidatesUnified();
   const storeIsLoading = useIsLoading();
-  // the quick sweep asks only about what still needs a decision
-  const deck = useMemo(
-    () => (quick ? quickSweepCards(allCandidates, getDateService().today()) : allCandidates),
-    [quick, allCandidates],
-  );
+  const wrapCards = useGremlyStore(selectWrapUp).cards;
+  // the quick sweep asks only about what still needs a decision; the wrap up
+  // has tonight's cards, without the ones already settled tonight
+  const deck = useMemo(() => {
+    if (cards === 'quick') return quickSweepCards(allCandidates, getDateService().today());
+    if (cards === 'wrap') return cardsLeft(currentWrap(), wrapCards);
+    return allCandidates;
+  }, [cards, allCandidates, wrapCards]);
 
   // Snapshot candidates at session start (prevents items disappearing mid-sweep)
   const { candidatesWithMeta: unsortedCandidatesWithMeta, isLoading } = useSweepSnapshot(
@@ -1791,6 +1792,24 @@ function SweepDecisionStep({
   // Use both state (for UI re-renders) and ref (for immediate access in async operations)
   const [decisions, setDecisions] = useState<Map<string, SweepDecision>>(new Map());
   const decisionsRef = useRef<Map<string, SweepDecision>>(new Map());
+  // A card turned into another kind of item while it was on screen (set where
+  // convertedCandidate is declared): its decision is about the new item
+  const convertedRef = useRef<{
+    originalId: string;
+    newId: string;
+    newKind: 'todo' | 'habit' | 'note';
+  } | null>(null);
+  // Saving each decision as it is made: the saves still on their way, how
+  // many are in, and whether one could not be saved
+  const pendingSavesRef = useRef<Set<Promise<void>>>(new Set());
+  const [savedCount, setSavedCount] = useState(0);
+  const [allSorted, setAllSorted] = useState(false);
+  const saveFailedRef = useRef(false);
+  const finishedRef = useRef(false);
+  const onSavedRef = useRef(onSaved);
+  onSavedRef.current = onSaved;
+  const currentIndexRef = useRef(currentIndex);
+  currentIndexRef.current = currentIndex;
 
   // Week grid commitment counts — reactive over store slices + in-session decisions.
   // decisions Map is SweepDecision (superset of sessionDecisions contract).
@@ -1839,9 +1858,43 @@ function SweepDecisionStep({
     new Map(),
   );
 
-  // Helper to record a decision (doesn't commit, just stores)
+  // Helper to record a decision. For the week it is stored and committed at
+  // the end; with saveEach it is saved now.
   const recordDecision = useCallback(
-    (decision: SweepDecision) => {
+    (given: SweepDecision) => {
+      // A card that was turned into another kind of item: the decision is
+      // about the new item (the old one was put away when it was converted)
+      const converted = convertedRef.current;
+      const about = converted && converted.originalId === given.candidateId ? converted : null;
+      // nothing here is saved on a habit: making it was the decision
+      if (about && about.newKind === 'habit') return;
+      const decision: SweepDecision = about
+        ? { ...given, candidateId: about.newId, candidateKind: about.newKind as 'todo' | 'note' }
+        : given;
+
+      if (saveEach) {
+        const index = currentIndexRef.current;
+        const save: Promise<void> = applySweepDecision(decision)
+          .then((res) => {
+            if (res.ok) {
+              setSavedCount((n) => n + 1);
+              onSavedRef.current?.(res.record, res.revert);
+              return;
+            }
+            // gone since the card was shown (done or put away): nothing to decide
+            if (res.reason === 'gone') return;
+            // it could not be saved: say so, and bring the card back to decide again
+            saveFailedRef.current = true;
+            Alert.alert('That did not save', 'Check your connection, then try that card again.');
+            setCurrentIndex(index);
+          })
+          .finally(() => {
+            pendingSavesRef.current.delete(save);
+          });
+        pendingSavesRef.current.add(save);
+        return;
+      }
+
       // Update ref immediately (synchronous)
       decisionsRef.current.set(decision.candidateId, decision);
       // Update state for UI (triggers re-render)
@@ -1852,7 +1905,7 @@ function SweepDecisionStep({
       });
 
       // Also store item name for summary display
-      const candidate = candidatesWithMeta.find((c) => c.candidate.id === decision.candidateId);
+      const candidate = candidatesWithMeta.find((c) => c.candidate.id === given.candidateId);
       if (candidate) {
         const name =
           candidate.candidate.kind === 'todo'
@@ -1867,7 +1920,7 @@ function SweepDecisionStep({
         });
       }
     },
-    [candidatesWithMeta],
+    [candidatesWithMeta, saveEach],
   );
 
   // Get existing decision for current card
@@ -1916,12 +1969,14 @@ function SweepDecisionStep({
 
   // Check if current index is at a section boundary needing transition
   const currentTransition = useMemo(() => {
+    // the wrap up and the quick sweep go straight from card to card
+    if (saveEach) return null;
     const boundary = sectionBoundaries.find((b) => b.startIndex === currentIndex);
     if (boundary && !shownTransitions.has(boundary.type)) {
       return boundary;
     }
     return null;
-  }, [currentIndex, sectionBoundaries, shownTransitions]);
+  }, [currentIndex, sectionBoundaries, shownTransitions, saveEach]);
 
   // Handler for when user swipes past the transition card
   const handleTransitionContinue = useCallback(() => {
@@ -1954,6 +2009,11 @@ function SweepDecisionStep({
   }
 
   const commitAllDecisions = useCallback(async () => {
+    // saved as they were made: wait for the ones still on their way
+    if (saveEach) {
+      await Promise.all([...pendingSavesRef.current]);
+      return;
+    }
     const updates: Promise<void>[] = [];
     let keptCount = 0;
     let clearedCount = 0;
@@ -2183,7 +2243,7 @@ function SweepDecisionStep({
     }
 
     return { keptCount, clearedCount };
-  }, [archiveTodo, archiveNote, updateTodo, updateNote]);
+  }, [archiveTodo, archiveNote, updateTodo, updateNote, saveEach]);
 
   /**
    * Handle save and exit - commits all decisions before closing.
@@ -2195,12 +2255,32 @@ function SweepDecisionStep({
     }
   }, [commitAllDecisions, onClose]);
 
+  // The X. With saveEach every decision is already saved, so it waits for the
+  // last one and closes; for the week it closes without saving, as before.
+  const handleCloseCards = useCallback(async () => {
+    if (saveEach) await Promise.all([...pendingSavesRef.current]);
+    onClose?.();
+  }, [saveEach, onClose]);
+
   /**
    * Handle completing all cards - commits decisions then calls onFinished.
    */
   const handleAllCardsComplete = useCallback(
     async (summary: SweepSummary) => {
       await commitAllDecisions();
+      // a card that could not be saved is back on screen: not finished yet
+      if (saveEach && saveFailedRef.current) {
+        saveFailedRef.current = false;
+        return;
+      }
+      // the screen closes on this, so it is only said once: All sorted, a
+      // moment to read it, then back to the thread
+      if (saveEach) {
+        if (finishedRef.current) return;
+        finishedRef.current = true;
+        setAllSorted(true);
+        await new Promise((resolve) => setTimeout(resolve, ALL_SORTED_MS));
+      }
 
       // Build detailed items breakdown for summary
       const todos: SweepSummaryItem[] = [];
@@ -2255,7 +2335,7 @@ function SweepDecisionStep({
         finalAge: finalAgeRef.current,
       });
     },
-    [commitAllDecisions, onFinished],
+    [commitAllDecisions, onFinished, saveEach],
   );
 
   // Track the candidate ID currently being edited (for detecting overlay saves)
@@ -2279,6 +2359,8 @@ function SweepDecisionStep({
     newKind: 'todo' | 'habit' | 'note';
     animating: boolean;
   } | null>(null);
+
+  convertedRef.current = convertedCandidate;
 
   // Clear conversion animation state after animation completes
   useEffect(() => {
@@ -2690,7 +2772,15 @@ function SweepDecisionStep({
 
       // Handle delete
       if (targetType === 'delete') {
-        if (candidate.kind === 'todo') {
+        if (saveEach && candidate.kind !== 'habit') {
+          // saved with its Undo, and shown on the receipt as let go
+          recordDecision({
+            candidateId: candidate.id,
+            candidateKind: candidate.kind as 'todo' | 'note',
+            action: 'clear',
+            archiveReason: 'user_deleted',
+          });
+        } else if (candidate.kind === 'todo') {
           archiveTodo(candidate.id, 'user_deleted');
         } else if (candidate.kind === 'note') {
           archiveNote(candidate.id, 'user_deleted');
@@ -2771,6 +2861,8 @@ function SweepDecisionStep({
       overlayController,
       stats,
       handleAllCardsComplete,
+      saveEach,
+      recordDecision,
     ],
   );
 
@@ -2823,11 +2915,14 @@ function SweepDecisionStep({
       const ds = getDateService();
       let targetDateStr: string;
       switch (option) {
+        // counted from the person's day, which after midnight is still yesterday
         case 'tomorrow':
-          targetDateStr = ds.tomorrow();
+          targetDateStr = ds.addDays(ds.ritualDay(), 1);
           break;
         case 'nextweek':
-          targetDateStr = ds.toLocalDate(ds.getNextWeekday(1)); // Monday=1
+          targetDateStr = ds.toLocalDate(
+            ds.getNextWeekday(1, ds.fromLocalDate(ds.ritualDay()) ?? undefined),
+          ); // Monday=1
           break;
       }
 
@@ -3440,7 +3535,18 @@ function SweepDecisionStep({
   }
 
   // All cards processed - show brief transition (auto-advances via useEffect above)
-  if (currentIndex >= candidatesWithMeta.length) {
+  if (currentIndex >= candidatesWithMeta.length || allSorted) {
+    if (saveEach) {
+      return (
+        <View style={styles.stepContainer}>
+          <View style={styles.decisionLoadingContainer} testID="sweep-cards-sorted">
+            <Image source={GREMLY_MASCOT_CELEBRATE} style={styles.cardsSortedImage} />
+            <Text style={styles.cardsSortedTitle}>All sorted</Text>
+            <Text style={styles.cardsSortedSub}>Back to Gremly</Text>
+          </View>
+        </View>
+      );
+    }
     return (
       <View style={styles.stepContainer}>
         <View style={styles.decisionLoadingContainer}>
@@ -3486,7 +3592,7 @@ function SweepDecisionStep({
       {/* Decision Step Header - Back on left, Close on right */}
       <View style={styles.decisionHeader}>
         {/* Back button - only show if not on first card */}
-        {currentIndex > 0 ? (
+        {currentIndex > 0 && !saveEach ? (
           <TouchableOpacity
             style={styles.decisionBackButton}
             onPress={handleGoBackCard}
@@ -3512,7 +3618,9 @@ function SweepDecisionStep({
             />
           </View>
           <Text style={styles.counterText}>
-            {currentIndex + 1} of {candidatesWithMeta.length} items
+            {saveEach
+              ? `${currentIndex + 1} of ${candidatesWithMeta.length}`
+              : `${currentIndex + 1} of ${candidatesWithMeta.length} items`}
           </Text>
         </View>
 
@@ -3520,7 +3628,7 @@ function SweepDecisionStep({
         {onClose && (
           <TouchableOpacity
             style={styles.decisionCloseButton}
-            onPress={onClose}
+            onPress={handleCloseCards}
             activeOpacity={0.7}
             accessibilityLabel="Close Sweep"
             accessibilityRole="button"
@@ -3553,9 +3661,9 @@ function SweepDecisionStep({
               onConfirmEventAction={handleConfirmEventAction}
               onAddToSpace={handleAddToSpace}
               onConfirmNoteAction={handleConfirmNoteAction}
-              onClose={onClose}
-              onGoBack={currentIndex > 0 ? handleGoBackCard : undefined}
-              previousDecision={currentDecision}
+              onClose={handleCloseCards}
+              onGoBack={currentIndex > 0 && !saveEach ? handleGoBackCard : undefined}
+              previousDecision={saveEach ? undefined : currentDecision}
               onOpenChat={handleOpenChat}
               onShowHelp={() => setShowHelp(true)}
               onConvertToType={handleConvertToType}
@@ -3603,11 +3711,20 @@ function SweepDecisionStep({
       {/* Bottom section - Save and exit */}
       {!currentTransition && (
         <View style={styles.bottomSection}>
-          {/* Save and exit */}
-          {onClose && (
-            <TouchableOpacity onPress={handleSaveAndExit} style={styles.saveExitButton}>
-              <Text style={styles.saveExitText}>Need a break? Save and exit</Text>
-            </TouchableOpacity>
+          {/* Save and exit; with saveEach, how many are saved already */}
+          {saveEach ? (
+            savedCount > 0 ? (
+              <View style={styles.savedSoFar} testID="sweep-cards-saved">
+                <Icon name="Check" size="xs" color={BRAND.colors.mossGreen} strokeWidth={2.5} />
+                <Text style={styles.savedSoFarText}>{savedCount} saved so far</Text>
+              </View>
+            ) : null
+          ) : (
+            onClose && (
+              <TouchableOpacity onPress={handleSaveAndExit} style={styles.saveExitButton}>
+                <Text style={styles.saveExitText}>Need a break? Save and exit</Text>
+              </TouchableOpacity>
+            )
           )}
         </View>
       )}
@@ -4238,9 +4355,17 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   const initialIntent = __DEV__ ? route.params?.initialIntent : undefined;
   const initialHub = __DEV__ ? route.params?.initialHub : undefined;
   const demoMode = route.params?.demoMode === true;
-  // The brief's quick sweep: the decision cards only (and splitting a drop
-  // with several things in it), then straight back to the thread
-  const quick = route.params?.quick === true;
+  // The cards on their own, opened from today's thread: tonight's wrap up, or
+  // the brief's quick sweep in the morning. Only the decision cards (and
+  // splitting a drop with several things in it), each decision saved as it is
+  // made, then straight back to the thread.
+  const cardsMode: 'wrap' | 'quick' | null = route.params?.cards ?? null;
+  const quick = cardsMode !== null;
+  useEffect(() => {
+    if (cardsMode !== 'wrap') return undefined;
+    cardsOpened();
+    return () => cardsClosed();
+  }, [cardsMode]);
 
   // Debug logging for DEV mode step jumping
   sweepLog.debug('[SweepFlowScreen] Route params:', route.params);
@@ -5332,7 +5457,9 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
               onClose={handleClose}
               sweepIntent={sweepIntent === 'skip' ? 'tomorrow' : sweepIntent}
               initialCardIndex={initialCardIndex}
-              quick={quick}
+              cards={cardsMode ?? 'all'}
+              saveEach={quick}
+              onSaved={cardsMode === 'wrap' ? recordWrapDecision : undefined}
             />
           )}
           {step === 2 && sweepIntent === 'week' && (
@@ -6616,6 +6743,34 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: 'rgba(34, 34, 34, 0.45)',
     letterSpacing: 0.1,
+  },
+  savedSoFar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  savedSoFarText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: BRAND.colors.mossGreen,
+  },
+  cardsSortedImage: {
+    width: 132,
+    height: 132,
+    resizeMode: 'contain',
+    marginBottom: 12,
+  },
+  cardsSortedTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: BRAND.colors.charcoalInk,
+  },
+  cardsSortedSub: {
+    marginTop: 4,
+    fontSize: 13,
+    color: BRAND.colors.inkSubtle,
   },
   decisionPlaceholder: {
     flex: 1,
