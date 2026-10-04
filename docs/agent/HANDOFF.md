@@ -274,6 +274,9 @@ to 53 at about 3.2s, but its replies were sloppier), and Gemini caching.
 - Model audits (James, 3 Oct): no separate bake-off before each surface;
   start each surface on what works, and audit in one focused pass after chat
   and Sweep.
+- Ask Gremly's agent lane (James, 4 Oct): on for his account until Sweep is
+  done; straight after step 10, `AGENT_CHAT = "on"` for everyone, before the
+  TestFlight build. The quick lane's card and the item matcher swap follow it.
 
 ## How to work here
 
