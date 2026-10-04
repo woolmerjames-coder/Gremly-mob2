@@ -64,7 +64,7 @@ import type { QueuedDrop } from '../minddrop/dropQueue';
 import { eventBus } from '../events';
 import { parseHabitFrequency } from '../sweep/habitHelpers';
 import { getDateService } from '../date';
-import { nowTimestamp } from '../date/DateService';
+import { DEFAULT_DAY_END_HOUR, nowTimestamp } from '../date/DateService';
 import { buildHabitFactSheet, computeInputHash, type HabitRead } from '../habits/habitFactSheet';
 import type { HabitCardStats } from '../habits/habitCardStats';
 import celebrationController from '../../app/features/celebration/CelebrationController';
@@ -1293,7 +1293,7 @@ const initialState = {
   // Gremly age & ritual progress
   gremlyAge: 0,
   gremlyAgeLastIncrementedAt: null as string | null,
-  dayBoundaryHour: 0,
+  dayBoundaryHour: DEFAULT_DAY_END_HOUR,
   onboardingCompletedAt: null as string | null,
   accountCreatedAt: null as string | null,
   firstDropCompletedAt: null as string | null,
@@ -1701,7 +1701,8 @@ export const useGremlyStore = create<GremlyState>()(
             const cortexPrefs = cortexPrefsRes.data as Record<string, unknown> | null;
 
             // Compute ritual day based on user's day boundary and timezone
-            const dayBoundaryHour = (cortexPrefs?.day_boundary_hour as number) ?? 0;
+            const dayBoundaryHour =
+              (cortexPrefs?.day_boundary_hour as number) ?? DEFAULT_DAY_END_HOUR;
             const detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
             const timezone = detectedTimezone;
             const ritualDay = getRitualDay(dayBoundaryHour, timezone);
@@ -2035,7 +2036,7 @@ export const useGremlyStore = create<GremlyState>()(
             // Gremly age & ritual progress
             gremlyAge: 0,
             gremlyAgeLastIncrementedAt: null,
-            dayBoundaryHour: 0,
+            dayBoundaryHour: DEFAULT_DAY_END_HOUR,
             accountCreatedAt: null,
             demoSweepCompletedAt: null,
             todayRitualDay: null,
@@ -11262,7 +11263,7 @@ export const useGremlyStore = create<GremlyState>()(
 
           // Day-aware hydration: keep cached gauge values on same-day
           // re-opens, only reset on day boundaries (Soul Document v8)
-          const dayBoundaryHour = persistedState.dayBoundaryHour ?? 4;
+          const dayBoundaryHour = persistedState.dayBoundaryHour ?? DEFAULT_DAY_END_HOUR;
           const currentRitualDay = getRitualDay(dayBoundaryHour);
           const isSameRitualDay =
             persistedState.todayRitualDay != null &&

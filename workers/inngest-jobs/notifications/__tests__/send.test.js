@@ -205,8 +205,8 @@ describe('decide', () => {
     expect(v.facts).toMatchObject({ weekday: 'Thursday', meetings_today: 0 });
   });
 
-  it('names the number Sweep will show, due today included', async () => {
-    // gatherBrief's own split (overdue plus undated) would say 1 here
+  it('names the number the wrap up will show: todos simply due today are on their own card', async () => {
+    // Sweep's whole list would say 3 here; the wrap up offers one card to sort
     gatherBrief.mockResolvedValue({
       now: 18 * 60,
       meetings: [],
@@ -222,7 +222,7 @@ describe('decide', () => {
     ];
     mockTables.notes = [];
     const v = await decide(ON, job, { at: AT });
-    expect(v.facts.waiting_in_sweep).toBe(3);
+    expect(v.facts.waiting_in_sweep).toBe(1);
   });
 
   it('gives the words what makes a day not clear: habits, Sweep and what is dated today', async () => {
@@ -234,7 +234,7 @@ describe('decide', () => {
       ritualDay: '2026-10-02',
       todosDue: [],
       habitsForToday: [{ id: 'h1' }, { id: 'h2' }, { id: 'h3' }],
-      sweep: { all: 10, quick: 6 },
+      sweep: { all: 10, evening: 8, quick: 6 },
       sweepWaiting: 6,
       anchors: [
         { date: '2026-10-02', short_label: 'Flying to San Diego' },
@@ -246,7 +246,7 @@ describe('decide', () => {
       meetings_today: 0,
       due_today: 0,
       habits_today: 3,
-      waiting_in_sweep: 10,
+      waiting_in_sweep: 8,
       dated_today: ['Flying to San Diego'],
     });
   });
@@ -257,11 +257,11 @@ describe('decide', () => {
       meetings: [],
       today: '2026-10-02',
       ritualDay: '2026-10-02',
-      sweep: { all: 10, quick: 6 },
+      sweep: { all: 10, evening: 8, quick: 6 },
       sweepWaiting: 6,
     });
     expect(briefFacts(await gatherBrief(), 'brief').waiting_in_sweep).toBe(6);
-    expect(briefFacts(await gatherBrief(), 'sweep').waiting_in_sweep).toBe(10);
+    expect(briefFacts(await gatherBrief(), 'sweep').waiting_in_sweep).toBe(8);
   });
 
   it('says they travel today, and when they set off, from the day record', () => {
@@ -298,6 +298,33 @@ describe('decide', () => {
     mockTables.events = [{ created_at: '2026-10-01T16:30:00Z' }];
     const v = await decide(ON, job, { at: AT });
     expect(v).toMatchObject({ action: 'drop', reason: 'They swept at 5:30pm' });
+  });
+
+  it('counts "already swept" from when their day started, not from midnight', async () => {
+    // a 3am day end: a wrap up finished at 12:30am belongs to the evening before
+    mockTables.cortex_preferences = [{ day_boundary_hour: 3 }];
+    mockTables.events = (path) => {
+      const since = decodeURIComponent(path.match(/created_at=gte\.([^&]+)/)[1]);
+      return since === '2026-10-01T03:00:00.000Z' ? [] : [{ created_at: '2026-10-01T00:30:00Z' }];
+    };
+    const v = await decide(ON, job, { at: AT });
+    expect(v.action).toBe('send');
+  });
+
+  it('says nothing more once the wrap up was opened in the thread, or they said not tonight', async () => {
+    mockTables.scope_chats = [{ sweep: { step: 'declined' } }];
+    expect(await decide(ON, job, { at: AT })).toMatchObject({
+      action: 'drop',
+      reason: 'They said not tonight',
+    });
+    mockTables.scope_chats = [{ sweep: { step: 'partial' } }];
+    expect(await decide(ON, job, { at: AT })).toMatchObject({
+      action: 'drop',
+      reason: 'They had already opened the wrap up',
+    });
+    // a thread with no wrap up yet (the morning brief only) changes nothing
+    mockTables.scope_chats = [{ sweep: null }];
+    expect((await decide(ON, job, { at: AT })).action).toBe('send');
   });
 
   it('drops and reports a wake far past its time', async () => {
@@ -467,6 +494,21 @@ describe('compose', () => {
       route: 'item/todo/abc',
       interruption: 'time-sensitive',
     });
+  });
+  it('says one fixed line on a night with nothing to sort, without the writer', async () => {
+    const { jsonCall } = require('../../context/llm');
+    const w = await compose({}, { user_id: USER, moment: 'sweep' }, person, {
+      weekday: 'Thursday',
+      waiting_in_sweep: 0,
+    });
+    expect(w).toMatchObject({
+      title: 'Nothing to sort tonight',
+      body: 'A quick look back at your day is ready in Chat.',
+      route: 'sweep',
+      model: null,
+      usedFallback: false,
+    });
+    expect(jsonCall).not.toHaveBeenCalled();
   });
 });
 

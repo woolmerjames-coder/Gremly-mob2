@@ -31,7 +31,7 @@ import { NowFocusRow } from '../../components/now/NowFocusRow';
 import { BreakHabitCard } from '../../components/now/BreakHabitCard';
 import { NowCalendarEventRow } from '../../components/now/NowCalendarEventRow';
 import { NowFutureDivider } from '../../components/now/NowFutureDivider';
-import { RolledOverSection, RecentDropsSection, SweepPill } from '../../components/now';
+import { RolledOverSection, RecentDropsSection } from '../../components/now';
 import { NowQuickAddModal } from '../../components/now/NowQuickAddModal';
 import { OverwhelmSelectSheet } from '../../components/now/OverwhelmSelectSheet';
 import { OverwhelmPlanSheet } from '../../components/now/OverwhelmPlanSheet';
@@ -57,7 +57,6 @@ import {
   useTodayProgress,
   useOverdueTodos,
   useRecentDrops,
-  useSweepCountUnified,
   useCompletedToday,
   useTodayHabits,
   useYourNotes,
@@ -89,6 +88,8 @@ import { useBriefUnread } from '../../lib/brief/todayThread';
 import { briefReadyLine, todayThreadParams } from '../../lib/brief/pinned';
 import { isReturnDay, readDco } from '../../lib/brief/dco';
 import { BriefReadyBubble } from '../../components/brief/BriefReadyBubble';
+import { useEveningTeaser } from '../../lib/wrapup/useEveningTeaser';
+import { TODAY_BUTTON, teaserLine } from '../../lib/wrapup/words';
 import { useDayCard } from '../../lib/brief/useDayCard';
 import { TimeBlockSection } from '../../components/now/TimeBlockSection';
 import {
@@ -339,6 +340,10 @@ export default function NowScreenV1() {
   const briefUnread = useBriefUnread();
   const briefDco = useGremlyStore((s) => s.dco);
   const briefUserName = useGremlyStore((s) => s.userName);
+  // In the evening the same bubble says the wrap up is waiting, and the
+  // header button starts it (the floating Sweep pill is gone)
+  const wrapTeaser = useEveningTeaser();
+  const wrapBubble = !briefUnread && wrapTeaser.nudge;
   const briefReady = useMemo(
     () =>
       briefUnread
@@ -347,8 +352,10 @@ export default function NowScreenV1() {
             firstName: briefUserName ? briefUserName.trim().split(/\s+/)[0] : null,
             surface: 'today',
           })
-        : null,
-    [briefUnread, briefDco, briefUserName],
+        : wrapBubble
+          ? teaserLine(wrapTeaser.cards, '', 'today')
+          : null,
+    [briefUnread, briefDco, briefUserName, wrapBubble, wrapTeaser.cards],
   );
 
   // Sweep completion detection for day picker
@@ -472,7 +479,6 @@ export default function NowScreenV1() {
   }, [lockedItems, visibleActiveItems]);
 
   // Sweep count (unified includes todos, notes, and unconfirmed habits)
-  const sweepCandidateCount = useSweepCountUnified();
 
   // Logs count for header
   const logsToday = useTodayLogsCount();
@@ -788,6 +794,11 @@ export default function NowScreenV1() {
     if (hasSweepedToday) setShowDayPicker(true);
     else openPlanWithGremly();
   }, [hasSweepedToday, openPlanWithGremly]);
+  const headerPlanLabel = wrapTeaser.offer
+    ? TODAY_BUTTON.wrap
+    : wrapTeaser.done
+      ? TODAY_BUTTON.done
+      : 'Plan with Gremly';
 
   // Add item to Today's Focus by setting due_day to today
   const handleAddToToday = useCallback(
@@ -901,7 +912,10 @@ export default function NowScreenV1() {
           lead={briefReady.lead}
           rest={briefReady.rest}
           onPress={() =>
-            navigation.navigate('Tabs', { screen: 'Gremly', params: todayThreadParams() })
+            navigation.navigate('Tabs', {
+              screen: 'Gremly',
+              params: todayThreadParams(wrapBubble ? 'wrap' : undefined),
+            })
           }
         />
       ) : null}
@@ -919,12 +933,24 @@ export default function NowScreenV1() {
               styles.headerOrganizeButton,
               pressed && styles.headerButtonPressed,
             ]}
-            onPress={handleOpenBrief}
+            onPress={
+              // in the evening this is the way into the wrap up, until it is done
+              wrapTeaser.offer
+                ? () =>
+                    navigation.navigate('Tabs', {
+                      screen: 'Gremly',
+                      params: todayThreadParams('wrap'),
+                    })
+                : wrapTeaser.done
+                  ? () =>
+                      navigation.navigate('Tabs', { screen: 'Gremly', params: todayThreadParams() })
+                  : handleOpenBrief
+            }
             testID="header-organize"
             accessibilityRole="button"
-            accessibilityLabel="Plan with Gremly"
+            accessibilityLabel={headerPlanLabel}
           >
-            <Text style={styles.headerOrganizeButtonText}>Plan with Gremly</Text>
+            <Text style={styles.headerOrganizeButtonText}>{headerPlanLabel}</Text>
           </Pressable>
 
           {/* Add to Today button - sage */}
@@ -960,19 +986,6 @@ export default function NowScreenV1() {
           eventNotes={todayEventNotes}
           onEventPress={handleKeyDatePress}
           onEventQuickAction={handleEventQuickAction}
-        />
-      </View>
-
-      {/* Sweep Pill - fixed above tab bar */}
-      <View
-        style={[styles.sweepPillContainer, { bottom: insets.bottom + 16 }]}
-        pointerEvents="box-none"
-      >
-        <SweepPill
-          count={sweepCandidateCount}
-          onPress={() => {
-            navigation.navigate('Sweep');
-          }}
         />
       </View>
 
@@ -1770,8 +1783,8 @@ function TodayFocusList({
         />
       ))}
 
-      {/* Extra space for fixed SweepPill above tab bar */}
-      <View style={{ height: bottomInset + 80 }} />
+      {/* Room to scroll the last row clear of the tab bar */}
+      <View style={{ height: bottomInset + 24 }} />
     </ScrollView>
   );
 }
@@ -1849,12 +1862,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     color: '#2E5540', // Moss green
-  },
-  sweepPillContainer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    alignItems: 'center',
   },
   listContainer: {
     flex: 1,

@@ -88,6 +88,19 @@ export function fallbackCopy(moment, f = {}) {
   }
 }
 
+/**
+ * The evening notification on a night with nothing to sort. One fixed line,
+ * worded in code: the writer's rule for the evening is about things waiting
+ * in Sweep, and there are none. The wrap up still has the look back at the
+ * day, habits and the journal, so the notification still goes out.
+ */
+export function clearNightCopy() {
+  return {
+    title: 'Nothing to sort tonight',
+    body: 'A quick look back at your day is ready in Chat.',
+  };
+}
+
 /** Reminders the person set: their own words, worded in code. */
 export function reminderCopy({ itemTitle, rule, startClock }) {
   const title = clip(itemTitle || 'Reminder', LIMITS.title);

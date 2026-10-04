@@ -116,6 +116,13 @@ export interface DayBoundaryOption {
   label: string;
 }
 
+/**
+ * When a person's day ends, unless they chose otherwise in settings: 3 AM, so
+ * a late evening still belongs to the day it started in. Used wherever their
+ * saved hour is missing (a new account, a read that failed).
+ */
+export const DEFAULT_DAY_END_HOUR = 3;
+
 export const DAY_BOUNDARY_OPTIONS: DayBoundaryOption[] = [
   { value: 0, label: 'Midnight' },
   { value: 3, label: '3:00 AM' },

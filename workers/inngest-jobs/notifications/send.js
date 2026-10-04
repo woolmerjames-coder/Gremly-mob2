@@ -25,7 +25,8 @@ import {
   clock,
   dedupeKey,
 } from './policy';
-import { writeCopy, reminderCopy } from './copy';
+import { writeCopy, reminderCopy, clearNightCopy } from './copy';
+import { dayEndHourFrom } from '../../shared/day.js';
 import { buildMessage, sendToExpo, getReceipts, DEAD_DEVICE_ERRORS, ALERT_ERRORS } from './expo';
 import { reportProblem } from './alert';
 import { reminderStillFiresAt } from './planner';
@@ -137,9 +138,16 @@ export async function loadPerson(env, userId, at = new Date()) {
     cortex,
     nowMinutes,
     today,
-    ritualDay: ritualDayFor(today, nowMinutes, cortex.day_boundary_hour || 0),
+    ritualDay: ritualDayFor(today, nowMinutes, dayEndHourFrom(cortex.day_boundary_hour)),
     lastOpenAt: latest(opens?.[0]?.occurred_at, prefs?.last_app_active_at),
   };
+}
+
+/** When the person's day started: their day end hour on their day, as a UTC time. */
+export function dayStartIso(person) {
+  const midnight = Date.parse(localStartIso(person.tz, person.ritualDay));
+  const hour = dayEndHourFrom(person.cortex?.day_boundary_hour);
+  return new Date(midnight + hour * 3600000).toISOString();
 }
 
 /** Is the reason for this notification still true? Returns { ok, reason, facts }. */
@@ -171,11 +179,23 @@ export async function stillTrue(env, person, job, at = new Date()) {
       return { ok: true };
     }
     case 'sweep': {
+      // "Already swept" counts from when their day started, not from midnight:
+      // a wrap up finished at 12:30am belongs to the evening before, and must
+      // not cancel tonight's
       const swept = await d.select(
-        `events?owner_id=eq.${uid}&kind=eq.sweep_completed&created_at=gte.${encodeURIComponent(localStartIso(tz, person.today))}&select=created_at&order=created_at.desc&limit=1`,
+        `events?owner_id=eq.${uid}&kind=eq.sweep_completed&created_at=gte.${encodeURIComponent(dayStartIso(person))}&select=created_at&order=created_at.desc&limit=1`,
       );
       if (swept?.length)
         return { ok: false, reason: `They swept at ${clock(minutesIn(tz, swept[0].created_at))}` };
+      // The wrap up lives in today's thread. Once it has been opened there
+      // (started, part way, or Not tonight) they have seen it: no nudge after.
+      const [thread] =
+        (await d.select(
+          `scope_chats?user_id=eq.${uid}&chat_type=eq.daily&metadata_json->>ritual_day=eq.${ritualDay}&select=sweep:metadata_json->sweep&limit=1`,
+        )) || [];
+      const step = thread?.sweep?.step;
+      if (step === 'declined') return { ok: false, reason: 'They said not tonight' };
+      if (step) return { ok: false, reason: 'They had already opened the wrap up' };
       return { ok: true };
     }
     case 'habit_checkin': {
@@ -280,11 +300,12 @@ export async function decide(env, job, { at = new Date(), heldSoFar = 0 } = {}) 
       ['engaged', 'drifting'].includes(person.state))
   ) {
     g = await gatherBrief(env, job.user_id, { at }).catch(() => null);
-    if (g && !g.sweep) {
+    if (g && (!g.sweep || (job.moment === 'sweep' && !Number.isFinite(g.sweep.evening)))) {
       // counted by the app's own Sweep rules; null (no number at all) if it fails
       g.sweep = await sweepCounts(env, job.user_id, {
         today: person.today,
         tz: person.tz,
+        day: person.ritualDay,
       }).catch(() => null);
     }
     const now = g?.now ?? person.nowMinutes;
@@ -320,14 +341,15 @@ export async function decide(env, job, { at = new Date(), heldSoFar = 0 } = {}) 
 
 /** The Sweep number for a moment; left out, not guessed, when the count failed. */
 function sweepFact(g, moment) {
-  const n = moment === 'sweep' ? g.sweep?.all : g.sweep?.quick;
+  const n = moment === 'sweep' ? (g.sweep?.evening ?? g.sweep?.all) : g.sweep?.quick;
   return Number.isFinite(n) ? { waiting_in_sweep: n } : {};
 }
 
 /**
  * What a notification may say about the day. The Sweep number is the one the
- * person will see on tapping: the whole evening Sweep for the Sweep reminder,
- * the quick sweep (what still needs a decision) for every other moment.
+ * person will see on tapping: the evening wrap up's cards for the Sweep
+ * reminder, the quick sweep (what still needs a decision) for every other
+ * moment.
  */
 export function briefFacts(g, moment) {
   const titles = (list) =>
@@ -455,6 +477,19 @@ export async function compose(env, job, person, facts) {
       : null;
     return {
       ...reminderCopy({ itemTitle, rule: job.data?.rule, startClock }),
+      angle: 'plain',
+      model: null,
+      usedFallback: false,
+      problem: null,
+      route,
+      interruption,
+    };
+  }
+
+  // a night with nothing to sort: one fixed line, not the writer (see copy.js)
+  if (job.moment === 'sweep' && facts?.waiting_in_sweep === 0) {
+    return {
+      ...clearNightCopy(),
       angle: 'plain',
       model: null,
       usedFallback: false,

@@ -13,7 +13,7 @@ import {
   meetingsFrom,
   minutesIn,
 } from '../../shared/calendar.js';
-import { personDay } from '../../shared/day.js';
+import { dayEndHourFrom, personDay } from '../../shared/day.js';
 import { buildDcoV4, writeDco } from '../context/daily';
 import { dayOfWeekNumber, isBehindThisWeek, mondayOf, weeklyTarget } from './behind';
 import { readThreadReaction } from './reaction';
@@ -98,7 +98,7 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
   const [prefs] = await d.select(
     `cortex_preferences?owner_id=eq.${userId}&select=day_boundary_hour,gremly_age`,
   );
-  const ritualDay = ritualDayFor(today, now, prefs?.day_boundary_hour ?? 0);
+  const ritualDay = ritualDayFor(today, now, dayEndHourFrom(prefs?.day_boundary_hour));
   const dayStart = localStartIso(tz, today);
   const dayEnd = localStartIso(tz, addDays(today, 1));
   const monday = mondayOf(today);
@@ -133,7 +133,7 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
     ),
     // Sweep's counts by the app's own rules (the evening Sweep and the
     // morning's quick sweep); null when they cannot be counted
-    sweepCounts(env, userId, { today, tz }).catch(() => null),
+    sweepCounts(env, userId, { today, tz, day: ritualDay }).catch(() => null),
     // today's thread: set times added there (fixed_blocks) belong to the day
     d
       .select(

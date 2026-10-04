@@ -24,8 +24,16 @@ function clockTime(min) {
   return `${h % 12 || 12}${m ? `:${String(m).padStart(2, '0')}` : ''}${h >= 12 ? 'pm' : 'am'}`;
 }
 
-/** Summarise a thread's messages; exported for tests. */
-export function summariseThread(meta, messages) {
+/**
+ * Summarise a thread's messages; exported for tests.
+ *
+ * The evening wrap up is in the same thread (its messages are marked wrap),
+ * and so is a plan made there for the next day. Neither is a reaction to the
+ * brief: a tap on Sweep now, the journal entry typed that night and tomorrow's
+ * plan are left out, so none of them is read as what they did with the brief.
+ */
+export function summariseThread(meta, all) {
+  const messages = (all || []).filter((m) => !m.metadata_json?.wrap);
   const parts = [];
   parts.push(meta?.seen_at ? 'they opened it' : 'they did not open it');
   const taps = messages
@@ -35,7 +43,9 @@ export function summariseThread(meta, messages) {
 
   const plans = messages
     .filter((m) => m.metadata_json?.type === 'brief-plan')
-    .map((m) => m.metadata_json);
+    .map((m) => m.metadata_json)
+    // a plan for another day (Plan tomorrow) is not the brief's plan
+    .filter((p) => !p.date || !meta?.ritual_day || p.date === meta.ritual_day);
   const locked = [...plans].reverse().find((p) => p.status === 'locked');
   if (locked) {
     const items = (locked.items || []).map((i) => `${trim(i.title, 50)} at ${clockTime(i.start)}`);

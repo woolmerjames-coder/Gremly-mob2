@@ -92,6 +92,7 @@ import type {
   OfferButton,
 } from '../../lib/brief/types';
 import { useWrapUp } from '../../lib/wrapup/useWrapUp';
+import { useEveningTeaser } from '../../lib/wrapup/useEveningTeaser';
 import { currentWrap, takeCardsVisit } from '../../lib/wrapup/session';
 import { cardsLeft, pastCards } from '../../lib/wrapup/state';
 import { WRAP_COPY } from '../../lib/wrapup/words';
@@ -1149,7 +1150,9 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     () => cardsLeft(sessionWrap, wrapCards).length,
     [sessionWrap, wrapCards],
   );
-  const homeChips = useMemo(() => homeChipsFor(phase, toDecide), [phase, toDecide]);
+  // the evening's ways in: the pinned card's line and the Wrap up today chip
+  const wrapTeaser = useEveningTeaser();
+  const homeChips = useMemo(() => homeChipsFor(phase, wrapTeaser.offer), [phase, wrapTeaser.offer]);
   greetingWaitingRef.current = { briefUnread: briefUnreadHere, toDecide };
   const freshHome = !activeChat && !item && !aboutItem;
   const openWrapUp = useCallback(() => {
@@ -1819,8 +1822,9 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                     unread={briefUnreadHere}
                     onPress={() => void openTodayThread()}
                     phase={phase}
-                    toDecide={toDecide}
-                    onWrapUp={openWrapUp}
+                    wrapLine={wrapTeaser.pinned}
+                    wrapNudge={wrapTeaser.nudge}
+                    onWrapUp={wrapTeaser.offer ? openWrapUp : undefined}
                   />
                 </View>
               ) : null}

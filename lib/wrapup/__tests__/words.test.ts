@@ -135,6 +135,36 @@ test('the end note names when the day ends', () => {
   expect(endNote(0)).toBe('This thread moves to your history when the day ends at midnight');
 });
 
+test("Gremly's line outside the thread says how long the cards take", () => {
+  expect(words.teaserLine(5, 'Wednesday', 'drop')).toEqual({
+    lead: 'Ready to wrap up Wednesday?',
+    rest: 'Two minutes. Tap here',
+  });
+  expect(words.teaserLine(0, 'Wednesday', 'drop').rest).toBe('Nothing to sort. Tap here');
+  expect(words.teaserLine(5, 'Wednesday', 'today')).toEqual({
+    lead: 'Ready to wrap up?',
+    rest: 'Tap here',
+  });
+});
+
+test('the pinned card says where the wrap up has got to', () => {
+  const line = (step: string | null, more = {}) =>
+    words.pinnedLine({ step, cards: 0, journal: false, fed: false, ...more });
+  expect(line(null, { cards: 5 })).toBe('Wrap up today: 5 things to decide');
+  expect(line(null, { cards: 1 })).toBe('Wrap up today: 1 thing to decide');
+  expect(line(null)).toBe('Wrap up today: a look back at your day');
+  expect(line('partial', { cards: 2 })).toBe('Halfway through the cards');
+  expect(line('habits')).toBe('Wrapping up the day');
+  expect(line('declined', { cards: 3 })).toBe('Not tonight. Here whenever you want it.');
+  expect(line('declined', { cards: 3, journal: true })).toBe(
+    'Journal saved. The cards are waiting.',
+  );
+  expect(line('done')).toBe('Wrapped up');
+  expect(line('done', { fed: true })).toBe('Wrapped up, and Gremly is fed');
+  // new things since it was finished
+  expect(line('done', { cards: 2 })).toBe('Wrap up today: 2 things to decide');
+});
+
 test('nothing a person reads uses a dash as punctuation', () => {
   const lines: string[] = [];
   const collect = (v: unknown) => {
@@ -154,8 +184,17 @@ test('nothing a person reads uses a dash as punctuation', () => {
     closeLine(LATE, 2, ['a']),
     endNote(5),
     words.newSinceLine(2),
-    words.teaserLine(3),
-    words.pinnedLine(1),
+    words.teaserLine(3, 'Wednesday', 'drop'),
+    words.teaserLine(0, 'Wednesday', 'drop'),
+    words.teaserLine(3, 'Wednesday', 'today'),
+    words.pinnedLine({ step: null, cards: 1, journal: false, fed: false }),
+    words.pinnedLine({ step: 'declined', cards: 2, journal: true, fed: false }),
+    words.pinnedLine({ step: 'done', cards: 0, journal: true, fed: true }),
+    words.CARD_COPY,
+    words.TODAY_BUTTON,
+    words.receiptParts({ kept: 1, letGo: 1, back: 1, left: 1, toSort: 0 }),
+    words.stillMovedLine(2, 'Thursday'),
+    words.journalLabel('2026-09-30'),
     words.resumeLine(4),
     words.sortedLine(2),
     words.questionsIntro(2),

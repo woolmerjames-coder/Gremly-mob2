@@ -79,6 +79,11 @@ jest.mock('../../../lib/store/useGremlyStore', () => ({
 jest.mock('../../../lib/store/lifecycleSelectors', () => ({
   useNeedsMindDropTutorial: () => false,
 }));
+// the evening wrap up waiting to be noticed (lib/wrapup/teaser.ts)
+let mockWrapNudge = false;
+jest.mock('../../../lib/wrapup/useEveningTeaser', () => ({
+  useEveningTeaser: () => ({ nudge: mockWrapNudge, offer: mockWrapNudge, cards: 0 }),
+}));
 
 import GremlyHomeScreen from '../GremlyHomeScreen';
 
@@ -86,6 +91,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockParams = undefined;
   mockChatPrefill = null;
+  mockWrapNudge = false;
   mockState = {
     hasOpenedHomeChat: false,
     hasSeenHomeSwipeHint: true,
@@ -152,6 +158,13 @@ describe('GremlyHomeScreen', () => {
     mockState.hasOpenedHomeChat = true;
     const { queryByTestId } = render(<GremlyHomeScreen />);
     expect(queryByTestId('home-chat-new-dot')).toBeNull();
+  });
+
+  it('shows the dot in the evening while the wrap up is waiting', () => {
+    mockState.hasOpenedHomeChat = true;
+    mockWrapNudge = true;
+    const { getByTestId } = render(<GremlyHomeScreen />);
+    expect(getByTestId('home-chat-new-dot')).toBeTruthy();
   });
 
   it('tapping CHAT mounts the Chat page, selects it and marks Chat as opened', () => {

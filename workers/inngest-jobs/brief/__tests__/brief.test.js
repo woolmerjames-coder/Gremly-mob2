@@ -371,6 +371,33 @@ describe("yesterday's reaction", () => {
     expect(s).toContain('said "move the run after 6"');
     expect(summariseThread({}, [])).toBe('they did not open it');
   });
+
+  it('leaves the evening wrap up out: it is not a reaction to the brief', () => {
+    const msgs = [
+      { role: 'assistant', content: 'Morning', metadata_json: { type: 'brief-text' } },
+      { role: 'user', content: 'Not today', metadata_json: { type: 'brief-reply' } },
+      // the evening, in the same thread
+      { role: 'assistant', content: 'Evening', metadata_json: { type: 'brief-text', wrap: true } },
+      { role: 'user', content: 'Sweep now', metadata_json: { type: 'brief-reply', wrap: true } },
+      {
+        role: 'user',
+        content: 'Tired but pleased with today.',
+        metadata_json: { type: 'brief-reply', wrap: true },
+      },
+      // Plan tomorrow, made at the close
+      {
+        role: 'system',
+        metadata_json: {
+          type: 'brief-plan',
+          status: 'locked',
+          date: '2026-10-01',
+          items: [{ id: 'a', title: 'Car service', start: 510 }],
+        },
+      },
+    ];
+    const s = summariseThread({ seen_at: '2026-09-30T15:00:00Z', ritual_day: '2026-09-30' }, msgs);
+    expect(s).toBe('they opened it; tapped "Not today"');
+  });
 });
 
 describe('cancelled calendar entries', () => {

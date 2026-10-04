@@ -53,6 +53,7 @@ import { getDateService } from '../../lib/date/DateService';
 import { CHAT_CAPTION, DROP_CAPTION, inFirstWeek } from '../../components/home/homeCaptions';
 import type { TabParamList } from '../../navigation/TabNavigator';
 import { useBriefUnread } from '../../lib/brief/todayThread';
+import { useEveningTeaser } from '../../lib/wrapup/useEveningTeaser';
 
 const LINEN = '#F9F6F1';
 const HINT_DELAY_MS = 900;
@@ -188,6 +189,8 @@ export default function GremlyHomeScreen() {
   const hasOpenedHomeChat = useGremlyStore((s) => s.hasOpenedHomeChat);
   // Daily brief in Chat: the dot also says today's brief is waiting
   const briefUnread = useBriefUnread();
+  // and, in the evening, that the wrap up is waiting
+  const wrapNudge = useEveningTeaser().nudge;
   const hasSeenHomeSwipeHint = useGremlyStore((s) => s.hasSeenHomeSwipeHint);
   const markHomeChatOpened = useGremlyStore((s) => s.markHomeChatOpened);
   const markHomeSwipeHintSeen = useGremlyStore((s) => s.markHomeSwipeHintSeen);
@@ -345,7 +348,7 @@ export default function GremlyHomeScreen() {
                 progress={progress}
                 mode={mode}
                 onSelect={handleSelect}
-                showChatDot={!hasOpenedHomeChat || briefUnread}
+                showChatDot={!hasOpenedHomeChat || briefUnread || wrapNudge}
                 hintVisible={hintVisible}
               />
             )}

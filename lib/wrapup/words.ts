@@ -309,18 +309,62 @@ export function endNote(dayEndHour: number): string {
   return `This thread moves to your history when the day ends at ${at}`;
 }
 
-/** Gremly's quiet evening line on Drop and Today, and on the pinned card. */
-export function teaserLine(cards: number): { lead: string; rest: string } {
-  return cards > 0
-    ? { lead: 'Ready to wrap up?', rest: `${cap(things(cards))} to sort. Tap here` }
-    : { lead: 'Ready to wrap up?', rest: 'Nothing to sort. Tap here' };
+/** "A minute", "Two minutes": how long the cards take, for Gremly's line on Drop. */
+function minutesFor(cards: number): string {
+  const minutes = Math.max(1, Math.round((cards * 20) / 60));
+  return minutes === 1 ? 'A minute' : `${cap(numberWord(minutes))} minutes`;
 }
 
-export function pinnedLine(cards: number): string {
-  return cards > 0
-    ? `Wrap up today: ${cards} ${cards === 1 ? 'thing' : 'things'} to decide`
-    : 'Wrap up today: a look back at your day';
+/**
+ * Gremly's quiet evening line: above the box on Drop, and in his speech
+ * bubble on Today.
+ */
+export function teaserLine(
+  cards: number,
+  weekday: string,
+  surface: 'drop' | 'today',
+): { lead: string; rest: string } {
+  if (surface === 'today') return { lead: 'Ready to wrap up?', rest: 'Tap here' };
+  return {
+    lead: weekday ? `Ready to wrap up ${weekday}?` : 'Ready to wrap up?',
+    rest: cards > 0 ? `${minutesFor(cards)}. Tap here` : 'Nothing to sort. Tap here',
+  };
 }
+
+/**
+ * The pinned card's line in the evening: the wrap up waiting, where it was
+ * left, or done.
+ */
+export function pinnedLine(p: {
+  /** Where tonight's wrap up has got to; null when it has not started */
+  step: string | null;
+  /** Cards to sort: all of tonight's, or the new ones once it was finished */
+  cards: number;
+  journal: boolean;
+  fed: boolean;
+}): string {
+  const waiting =
+    p.cards > 0
+      ? `Wrap up today: ${p.cards} ${p.cards === 1 ? 'thing' : 'things'} to decide`
+      : 'Wrap up today: a look back at your day';
+  if (!p.step) return waiting;
+  if (p.step === 'declined') {
+    if (!p.journal) return 'Not tonight. Here whenever you want it.';
+    return p.cards > 0 ? 'Journal saved. The cards are waiting.' : 'Journal saved.';
+  }
+  if (p.step === 'done' || p.step === 'close') {
+    if (p.cards > 0) return waiting;
+    return p.fed ? 'Wrapped up, and Gremly is fed' : 'Wrapped up';
+  }
+  if (p.step === 'partial' || p.step === 'cards') return 'Halfway through the cards';
+  return 'Wrapping up the day';
+}
+
+/** The Today header button in the evening. */
+export const TODAY_BUTTON = {
+  wrap: 'Wrap up with Gremly',
+  done: 'Wrapped up',
+} as const;
 
 /** New things dropped after the wrap up was finished: once, for the new ones only. */
 export function newSinceLine(n: number): string {

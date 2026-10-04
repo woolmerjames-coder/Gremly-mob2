@@ -16,11 +16,27 @@ function addDays(day, n) {
 }
 
 /**
+ * When a person's day ends unless they chose otherwise: 3 AM, the app's
+ * default (lib/date/DateService.ts, DEFAULT_DAY_END_HOUR). Keep the two in step.
+ */
+export const DEFAULT_DAY_END_HOUR = 3;
+
+/**
+ * The hour their day ends from what is saved for them. Midnight (0) is a
+ * choice and is kept; nothing saved means the default.
+ */
+export function dayEndHourFrom(saved) {
+  if (saved === null || saved === undefined || saved === '') return DEFAULT_DAY_END_HOUR;
+  const hour = Number(saved);
+  return Number.isFinite(hour) && hour >= 0 && hour < 24 ? hour : DEFAULT_DAY_END_HOUR;
+}
+
+/**
  * The person's day from the calendar's date and the minutes after midnight
  * where they are. Pure.
  */
 export function personDay(calendarDay, nowMin, dayEndHour) {
-  const hour = Number.isFinite(dayEndHour) ? dayEndHour : 0;
+  const hour = Number.isFinite(dayEndHour) ? dayEndHour : DEFAULT_DAY_END_HOUR;
   return hour > 0 && nowMin < hour * 60 ? addDays(calendarDay, -1) : calendarDay;
 }
 
@@ -31,23 +47,24 @@ const kept = new Map();
 
 /**
  * The hour their day ends (cortex_preferences.day_boundary_hour). A read that
- * fails is logged and the last hour known is used, midnight when there is none.
+ * fails is logged and the last hour known is used, the default when there is
+ * none.
  */
 export async function dayEndHourOf(env, userId, { now = Date.now() } = {}) {
-  if (!userId) return 0;
+  if (!userId) return DEFAULT_DAY_END_HOUR;
   const had = kept.get(userId);
   if (had && now - had.at < KEEP_MS) return had.hour;
   try {
     const rows = await db(env).select(
       `cortex_preferences?owner_id=eq.${userId}&select=day_boundary_hour&limit=1`,
     );
-    const hour = Number(rows?.[0]?.day_boundary_hour) || 0;
+    const hour = dayEndHourFrom(rows?.[0]?.day_boundary_hour);
     if (kept.size >= MOST_KEPT) kept.clear();
     kept.set(userId, { hour, at: now });
     return hour;
   } catch (err) {
     console.error('[Day] could not read the day end', String(err?.message || err).slice(0, 200));
-    return had ? had.hour : 0;
+    return had ? had.hour : DEFAULT_DAY_END_HOUR;
   }
 }
 

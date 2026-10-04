@@ -39,16 +39,16 @@ const CHIPS: Record<HomeChipKey, HomeChip> = {
 };
 
 /**
- * The chips for a part of the day. Wrap up today shows in the evening only
- * when something is waiting for a decision.
+ * The chips for a part of the day. Wrap up today shows in the evening while
+ * the wrap up is offered: until it is finished (lib/wrapup/teaser.ts).
  */
-export function homeChipsFor(phase: HomePhase, toDecide: number): HomeChip[] {
+export function homeChipsFor(phase: HomePhase, wrapOffered: boolean): HomeChip[] {
   const keys: HomeChipKey[] =
     phase === 'morning'
       ? ['plan_day', 'this_week', 'think']
       : phase === 'day'
         ? ['think', 'this_week', 'habits']
-        : toDecide > 0
+        : wrapOffered
           ? ['wrap_up', 'tomorrow', 'think']
           : ['tomorrow', 'think', 'habits'];
   return keys.map((k) => CHIPS[k]);

@@ -25,21 +25,24 @@ describe('homePhase', () => {
 });
 
 describe('homeChipsFor', () => {
-  const keys = (phase: 'morning' | 'day' | 'evening', toDecide = 0) =>
-    homeChipsFor(phase, toDecide).map((c) => c.key);
+  const keys = (phase: 'morning' | 'day' | 'evening', wrapOffered = false) =>
+    homeChipsFor(phase, wrapOffered).map((c) => c.key);
 
   it('plans in the morning, thinks in the day, wraps up in the evening', () => {
     expect(keys('morning')).toEqual(['plan_day', 'this_week', 'think']);
     expect(keys('day')).toEqual(['think', 'this_week', 'habits']);
-    expect(keys('evening', 3)).toEqual(['wrap_up', 'tomorrow', 'think']);
+    expect(keys('evening', true)).toEqual(['wrap_up', 'tomorrow', 'think']);
   });
 
-  it('offers no wrap up when nothing waits for a decision', () => {
-    expect(keys('evening', 0)).toEqual(['tomorrow', 'think', 'habits']);
+  it('offers no wrap up once it is finished', () => {
+    expect(keys('evening', false)).toEqual(['tomorrow', 'think', 'habits']);
   });
 
   it('marks the wrap up in the evening colour', () => {
-    expect(homeChipsFor('evening', 2)[0]).toMatchObject({ label: 'Wrap up today', evening: true });
+    expect(homeChipsFor('evening', true)[0]).toMatchObject({
+      label: 'Wrap up today',
+      evening: true,
+    });
   });
 });
 

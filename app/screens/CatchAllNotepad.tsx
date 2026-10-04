@@ -76,6 +76,9 @@ import { useRepo } from '../../providers/RepoProvider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useHomeDock, useHomeMode } from '../../components/home/GremlyHomeDock';
 import { ReplyTag } from '../../components/wrapup/ReplyTag';
+import { useEveningTeaser } from '../../lib/wrapup/useEveningTeaser';
+import { teaserLine } from '../../lib/wrapup/words';
+import { weekdayOf } from '../../lib/wrapup/day';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
 import {
   MidConfidenceChips,
@@ -1149,7 +1152,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const briefUnread = useBriefUnread();
   const userName = useGremlyStore((s) => s.userName);
   const [briefLineShown, setBriefLineShown] = useState(false);
+  // In the evening the same line says the wrap up is waiting, and opens it
+  const wrapTeaser = useEveningTeaser();
+  const wrapLine = !briefUnread && wrapTeaser.nudge;
   const briefLine = useMemo(() => {
+    if (wrapLine)
+      return teaserLine(wrapTeaser.cards, weekdayOf(getDateService().ritualDay()), 'drop');
     if (!briefUnread) return null;
     const firstName = userName ? userName.trim().split(/\s+/)[0] : null;
     return briefReadyLine(getDateService().ritualDay(), {
@@ -1157,7 +1165,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       firstName,
       surface: 'drop',
     });
-  }, [briefUnread, userName, dco]);
+  }, [briefUnread, userName, dco, wrapLine, wrapTeaser.cards]);
   const lastSweepCompletedAt = useGremlyStore((s) => s.lastSweepCompletedAt);
   const feedingGaugeValue = useGremlyStore((s) => s.feedingGaugeValue);
   const isFedToday = useGremlyStore((s) => s.isFedToday);
@@ -3251,12 +3259,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               onPress={() =>
                 navigation.navigate('Tabs', {
                   screen: 'Gremly',
-                  params: todayThreadParams(),
+                  params: todayThreadParams(wrapLine ? 'wrap' : undefined),
                 })
               }
               accessibilityRole="button"
               accessibilityLabel={`${briefLine.lead} ${briefLine.rest}`}
-              testID="drop-brief-ready"
+              testID={wrapLine ? 'drop-wrap-up' : 'drop-brief-ready'}
             >
               <Text style={styles.gremlyMessage}>
                 <Text style={styles.gremlyMessageLead}>{briefLine.lead}</Text> {briefLine.rest}
