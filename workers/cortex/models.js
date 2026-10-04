@@ -59,6 +59,7 @@ export const HELPER_JOB_VARS = {
   triage_signals: 'MODEL_TRIAGE_SIGNALS', // triage.js classifyWithMini: search, personal, depth
   loading_message: 'MODEL_LOADING_MESSAGE', // triage.js generateLoadingMessage
   running_summary: 'MODEL_RUNNING_SUMMARY', // generateRunningSummary, generateEntityChatSummary
+  chat_title: 'MODEL_CHAT_TITLE', // Ask Gremly's chat title, written with the Save items pill (CHAT_PILL_SPLIT)
   chat_full_summary: 'MODEL_CHAT_FULL_SUMMARY', // type chat-full-summary
   chat_extraction: 'MODEL_CHAT_EXTRACTION', // Ask Gremly background extraction behind the Save items pill
   general_greeting: 'MODEL_GENERAL_GREETING', // type general-greeting
@@ -133,6 +134,10 @@ export function resolveModels(env = {}) {
       // Today's thread on the agent (agent/brief.js). Off: the day turn answers,
       // as before. Only app builds that call brief-turn see either.
       agentBrief: env.AGENT_BRIEF === 'on',
+      // Ask Gremly's lookups and changes on the agent (agent/chat.js): "on" for
+      // everyone, or user ids separated by commas while it is tried; only app
+      // builds that can draw the agent's card are sent there.
+      agentChat: env.AGENT_CHAT || '',
     },
     // A helper call that fails on its model is retried once on this model, if set.
     helperFallback: env.HELPER_FALLBACK_MODEL || '',

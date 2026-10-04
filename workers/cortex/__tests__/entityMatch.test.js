@@ -39,7 +39,7 @@ import {
   reconcileSameAs,
   mergePillItems,
   buildPillPrompt,
-  buildSummaryPrompt,
+  buildTitlePrompt,
   lateCardFrom,
   lateCardCandidate,
   trackedItemsBlock,
@@ -909,14 +909,16 @@ test("the split pill call asks one question and keeps the single call's field na
   expect(pill).toContain('"date_range_end"');
   expect(pill).not.toContain('chat_summary');
   expect(pill).not.toContain('e.g.');
-  const summary = buildSummaryPrompt({
+  // the title on its own: the running summary is written once, elsewhere
+  const title = buildTitlePrompt({
     runningSummary: 'Earlier: trip ideas.',
     conversationText: 'User: hi',
   });
-  expect(summary).toContain('SUMMARY OF EARLIER MESSAGES');
-  expect(summary).toContain('Earlier: trip ideas.');
-  expect(summary).toContain('{"chat_summary":{"title":"...","summary":"..."}}');
-  expect(buildSummaryPrompt({ runningSummary: null, conversationText: 'User: hi' })).not.toContain(
+  expect(title).toContain('SUMMARY OF EARLIER MESSAGES');
+  expect(title).toContain('Earlier: trip ideas.');
+  expect(title).toContain('{"chat_summary":{"title":"..."}}');
+  expect(title).not.toContain('"summary"');
+  expect(buildTitlePrompt({ runningSummary: null, conversationText: 'User: hi' })).not.toContain(
     'SUMMARY OF EARLIER MESSAGES',
   );
   configureModels({ CHAT_PILL_SPLIT: 'on' });

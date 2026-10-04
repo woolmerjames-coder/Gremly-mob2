@@ -171,6 +171,7 @@ import { buildTodayActivity } from './context/todayActivity.js';
 import { getAgeGuidance } from './context/gremlyAge.js';
 import { triageMessage, generateLoadingMessage, callMini } from './triage';
 import { briefTurnResponse } from './agent/brief.js';
+import { AGENT_LANES, agentChatFor, runChatTurn } from './agent/chat.js';
 import {
   geminiGenerate,
   geminiStream,
@@ -233,7 +234,7 @@ import {
   withValidDays,
   buildChatExtractionPrompt,
   buildPillPrompt,
-  buildSummaryPrompt,
+  buildTitlePrompt,
   withEvidenceRule,
   withEditsRule,
   evidenceGrounded,
@@ -2270,6 +2271,140 @@ function truncateAtSentence(text, maxChars) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // RUNNING SUMMARY — fire-and-forget after Space Chat replies
 // ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * One Ask Gremly message answered by the agent (agent/chat.js): status lines
+ * while it works, then its reply and its card on the chat's stream, then what
+ * follows every reply (the chat's summary, an item chat's summary and the
+ * correction check). The Save items pill is skipped: the agent puts anything
+ * new worth keeping on its card. False when the agent could not finish, so the
+ * quick lane's writer answers instead.
+ */
+async function answerWithAgent({
+  env,
+  ctx,
+  body,
+  userId,
+  timezone,
+  messages,
+  preload,
+  send,
+  timing,
+}) {
+  const t0 = Date.now();
+  const turn = await runChatTurn({
+    env,
+    userId,
+    timezone,
+    messages,
+    tasks: Array.isArray(body.agentTasks) ? body.agentTasks : [],
+    preload,
+    onStatus: (line) => {
+      send({ searching: true, query: line, isLoadingHint: true }).catch(() => {});
+    },
+  });
+  if (!turn.ok) {
+    console.warn('[GeneralChat:Agent] the agent could not finish, the writer answers', {
+      error: turn.error,
+      model: turn.model,
+      ms: turn.ms,
+    });
+    return false;
+  }
+  const reply = turn.reply;
+  const latency = Date.now() - t0;
+  await send({ delta: reply, done: false });
+  await send({
+    done: true,
+    full_content: reply,
+    save_suggestion: null,
+    entity_card: null,
+    // the agent offers anything new on its card, so no Save items pill follows
+    extraction: 'skipped',
+    agent: {
+      card: turn.card,
+      tasks: turn.tasks,
+      model: turn.model,
+      ms: turn.ms,
+      tools: turn.tools,
+      prompt_version: turn.prompt_version,
+    },
+    timing: { ...timing, reply_ms: latency },
+    latency_ms: latency,
+  });
+  console.log('[GeneralChat:Agent] Complete', {
+    model: turn.model,
+    ms: turn.ms,
+    tools: turn.tools,
+    card: turn.card.length,
+    lane: timing.lane,
+  });
+
+  // what follows every reply, after it is sent
+  if (body.chatId) {
+    const said = messages.filter((m) => m.role !== 'system');
+    const headers = {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+    };
+    ctx.waitUntil(
+      (async () => {
+        try {
+          const prev = await fetch(
+            `${env.SUPABASE_URL}/rest/v1/scope_chats?id=eq.${body.chatId}&select=running_summary`,
+            { headers },
+          );
+          const rows = prev?.ok ? await prev.json().catch(() => []) : [];
+          await generateRunningSummary(
+            said,
+            reply,
+            body.chatId,
+            null,
+            rows?.[0]?.running_summary || null,
+            env,
+            timezone,
+          );
+        } catch (err) {
+          console.warn('[GeneralChat:Agent] Summary failed:', err.message);
+        }
+      })(),
+    );
+    const anchor = preload.anchor;
+    if (anchor && !anchor.gone && anchor.id) {
+      ctx.waitUntil(
+        generateEntityChatSummary(
+          said,
+          reply,
+          anchor.id,
+          anchor.type,
+          anchor.title,
+          null,
+          null,
+          env,
+          timezone,
+        ).catch((err) =>
+          console.warn('[GeneralChat:Agent] Item chat summary failed:', err.message),
+        ),
+      );
+    }
+    // when they say Gremly has something about their life wrong, the context
+    // pipeline applies it straight away; only this message is checked
+    const recent = [...said, { role: 'assistant', content: reply }].slice(-20);
+    ctx.waitUntil(
+      checkForCorrection({
+        conversationText: recent
+          .map((m) => `${m.role === 'user' ? 'User' : 'Gremly'}: ${m.content}`)
+          .join('\n\n'),
+        latest: said.filter((m) => m.role === 'user').at(-1)?.content,
+        chatId: body.chatId,
+        userId,
+        env,
+        surface: 'chat',
+      }).catch((e) => console.warn('[GeneralChat:Agent] Correction check failed:', e?.message)),
+    );
+  }
+  return true;
+}
 
 async function generateRunningSummary(
   conversationMessages,
@@ -12690,6 +12825,38 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               messageCount: messages.length,
             });
             const triageMs = Date.now() - tLane;
+
+            // Lookups and changes on the agent (agent plan step 9): for accounts on
+            // AGENT_CHAT, from app builds that can draw its card. The item card is
+            // the quick lane's, so the matcher is not waited for. When the agent
+            // cannot finish, the quick lane's writer below answers.
+            if (
+              authenticatedUserId &&
+              body.agentCard === true &&
+              body.chatSurface !== 'brief' &&
+              AGENT_LANES.includes(triageFromClassifier.lane) &&
+              agentChatFor(models().flags.agentChat, authenticatedUserId)
+            ) {
+              const answered = await answerWithAgent({
+                env,
+                ctx,
+                body,
+                userId: authenticatedUserId,
+                timezone: userTimezone,
+                messages,
+                preload: {
+                  profileText: userProfile?.profileText,
+                  todayActivity: generalTodayActivity,
+                  runningSummary: body.runningSummary || '',
+                  anchor: anchorEntity,
+                  sessionContext: sessionContextStr,
+                },
+                send: (obj) => writer.write(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`)),
+                timing: { triage_ms: triageMs, lane: triageFromClassifier.lane },
+              });
+              if (answered) return;
+            }
+
             // the card (started alongside triage) decides the reply shape, so it is awaited here
             const entityMatch = await entityCardPromise;
             const entityCard = entityMatch?.card || null;
@@ -12704,7 +12871,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               search: triage.search,
               personal: triage.personal,
               depth: triage.depth,
-              // recorded only: nothing routes on the lane until step 9 of the agent plan
+              // lookup and agent go to the agent for accounts on AGENT_CHAT (above)
               lane: triage.lane || null,
               anchored: anchor ? (anchor.gone ? 'gone' : true) : false,
             });
@@ -13292,23 +13459,24 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                         temperature: pillSplit ? 0 : 0.1,
                       };
                       if (extractionV2) extractReq.response_format = { type: 'json_object' };
+                      // the title on its own (the running summary is written once, above)
                       const summaryReq = pillSplit
                         ? {
                             messages: [
                               {
                                 role: 'system',
-                                content: buildSummaryPrompt({ runningSummary, conversationText }),
+                                content: buildTitlePrompt({ runningSummary, conversationText }),
                               },
-                              { role: 'user', content: 'Write the title and summary.' },
+                              { role: 'user', content: 'Write the title.' },
                             ],
-                            max_tokens: 300,
+                            max_tokens: 80,
                             temperature: 0.2,
                             response_format: { type: 'json_object' },
                           }
                         : null;
                       const [extractRes, summaryRes2] = await Promise.all([
                         helperFetch('chat_extraction', extractReq),
-                        summaryReq ? helperFetch('running_summary', summaryReq) : null,
+                        summaryReq ? helperFetch('chat_title', summaryReq) : null,
                       ]);
                       if (extractRes.ok) {
                         const extractJson = await extractRes.json();

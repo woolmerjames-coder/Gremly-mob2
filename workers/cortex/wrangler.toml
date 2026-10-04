@@ -47,6 +47,8 @@ MINDDROP_RELATE_ENABLED = "true"
 #   AGENT_MODEL               the agent's model on every surface (agent/run.js; default gemini-3.8-flash)
 #   AGENT_FALLBACK_MODEL      tried once when the agent's first step fails (default gpt-6-luna)
 #   AGENT_MODEL_BRIEF, AGENT_MODEL_CHAT  one surface on its own
+#   AGENT_CHAT                on, or user ids: Ask Gremly's lookups and changes on the agent
+#                             (agent/chat.js), for app builds that send agentCard
 #   AGENT_BRIEF               on: today's thread on the agent (agent/brief.js, type brief-turn);
 #                             off: the day turn answers brief-turn, as before. Only app builds
 #                             from step 7 on call brief-turn; older builds keep calling day-turn
@@ -99,6 +101,11 @@ TRIAGE_ONE_CALL = "on"
 # the agent cannot finish, the day turn answers.
 AGENT_BRIEF = "on"
 AGENT_MODEL_BRIEF = "gpt-6-luna"
+# Ask Gremly's lookups and changes on the agent (agent plan step 9), on Luna at
+# low thinking. On for James's account only while he tries it; "on" turns it on
+# for everyone. Only app builds that can draw the agent's card are sent to it.
+AGENT_CHAT = "05a3c53d-b242-4b5f-a0db-83004c8e3892"
+AGENT_MODEL_CHAT = "gpt-6-luna"
 AGENT_FALLBACK_MODEL = "gemini-3.8-flash"
 CHAT_EXTRACTION_V2 = "on"
 SEARCH_REQUIRED_FORCES = "off"
