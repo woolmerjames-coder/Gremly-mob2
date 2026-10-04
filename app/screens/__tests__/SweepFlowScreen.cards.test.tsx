@@ -386,6 +386,8 @@ describe('SweepFlowScreen - the cards on their own', () => {
   it('opens straight on the first card, with no intro', async () => {
     const result = render(<SweepFlowScreen navigation={mockNavigation} />);
     await waitFor(() => expect(result.getByText('Test task')).toBeTruthy());
+    // before midnight the next day is Tomorrow on the card
+    expect(result.getByText('Tomorrow')).toBeTruthy();
     expect(result.queryByText(/Welcome to Sweep|A quick sweep/)).toBeNull();
     expect(result.getByText('1 of 2')).toBeTruthy();
     expect(mockCardsOpened).toHaveBeenCalledTimes(1);
@@ -593,11 +595,13 @@ describe('SweepFlowScreen - the cards after midnight, before the day ends', () =
     expect(getDateService().ritualDay()).toBe('2026-09-30');
   });
 
-  it('Tomorrow on a card is the day after the day being wrapped up', async () => {
+  it('names the next day on a card by its weekday, and means the day after the one being wrapped up', async () => {
     const result = render(<SweepFlowScreen navigation={mockNavigation} />);
     await waitFor(() => result.getByText('Test task'));
 
-    fireEvent.press(result.getByText('Tomorrow'));
+    // the clock already says Thursday, so the button never says Tomorrow
+    expect(result.queryByText('Tomorrow')).toBeNull();
+    fireEvent.press(result.getByText('Thursday'));
     fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
     await waitFor(() => expect(mockApply).toHaveBeenCalledTimes(1));

@@ -4,6 +4,7 @@
  * and the words for both.
  */
 import { getDateService } from '../date/DateService';
+import { localMinutesToIso } from '../brief/time';
 import type { WrapDay } from './words';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -31,12 +32,25 @@ export function wrapNow(): WrapNow {
   const day = ds.ritualDay();
   const tomorrow = ds.addDays(day, 1);
   const late = ds.isInLateNightPeriod();
+  const dayEndHour = ds.getDayBoundaryHour();
   return {
     day,
     tomorrow,
     words: { weekday: weekdayOf(day), tomorrow: late ? weekdayOf(tomorrow) : 'tomorrow', late },
     evening: late || ds.getHour() >= 17,
-    dayEndHour: ds.getDayBoundaryHour(),
-    dayStartMs: ds.startOfRitualDay(day).getTime(),
+    dayEndHour,
+    // in the person's time zone, which is not always the phone's
+    dayStartMs: new Date(localMinutesToIso(day, dayEndHour * 60)).getTime(),
   };
+}
+
+/**
+ * The word on a button for the day after the person's day: "Tomorrow", or
+ * its weekday after midnight, when the clock already says that day and
+ * "tomorrow" would be read as the day after it.
+ */
+export function tomorrowLabel(): string {
+  const ds = getDateService();
+  if (!ds.isInLateNightPeriod()) return 'Tomorrow';
+  return weekdayOf(ds.addDays(ds.ritualDay(), 1)) || 'Tomorrow';
 }

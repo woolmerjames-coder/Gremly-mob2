@@ -24,6 +24,7 @@ import { Text, Box } from '../../ui';
 import { BRAND } from '../../design/brand';
 import { parseDayString } from '../../lib/date/computeDueDay';
 import { getDateService } from '../../lib/date';
+import { tomorrowLabel } from '../../lib/wrapup/day';
 import { useActiveSpaces } from '../../lib/store/selectors';
 import { SweepCardShell } from './SweepCardShell';
 import { TodoActionZone } from './TodoActionZone';
@@ -742,7 +743,7 @@ export function SweepCardNew({
                             styles.dateChipSelected,
                         ]}
                       >
-                        <Text style={styles.dateChipText}>Tomorrow</Text>
+                        <Text style={styles.dateChipText}>{tomorrowLabel()}</Text>
                       </Pressable>
                       <Pressable
                         onPress={() => {
@@ -790,7 +791,7 @@ export function SweepCardNew({
                             styles.dateChipSelected,
                         ]}
                       >
-                        <Text style={styles.dateChipText}>Tomorrow</Text>
+                        <Text style={styles.dateChipText}>{tomorrowLabel()}</Text>
                       </Pressable>
                       <Pressable
                         onPress={() => {

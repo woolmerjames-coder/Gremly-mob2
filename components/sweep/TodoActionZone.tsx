@@ -17,6 +17,7 @@ import { ContextHeader } from './ContextHeader';
 import { WeekGridScheduler } from './WeekGridScheduler';
 import type { WeekDay } from '../../lib/store/weekGridSelectors';
 import type { SweepCandidate, SweepCardMeta } from '../../lib/sweep/types';
+import { tomorrowLabel } from '../../lib/wrapup/day';
 
 type TodoActionZoneProps = {
   candidate: SweepCandidate;
@@ -119,7 +120,7 @@ export function TodoActionZone({
               />
               <ActionPill
                 icon={<ArrowRight size={16} strokeWidth={2.5} />}
-                label="Tomorrow"
+                label={tomorrowLabel()}
                 active={selectedAction === 'tomorrow'}
                 onPress={() => onSelectAction('tomorrow')}
               />
@@ -147,7 +148,7 @@ export function TodoActionZone({
             <>
               <ActionPill
                 icon={<ArrowRight size={16} strokeWidth={2.5} />}
-                label="Tomorrow"
+                label={tomorrowLabel()}
                 active={selectedAction === 'tomorrow'}
                 onPress={() => onSelectAction('tomorrow')}
               />

@@ -116,8 +116,6 @@ export const WRAP_COPY = {
   habitsNothing: "No problem. They'll be there tomorrow.",
   // the rest
   notTonightReply: "No problem. It'll all be here tomorrow, and nothing's lost.",
-  planTomorrowSet: "Done. It'll be on Today when you wake up.",
-  thatsTomorrow: "That's tomorrow",
   nightButton: 'Night, Gremly',
   weekToast: 'The week planner',
 } as const;
