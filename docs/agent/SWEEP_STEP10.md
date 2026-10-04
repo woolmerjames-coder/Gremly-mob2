@@ -137,12 +137,33 @@ and off when unset.
 
 ## Known differences from the mockup
 
-Kept current in the build plan doc, under Found while building. In short:
-Gremly sitting over the newest message is not fixed. Undo lasts while the app
-is open. Undoing a journal entry does not take the feeding back (the gauge
-only goes up). A skip night does not feed for the cards. The cards open as a
-full screen, not a sheet. The rest of the app still reads today from the
-calendar, not the day end: that is its own stage, with its own audit.
+Kept current in the build plan doc, under Found while building (15 items when
+the build was handed over). In short:
+
+- Gremly sitting over the newest message is not fixed. No cause was found in
+  the code.
+- Undo lasts while the app is open.
+- Undoing a journal entry does not take the feeding back (the gauge only goes
+  up).
+- A skip night does not feed for the cards.
+- The cards open as a full screen, not a sheet.
+- The yes button on today's plan reads Put it on Today. The mockup only shows
+  tomorrow's plan, so that wording was chosen in the build.
+- Plan feeding is 5% an item, up to three items a day in total.
+- The week planner still marks the Sweep done and feeds the old way, so wrap
+  up cards and the week planner in one evening can both feed. Phase 2.
+- No typing dots between the wrap up's lines: they are fixed sentences.
+- The first run Sweep demo still shows before the cards for someone who has
+  never swept.
+- Gremly's greeting on Chat is given the wrap up's cards left count, where it
+  was given the old Sweep's count. The number changed, not his wording.
+- A calendar event after midnight stays on its calendar date, and reminders
+  stay on the clock.
+
+The whole app counts today from the day end since `259bc1eb`:
+`docs/2026-10-04-one-day-end.md` has the rules for new code, what changed and
+what stays on the clock on purpose. Gremly's background jobs do not follow it
+yet (row 8).
 
 ## Before you change anything on Gremly's side
 
