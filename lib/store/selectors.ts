@@ -18,6 +18,7 @@ import { getDateService } from '../date';
 import { isRelationPending } from '../minddrop/dropRelation';
 import { sweepCardAsks } from '../sweep/sweepOrder';
 import { quickSweepCards } from '../sweep/quickSweep';
+import { splitForWrapUp } from '../wrapup/cards';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // DATE HELPERS
@@ -765,9 +766,25 @@ export const selectSweepCandidatesUnified = createSelector(
     spaces,
     worlds,
     dropWorldLinks,
-  ): Array<{ candidate: SweepCandidate; meta: SweepCardMeta }> => {
-    const today = getTodayDayString();
-    const sevenDaysAgo = getDaysAgoDayString(7);
+  ): Array<{ candidate: SweepCandidate; meta: SweepCardMeta }> =>
+    sweepCandidatesAsOf(todos, notes, spaces, worlds, dropWorldLinks, getTodayDayString()),
+);
+
+/**
+ * Sweep's cards as of a day: the same rules, counted from the day given. The
+ * evening wrap up asks for the person's day (lib/wrapup/cards.ts), which after
+ * midnight is still yesterday until their day ends.
+ */
+export function sweepCandidatesAsOf(
+  todos: ReturnType<typeof selectTodos>,
+  notes: ReturnType<typeof selectNotes>,
+  spaces: ReturnType<typeof selectSpaces>,
+  worlds: ReturnType<typeof selectWorlds>,
+  dropWorldLinks: ReturnType<typeof selectDropWorldLinks>,
+  today: string,
+): Array<{ candidate: SweepCandidate; meta: SweepCardMeta }> {
+  {
+    const sevenDaysAgo = ds().addDays(today, -7);
     const candidates: SweepCandidate[] = [];
 
     // Process todos
@@ -949,8 +966,34 @@ export const selectSweepCandidatesUnified = createSelector(
     });
 
     return withMeta;
+  }
+}
+
+/**
+ * Tonight's wrap up, counted from the person's day (lib/wrapup/cards.ts): the
+ * swipe cards, and the todos that were simply due today and are still open.
+ */
+export const selectWrapUp = createSelector(
+  [
+    selectTodos,
+    selectNotes,
+    selectSpaces,
+    selectWorlds,
+    selectDropWorldLinks,
+    // the person's day as the store has it, so the cards are worked out again when it rolls over
+    (state: GremlyState) => state.currentDate,
+  ],
+  (todos, notes, spaces, worlds, dropWorldLinks) => {
+    const day = ds().ritualDay();
+    return splitForWrapUp(
+      sweepCandidatesAsOf(todos, notes, spaces, worlds, dropWorldLinks, day),
+      day,
+    );
   },
 );
+
+/** How many cards tonight's wrap up has: the number the home card, the chip and Gremly's line say. */
+export const selectWrapUpCount = createSelector([selectWrapUp], (w): number => w.cards.length);
 
 /** Count of unified sweep candidates */
 export const selectSweepCandidateCountUnified = createSelector(

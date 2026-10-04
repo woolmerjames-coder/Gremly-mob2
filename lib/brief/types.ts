@@ -11,6 +11,7 @@
 
 import type { AgentTask, DayChange } from '../cortex/CortexClient';
 import type { Change } from '../changes/model';
+import type { SweepRecord } from '../changes/sweep';
 import type { ThreadBlock } from './dayRecord';
 
 /** The part of the day a brief was written for. */
@@ -23,10 +24,23 @@ export type BriefMessageType =
   | 'brief-plan'
   | 'brief-event'
   | 'brief-reply'
-  | 'brief-changes';
+  | 'brief-changes'
+  // the evening wrap up in the same thread (lib/wrapup)
+  | 'sweep-recap'
+  | 'sweep-receipt'
+  | 'sweep-still'
+  | 'sweep-habits'
+  | 'sweep-journal'
+  | 'sweep-item'
+  | 'sweep-end';
 
 /** Fields every brief message carries. */
 interface BriefMetaBase {
+  /**
+   * Part of the evening wrap up, not of the brief. The brief's own readers
+   * (yesterday's reaction, playback) leave these out.
+   */
+  wrap?: boolean;
   /** One run of the writer; a rewrite on a later first open gets a new id */
   brief_id?: string;
   /** Set on lines a rewrite replaced before anyone saw them; never shown */
@@ -60,7 +74,13 @@ export type OfferKind =
   | 'question'
   | 'follow_up'
   | 'plan_edit'
-  | 'none';
+  | 'none'
+  // the evening wrap up
+  | 'wrap_up'
+  | 'wrap_partial'
+  | 'wrap_declined'
+  | 'journal'
+  | 'wrap_close';
 
 /** What tapping a button does. */
 export type OfferAction =
@@ -77,7 +97,18 @@ export type OfferAction =
   | 'leave_plan' // leave the plan as it is
   | 'reach_yes' // add the reach item to today and plan
   | 'plan_edit' // a suggested change under the plan (value: the change)
-  | 'thanks'; // "Thanks, Gremly": Gremly says any time
+  | 'thanks' // "Thanks, Gremly": Gremly says any time
+  // the evening wrap up (lib/wrapup); 'sweep' opens the cards there too
+  | 'sweep_skip' // move it all to tomorrow: one of the weekly skips
+  | 'not_tonight' // no wrap up tonight; the journal stays one tap away
+  | 'plan_week' // the week planner
+  | 'sweep_leave' // leave the cards that are left for the morning
+  | 'journal_write' // the next typed message is tonight's journal entry
+  | 'journal_mood' // pick a mood instead of writing
+  | 'journal_skip' // no journal tonight
+  | 'journal_only' // after Not tonight: just the journal
+  | 'plan_tomorrow' // the planner, for tomorrow
+  | 'night'; // good night: the wrap up is done
 
 export interface OfferButton {
   id: string;
@@ -109,6 +140,8 @@ export interface BriefOfferMeta extends BriefMetaBase {
   brought_back_from?: string;
   /** After Sweep: what was kept for today, so the plan holds it */
   kept_ids?: string[];
+  /** A quiet line under the buttons */
+  hint?: string;
 }
 
 export type PlanStatus = 'proposal' | 'replaced' | 'dismissed' | 'locked';
@@ -159,7 +192,8 @@ export interface BriefPlanMeta extends BriefMetaBase {
 /** One line such as "Swept 7 things, 3 kept for today". */
 export interface BriefEventMeta extends BriefMetaBase {
   type: 'brief-event';
-  icon?: 'sweep' | 'saved' | 'locked';
+  /** time: a clock time alone, drawn as a quiet divider */
+  icon?: 'sweep' | 'saved' | 'locked' | 'moved' | 'time';
 }
 
 /** The person's tap, shown as their message. */
@@ -193,6 +227,89 @@ export interface BriefChangesMeta extends BriefMetaBase {
   prompt_version?: string;
 }
 
+// ── The evening wrap up, in the same thread (lib/wrapup) ────────────────────
+
+/** Gremly's opening card: the day in counts, from the app's own data. */
+export interface SweepRecapMeta extends BriefMetaBase {
+  type: 'sweep-recap';
+  date: string;
+  counts: { todos: number; habits: number; meetings: number; drops: number };
+  /** What was finished today */
+  done: { title: string; kind: 'todo' | 'habit' }[];
+  /** On today's plan and not done */
+  missed: { id: string; title: string }[];
+  /** How much of today's plan got done, when there was one */
+  planned?: { done: number; total: number } | null;
+}
+
+/** The cards' receipt. Its rows are the thread's decisions (DailyThreadMeta.sweep). */
+export interface SweepReceiptMeta extends BriefMetaBase {
+  type: 'sweep-receipt';
+}
+
+/**
+ * Still open today: todos that were due today and did not happen, moved on
+ * with one tap. Each move is the change model's change to the todo's day.
+ */
+export interface SweepStillMeta extends BriefMetaBase {
+  type: 'sweep-still';
+  /** The day being wrapped up */
+  date: string;
+  /** The day they move to, and its word when the card was made (tomorrow, or its weekday) */
+  to: string;
+  to_word: string;
+  todos: { id: string; title: string }[];
+  status: 'open' | 'moved' | 'left' | 'undone';
+  /** The todos that were moved */
+  moved?: string[];
+}
+
+export interface SweepHabitRow {
+  id: string;
+  title: string;
+  /** A habit being built is ticked; one being broken is held or not */
+  kind: 'build' | 'break';
+  /** Daily, 4 days running */
+  note?: string;
+}
+
+/** Habits still open today, checked in on one card. */
+export interface SweepHabitsMeta extends BriefMetaBase {
+  type: 'sweep-habits';
+  date: string;
+  habits: SweepHabitRow[];
+  /** Names of the habits already logged today */
+  already?: string[];
+  status: 'open' | 'saved';
+  /** After saving: the habits logged, and what each break habit got */
+  done?: string[];
+  held?: Record<string, 'held' | 'not'>;
+}
+
+/** Tonight's journal entry, or the mood picked instead. */
+export interface SweepJournalMeta extends BriefMetaBase {
+  type: 'sweep-journal';
+  date: string;
+  /** mood: picking moods, nothing saved yet */
+  status: 'mood' | 'saved' | 'skipped' | 'removed';
+  note_id?: string | null;
+  title?: string;
+  text?: string;
+  moods?: string[];
+}
+
+/** An item shown so it can be opened: the one a question was about. */
+export interface SweepItemMeta extends BriefMetaBase {
+  type: 'sweep-item';
+  item: { id: string; kind: 'todo' | 'habit' | 'note'; title: string; when?: string };
+}
+
+/** The day, wrapped up. */
+export interface SweepEndMeta extends BriefMetaBase {
+  type: 'sweep-end';
+  date: string;
+}
+
 export type BriefMeta =
   | BriefTextMeta
   | BriefDayCardMeta
@@ -200,7 +317,51 @@ export type BriefMeta =
   | BriefPlanMeta
   | BriefEventMeta
   | BriefReplyMeta
-  | BriefChangesMeta;
+  | BriefChangesMeta
+  | SweepRecapMeta
+  | SweepReceiptMeta
+  | SweepStillMeta
+  | SweepHabitsMeta
+  | SweepJournalMeta
+  | SweepItemMeta
+  | SweepEndMeta;
+
+/** Where tonight's wrap up has got to. */
+export type WrapStep =
+  | 'offer' // Gremly has opened on the day and offered the cards
+  | 'cards' // the cards are open
+  | 'partial' // the cards were closed part way
+  | 'still' // todos still open today
+  | 'habits'
+  | 'journal'
+  | 'questions'
+  | 'close' // the closing line and its buttons
+  | 'done'
+  | 'declined'; // Not tonight
+
+/**
+ * The wrap up's state, kept on the thread so it can be picked up from
+ * anywhere and by Gremly: where it has got to, the cards there were, and each
+ * decision in the change model's shape with what the item was before
+ * (lib/changes/sweep.ts).
+ */
+export interface WrapUpState {
+  started_at: string;
+  step: WrapStep;
+  /** How it went: the cards, a skip (moved on), or nothing to sort */
+  path?: 'cards' | 'skip' | 'clear' | null;
+  /** The cards there were when it started, so later ones are known as new */
+  items: string[];
+  decisions: SweepRecord[];
+  /** How many cards feeding has been credited for */
+  credited?: number;
+  journal?: 'written' | 'mood' | 'skipped' | null;
+  /** After Not tonight: only the journal was wanted */
+  journal_only?: boolean;
+  /** Gremly's questions asked tonight */
+  questions?: string[];
+  finished_at?: string | null;
+}
 
 /** scope_chats.metadata_json on a daily thread. */
 export interface DailyThreadMeta {
@@ -223,4 +384,6 @@ export interface DailyThreadMeta {
   skipped_habits?: string[];
   /** The agent's task list in the thread, carried from one message to the next */
   agent_tasks?: AgentTask[];
+  /** Tonight's wrap up (lib/wrapup) */
+  sweep?: WrapUpState | null;
 }
