@@ -38,6 +38,19 @@ describe('the change card', () => {
     expect(onApply).toHaveBeenCalledWith(['c2']);
   });
 
+  it('says it is saving as soon as Accept is tapped, and goes back if the card stays open', () => {
+    const onApply = jest.fn();
+    const r = render(<ChangeCard meta={META} onApply={onApply} />);
+    fireEvent.press(r.getByTestId('changes-apply'));
+    expect(r.getByText('Saving…')).toBeTruthy();
+    // a second tap does nothing while it saves
+    fireEvent.press(r.getByTestId('changes-apply'));
+    expect(onApply).toHaveBeenCalledTimes(1);
+    r.rerender(<ChangeCard meta={META} onApply={onApply} interactive={false} />);
+    r.rerender(<ChangeCard meta={META} onApply={onApply} interactive />);
+    expect(r.getByText('Accept all')).toBeTruthy();
+  });
+
   it('says Accept for one row', () => {
     const one = { ...META, changes: [META.changes[0]] };
     expect(render(<ChangeCard meta={one} onApply={jest.fn()} />).getByText('Accept')).toBeTruthy();

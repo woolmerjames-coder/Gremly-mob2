@@ -1149,12 +1149,18 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     seenRowsRef.current = rows.length;
     const list = flatListRef.current;
     if (!list) return;
-    // a new plan card, or the brief's first line as it plays in, scrolls so its top is in view
+    // a new plan card, or the brief's first line as it plays in, scrolls so its top is in view,
+    // with the line saying what changed above it when there is one
     const planId = pendingPlanScrollRef.current;
     const index = planId ? rows.findIndex((m) => m.id === planId) : -1;
     if (index >= 0) {
       pendingPlanScrollRef.current = null;
-      list.scrollToIndex({ index, viewPosition: 0, animated: true });
+      const above = index > 0 ? briefMetaOf(rows[index - 1]) : null;
+      list.scrollToIndex({
+        index: above?.type === 'brief-event' ? index - 1 : index,
+        viewPosition: 0,
+        animated: true,
+      });
       return;
     }
     if (scrollHeld()) return;
@@ -1427,8 +1433,22 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       await appendAssistantMessage(text);
     },
   });
+  // Accept on a change card: the thread follows to what it did, the
+  // "Updated" line and the plan it changed, wherever they were reading
+  const changeActions = isDailyThread ? dayTurn : chatCard;
+  const applyChanges = changeActions.apply;
+  const applyAndFollow = useCallback(
+    (message: SpaceChatMessage, unticked: string[]) => {
+      followRef.current = true;
+      anchorTopRef.current = null;
+      caughtUpRef.current = true;
+      setMoreBelow(false);
+      return applyChanges(message, unticked);
+    },
+    [applyChanges],
+  );
   // drawn again when saving ends and when Undo becomes possible (ChangeCard.tsx)
-  const renderChanges = useRenderChanges(isDailyThread ? dayTurn : chatCard);
+  const renderChanges = useRenderChanges({ ...changeActions, apply: applyAndFollow });
   const renderPlan = useCallback(
     (message: SpaceChatMessage, meta: BriefPlanMeta) => (
       <BriefPlanBlock

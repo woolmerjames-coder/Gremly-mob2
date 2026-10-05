@@ -8,7 +8,7 @@
  * folds it to one line, and so does Undo once it has put everything back.
  */
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Check, CircleSlash, RotateCcw, Square, SquareCheck } from 'lucide-react-native';
 import type { BriefChangesMeta } from '../../lib/brief/types';
@@ -84,6 +84,17 @@ export function ChangeCard({
   onUndo,
 }: ChangeCardProps) {
   const [unticked, setUnticked] = useState<string[]>(meta.unticked ?? []);
+  // tapped Accept: it says so at once, while the changes are saved, and
+  // goes back to Accept if saving ends with the card still open
+  const [saving, setSaving] = useState(false);
+  const sawBusy = useRef(false);
+  useEffect(() => {
+    if (!interactive) sawBusy.current = true;
+    else if (sawBusy.current) {
+      sawBusy.current = false;
+      setSaving(false);
+    }
+  }, [interactive]);
   const rows = rowsOf(meta);
 
   if (meta.status === 'undone') {
@@ -170,12 +181,15 @@ export function ChangeCard({
       <View style={styles.actions}>
         <TouchableOpacity
           style={[styles.btn, styles.btnPrimary, !ticked && styles.btnOff]}
-          onPress={() => onApply?.(unticked)}
-          disabled={!interactive || !ticked}
+          onPress={() => {
+            setSaving(true);
+            onApply?.(unticked);
+          }}
+          disabled={!interactive || !ticked || saving}
           testID="changes-apply"
         >
           <Text style={[styles.btnText, styles.btnTextPrimary]}>
-            {applyWords(rows.length, ticked)}
+            {saving ? 'Saving…' : applyWords(rows.length, ticked)}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
