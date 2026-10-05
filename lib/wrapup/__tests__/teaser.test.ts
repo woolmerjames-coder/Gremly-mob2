@@ -77,19 +77,20 @@ describe('the evening', () => {
     expect(eveningTeaser({ phase: 'evening', wrap: at('close'), cards: [] }).offer).toBe(false);
   });
 
-  it('comes back once for new things dropped after it was finished', () => {
+  it('says nothing once its line was put away for the day, and the way in stays', () => {
+    expect(
+      eveningTeaser({ phase: 'evening', wrap: null, cards: cards(['a']), dismissed: true }),
+    ).toEqual({ nudge: false, offer: true, start: true, cards: 1 });
+  });
+
+  it('stays quiet when things are dropped after it was finished: they wait for the morning', () => {
     const wrap = at('done');
     expect(eveningTeaser({ phase: 'evening', wrap, cards: cards(['a', 'new1']) })).toEqual({
-      nudge: true,
-      offer: true,
-      start: true,
-      cards: 1,
+      nudge: false,
+      offer: false,
+      start: false,
+      cards: 0,
     });
-    // once the thread has said so, they are known and it is quiet again
-    const told = { ...wrap, items: [...wrap.items, 'new1'] };
-    expect(eveningTeaser({ phase: 'evening', wrap: told, cards: cards(['a', 'new1']) }).nudge).toBe(
-      false,
-    );
   });
 });
 
@@ -130,7 +131,7 @@ describe('before the evening', () => {
     });
   });
 
-  it('finished early is finished: new drops wait for the evening', () => {
+  it('finished early is finished for the day: new drops wait for the morning', () => {
     const wrap = at('done');
     expect(eveningTeaser({ phase: 'day', wrap, cards: cards(['a', 'new1']) })).toEqual({
       nudge: false,
@@ -138,11 +139,9 @@ describe('before the evening', () => {
       start: false,
       cards: 0,
     });
-    expect(eveningTeaser({ phase: 'evening', wrap, cards: cards(['a', 'new1']) })).toMatchObject({
-      nudge: true,
-      offer: true,
-      cards: 1,
-    });
+    expect(eveningTeaser({ phase: 'evening', wrap, cards: cards(['a', 'new1']) }).nudge).toBe(
+      false,
+    );
   });
 });
 
