@@ -8,6 +8,7 @@ import { clashesOf, dayPartAt, isCancelledEntry, shapeOfDay } from '../../worker
 import { dayOfWeekNumber, isBehindThisWeek } from '../../workers/inngest-jobs/brief/behind.js';
 import { decideOffer } from '../../workers/inngest-jobs/brief/offer.js';
 import { buildDayRecord } from '../../workers/inngest-jobs/brief/dayRecord.js';
+import { summariseWrap } from '../../workers/inngest-jobs/brief/reaction.js';
 
 const toMin = (hhmm) => {
   const [h, m] = hhmm.split(':').map(Number);
@@ -113,6 +114,15 @@ export function buildSnapshot(s) {
     claims: s.claims || [],
     dayShape: s.dayShape || null,
     reaction: s.reaction || null,
+    // last night's wrap up (a WrapUpState), in the words the brief is given
+    wrap: s.wrap ? summariseWrap(s.wrap, s.today) : null,
+    // a plan for today already made (Plan tomorrow in last night's wrap up): [['HH:MM', title]]
+    planned: (s.planned || []).map(([at, title], i) => ({
+      type: 'todo',
+      id: `${s.id}-p${i + 1}`,
+      start: toMin(at),
+      title,
+    })),
     // words the brief must never say on this day (checked, not sent to the writer)
     forbid: s.forbid || [],
   };
@@ -123,6 +133,7 @@ export function buildSnapshot(s) {
     candidates: g.candidates,
     freeWindows: g.free,
     now,
+    planned: g.planned.length,
   });
   return { g, offer };
 }

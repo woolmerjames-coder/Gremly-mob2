@@ -13,7 +13,7 @@ import { CARE_RULES, WRITING_RULES, PRIVATE_RULES, personBlock } from '../careRu
 import { jsonCall, modelFor } from '../context/llm';
 import { addDays } from '../context/db';
 
-export const BRIEF_PROMPT_VERSION = 'brief-2026-10-02c';
+export const BRIEF_PROMPT_VERSION = 'brief-2026-10-05a';
 
 function trim(text, n) {
   const s = String(text || '')
@@ -115,7 +115,7 @@ export function renderBriefInput(g, offer) {
   );
   if (g.planned?.length) {
     L.push(
-      `ALREADY PLANNED FOR TODAY (locked in earlier, shown on the day card; ref | time | title):\n${g.planned
+      `ALREADY PLANNED FOR TODAY (they said yes to this plan earlier, and it is on the day card; ref | time | title):\n${g.planned
         .map(
           (p) =>
             `${add('p', { type: p.type, id: p.id })} | ${clockTime(p.start)} | ${trim(p.title, 80)}`,
@@ -136,6 +136,7 @@ export function renderBriefInput(g, offer) {
   L.push('');
   L.push(`NEEDS A DECISION IN SWEEP: ${sweepLine(g)}`);
   if (g.reaction) L.push(g.reaction);
+  if (g.wrap) L.push(g.wrap);
   L.push('');
   L.push(`THE OFFER, DECIDED IN CODE: ${offerBrief(offer, g)}`);
   if (g.question && !g.ret) {
@@ -260,7 +261,7 @@ function offerBrief(offer, g) {
       return `planning. "${offer.buttons[0].label}" is offered, to fit a few things into the clear stretch from ${fromTime(offer.plan.gapFrom, g.now)}${g.reach ? ', with the reach item added' : ''}.`;
     default:
       return g.planned?.length
-        ? 'none. A plan for today was already locked in; Gremly can say so and signs off.'
+        ? 'none. They already said yes to a plan for today; Gremly can say so and signs off.'
         : 'none. Nothing to offer today; Gremly signs off.';
   }
 }
@@ -304,6 +305,7 @@ WHAT YOU WRITE
 - The day is counted to 10pm only so planning has an end; never say the day runs until 10pm or mention that end.
 - The DCO has already decided what matters (its claims), the one undated thing worth suggesting (its reach), the question and the welcome. Phrase those decisions; never choose different ones. Mention the reach only with the reason given for it.
 - The dated things ahead are on the day card. Mention one only when today genuinely needs it, never to fill a line.
+- LAST NIGHT'S WRAP UP, when given, is how they closed yesterday with Gremly, and it is background for today. What they moved to today and a plan they said yes to are their own choices, so speak of them as theirs. Touch on the evening at most once and lightly, never recap it, never mention their journal, and never mention anything they left unfinished.
 - On a return day: the first line says once, warmly, that it is good to see them and that time away is fine, then the lines talk about today. Never count, list or hint at what was missed, never guess why they were away, never mention streaks. The counts of what is waiting belong only in catch_up, never in the lines or the offer.
 - offer: one or two sentences that end the brief, wording the offer decided in code. The buttons appear under it, so do not name them. Planning is offered as an invitation, never an instruction. Sweep is suggested, never pushed; on a return day say plainly that a sweep would help and that it is fine to skip it. With no offer, the offer is a warm one-sentence sign-off, and the lines do not sign off themselves. Cite in offer_refs anything the offer names.
 - question_line: when the input gives a question to ask, ask it in your own words as a short chat message, keeping its meaning exactly. Otherwise empty.

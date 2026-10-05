@@ -189,7 +189,7 @@ export function renderTurnInput(req, person) {
   const refOf = new Map(req.items.map((x) => [x.id, x.ref]));
   L.push(
     req.plan
-      ? `THE PLAN ON SCREEN, ${req.plan.status === 'locked' ? 'LOCKED IN' : 'A PROPOSAL'} (ref | time | title):\n${req.plan.items
+      ? `THE PLAN ON SCREEN, ${req.plan.status === 'locked' ? 'ON TODAY (they said yes to it)' : 'A PROPOSAL'} (ref | time | title):\n${req.plan.items
           .map((x) => `${refOf.get(x.id)} | ${clockTime(x.start)} | ${x.title}`)
           .join('\n')}`
       : 'THE PLAN ON SCREEN: none yet.',

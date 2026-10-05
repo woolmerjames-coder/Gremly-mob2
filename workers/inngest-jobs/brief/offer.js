@@ -53,7 +53,7 @@ export function decideOffer({
   planned = 0,
 }) {
   const gaps = gapsAhead(freeWindows, now);
-  // a plan already locked in for today (made the evening before) is not offered again
+  // a plan they already said yes to for today (made the evening before) is not offered again
   const canPlan = candidates > 0 && gaps.length > 0 && !(planned > 0);
   const plan = canPlan ? { label: planLabel(gaps[0].from), gapFrom: gaps[0].from } : null;
   const waiting = (overdue || 0) + (unsorted || 0);

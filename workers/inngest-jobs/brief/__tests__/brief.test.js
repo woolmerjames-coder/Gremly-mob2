@@ -24,7 +24,7 @@ import {
   sweepLine,
   sweptWhen,
 } from '../writer';
-import { summariseThread } from '../reaction';
+import { summariseThread, summariseWrap } from '../reaction';
 import { dueForBrief, fallbackOffer } from '../index';
 
 jest.mock('../../context/daily', () => ({ buildDcoV4: jest.fn(), writeDco: jest.fn() }));
@@ -329,6 +329,30 @@ describe("the writer's ID check", () => {
     expect(text).toContain('CLASHES STILL AHEAD: none.');
     expect(text).toContain('clear stretches now to 10pm');
     expect(text).toContain('the clear stretch from now');
+
+    // a plan made last night, and the wrap up it was made in
+    const planned = {
+      ...g,
+      planned: [{ type: 'todo', id: 'todo-7', start: 900, title: 'Call the bank' }],
+      wrap: "LAST NIGHT'S WRAP UP: they finished it.",
+    };
+    const none = decideOffer({
+      ...offer,
+      returnDay: false,
+      overdue: 0,
+      unsorted: 0,
+      candidates: 1,
+      freeWindows: g.free,
+      now: g.now,
+      planned: 1,
+    });
+    const t2 = renderBriefInput(planned, none).text;
+    expect(t2).toContain(
+      'ALREADY PLANNED FOR TODAY (they said yes to this plan earlier, and it is on the day card; ref | time | title):\np1 | 3pm | Call the bank',
+    );
+    expect(t2).toContain("LAST NIGHT'S WRAP UP: they finished it.");
+    expect(t2).toContain('They already said yes to a plan for today');
+    expect(t2).not.toMatch(/locked/i);
   });
 });
 
@@ -365,7 +389,7 @@ describe("yesterday's reaction", () => {
     const s = summariseThread({ seen_at: '2026-09-30T15:00:00Z' }, msgs);
     expect(s).toContain('they opened it');
     expect(s).toContain('tapped "Plan my afternoon"');
-    expect(s).toContain('locked in a plan: Social posts at 1:15pm, Run at 6pm');
+    expect(s).toContain('said yes to a plan: Social posts at 1:15pm, Run at 6pm');
     expect(s).toContain('took out Oat milk');
     expect(s).toContain('moved Run');
     expect(s).toContain('said "move the run after 6"');
@@ -397,6 +421,56 @@ describe("yesterday's reaction", () => {
     ];
     const s = summariseThread({ seen_at: '2026-09-30T15:00:00Z', ritual_day: '2026-09-30' }, msgs);
     expect(s).toBe('they opened it; tapped "Not today"');
+  });
+});
+
+describe("last night's wrap up, for the morning brief", () => {
+  const base = { started_at: '2026-10-08T04:10:00Z', items: [], decisions: [] };
+
+  it('says how it ended, what was sorted and what moved to today, by name', () => {
+    const s = summariseWrap(
+      {
+        ...base,
+        step: 'done',
+        path: 'cards',
+        finished_at: '2026-10-08T04:31:00Z',
+        journal: 'written',
+        decisions: [
+          { title: 'Do the expense report', out: 'kept', fields: { day: '2026-10-08' } },
+          { title: 'Call the bank', out: 'kept', fields: { day: '2026-10-08' } },
+          { title: 'Book the eye test', out: 'kept', fields: { later: '2026-10-14' } },
+          { title: 'Old idea', out: 'let_go' },
+          { title: 'Undone one', out: 'let_go', undone_at: '2026-10-08T04:20:00Z' },
+          { title: 'Fix the shed', out: 'left' },
+        ],
+      },
+      '2026-10-08',
+    );
+    expect(s).toBe(
+      'LAST NIGHT\'S WRAP UP: they finished it; they sorted 5 cards: moved "Do the expense report" and "Call the bank" to today, kept 1 for other days or as it was, let 1 go, left 1 for another time; they wrote in their journal.',
+    );
+  });
+
+  it('says where one that was not finished stopped, and a clear or skipped night', () => {
+    expect(summariseWrap({ ...base, step: 'partial', path: 'cards' }, '2026-10-08')).toBe(
+      "LAST NIGHT'S WRAP UP: they stopped part way through the cards.",
+    );
+    expect(
+      summariseWrap({ ...base, step: 'done', path: 'clear', journal: 'mood' }, '2026-10-08'),
+    ).toBe(
+      "LAST NIGHT'S WRAP UP: they finished it; nothing was waiting to sort; they noted how the day felt.",
+    );
+    expect(summariseWrap({ ...base, step: 'journal', path: 'skip' }, '2026-10-08')).toBe(
+      "LAST NIGHT'S WRAP UP: they stopped at the journal; they moved on without sorting the cards.",
+    );
+    expect(summariseWrap({ ...base, step: 'declined', journal: 'written' }, '2026-10-08')).toBe(
+      "LAST NIGHT'S WRAP UP: they said not tonight to the cards; they wrote in their journal.",
+    );
+  });
+
+  it('is nothing when no wrap up was started', () => {
+    expect(summariseWrap(null, '2026-10-08')).toBeNull();
+    expect(summariseWrap({ step: 'offer' }, '2026-10-08')).toBeNull();
   });
 });
 
