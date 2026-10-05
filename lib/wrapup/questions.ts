@@ -1,12 +1,13 @@
 /**
  * Gremly's questions in the evening wrap up.
  *
- * In this build the app shows questions Gremly already has open, picked by
- * rule: the oldest first, two at most, none he asked in the last few days,
- * none already asked in today's thread, and none tied to an item the Sweep
- * just decided. Deciding what is worth asking tonight, and checking a
- * question against everything the Sweep settled, is Gremly's side (step 10
- * of the agent plan).
+ * Only questions Gremly already has open are asked: never one about
+ * something private, one asked in the last few days or already in today's
+ * thread, or one tied to an item the Sweep just decided. Among those Gremly
+ * chooses what is worth asking tonight, checked against everything the Sweep
+ * settled, and gives each its answers to tap (gremlyWords.ts, step 10 of the
+ * agent plan). When he cannot be reached, the oldest two are asked as they
+ * are.
  */
 import { supabase } from '../supabase/client';
 import type { OfferButton } from '../brief/types';
@@ -60,18 +61,22 @@ function addDays(day: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** The questions to ask tonight, in order. Pure. */
-export function pickQuestions(
-  open: WrapQuestion[],
-  ctx: {
-    /** The person's day */
-    day: string;
-    /** Items the Sweep decided tonight */
-    decidedIds: ReadonlySet<string>;
-    /** Questions already put to them in today's thread */
-    askedToday: ReadonlySet<string>;
-  },
-): WrapQuestion[] {
+export interface PickContext {
+  /** The person's day */
+  day: string;
+  /** Items the Sweep decided tonight */
+  decidedIds: ReadonlySet<string>;
+  /** Questions already put to them in today's thread */
+  askedToday: ReadonlySet<string>;
+}
+
+/**
+ * The questions that may be asked tonight at all, oldest first: never one
+ * about something private, one already asked today or lately, or one tied to
+ * an item the Sweep just decided. Gremly chooses among these (gremlyWords.ts).
+ * Pure.
+ */
+export function askableQuestions(open: WrapQuestion[], ctx: PickContext): WrapQuestion[] {
   const askedSince = addDays(ctx.day, -ASKED_WAIT_DAYS);
   return open
     .filter((q) => q.question && !q.private)
@@ -79,8 +84,12 @@ export function pickQuestions(
     .filter((q) => !q.asked_at || q.asked_at.slice(0, 10) < askedSince)
     .filter((q) => !q.record_id || !ctx.decidedIds.has(q.record_id))
     .slice()
-    .sort((a, b) => a.created_at.localeCompare(b.created_at))
-    .slice(0, MOST_QUESTIONS);
+    .sort((a, b) => a.created_at.localeCompare(b.created_at));
+}
+
+/** The questions to ask tonight by rule, in order: the oldest two that may be asked. Pure. */
+export function pickQuestions(open: WrapQuestion[], ctx: PickContext): WrapQuestion[] {
+  return askableQuestions(open, ctx).slice(0, MOST_QUESTIONS);
 }
 
 /**

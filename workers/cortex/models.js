@@ -73,6 +73,7 @@ export const HELPER_JOB_VARS = {
   entity_match: 'MODEL_ENTITY_MATCH', // entityMatch.js: does the message refer to an existing item
   item_topics: 'MODEL_ITEM_TOPICS', // itemDetail.js: starters drawn from a note when its chat opens
   correction_check: 'MODEL_CORRECTION_CHECK', // context/corrections.js: did they say Gremly has something wrong
+  wrap_words: 'MODEL_WRAP_WORDS', // wrap/words.js: Gremly's own words in the evening wrap up
 };
 
 /**

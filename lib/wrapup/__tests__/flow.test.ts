@@ -145,7 +145,7 @@ describe('the wrap up in the thread', () => {
       record_id: 'n1',
       private: false,
     });
-    expect(msgs[0].content).toBe("One quick question, then you're done.");
+    expect(msgs[0].content).toBe("One quick thing I'd like to get right, then you're done.");
     const q = offerOf(msgs[1]);
     expect(q).toMatchObject({ kind: 'question', question_id: 'q1', wrap: true });
     expect(q.buttons.map((b) => b.action)).toEqual(['answer', 'answer', 'answer_other', 'skip']);

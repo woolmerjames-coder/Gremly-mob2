@@ -68,6 +68,11 @@ jest.mock('../journal', () => ({
   journalTitle: (weekday: string, written: boolean) =>
     written ? `${weekday} evening` : 'Evening reflection',
 }));
+// Gremly's own words: none unless a test gives them, so the fixed lines are said
+const mockWrapWords = jest.fn();
+jest.mock('../../cortex/CortexClient', () => ({
+  callWrapWords: (...a: unknown[]) => mockWrapWords(...a),
+}));
 const mockFetchQuestions = jest.fn();
 jest.mock('../questions', () => ({
   ...jest.requireActual('../questions'),
@@ -222,6 +227,7 @@ beforeEach(() => {
     setSweepPreferences: jest.fn(),
   });
   mockMeetings.mockReturnValue([]);
+  mockWrapWords.mockResolvedValue(null);
   mockCompleted.mockResolvedValue({ streak: 5 });
   mockInsert.mockResolvedValue({ error: null });
   mockFetchQuestions.mockResolvedValue([]);
@@ -665,7 +671,7 @@ describe("the wrap up: Gremly's questions", () => {
     const t = await clearNight();
     await toQuestions(t);
     expect(t.messages[t.messages.length - 2].content).toBe(
-      "Two quick questions, then you're done.",
+      "Two quick things I'd like to get right, then you're done.",
     );
     expect(t.last().content).toBe(Q1.question);
     expect(t.hook.result.current.awaiting).toBe('question');
@@ -1033,5 +1039,168 @@ describe('the wrap up: before the evening', () => {
     expect(mockSaveJournal).toHaveBeenCalledWith(
       expect.objectContaining({ text: 'Good morning of work.', part: 'afternoon' }),
     );
+  });
+});
+
+describe("the wrap up: Gremly's own words", () => {
+  /** Gremly's words for each moment, as the Worker sends them. */
+  function words(by: Partial<Record<string, unknown>>) {
+    mockWrapWords.mockImplementation(async (req: { moment: string }) => by[req.moment] ?? null);
+  }
+
+  it('opens in his words, after the time, with the day in numbers and the cards', async () => {
+    words({ open: { line: 'A full day, Sam, and the deck went out.' } });
+    mockState.todos = [{ id: 'p1', name: 'Book the car service' }];
+    const plan = msg('system', '', {
+      type: 'brief-plan',
+      status: 'locked',
+      date: DAY,
+      items: [{ id: 'p1', kind: 'todo', title: 'Book the car service', start: 900, end: 915 }],
+    });
+    const t = setup({ messages: [plan] });
+    await act(() => t.hook.result.current.open());
+    expect(types(t).slice(1)).toEqual(['brief-event', 'brief-text', 'sweep-recap', 'brief-offer']);
+    expect(t.messages[2].content).toBe('A full day, Sam, and the deck went out.');
+    // his words look back on the day themselves: no fixed line for what did not happen
+    expect(t.messages.map((m) => m.content)).not.toContain(
+      "One thing you planned didn't happen: Book the car service.",
+    );
+    // he was told the day as the app holds it
+    const req = mockWrapWords.mock.calls[0][0];
+    expect(req).toMatchObject({
+      moment: 'open',
+      day: DAY,
+      weekday: 'Wednesday',
+      part: 'evening',
+      cards: 3,
+      day_end: '3 AM',
+      tomorrow_word: 'tomorrow',
+    });
+    expect(req.recap.missed).toEqual([{ id: 'p1', title: 'Book the car service' }]);
+    expect(t.hook.result.current.typing).toBe(false);
+  });
+
+  it('asks about the day, replies to the entry, and closes in his words', async () => {
+    words({
+      open: { line: 'A quiet one, and everything got done. This will be short.' },
+      journal_ask: { line: 'What made today feel good?' },
+      journal_reply: {
+        journal: true,
+        reply: 'That sounds like a lovely slow day. It is saved in your journal.',
+      },
+      close: { line: 'Wednesday is wrapped up, and tomorrow is open.' },
+    });
+    const t = await clearNight();
+    // no fixed line for a clear night: his opening said it
+    expect(t.messages.map((m) => m.content)).not.toContain('Nothing to sort tonight.');
+    expect(t.last().content).toBe('What made today feel good?');
+    await act(async () => {
+      await t.hook.result.current.takeTyped('Slow day, cooked dinner.');
+    });
+    expect(t.said()).toContainEqual([
+      'brief-text',
+      'That sounds like a lovely slow day. It is saved in your journal.',
+    ]);
+    expect(mockWrapWords.mock.calls.find((c) => c[0].moment === 'journal_reply')[0].entry).toBe(
+      'Slow day, cooked dinner.',
+    );
+    expect(t.card('sweep-journal').metadata_json).toMatchObject({
+      status: 'saved',
+      note_id: 'note-1',
+    });
+    expect(t.last().content).toBe('Wednesday is wrapped up, and tomorrow is open.');
+    const close = mockWrapWords.mock.calls.find((c) => c[0].moment === 'close')[0];
+    expect(close.tonight).toMatchObject({ journal: 'written', path: 'clear' });
+  });
+
+  it('hands words typed for the journal to him when they were for him, and takes them back out', async () => {
+    words({ journal_reply: { journal: false, reply: '' } });
+    const revert = jest.fn().mockResolvedValue(undefined);
+    mockSaveJournal.mockResolvedValue({
+      ok: true,
+      noteId: 'note-2',
+      title: 'Wednesday evening',
+      revert,
+      moods: Promise.resolve(null),
+    });
+    const askGremly = jest.fn().mockResolvedValue({ answered: true, card: false });
+    const t = await clearNight({ askGremly });
+    await act(async () => {
+      await t.hook.result.current.takeTyped('Can you move the dentist to Friday?');
+    });
+    expect(askGremly).toHaveBeenCalledWith('Can you move the dentist to Friday?', {});
+    expect(revert).toHaveBeenCalled();
+    expect(t.said()).not.toContainEqual(['brief-text', WRAP_COPY.journalSaved]);
+    expect(currentWrap()?.journal).toBeNull();
+    // the journal waits as it was
+    expect((t.last().metadata_json as any).kind).toBe('journal');
+  });
+
+  it("chooses tonight's questions, in his words with answers to tap", async () => {
+    mockFetchQuestions.mockResolvedValue([Q1, Q2]);
+    words({
+      questions: {
+        ask: [
+          {
+            id: 'q2',
+            question: 'Is the anniversary Friday or Saturday?',
+            choices: ['Friday', 'Saturday'],
+          },
+        ],
+      },
+    });
+    const t = await clearNight();
+    await toQuestions(t);
+    expect(t.messages[t.messages.length - 2].content).toBe(
+      "One quick thing I'd like to get right, then you're done.",
+    );
+    expect(t.last().content).toBe('Is the anniversary Friday or Saturday?');
+    const offer = t.last().metadata_json as unknown as BriefOfferMeta;
+    expect(offer.question_id).toBe('q2');
+    expect(offer.buttons.map((b) => b.label)).toEqual([
+      'Friday',
+      'Saturday',
+      WRAP_COPY.questionOther,
+      WRAP_COPY.questionSkip,
+    ]);
+    expect(currentWrap()).toMatchObject({ questions: ['q2'] });
+  });
+
+  it('hands an answer to him, and waits for the card he puts up before the next question', async () => {
+    mockFetchQuestions.mockResolvedValue([Q1, Q2]);
+    mockState.notes = [{ id: 'n1', title: 'Dentist Appointment', target_date: '2026-10-02' }];
+    const askGremly = jest
+      .fn()
+      .mockResolvedValueOnce({ answered: true, card: true })
+      .mockResolvedValue({ answered: true, card: false });
+    const t = await clearNight({ askGremly });
+    await toQuestions(t);
+    const [offer] = t.button('answer');
+    const monday = (offer.metadata_json as unknown as BriefOfferMeta).buttons[1];
+    await act(() => t.hook.result.current.handleButton(offer, monday));
+    expect(mockAnswer).toHaveBeenCalledWith('q1', 'Monday');
+    expect(askGremly).toHaveBeenCalledWith('Monday', {
+      answering: {
+        question: Q1.question,
+        item: expect.objectContaining({ id: 'n1', kind: 'note', title: 'Dentist Appointment' }),
+      },
+    });
+    // his reply and card are his turn's; the wrap up adds only that the answer is saved
+    expect(t.said()).toContainEqual(['brief-event', WRAP_COPY.savedEvent]);
+    expect(t.said().map((x) => x[1])).not.toContain(
+      "Thanks, saved. Here's the note, in case it needs changing.",
+    );
+    // the card waits for its tap: no second question yet
+    expect(t.last().content).not.toBe(Q2.question);
+    // the card was tapped and the turn is done: on to the next question
+    await act(() => t.hook.result.current.resume());
+    expect(t.last().content).toBe(Q2.question);
+  });
+
+  it('says its own lines when his words do not come', async () => {
+    words({});
+    const t = await clearNight();
+    expect(t.messages.map((m) => m.content)).toContain('Nothing to sort tonight.');
+    expect(t.last().content).toBe(WRAP_COPY.journalAsk);
   });
 });

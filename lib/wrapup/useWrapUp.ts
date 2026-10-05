@@ -8,8 +8,14 @@
  * has got to is kept on the thread (session.ts), so it can be left and picked
  * up from anywhere.
  *
- * Nothing here is written by a model. Every change to an item goes through
- * the change model (a card's decision, a todo moved on, a habit logged) and
+ * Where a friend would speak from the day, Gremly does (gremlyWords.ts, step
+ * 10 of the agent plan): his first words, the journal question, his reply to
+ * what they wrote, which of his questions to ask, and the close, with typing
+ * dots while he writes and the fixed sentence when his words do not come in
+ * time. An answer to his question, and anything typed for the journal that is
+ * really for him, goes to him as a turn in the thread (askGremly), so he can
+ * reply and put a fix on the card. Every change to an item goes through the
+ * change model (a card's decision, a todo moved on, a habit logged) and
  * tonight's journal entry is saved as the old Sweep saved it.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -46,6 +52,7 @@ import {
   answeredMsgs,
   buttonsAgain,
   closeMsgs,
+  event,
   habitsMsgs,
   journalAskMsgs,
   journalSavedMsgs,
@@ -70,7 +77,22 @@ import {
 } from './flow';
 import { habitsToCheckIn, runBefore } from './habits';
 import { journalFor, journalTitle, saveJournal, setJournalMoods } from './journal';
-import { fetchWrapQuestions, itemKindOf, pickQuestions, type WrapQuestion } from './questions';
+import {
+  askableQuestions,
+  fetchWrapQuestions,
+  itemKindOf,
+  pickQuestions,
+  type WrapQuestion,
+} from './questions';
+import {
+  chosenQuestions,
+  gremlyWords,
+  journalOf,
+  lineOf,
+  wrapFacts,
+  type HabitsTonight,
+} from './gremlyWords';
+import type { WrapMoment } from '../cortex/CortexClient';
 import { recapFrom } from './recap';
 import {
   type Awaiting,
@@ -127,6 +149,22 @@ export interface WrapUpDeps {
   restoreDraft?: (text: string) => void;
   /** Pause between the lines Gremly adds; 0 in tests */
   pauseMs?: number;
+  /**
+   * A turn with Gremly in the thread, for what the wrap up hands him: an
+   * answer to his question, or words typed for the journal that were really
+   * for him. Its message is already in the thread (the wrap up saved it), and
+   * the wrap up carries on itself after it. Without it the wrap up says its
+   * fixed lines.
+   */
+  askGremly?: (
+    text: string,
+    about: {
+      answering?: {
+        question: string;
+        item: { id: string; kind: string; title: string; when?: string } | null;
+      };
+    },
+  ) => Promise<{ answered: boolean; card: boolean }>;
 }
 
 function store(): any {
@@ -189,6 +227,8 @@ export interface WrapUp {
   /** Tomorrow's plan was set or left: good night is offered */
   afterPlan: () => Promise<void>;
   busy: boolean;
+  /** Gremly is writing his next words: the thread shows him typing */
+  typing: boolean;
   /** Tonight's state, for the cards that draw from it */
   wrap: WrapUpState | null;
   /** Keys whose Undo is still held */
@@ -264,6 +304,14 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
   const undoable = useWrapSession((s) => s.undoable);
   // tonight's questions still to ask; the first is the one on screen
   const queueRef = useRef<WrapQuestion[]>([]);
+  // Gremly is writing his next words: the thread shows him typing
+  const [typing, setTyping] = useState(false);
+  // tonight's questions, chosen while the journal is asked, so none waits on them
+  const questionsRef = useRef<Promise<WrapQuestion[]> | null>(null);
+  // habits checked in during the wrap up, for what Gremly says after
+  const habitsTonightRef = useRef<HabitsTonight | null>(null);
+  // an answer put a fix on the card: the next question waits for the card
+  const cardPendingRef = useRef(false);
 
   // the thread on screen: its saved state is taken once
   useEffect(() => {
@@ -319,6 +367,84 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
   );
   const setStep = (step: WrapStep, more: Partial<WrapUpState> = {}) =>
     updateWrap((w) => (w ? { ...w, step, ...more } : w));
+
+  /** Gremly's words, while the thread shows him typing. */
+  const withTyping = useCallback(async <T>(work: Promise<T>): Promise<T> => {
+    setTyping(true);
+    try {
+      return await work;
+    } finally {
+      setTyping(false);
+    }
+  }, []);
+
+  /** What Gremly is told for a moment, from the day as it stands now. */
+  const factsFor = useCallback(
+    (moment: WrapMoment, more: { entry?: string; questions?: WrapQuestion[] } = {}) => {
+      const { st, now, cards } = readNow();
+      const w = currentWrap();
+      return wrapFacts({
+        moment,
+        now,
+        clock: clockNow(),
+        recap: recapFrom({
+          day: now.day,
+          dayStartMs: now.dayStartMs,
+          todos: st.todos,
+          habits: st.habits,
+          habitProgress: st.habitProgress ?? [],
+          notes: st.notes,
+          meetings: meetingsFromStore(now.day).length,
+          plan: lockedPlan(depsRef.current.messages, now.day),
+        }),
+        cards: cardsLeft(w, cards).length,
+        wrap: w,
+        habits: habitsTonightRef.current,
+        ...more,
+        aboutOf: (q) => {
+          const it = linkedItem(q);
+          return it
+            ? { kind: it.kind, title: it.title, ...(it.when ? { when: it.when } : {}) }
+            : null;
+        },
+      });
+    },
+    [],
+  );
+
+  /**
+   * Tonight's questions: those that may be asked, and among them what Gremly
+   * chooses, in his words and with answers to tap. Started while the journal
+   * is asked, so they are ready by the time it is done; the rule picks when he
+   * cannot choose.
+   */
+  const prepareQuestions = useCallback((): Promise<WrapQuestion[]> => {
+    if (questionsRef.current) return questionsRef.current;
+    const work = (async () => {
+      const w = currentWrap();
+      let open: WrapQuestion[] = [];
+      try {
+        open = await fetchWrapQuestions();
+      } catch (err) {
+        console.warn("[WrapUp] could not read Gremly's questions:", err);
+      }
+      const askedToday = new Set<string>();
+      for (const m of depsRef.current.messages) {
+        const meta = briefMetaOf(m);
+        if (meta?.type === 'brief-offer' && meta.question_id) askedToday.add(meta.question_id);
+      }
+      const ctx = { day: readNow().now.day, decidedIds: decidedIds(w), askedToday };
+      const askable = askableQuestions(open, ctx);
+      if (!askable.length) return [];
+      const chosen = chosenQuestions(
+        await gremlyWords(factsFor('questions', { questions: askable })),
+        askable,
+      );
+      return chosen ?? pickQuestions(open, ctx);
+    })();
+    questionsRef.current = work;
+    return work;
+  }, [factsFor]);
 
   /** The cards are behind it: the Sweep counts as done for the day (the streak, the last sweep time). */
   const settle = useCallback(async (path: NonNullable<WrapUpState['path']>) => {
@@ -394,17 +520,19 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
         store().addGaugeContribution('sweep', calculateSweepContribution(1, false)),
       ).catch((err) => console.warn('[WrapUp] could not credit the wrap up:', err));
     }
+    const words = await withTyping(gremlyWords(factsFor('close')));
     const { now } = readNow();
-    const lined = keptFor(w, now.tomorrow);
+    const lined = keptFor(currentWrap(), now.tomorrow);
     await save(
       closeMsgs({
         day: now.words,
         meetings: meetingsFromStore(now.tomorrow).length,
         lined,
         canPlan: !planFor(depsRef.current.messages, now.tomorrow),
+        gremly: lineOf(words),
       }),
     );
-  }, [save]);
+  }, [save, withTyping, factsFor]);
 
   const nextQuestion = useCallback(async () => {
     queueRef.current = queueRef.current.slice(1);
@@ -415,16 +543,36 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
     await save([questionMsg(next)]);
   }, [pause, save, toClose]);
 
-  /** An answer, tapped or typed: saved to what Gremly knows, then the next question. */
+  /**
+   * An answer, tapped or typed: saved to what Gremly knows, and handed to him
+   * as a turn in the thread, so he takes it in and, when it shows one of their
+   * items is wrong, puts the fix on the card. A card waits for its tap before
+   * the next question (resume). Without him, the fixed thanks and the item to
+   * open.
+   */
   const answered = useCallback(
     async (questionId: string | undefined, answer: string) => {
       setAwaiting(null);
-      const saved = questionId
-        ? await answerQuestion(questionId, answer).catch(() => false)
-        : false;
-      if (saved) scheduleDcoRefresh();
       const q = queueRef.current.find((x) => x.id === questionId) ?? null;
-      await save(answeredMsgs(saved, saved ? linkedItem(q) : null));
+      const item = linkedItem(q);
+      const ask = depsRef.current.askGremly;
+      const [saved, turn] = await Promise.all([
+        questionId ? answerQuestion(questionId, answer).catch(() => false) : Promise.resolve(false),
+        ask && q
+          ? ask(answer, { answering: { question: q.question, item } }).catch(() => null)
+          : Promise.resolve(null),
+      ]);
+      if (saved) scheduleDcoRefresh();
+      if (turn?.answered) {
+        if (saved) await save([event(WRAP_COPY.savedEvent, 'saved')]);
+        if (turn.card) {
+          cardPendingRef.current = true;
+          return;
+        }
+        await nextQuestion();
+        return;
+      }
+      await save(answeredMsgs(saved, saved ? item : null));
       await nextQuestion();
     },
     [save, nextQuestion],
@@ -433,28 +581,14 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
   const toQuestions = useCallback(async () => {
     const w = currentWrap();
     if (!w) return;
-    let open: WrapQuestion[] = [];
-    try {
-      open = await fetchWrapQuestions();
-    } catch (err) {
-      console.warn("[WrapUp] could not read Gremly's questions:", err);
-    }
-    const askedToday = new Set<string>();
-    for (const m of depsRef.current.messages) {
-      const meta = briefMetaOf(m);
-      if (meta?.type === 'brief-offer' && meta.question_id) askedToday.add(meta.question_id);
-    }
-    const picked = pickQuestions(open, {
-      day: readNow().now.day,
-      decidedIds: decidedIds(w),
-      askedToday,
-    });
+    const picked = await withTyping(prepareQuestions());
+    questionsRef.current = null;
     if (!picked.length) return toClose();
     queueRef.current = picked;
     setStep('questions', { questions: picked.map((q) => q.id) });
     setAwaiting('question');
     await save(questionsStartMsgs(picked.length, picked[0]));
-  }, [save, toClose]);
+  }, [save, toClose, withTyping, prepareQuestions]);
 
   /** After the journal: good night when only the journal was wanted, the close on a skip night, else his questions. */
   const afterJournal = useCallback(async () => {
@@ -478,10 +612,13 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
     const { st, now } = readNow();
     if (journalDone(w, st.notes, now.day)) return afterJournal();
     setStep('journal');
+    // tonight's questions are chosen while the journal is asked
+    if (!w.journal_only && w.path !== 'skip') void prepareQuestions();
+    const words = await withTyping(gremlyWords(factsFor('journal_ask')));
     // the box saves to the journal from here; the pill above it says so
     setAwaiting('journal');
-    await save(journalAskMsgs(!!w.journal_only, now.words.early));
-  }, [save, afterJournal]);
+    await save(journalAskMsgs(!!w.journal_only, now.words.early, lineOf(words)));
+  }, [save, afterJournal, withTyping, factsFor, prepareQuestions]);
 
   const toHabits = useCallback(async () => {
     const { st, now } = readNow();
@@ -514,23 +651,29 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
         cards.length ? null : 'clear',
       ),
     );
+    questionsRef.current = null;
+    habitsTonightRef.current = null;
+    cardPendingRef.current = false;
     useMascotStore.getState().requestMode('waving');
+    await save([event(clockNow(), 'time')]);
+    const words = await withTyping(gremlyWords(factsFor('open')));
     await save(
       openingMsgs({
-        clock: clockNow(),
+        clock: null,
         recap,
         day: now.words,
         firstName,
         evening: now.evening,
         cards: cards.length,
         skipsLeft,
+        gremly: lineOf(words),
       }),
     );
     if (cards.length) return;
     await settle('clear');
     await pause();
     await toHabits();
-  }, [save, pause, settle, toHabits]);
+  }, [save, pause, settle, toHabits, withTyping, factsFor]);
 
   /** One receipt in the thread: an earlier one is put away when a new one is added. */
   const receiptsAway = useCallback(async () => {
@@ -590,7 +733,18 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
   }, [save, pause, settle, toHabits, receiptsAway, creditCards, buttonsBack]);
 
   const backFromCards = useCallback(() => run(cardsBack), [run, cardsBack]);
-  const resume = useCallback(() => run(buttonsBack), [run, buttonsBack]);
+  const resume = useCallback(
+    () =>
+      run(async () => {
+        // the card an answer put up has had its tap: on to the next question
+        if (cardPendingRef.current) {
+          cardPendingRef.current = false;
+          return nextQuestion();
+        }
+        return buttonsBack();
+      }),
+    [run, buttonsBack, nextQuestion],
+  );
 
   const afterPlan = useCallback(
     () =>
@@ -865,13 +1019,37 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
         setAwaiting(null);
         await choose(live.m, 'typed');
         await save([typed(words, 'journal_write')]);
-        const res = await saveJournal({
-          text: words,
-          moods: [],
-          day: now.day,
-          weekday: now.words.weekday,
-          part: now.part,
-        });
+        // saved at once, while Gremly reads it
+        const [res, read] = await withTyping(
+          Promise.all([
+            saveJournal({
+              text: words,
+              moods: [],
+              day: now.day,
+              weekday: now.words.weekday,
+              part: now.part,
+            }),
+            gremlyWords(factsFor('journal_reply', { entry: words })),
+          ]),
+        );
+        const reply = journalOf(read);
+        // it was for Gremly, not the journal: he answers it as a turn in the
+        // thread, it comes back out of the journal, and the journal waits
+        if (reply && !reply.journal && depsRef.current.askGremly) {
+          const turn = await depsRef.current.askGremly(words, {}).catch(() => null);
+          if (turn?.answered) {
+            if (res.ok) {
+              await res
+                .revert()
+                .catch((err) =>
+                  console.warn('[WrapUp] could not take it out of the journal:', err),
+                );
+            }
+            // the journal's buttons again, with no words: it waits as it was
+            await save(journalAskMsgs(false, now.words.early).map(noWords));
+            return;
+          }
+        }
         if (!res.ok) {
           // not saved: their words go back in the box, and the journal waits as it was
           depsRef.current.restoreDraft?.(text);
@@ -890,6 +1068,7 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
             title: res.title,
             text: words,
             early: now.words.early,
+            reply: reply?.journal ? reply.reply : null,
           }),
         );
         updateWrap((x) => (x ? { ...x, journal: 'written' } : x));
@@ -904,7 +1083,7 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
       });
       return true;
     },
-    [run, choose, save, pause, patch, answered, afterJournal, creditJournal],
+    [run, choose, save, pause, patch, answered, afterJournal, creditJournal, withTyping, factsFor],
   );
 
   const cancelAwaiting = useCallback(() => setAwaiting(null), []);
@@ -956,6 +1135,13 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
             }
           }
           await patch(message.id, { status: 'saved', done: built, held });
+          habitsTonightRef.current = {
+            logged: built.map(titleOf),
+            held: heldIds.filter((id) => logged.has(id)).map(titleOf),
+            notHeld: Object.keys(held)
+              .filter((id) => held[id] === 'not')
+              .map(titleOf),
+          };
           await save([
             say(
               habitsSavedLine({
@@ -1056,6 +1242,7 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
     resume,
     afterPlan,
     busy,
+    typing,
     wrap,
     undoable,
     undoDecision: undoOne,

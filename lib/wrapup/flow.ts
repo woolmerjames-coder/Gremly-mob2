@@ -119,28 +119,33 @@ function cardsOffer(content: string, d: WrapDay, skipsLeft: number): WrapMsg {
 }
 
 /**
- * Gremly opens on the day: the time, his line, the day in counts, what was
- * planned and did not happen, then the cards if there are any.
+ * Gremly opens on the day: the time, his words (or the fixed opener), the day
+ * in counts, then the cards if there are any. His own words look back on the
+ * day themselves, so the fixed lines for what did not happen and for a clear
+ * night are only said without them.
  */
 export function openingMsgs(p: {
-  clock: string;
+  /** The time, shown first; null when it is already in the thread */
+  clock: string | null;
   recap: Omit<SweepRecapMeta, 'type'>;
   day: WrapDay;
   firstName: string | null;
   evening: boolean;
   cards: number;
   skipsLeft: number;
+  /** Gremly's own words for the opening, when they came */
+  gremly?: string | null;
 }): WrapMsg[] {
   const out: WrapMsg[] = [
-    event(p.clock, 'time'),
-    say(openerLine(p.day, p.firstName, p.evening)),
+    ...(p.clock ? [event(p.clock, 'time')] : []),
+    say(p.gremly || openerLine(p.day, p.firstName, p.evening)),
     card({ ...p.recap, type: 'sweep-recap' }),
   ];
-  if (p.recap.missed.length) {
+  if (!p.gremly && p.recap.missed.length) {
     out.push(say(missedLine(p.recap.missed.map((m) => m.title))));
   }
   if (p.cards > 0) out.push(cardsOffer(offerLine(p.cards, p.day), p.day, p.skipsLeft));
-  else out.push(say(clearLine(p.recap.planned ?? null, p.day)));
+  else if (!p.gremly) out.push(say(clearLine(p.recap.planned ?? null, p.day)));
   return out;
 }
 
@@ -227,10 +232,16 @@ export function journalButtons(early = false): OfferButton[] {
   ];
 }
 
-/** Gremly asks about the day. The box saves to the journal from here. */
-export function journalAskMsgs(only: boolean, early = false): WrapMsg[] {
+/** Gremly asks about the day, in his own words when they came. The box saves to the journal from here. */
+export function journalAskMsgs(
+  only: boolean,
+  early = false,
+  gremly: string | null = null,
+): WrapMsg[] {
   const w = partWords(early);
-  return [offer(only ? w.journalAskOnly : w.journalAsk, 'journal', journalButtons(early))];
+  return [
+    offer(gremly || (only ? w.journalAskOnly : w.journalAsk), 'journal', journalButtons(early)),
+  ];
 }
 
 export function journalSavedMsgs(p: {
@@ -239,9 +250,11 @@ export function journalSavedMsgs(p: {
   title: string;
   text: string;
   early?: boolean;
+  /** Gremly's reply to what they wrote, when it came */
+  reply?: string | null;
 }): WrapMsg[] {
   return [
-    say(WRAP_COPY.journalSaved),
+    say(p.reply || WRAP_COPY.journalSaved),
     card({
       type: 'sweep-journal',
       date: p.day,
@@ -316,9 +329,15 @@ export function closeMsgs(p: {
   meetings: number;
   lined: string[];
   canPlan: boolean;
+  /** Gremly's own words for the close, when they came */
+  gremly?: string | null;
 }): WrapMsg[] {
   return [
-    offer(closeLine(p.day, p.meetings, p.lined), 'wrap_close', closeButtons(p.day, p.canPlan)),
+    offer(
+      p.gremly || closeLine(p.day, p.meetings, p.lined),
+      'wrap_close',
+      closeButtons(p.day, p.canPlan),
+    ),
   ];
 }
 

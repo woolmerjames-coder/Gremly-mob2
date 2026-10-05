@@ -249,8 +249,8 @@ export function habitsSavedLine(p: {
 
 export function questionsIntro(n: number): string {
   return n === 1
-    ? "One quick question, then you're done."
-    : `${cap(numberWord(n))} quick questions, then you're done.`;
+    ? "One quick thing I'd like to get right, then you're done."
+    : `${cap(numberWord(n))} quick things I'd like to get right, then you're done.`;
 }
 
 /** A question tied to an item: the answer is saved, and the item is shown to open. */

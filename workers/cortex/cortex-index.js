@@ -211,6 +211,7 @@ import { helperFetch } from './helperClient.js';
 import { greetingFacts, greetingPrompt } from './greeting.js';
 import { readWeekAhead } from './context/weekAhead.js';
 import { personNow } from '../shared/day.js';
+import { writeWrapWords, WRAP_WORDS_VERSION } from './wrap/words.js';
 import { clock } from './agent/tools/words.js';
 import { minutesIn } from '../shared/calendar.js';
 import { executeTavilySearch, formatSearchBrief } from './webSearch.js';
@@ -3497,6 +3498,7 @@ const cortexHandler = {
       // =========================
       const AUTH_REQUIRED_TYPES = new Set([
         'general-greeting',
+        'wrap-words',
         'habit-builder',
         'entity-chat',
         'organize-day',
@@ -4344,6 +4346,24 @@ After the user confirms and locks in a habit, check the existing habits listed i
       // =========================
       // === GENERAL GREETING ===
       // =========================
+      // Gremly's own words in the evening wrap up (agent plan step 10): the
+      // opener, the journal question, his reply to an entry, the close, and
+      // which of his questions to ask tonight. The app says its fixed sentence
+      // when this has nothing.
+      if (type === 'wrap-words') {
+        const access = await checkUserAccess(authenticatedUserId, env);
+        if (!access.hasAccess) {
+          return denyAccessResponse(access.reason);
+        }
+        try {
+          const out = await writeWrapWords({ env, userId: authenticatedUserId, body });
+          return j(out ? { ...out, version: WRAP_WORDS_VERSION } : { words: null });
+        } catch (err) {
+          console.warn('[WrapWords] Failed:', String(err?.message || err).slice(0, 200));
+          return j({ words: null });
+        }
+      }
+
       if (type === 'general-greeting') {
         // Access gate — Phase 4.7
         const access = await checkUserAccess(authenticatedUserId, env);

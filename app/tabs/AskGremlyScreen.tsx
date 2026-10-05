@@ -96,6 +96,8 @@ import { useEveningTeaser } from '../../lib/wrapup/useEveningTeaser';
 import { currentWrap, takeCardsVisit } from '../../lib/wrapup/session';
 import { cardsLeft, pastCards } from '../../lib/wrapup/state';
 import { WRAP_COPY } from '../../lib/wrapup/words';
+import { wrapTurnContext } from '../../lib/wrapup/gremlyWords';
+import { wrapNow } from '../../lib/wrapup/day';
 import { WrapRecapCard } from '../../components/wrapup/WrapRecapCard';
 import { WrapReceiptCard } from '../../components/wrapup/WrapReceiptCard';
 import { WrapHabitsCard } from '../../components/wrapup/WrapHabitsCard';
@@ -351,6 +353,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       resumeSync: () => planFlowRef.current.resumeSync(),
     },
     continueBrief: () => wrapResumeRef.current(),
+    // while tonight's wrap up is under way, Gremly is told where it is
+    wrapContext: () => wrapTurnContext(currentWrap(), wrapNow()),
   });
   const dayTurnRef = useRef(dayTurn);
   dayTurnRef.current = dayTurn;
@@ -368,6 +372,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     openWeek: () => navigation.navigate('Sweep', { week: true }),
     planDay: (day) => planFlowRef.current.start(null, { day }),
     restoreDraft: (text) => homeDockRef.current?.prefillDraft(text),
+    // an answer to Gremly's question, or words typed for the journal that were for him
+    askGremly: (text, about) => dayTurnRef.current.ask(text, about),
   });
   const wrapUpRef = useRef(wrapUp);
   wrapUpRef.current = wrapUp;
@@ -1720,7 +1726,11 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                 )
               }
               ListFooterComponent={
-                (briefWriting || playback.typing || planFlow.typing || dayTurn.thinking) &&
+                (briefWriting ||
+                  playback.typing ||
+                  planFlow.typing ||
+                  dayTurn.thinking ||
+                  wrapUp.typing) &&
                 isDailyThread ? (
                   <>
                     {pendingShown ? (

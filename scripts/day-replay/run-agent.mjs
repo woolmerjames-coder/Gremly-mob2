@@ -88,6 +88,17 @@ function withUuids(body, to) {
     ...body,
     items: body.items.map((x) => ({ ...x, id: id(x.id) })),
     plan: body.plan ? { ...body.plan, items: body.plan.items.map((x) => ({ ...x, id: id(x.id) })) } : null,
+    ...(body.wrap?.answering?.item
+      ? {
+          wrap: {
+            ...body.wrap,
+            answering: {
+              ...body.wrap.answering,
+              item: { ...body.wrap.answering.item, id: id(body.wrap.answering.item.id) },
+            },
+          },
+        }
+      : {}),
   };
 }
 

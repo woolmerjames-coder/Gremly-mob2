@@ -23,6 +23,7 @@ import {
   type BriefTurnRequest,
   type BriefTurnResponse,
   type DayTurnRequest,
+  type WrapTurnContext,
 } from '../cortex/CortexClient';
 import { patchDailyThreadMeta } from '../repo/dailyThreadRepo';
 import { rowWords } from '../changes/words';
@@ -70,6 +71,24 @@ export interface DayTurnDeps {
   };
   /** The brief carries on: the offer held for the question, or the plan offer */
   continueBrief: () => Promise<void>;
+  /** Tonight's wrap up, while one is under way, so Gremly knows where it is */
+  wrapContext?: () => WrapTurnContext | null;
+}
+
+/** How one turn is run: for the wrap up, its message is already in the thread and it carries on itself. */
+export interface TurnOptions {
+  /** The message is already in the thread */
+  shown?: boolean;
+  /** False: the caller carries on after the turn, not the brief */
+  carryOn?: boolean;
+  /** The question of Gremly's this message answers */
+  answering?: WrapTurnContext['answering'];
+}
+
+/** What a turn came to: answered in the thread, and whether with a card. */
+export interface TurnResult {
+  answered: boolean;
+  card: boolean;
 }
 
 function planMetaOf(m: SpaceChatMessage | null | undefined): BriefPlanMeta | null {
@@ -261,12 +280,14 @@ export function buildBriefTurnRequest(
   messages: SpaceChatMessage[],
   livePlan: SpaceChatMessage | null,
   threadId: string,
+  wrap: WrapTurnContext | null = null,
 ): BriefTurnRequest {
   return {
     ...buildDayTurnRequest(text, question, date, messages, livePlan),
     timezone: getDateService().getTimezone(),
     tasks: tasksOf(threadId),
     chat_id: threadId,
+    ...(wrap ? { wrap } : {}),
   };
 }
 
@@ -311,11 +332,17 @@ export function useDayTurn(deps: DayTurnDeps) {
 
   /** The day turn's answer, as before step 7. False leaves the message to normal chat. */
   const fromDayTurn = useCallback(
-    async (text: string, data: Extract<BriefTurnResponse, { engine: 'day_turn' }>) => {
+    async (
+      text: string,
+      data: Extract<BriefTurnResponse, { engine: 'day_turn' }>,
+      opts: TurnOptions = {},
+    ): Promise<TurnResult> => {
       const d = depsRef.current;
       const changes = data?.changes ?? [];
-      if (!data?.about_day || (!changes.length && !data.reply)) return false;
-      await d.appendBriefMessage('user', text, {});
+      if (!data?.about_day || (!changes.length && !data.reply)) {
+        return { answered: false, card: false };
+      }
+      if (!opts.shown) await d.appendBriefMessage('user', text, {});
       setPending(null);
       setThinking(false);
       await say(data.reply || DAY_TURN_COPY.fallbackReply);
@@ -328,24 +355,31 @@ export function useDayTurn(deps: DayTurnDeps) {
           prompt_version: data.prompt_version,
         };
         await d.appendBriefMessage('system', '', meta as unknown as Record<string, unknown>);
-      } else if (!(data.checklist ?? []).some((a) => a.status === 'needs_answer')) {
+      } else if (
+        opts.carryOn !== false &&
+        !(data.checklist ?? []).some((a) => a.status === 'needs_answer')
+      ) {
         // nothing to apply and nothing asked back: the brief carries on
         await d.continueBrief();
       }
-      return true;
+      return { answered: true, card: changes.length > 0 };
     },
     [say],
   );
 
   /** The agent's answer: the reply, the card, and the task list kept on the thread. */
   const fromAgent = useCallback(
-    async (text: string, data: Extract<BriefTurnResponse, { engine: 'agent' }>) => {
+    async (
+      text: string,
+      data: Extract<BriefTurnResponse, { engine: 'agent' }>,
+      opts: TurnOptions = {},
+    ): Promise<TurnResult> => {
       const d = depsRef.current;
       const reply = String(data.reply ?? '').trim();
       const card = Array.isArray(data.card) ? data.card : [];
       const tasks = Array.isArray(data.tasks) ? data.tasks : [];
-      if (!reply && !card.length) return false;
-      await d.appendBriefMessage('user', text, {});
+      if (!reply && !card.length) return { answered: false, card: false };
+      if (!opts.shown) await d.appendBriefMessage('user', text, {});
       setPending(null);
       setThinking(false);
       await say(reply || DAY_TURN_COPY.fallbackReply);
@@ -369,43 +403,53 @@ export function useDayTurn(deps: DayTurnDeps) {
           prompt_version: data.prompt_version,
         };
         await d.appendBriefMessage('system', '', meta as unknown as Record<string, unknown>);
-      } else if (!waitingOn(tasks)) {
+      } else if (opts.carryOn !== false && !waitingOn(tasks)) {
         // nothing to apply and nothing asked back: the brief carries on
         await d.continueBrief();
       }
-      return true;
+      return { answered: true, card: card.length > 0 };
     },
     [say],
   );
 
-  /**
-   * Read a typed message against the day. True when it is answered in the
-   * thread; false leaves it to normal chat.
-   */
-  const run = useCallback(
-    async (text: string, question: string | null): Promise<boolean> => {
+  /** One turn: the message read against the day, with tonight's wrap up when one is under way. */
+  const turn = useCallback(
+    async (text: string, question: string | null, opts: TurnOptions = {}): Promise<TurnResult> => {
       const d = depsRef.current;
-      if (busyRef.current || !d.threadId) return false;
+      const none = { answered: false, card: false };
+      if (busyRef.current || !d.threadId) return none;
       busyRef.current = true;
       setThinking(true);
       setStatus(null);
-      setPending(text);
+      if (!opts.shown) setPending(text);
       try {
+        const live = d.wrapContext?.() ?? null;
+        const wrap = live
+          ? { ...live, ...(opts.answering ? { answering: opts.answering } : {}) }
+          : null;
         const res = await callBriefTurn(
-          buildBriefTurnRequest(text, question, d.date, d.messages, d.plan.livePlan, d.threadId),
+          buildBriefTurnRequest(
+            text,
+            question,
+            d.date,
+            d.messages,
+            d.plan.livePlan,
+            d.threadId,
+            wrap,
+          ),
           { onStatus: (line) => setStatus(line) },
         );
         if (!res.ok) {
           console.warn('[BriefTurn] could not be reached:', res.error);
-          return false;
+          return none;
         }
-        if (res.data.engine === 'agent') return await fromAgent(text, res.data);
+        if (res.data.engine === 'agent') return await fromAgent(text, res.data, opts);
         if (res.data.agent_error)
           console.warn('[BriefTurn] the day turn answered:', res.data.agent_error);
-        return await fromDayTurn(text, res.data);
+        return await fromDayTurn(text, res.data, opts);
       } catch (err) {
         console.warn('[BriefTurn] failed:', err);
-        return false;
+        return none;
       } finally {
         busyRef.current = false;
         setThinking(false);
@@ -414,6 +458,26 @@ export function useDayTurn(deps: DayTurnDeps) {
       }
     },
     [fromAgent, fromDayTurn],
+  );
+
+  /**
+   * Read a typed message against the day. True when it is answered in the
+   * thread; false leaves it to normal chat.
+   */
+  const run = useCallback(
+    async (text: string, question: string | null): Promise<boolean> =>
+      (await turn(text, question)).answered,
+    [turn],
+  );
+
+  /**
+   * A turn the wrap up hands Gremly (lib/wrapup useWrapUp askGremly): its
+   * message is already in the thread, and the wrap up carries on after it.
+   */
+  const ask = useCallback(
+    (text: string, about: { answering?: TurnOptions['answering'] } = {}) =>
+      turn(text, null, { shown: true, carryOn: false, answering: about.answering ?? null }),
+    [turn],
   );
 
   const apply = useCallback(
@@ -550,5 +614,5 @@ export function useDayTurn(deps: DayTurnDeps) {
 
   const canUndo = useCallback((messageId: string) => undoable.includes(messageId), [undoable]);
 
-  return { thinking, status, pending, busy, run, apply, dismiss, undo, canUndo };
+  return { thinking, status, pending, busy, run, ask, apply, dismiss, undo, canUndo };
 }
