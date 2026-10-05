@@ -114,6 +114,10 @@ function checks(moment, f, out, expect = {}) {
   if (moment === 'journal_reply') {
     add('Knows a journal entry', out.journal === expect.journal, String(out.journal));
     if (!out.journal) return c;
+    // the moods it carries: the app's own, two at most, one of those that fit when the entry shows how they feel
+    const moods = out.moods || [];
+    add('Two moods at most, the app\'s own', moods.length <= 2, moods.join(', '));
+    if (expect.moods) add('Moods that fit', moods.length > 0 && moods.every((m) => expect.moods.includes(m)), moods.join(', '));
   }
   const text = out.line ?? out.reply ?? '';
   add('No dashes', !DASH.test(text), text);
@@ -206,7 +210,7 @@ for (const job of jobs) {
         ? JSON.stringify(r.out.ask)
         : job.moment === 'journal_reply' && !r.out.journal
           ? '(not a journal entry: goes to Gremly)'
-          : r.out.line ?? r.out.reply;
+          : `${r.out.line ?? r.out.reply}${job.moment === 'journal_reply' ? `  {moods: ${(r.out.moods || []).join(', ') || 'none'}}` : ''}`;
     console.log(`  ${fails.length ? 'FAIL' : 'ok  '}   ${said}  [${r.ms}ms]${fails.length ? `  ✗ ${fails.map((f) => f.name).join('; ')}` : ''}`);
   }
 }

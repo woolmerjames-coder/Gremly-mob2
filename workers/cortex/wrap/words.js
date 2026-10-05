@@ -29,9 +29,26 @@ import { db, personIdentity } from '../../shared/db.js';
 import { helperFetch } from '../helperClient.js';
 import { dayMeaning } from '../agent/brief.js';
 
-export const WRAP_WORDS_VERSION = 'wrap-2026-10-05a';
+export const WRAP_WORDS_VERSION = 'wrap-2026-10-05b';
 
 export const MOMENTS = ['open', 'journal_ask', 'journal_reply', 'close', 'questions'];
+
+/** The moods a journal entry can carry: the app's own (lib/shared/moods.ts ALL_MOODS). Keep in step. */
+export const MOODS = [
+  'great',
+  'good',
+  'okay',
+  'low',
+  'tired',
+  'anxious',
+  'overwhelmed',
+  'frustrated',
+  'scattered',
+  'grateful',
+  'hopeful',
+  'focused',
+  'calm',
+];
 
 const VOICE = `VOICE
 Warm and brief, like a friend who knows their day and is glad to sit with them at the end of it. See the day in the light of what it was about for them, and be openly glad with them for what went well, in your own words. Gremly has a playful spark; let it show when the moment allows. Nothing in a day is a score: what did not happen is part of the day, never a failure, and never something to make them feel behind. Plain chat text, with no headings, lists, bold, quotation marks or emoji. Only what is below is known: never invent an item, a time, a day, a person, a feeling or a fact.`;
@@ -140,7 +157,8 @@ Ask them about their day for their journal: one short, open question, under 18 w
   journal_reply: () => `YOUR WORDS NOW
 They were asked about their day for their journal and wrote what is under THEIR ENTRY. First decide whether it is a journal entry: words about their day, how they feel, or their life, however short. It is not a journal entry when it is addressed to Gremly, asking him a question or asking him to do something.
 When it is a journal entry, reply as a friend who has just read it: one or two short sentences, under 35 words, that take in what they actually said, glad with them about what was good and gentle about what was hard, and let them know it is saved in their journal. Ask nothing and offer nothing.
-Return only JSON: {"journal": true or false, "reply": "your words, or an empty string when it is not a journal entry"}.`,
+When it is a journal entry, also choose the moods it carries: the one or two that their words show, read in the light of their day as you know it, from these only: ${MOODS.join(', ')}. Choose none when their words show no feeling.
+Return only JSON: {"journal": true or false, "reply": "your words, or an empty string when it is not a journal entry", "moods": [the moods, or none]}.`,
 
   close: (f) => `YOUR WORDS NOW
 The wrap up is finished. Write the close: say their ${f.weekday || 'day'} is wrapped up, and give them the shape of ${f.tomorrow_word || 'tomorrow'} from what is known under THEIR NEXT DAY, naming the one or two things that matter most in it rather than the list; when nothing is known about it, say it is open. One or two short sentences, under 40 words in all. Say no goodbye${f.part === 'early' ? '' : ' or goodnight'} and ask nothing: Gremly's goodbye comes when they tap.`,
@@ -213,7 +231,19 @@ export function readWrapWords(moment, text, f = {}) {
     if (moment === 'journal_reply') {
       if (data?.journal === false) return { journal: false, reply: '' };
       const reply = line(data?.reply);
-      return reply ? { journal: true, reply } : null;
+      // only the app's own moods, once each, two at most
+      const moods = [
+        ...new Set(
+          (Array.isArray(data?.moods) ? data.moods : []).map((m) =>
+            String(m || '')
+              .trim()
+              .toLowerCase(),
+          ),
+        ),
+      ]
+        .filter((m) => MOODS.includes(m))
+        .slice(0, 2);
+      return reply ? { journal: true, reply, moods } : null;
     }
     const known = new Map((f.questions || []).map((q) => [String(q.id), q]));
     const ask = (Array.isArray(data?.ask) ? data.ask : [])

@@ -1019,7 +1019,8 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
         setAwaiting(null);
         await choose(live.m, 'typed');
         await save([typed(words, 'journal_write')]);
-        // saved at once, while Gremly reads it
+        // saved at once, while Gremly reads it; the moods he reads with the day go on the entry
+        const reading = gremlyWords(factsFor('journal_reply', { entry: words }));
         const [res, read] = await withTyping(
           Promise.all([
             saveJournal({
@@ -1028,8 +1029,10 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
               day: now.day,
               weekday: now.words.weekday,
               part: now.part,
+              // only the app's own moods are kept (journal.ts knownMoods)
+              dayMoods: reading.then((r) => (journalOf(r)?.moods ?? []) as Mood[]),
             }),
-            gremlyWords(factsFor('journal_reply', { entry: words })),
+            reading,
           ]),
         );
         const reply = journalOf(read);

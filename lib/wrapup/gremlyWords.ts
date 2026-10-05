@@ -177,8 +177,8 @@ export function lineOf(res: WrapWordsResponse | null): string | null {
 /** His reply to a journal entry, and whether it was one at all. */
 export function journalOf(
   res: WrapWordsResponse | null,
-): { journal: boolean; reply: string } | null {
-  return res && 'journal' in res ? res : null;
+): { journal: boolean; reply: string; moods: string[] } | null {
+  return res && 'journal' in res ? { ...res, moods: res.moods ?? [] } : null;
 }
 
 /**

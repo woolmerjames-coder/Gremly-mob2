@@ -85,6 +85,31 @@ describe('the wrap up journal', () => {
     );
   });
 
+  it('takes the moods Gremly read with their day over the words alone', async () => {
+    const res = await saveJournal({
+      text: 'Tired but pleased.',
+      moods: [],
+      day: DAY,
+      weekday: 'Wednesday',
+      dayMoods: Promise.resolve(['grateful', 'nonsense'] as never),
+    });
+    if (!res.ok) throw new Error('not saved');
+    expect(await res.moods).toEqual(['grateful']);
+    expect(updateNote).toHaveBeenCalledWith('n1', expect.objectContaining({ mood: ['grateful'] }));
+  });
+
+  it('falls back to the words alone when Gremly gave no moods', async () => {
+    const res = await saveJournal({
+      text: 'Tired but pleased.',
+      moods: [],
+      day: DAY,
+      weekday: 'Wednesday',
+      dayMoods: Promise.resolve(null),
+    });
+    if (!res.ok) throw new Error('not saved');
+    expect(await res.moods).toEqual(['tired', 'good']);
+  });
+
   it('keeps the moods they picked over the ones read from their words', async () => {
     const res = await entry('Fine.', ['calm']);
     if (!res.ok) throw new Error('not saved');

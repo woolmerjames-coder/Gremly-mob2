@@ -128,7 +128,15 @@ describe('what the app is given back', () => {
     ).toEqual({
       journal: true,
       reply: 'Saved, and glad.',
+      moods: [],
     });
+    // only the app's own moods, once each, two at most
+    expect(
+      readWrapWords(
+        'journal_reply',
+        '{"journal": true, "reply": "Saved.", "moods": ["Tired", "tired", "elated", "good", "calm"]}',
+      ).moods,
+    ).toEqual(['tired', 'good']);
     expect(readWrapWords('journal_reply', '{"journal": false, "reply": ""}')).toEqual({
       journal: false,
       reply: '',

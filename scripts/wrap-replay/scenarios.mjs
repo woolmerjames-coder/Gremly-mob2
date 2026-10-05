@@ -210,15 +210,20 @@ export const ENTRIES = [
     id: 'hard-day',
     evening: 'evening-cards',
     entry: 'Rough one. The pitch went badly and I am exhausted, but at least the deck is out.',
-    expect: { journal: true },
+    expect: { journal: true, moods: ['tired', 'low', 'frustrated', 'overwhelmed', 'okay'] },
   },
   {
     id: 'good-day',
     evening: 'clear-night',
     entry: 'Really nice slow day. Cooked a proper dinner and called my sister.',
-    expect: { journal: true },
+    expect: { journal: true, moods: ['good', 'great', 'calm', 'grateful'] },
   },
-  { id: 'two-words', evening: 'early-afternoon', entry: 'pretty good', expect: { journal: true } },
+  {
+    id: 'two-words',
+    evening: 'early-afternoon',
+    entry: 'pretty good',
+    expect: { journal: true, moods: ['good', 'okay', 'great'] },
+  },
   {
     id: 'asks-gremly',
     evening: 'evening-cards',
@@ -235,7 +240,7 @@ export const ENTRIES = [
     id: 'feelings-question',
     evening: 'travel-day',
     entry: 'Tired but happy. Why do flights always wipe me out?',
-    expect: { journal: true },
+    expect: { journal: true, moods: ['tired', 'good', 'great', 'grateful', 'okay'] },
   },
 ];
 

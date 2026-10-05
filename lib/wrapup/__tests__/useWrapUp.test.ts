@@ -512,6 +512,8 @@ describe('the wrap up: the journal', () => {
       day: DAY,
       weekday: 'Wednesday',
       part: 'evening',
+      // the moods Gremly reads with the day, when his words come back
+      dayMoods: expect.any(Promise),
     });
     const said = t.said();
     expect(said).toContainEqual(['brief-reply', 'Tired but pleased.']);

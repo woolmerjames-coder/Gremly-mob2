@@ -2019,7 +2019,7 @@ export interface WrapWordsRequest {
 
 export type WrapWordsResponse =
   | { line: string }
-  | { journal: boolean; reply: string }
+  | { journal: boolean; reply: string; moods?: string[] }
   | { ask: { id: string; question: string; choices: string[] }[] };
 
 /** How long the wrap up waits for Gremly's words before it says its own. */

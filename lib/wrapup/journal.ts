@@ -101,6 +101,7 @@ async function enrich(
   text: string,
   day: string,
   moods: Mood[],
+  dayMoods: Promise<Mood[] | null> | undefined,
 ): Promise<Mood[] | null> {
   const url = cortexUrl();
   if (!url) return null;
@@ -128,7 +129,10 @@ async function enrich(
     tags = [...new Set([...tags, ...people])];
   }
   if (tags.length > TAGS.length) patch.tags = tags;
-  const found = knownMoods(read?.mood);
+  // the moods Gremly read from their words with the rest of their day, when he
+  // gave any; the background read of the words alone otherwise
+  const withDay = knownMoods(await Promise.resolve(dayMoods).catch(() => null));
+  const found = withDay.length ? withDay : knownMoods(read?.mood);
   // a mood they picked themselves is kept; the one read from their words fills in when they picked none
   if (found.length && !moods.length) patch.mood = found;
   if (read?.energy_type) patch.energy_type = read.energy_type;
@@ -161,6 +165,8 @@ export async function saveJournal(p: {
   weekday: string;
   /** The part of the day it is written in; the evening when left out */
   part?: 'morning' | 'afternoon' | 'evening';
+  /** The moods Gremly read from the entry with the rest of their day, when he is reading it */
+  dayMoods?: Promise<Mood[] | null>;
 }): Promise<JournalSaved> {
   const text = p.text.trim();
   const moods = knownMoods(p.moods);
@@ -181,7 +187,7 @@ export async function saveJournal(p: {
     const noteId = created?.id as string | undefined;
     if (!noteId) return { ok: false, message: 'It was not saved.' };
     const found = text
-      ? enrich(noteId, text, p.day, moods).catch((err) => {
+      ? enrich(noteId, text, p.day, moods, p.dayMoods).catch((err) => {
           console.warn('[WrapUp] the journal background read failed:', err);
           return null;
         })
