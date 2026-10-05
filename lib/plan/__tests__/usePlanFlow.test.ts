@@ -508,3 +508,43 @@ describe('planning through the pick sheet', () => {
     expect(messages).toEqual([]);
   });
 });
+
+describe('changing the plan by hand', () => {
+  async function planned() {
+    const h = harness();
+    await act(async () => {
+      await h.hook.result.current.start(
+        { type: 'brief-offer', kind: 'plan', buttons: [], plan_from: 795 },
+        { direct: true },
+      );
+    });
+    const msg = h.messages.find((m) => (m.metadata_json as any).type === 'brief-plan')!;
+    return { ...h, msg };
+  }
+
+  it('puts an item where they set it, at the length they set, and fits the rest around it', async () => {
+    const { hook, msg } = await planned();
+    await act(async () => {
+      await hook.result.current.retimeItem(msg, 'oat', 1080, 45);
+    });
+    const plan = msg.metadata_json as any;
+    expect(plan.items.find((x: any) => x.id === 'oat')).toMatchObject({
+      start: 1080,
+      end: 1125,
+      pinned: true,
+    });
+  });
+
+  it('adds busy time to the day in the thread, and fits the plan around it', async () => {
+    const { hook, msg, deps } = await planned();
+    await act(async () => {
+      await hook.result.current.addBusy(msg, { title: 'Client lunch', start: 800, end: 860 });
+    });
+    expect(patchDailyThreadMeta).toHaveBeenCalledWith(
+      deps.threadId,
+      expect.objectContaining({
+        fixed_blocks: [expect.objectContaining({ title: 'Client lunch', start: 800, end: 860 })],
+      }),
+    );
+  });
+});

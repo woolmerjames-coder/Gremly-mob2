@@ -39,6 +39,10 @@ export type PlanCardProps = {
   interactive?: boolean;
   onRemove?: (id: string) => void;
   onAdd?: () => void;
+  /** Tap an item: change its time or length */
+  onEdit?: (id: string) => void;
+  /** Add a stretch of busy time the plan works around (today's plan) */
+  onAddBusy?: () => void;
   /** Yes to the proposal: it goes on its day */
   onYes?: () => void;
   onDismiss?: () => void;
@@ -123,6 +127,8 @@ export function PlanCard({
   interactive = true,
   onRemove,
   onAdd,
+  onEdit,
+  onAddBusy,
   onYes,
   onDismiss,
   onShowAgain,
@@ -208,10 +214,16 @@ export function PlanCard({
               </Text>
             </View>
           ) : (
-            <View
+            <Pressable
               key={`${r.type}-${r.type === 'item' ? r.id : r.start}-${r.start}`}
               style={styles.tlRow}
               testID={r.type === 'item' ? `plan-item-${r.id}` : undefined}
+              onPress={r.type === 'item' && !set && onEdit ? () => onEdit(r.id) : undefined}
+              disabled={r.type !== 'item' || set || !onEdit || !interactive}
+              accessibilityRole={r.type === 'item' && !set && onEdit ? 'button' : undefined}
+              accessibilityHint={
+                r.type === 'item' && !set && onEdit ? 'Change its time' : undefined
+              }
             >
               <Text style={[styles.time, r.type === 'meet' && styles.faint]}>
                 {clock(r.start)}
@@ -264,7 +276,7 @@ export function PlanCard({
                   <X size={16} color={BRIEF.muted} strokeWidth={2} />
                 </Pressable>
               ) : null}
-            </View>
+            </Pressable>
           ),
         )}
       </View>
@@ -287,6 +299,17 @@ export function PlanCard({
             <Plus size={16} color={BRIEF.moss} strokeWidth={2} />
             <Text style={styles.addText}>Add something</Text>
           </TouchableOpacity>
+          {onAddBusy ? (
+            <TouchableOpacity
+              style={styles.addRow}
+              onPress={onAddBusy}
+              disabled={!interactive}
+              testID="plan-add-busy"
+            >
+              <Clock size={16} color={BRIEF.moss} strokeWidth={2} />
+              <Text style={styles.addText}>Add busy time</Text>
+            </TouchableOpacity>
+          ) : null}
           <View style={styles.actions}>
             <TouchableOpacity
               style={[styles.btn, styles.btnPrimary, !meta.items.length && styles.btnOff]}
@@ -306,7 +329,7 @@ export function PlanCard({
               <Text style={styles.btnText}>Not now</Text>
             </TouchableOpacity>
           </View>
-          <Text style={styles.foot}>Or just tell me what to change.</Text>
+          <Text style={styles.foot}>Tap anything to change its time, or just tell me.</Text>
         </>
       )}
     </View>

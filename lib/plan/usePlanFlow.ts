@@ -51,7 +51,8 @@ import {
   poolForDay,
   saveEstimates,
 } from './storePlan';
-import { DEFAULT_PLAN_END, type DayRecord } from '../brief/dayRecord';
+import { DEFAULT_PLAN_END, type DayRecord, type DayThreadMeta } from '../brief/dayRecord';
+import { generateDropId } from '../minddrop/ids';
 import { localMinutesToIso } from '../brief/time';
 import { syncPlanItems, timeSignature, type StoreTimes } from './livePlan';
 import { PLAN_DAY_END, freeMinutes } from './slotFitter';
@@ -673,6 +674,72 @@ export function usePlanFlow(deps: PlanFlowDeps) {
     [refreshSuggestions, run, say],
   );
 
+  /**
+   * A time or length changed by hand on the card: it goes there (or at the
+   * first free time after), as a time they set, and the rest fits around it.
+   */
+  const retimeItem = useCallback(
+    (planMsg: SpaceChatMessage, id: string, start: number, minutes: number) =>
+      run(async () => {
+        const d = depsRef.current;
+        const meta = planMetaOf(planMsg);
+        if (!meta || meta.status !== 'proposal') return;
+        const entries = entriesOf(meta).map((e) => (e.id === id ? { ...e, minutes } : e));
+        const rec = dayRecordFromStore(meta.date);
+        const fit = placePlan(entries, {
+          busy: rec.busy,
+          from: fromFor(meta),
+          dayEnd: rec.planEnd,
+          now: nowFor(meta),
+          pins: new Map([[id, start]]),
+          placed: meta.items,
+        });
+        await d.patchMessageMetadata(planMsg.id, { ...fit });
+        await refreshSuggestions(planMsg, { ...meta, ...fit });
+        const left = fit.unplaced.filter((u) => u.id !== id);
+        const text = unplacedText(left);
+        if (text) await say(text);
+      }),
+    [refreshSuggestions, run, say],
+  );
+
+  /**
+   * Busy time added on the card: a set time on today, kept in the thread like
+   * the ones Gremly adds, and the plan fits around it.
+   */
+  const addBusy = useCallback(
+    (planMsg: SpaceChatMessage, block: { title: string; start: number; end: number }) =>
+      run(async () => {
+        const d = depsRef.current;
+        const meta = planMetaOf(planMsg);
+        if (!meta || meta.status !== 'proposal' || !d.threadId) return;
+        const thread = useTodayThread.getState().thread;
+        const tm = (thread?.id === d.threadId ? thread.metadata_json : null) as
+          | (DayThreadMeta & { ritual_day?: string })
+          | null;
+        if (tm?.ritual_day && tm.ritual_day !== meta.date) return;
+        const fixed_blocks = [
+          ...(tm?.fixed_blocks ?? []),
+          {
+            id: `chat:${generateDropId()}`,
+            title: block.title,
+            start: block.start,
+            end: block.end,
+            travel: false,
+          },
+        ];
+        await patchDailyThreadMeta(d.threadId, { fixed_blocks });
+        useTodayThread.getState().patchMeta(d.threadId, { fixed_blocks });
+        const fit = refitForDay(entriesOf(meta), meta, fromFor(meta));
+        await d.patchMessageMetadata(planMsg.id, { ...fit });
+        await refreshSuggestions(planMsg, { ...meta, ...fit });
+        const moved = fit.unplaced.filter((u) => meta.items.some((x) => x.id === u.id));
+        const text = unplacedText(moved);
+        if (text) await say(text);
+      }),
+    [refreshSuggestions, run, say],
+  );
+
   const removeItem = useCallback(
     (planMsg: SpaceChatMessage, id: string) =>
       changeInPlace(planMsg, [{ op: 'remove', id, window: null }]),
@@ -1006,6 +1073,8 @@ export function usePlanFlow(deps: PlanFlowDeps) {
     awaitingAnswer: () => askedForRef.current !== null,
     removeItem,
     addItems,
+    retimeItem,
+    addBusy,
     applySuggestion,
     accept,
     dismiss,

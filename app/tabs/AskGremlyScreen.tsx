@@ -1464,6 +1464,10 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         interactive={!planFlowRef.current.typing}
         onRemove={(id) => void planFlowRef.current.removeItem(message, id)}
         onAdd={(picks) => void planFlowRef.current.addItems(message, picks)}
+        onRetime={(id, start, minutes) =>
+          void planFlowRef.current.retimeItem(message, id, start, minutes)
+        }
+        onAddBusy={(block) => void planFlowRef.current.addBusy(message, block)}
         onYes={() =>
           void planFlowRef.current.accept(message).then(() => wrapUpRef.current.afterPlan())
         }
