@@ -12,6 +12,9 @@
  * Where the app can keep pages of the person's own, the page offers Make your
  * own, Keep as my page once the prompts on it are a set of their own, and
  * Edit on a page they made.
+ *
+ * Where it is given the journal's other entries, the date opens the calendar,
+ * and a saved entry being read has the ones before and after it a tap away.
  */
 import React, { forwardRef, useCallback, useImperativeHandle, useRef, useState } from 'react';
 import {
@@ -27,7 +30,18 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Bookmark, ChevronDown, Pencil, Plus, Trash2 } from 'lucide-react-native';
+import {
+  Bookmark,
+  CalendarDays,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Pencil,
+  Plus,
+  Trash2,
+} from 'lucide-react-native';
+import { todayCard, type TodayState } from '../../lib/journal/calendar';
+import type { JournalEntry } from '../../lib/journal/entry';
 import { htmlToText } from '../../lib/journal/html';
 import {
   addPrompt,
@@ -48,6 +62,7 @@ import { JOURNAL_COPY, countLabel, dayWords } from '../../lib/journal/words';
 import type { Mood } from '../../lib/shared/moods';
 import { useKeyboardLift } from '../../hooks/useKeyboardLift';
 import { BRIEF } from '../brief/briefStyles';
+import { JournalCalendar } from './JournalCalendar';
 import { JournalCardView, type JournalCardPlace } from './JournalCardView';
 import {
   NO_FORMAT,
@@ -59,6 +74,7 @@ import { JournalFormatBar } from './JournalFormatBar';
 import { JournalMoodCard } from './JournalMoodCard';
 import { JournalOwnPageSheet } from './JournalOwnPageSheet';
 import { JournalPageChips } from './JournalPageChips';
+import { JournalSheet } from './JournalSheet';
 import { JOURNAL_WASH, JOURNAL_WASH_LOOKING, journalStyles } from './journalStyles';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -75,6 +91,27 @@ export type JournalPageResult = {
 /** What was on the page when it was closed without Done */
 export type JournalPageLeft = { page: Page; moods: Mood[] };
 
+/** The rest of the journal, for the calendar behind the date */
+export type JournalPageCalendar = {
+  /** Every journal entry */
+  entries: JournalEntry[];
+  /** The person's day */
+  today: string;
+  /** How far along today's page is, as it is kept: saved, started, or not begun */
+  todayState: TodayState;
+  /** The entry that is today's page, once it is saved */
+  todayEntryId?: string | null;
+  /** Today's page is the one on screen */
+  here: boolean;
+  /** Today's page is waiting behind the entry on screen */
+  back: boolean;
+  /** The saved entry on screen, if it is one */
+  onScreen?: string | null;
+};
+
+/** An entry to step to from the one being read: "Thu 24" */
+export type JournalPageStep = { id: string; label: string };
+
 export type JournalPageProps = {
   /** The person's day the page is for */
   day: string;
@@ -83,6 +120,11 @@ export type JournalPageProps = {
   /** The page to start from: a new one, one kept from earlier, or a saved entry's */
   initial: Page;
   initialMoods?: Mood[];
+  /**
+   * What the page opens with is not kept anywhere yet, such as words carried
+   * in from the chat box. Leaving the page then keeps it even untouched.
+   */
+  unkept?: boolean;
   /** Every page there is to choose from */
   pages: JournalPageDef[];
   /** Looking back at a saved entry, which shows it to read */
@@ -95,6 +137,14 @@ export type JournalPageProps = {
   onEdit?: () => void;
   /** While reading: take this entry out of the journal */
   onDelete?: () => void;
+  /** The calendar behind the date. Left out where there is no journal to look back through. */
+  calendar?: JournalPageCalendar;
+  /** Open another entry to read. Given what is on the page, when it was changed, to keep. */
+  onLookAt?: (entryId: string, left: JournalPageLeft | null) => void;
+  /** Go to today's page: back to it when it is waiting, or open it. */
+  onToday?: (left: JournalPageLeft | null) => void;
+  /** While reading: the entries written before and after this one */
+  steps?: { before: JournalPageStep | null; after: JournalPageStep | null };
   /** Keeps a page of the person's own. Given where the app can keep them. */
   onSaveOwn?: (form: OwnPageForm) => Promise<OwnPageSaved>;
   onDeleteOwn?: (id: string) => Promise<OwnPageGone>;
@@ -121,6 +171,7 @@ export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(funct
     kicker,
     initial,
     initialMoods,
+    unkept = false,
     pages,
     reading = false,
     onPickPage,
@@ -128,6 +179,10 @@ export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(funct
     onClose,
     onEdit,
     onDelete,
+    calendar,
+    onLookAt,
+    onToday,
+    steps,
     onSaveOwn,
     onDeleteOwn,
     fontFamily,
@@ -148,6 +203,7 @@ export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(funct
   const [scrolled, setScrolled] = useState(false);
   /** The page of their own being made or changed, while its sheet is up */
   const [ownForm, setOwnForm] = useState<OwnPageForm | null>(null);
+  const [calendarUp, setCalendarUp] = useState(false);
   /** What the page held when it opened, to tell whether it was changed */
   const [opened] = useState(() => ({
     text: pageText(initial),
@@ -300,22 +356,51 @@ export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(funct
     [onDeleteOwn, say],
   );
 
-  const close = useCallback(async () => {
-    if (busy) return;
-    // the sheet goes first
-    if (ownForm) {
-      setOwnForm(null);
-      return;
-    }
-    if (reading) {
-      onClose(null);
-      return;
-    }
+  /** What is on the page, when it was changed since it opened: what leaving it should keep. */
+  const leaving = useCallback(async (): Promise<JournalPageLeft | null> => {
+    if (reading) return null;
     const current = await collect();
     Keyboard.dismiss();
-    const changed = pageText(current) !== opened.text || moods.join(',') !== opened.moods;
-    onClose(changed ? { page: current, moods } : null);
-  }, [busy, collect, moods, onClose, opened, ownForm, reading]);
+    const changed = unkept || pageText(current) !== opened.text || moods.join(',') !== opened.moods;
+    return changed ? { page: current, moods } : null;
+  }, [collect, moods, opened, reading, unkept]);
+
+  const close = useCallback(async () => {
+    if (busy) return;
+    // a sheet goes first
+    if (ownForm || calendarUp) {
+      setOwnForm(null);
+      setCalendarUp(false);
+      return;
+    }
+    onClose(await leaving());
+  }, [busy, calendarUp, leaving, onClose, ownForm]);
+
+  const openCalendar = useCallback(() => {
+    Keyboard.dismiss();
+    setNaming(null);
+    setCalendarUp(true);
+  }, []);
+
+  /** Open another entry to read. What is being written here is handed over to keep. */
+  const lookAt = useCallback(
+    async (entryId: string) => {
+      if (busy) return;
+      setCalendarUp(false);
+      // it is the one on screen already
+      if (entryId === calendar?.onScreen) return;
+      onLookAt?.(entryId, await leaving());
+    },
+    [busy, calendar?.onScreen, leaving, onLookAt],
+  );
+
+  const goToday = useCallback(async () => {
+    if (busy) return;
+    setCalendarUp(false);
+    // today's page is the one on screen: carry on
+    if (calendar?.here) return;
+    onToday?.(await leaving());
+  }, [busy, calendar?.here, leaving, onToday]);
 
   useImperativeHandle(ref, () => ({ close: () => void close() }), [close]);
 
@@ -329,6 +414,11 @@ export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(funct
 
   const d = dayWords(day);
   const def = pageIn(pages, page.tpl);
+  const todayIs = calendar
+    ? todayCard(calendar.todayState, { here: calendar.here, back: calendar.back })
+    : null;
+  /** The bar for stepping between entries, under one that is being read */
+  const stepping = reading && !!steps && !!onLookAt;
   const canKeepOwn = !!onSaveOwn && !reading;
   /** The prompts on the page are a set nobody has kept yet */
   const keepable = canKeepOwn && isNewSet(page, pages);
@@ -404,7 +494,9 @@ export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(funct
 
       <ScrollView
         style={styles.body}
-        contentContainerStyle={{ paddingBottom: reading ? insets.bottom + 32 : 132 }}
+        contentContainerStyle={{
+          paddingBottom: reading ? insets.bottom + (stepping ? 96 : 32) : 132,
+        }}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
         automaticallyAdjustKeyboardInsets
@@ -417,7 +509,22 @@ export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(funct
           <Text style={styles.weekday} accessibilityRole="header">
             {d.weekday}
           </Text>
-          <Text style={styles.date}>{d.long}</Text>
+          {calendar ? (
+            <Pressable
+              style={styles.datePill}
+              onPress={openCalendar}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel={`${d.long}. ${JOURNAL_COPY.calendar}`}
+              testID="journal-date"
+            >
+              <CalendarDays size={15} color={BRIEF.moss} strokeWidth={2} />
+              <Text style={styles.dateText}>{d.long}</Text>
+              <ChevronDown size={14} color={BRIEF.moss} strokeWidth={2.2} />
+            </Pressable>
+          ) : (
+            <Text style={styles.date}>{d.long}</Text>
+          )}
           <View style={styles.rule} />
           <Image source={JOURNAL_GREMLY} style={styles.mascot} />
         </View>
@@ -527,6 +634,77 @@ export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(funct
         </Animated.View>
       )}
 
+      {stepping && steps ? (
+        <View style={[styles.steps, { bottom: insets.bottom + 8 }]} testID="journal-steps">
+          <Pressable
+            style={[styles.step, !steps.before && styles.stepOff]}
+            onPress={() => steps.before && void lookAt(steps.before.id)}
+            disabled={!steps.before}
+            accessibilityRole="button"
+            accessibilityLabel={
+              steps.before
+                ? `${JOURNAL_COPY.lookBefore}, ${steps.before.label}`
+                : JOURNAL_COPY.lookBefore
+            }
+            testID="journal-step-before"
+          >
+            <ChevronLeft size={16} color={BRIEF.moss} strokeWidth={2.3} />
+            <Text style={styles.stepText}>{steps.before?.label ?? ''}</Text>
+          </Pressable>
+          {calendar?.back ? (
+            <Pressable
+              style={styles.today}
+              onPress={() => void goToday()}
+              accessibilityRole="button"
+              testID="journal-back-to-today"
+            >
+              <Text style={styles.todayText}>{JOURNAL_COPY.backToToday}</Text>
+            </Pressable>
+          ) : (
+            <View />
+          )}
+          <Pressable
+            style={[styles.step, styles.stepAfter, !steps.after && styles.stepOff]}
+            onPress={() => steps.after && void lookAt(steps.after.id)}
+            disabled={!steps.after}
+            accessibilityRole="button"
+            accessibilityLabel={
+              steps.after
+                ? `${JOURNAL_COPY.lookAfter}, ${steps.after.label}`
+                : JOURNAL_COPY.lookAfter
+            }
+            testID="journal-step-after"
+          >
+            <Text style={styles.stepText}>{steps.after?.label ?? ''}</Text>
+            <ChevronRight size={16} color={BRIEF.moss} strokeWidth={2.3} />
+          </Pressable>
+        </View>
+      ) : null}
+
+      {calendarUp && calendar && todayIs ? (
+        <JournalSheet
+          onClose={() => setCalendarUp(false)}
+          closeLabel={JOURNAL_COPY.calClose}
+          testID="journal-calendar-sheet"
+          closeTestID="journal-calendar-close"
+        >
+          <ScrollView
+            style={styles.calendar}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            <JournalCalendar
+              entries={calendar.entries}
+              today={calendar.today}
+              startOn={day <= calendar.today ? day : calendar.today}
+              todayCard={{ ...todayIs, onPress: () => void goToday() }}
+              todayEntryId={calendar.todayEntryId}
+              onOpen={(e) => void lookAt(e.id)}
+            />
+          </ScrollView>
+        </JournalSheet>
+      ) : null}
+
       {ownForm ? (
         <>
           <JournalOwnPageSheet
@@ -614,6 +792,19 @@ const styles = StyleSheet.create({
     color: BRIEF.moss,
   },
   date: { marginTop: 4, fontFamily: 'Inter-Regular', fontSize: 15.5, color: BRIEF.muted },
+  // the date as the way into the calendar
+  datePill: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 2,
+    marginLeft: -6,
+    paddingVertical: 3,
+    paddingHorizontal: 6,
+    borderRadius: 8,
+  },
+  dateText: { fontFamily: 'Inter-Regular', fontSize: 15.5, color: BRIEF.muted },
   rule: { width: 72, height: 4, borderRadius: 2, backgroundColor: BRIEF.moss, marginTop: 11 },
   mascot: {
     position: 'absolute',
@@ -655,4 +846,52 @@ const styles = StyleSheet.create({
   noteOverSheet: { position: 'absolute', zIndex: 6, marginBottom: 0 },
   noteText: { fontFamily: 'Inter-Regular', fontSize: 13, color: '#F4F1EA' },
   keep: { borderStyle: 'solid', backgroundColor: 'rgba(255, 255, 255, 0.7)' },
+  calendar: { flexGrow: 0, flexShrink: 1 },
+  // stepping between entries, under one being read
+  steps: {
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    height: 54,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+    paddingHorizontal: 8,
+    borderRadius: 16,
+    backgroundColor: BRIEF.white,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    shadowColor: BRIEF.mossInk,
+    shadowOpacity: 0.13,
+    shadowRadius: 11,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
+  },
+  step: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    height: 40,
+    paddingHorizontal: 8,
+    borderRadius: 11,
+  },
+  stepAfter: { justifyContent: 'flex-end' },
+  stepOff: { opacity: 0.35 },
+  stepText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 13,
+    color: BRIEF.moss,
+    fontVariant: ['tabular-nums'],
+  },
+  today: {
+    height: 38,
+    paddingHorizontal: 16,
+    borderRadius: 19,
+    backgroundColor: BRIEF.moss,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  todayText: { fontFamily: 'PlusJakartaSans-Bold', fontSize: 13.5, color: BRIEF.linen },
 });

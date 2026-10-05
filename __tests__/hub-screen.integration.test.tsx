@@ -686,8 +686,9 @@ describe('HubScreen - Journal View Data Filtering', () => {
 
     await waitFor(() => {
       expect(getByTestId('journal-view-empty')).toBeTruthy();
-      expect(queryByText('No journals yet')).toBeTruthy();
-      expect(queryByText(/Drop a thought/i)).toBeTruthy();
+      expect(queryByText('Nothing in your journal yet.')).toBeTruthy();
+      // today's page can be started from the month above it
+      expect(queryByText('Write today')).toBeTruthy();
     });
   });
 
@@ -771,6 +772,8 @@ describe('HubScreen - Journal View Data Filtering', () => {
     await waitFor(() => {
       expect(getByTestId('journal-view-timeline')).toBeTruthy();
     });
+    // the month sits above the list
+    expect(getByTestId('journal-calendar')).toBeTruthy();
     expect(queryByTestId('journal-analyze-cta')).toBeNull();
     expect(queryByText('Journal Insights')).toBeNull();
 

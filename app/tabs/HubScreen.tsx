@@ -51,6 +51,8 @@ import { BRAND } from '../../design/brand';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
+import { JournalHubView } from '../../components/journal/JournalHubView';
+import type { JournalEntry } from '../../lib/journal/entry';
 import type { AppRecord, Space, Person, Tag, Todo, Habit, Note } from '../../lib/types';
 import { SheetManager } from 'react-native-actions-sheet';
 import Chip from '../../components/ui/Chip';
@@ -65,11 +67,6 @@ import { normalizeSearchTagArray, normalizeSearchTagInput } from '../../lib/tags
 import { parseSearchTokens } from '../../lib/tags/parseSearch';
 import TagFilterBar from '../../components/tags/TagFilterBar';
 import { eventBus } from '../../lib/events';
-import {
-  groupJournalsByMonth,
-  formatJournalDate as formatJournalDateHelper,
-  getJournalPreview,
-} from '../../lib/hub/hubHelpers';
 // Store selectors and hooks
 import {
   useHubTodos,
@@ -684,30 +681,6 @@ export default function HubScreen() {
   // Hub V1 Memoized Derived Data (avoid recomputing on every render)
   // =========================================================================
 
-  // Memoize journal entries for Journal View
-  const journalEntries = useMemo(() => {
-    return hubV1Items
-      .filter(
-        (item) =>
-          item.type === 'note' && (item as import('../../lib/types').Note).subtype === 'journal',
-      )
-      .map((item) => {
-        const note = item as import('../../lib/types').Note;
-        return {
-          id: note.id,
-          date: note.date || '',
-          created_at: note.created_at || '',
-          body: note.body,
-          mood: note.mood,
-        };
-      });
-  }, [hubV1Items]);
-
-  // Memoize grouped journals for Journal View timeline
-  const groupedJournals = useMemo(() => {
-    return groupJournalsByMonth(journalEntries);
-  }, [journalEntries]);
-
   // Memoize needs-attention items (max 2, only shown if qualifying items exist)
   const needsAttentionItems = useMemo(() => {
     const todos = hubV1Items.filter(
@@ -780,33 +753,6 @@ export default function HubScreen() {
       overlayController.openEdit({ record });
     },
     [overlayController],
-  );
-
-  // Mood color mapping (static, defined once)
-  // Now handles both single moods and first mood from array
-  const moodColors: Record<string, string> = useMemo(
-    () => ({
-      // New mood values
-      great: colors.success,
-      good: colors.mint,
-      okay: colors.gray400,
-      low: colors.periwinkle,
-      tired: colors.gray400,
-      anxious: colors.periwinkle,
-      overwhelmed: colors.periwinkle,
-      frustrated: colors.gray600,
-      scattered: colors.gray400,
-      grateful: colors.mint,
-      hopeful: colors.success,
-      focused: colors.mint,
-      calm: colors.mint,
-      // Legacy mood values (backwards compat)
-      ecstatic: colors.success,
-      happy: colors.mint,
-      neutral: colors.gray400,
-      sad: colors.gray600,
-    }),
-    [],
   );
 
   // Format reason label for attention items
@@ -1239,70 +1185,15 @@ export default function HubScreen() {
                 </View>
               ) : hubView === 'journals' ? (
                 // ===============================================================
-                // JOURNAL VIEW: Timeline grouped by month (unchanged)
+                // JOURNAL VIEW: the month, then every entry (components/journal/JournalHubView)
                 // ===============================================================
-                journalEntries.length === 0 ? (
-                  <View style={hubV1Styles.journalViewEmpty} testID="journal-view-empty">
-                    <View style={hubV1Styles.journalViewEmptyHeader}>
-                      <BookOpen
-                        size={18}
-                        color={colors.gray400}
-                        style={{ marginRight: spacing.xs }}
-                      />
-                      <Text style={hubV1Styles.journalViewEmptyTitle}>No journals yet</Text>
-                    </View>
-                    <Text style={hubV1Styles.journalViewEmptyHint}>
-                      Drop a thought to start journaling
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={hubV1Styles.journalViewContainer} testID="journal-view-timeline">
-                    {groupedJournals.map((group) => (
-                      <View key={group.monthKey} style={hubV1Styles.journalMonthGroup}>
-                        <Text style={hubV1Styles.journalMonthHeader}>{group.label}</Text>
-                        {group.journals.map((journal) => {
-                          const record = hubV1Items.find((i) => i.id === journal.id);
-                          return (
-                            <TouchableOpacity
-                              key={journal.id}
-                              style={hubV1Styles.journalTimelineRow}
-                              onPress={() => {
-                                if (record) {
-                                  handleOpenEdit(record);
-                                }
-                              }}
-                              testID={`journal-timeline-${journal.id}`}
-                            >
-                              <View style={hubV1Styles.journalTimelineDate}>
-                                <Text style={hubV1Styles.journalTimelineDateText}>
-                                  {formatJournalDateHelper(journal.date || journal.created_at)}
-                                </Text>
-                              </View>
-                              {journal.mood && (
-                                <View
-                                  style={[
-                                    hubV1Styles.journalTimelineMood,
-                                    {
-                                      backgroundColor:
-                                        moodColors[
-                                          Array.isArray(journal.mood)
-                                            ? journal.mood[0]
-                                            : journal.mood
-                                        ] || colors.gray400,
-                                    },
-                                  ]}
-                                />
-                              )}
-                              <Text style={hubV1Styles.journalTimelinePreview} numberOfLines={1}>
-                                {getJournalPreview(journal.body, 60) || 'No content'}
-                              </Text>
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </View>
-                    ))}
-                  </View>
-                )
+                <JournalHubView
+                  entries={storeJournals as unknown as JournalEntry[]}
+                  onOpen={(entry) => {
+                    const record = storeJournals.find((j) => j.id === entry.id);
+                    if (record) handleOpenEdit(record);
+                  }}
+                />
               ) : (
                 // ===============================================================
                 // TIMELINE VIEW (default): Date-grouped reverse-chronological feed
@@ -2067,68 +1958,5 @@ const hubV1Styles = StyleSheet.create({
   tagSuggestionText: {
     fontSize: 12,
     color: colors.gray600,
-  },
-  // Journal View Timeline styles
-  journalViewContainer: {
-    marginTop: spacing.md,
-  },
-  journalViewEmpty: {
-    marginTop: spacing.xl,
-    paddingHorizontal: spacing.lg,
-    alignItems: 'center',
-  },
-  journalViewEmptyHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.xs,
-  },
-  journalViewEmptyTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.gray600,
-  },
-  journalViewEmptyHint: {
-    fontSize: 13,
-    color: colors.gray400,
-    textAlign: 'center',
-  },
-  journalMonthGroup: {
-    marginTop: spacing.lg,
-  },
-  journalMonthHeader: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.ink,
-    marginBottom: spacing.sm,
-    paddingBottom: spacing.xs,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.gray200,
-  },
-  journalTimelineRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.gray200,
-  },
-  journalTimelineDate: {
-    width: 72,
-    marginRight: spacing.sm,
-  },
-  journalTimelineDateText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: colors.gray600,
-  },
-  journalTimelineMood: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: spacing.sm,
-  },
-  journalTimelinePreview: {
-    flex: 1,
-    fontSize: 14,
-    color: colors.ink,
   },
 });

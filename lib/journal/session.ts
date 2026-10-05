@@ -44,6 +44,11 @@ export type JournalOpen = {
    * so the entry is saved as part of the evening and answered in the thread.
    */
   save?: (written: JournalWritten) => Promise<JournalSaveResult>;
+  /**
+   * Today's page as it was asked for, waiting behind an older entry that was
+   * opened from it to read. Back to today opens this again.
+   */
+  home?: JournalOpen;
 };
 
 export type JournalDraft = {

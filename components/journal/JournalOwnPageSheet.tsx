@@ -6,8 +6,15 @@
  * with the reason when the page could not be kept.
  */
 import React, { useRef, useState } from 'react';
-import { Animated, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  type Animated,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { Plus, Trash2, X } from 'lucide-react-native';
 import {
   OWN_NAME_MAX,
@@ -19,6 +26,7 @@ import {
 } from '../../lib/journal/ownPages';
 import { JOURNAL_COPY } from '../../lib/journal/words';
 import { BRIEF } from '../brief/briefStyles';
+import { JournalSheet } from './JournalSheet';
 import { journalStyles } from './journalStyles';
 
 export type JournalOwnPageSheetProps = {
@@ -61,7 +69,6 @@ export function JournalOwnPageSheet({
   onDelete,
   onClose,
 }: JournalOwnPageSheetProps) {
-  const insets = useSafeAreaInsets();
   const [name, setName] = useState(initial.name);
   const [rows, setRows] = useState<Row[]>(() => {
     const given = initial.prompts.slice(0, OWN_PROMPTS_MAX);
@@ -101,23 +108,15 @@ export function JournalOwnPageSheet({
     if (!res.ok) setError(res.message);
   };
 
-  // clear of the home bar, and of the keyboard while it is up
-  const bottom = lift.interpolate({
-    inputRange: [0, insets.bottom + 1, 2000],
-    outputRange: [insets.bottom + 16, insets.bottom + 17, 2016],
-  });
-
   return (
-    <View style={styles.fill} testID="journal-own-sheet">
-      <Pressable
-        style={styles.scrim}
-        onPress={onClose}
-        accessibilityRole="button"
-        accessibilityLabel={JOURNAL_COPY.ownClose}
-        testID="journal-own-close"
-      />
-      <Animated.View style={[styles.sheet, { paddingBottom: bottom }]}>
-        <View style={styles.grab} />
+    <JournalSheet
+      onClose={onClose}
+      closeLabel={JOURNAL_COPY.ownClose}
+      lift={lift}
+      testID="journal-own-sheet"
+      closeTestID="journal-own-close"
+    >
+      <>
         <Text style={styles.title} accessibilityRole="header">
           {editing ? JOURNAL_COPY.ownEditTitle : JOURNAL_COPY.ownNewTitle}
         </Text>
@@ -230,37 +229,14 @@ export function JournalOwnPageSheet({
             </Pressable>
           ) : null}
         </View>
-      </Animated.View>
-    </View>
+      </>
+    </JournalSheet>
   );
 }
 
 const DELETE_INK = '#A0492F';
 
 const styles = StyleSheet.create({
-  fill: { ...StyleSheet.absoluteFillObject, justifyContent: 'flex-end', zIndex: 5 },
-  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(26, 51, 40, 0.34)' },
-  sheet: {
-    maxHeight: '92%',
-    backgroundColor: BRIEF.linen,
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
-    paddingTop: 8,
-    paddingHorizontal: 18,
-    shadowColor: '#000',
-    shadowOpacity: 0.16,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: -6 },
-    elevation: 12,
-  },
-  grab: {
-    alignSelf: 'center',
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(46, 85, 64, 0.22)',
-    marginBottom: 14,
-  },
   title: { fontFamily: 'PlusJakartaSans-Bold', fontSize: 19, color: BRIEF.mossInk },
   sub: {
     marginTop: 5,

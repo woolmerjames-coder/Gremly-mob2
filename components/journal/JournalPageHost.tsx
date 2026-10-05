@@ -10,10 +10,29 @@
  *
  * It also holds the person's own pages for the page: it brings them from
  * their account, and keeps or deletes one when the page asks.
+ *
+ * And it gives the page the rest of the journal: the calendar behind the
+ * date, and the entries before and after one being read. Opening an older
+ * entry from today's page keeps that page, and Back to today returns to it.
+ *
+ * Starting a new entry needs the same access as making anything else in the
+ * app. Someone whose trial has ended can still read and change what they
+ * wrote, and is shown the way to subscribe instead of a new page. The wrap up
+ * asks that itself before it opens the page.
  */
 import React, { useEffect, useMemo, useRef } from 'react';
 import { Alert, Modal } from 'react-native';
-import { checkInOf, entryDay, pageEntryFor, type JournalEntry } from '../../lib/journal/entry';
+import type { TodayState } from '../../lib/journal/calendar';
+import { getDateService } from '../../lib/date/DateService';
+import { eventBus } from '../../lib/events/EventBus';
+import {
+  checkInOf,
+  entryDay,
+  journalEntries,
+  neighbours,
+  pageEntryFor,
+  type JournalEntry,
+} from '../../lib/journal/entry';
 import { addWords, newPage, pageOfEntry, type JournalPage as Page } from '../../lib/journal/page';
 import {
   deleteOwnPage,
@@ -38,12 +57,19 @@ import {
   type JournalOpen,
   type JournalPart,
 } from '../../lib/journal/session';
-import { JOURNAL_COPY, checkInKicker, writingKicker } from '../../lib/journal/words';
+import { JOURNAL_COPY, checkInKicker, dayWords, writingKicker } from '../../lib/journal/words';
 import type { Mood } from '../../lib/shared/moods';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { useSubscriptionStatus } from '../../lib/subscriptions/useSubscriptionStatus';
 import { wrapNow } from '../../lib/wrapup/day';
 import { knownMoods } from '../../lib/wrapup/journal';
-import { JournalPage, type JournalPageHandle } from './JournalPage';
+import {
+  JournalPage,
+  type JournalPageCalendar,
+  type JournalPageHandle,
+  type JournalPageLeft,
+  type JournalPageStep,
+} from './JournalPage';
 
 type Start = {
   day: string;
@@ -58,7 +84,45 @@ type Start = {
   moods: Mood[];
   /** Where a page closed before Done is kept */
   draft: string;
+  /** The rest of the journal, for the calendar. None for a check in on a goal. */
+  calendar: JournalPageCalendar | null;
+  /** While reading: the entries before and after this one */
+  steps: { before: JournalPageStep | null; after: JournalPageStep | null } | null;
 };
+
+/** "Thu 24", for stepping to an entry */
+function step(entry: JournalEntry | null): JournalPageStep | null {
+  if (!entry) return null;
+  const day = entryDay(entry);
+  return { id: entry.id, label: day ? dayWords(day).short.split(' ').slice(0, 2).join(' ') : '' };
+}
+
+/** The rest of the journal as the page on screen sees it. */
+function calendarFor(
+  notes: JournalEntry[],
+  request: JournalOpen,
+  on: { day: string; entryId: string | null; reading: boolean },
+): JournalPageCalendar {
+  const today = getDateService().ritualDay();
+  const todayEntry = pageEntryFor(notes, today);
+  const todayState: TodayState = todayEntry
+    ? 'saved'
+    : draftFor(draftKey({ day: today }))
+      ? 'started'
+      : 'empty';
+  // today's page is on screen when it is being written: a new one, or today's saved one
+  const here =
+    !on.reading && on.day === today && (on.entryId === null || on.entryId === todayEntry?.id);
+  return {
+    entries: journalEntries(notes),
+    today,
+    todayState,
+    todayEntryId: todayEntry?.id ?? null,
+    here,
+    back: !here && !!request.home,
+    onScreen: on.entryId,
+  };
+}
 
 /** What the page opens with, worked out once when it is asked for. */
 function startOf(request: JournalOpen, lastPage: string): Start | null {
@@ -77,6 +141,7 @@ function startOf(request: JournalOpen, lastPage: string): Start | null {
   const checkIn = entry ? checkInOf(entry) : null;
 
   if (entry && request.reading) {
+    const near = neighbours(notes, entry.id);
     return {
       day: entryDay(entry) || request.day,
       part,
@@ -87,6 +152,12 @@ function startOf(request: JournalOpen, lastPage: string): Start | null {
       page: pageOfEntry(entry, pages),
       moods: knownMoods(entry.mood),
       draft: draftKey({ day: request.day, entryId: entry.id }),
+      calendar: calendarFor(notes, request, {
+        day: entryDay(entry) || request.day,
+        entryId: entry.id,
+        reading: true,
+      }),
+      steps: { before: step(near.before), after: step(near.after) },
     };
   }
 
@@ -120,6 +191,14 @@ function startOf(request: JournalOpen, lastPage: string): Start | null {
     page,
     moods,
     draft: key,
+    calendar: goal
+      ? null
+      : calendarFor(notes, request, {
+          day: entry ? entryDay(entry) || request.day : request.day,
+          entryId: entry?.id ?? null,
+          reading: false,
+        }),
+    steps: null,
   };
 }
 
@@ -140,7 +219,45 @@ export function JournalPageHost() {
     if (request && !start) closeJournal();
   }, [request, start]);
 
-  if (!request || !start) return null;
+  // a new entry, asked for by someone who can no longer make new things
+  const { hasAccess, isLoading } = useSubscriptionStatus();
+  const shut =
+    !!request &&
+    !!start &&
+    !start.reading &&
+    !start.entryId &&
+    !request.save &&
+    !isLoading &&
+    !hasAccess;
+  useEffect(() => {
+    if (!shut) return;
+    closeJournal();
+    // the app answers this by showing the way to subscribe
+    eventBus.emit('cortex:read_only', {});
+  }, [shut]);
+
+  if (!request || !start || shut) return null;
+
+  /** Open another entry to read. What is being written is kept, and today's page waits behind it. */
+  const lookAt = (entryId: string, left: JournalPageLeft | null) => {
+    const notes = useGremlyStore.getState().notes as unknown as JournalEntry[];
+    const entry = notes.find((n) => n.id === entryId);
+    if (!entry) return;
+    if (left) keepDraft(start.draft, left);
+    openJournal({
+      day: entryDay(entry) || start.day,
+      entryId,
+      reading: true,
+      // the words carried in from the chat box are on the page already, and are kept with it
+      home: start.calendar?.here ? { ...request, carry: undefined, home: undefined } : request.home,
+    });
+  };
+
+  /** Back to today's page as it was asked for, or today's page afresh. */
+  const toToday = (left: JournalPageLeft | null) => {
+    if (left) keepDraft(start.draft, left);
+    openJournal(request.home ?? { day: getDateService().ritualDay() });
+  };
 
   const remove = () => {
     if (!start.entryId) return;
@@ -177,6 +294,8 @@ export function JournalPageHost() {
         kicker={start.kicker}
         initial={start.page}
         initialMoods={start.moods}
+        // words carried in from the chat box have left it, and are only on this page
+        unkept={!!request.carry && !start.reading}
         pages={pages}
         reading={start.reading}
         onPickPage={setLastPage}
@@ -211,9 +330,18 @@ export function JournalPageHost() {
         }}
         onEdit={
           start.entryId
-            ? () => openJournal({ day: start.day, entryId: start.entryId ?? undefined })
+            ? () =>
+                openJournal({
+                  day: start.day,
+                  entryId: start.entryId ?? undefined,
+                  home: request.home,
+                })
             : undefined
         }
+        calendar={start.calendar ?? undefined}
+        steps={start.steps ?? undefined}
+        onLookAt={lookAt}
+        onToday={toToday}
         onDelete={start.entryId ? remove : undefined}
       />
     </Modal>

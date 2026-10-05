@@ -27,9 +27,16 @@ jest.mock('../../../lib/journal/ownPages', () => ({
   saveOwnPage: (...a: unknown[]) => mockSaveOwnPage(...a),
   deleteOwnPage: (...a: unknown[]) => mockDeleteOwnPage(...a),
 }));
+// whether they can still make new things: a tester, a subscriber, or inside the trial
+let mockAccess = true;
+jest.mock('../../../lib/subscriptions/useSubscriptionStatus', () => ({
+  useSubscriptionStatus: () => ({ hasAccess: mockAccess, isLoading: false }),
+}));
 jest.mock('react-native-enriched-html');
 
 import { JournalPageHost } from '../JournalPageHost';
+import { getDateService } from '../../../lib/date/DateService';
+import { eventBus } from '../../../lib/events/EventBus';
 import { LAYOUT_KEY, newPage, setCardHtml, toLayout } from '../../../lib/journal/page';
 import { useOwnPagesStore } from '../../../lib/journal/ownPages';
 import { FREEFORM, pageById, type JournalPageDef } from '../../../lib/journal/pages';
@@ -67,6 +74,7 @@ function host() {
 
 beforeEach(() => {
   mockNotes = [];
+  mockAccess = true;
   mockSavePage.mockResolvedValue({ ok: true, noteId: 'n1' });
   mockDeleteNote.mockResolvedValue(undefined);
   useJournalSession.setState({ open: null, drafts: {}, lastPage: FREEFORM });
@@ -155,6 +163,15 @@ describe('a page closed before Done', () => {
     expect(h.getByTestId('journal-mood-frustrated').props.accessibilityState).toMatchObject({
       checked: true,
     });
+  });
+
+  it('keeps words carried in from the chat box, even when the page was not touched', async () => {
+    const h = host();
+    h.open({ day: DAY, carry: 'Tired but pleased.' });
+    await h.press('journal-close');
+    expect(draftFor(`day:${DAY}`)).not.toBeNull();
+    h.open({ day: DAY });
+    expect(h.getByTestId('journal-card-0-editor').props.defaultValue).toBe('Tired but pleased.');
   });
 
   it('is not kept when nothing was written', async () => {
@@ -403,5 +420,175 @@ describe('pages of the person’s own', () => {
     expect(h.queryByTestId('journal-page-p1')).toBeNull();
     expect(useJournalSession.getState().lastPage).toBe(FREEFORM);
     alert.mockRestore();
+  });
+});
+
+describe('looking back through the journal from today’s page', () => {
+  beforeEach(() => {
+    // the page is for the person's day, which here is the day under test
+    jest.spyOn(getDateService(), 'ritualDay').mockReturnValue(DAY);
+    mockNotes = [
+      savedEntry('n22', '2026-09-22', 'The slow start.'),
+      savedEntry('n24', '2026-09-24', 'The budget review.'),
+    ];
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('opens an older day to read, keeps today’s page, and comes back to it', async () => {
+    const save = jest.fn(async () => ({ ok: true }) as const);
+    const h = host();
+    h.open({ day: DAY, part: 'evening', save });
+    h.type(0, 'Tired but pleased.');
+    await h.press('journal-date');
+    await h.press('journal-cal-day-2026-09-24');
+    await h.press('journal-cal-open-n24');
+
+    // the older entry, to read, with today's page kept
+    expect(h.getByText('Looking back')).toBeTruthy();
+    expect(h.getByText('24 September')).toBeTruthy();
+    expect(h.getByTestId('journal-card-0-text')).toBeTruthy();
+    expect(draftFor(`day:${DAY}`)).not.toBeNull();
+
+    await h.press('journal-back-to-today');
+    expect(h.getByText('Journal · evening')).toBeTruthy();
+    expect(h.getByTestId('journal-card-0-editor').props.defaultValue).toBe('Tired but pleased.');
+    // it is still the wrap up's page: Done goes to whoever opened it
+    await h.press('journal-done');
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ text: 'Tired but pleased.' }));
+    expect(mockSavePage).not.toHaveBeenCalled();
+  });
+
+  it('does not add the words carried in from the chat box a second time on the way back', async () => {
+    const h = host();
+    h.open({ day: DAY, carry: 'Tired but pleased.' });
+    await h.press('journal-date');
+    await h.press('journal-cal-day-2026-09-24');
+    await h.press('journal-cal-open-n24');
+    await h.press('journal-back-to-today');
+    expect(h.getByTestId('journal-card-0-editor').props.defaultValue).toBe('Tired but pleased.');
+  });
+
+  it('steps from one entry to the next, with today’s page still waiting', async () => {
+    const h = host();
+    h.open({ day: DAY });
+    await h.press('journal-date');
+    await h.press('journal-cal-day-2026-09-24');
+    await h.press('journal-cal-open-n24');
+    expect(h.getByText('Tue 22')).toBeTruthy();
+    await h.press('journal-step-before');
+    expect(h.getByText('22 September')).toBeTruthy();
+    expect(h.getByText('Thu 24')).toBeTruthy();
+    expect(h.getByTestId('journal-step-before').props.accessibilityState).toMatchObject({
+      disabled: true,
+    });
+    expect(h.getByTestId('journal-back-to-today')).toBeTruthy();
+  });
+
+  it('keeps the way back through Edit on an older entry', async () => {
+    const h = host();
+    h.open({ day: DAY });
+    await h.press('journal-date');
+    await h.press('journal-cal-day-2026-09-24');
+    await h.press('journal-cal-open-n24');
+    await h.press('journal-edit');
+    expect(h.getByText('Journal · saved')).toBeTruthy();
+    await h.press('journal-date');
+    await h.press('journal-cal-day-2026-09-30');
+    expect(h.getByText('Back to today')).toBeTruthy();
+    await h.press('journal-cal-today-open');
+    expect(h.getByText('Journal · evening')).toBeTruthy();
+  });
+});
+
+describe('an entry opened on its own, as the Hub opens it', () => {
+  beforeEach(() => {
+    jest.spyOn(getDateService(), 'ritualDay').mockReturnValue(DAY);
+    mockNotes = [
+      savedEntry('n22', '2026-09-22', 'The slow start.'),
+      savedEntry('n24', '2026-09-24', 'The budget review.'),
+    ];
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('has the entries either side, and no Back to today', () => {
+    const h = host();
+    h.open({ day: '2026-09-24', entryId: 'n24', reading: true });
+    expect(h.getByText('Tue 22')).toBeTruthy();
+    expect(h.queryByTestId('journal-back-to-today')).toBeNull();
+  });
+
+  it('can start today’s page from the calendar', async () => {
+    const h = host();
+    h.open({ day: '2026-09-24', entryId: 'n24', reading: true });
+    await h.press('journal-date');
+    await h.press('journal-cal-day-2026-09-30');
+    expect(h.getByText('Nothing written yet today.')).toBeTruthy();
+    expect(h.getByText('Write today')).toBeTruthy();
+    await h.press('journal-cal-today-open');
+    expect(h.getByText('Journal · evening')).toBeTruthy();
+    expect(h.getByText('30 September')).toBeTruthy();
+  });
+
+  it('says today’s page is saved once it is, and opens it to add more', async () => {
+    mockNotes = [...mockNotes, savedEntry('n30', DAY, 'The walk.')];
+    const h = host();
+    h.open({ day: '2026-09-24', entryId: 'n24', reading: true });
+    await h.press('journal-date');
+    await h.press('journal-cal-day-2026-09-30');
+    expect(h.getByText('Saved today. Open it to add more.')).toBeTruthy();
+    await h.press('journal-cal-today-open');
+    expect(h.getByText('Journal · saved')).toBeTruthy();
+  });
+});
+
+describe('a check in on a goal and the calendar', () => {
+  it('has no calendar: it is not a day’s page', () => {
+    const h = host();
+    h.open({ day: DAY, goal: { goal_id: 'g1', goal_name: 'Run a 10k', space_id: 's1' } });
+    expect(h.queryByTestId('journal-date')).toBeNull();
+  });
+});
+
+describe('someone whose trial has ended', () => {
+  let asked: jest.Mock;
+  let stop: () => void;
+
+  beforeEach(() => {
+    mockAccess = false;
+    asked = jest.fn();
+    stop = eventBus.on('cortex:read_only', asked);
+    mockNotes = [savedEntry('n24', '2026-09-24', 'The budget review.')];
+  });
+
+  afterEach(() => stop());
+
+  it('is shown the way to subscribe instead of a new page', () => {
+    const h = host();
+    h.open({ day: DAY });
+    expect(h.queryByTestId('journal-page')).toBeNull();
+    expect(useJournalSession.getState().open).toBeNull();
+    expect(asked).toHaveBeenCalledTimes(1);
+  });
+
+  it('can still read what they wrote, and change it', async () => {
+    const h = host();
+    h.open({ day: '2026-09-24', entryId: 'n24', reading: true });
+    expect(h.getByTestId('journal-page')).toBeTruthy();
+    await h.press('journal-edit');
+    expect(h.getByTestId('journal-card-0-editor')).toBeTruthy();
+    expect(asked).not.toHaveBeenCalled();
+  });
+
+  it('is left to the wrap up when the wrap up opened the page', () => {
+    const h = host();
+    h.open({ day: DAY, save: jest.fn(async () => ({ ok: true }) as const) });
+    expect(h.getByTestId('journal-page')).toBeTruthy();
+    expect(asked).not.toHaveBeenCalled();
   });
 });

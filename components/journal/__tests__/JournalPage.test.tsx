@@ -6,8 +6,14 @@
 import React from 'react';
 import { Alert, StyleSheet } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
-import { JournalPage, type JournalPageProps, type JournalPageResult } from '../JournalPage';
+import {
+  JournalPage,
+  type JournalPageCalendar,
+  type JournalPageProps,
+  type JournalPageResult,
+} from '../JournalPage';
 import { card, newPage, setCardHtml, type JournalPage as Page } from '../../../lib/journal/page';
+import type { JournalEntry } from '../../../lib/journal/entry';
 import {
   BUILT_IN_PAGES,
   FREEFORM,
@@ -493,5 +499,164 @@ describe('pages of your own', () => {
     expect(onClose).not.toHaveBeenCalled();
     await press('journal-close');
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+describe('the calendar behind the date', () => {
+  const entry = (id: string, on: string): JournalEntry => ({
+    id,
+    subtype: 'journal',
+    title: `Entry ${id}`,
+    body: `Words of ${id}.`,
+    created_at: `${on}T19:00:00Z`,
+    views: { sweep_reflection: true, sweep_date: on },
+  });
+  const journal = (more: Partial<JournalPageCalendar> = {}): JournalPageCalendar => ({
+    entries: [entry('sep24', '2026-09-24'), entry('sep28', '2026-09-28')],
+    today: DAY,
+    todayState: 'empty',
+    here: true,
+    back: false,
+    ...more,
+  });
+
+  it('is not there where the page was given no journal to look through', () => {
+    const { queryByTestId, getByText } = open();
+    expect(queryByTestId('journal-date')).toBeNull();
+    expect(getByText('30 September')).toBeTruthy();
+  });
+
+  it('opens from the date, on the month of the page, with today chosen', async () => {
+    const { press, getByTestId, getByText } = open({ calendar: journal() });
+    await press('journal-date');
+    expect(getByTestId('journal-calendar-sheet')).toBeTruthy();
+    expect(getByTestId('journal-cal-month').props.children).toBe('September 2026');
+    expect(getByText('The page you are writing now.')).toBeTruthy();
+  });
+
+  it('carries on with today’s page from today’s button, without leaving it', async () => {
+    const onToday = jest.fn();
+    const { press, queryByTestId } = open({ calendar: journal(), onToday });
+    await press('journal-date');
+    await press('journal-cal-today-open');
+    expect(queryByTestId('journal-calendar-sheet')).toBeNull();
+    expect(onToday).not.toHaveBeenCalled();
+  });
+
+  it('opens an older entry to read, handing over what was being written to keep', async () => {
+    const onLookAt = jest.fn();
+    const { press, type, queryByTestId } = open({ calendar: journal(), onLookAt });
+    type(0, 'Tired but pleased.');
+    await press('journal-date');
+    await press('journal-cal-day-2026-09-24');
+    await press('journal-cal-open-sep24');
+    expect(queryByTestId('journal-calendar-sheet')).toBeNull();
+    expect(onLookAt).toHaveBeenCalledTimes(1);
+    const [id, left] = onLookAt.mock.calls[0];
+    expect(id).toBe('sep24');
+    expect(left.page.cards[0].html).toBe(p('Tired but pleased.'));
+  });
+
+  it('hands over nothing to keep when the page was not touched', async () => {
+    const onLookAt = jest.fn();
+    const { press } = open({ calendar: journal(), onLookAt });
+    await press('journal-date');
+    await press('journal-cal-day-2026-09-24');
+    await press('journal-cal-open-sep24');
+    expect(onLookAt).toHaveBeenCalledWith('sep24', null);
+  });
+
+  it('closes before the page does', async () => {
+    const { press, queryByTestId, onClose } = open({ calendar: journal() });
+    await press('journal-date');
+    await press('journal-close');
+    expect(queryByTestId('journal-calendar-sheet')).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe('reading an older entry, with the rest of the journal a tap away', () => {
+  const entry = (id: string, on: string): JournalEntry => ({
+    id,
+    subtype: 'journal',
+    title: `Entry ${id}`,
+    body: `Words of ${id}.`,
+    created_at: `${on}T19:00:00Z`,
+    views: { sweep_reflection: true, sweep_date: on },
+  });
+  const reading = (more: Partial<JournalPageProps> = {}) => {
+    const onLookAt = jest.fn();
+    const onToday = jest.fn();
+    const utils = open({
+      day: '2026-09-24',
+      kicker: 'Looking back',
+      reading: true,
+      initial: { tpl: FREEFORM, cards: [card(null, p('Words of sep24.'))] },
+      calendar: {
+        entries: [entry('sep22', '2026-09-22'), entry('sep24', '2026-09-24')],
+        today: DAY,
+        todayState: 'started',
+        here: false,
+        back: true,
+        onScreen: 'sep24',
+      },
+      steps: { before: { id: 'sep22', label: 'Tue 22' }, after: null },
+      onLookAt,
+      onToday,
+      ...more,
+    });
+    return { ...utils, onLookAt, onToday };
+  };
+
+  it('steps to the entry before, and has nowhere to go after the newest', async () => {
+    const { press, getByText, getByTestId, onLookAt } = reading();
+    expect(getByText('Tue 22')).toBeTruthy();
+    expect(getByTestId('journal-step-after').props.accessibilityState).toMatchObject({
+      disabled: true,
+    });
+    await press('journal-step-before');
+    expect(onLookAt).toHaveBeenCalledWith('sep22', null);
+  });
+
+  it('goes back to today’s page, which is waiting', async () => {
+    const { press, onToday } = reading();
+    await press('journal-back-to-today');
+    expect(onToday).toHaveBeenCalledWith(null);
+  });
+
+  it('has no Back to today when no page of today’s is waiting', () => {
+    const { queryByTestId, getByTestId } = reading({
+      calendar: {
+        entries: [],
+        today: DAY,
+        todayState: 'empty',
+        here: false,
+        back: false,
+        onScreen: 'sep24',
+      },
+    });
+    expect(getByTestId('journal-steps')).toBeTruthy();
+    expect(queryByTestId('journal-back-to-today')).toBeNull();
+  });
+
+  it('opens its calendar on its own month and day, and today’s button leads back', async () => {
+    const { press, getByTestId, getByText, onToday, onLookAt } = reading();
+    await press('journal-date');
+    expect(getByTestId('journal-cal-day-2026-09-24').props.accessibilityState).toMatchObject({
+      selected: true,
+    });
+    // choosing the entry already on screen just closes the calendar
+    await press('journal-cal-open-sep24');
+    expect(onLookAt).not.toHaveBeenCalled();
+    await press('journal-date');
+    await press('journal-cal-day-2026-09-30');
+    expect(getByText('You started a page today.')).toBeTruthy();
+    await press('journal-cal-today-open');
+    expect(onToday).toHaveBeenCalledWith(null);
+  });
+
+  it('has no stepping where the page was not given the entries either side', () => {
+    const { queryByTestId } = reading({ steps: undefined });
+    expect(queryByTestId('journal-steps')).toBeNull();
   });
 });
