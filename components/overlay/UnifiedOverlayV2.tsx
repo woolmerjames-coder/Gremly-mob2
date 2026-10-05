@@ -97,7 +97,7 @@ import ScopeSelector from '../ScopeSelector';
 import { usePhase8LinksState } from './hooks/usePhase8LinksState';
 import { PeopleLinker } from './fields/PeopleLinker';
 import PersonPicker from './fields/PersonPicker';
-import type { UnifiedCreateOverlayProps } from './UnifiedCreateOverlay';
+import type { UnifiedOverlayProps } from './overlayProps';
 import { styles } from './overlayStyles';
 import { initialV2State, type BaseType, type TagKey } from './overlayV2.state';
 import {
@@ -650,7 +650,7 @@ function getLogSubtypeChipLabel(
   }
 }
 
-export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
+export function UnifiedOverlayV2(props: UnifiedOverlayProps) {
   const {
     visible,
     onClose,

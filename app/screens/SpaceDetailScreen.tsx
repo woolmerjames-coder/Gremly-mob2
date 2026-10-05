@@ -8,7 +8,6 @@ import { SupabaseSpaceChatRepo } from '../../lib/repo/supabase';
 import { MemorySpaceChatRepo } from '../../lib/repo/memory';
 import MascotIcon from '../../components/MascotIcon';
 import PlusFAB from '../../components/PlusFAB';
-import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import type { Space, AppRecord, SpaceChat } from '../../lib/types';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -94,10 +93,6 @@ export default function SpaceDetail() {
     loadChats();
   }, [loadChats, navigation, id]);
 
-  const handleOverlaySaved = useCallback(() => {
-    // Store updates automatically, no need to reload
-  }, []);
-
   const handleNewChat = useCallback(async () => {
     try {
       const newChat = await spaceChatRepo.create(id, {
@@ -178,19 +173,6 @@ export default function SpaceDetail() {
 
       {/* Plus FAB for Manual Add with spaceId context */}
       <PlusFAB onPress={() => overlayController.openCreate({ spaceId: id })} />
-
-      {/* Unified Create Overlay */}
-      {overlayController.state.visible &&
-        (overlayController.state.mode === 'create' || overlayController.state.mode === 'edit') && (
-          <UnifiedCreateOverlay
-            visible={overlayController.state.visible}
-            mode={overlayController.state.mode}
-            initialEntity={overlayController.state.initialEntity}
-            initialSpaceId={overlayController.state.initialSpaceId}
-            onClose={overlayController.close}
-            onSaved={handleOverlaySaved}
-          />
-        )}
     </ScrollView>
   );
 }

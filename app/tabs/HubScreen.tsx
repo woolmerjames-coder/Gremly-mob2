@@ -49,7 +49,6 @@ import { colors, radii, spacing } from '../../theme/tokens';
 import { type as typeStyles } from '../../theme/typography';
 import { BRAND } from '../../design/brand';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
-import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { JournalHubView } from '../../components/journal/JournalHubView';
 import type { JournalEntry } from '../../lib/journal/entry';
@@ -623,10 +622,6 @@ export default function HubScreen() {
     },
     [storeUnsortedItems, updateTodo, updateHabit, updateNote],
   );
-
-  const handleOverlaySaved = useCallback(() => {
-    // Store auto-updates via EventBus - no manual reload needed
-  }, []);
 
   const isEmpty = scopedItems.length === 0;
 
@@ -1519,19 +1514,6 @@ export default function HubScreen() {
         }
         contentContainerStyle={{ paddingHorizontal: spacing.md, paddingBottom: spacing['2xl'] }}
       />
-
-      {/* Unified Create/Edit Overlay */}
-      {overlayController.state.visible &&
-        (overlayController.state.mode === 'create' || overlayController.state.mode === 'edit') && (
-          <UnifiedCreateOverlay
-            visible={overlayController.state.visible}
-            mode={overlayController.state.mode}
-            initialEntity={overlayController.state.initialEntity}
-            initialSpaceId={overlayController.state.initialSpaceId}
-            onClose={overlayController.close}
-            onSaved={handleOverlaySaved}
-          />
-        )}
 
       {/* Unsorted Review Sheet Modal */}
       {reviewSheetVisible && (

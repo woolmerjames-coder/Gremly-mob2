@@ -89,7 +89,6 @@ import NotepadOverlayV33 from '../../components/spaces/v33/Overlays/NotepadOverl
 // Phase 12: MilestoneHeader (milestone data now from Zustand store)
 import { MilestoneHeader } from '../../components/spaces/MilestoneHeader';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
-import UnifiedAddOverlay from '../../components/spaces/v33/Overlays/UnifiedAddOverlay';
 import RenameChatModal from '../../components/spaces/v33/Overlays/RenameChatModal';
 import { SpaceChatListModal } from '../../components/chat/SpaceChatListModal';
 import { getWittyLine, type Mood } from '../../lib/ai/moodLines';
