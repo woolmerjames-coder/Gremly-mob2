@@ -1,11 +1,9 @@
 /**
  * Due today: the one new view in the brief, opened from the day card's Todos
- * and Habits rows (and, to add to a plan, from the plan card). Todos and
- * habits in two tabs. Habits show where they are for the week, with the
- * Behind tag from the behind this week rule.
- *
- * In view mode a row shows the time the plan gave it, or that it is in the
- * plan. In add mode (from the plan card) each row can be added to the plan.
+ * and Habits rows. Todos and habits in two tabs. Habits show where they are
+ * for the week, with the Behind tag from the behind this week rule. A row
+ * shows the time the plan gave it, or that it is in the plan. Adding to a
+ * plan is the pick sheet's (PickSheet.tsx).
  */
 
 import React, { useState } from 'react';
@@ -18,7 +16,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Plus, X } from 'lucide-react-native';
+import { X } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Habit, Todo } from '../../lib/types';
 import type { DayCardData, HabitWeek } from '../../lib/brief/useDayCard';
@@ -34,11 +32,8 @@ type Props = {
   onClose: () => void;
   data: DayCardData;
   initialTab?: DueTab;
-  /** add: rows add to the plan (from the plan card) */
-  mode?: 'view' | 'add';
-  /** Ids already in the live plan (add mode, and "In the plan" in view mode) */
+  /** Ids already in the live plan: "In the plan" */
   inPlan?: Set<string>;
-  onAdd?: (id: string, kind: 'todo' | 'habit') => void;
   /** On a return day the Behind tag stays calm */
   calm?: boolean;
 };
@@ -66,9 +61,7 @@ export function DueTodaySheet({
   onClose,
   data,
   initialTab = 'todos',
-  mode = 'view',
   inPlan,
-  onAdd,
   calm,
 }: Props) {
   const insets = useSafeAreaInsets();
@@ -80,22 +73,7 @@ export function DueTodaySheet({
   const plannedAt = (id: string) => data.planned.find((p) => p.id === id);
   const weekOf = new Map<string, HabitWeek>(data.habitWeeks.map((w) => [w.habit.id, w]));
 
-  const action = (id: string, kind: 'todo' | 'habit') => {
-    if (mode === 'add') {
-      if (inPlan?.has(id)) return <Text style={styles.info}>In the plan</Text>;
-      return (
-        <TouchableOpacity
-          style={styles.act}
-          onPress={() => onAdd?.(id, kind)}
-          accessibilityRole="button"
-          accessibilityLabel="Add to the plan"
-          testID={`due-add-${id}`}
-        >
-          <Plus size={14} color={BRIEF.moss} strokeWidth={2.2} />
-          <Text style={styles.actText}>Add</Text>
-        </TouchableOpacity>
-      );
-    }
+  const action = (id: string) => {
     const at = plannedAt(id);
     if (at) return <Text style={styles.info}>{`${clock(at.start)} ${ampm(at.start)}`}</Text>;
     if (inPlan?.has(id)) return <Text style={styles.info}>In the plan</Text>;
@@ -115,7 +93,7 @@ export function DueTodaySheet({
           </Text>
           <Text style={styles.meta}>{meta}</Text>
         </View>
-        {action(t.id, 'todo')}
+        {action(t.id)}
       </View>
     );
   };
@@ -149,7 +127,7 @@ export function DueTodaySheet({
             ) : null}
           </View>
         </View>
-        {action(h.id, 'habit')}
+        {action(h.id)}
       </View>
     );
   };
@@ -167,7 +145,7 @@ export function DueTodaySheet({
       <View style={[styles.sheet, { paddingBottom: insets.bottom + 12 }]} testID="due-today-sheet">
         <View style={styles.grab} />
         <View style={styles.head}>
-          <Text style={styles.title}>{mode === 'add' ? 'Add to the plan' : dueLabel}</Text>
+          <Text style={styles.title}>{dueLabel}</Text>
           <TouchableOpacity
             style={styles.close}
             onPress={onClose}
@@ -350,21 +328,6 @@ const styles = StyleSheet.create({
   },
   behindCalm: {
     backgroundColor: BRIEF.sageWash,
-    color: BRIEF.moss,
-  },
-  act: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderWidth: 1.5,
-    borderColor: BRIEF.chipBorder,
-    borderRadius: 16,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-  },
-  actText: {
-    fontFamily: 'PlusJakartaSans-SemiBold',
-    fontSize: 13,
     color: BRIEF.moss,
   },
   info: {

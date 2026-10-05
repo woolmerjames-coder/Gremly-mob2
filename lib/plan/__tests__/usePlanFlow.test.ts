@@ -167,7 +167,7 @@ describe('planning in the thread', () => {
   it('plans tomorrow from 8am, for that day', async () => {
     const { hook, messages } = harness();
     await act(async () => {
-      await hook.result.current.start(null, { day: '2026-10-01' });
+      await hook.result.current.start(null, { day: '2026-10-01', direct: true });
     });
     expect(callPlanPick).toHaveBeenCalledWith(
       expect.objectContaining({ gap_from: 480, now: 480, for_day: '2026-10-01' }),
@@ -181,12 +181,15 @@ describe('planning in the thread', () => {
   it('adds Gremly’s line, the plan card and suggested changes', async () => {
     const { hook, messages } = harness();
     await act(async () => {
-      await hook.result.current.start({
-        type: 'brief-offer',
-        kind: 'plan',
-        buttons: [],
-        plan_from: 795,
-      });
+      await hook.result.current.start(
+        {
+          type: 'brief-offer',
+          kind: 'plan',
+          buttons: [],
+          plan_from: 795,
+        },
+        { direct: true },
+      );
     });
     const types = messages.map((m) => (m.metadata_json as any).type);
     expect(types).toEqual(['brief-text', 'brief-plan', 'brief-offer']);
@@ -217,13 +220,16 @@ describe('planning in the thread', () => {
     });
     const { hook, messages } = harness();
     await act(async () => {
-      await hook.result.current.start({
-        type: 'brief-offer',
-        kind: 'follow_up',
-        buttons: [],
-        plan_from: 795,
-        kept_ids: ['oat'],
-      });
+      await hook.result.current.start(
+        {
+          type: 'brief-offer',
+          kind: 'follow_up',
+          buttons: [],
+          plan_from: 795,
+          kept_ids: ['oat'],
+        },
+        { direct: true },
+      );
     });
     expect(callPlanPick).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -243,7 +249,7 @@ describe('planning in the thread', () => {
     (callPlanPick as jest.Mock).mockResolvedValue({ ok: false, error: 'offline' });
     const { hook, messages } = harness();
     await act(async () => {
-      await hook.result.current.start(null);
+      await hook.result.current.start(null, { direct: true });
     });
     const plan = messages.find((m) => (m.metadata_json as any).type === 'brief-plan')!
       .metadata_json as any;
@@ -254,7 +260,7 @@ describe('planning in the thread', () => {
   it('says yes to a plan and says so', async () => {
     const { hook, messages, deps } = harness();
     await act(async () => {
-      await hook.result.current.start(null);
+      await hook.result.current.start(null, { direct: true });
     });
     (lockPlanItems as jest.Mock).mockResolvedValue({
       created: ['Book the car service'],
@@ -283,7 +289,7 @@ describe('planning in the thread', () => {
     it('plans the day the clock already shows as another day, from the morning', async () => {
       const { hook, messages } = harness();
       await act(async () => {
-        await hook.result.current.start(null, { day: '2026-10-01' });
+        await hook.result.current.start(null, { day: '2026-10-01', direct: true });
       });
       expect(poolForDay).toHaveBeenCalledWith('2026-10-01');
       const plan = messages.find((m) => (m.metadata_json as any).type === 'brief-plan')!
@@ -297,7 +303,7 @@ describe('planning in the thread', () => {
     it('says it will be on Today in the morning, and that the brief will bring a plan put aside', async () => {
       const { hook, messages, deps } = harness();
       await act(async () => {
-        await hook.result.current.start(null, { day: '2026-10-01' });
+        await hook.result.current.start(null, { day: '2026-10-01', direct: true });
       });
       (lockPlanItems as jest.Mock).mockResolvedValue({ created: [], items: [] });
       const planMsg = messages.find((m) => (m.metadata_json as any).type === 'brief-plan')!;
@@ -320,7 +326,7 @@ describe('planning in the thread', () => {
     it('has no room left in the day being wrapped up', async () => {
       const { hook, messages } = harness();
       await act(async () => {
-        await hook.result.current.start(null);
+        await hook.result.current.start(null, { direct: true });
       });
       expect(messages.some((m) => (m.metadata_json as any).type === 'brief-plan')).toBe(false);
       expect(messages[messages.length - 1].content).toBe(PLAN_COPY.noRoom);
@@ -330,7 +336,7 @@ describe('planning in the thread', () => {
   it('turns a typed change into a new version and folds the old one', async () => {
     const { hook, messages, deps } = harness();
     await act(async () => {
-      await hook.result.current.start(null);
+      await hook.result.current.start(null, { direct: true });
     });
     (callPlanPick as jest.Mock).mockResolvedValue({
       ok: true,
@@ -353,7 +359,7 @@ describe('planning in the thread', () => {
   it('leaves a message that is not a plan change to chat', async () => {
     const { hook, messages, deps } = harness();
     await act(async () => {
-      await hook.result.current.start(null);
+      await hook.result.current.start(null, { direct: true });
     });
     (callPlanPick as jest.Mock).mockResolvedValue({
       ok: true,
@@ -387,7 +393,7 @@ describe('planning in the thread', () => {
     });
     const { hook, messages } = harness();
     await act(async () => {
-      await hook.result.current.start(null, { day: '2026-10-01' });
+      await hook.result.current.start(null, { day: '2026-10-01', direct: true });
     });
     expect(callPlanPick).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -407,9 +413,98 @@ describe('planning in the thread', () => {
     extra = { planEnd: 750, travel: { label: 'Flying to San Diego', departs: 750 } };
     const { hook, messages } = harness();
     await act(async () => {
-      await hook.result.current.start(null);
+      await hook.result.current.start(null, { direct: true });
     });
     expect(callPlanPick).not.toHaveBeenCalled();
     expect(messages.map((m) => m.content)).toEqual([PLAN_COPY.noRoomTravel]);
+  });
+});
+
+describe('planning through the pick sheet', () => {
+  const OFFER = {
+    type: 'brief-offer' as const,
+    kind: 'plan' as const,
+    buttons: [],
+    plan_from: 795,
+  };
+
+  it("opens the sheet at once, adds Gremly's suggestions when they are back, and plans what they pick as theirs", async () => {
+    const { hook, messages } = harness();
+    await act(async () => {
+      await hook.result.current.start(OFFER);
+    });
+    const session = hook.result.current.pickSession;
+    expect(session).toMatchObject({ day: '2026-09-30' });
+    expect(session?.suggested?.map((s) => s.id)).toEqual(['social', 'oat', 'fact-1']);
+    // nothing goes in the thread until they pick
+    expect(messages).toEqual([]);
+    await act(async () => {
+      await hook.result.current.planPicked([
+        { id: 'oat', kind: 'todo', minutes: 15, estimated: true },
+        { id: 'social', kind: 'habit', minutes: 30, estimated: false },
+      ]);
+    });
+    expect(hook.result.current.pickSession).toBeNull();
+    expect(messages[0].content).toBe(PLAN_COPY.yourPicks);
+    const plan = messages.find((m) => (m.metadata_json as any).type === 'brief-plan')!
+      .metadata_json as any;
+    expect(plan.items.map((x: any) => [x.id, !!x.chosen])).toEqual([
+      ['oat', true],
+      ['social', true],
+    ]);
+  });
+
+  it("keeps Gremly's line when they pick just what it suggested", async () => {
+    const { hook, messages } = harness();
+    await act(async () => {
+      await hook.result.current.start(OFFER);
+    });
+    await act(async () => {
+      await hook.result.current.planPicked(
+        ['social', 'oat', 'fact-1'].map((id) => ({
+          id,
+          kind: 'todo' as const,
+          minutes: 30,
+          estimated: false,
+        })),
+      );
+    });
+    expect(messages[0].content).toMatch(/light afternoon/);
+  });
+
+  it('with nothing picked, asks what has to happen first, and plans around the answer', async () => {
+    const { hook, messages } = harness();
+    await act(async () => {
+      await hook.result.current.start(OFFER);
+    });
+    await act(async () => {
+      await hook.result.current.askFirst();
+    });
+    const ask = messages[0].metadata_json as any;
+    expect(ask).toMatchObject({ type: 'brief-offer', kind: 'plan_ask', plan_day: '2026-09-30' });
+    expect(ask.buttons).toEqual([
+      expect.objectContaining({ id: 'plan_direct', action: 'plan', label: 'Just plan it' }),
+    ]);
+    expect(messages[0].content).toMatch(/has to happen today/);
+    expect(hook.result.current.awaitingAnswer()).toBe(true);
+    await act(async () => {
+      expect(await hook.result.current.planWithAnswer('The oat milk, we are out')).toBe(true);
+    });
+    expect(callPlanPick).toHaveBeenLastCalledWith(
+      expect.objectContaining({ asked: 'The oat milk, we are out' }),
+    );
+    expect(messages.map((m) => m.role)).toContain('user');
+    expect(messages.some((m) => (m.metadata_json as any).type === 'brief-plan')).toBe(true);
+    expect(hook.result.current.awaitingAnswer()).toBe(false);
+  });
+
+  it('closing the sheet leaves the thread as it was', async () => {
+    const { hook, messages } = harness();
+    await act(async () => {
+      await hook.result.current.start(OFFER);
+    });
+    act(() => hook.result.current.closePicks());
+    expect(hook.result.current.pickSession).toBeNull();
+    expect(messages).toEqual([]);
   });
 });

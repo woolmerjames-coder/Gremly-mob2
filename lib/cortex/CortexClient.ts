@@ -2289,6 +2289,8 @@ export interface PlanPickRequest {
   text?: string;
   /** The day being planned (YYYY-MM-DD); tomorrow plans without today's context */
   for_day?: string;
+  /** Their answer when Gremly asked what has to happen or comes first */
+  asked?: string;
 }
 
 export interface PlanPickResponse {

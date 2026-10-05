@@ -47,16 +47,29 @@ function poolOf(g) {
   ];
 }
 
+// --asked: Gremly asked what has to happen or comes first, and this was the answer;
+// what it names must be picked (want), or nothing in particular (want null)
+const ASKED = {
+  'busy-morning': { text: 'I really need to book the Denver flights today', want: 'Book flights for Denver' },
+  'light-day': { text: 'Returning the library books has to happen today', want: 'Return the library books' },
+  'evening-open': { text: 'I want to get a run in tonight', want: 'Run' },
+  'noon-open': { text: 'Nothing in particular, keep it light', want: null },
+};
+const askedOnly = args.includes('--asked');
+
 const results = [];
 for (const s of scenarios) {
   const { g, offer } = buildSnapshot(s);
   if (!offer.plan) continue;
+  const asked = askedOnly ? ASKED[s.id] : null;
+  if (askedOnly && !asked) continue;
   const body = {
     mode: 'pick',
     now: g.now,
     gap_from: offer.plan.gapFrom,
     pool: poolOf(g),
     meetings: g.meetings.map((m) => ({ title: m.title, start: m.start, end: m.end })),
+    ...(asked ? { asked: asked.text } : {}),
   };
   const req = readRequest(body);
   const ctx = {
@@ -89,6 +102,9 @@ for (const s of scenarios) {
         noTimesInIntro: !/\b\d{1,2}(:\d{2})?\s*(am|pm)\b|\b\d{1,2}:\d{2}\b/i.test(out.intro || ''),
         noShould: !/\bshould\b/i.test(out.intro || ''),
         everythingFits: fit.unplaced.length === 0,
+        ...(asked?.want
+          ? { pickedWhatTheySaid: out.picks.some((p) => byId.get(p.id)?.title === asked.want) }
+          : {}),
       };
       const ok = Object.values(checks).every(Boolean);
       console.log(`${ok ? 'ok   ' : 'LOOK '} ${s.id} · ${out.model}`);

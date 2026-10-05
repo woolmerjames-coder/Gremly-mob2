@@ -129,6 +129,7 @@ import {
 } from '../../lib/brief/sweepHandoff';
 import { opFromButton } from '../../lib/plan/planFlow';
 import { BriefPlanBlock } from '../../components/brief/BriefPlanBlock';
+import { PlanPickSheet } from '../../components/brief/PlanPickSheet';
 import { HomeChips } from '../../components/home/HomeChips';
 import { chatCardMeta, chatHistoryOf, useChatCard } from '../../lib/chat/useChatCard';
 import type { AgentTask } from '../../lib/cortex/CortexClient';
@@ -330,9 +331,12 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     messages,
     appendBriefMessage,
     patchMessageMetadata,
-    onPlan: (offerMsg) => {
+    onPlan: (offerMsg, button) => {
       const meta = briefMetaOf(offerMsg);
-      void planFlowRef.current.start(meta?.type === 'brief-offer' ? meta : null);
+      // Just plan it, after Gremly asked what to put first: no sheet this time
+      void planFlowRef.current.start(meta?.type === 'brief-offer' ? meta : null, {
+        direct: button.id === 'plan_direct',
+      });
     },
     onSweep: (offerMsg) => openBriefSweepRef.current(offerMsg),
     onWhatCanWait: (offerMsg) => {
@@ -746,6 +750,10 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       // The wrap up is waiting for this message: tonight's journal entry, or
       // the answer to Gremly's question (the pill above the box says which)
       if (isDailyThread && (await wrapUpRef.current.takeTyped(trimmed))) return;
+      // Gremly asked what has to happen or comes first: it plans around the answer
+      if (isDailyThread && planFlowRef.current.awaitingAnswer()) {
+        if (await planFlowRef.current.planWithAnswer(trimmed)) return;
+      }
       // A typed message is a reply to the brief too (feeds Gremly once a day)
       if (isDailyThread && activeChat) void creditFirstReply(activeChat.id);
       // In today's thread every typed message is read against the day first
@@ -1455,7 +1463,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         meta={meta}
         interactive={!planFlowRef.current.typing}
         onRemove={(id) => void planFlowRef.current.removeItem(message, id)}
-        onAdd={(id, kind) => void planFlowRef.current.addItem(message, id, kind)}
+        onAdd={(picks) => void planFlowRef.current.addItems(message, picks)}
         onYes={() =>
           void planFlowRef.current.accept(message).then(() => wrapUpRef.current.afterPlan())
         }
@@ -2077,6 +2085,15 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
           </View>
         )}
       </KeyboardAvoidingView>
+
+      {isDailyThread && planFlow.pickSession ? (
+        <PlanPickSheet
+          session={planFlow.pickSession}
+          onConfirm={(picks) => void planFlowRef.current.planPicked(picks)}
+          onAsk={() => void planFlowRef.current.askFirst()}
+          onClose={() => planFlowRef.current.closePicks()}
+        />
+      ) : null}
 
       <SaveSheet
         visible={saveSheetVisible}

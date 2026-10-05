@@ -60,7 +60,6 @@ describe('DueTodaySheet', () => {
         visible
         onClose={jest.fn()}
         data={{ ...data(), todosDue: [] }}
-        mode="add"
         initialTab="todos"
       />,
     );
@@ -89,24 +88,5 @@ describe('DueTodaySheet', () => {
     expect(r.queryByTestId('due-behind-pushups')).toBeNull();
     expect(r.getByText('0 of 3 this week')).toBeTruthy();
     expect(r.getByText('Daily')).toBeTruthy();
-  });
-
-  it('adds to the plan in add mode', () => {
-    const onAdd = jest.fn();
-    const r = render(
-      <DueTodaySheet
-        visible
-        onClose={jest.fn()}
-        data={data()}
-        initialTab="habits"
-        mode="add"
-        inPlan={new Set(['messaging'])}
-        onAdd={onAdd}
-      />,
-    );
-    expect(r.getByText('Add to the plan')).toBeTruthy();
-    expect(r.getByText('In the plan')).toBeTruthy();
-    fireEvent.press(r.getByTestId('due-add-social'));
-    expect(onAdd).toHaveBeenCalledWith('social', 'habit');
   });
 });

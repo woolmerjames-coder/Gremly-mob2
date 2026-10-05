@@ -73,6 +73,8 @@ export type OfferKind =
   | 'question'
   | 'follow_up'
   | 'plan_edit'
+  // Gremly asks what to put first before it plans (nothing was picked)
+  | 'plan_ask'
   | 'none'
   // the evening wrap up
   | 'wrap_up'
@@ -133,6 +135,8 @@ export interface BriefOfferMeta extends BriefMetaBase {
   catch_up?: string;
   /** Minutes from local midnight where the first clear stretch starts, when planning is possible */
   plan_from?: number;
+  /** The day a plan offer is for, when it is not today (plan_ask) */
+  plan_day?: string;
   /** The held offer this one shows again, after the question */
   revealed_from?: string;
   /** The plan offer this one brings back after a change made in the thread (once) */

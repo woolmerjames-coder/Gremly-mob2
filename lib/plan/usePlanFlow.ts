@@ -31,6 +31,7 @@ import {
   placePlan,
   refitKeeping,
   fitPlan,
+  CHOSEN_REASON,
   alreadySetText,
   dismissedText,
   planDay,
@@ -53,7 +54,7 @@ import {
 import { DEFAULT_PLAN_END, type DayRecord } from '../brief/dayRecord';
 import { localMinutesToIso } from '../brief/time';
 import { syncPlanItems, timeSignature, type StoreTimes } from './livePlan';
-import { PLAN_DAY_END } from './slotFitter';
+import { PLAN_DAY_END, freeMinutes } from './slotFitter';
 import { getDateService, nowTimestamp } from '../date/DateService';
 
 /** What the day turn's changes mean for the plan (lib/brief/applyChanges.ts). */
@@ -182,12 +183,106 @@ function poolWith(entries: PlanEntry[], day: string): Candidate[] {
   return pool;
 }
 
+/** The pick sheet while a plan is being made (components/brief/PickSheet.tsx). */
+export interface PickSession {
+  day: string;
+  /** Free minutes in the day from where planning starts */
+  free: number;
+  /** Gremly's suggestions, null while it chooses */
+  suggested:
+    | {
+        id: string;
+        kind: 'todo' | 'habit';
+        title: string;
+        minutes: number;
+        reason: string | null;
+      }[]
+    | null;
+}
+
+interface SessionData {
+  day: string;
+  from: number;
+  pool: Candidate[];
+  kept: string[];
+  /** Gremly's picks as plan entries, once back */
+  entries: PlanEntry[] | null;
+  intro: string | null;
+}
+
+/** "Before I plan, is there anything that has to happen today…" */
+export function askFirstText(d: { today: boolean; word: string }): string {
+  return `Happy to. Before I plan, is there anything that has to happen ${d.word}, or something you'd like to put first?`;
+}
+
+/** The picker's answer as plan entries, with Gremly's line and the lengths it estimated. */
+function picksOf(
+  res: Awaited<ReturnType<typeof callPlanPick>>,
+  pool: Candidate[],
+  from: number,
+): {
+  entries: PlanEntry[];
+  intro: string | null;
+  estimates: { id: string; kind: string; minutes: number }[];
+} {
+  const byId = new Map(pool.map((c) => [c.id, c]));
+  if (res.ok && res.data?.picks?.length) {
+    const entries = res.data.picks.flatMap((p): PlanEntry[] => {
+      const c = byId.get(p.id);
+      if (!c) return [];
+      return [
+        {
+          ...entryFromCandidate(c, from, p.window),
+          minutes: p.minutes,
+          reason: p.reason || c.why || null,
+        },
+      ];
+    });
+    return {
+      entries,
+      intro: res.data.intro ?? null,
+      estimates: res.data.picks
+        .filter((p) => p.estimated)
+        .map((p) => ({ id: p.id, kind: byId.get(p.id)?.kind ?? 'todo', minutes: p.minutes })),
+    };
+  }
+  if (!res.ok) console.warn('[Plan] the picker could not be reached:', res.error);
+  // without the picker: the first few candidates
+  const entries: PlanEntry[] = [];
+  for (const c of pool.filter((x) => x.source !== 'reach')) {
+    entries.push(entryFromCandidate(c, from));
+    if (entries.length >= 4) break;
+  }
+  return { entries, intro: null, estimates: [] };
+}
+
+/** What was kept in Sweep is in the plan, as theirs. */
+function withKept(
+  entries: PlanEntry[],
+  pool: Candidate[],
+  kept: string[],
+  from: number,
+): PlanEntry[] {
+  const out = [...entries];
+  for (const id of kept) {
+    const at = out.findIndex((e) => e.id === id);
+    if (at >= 0) {
+      out[at] = { ...out[at], chosen: true };
+      continue;
+    }
+    const c = pool.find((x) => x.id === id);
+    if (c) out.push({ ...entryFromCandidate(c, from), reason: PLAN_COPY.keptReason, chosen: true });
+  }
+  return out;
+}
+
 export function usePlanFlow(deps: PlanFlowDeps) {
   const depsRef = useRef(deps);
   depsRef.current = deps;
   const [typing, setTyping] = useState(false);
   const busyRef = useRef(false);
-  const extraRef = useRef<Candidate | null>(null);
+  // picked from the sheet but not a candidate today (a todo due another day)
+  const extraRef = useRef<Candidate[]>([]);
 
   const livePlan = useMemo(() => livePlanOf(deps.messages), [deps.messages]);
 
@@ -320,12 +415,43 @@ export function usePlanFlow(deps: PlanFlowDeps) {
     }
   }, []);
 
-  /** Plan my day / afternoon / evening, Plan anyway, Plan with Gremly. */
+  /**
+   * The pick sheet for a plan being made: the day's items with Gremly's
+   * suggestions on top (null while it chooses). Closed: null.
+   */
+  const [pickSession, setPickSession] = useState<PickSession | null>(null);
+  const sessionRef = useRef<SessionData | null>(null);
+  // Gremly asked what to put first: the next typed message is the answer
+  const askedForRef = useRef<string | null>(null);
+
+  /** Make the plan from entries already chosen: Gremly's line, then the card. */
+  const makePlan = useCallback(
+    async (day: string, entries: PlanEntry[], intro: string, pool: Candidate[]) => {
+      const rec = dayRecordFromStore(day);
+      const from = sessionRef.current?.day === day ? sessionRef.current.from : rec.planEnd;
+      const fit = fitPlan(entries, rec.busy, from, rec.planEnd);
+      await replaceOpen(false, day);
+      setTyping(false);
+      await say(intro);
+      await addPlan(fit, pool, day);
+    },
+    [addPlan, replaceOpen, say],
+  );
+
+  /**
+   * Plan my day / afternoon / evening, and planning another day. The pick
+   * sheet opens at once with the day's items, and Gremly's suggestions join
+   * it when they are back. direct: no sheet, Gremly plans it (Just plan it,
+   * an answer to what to put first, what was kept in Sweep).
+   */
   const start = useCallback(
-    (fromOffer?: BriefOfferMeta | null, opts: { day?: string } = {}) =>
+    (
+      fromOffer?: BriefOfferMeta | null,
+      opts: { day?: string; direct?: boolean; asked?: string; kept?: string[] } = {},
+    ) =>
       run(async () => {
         const d = depsRef.current;
-        const day = opts.day ?? theirDay();
+        const day = opts.day ?? fromOffer?.plan_day ?? theirDay();
         const today = isToday(day);
         const live = livePlanOf(d.messages, day);
         if (planMetaOf(live)?.status === 'locked') {
@@ -353,79 +479,142 @@ export function usePlanFlow(deps: PlanFlowDeps) {
           return;
         }
         // kept for today in Sweep just now: always in the plan
-        const kept = new Set(fromOffer?.kept_ids ?? []);
-        setTyping(true);
-        const res = await callPlanPick({
-          mode: 'pick',
-          now,
-          gap_from: from,
-          pool: pool.map((c) => ({
-            id: c.id,
-            kind: c.kind,
-            title: c.title,
-            minutes: c.minutes,
-            why: c.why,
-            window: c.window,
-            ...(kept.has(c.id) ? { kept: true } : {}),
-          })),
-          meetings: meetings.map((m) => ({ title: m.title, start: m.start, end: m.end })),
-          ...frameForPicker(rec),
-          for_day: day,
-        });
-        const byId = new Map(pool.map((c) => [c.id, c]));
-        let entries: PlanEntry[] = [];
-        let intro: string = PLAN_COPY.introFallback;
-        if (res.ok && res.data?.picks?.length) {
-          entries = res.data.picks.flatMap((p): PlanEntry[] => {
-            const c = byId.get(p.id);
-            if (!c) return [];
-            return [
-              {
-                ...entryFromCandidate(c, from, p.window),
-                minutes: p.minutes,
-                reason: p.reason || c.why || null,
-              },
-            ];
+        const kept = [...new Set([...(fromOffer?.kept_ids ?? []), ...(opts.kept ?? [])])];
+        askedForRef.current = null;
+        const session: SessionData = { day, from, pool, kept, entries: null, intro: null };
+        sessionRef.current = session;
+        const ask = () =>
+          callPlanPick({
+            mode: 'pick',
+            now,
+            gap_from: from,
+            pool: pool.map((c) => ({
+              id: c.id,
+              kind: c.kind,
+              title: c.title,
+              minutes: c.minutes,
+              why: c.why,
+              window: c.window,
+              ...(kept.includes(c.id) ? { kept: true } : {}),
+            })),
+            meetings: meetings.map((m) => ({ title: m.title, start: m.start, end: m.end })),
+            ...frameForPicker(rec),
+            for_day: day,
+            ...(opts.asked ? { asked: opts.asked } : {}),
+          }).then((res) => {
+            const picked = picksOf(res, pool, from);
+            if (picked.estimates.length) saveEstimates(picked.estimates);
+            return picked;
           });
-          if (res.data.intro) intro = res.data.intro;
-          saveEstimates(
-            res.data.picks
-              .filter((p) => p.estimated)
-              .map((p) => ({ id: p.id, kind: byId.get(p.id)?.kind ?? 'todo', minutes: p.minutes })),
+
+        if (opts.direct) {
+          setTyping(true);
+          const picked = await ask();
+          const entries = withKept(picked.entries, pool, kept, from);
+          await makePlan(day, entries, picked.intro ?? PLAN_COPY.introFallback, pool);
+          return;
+        }
+        // the sheet opens now; Gremly's suggestions follow
+        setPickSession({
+          day,
+          free: freeMinutes(rec.busy, [], from, rec.planEnd),
+          suggested: null,
+        });
+        void ask().then((picked) => {
+          if (sessionRef.current !== session) return;
+          session.entries = picked.entries;
+          session.intro = picked.intro;
+          setPickSession((p) =>
+            p && p.day === day
+              ? {
+                  ...p,
+                  suggested: picked.entries.map((e) => ({
+                    id: e.id,
+                    kind: e.kind === 'habit' ? 'habit' : 'todo',
+                    title: e.title,
+                    minutes: e.minutes,
+                    reason: e.reason,
+                  })),
+                }
+              : p,
           );
-        } else {
-          if (!res.ok) console.warn('[Plan] the picker could not be reached:', res.error);
-          // without the picker: the first few candidates, about half the free time
-          let budget =
-            (rec.planEnd -
-              from -
-              meetings.filter((m) => m.end > from && m.start < rec.planEnd).length * 30) /
-            2;
-          for (const c of pool.filter((x) => x.source !== 'reach')) {
-            const e = entryFromCandidate(c, from);
-            if (e.minutes > budget) continue;
-            entries.push(e);
-            budget -= e.minutes;
-            if (entries.length >= 4) break;
-          }
-        }
-        for (const id of kept) {
-          const c = byId.get(id);
-          if (c && !entries.some((e) => e.id === id)) {
-            entries.push({
-              ...entryFromCandidate(c, from),
-              reason: PLAN_COPY.keptReason,
-              chosen: true,
-            });
-          }
-        }
-        const fit = fitPlan(entries, rec.busy, from, rec.planEnd);
-        await replaceOpen(false, day);
-        setTyping(false);
-        await say(intro);
-        await addPlan(fit, pool, day);
+        });
       }),
-    [addPlan, replaceOpen, run, say],
+    [makePlan, run, say],
+  );
+
+  /** Picked on the sheet: the plan is what they picked, all theirs. */
+  const planPicked = useCallback(
+    (picks: { id: string; kind: 'todo' | 'habit'; minutes: number; estimated: boolean }[]) =>
+      run(async () => {
+        const sess = sessionRef.current;
+        setPickSession(null);
+        if (!sess || !picks.length) return;
+        const pool = [...sess.pool];
+        const gremly = new Map((sess.entries ?? []).map((e) => [e.id, e]));
+        const entries: PlanEntry[] = [];
+        for (const p of picks) {
+          const g = gremly.get(p.id);
+          if (g) {
+            entries.push({ ...g, chosen: true });
+            continue;
+          }
+          const c = pool.find((x) => x.id === p.id) ?? candidateFromStore(p.id, p.kind);
+          if (!c) continue;
+          if (!pool.some((x) => x.id === c.id)) pool.push(c);
+          const e = entryFromCandidate(c, sess.from);
+          entries.push({
+            ...e,
+            minutes: c.minutes ?? p.minutes,
+            chosen: true,
+            reason: CHOSEN_REASON,
+          });
+        }
+        const all = withKept(entries, pool, sess.kept, sess.from);
+        // Gremly's own line fits only when what they picked is what it suggested
+        const same =
+          !!sess.entries?.length &&
+          sess.entries.length === picks.length &&
+          sess.entries.every((e) => picks.some((p) => p.id === e.id));
+        await makePlan(sess.day, all, same && sess.intro ? sess.intro : PLAN_COPY.yourPicks, pool);
+      }),
+    [makePlan, run],
+  );
+
+  /** Nothing picked: Gremly asks what to put first before it plans. */
+  const askFirst = useCallback(
+    () =>
+      run(async () => {
+        const sess = sessionRef.current;
+        setPickSession(null);
+        if (!sess) return;
+        askedForRef.current = sess.day;
+        await offer(askFirstText(planDayNow(sess.day)), {
+          kind: 'plan_ask',
+          plan_day: sess.day,
+          buttons: [{ id: 'plan_direct', label: 'Just plan it', action: 'plan', primary: true }],
+        });
+      }),
+    [offer, run],
+  );
+
+  /** The sheet closed without a plan. */
+  const closePicks = useCallback(() => {
+    sessionRef.current = null;
+    setPickSession(null);
+  }, []);
+
+  /** Their answer to what to put first: Gremly plans around it. */
+  const planWithAnswer = useCallback(
+    async (text: string): Promise<boolean> => {
+      const day = askedForRef.current;
+      if (!day) return false;
+      askedForRef.current = null;
+      await depsRef.current.appendBriefMessage('user', text, {});
+      await start(null, { day, direct: true, asked: text });
+      return true;
+    },
+    [start],
   );
 
   /** Refresh the suggestions under a plan changed in place. */
@@ -445,25 +634,40 @@ export function usePlanFlow(deps: PlanFlowDeps) {
 
   /** × on a row, or Add something: the same card, re-fitted. */
   const changeInPlace = useCallback(
-    (planMsg: SpaceChatMessage, op: PlanOp) =>
+    (planMsg: SpaceChatMessage, ops: PlanOp[]) =>
       run(async () => {
         const d = depsRef.current;
         const meta = planMetaOf(planMsg);
-        if (!meta || meta.status !== 'proposal') return;
+        if (!meta || meta.status !== 'proposal' || !ops.length) return;
         const from = fromFor(meta);
-        const entries = entriesOf(meta);
+        let entries = entriesOf(meta);
         const pool = poolWith(entries, meta.date);
-        // something picked from Due today that is not a candidate today
-        const extra = extraRef.current;
-        extraRef.current = null;
-        if (extra && !pool.some((c) => c.id === extra.id)) pool.push(extra);
-        const next = applyOp(entries, op, pool, from, meta.items);
-        const fit = refitForDay(next, meta, from, [op.id]);
+        // picked from the sheet, not a candidate today
+        for (const extra of extraRef.current) {
+          if (!pool.some((c) => c.id === extra.id)) pool.push(extra);
+        }
+        extraRef.current = [];
+        for (const op of ops) entries = applyOp(entries, op, pool, from, meta.items);
+        const fit = refitForDay(
+          entries,
+          meta,
+          from,
+          ops.map((o) => o.id),
+        );
         await d.patchMessageMetadata(planMsg.id, { ...fit });
         await refreshSuggestions(planMsg, { ...meta, ...fit });
-        if (op.op === 'add' && !fit.items.some((x) => x.id === op.id)) {
-          const title = pool.find((c) => c.id === op.id)?.title ?? 'that';
-          await say(changeText(op, title, undefined, false));
+        const left = ops.filter((o) => o.op === 'add' && !fit.items.some((x) => x.id === o.id));
+        if (left.length === 1) {
+          const title = pool.find((c) => c.id === left[0].id)?.title ?? 'that';
+          await say(changeText(left[0], title, undefined, false));
+        } else if (left.length > 1) {
+          const text = unplacedText(
+            left.map((o) => ({
+              id: o.id,
+              title: pool.find((c) => c.id === o.id)?.title ?? 'that',
+            })),
+          );
+          if (text) await say(text);
         }
       }),
     [refreshSuggestions, run, say],
@@ -471,14 +675,20 @@ export function usePlanFlow(deps: PlanFlowDeps) {
 
   const removeItem = useCallback(
     (planMsg: SpaceChatMessage, id: string) =>
-      changeInPlace(planMsg, { op: 'remove', id, window: null }),
+      changeInPlace(planMsg, [{ op: 'remove', id, window: null }]),
     [changeInPlace],
   );
-  const addItem = useCallback(
-    (planMsg: SpaceChatMessage, id: string, kind: 'todo' | 'habit') => {
-      extraRef.current = candidateFromStore(id, kind);
-      // picked by them: it keeps its place ahead of what Gremly chose
-      return changeInPlace(planMsg, { op: 'add', id, window: null, chosen: true });
+  /** Picked on the sheet: all of them join the plan at once, as theirs. */
+  const addItems = useCallback(
+    (planMsg: SpaceChatMessage, picks: { id: string; kind: 'todo' | 'habit' }[]) => {
+      extraRef.current = picks
+        .map((p) => candidateFromStore(p.id, p.kind))
+        .filter((c): c is Candidate => !!c);
+      // picked by them: they keep their place ahead of what Gremly chose
+      return changeInPlace(
+        planMsg,
+        picks.map((p) => ({ op: 'add', id: p.id, window: null, chosen: true })),
+      );
     },
     [changeInPlace],
   );
@@ -597,7 +807,8 @@ export function usePlanFlow(deps: PlanFlowDeps) {
         const meta = planMetaOf(live);
         if (!live || !meta) {
           busyRef.current = false;
-          await start(null);
+          // no plan yet: Gremly plans around what they kept, which is theirs
+          await start(null, { direct: true, kept: ids });
           return;
         }
         const wasSet = meta.status === 'locked';
@@ -787,8 +998,14 @@ export function usePlanFlow(deps: PlanFlowDeps) {
     livePlan,
     inPlanIds,
     start,
+    pickSession,
+    planPicked,
+    askFirst,
+    closePicks,
+    planWithAnswer,
+    awaitingAnswer: () => askedForRef.current !== null,
     removeItem,
-    addItem,
+    addItems,
     applySuggestion,
     accept,
     dismiss,

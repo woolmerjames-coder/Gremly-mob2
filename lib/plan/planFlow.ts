@@ -419,6 +419,7 @@ export const PLAN_COPY = {
   againAfterChanges: "Here's the plan with those changes. Say yes again to keep them.",
   thanks: 'Any time.',
   keptReason: 'Kept for today',
+  yourPicks: "Here's the day with what you picked, around everything that's fixed.",
 };
 
 /** Gremly's line after a change. */
