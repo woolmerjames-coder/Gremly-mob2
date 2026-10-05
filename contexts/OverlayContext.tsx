@@ -1,6 +1,9 @@
 /**
  * OverlayContext - Global overlay controller
  * Ensures only one overlay instance exists across all screens
+ *
+ * Journal entries do not open here. One opened or started through this
+ * controller goes to the journal page (lib/journal/open.ts).
  */
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import type { AppRecord, CanonicalType, LogSubtype } from '../lib/types';
@@ -10,6 +13,8 @@ import { RelationPopup } from '../components/minddrop/RelationPopup';
 import { RelationToastHost } from '../components/minddrop/RelationToast';
 import type { ClarificationWhen } from '../lib/minddrop/clarification';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
+import { openEntryOnPage, writeOnPage } from '../lib/journal/open';
+import { useJournalSession } from '../lib/journal/session';
 import * as Haptics from 'expo-haptics';
 
 type EntityType = CanonicalType;
@@ -111,6 +116,20 @@ interface OverlayContextValue {
 }
 
 const OverlayContext = createContext<OverlayContextValue | undefined>(undefined);
+
+/** One opening at a time: a second tap in the moment it takes is ignored. */
+function holdOpening(
+  isOpening: React.MutableRefObject<boolean>,
+  timer: React.MutableRefObject<NodeJS.Timeout | null>,
+): void {
+  isOpening.current = true;
+  if (timer.current) {
+    clearTimeout(timer.current);
+  }
+  timer.current = setTimeout(() => {
+    isOpening.current = false;
+  }, 600);
+}
 
 export function OverlayProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<OverlayState>({
@@ -401,6 +420,12 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
             }
           : undefined;
       const resolvedText = initialText ?? conversionMeta?.initialNote ?? null;
+      // a new journal entry is written on the journal page
+      if (resolvedEntity?.type === 'log' && resolvedEntity.logSubtype === 'journal') {
+        holdOpening(isOpeningRef, debounceTimerRef);
+        writeOnPage(resolvedText);
+        return;
+      }
       setState({
         visible: true,
         mode: 'create',
@@ -425,6 +450,11 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
   const openEdit = useCallback(({ record, spaceId }: EditOptions) => {
     if (isOpeningRef.current) {
       console.log('[GlobalOverlay] open already in progress, ignoring');
+      return;
+    }
+    // a journal entry opens on the journal page
+    if (record.type === 'note' && openEntryOnPage(record.id)) {
+      holdOpening(isOpeningRef, debounceTimerRef);
       return;
     }
 
@@ -486,6 +516,11 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
   const openView = useCallback(({ record, spaceId, fromChat }: EditOptions) => {
     if (isOpeningRef.current) {
       console.log('[GlobalOverlay] open already in progress, ignoring');
+      return;
+    }
+    // a journal entry opens on the journal page
+    if (record.type === 'note' && openEntryOnPage(record.id)) {
+      holdOpening(isOpeningRef, debounceTimerRef);
       return;
     }
 
@@ -581,6 +616,16 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       if (!openStoreItem(target)) {
         returnAfterOverlay.current = null;
         onReturn();
+        return;
+      }
+      // a journal entry went to the journal page: come back when that closes
+      if (useJournalSession.getState().open?.entryId === target.id) {
+        returnAfterOverlay.current = null;
+        const stop = useJournalSession.subscribe((s) => {
+          if (s.open) return;
+          stop();
+          setTimeout(onReturn, 250);
+        });
         return;
       }
       // If the overlay did not open (another open was already under way), come back anyway

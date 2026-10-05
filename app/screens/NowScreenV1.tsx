@@ -38,7 +38,7 @@ import { OverwhelmPlanSheet } from '../../components/now/OverwhelmPlanSheet';
 import { OverwhelmFocusOverlay } from '../../components/now/OverwhelmFocusOverlay';
 import { NowProgressPopup } from '../../components/now/NowProgressPopup';
 import { YourNotesPopup } from '../../components/now/YourNotesPopup';
-import { JournalFullScreen } from '../../components/now/JournalFullScreen';
+import { openEntryOnPage } from '../../lib/journal/open';
 
 import EventQuickActionSheet from '../../components/now/EventQuickActionSheet';
 import TodoLinkSheet from '../../components/now/TodoLinkSheet';
@@ -557,10 +557,8 @@ export default function NowScreenV1() {
   const [isProgressVisible, setProgressVisible] = useState(false);
   const [isQuickAddVisible, setQuickAddVisible] = useState(false);
   const [isNotesVisible, setNotesVisible] = useState(false);
-  const [isJournalVisible, setJournalVisible] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showFirstVisitBubble, setShowFirstVisitBubble] = useState(false);
-  const [selectedJournalId, setSelectedJournalId] = useState<string | null>(null);
   const [quickActionEvent, setQuickActionEvent] = useState<Note | null>(null);
   const [linkTodoForEventId, setLinkTodoForEventId] = useState<string | null>(null);
 
@@ -799,12 +797,15 @@ export default function NowScreenV1() {
     [openEntityOverlay],
   );
 
-  // Handle selecting a journal from YourNotesPopup
-  const handleSelectJournal = useCallback((log: LogItem) => {
-    setNotesVisible(false);
-    setSelectedJournalId(log.id);
-    setJournalVisible(true);
-  }, []);
+  // A journal entry in YourNotesPopup opens on the journal page
+  const handleSelectJournal = useCallback(
+    (log: LogItem) => {
+      setNotesVisible(false);
+      // one the page cannot show (taken out of the journal since) opens as any note does
+      if (!openEntryOnPage(log.id)) openEntityOverlay({ id: log.id, type: 'note' });
+    },
+    [openEntityOverlay],
+  );
 
   if (!isInitialized) {
     return (
@@ -977,20 +978,6 @@ export default function NowScreenV1() {
         onClose={() => setNotesVisible(false)}
         onSelectLog={handleSelectLog}
         onSelectJournal={handleSelectJournal}
-      />
-
-      <JournalFullScreen
-        visible={isJournalVisible}
-        logId={selectedJournalId ?? undefined}
-        onClose={() => {
-          setJournalVisible(false);
-          setSelectedJournalId(null);
-        }}
-        onSave={() => {
-          setJournalVisible(false);
-          setSelectedJournalId(null);
-          // Store auto-updates, no reload needed
-        }}
       />
 
       {/* Day Picker - shown when Organize is pressed after sweep */}

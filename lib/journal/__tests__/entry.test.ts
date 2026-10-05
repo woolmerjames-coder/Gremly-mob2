@@ -14,7 +14,7 @@ import {
   pageEntryFor,
   type JournalEntry,
 } from '../entry';
-import { countLabel, dayWords } from '../words';
+import { checkInKicker, countLabel, dayWords, writingKicker } from '../words';
 
 const entry = (id: string, extra: Partial<JournalEntry> = {}): JournalEntry => ({
   id,
@@ -127,5 +127,10 @@ describe('how a day reads', () => {
     expect(countLabel(1)).toBe('1 word');
     expect(countLabel(16, 1)).toBe('16 words, 1 photo');
     expect(countLabel(61, 2)).toBe('61 words, 2 photos');
+  });
+
+  it('names the page for the part of the day, or for the goal a check in is on', () => {
+    expect(writingKicker('evening')).toBe('Journal · evening');
+    expect(checkInKicker('Run a 10k')).toBe('Check in · Run a 10k');
   });
 });

@@ -27,6 +27,7 @@ import {
   journalFor,
   journalTitle,
   knownMoods,
+  saveCheckIn,
   saveJournal,
   setJournalMoods,
   updateJournal,
@@ -346,7 +347,7 @@ describe('changing an entry that is already saved', () => {
     expect(updateNote.mock.calls[0][1].views).toEqual({ sweep_reflection: true, sweep_moods: [] });
   });
 
-  it('leaves the marks, tags and title of an entry that is not from a wrap up', async () => {
+  it('leaves the marks and tags of an entry that is not from a wrap up', async () => {
     mockNotes = [
       saved({
         title: 'Check-in: Run a 10k',
@@ -367,8 +368,9 @@ describe('changing an entry that is already saved', () => {
       goal_checkin: { goal_id: 'g1', goal_name: 'Run a 10k' },
       [LAYOUT_KEY]: page('Eleven miles today.'),
     });
+    // read again like any other entry: a title for what it says now, on top of its own tags
     const reread = updateNote.mock.calls[1][1];
-    expect(reread.title).toBeUndefined();
+    expect(reread.title).toBe('A long day, a good run');
     expect(reread.tags).toEqual(['run a 10k', 'running', '@sam-lee']);
   });
 
@@ -394,5 +396,71 @@ describe('changing an entry that is already saved', () => {
       message: 'offline',
     });
     warn.mockRestore();
+  });
+});
+
+describe('a check in on a goal', () => {
+  const goal = { goal_id: 'g1', goal_name: 'Run a 10k', space_id: 's1' };
+  const layout: JournalLayout = {
+    v: 1,
+    tpl: 'free',
+    cards: [{ q: null, html: '<html><p>Eleven miles today.</p></html>' }],
+    text: 'Eleven miles today.',
+  };
+
+  it('is saved with its goal and its Space, as the Space looks check ins up', async () => {
+    const res = await saveCheckIn({ text: ' Eleven miles today. ', moods: [], goal, page: layout });
+    expect(res.ok).toBe(true);
+    expect(createNote).toHaveBeenCalledWith({
+      subtype: 'journal',
+      title: 'Check-in: Run a 10k',
+      body: 'Eleven miles today.',
+      mood: null,
+      origin: 'goal_checkin',
+      canonicalType: 'log',
+      space_id: 's1',
+      tags: ['run a 10k'],
+      views: { goal_checkin: { goal_id: 'g1', goal_name: 'Run a 10k' }, [LAYOUT_KEY]: layout },
+    });
+  });
+
+  it('is not the day’s page', async () => {
+    await saveCheckIn({ text: 'Eleven miles today.', moods: [], goal });
+    expect(journalFor(mockNotes as never, DAY)).toBeNull();
+  });
+
+  it('is read in the background, keeping its goal, its page and the goal’s tag', async () => {
+    const res = await saveCheckIn({ text: 'Eleven miles today.', moods: [], goal, page: layout });
+    if (!res.ok) throw new Error('not saved');
+    expect(await res.moods).toEqual(['tired', 'good']);
+    const patch = updateNote.mock.calls[0][1];
+    expect(patch.title).toBe('A long day, a good run');
+    expect(patch.tags).toEqual(['run a 10k', 'running', '@sam-lee']);
+    expect(patch.views).toMatchObject({
+      goal_checkin: { goal_id: 'g1', goal_name: 'Run a 10k' },
+      [LAYOUT_KEY]: layout,
+    });
+  });
+
+  it('saves nothing when nothing was written, and says so when the save fails', async () => {
+    expect(await saveCheckIn({ text: ' ', moods: [], goal })).toEqual({
+      ok: false,
+      message: 'Nothing to save.',
+    });
+    expect(createNote).not.toHaveBeenCalled();
+    createNote.mockRejectedValueOnce(new Error('offline'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    expect(await saveCheckIn({ text: 'Hi', moods: [], goal })).toEqual({
+      ok: false,
+      message: 'offline',
+    });
+    warn.mockRestore();
+  });
+
+  it('can be taken back out', async () => {
+    const res = await saveCheckIn({ text: 'Eleven miles today.', moods: [], goal });
+    if (!res.ok) throw new Error('not saved');
+    await res.revert();
+    expect(deleteNote).toHaveBeenCalledWith('n1');
   });
 });

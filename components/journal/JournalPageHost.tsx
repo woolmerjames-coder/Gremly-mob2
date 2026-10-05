@@ -4,12 +4,13 @@
  *
  * It decides what the page starts with: the day's entry when that is already
  * written, else the page kept half written, else a new page on the one used
- * last. It saves what is written, unless whoever opened the page saves it
- * themselves (the wrap up does), and it keeps a page closed before Done.
+ * last. A check in on a goal always starts a new entry. It saves what is
+ * written, unless whoever opened the page saves it themselves (the wrap up
+ * does), and it keeps a page closed before Done.
  */
 import React, { useEffect, useMemo, useRef } from 'react';
 import { Alert, Modal } from 'react-native';
-import { entryDay, pageEntryFor, type JournalEntry } from '../../lib/journal/entry';
+import { checkInOf, entryDay, pageEntryFor, type JournalEntry } from '../../lib/journal/entry';
 import { addWords, newPage, pageOfEntry, type JournalPage as Page } from '../../lib/journal/page';
 import { allPages, pageById } from '../../lib/journal/pages';
 import { savePage } from '../../lib/journal/save';
@@ -23,10 +24,11 @@ import {
   pageOfDraft,
   setLastPage,
   useJournalSession,
+  type JournalGoal,
   type JournalOpen,
   type JournalPart,
 } from '../../lib/journal/session';
-import { JOURNAL_COPY, writingKicker } from '../../lib/journal/words';
+import { JOURNAL_COPY, checkInKicker, writingKicker } from '../../lib/journal/words';
 import type { Mood } from '../../lib/shared/moods';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { wrapNow } from '../../lib/wrapup/day';
@@ -38,6 +40,8 @@ type Start = {
   part: JournalPart;
   /** The saved entry being read or changed */
   entryId: string | null;
+  /** The goal a new check in is for */
+  goal: JournalGoal | null;
   reading: boolean;
   kicker: string;
   page: Page;
@@ -51,26 +55,33 @@ function startOf(request: JournalOpen, lastPage: string): Start | null {
   const notes = useGremlyStore.getState().notes as unknown as JournalEntry[];
   const pages = allPages();
   const part = request.part ?? wrapNow().part;
+  const goal = request.entryId ? null : (request.goal ?? null);
   const entry = request.entryId
     ? (notes.find((n) => n.id === request.entryId) ?? null)
-    : pageEntryFor(notes, request.day);
+    : goal
+      ? null
+      : pageEntryFor(notes, request.day);
   // the entry asked for has gone
   if (request.entryId && !entry) return null;
+  // a saved check in says which goal it is for, read or changed
+  const checkIn = entry ? checkInOf(entry) : null;
 
   if (entry && request.reading) {
     return {
       day: entryDay(entry) || request.day,
       part,
       entryId: entry.id,
+      goal: null,
       reading: true,
-      kicker: JOURNAL_COPY.kickerLooking,
+      kicker: checkIn ? checkInKicker(checkIn.goal_name) : JOURNAL_COPY.kickerLooking,
       page: pageOfEntry(entry, pages),
       moods: knownMoods(entry.mood),
       draft: draftKey({ day: request.day, entryId: entry.id }),
     };
   }
 
-  const key = draftKey({ day: request.day, entryId: entry?.id });
+  const goalName = goal?.goal_name ?? checkIn?.goal_name;
+  const key = draftKey({ day: request.day, entryId: entry?.id, goalId: goal?.goal_id });
   const kept = draftFor(key);
   let page: Page;
   let moods: Mood[];
@@ -89,8 +100,13 @@ function startOf(request: JournalOpen, lastPage: string): Start | null {
     day: entry ? entryDay(entry) || request.day : request.day,
     part,
     entryId: entry?.id ?? null,
+    goal,
     reading: false,
-    kicker: entry ? JOURNAL_COPY.kickerSaved : writingKicker(part),
+    kicker: goalName
+      ? checkInKicker(goalName)
+      : entry
+        ? JOURNAL_COPY.kickerSaved
+        : writingKicker(part),
     page,
     moods,
     draft: key,
@@ -159,6 +175,7 @@ export function JournalPageHost() {
                 day: start.day,
                 part: start.part,
                 entryId: start.entryId,
+                goal: start.goal,
                 written,
               });
           if (res.ok) {

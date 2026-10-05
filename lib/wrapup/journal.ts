@@ -109,8 +109,6 @@ async function enrich(
     dayMoods?: Promise<Mood[] | null>;
     /** The tags the entry keeps whatever is read: the wrap up's own, or the ones it already had */
     baseTags?: string[];
-    /** For an entry whose title says what it is, such as a goal check in */
-    keepTitle?: boolean;
   } = {},
 ): Promise<Mood[] | null> {
   const url = cortexUrl();
@@ -131,7 +129,7 @@ async function enrich(
   ]);
 
   const patch: Record<string, unknown> = {};
-  if (title?.smart_title && !opts.keepTitle) patch.title = title.smart_title;
+  if (title?.smart_title) patch.title = title.smart_title;
   let tags = [...new Set(opts.baseTags ?? TAGS)];
   const hadTags = tags.length;
   if (Array.isArray(read?.tags)) tags = [...new Set([...tags, ...read.tags])];
@@ -226,6 +224,62 @@ export async function saveJournal(p: {
   }
 }
 
+/**
+ * Save a check in on a goal, written from the goal's Space. It is a journal
+ * entry of its own, kept with its goal and its Space, and is not the day's
+ * page: the Space counts and lists a goal's check ins by these marks.
+ */
+export async function saveCheckIn(p: {
+  text: string;
+  moods: Mood[];
+  goal: { goal_id: string; goal_name: string; space_id: string };
+  /** The journal page it was written on, kept beside the words */
+  page?: JournalLayout;
+}): Promise<JournalSaved> {
+  const text = p.text.trim();
+  const moods = knownMoods(p.moods);
+  if (!text && !moods.length) return { ok: false, message: 'Nothing to save.' };
+  const title = `Check-in: ${p.goal.goal_name}`;
+  const tags = [p.goal.goal_name.toLowerCase()];
+  const checkIn = { goal_id: p.goal.goal_id, goal_name: p.goal.goal_name };
+  try {
+    const created = await store().createNote({
+      subtype: 'journal',
+      title,
+      body: text || undefined,
+      mood: moods.length ? moods : null,
+      origin: 'goal_checkin',
+      canonicalType: 'log',
+      space_id: p.goal.space_id,
+      tags: [...tags],
+      views: p.page ? { goal_checkin: checkIn, [LAYOUT_KEY]: p.page } : { goal_checkin: checkIn },
+    });
+    const noteId = created?.id as string | undefined;
+    if (!noteId) return { ok: false, message: 'It was not saved.' };
+    const found = text
+      ? enrich(noteId, text, moods, { baseTags: tags }).catch((err) => {
+          console.warn('[Journal] the background read of the check in failed:', err);
+          return null;
+        })
+      : Promise.resolve(null);
+    return {
+      ok: true,
+      noteId,
+      title,
+      moods: found,
+      revert: async () => {
+        await store().deleteNote(noteId);
+      },
+    };
+  } catch (err) {
+    console.warn('[Journal] could not save the check in:', err);
+    return {
+      ok: false,
+      message: err instanceof Error && err.message ? err.message : 'It was not saved.',
+    };
+  }
+}
+
 export type JournalChanged =
   | {
       ok: true;
@@ -282,10 +336,7 @@ export async function updateJournal(p: {
   }
   const reread = !!text && text !== (note.body ?? '').trim();
   const found = reread
-    ? enrich(p.noteId, text, moods, {
-        baseTags: note.tags ?? [],
-        keepTitle: !!views.goal_checkin,
-      }).catch((err) => {
+    ? enrich(p.noteId, text, moods, { baseTags: note.tags ?? [] }).catch((err) => {
         console.warn('[Journal] the background read of the change failed:', err);
         return null;
       })

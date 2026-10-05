@@ -3630,6 +3630,28 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 state.logSubtypeOverride || effectiveLogSubtype,
               )}
               onSelect={(entityType) => {
+                // a new journal entry is written on the journal page, which
+                // starts with the words typed here. The page cannot take photos
+                // yet, so one with photos added is still saved from here.
+                const photos = logPhotos.filter((p) => !p.isDeleted).length;
+                if (entityType === 'journal' && mode === 'create' && photos === 0) {
+                  const heading = (state.compactTitle ?? '').trim();
+                  const words = (currentText ?? '').trim();
+                  // a title made from the words is not written out twice
+                  const typed =
+                    heading && !words.includes(heading)
+                      ? [heading, words].filter(Boolean).join('\n')
+                      : words;
+                  onClose?.();
+                  setTimeout(() => {
+                    globalOverlay.openCreate({
+                      type: 'log',
+                      logSubtype: 'journal',
+                      initialText: typed || null,
+                    });
+                  }, 100);
+                  return;
+                }
                 const config = getTypeConfig(entityType);
                 if (config.baseType !== state.baseType) {
                   handleTypeSelect(config.baseType);

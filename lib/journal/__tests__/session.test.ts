@@ -67,6 +67,11 @@ describe('a page closed before Done', () => {
     expect(draftKey({ day: DAY, entryId: null })).toBe(`day:${DAY}`);
   });
 
+  it('is kept with the goal for a new check in, and with the entry once that is saved', () => {
+    expect(draftKey({ day: DAY, goalId: 'g1' })).toBe('goal:g1');
+    expect(draftKey({ day: DAY, entryId: 'n1', goalId: 'g1' })).toBe('entry:n1');
+  });
+
   it('comes back with its cards, its page and its moods', () => {
     keepDraft(draftKey({ day: DAY }), { page: written(), moods: ['frustrated'] });
     const draft = draftFor(`day:${DAY}`);

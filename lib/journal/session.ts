@@ -20,11 +20,19 @@ export type JournalPart = 'morning' | 'afternoon' | 'evening';
 export type JournalWritten = { text: string; layout: JournalLayout; moods: Mood[] };
 export type JournalSaveResult = { ok: true } | { ok: false; message: string };
 
+/** The goal a check in is written for, and the Space that goal is in */
+export type JournalGoal = { goal_id: string; goal_name: string; space_id: string };
+
 export type JournalOpen = {
   /** The person's day the page is for */
   day: string;
   /** A saved entry to open. Left out for the day's own page. */
   entryId?: string;
+  /**
+   * A new check in on a goal, from its Space. It is an entry of its own, kept
+   * with the goal, and not the day's page.
+   */
+  goal?: JournalGoal;
   /** Show a saved entry to read, with Edit. Otherwise the page opens to write on. */
   reading?: boolean;
   /** The part of the day it is written in, for the header and the entry's first title */
@@ -74,9 +82,17 @@ export function closeJournal(): void {
   useJournalSession.setState({ open: null });
 }
 
-/** Where a draft is kept: with the saved entry it changes, or with the day it is for. */
-export function draftKey(at: { day: string; entryId?: string | null }): string {
-  return at.entryId ? `entry:${at.entryId}` : `day:${at.day}`;
+/**
+ * Where a draft is kept: with the saved entry it changes, with the goal a new
+ * check in is for, or with the day it is for.
+ */
+export function draftKey(at: {
+  day: string;
+  entryId?: string | null;
+  goalId?: string | null;
+}): string {
+  if (at.entryId) return `entry:${at.entryId}`;
+  return at.goalId ? `goal:${at.goalId}` : `day:${at.day}`;
 }
 
 export function keepDraft(key: string, left: { page: JournalPage; moods: Mood[] }): void {

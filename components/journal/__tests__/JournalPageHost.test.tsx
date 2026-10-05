@@ -100,6 +100,7 @@ describe('a new page for today', () => {
       day: DAY,
       part: 'afternoon',
       entryId: null,
+      goal: null,
       written: expect.objectContaining({ text: 'Tired but pleased.', moods: [] }),
     });
     expect(h.queryByTestId('journal-page')).toBeNull();
@@ -241,5 +242,63 @@ describe('looking back at a saved entry', () => {
     h.open({ day: DAY, entryId: 'gone', reading: true });
     expect(h.queryByTestId('journal-page')).toBeNull();
     expect(useJournalSession.getState().open).toBeNull();
+  });
+});
+
+describe('a check in on a goal', () => {
+  const goal = { goal_id: 'g1', goal_name: 'Run a 10k', space_id: 's1' };
+
+  it('starts a new entry named for the goal, even when the day’s page is written', async () => {
+    mockNotes = [savedEntry('n7', DAY, 'The budget review.')];
+    const h = host();
+    h.open({ day: DAY, goal });
+    expect(h.getByText('Check in · Run a 10k')).toBeTruthy();
+    expect(h.getByTestId('journal-card-0-editor').props.defaultValue).toBe('');
+    h.type(0, 'Eleven miles today.');
+    await h.press('journal-done');
+    expect(mockSavePage).toHaveBeenCalledWith({
+      day: DAY,
+      part: 'evening',
+      entryId: null,
+      goal,
+      written: expect.objectContaining({ text: 'Eleven miles today.' }),
+    });
+    expect(h.queryByTestId('journal-page')).toBeNull();
+  });
+
+  it('keeps one closed before Done with the goal, apart from the day’s page', async () => {
+    const h = host();
+    h.open({ day: DAY, goal });
+    h.type(0, 'Eleven miles today.');
+    await h.press('journal-close');
+    expect(draftFor('goal:g1')).not.toBeNull();
+    expect(draftFor(`day:${DAY}`)).toBeNull();
+
+    h.open({ day: DAY });
+    expect(h.getByTestId('journal-card-0-editor').props.defaultValue).toBe('');
+    await h.press('journal-close');
+    h.open({ day: DAY, goal });
+    expect(h.getByTestId('journal-card-0-editor').props.defaultValue).toBe('Eleven miles today.');
+  });
+
+  it('shows a saved one under its goal, to read and to change', async () => {
+    mockNotes = [
+      {
+        id: 'c1',
+        subtype: 'journal',
+        created_at: '2026-09-24T18:00:00Z',
+        body: 'Eleven miles today.',
+        views: { goal_checkin: { goal_id: 'g1', goal_name: 'Run a 10k' } },
+      },
+    ];
+    const h = host();
+    h.open({ day: DAY, entryId: 'c1', reading: true });
+    expect(h.getByText('Check in · Run a 10k')).toBeTruthy();
+    expect(h.getByText('Thursday')).toBeTruthy();
+    await h.press('journal-edit');
+    expect(h.getByText('Check in · Run a 10k')).toBeTruthy();
+    await h.press('journal-done');
+    // changed in place: it is already with its goal
+    expect(mockSavePage.mock.calls[0][0]).toMatchObject({ entryId: 'c1', goal: null });
   });
 });

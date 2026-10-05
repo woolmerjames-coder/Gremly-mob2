@@ -120,7 +120,7 @@ import {
 import { SectionDivider } from '../../components/spaces/sections/SectionDivider';
 import { SpaceJourneyModal } from '../../components/spaces/SpaceJourneyModal';
 import { PinnedItemsModal } from '../../components/spaces/PinnedItemsModal';
-import { JournalFullScreen } from '../../components/now/JournalFullScreen';
+import { openJournal } from '../../lib/journal/session';
 import { EmptySpaceState } from '../../components/spaces/EmptySpaceState';
 import { SpaceSettingsModal } from '../../components/spaces/SpaceSettingsModal';
 import { CompletedInSpaceOverlay } from '../../components/spaces/CompletedInSpaceOverlay';
@@ -497,13 +497,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [optimisticVersion, forceUpdate] = useReducer((x) => x + 1, 0);
   const [showPinnedModal, setShowPinnedModal] = useState(false);
   const [showKeyDatesModal, setShowKeyDatesModal] = useState(false);
-  const [showGoalCheckInJournal, setShowGoalCheckInJournal] = useState(false);
-  const [goalCheckInContext, setGoalCheckInContext] = useState<{
-    goal_id: string;
-    goal_name: string;
-    space_id: string;
-    space_name: string;
-  } | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [chatListModalVisible, setChatListModalVisible] = useState(false);
   const [showCompletedOverlay, setShowCompletedOverlay] = useState(false);
@@ -951,28 +944,21 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     setShowQuickAddModal(true);
   }, []);
 
-  // Goal Check-in: Open journal for a goal
+  // Goal Check-in: a new check in on the goal, written on the journal page
   const handleGoalCheckIn = useCallback(
-    (goal: Note, sName: string) => {
-      console.log('[SpaceHome] Opening goal check-in journal with context:', {
-        goal_id: goal.id,
-        goal_name: goal.title,
-        space_id: spaceId,
-        space_name: sName,
-      });
+    (goal: Note) => {
       // Close SpaceJourneyModal first to avoid nested modal issues
       setShowKeyDatesModal(false);
-      // Small delay to let the modal close before opening the new one
+      // Small delay to let the modal close before the page opens
       setTimeout(() => {
-        const context = {
-          goal_id: goal.id,
-          goal_name: goal.title || 'Untitled Goal',
-          space_id: spaceId,
-          space_name: sName,
-        };
-        console.log('[SpaceHome] Setting goalCheckInContext:', context);
-        setGoalCheckInContext(context);
-        setShowGoalCheckInJournal(true);
+        openJournal({
+          day: getDateService().ritualDay(),
+          goal: {
+            goal_id: goal.id,
+            goal_name: goal.title || 'Untitled Goal',
+            space_id: spaceId,
+          },
+        });
       }, 300);
     },
     [spaceId],
@@ -1973,31 +1959,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           onGoalChat={handleGoalChat}
           onCheckInPress={handleCheckInPress}
           onGoalCheckIn={handleGoalCheckIn}
-        />
-
-        {/* Goal Check-in Journal */}
-        <JournalFullScreen
-          visible={showGoalCheckInJournal}
-          createMode={true}
-          goalContext={
-            goalCheckInContext
-              ? {
-                  type: 'goal_checkin',
-                  goal_id: goalCheckInContext.goal_id,
-                  goal_name: goalCheckInContext.goal_name,
-                  space_id: goalCheckInContext.space_id,
-                  space_name: goalCheckInContext.space_name,
-                }
-              : undefined
-          }
-          onClose={() => {
-            setShowGoalCheckInJournal(false);
-            setGoalCheckInContext(null);
-          }}
-          onSave={() => {
-            setShowGoalCheckInJournal(false);
-            setGoalCheckInContext(null);
-          }}
         />
 
         {/* Space Settings Modal */}

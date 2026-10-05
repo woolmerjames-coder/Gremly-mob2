@@ -48,6 +48,11 @@ export function writingKicker(part: 'morning' | 'afternoon' | 'evening'): string
   return `Journal · ${part}`;
 }
 
+/** The small line over the day on a goal check in: "Check in · Run a 10k" */
+export function checkInKicker(goalName: string): string {
+  return `Check in · ${goalName}`;
+}
+
 /** "16 words", "1 word, 2 photos" */
 export function countLabel(words: number, photos = 0): string {
   const w = `${words} ${words === 1 ? 'word' : 'words'}`;
