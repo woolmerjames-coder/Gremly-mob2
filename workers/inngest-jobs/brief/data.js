@@ -93,12 +93,14 @@ export async function todaysDco(env, userId, tz, today) {
 export async function gatherBrief(env, userId, { at = new Date() } = {}) {
   const d = db(env);
   const tz = await userTimezone(env, userId);
-  const today = localDate(tz, at);
+  const calendarDay = localDate(tz, at);
   const now = minutesIn(tz, at);
   const [prefs] = await d.select(
     `cortex_preferences?owner_id=eq.${userId}&select=day_boundary_hour,gremly_age`,
   );
-  const ritualDay = ritualDayFor(today, now, dayEndHourFrom(prefs?.day_boundary_hour));
+  const dayEndHour = dayEndHourFrom(prefs?.day_boundary_hour);
+  const ritualDay = ritualDayFor(calendarDay, now, dayEndHour);
+  const today = ritualDay;
   const dayStart = localStartIso(tz, today);
   const dayEnd = localStartIso(tz, addDays(today, 1));
   const monday = mondayOf(today);
@@ -133,7 +135,7 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
     ),
     // Sweep's counts by the app's own rules (the evening Sweep and the
     // morning's quick sweep); null when they cannot be counted
-    sweepCounts(env, userId, { today, tz, day: ritualDay }).catch(() => null),
+    sweepCounts(env, userId, { today, tz, day: ritualDay, dayEndHour }).catch(() => null),
     // today's thread: set times added there (fixed_blocks) belong to the day
     d
       .select(

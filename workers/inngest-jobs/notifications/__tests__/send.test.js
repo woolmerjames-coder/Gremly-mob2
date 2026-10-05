@@ -19,6 +19,7 @@ import {
   briefFacts,
   compose,
   touchedTonight,
+  dayStartIso,
 } from '../send';
 import { gatherBrief } from '../../brief/data';
 import { writeDailyBrief } from '../../brief/index';
@@ -26,6 +27,15 @@ import { reportProblem } from '../alert';
 import { jsonCall } from '../../context/llm';
 
 jest.mock('../../context/llm', () => ({ jsonCall: jest.fn() }));
+
+test('the notification day starts at local 3 AM across daylight saving changes', () => {
+  const person = {
+    tz: 'America/Los_Angeles',
+    cortex: { day_boundary_hour: 3 },
+  };
+  expect(dayStartIso({ ...person, ritualDay: '2026-03-08' })).toBe('2026-03-08T10:00:00.000Z');
+  expect(dayStartIso({ ...person, ritualDay: '2026-11-01' })).toBe('2026-11-01T11:00:00.000Z');
+});
 jest.mock('../alert', () => ({ reportProblem: jest.fn(), cronCheckIn: jest.fn() }));
 jest.mock('../../brief/index', () => ({ writeDailyBrief: jest.fn() }));
 jest.mock('../../brief/data', () => ({
@@ -307,7 +317,7 @@ describe('decide', () => {
     mockTables.cortex_preferences = [{ day_boundary_hour: 3 }];
     mockTables.events = (path) => {
       const since = decodeURIComponent(path.match(/created_at=gte\.([^&]+)/)[1]);
-      return since === '2026-10-01T03:00:00.000Z' ? [] : [{ created_at: '2026-10-01T00:30:00Z' }];
+      return since === '2026-10-01T02:00:00.000Z' ? [] : [{ created_at: '2026-10-01T00:30:00Z' }];
     };
     const v = await decide(ON, job, { at: AT });
     expect(v.action).toBe('send');

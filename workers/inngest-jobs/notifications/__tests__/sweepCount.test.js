@@ -14,6 +14,14 @@ const note = (over = {}) => ({
   ...over,
 });
 
+test('late-night notes count for the person day, respecting a midnight preference', () => {
+  const notes = ['catchall', 'list', 'reference'].map((subtype) =>
+    note({ subtype, created_at: '2026-10-02T08:00:00Z' }),
+  );
+  expect(countBoth({ notes, today, tz, day: today }).evening).toBe(3);
+  expect(countBoth({ notes, today, tz, day: today, dayEndHour: 0 }).evening).toBe(0);
+});
+
 describe('countSweep: todos', () => {
   it('counts overdue, due today and undated todos', () => {
     const todos = [

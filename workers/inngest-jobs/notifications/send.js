@@ -11,7 +11,8 @@
  */
 
 import { db, localDate, userTimezone } from '../context/db';
-import { gatherBrief, minutesIn, ritualDayFor, localStartIso } from '../brief/data';
+import { gatherBrief, minutesIn, ritualDayFor } from '../brief/data';
+import { localStartIso } from '../../shared/calendar.js';
 import { writeDailyBrief } from '../brief/index';
 import {
   POLICY,
@@ -145,9 +146,8 @@ export async function loadPerson(env, userId, at = new Date()) {
 
 /** When the person's day started: their day end hour on their day, as a UTC time. */
 export function dayStartIso(person) {
-  const midnight = Date.parse(localStartIso(person.tz, person.ritualDay));
   const hour = dayEndHourFrom(person.cortex?.day_boundary_hour);
-  return new Date(midnight + hour * 3600000).toISOString();
+  return localStartIso(person.tz, person.ritualDay, hour);
 }
 
 /**
@@ -320,9 +320,10 @@ export async function decide(env, job, { at = new Date(), heldSoFar = 0 } = {}) 
     if (g && (!g.sweep || (job.moment === 'sweep' && !Number.isFinite(g.sweep.evening)))) {
       // counted by the app's own Sweep rules; null (no number at all) if it fails
       g.sweep = await sweepCounts(env, job.user_id, {
-        today: person.today,
+        today: person.ritualDay,
         tz: person.tz,
         day: person.ritualDay,
+        dayEndHour: dayEndHourFrom(person.cortex?.day_boundary_hour),
       }).catch(() => null);
     }
     const now = g?.now ?? person.nowMinutes;

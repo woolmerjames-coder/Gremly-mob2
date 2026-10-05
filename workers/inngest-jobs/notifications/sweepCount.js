@@ -11,6 +11,8 @@
  */
 import { db } from '../context/db';
 import { addDays, localDateOf } from './reminderTimes';
+import { minutesIn } from '../../shared/calendar.js';
+import { DEFAULT_DAY_END_HOUR, personDay } from '../../shared/day.js';
 
 const relationPending = (rel) =>
   !!rel && typeof rel === 'object' && !!rel.classified && rel.status === 'pending';
@@ -19,7 +21,13 @@ const relationPending = (rel) =>
  * What Sweep would show, for the dates as the person sees them (`today` in
  * their time zone): the todos and notes on its cards.
  */
-export function sweepItems({ todos = [], notes = [], today, tz }) {
+export function sweepItems({
+  todos = [],
+  notes = [],
+  today,
+  tz,
+  dayEndHour = DEFAULT_DAY_END_HOUR,
+}) {
   const weekAgo = addDays(today, -7);
   const outTodos = [];
   const outNotes = [];
@@ -45,7 +53,9 @@ export function sweepItems({ todos = [], notes = [], today, tz }) {
     const skipped = !!n.skipped_in_sweep_at;
     if (n.swept_at && !resurfacesToday && !skipped && !pending) continue;
 
-    const createdDay = n.created_at ? localDateOf(new Date(n.created_at), tz) : null;
+    const createdDay = n.created_at
+      ? personDay(localDateOf(new Date(n.created_at), tz), minutesIn(tz, n.created_at), dayEndHour)
+      : null;
     const isEvent = n.subtype === 'event';
     const target = n.target_date || null;
     const held = !n.external_source;
@@ -152,20 +162,28 @@ async function readSweepRows(env, userId) {
 }
 
 /** Reads what Sweep needs and counts it. */
-export async function sweepWaiting(env, userId, { today, tz }) {
+export async function sweepWaiting(env, userId, { today, tz, dayEndHour }) {
   const rows = await readSweepRows(env, userId);
-  return countSweep({ ...rows, today, tz });
+  return countSweep({ ...rows, today, tz, dayEndHour });
 }
 
 /**
  * The counts from rows already read (pure). `day` is the person's day, for the
  * evening's number; it is the calendar date when left out.
  */
-export function countBoth({ todos = [], notes = [], lastSweepAt = null, today, tz, day = null }) {
-  const q = quickSweepItems({ todos, notes, today, tz, since: lastSweepAt });
-  const evening = eveningItems({ todos, notes, today: day || today, tz });
+export function countBoth({
+  todos = [],
+  notes = [],
+  lastSweepAt = null,
+  today,
+  tz,
+  day = null,
+  dayEndHour,
+}) {
+  const q = quickSweepItems({ todos, notes, today, tz, dayEndHour, since: lastSweepAt });
+  const evening = eveningItems({ todos, notes, today: day || today, tz, dayEndHour });
   return {
-    all: countSweep({ todos, notes, today, tz }),
+    all: countSweep({ todos, notes, today, tz, dayEndHour }),
     // what the evening wrap up will offer to sort
     evening: evening.todos.length + evening.notes.length,
     quick: q.pastDay.length + q.noDay.length + q.other.length + q.notes.length,
@@ -183,7 +201,7 @@ export function countBoth({ todos = [], notes = [], lastSweepAt = null, today, t
  * morning), and Sweep's whole list, with what the quick sweep holds:
  * { all, evening, quick, pastDay, noDay, other, notes, newSince, lastSweepAt }.
  */
-export async function sweepCounts(env, userId, { today, tz, day = null }) {
+export async function sweepCounts(env, userId, { today, tz, day = null, dayEndHour }) {
   const rows = await readSweepRows(env, userId);
-  return countBoth({ ...rows, today, tz, day });
+  return countBoth({ ...rows, today, tz, day, dayEndHour });
 }

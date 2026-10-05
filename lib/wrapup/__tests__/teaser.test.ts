@@ -4,6 +4,7 @@
  * card and the Today button) and the start (the chip, at any hour).
  */
 import { eveningTeaser, touchedTonight } from '../teaser';
+import { getDateService } from '../../date/DateService';
 import { newWrapState, withDecision } from '../state';
 import type { WrapUpState } from '../../brief/types';
 
@@ -146,6 +147,15 @@ describe('before the evening', () => {
 });
 
 describe('a no before the evening is not a no for tonight', () => {
+  let previousTimezone: string;
+  beforeEach(() => {
+    previousTimezone = getDateService().getTimezone();
+    getDateService().setTimezone('UTC');
+  });
+  afterEach(() => {
+    getDateService().setTimezone(previousTimezone);
+  });
+
   it('the evening nudges again after an earlier Not now', () => {
     expect(
       eveningTeaser({

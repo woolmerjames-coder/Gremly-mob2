@@ -5,6 +5,7 @@
 import { renderHook } from '@testing-library/react-native';
 import type { WrapUpState } from '../../brief/types';
 import { newWrapState } from '../state';
+import { getDateService } from '../../date/DateService';
 
 let mockMinutes = 14 * 60;
 let mockPlanned: unknown[] = [];
@@ -40,7 +41,10 @@ const wrapAt = (step: WrapUpState['step'], touched_at: string): WrapUpState => (
   touched_at,
 });
 
+let previousTimezone: string;
 beforeEach(() => {
+  previousTimezone = getDateService().getTimezone();
+  getDateService().setTimezone('UTC');
   mockMinutes = 14 * 60;
   mockPlanned = [];
   mockWrap = null;
@@ -54,6 +58,10 @@ beforeEach(() => {
     todos: [],
     habits: [],
   });
+});
+
+afterEach(() => {
+  getDateService().setTimezone(previousTimezone);
 });
 
 describe('the afternoon', () => {

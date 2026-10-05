@@ -2581,16 +2581,20 @@ describe('after midnight, before the day ends', () => {
   // so for the person it is still Monday 15 December.
   const ds = realDateService();
   let was: number;
+  let previousTimezone: string;
 
   beforeEach(() => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2025-12-16T00:30:00Z'));
     was = ds.getDayBoundaryHour();
+    previousTimezone = ds.getTimezone();
+    ds.setTimezone('UTC');
     ds.setDayBoundaryHour(3);
   });
 
   afterEach(() => {
     ds.setDayBoundaryHour(was);
+    ds.setTimezone(previousTimezone);
     jest.useRealTimers();
   });
 
