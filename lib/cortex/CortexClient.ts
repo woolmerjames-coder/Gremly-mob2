@@ -2313,6 +2313,75 @@ export interface WrapTurnContext {
   } | null;
 }
 
+/**
+ * The person's week, sent with a message in today's thread by an app build
+ * that knows it (workers/cortex/agent/brief.js readWeek). With it Gremly is
+ * told one line about their week and gets the week's tools and changes: an
+ * app that sends it must be able to draw the week's button (offer) and to
+ * hold the review on its step (hold) when the answer says so.
+ */
+export interface WeekTurnContext {
+  /** Their weekly day, 0 Sunday to 6 Saturday */
+  weekly_day: number;
+  /** The days of the week that count as days off */
+  days_off: number[];
+  /** The review for the week they are in, as its row has it, or null when there is none */
+  review: {
+    week_start: string;
+    span_start: string;
+    status: 'ready' | 'started' | 'done' | 'skipped';
+    kind: 'weekly' | 'extra' | 'brought_forward';
+  } | null;
+  /** The one extra review of the week has been used */
+  extra_used: boolean;
+  /** Hours free on each kind of day, in half hours, once the week has them */
+  hours?: { normal_day?: number; busy_day?: number; weekend_day?: number } | null;
+  /** The week's busy days, YYYY-MM-DD */
+  busy_days?: string[];
+  /** The week's intention and the note that holds it */
+  intention?: { id: string | null; text: string } | null;
+  /** The review, while one is under way in the thread */
+  under_way?: {
+    /** Where it is (workers/shared/week.js WEEK_STEPS) */
+    step: string;
+    /** The days being planned, first and last */
+    first: string;
+    last: string;
+    /** What Gremly's read opened with */
+    challenge?: { headline: string; why?: string } | null;
+    /** Gremly's picks for what matters most, each with the todos it covers */
+    picks?: { text: string; item_ids: string[] }[];
+    /**
+     * Everything settled so far, in the app's words: what kind of thing
+     * (priority, hours, busy_days, intention, milestone, needs_you,
+     * habit_days, day, later), the item it is about when it is one, how it is
+     * now and what it was before
+     */
+    settled?: {
+      kind: string;
+      id?: string;
+      item_ids?: string[];
+      type?: 'todo' | 'habit' | 'note';
+      title: string;
+      outcome: string;
+      was?: string;
+    }[];
+    /** The board as the review has it, none of it saved until they finish */
+    habit_days?: { id: string; days: string[] }[];
+    placed?: { id: string; day: string }[];
+    later?: { id: string; back_on: string }[];
+    /** The needs you card they opened to talk through, when the message is about it */
+    about?: {
+      title: string;
+      item_ids: string[];
+      stuck_because?: string;
+      question?: string;
+    } | null;
+    /** What Gremly's last reply left the review waiting on (the answer's hold.about) */
+    hold?: string | null;
+  } | null;
+}
+
 export interface BriefTurnRequest extends DayTurnRequest {
   /** Where they are, for their calendar and their day */
   timezone: string;
@@ -2322,6 +2391,8 @@ export interface BriefTurnRequest extends DayTurnRequest {
   chat_id: string;
   /** Tonight's wrap up, when the message is typed while it is under way */
   wrap?: WrapTurnContext;
+  /** Their week, from an app build that can show the weekly review */
+  week?: WeekTurnContext;
 }
 
 /**
@@ -2335,6 +2406,10 @@ export type BriefTurnResponse =
       /** The card, in the change model's shape: nothing changes until they tap */
       card: Change[];
       tasks: AgentTask[];
+      /** The weekly review stays on its step until they answer what Gremly asked */
+      hold?: { about: string };
+      /** The button to their week goes under the reply; done when this week's review is */
+      offer?: { kind: 'week'; done: boolean };
       model?: string;
       prompt_version?: string;
     }
