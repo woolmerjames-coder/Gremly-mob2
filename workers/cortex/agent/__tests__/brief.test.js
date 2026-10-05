@@ -809,6 +809,24 @@ describe("the person's week, when the app sends it", () => {
       expect(text).not.toContain('hold');
     });
 
+    it('lets the wrap up put one off too, and leaves the wrap up as it was without the week', () => {
+      const wrap = readWrap({
+        step: 'journal',
+        decisions: [
+          { id: MUM, type: 'todo', title: 'Call Mum', outcome: 'to come back on Monday' },
+        ],
+      });
+      const without = wrapContext(wrap);
+      expect(without).toContain(
+        "Keeping one as it is and bringing one back on a later night are the cards' own and cannot go on a card",
+      );
+      expect(wrapContext(wrap, null)).toBe(without);
+      const withWeek = wrapContext(wrap, readWeek(PLAIN));
+      expect(withWeek).toContain("Keeping one as it is is the cards' own and cannot go on a card.");
+      expect(withWeek).toContain('or put off until another day');
+      expect(withWeek).not.toContain('bringing one back on a later night are');
+    });
+
     it('is nothing when none is under way, and comes after the day', () => {
       expect(weekContext(readWeek(PLAIN))).toBe('');
       expect(weekContext(null)).toBe('');

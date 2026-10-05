@@ -250,9 +250,10 @@ export function readWrap(raw) {
 
 /**
  * Tonight's wrap up, for the agent: where it is, what the cards settled and how
- * to put one back, and the question a message answers.
+ * to put one back, and the question a message answers. week, when the thread
+ * sent it, means the week's changes are on, so one put off can be offered too.
  */
-export function wrapContext(wrap) {
+export function wrapContext(wrap, week = null) {
   if (!wrap) return '';
   const done = wrap.step === 'done';
   const L = done
@@ -272,7 +273,10 @@ export function wrapContext(wrap) {
             `${d.id || 'no id'} | ${d.type} "${d.title}" | ${d.outcome} | ${d.was || 'not moved'}`,
         )
         .join('\n')}`,
-      "When they want one of tonight's decisions put back or changed, offer the change by its id: its day as it was before tonight, or restore one they let go. Keeping one as it is and bringing one back on a later night are the cards' own and cannot go on a card; to bring one of those sooner, offer it a day.",
+      // with the week's changes on, putting one off can go on a card too
+      week
+        ? "When they want one of tonight's decisions put back or changed, offer the change by its id: its day as it was before tonight, or restore one they let go. Keeping one as it is is the cards' own and cannot go on a card. One sent to a later night can be brought back sooner by offering it a day, or put off until another day."
+        : "When they want one of tonight's decisions put back or changed, offer the change by its id: its day as it was before tonight, or restore one they let go. Keeping one as it is and bringing one back on a later night are the cards' own and cannot go on a card; to bring one of those sooner, offer it a day.",
     );
   }
   if (!done) {
@@ -630,7 +634,7 @@ export function weekContext(week) {
 /** What Gremly knows about today, with their latest message: what the day is about, the day itself, and the wrap up or the weekly review when one is under way. */
 export function dayContext(req, dco = null, wrap = null, dayEndHour = null, week = null) {
   const meaning = dayMeaning(dco);
-  const evening = wrapContext(wrap);
+  const evening = wrapContext(wrap, week);
   const review = weekContext(week);
   return `WHAT YOU KNOW ABOUT TODAY\n${meaning ? `${meaning}\n\n` : ''}${renderDay(req, dayEndHour, week)}${evening ? `\n\n${evening}` : ''}${review ? `\n\n${review}` : ''}`;
 }
