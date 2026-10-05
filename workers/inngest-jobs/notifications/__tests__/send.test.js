@@ -528,19 +528,23 @@ describe('compose', () => {
       interruption: 'time-sensitive',
     });
   });
-  it('says one fixed line on a night with nothing to sort, without the writer', async () => {
+  it('words a night with nothing to sort with the writer, like any evening', async () => {
+    jsonCall.mockResolvedValue({
+      output: { title: 'Evening wrap up', body: 'Your Thursday wrap up is ready when you are.' },
+    });
     const w = await compose({}, { user_id: USER, moment: 'sweep' }, person, {
       weekday: 'Thursday',
       waiting_in_sweep: 0,
     });
     expect(w).toMatchObject({
-      title: 'Nothing to sort tonight',
-      body: 'A quick look back at your day is ready in Chat.',
+      title: 'Evening wrap up',
+      body: 'Your Thursday wrap up is ready when you are.',
       route: 'sweep',
-      model: null,
       usedFallback: false,
     });
-    expect(jsonCall).not.toHaveBeenCalled();
+    expect(jsonCall).toHaveBeenCalled();
+    // the writer is told there is nothing to sort, in the evening's own words
+    expect(jsonCall.mock.calls[0][1].user).toMatch(/"waiting_to_sort": 0/);
   });
 });
 

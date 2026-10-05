@@ -122,7 +122,7 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
     personIdentity(env, userId),
     ...calendarSelects(d, userId, tz, today),
     d.select(
-      `todos?owner_id=eq.${userId}&completed_at=is.null&archived=eq.false&select=id,name,title,due_day,commitment,time_estimate_minutes,created_at,skipped_in_sweep_at,resurface_at,scheduled_start_iso&limit=1000`,
+      `todos?owner_id=eq.${userId}&completed_at=is.null&archived=eq.false&select=id,name,title,due_day,time_estimate_minutes,created_at,skipped_in_sweep_at,resurface_at,scheduled_start_iso&limit=1000`,
     ),
     d.select(
       `notes?owner_id=eq.${userId}&archived=eq.false&external_source=is.null&swept_at=is.null&subtype=in.(idea,catchall,list,reference)&created_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -6)))}&select=id&limit=500`,
@@ -169,12 +169,12 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
 
   // Todos (the app writes name; older rows may only have title)
   const open = (todos || []).map((t) => ({ ...t, title: t.name || t.title || 'Untitled' }));
-  const todosDue = open.filter((t) => t.due_day === today || (t.commitment && t.due_day === today));
+  const todosDue = open.filter((t) => t.due_day === today);
   const overdue = open.filter(
     (t) => t.due_day && t.due_day < today && !(t.resurface_at && t.resurface_at > today),
   );
   const unsortedTodos = open.filter(
-    (t) => !t.due_day && !t.commitment && !(t.resurface_at && t.resurface_at > today),
+    (t) => !t.due_day && !(t.resurface_at && t.resurface_at > today),
   );
   const unsorted = unsortedTodos.length + (notes || []).length;
 

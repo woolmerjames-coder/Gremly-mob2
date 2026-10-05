@@ -26,7 +26,7 @@ import {
   clock,
   dedupeKey,
 } from './policy';
-import { writeCopy, reminderCopy, clearNightCopy } from './copy';
+import { writeCopy, reminderCopy } from './copy';
 import { dayEndHourFrom, EVENING_START_HOUR } from '../../shared/day.js';
 import { buildMessage, sendToExpo, getReceipts, DEAD_DEVICE_ERRORS, ALERT_ERRORS } from './expo';
 import { reportProblem } from './alert';
@@ -495,19 +495,6 @@ export async function compose(env, job, person, facts) {
       : null;
     return {
       ...reminderCopy({ itemTitle, rule: job.data?.rule, startClock }),
-      angle: 'plain',
-      model: null,
-      usedFallback: false,
-      problem: null,
-      route,
-      interruption,
-    };
-  }
-
-  // a night with nothing to sort: one fixed line, not the writer (see copy.js)
-  if (job.moment === 'sweep' && facts?.waiting_in_sweep === 0) {
-    return {
-      ...clearNightCopy(),
       angle: 'plain',
       model: null,
       usedFallback: false,

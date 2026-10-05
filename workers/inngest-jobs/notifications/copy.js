@@ -36,7 +36,7 @@ const MOMENT_RULES = Object.freeze({
   brief:
     "Today's brief is written and waiting in Chat. Tell them their day is ready, about today only.",
   sweep:
-    "It is the evening, and the wrap up of their day is ready in Chat: Gremly looks back on the day with them, helps them settle anything still waiting to be sorted, and asks about the day for their journal. Invite them to it lightly, through one real thing from their day in the facts; when things are waiting to be sorted, say a few are ready to settle as part of it, never as a job. Call it their wrap up, the way the app does.",
+    'It is the evening, and the wrap up of their day is ready in Chat: Gremly looks back on the day with them, helps them settle anything still waiting to be sorted, and asks about the day for their journal. Invite them to it lightly, through one real thing from their day in the facts; when things are waiting to be sorted, say a few are ready to settle as part of it, never as a job. Call it their wrap up, the way the app does.',
   habit_checkin:
     'They usually log this habit by now and have not today. Ask, lightly, whether it happened.',
   nudge:
@@ -87,19 +87,6 @@ export function fallbackCopy(moment, f = {}) {
     default:
       return { title: '', body: 'Gremly has something for you.' };
   }
-}
-
-/**
- * The evening notification on a night with nothing to sort. One fixed line,
- * worded in code: the writer's rule for the evening is about things waiting
- * in Sweep, and there are none. The wrap up still has the look back at the
- * day, habits and the journal, so the notification still goes out.
- */
-export function clearNightCopy() {
-  return {
-    title: 'Nothing to sort tonight',
-    body: 'A quick look back at your day is ready in Chat.',
-  };
 }
 
 /** Reminders the person set: their own words, worded in code. */
