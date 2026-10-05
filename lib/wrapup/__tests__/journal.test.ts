@@ -23,7 +23,15 @@ jest.mock('../../env', () => ({
   getEnv: () => undefined,
 }));
 
-import { journalFor, journalTitle, knownMoods, saveJournal, setJournalMoods } from '../journal';
+import {
+  journalFor,
+  journalTitle,
+  knownMoods,
+  saveJournal,
+  setJournalMoods,
+  updateJournal,
+} from '../journal';
+import { LAYOUT_KEY, type JournalLayout } from '../../journal/page';
 
 const createNote = mockCreateNote;
 const updateNote = mockUpdateNote;
@@ -195,5 +203,196 @@ describe('the wrap up journal', () => {
     expect(knownMoods(['Good', 'good', 'sleepy', 'TIRED'])).toEqual(['good', 'tired']);
     expect(knownMoods('calm')).toEqual(['calm']);
     expect(knownMoods(null)).toEqual([]);
+  });
+});
+
+describe('an entry written on the journal page', () => {
+  const layout = (text: string): JournalLayout => ({
+    v: 1,
+    tpl: 'proud',
+    cards: [{ q: 'What am I proud of today?', html: '<html><p>The deck.</p></html>' }],
+    text,
+  });
+  const TEXT = 'What am I proud of today?\nThe deck.';
+
+  it('is the same entry as the wrap up makes, with the page kept beside the words', async () => {
+    const res = await saveJournal({
+      text: TEXT,
+      moods: ['good'],
+      day: DAY,
+      weekday: 'Wednesday',
+      page: layout(TEXT),
+    });
+    expect(res.ok).toBe(true);
+    expect(createNote.mock.calls[0][0]).toMatchObject({
+      subtype: 'journal',
+      body: TEXT,
+      mood: ['good'],
+      views: {
+        sweep_origin: true,
+        sweep_reflection: true,
+        sweep_date: DAY,
+        sweep_moods: ['good'],
+        [LAYOUT_KEY]: layout(TEXT),
+      },
+    });
+    // so the wrap up finds it as the day's entry
+    expect(journalFor(mockNotes as never, DAY)).toBe('n1');
+  });
+
+  it('keeps its page when the background read adds to it', async () => {
+    (global as any).fetch = jest.fn(async (_url: string, init: { body: string }) => ({
+      ok: true,
+      json: async () =>
+        JSON.parse(init.body).type === 'enrich-phase2'
+          ? { tags: ['work'], mood: ['good'] }
+          : { smart_title: 'The deck, done', confirmation_message: 'Nice one.' },
+    }));
+    const res = await saveJournal({
+      text: TEXT,
+      moods: [],
+      day: DAY,
+      weekday: 'Wednesday',
+      page: layout(TEXT),
+    });
+    if (!res.ok) throw new Error('not saved');
+    await res.moods;
+    expect(updateNote.mock.calls[0][1].views).toEqual({
+      sweep_origin: true,
+      sweep_reflection: true,
+      sweep_date: DAY,
+      sweep_moods: [],
+      [LAYOUT_KEY]: layout(TEXT),
+      confirmation_message: 'Nice one.',
+      ai_mood: ['good'],
+    });
+  });
+});
+
+describe('changing an entry that is already saved', () => {
+  const page = (text: string): JournalLayout => ({
+    v: 1,
+    tpl: 'free',
+    cards: [{ q: null, html: `<html><p>${text}</p></html>` }],
+    text,
+  });
+  const saved = (extra: Record<string, unknown> = {}) => ({
+    id: 'n1',
+    subtype: 'journal',
+    title: 'A long day',
+    body: 'Tired.',
+    tags: ['reflection', 'sweep'],
+    views: { sweep_origin: true, sweep_reflection: true, sweep_date: DAY, sweep_moods: [] },
+    ...extra,
+  });
+
+  it('saves the new words, moods and page onto what the entry holds', async () => {
+    mockNotes = [saved()];
+    const res = await updateJournal({
+      noteId: 'n1',
+      text: ' Tired but pleased. ',
+      moods: ['good', 'nonsense' as never],
+      page: page('Tired but pleased.'),
+    });
+    expect(res.ok).toBe(true);
+    expect(updateNote.mock.calls[0]).toEqual([
+      'n1',
+      {
+        body: 'Tired but pleased.',
+        mood: ['good'],
+        views: {
+          sweep_origin: true,
+          sweep_reflection: true,
+          sweep_date: DAY,
+          sweep_moods: ['good'],
+          [LAYOUT_KEY]: page('Tired but pleased.'),
+        },
+      },
+    ]);
+  });
+
+  it('reads it again when the words changed, for a title and tags that fit', async () => {
+    mockNotes = [saved()];
+    const res = await updateJournal({ noteId: 'n1', text: 'Tired but pleased.', moods: [] });
+    if (!res.ok) throw new Error('not saved');
+    expect(await res.moods).toEqual(['tired', 'good']);
+    expect(updateNote).toHaveBeenLastCalledWith(
+      'n1',
+      expect.objectContaining({
+        title: 'A long day, a good run',
+        tags: ['reflection', 'sweep', 'running', '@sam-lee'],
+        mood: ['tired', 'good'],
+      }),
+    );
+  });
+
+  it('does not read it again when only the moods or the page changed', async () => {
+    mockNotes = [saved()];
+    const res = await updateJournal({
+      noteId: 'n1',
+      text: 'Tired.',
+      moods: ['calm'],
+      page: page('Tired.'),
+    });
+    if (!res.ok) throw new Error('not saved');
+    expect(await res.moods).toBeNull();
+    expect(updateNote).toHaveBeenCalledTimes(1);
+    expect((global as any).fetch).not.toHaveBeenCalled();
+  });
+
+  it('takes the page off an entry that is now plain words', async () => {
+    mockNotes = [saved({ views: { sweep_reflection: true, [LAYOUT_KEY]: page('Tired.') } })];
+    await updateJournal({ noteId: 'n1', text: 'Tired.', moods: [] });
+    expect(updateNote.mock.calls[0][1].views).toEqual({ sweep_reflection: true, sweep_moods: [] });
+  });
+
+  it('leaves the marks, tags and title of an entry that is not from a wrap up', async () => {
+    mockNotes = [
+      saved({
+        title: 'Check-in: Run a 10k',
+        tags: ['run a 10k'],
+        views: { goal_checkin: { goal_id: 'g1', goal_name: 'Run a 10k' } },
+      }),
+    ];
+    const res = await updateJournal({
+      noteId: 'n1',
+      text: 'Eleven miles today.',
+      moods: ['good'],
+      page: page('Eleven miles today.'),
+    });
+    if (!res.ok) throw new Error('not saved');
+    await res.moods;
+    // no wrap up marks are added, so it is not taken for the day's page
+    expect(updateNote.mock.calls[0][1].views).toEqual({
+      goal_checkin: { goal_id: 'g1', goal_name: 'Run a 10k' },
+      [LAYOUT_KEY]: page('Eleven miles today.'),
+    });
+    const reread = updateNote.mock.calls[1][1];
+    expect(reread.title).toBeUndefined();
+    expect(reread.tags).toEqual(['run a 10k', 'running', '@sam-lee']);
+  });
+
+  it('saves nothing for an entry emptied of words and moods', async () => {
+    mockNotes = [saved()];
+    expect(await updateJournal({ noteId: 'n1', text: '  ', moods: [] })).toEqual({
+      ok: false,
+      message: 'Nothing to save.',
+    });
+    expect(updateNote).not.toHaveBeenCalled();
+  });
+
+  it('says so when the entry has gone, or the save fails', async () => {
+    expect(await updateJournal({ noteId: 'gone', text: 'Hi', moods: [] })).toEqual({
+      ok: false,
+      message: 'It is no longer in your journal.',
+    });
+    mockNotes = [saved()];
+    updateNote.mockRejectedValueOnce(new Error('offline'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    expect(await updateJournal({ noteId: 'n1', text: 'Hi', moods: [] })).toEqual({
+      ok: false,
+      message: 'offline',
+    });
+    warn.mockRestore();
   });
 });
