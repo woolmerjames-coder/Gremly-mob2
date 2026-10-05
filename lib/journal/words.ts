@@ -43,6 +43,11 @@ export function dayWords(day: string): DayWords {
   };
 }
 
+/** The small line over the day on a page being written: "Journal · evening" */
+export function writingKicker(part: 'morning' | 'afternoon' | 'evening'): string {
+  return `Journal · ${part}`;
+}
+
 /** "16 words", "1 word, 2 photos" */
 export function countLabel(words: number, photos = 0): string {
   const w = `${words} ${words === 1 ? 'word' : 'words'}`;
@@ -50,8 +55,6 @@ export function countLabel(words: number, photos = 0): string {
 }
 
 export const JOURNAL_COPY = {
-  kickerEvening: 'Journal · evening',
-  kickerDay: 'Journal',
   kickerSaved: 'Journal · saved',
   kickerLooking: 'Looking back',
   done: 'Done',
@@ -74,4 +77,8 @@ export const JOURNAL_COPY = {
   edit: 'Edit',
   delete: 'Delete this entry',
   backToToday: 'Back to today',
+  deleteAsk: 'Delete this entry?',
+  deleteBody: 'It will be taken out of your journal.',
+  deleteYes: 'Delete',
+  cancel: 'Cancel',
 } as const;

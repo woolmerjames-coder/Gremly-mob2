@@ -9,7 +9,7 @@
  * Each card's editor keeps its own words. The page collects them when it
  * needs them: before the cards change, on Done, and on close.
  */
-import React, { useCallback, useRef, useState } from 'react';
+import React, { forwardRef, useCallback, useImperativeHandle, useRef, useState } from 'react';
 import {
   Animated,
   Image,
@@ -98,20 +98,28 @@ const countWords = (words: Record<string, string>, page: Page): number =>
     return n + (w ? w.split(/\s+/).length : 0);
   }, 0);
 
-export function JournalPage({
-  day,
-  kicker,
-  initial,
-  initialMoods,
-  pages,
-  reading = false,
-  onPickPage,
-  onDone,
-  onClose,
-  onEdit,
-  onDelete,
-  fontFamily,
-}: JournalPageProps) {
+export type JournalPageHandle = {
+  /** Close as the button does: what was written is handed back to keep */
+  close: () => void;
+};
+
+export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(function JournalPage(
+  {
+    day,
+    kicker,
+    initial,
+    initialMoods,
+    pages,
+    reading = false,
+    onPickPage,
+    onDone,
+    onClose,
+    onEdit,
+    onDelete,
+    fontFamily,
+  },
+  ref,
+) {
   const insets = useSafeAreaInsets();
   const lift = useKeyboardLift();
   const [page, setPage] = useState<Page>(initial);
@@ -213,6 +221,8 @@ export function JournalPage({
     const changed = pageText(current) !== opened.text || moods.join(',') !== opened.moods;
     onClose(changed ? { page: current, moods } : null);
   }, [busy, collect, moods, onClose, opened, reading]);
+
+  useImperativeHandle(ref, () => ({ close: () => void close() }), [close]);
 
   const toggleFormat = (kind: FormatKind) => {
     const id = active.current;
@@ -389,7 +399,7 @@ export function JournalPage({
       )}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: BRIEF.linen },
