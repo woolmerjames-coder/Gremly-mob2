@@ -23,6 +23,8 @@ export type JournalEntry = {
   /** The day the entry is about, when it was given one */
   date?: string | null;
   views?: Record<string, unknown> | null;
+  /** Its photos, as the app loaded them with the entry */
+  log_photos?: unknown;
 };
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;

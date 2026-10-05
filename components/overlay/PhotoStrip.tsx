@@ -6,9 +6,10 @@
  */
 
 import React from 'react';
-import { Pressable, View, Image, StyleSheet } from 'react-native';
+import { Pressable, View, StyleSheet } from 'react-native';
 import { Camera, Plus, Image as ImageIcon } from 'lucide-react-native';
 import { Text } from '../../ui';
+import { PrivateImage } from '../PrivateImage';
 import type { DraftPhoto } from './useOverlayDraft';
 
 interface PhotoStripProps {
@@ -58,8 +59,8 @@ export const PhotoStrip: React.FC<PhotoStripProps> = ({
           ]}
         >
           {photo.url.startsWith('file://') || photo.url.startsWith('http') ? (
-            <Image
-              source={{ uri: photo.url }}
+            <PrivateImage
+              uri={photo.url}
               style={styles.thumbImage}
               resizeMode="cover"
             />

@@ -128,6 +128,7 @@ import { cleanReminders, summarizeReminders } from '../../lib/reminders/reminder
 import type { ItemReminder } from '../../lib/types';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
+import { PrivateImage } from '../PrivateImage';
 import { enrichListItems } from '../../lib/ai/enrichListItem';
 import { jsonToFrequency, getFrequencyLabel } from './frequencyHelpers';
 import { buildSavePayload, detectListFromText, type SaveContext } from './overlaySave';
@@ -3631,10 +3632,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               )}
               onSelect={(entityType) => {
                 // a new journal entry is written on the journal page, which
-                // starts with the words typed here. The page cannot take photos
-                // yet, so one with photos added is still saved from here.
-                const photos = logPhotos.filter((p) => !p.isDeleted).length;
-                if (entityType === 'journal' && mode === 'create' && photos === 0) {
+                // starts with the words typed here and the photos chosen here
+                if (entityType === 'journal' && mode === 'create') {
+                  const chosen = logPhotos.filter((p) => !p.isDeleted).map((p) => p.url);
                   const heading = (state.compactTitle ?? '').trim();
                   const words = (currentText ?? '').trim();
                   // a title made from the words is not written out twice
@@ -3649,6 +3649,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       type: 'log',
                       logSubtype: 'journal',
                       initialText: typed || null,
+                      initialLogPhotoUris: chosen.length ? chosen : undefined,
                     });
                   }, 350);
                   return;
@@ -6896,8 +6897,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             accessibilityRole="button"
           >
             {selectedPhotoIndex !== null && logPhotos[selectedPhotoIndex] ? (
-              <Image
-                source={{ uri: logPhotos[selectedPhotoIndex].url }}
+              <PrivateImage
+                uri={logPhotos[selectedPhotoIndex].url}
                 style={styles.imageModalImage}
                 resizeMode="contain"
               />

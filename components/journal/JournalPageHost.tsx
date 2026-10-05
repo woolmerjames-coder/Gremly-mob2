@@ -15,6 +15,10 @@
  * date, and the entries before and after one being read. Opening an older
  * entry from today's page keeps that page, and Back to today returns to it.
  *
+ * Photos are chosen on the page and carried out here once the entry is saved:
+ * the chosen ones are sent and the ones taken off are deleted, after the page
+ * has closed, and the person is told if one could not be added.
+ *
  * Starting a new entry needs the same access as making anything else in the
  * app. Someone whose trial has ended can still read and change what they
  * wrote, and is shown the way to subscribe instead of a new page. The wrap up
@@ -42,6 +46,17 @@ import {
   useOwnPagesSync,
 } from '../../lib/journal/ownPages';
 import { FREEFORM, allPages, pageIn } from '../../lib/journal/pages';
+import {
+  NO_PHOTO_CHANGES,
+  choosePhotos,
+  hasPhotoChanges,
+  photosFailedMessage,
+  removePhotoFiles,
+  saveEntryPhotos,
+  useEntryPhotos,
+  type EntryPhoto,
+  type PhotoChanges,
+} from '../../lib/journal/photos';
 import { savePage } from '../../lib/journal/save';
 import {
   closeJournal,
@@ -82,6 +97,8 @@ type Start = {
   kicker: string;
   page: Page;
   moods: Mood[];
+  /** What had been done to the photos: kept from earlier, or carried in from the add sheet */
+  photos: PhotoChanges;
   /** Where a page closed before Done is kept */
   draft: string;
   /** The rest of the journal, for the calendar. None for a check in on a goal. */
@@ -89,6 +106,14 @@ type Start = {
   /** While reading: the entries before and after this one */
   steps: { before: JournalPageStep | null; after: JournalPageStep | null } | null;
 };
+
+/** Carry out what was done to an entry's photos, now that the entry is saved. */
+function sendPhotos(noteId: string, saved: EntryPhoto[], changes: PhotoChanges): void {
+  if (!hasPhotoChanges(changes)) return;
+  void saveEntryPhotos(noteId, saved, changes).then(({ failed }) => {
+    if (failed) Alert.alert(JOURNAL_COPY.photosNotAdded, photosFailedMessage(failed));
+  });
+}
 
 /** "Thu 24", for stepping to an entry */
 function step(entry: JournalEntry | null): JournalPageStep | null {
@@ -151,6 +176,7 @@ function startOf(request: JournalOpen, lastPage: string): Start | null {
       kicker: checkIn ? checkInKicker(checkIn.goal_name) : JOURNAL_COPY.kickerLooking,
       page: pageOfEntry(entry, pages),
       moods: knownMoods(entry.mood),
+      photos: NO_PHOTO_CHANGES,
       draft: draftKey({ day: request.day, entryId: entry.id }),
       calendar: calendarFor(notes, request, {
         day: entryDay(entry) || request.day,
@@ -177,6 +203,13 @@ function startOf(request: JournalOpen, lastPage: string): Start | null {
     moods = [];
   }
   if (request.carry) page = addWords(page, request.carry);
+  const keptPhotos = kept?.photos ?? NO_PHOTO_CHANGES;
+  const photos: PhotoChanges = request.carryPhotos?.length
+    ? {
+        added: [...new Set([...keptPhotos.added, ...request.carryPhotos])],
+        removed: keptPhotos.removed,
+      }
+    : keptPhotos;
   return {
     day: entry ? entryDay(entry) || request.day : request.day,
     part,
@@ -190,6 +223,7 @@ function startOf(request: JournalOpen, lastPage: string): Start | null {
         : writingKicker(part),
     page,
     moods,
+    photos,
     draft: key,
     calendar: goal
       ? null
@@ -218,6 +252,9 @@ export function JournalPageHost() {
   useEffect(() => {
     if (request && !start) closeJournal();
   }, [request, start]);
+
+  // the photos already saved with the entry on screen
+  const savedPhotos = useEntryPhotos(start?.entryId);
 
   // a new entry, asked for by someone who can no longer make new things
   const { hasAccess, isLoading } = useSubscriptionStatus();
@@ -273,6 +310,8 @@ export function JournalPageHost() {
           void useGremlyStore
             .getState()
             .deleteNote(id)
+            // its photos go with it: the rows by themselves, the files here
+            .then(() => removePhotoFiles(savedPhotos))
             .catch((err: unknown) => console.warn('[Journal] could not delete the entry:', err));
         },
       },
@@ -295,7 +334,10 @@ export function JournalPageHost() {
         initial={start.page}
         initialMoods={start.moods}
         // words carried in from the chat box have left it, and are only on this page
-        unkept={!!request.carry && !start.reading}
+        unkept={(!!request.carry || !!request.carryPhotos?.length) && !start.reading}
+        savedPhotos={savedPhotos}
+        initialPhotoChanges={start.photos}
+        onChoosePhotos={start.reading ? undefined : choosePhotos}
         pages={pages}
         reading={start.reading}
         onPickPage={setLastPage}
@@ -320,6 +362,9 @@ export function JournalPageHost() {
           if (res.ok) {
             dropDraft(start.draft);
             closeJournal();
+            // the entry is safe: its photos follow, and the person hears if one could not
+            const noteId = res.noteId ?? start.entryId;
+            if (noteId) sendPhotos(noteId, savedPhotos, result.photos);
             return { ok: true };
           }
           return res;

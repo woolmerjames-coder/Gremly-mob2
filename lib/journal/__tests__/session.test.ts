@@ -87,6 +87,18 @@ describe('a page closed before Done', () => {
     ]);
   });
 
+  it('keeps what was done to the photos, and nothing when they were not touched', () => {
+    const key = draftKey({ day: DAY });
+    keepDraft(key, {
+      page: written(),
+      moods: [],
+      photos: { added: ['file:///one.jpg'], removed: ['a'] },
+    });
+    expect(draftFor(key)?.photos).toEqual({ added: ['file:///one.jpg'], removed: ['a'] });
+    keepDraft(key, { page: written(), moods: [], photos: { added: [], removed: [] } });
+    expect(draftFor(key)?.photos).toBeUndefined();
+  });
+
   it('keeps one draft per day, the latest', () => {
     const key = draftKey({ day: DAY });
     keepDraft(key, { page: written(), moods: [] });

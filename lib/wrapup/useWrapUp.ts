@@ -1099,7 +1099,7 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
         await pause();
         await afterJournal();
       });
-      return { ok: true };
+      return { ok: true, noteId: res.noteId };
     },
     [run, choose, save, pause, patch, afterJournal, creditJournal, withTyping, factsFor],
   );
@@ -1430,7 +1430,7 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
             void res.moods.then((found) => {
               if (found?.length) void patch(message.id, { moods: found });
             });
-            return { ok: true };
+            return { ok: true, noteId };
           },
         });
       },

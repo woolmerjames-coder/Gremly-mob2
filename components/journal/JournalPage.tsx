@@ -15,6 +15,10 @@
  *
  * Where it is given the journal's other entries, the date opens the calendar,
  * and a saved entry being read has the ones before and after it a tap away.
+ *
+ * Where it is given a way to choose photos, they sit under the writing. The
+ * page only notes what was chosen and what was taken off: nothing is sent or
+ * deleted until the entry is saved.
  */
 import React, { forwardRef, useCallback, useImperativeHandle, useRef, useState } from 'react';
 import {
@@ -57,6 +61,16 @@ import {
   type JournalPage as Page,
 } from '../../lib/journal/page';
 import type { OwnPageForm, OwnPageGone, OwnPageSaved } from '../../lib/journal/ownPages';
+import {
+  NO_PHOTO_CHANGES,
+  PHOTOS_MAX,
+  photosShown,
+  withPhotos,
+  withoutPhoto,
+  type EntryPhoto,
+  type PhotoChanges,
+  type PhotosChosen,
+} from '../../lib/journal/photos';
 import { FREEFORM, pageIn, type JournalPageDef } from '../../lib/journal/pages';
 import { JOURNAL_COPY, countLabel, dayWords } from '../../lib/journal/words';
 import type { Mood } from '../../lib/shared/moods';
@@ -74,6 +88,7 @@ import { JournalFormatBar } from './JournalFormatBar';
 import { JournalMoodCard } from './JournalMoodCard';
 import { JournalOwnPageSheet } from './JournalOwnPageSheet';
 import { JournalPageChips } from './JournalPageChips';
+import { JournalPhotoViewer, JournalPhotos } from './JournalPhotos';
 import { JournalSheet } from './JournalSheet';
 import { JOURNAL_WASH, JOURNAL_WASH_LOOKING, journalStyles } from './journalStyles';
 
@@ -86,10 +101,12 @@ export type JournalPageResult = {
   text: string;
   layout: JournalLayout;
   moods: Mood[];
+  /** What was done to the entry's photos, to carry out once it is saved */
+  photos: PhotoChanges;
 };
 
 /** What was on the page when it was closed without Done */
-export type JournalPageLeft = { page: Page; moods: Mood[] };
+export type JournalPageLeft = { page: Page; moods: Mood[]; photos: PhotoChanges };
 
 /** The rest of the journal, for the calendar behind the date */
 export type JournalPageCalendar = {
@@ -145,6 +162,12 @@ export type JournalPageProps = {
   onToday?: (left: JournalPageLeft | null) => void;
   /** While reading: the entries written before and after this one */
   steps?: { before: JournalPageStep | null; after: JournalPageStep | null };
+  /** The photos already saved with the entry */
+  savedPhotos?: EntryPhoto[];
+  /** What had been done to the photos on a page kept from earlier */
+  initialPhotoChanges?: PhotoChanges;
+  /** Lets the person choose photos, as many as there is room for. Given where photos can be kept. */
+  onChoosePhotos?: (room: number) => Promise<PhotosChosen>;
   /** Keeps a page of the person's own. Given where the app can keep them. */
   onSaveOwn?: (form: OwnPageForm) => Promise<OwnPageSaved>;
   onDeleteOwn?: (id: string) => Promise<OwnPageGone>;
@@ -183,6 +206,9 @@ export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(funct
     onLookAt,
     onToday,
     steps,
+    savedPhotos,
+    initialPhotoChanges,
+    onChoosePhotos,
     onSaveOwn,
     onDeleteOwn,
     fontFamily,
@@ -204,11 +230,18 @@ export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(funct
   /** The page of their own being made or changed, while its sheet is up */
   const [ownForm, setOwnForm] = useState<OwnPageForm | null>(null);
   const [calendarUp, setCalendarUp] = useState(false);
+  const [photoChanges, setPhotoChanges] = useState<PhotoChanges>(
+    initialPhotoChanges ?? NO_PHOTO_CHANGES,
+  );
+  /** The photo being looked at large */
+  const [viewing, setViewing] = useState<number | null>(null);
   /** What the page held when it opened, to tell whether it was changed */
   const [opened] = useState(() => ({
     text: pageText(initial),
     moods: (initialMoods ?? []).join(','),
+    photos: JSON.stringify(initialPhotoChanges ?? NO_PHOTO_CHANGES),
   }));
+  const photos = photosShown(savedPhotos ?? [], photoChanges);
   const editors = useRef<Record<string, JournalEditorHandle | null>>({});
   const active = useRef<string | null>(null);
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -267,7 +300,8 @@ export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(funct
     if (busy) return;
     const current = await collect();
     if (isEmpty(current) && !moods.length) {
-      say(JOURNAL_COPY.nothingYet);
+      // photos alone are not an entry: there is nothing for the journal to call it
+      say(photos.length ? JOURNAL_COPY.photosNeedWords : JOURNAL_COPY.nothingYet);
       return;
     }
     setBusy(true);
@@ -277,10 +311,11 @@ export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(funct
       text: pageText(current),
       layout: toLayout(current),
       moods,
+      photos: photoChanges,
     });
     setBusy(false);
     if (!res.ok) say(res.message || JOURNAL_COPY.notSaved);
-  }, [busy, collect, moods, onDone, say]);
+  }, [busy, collect, moods, onDone, photoChanges, photos.length, say]);
 
   /** Open the sheet for a page of their own: a new one, the prompts on the page, or one to change. */
   const openOwn = useCallback((form: OwnPageForm) => {
@@ -361,20 +396,44 @@ export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(funct
     if (reading) return null;
     const current = await collect();
     Keyboard.dismiss();
-    const changed = unkept || pageText(current) !== opened.text || moods.join(',') !== opened.moods;
-    return changed ? { page: current, moods } : null;
-  }, [collect, moods, opened, reading, unkept]);
+    const changed =
+      unkept ||
+      pageText(current) !== opened.text ||
+      moods.join(',') !== opened.moods ||
+      JSON.stringify(photoChanges) !== opened.photos;
+    return changed ? { page: current, moods, photos: photoChanges } : null;
+  }, [collect, moods, opened, photoChanges, reading, unkept]);
 
   const close = useCallback(async () => {
     if (busy) return;
-    // a sheet goes first
-    if (ownForm || calendarUp) {
+    // a photo being looked at, or a sheet, goes first
+    if (viewing !== null || ownForm || calendarUp) {
+      setViewing(null);
       setOwnForm(null);
       setCalendarUp(false);
       return;
     }
     onClose(await leaving());
-  }, [busy, calendarUp, leaving, onClose, ownForm]);
+  }, [busy, calendarUp, leaving, onClose, ownForm, viewing]);
+
+  /** Choose photos from the library, as many as the entry still has room for. */
+  const addPhotos = useCallback(async () => {
+    if (busy || !onChoosePhotos) return;
+    const room = PHOTOS_MAX - photosShown(savedPhotos ?? [], photoChanges).length;
+    if (room <= 0) {
+      say(JOURNAL_COPY.photosFull);
+      return;
+    }
+    Keyboard.dismiss();
+    const chosen = await onChoosePhotos(room);
+    if (!chosen.ok) {
+      say(chosen.message);
+      return;
+    }
+    if (chosen.uris.length) {
+      setPhotoChanges((c) => withPhotos(c, savedPhotos ?? [], chosen.uris));
+    }
+  }, [busy, onChoosePhotos, photoChanges, savedPhotos, say]);
 
   const openCalendar = useCallback(() => {
     Keyboard.dismiss();
@@ -616,6 +675,24 @@ export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(funct
           </View>
         )}
 
+        <JournalPhotos
+          photos={photos}
+          onRemove={
+            reading || !onChoosePhotos
+              ? undefined
+              : (photo) => setPhotoChanges((c) => withoutPhoto(c, photo))
+          }
+          onAdd={
+            reading || !onChoosePhotos || photos.length >= PHOTOS_MAX
+              ? undefined
+              : () => void addPhotos()
+          }
+          onOpen={(index) => {
+            Keyboard.dismiss();
+            setViewing(index);
+          }}
+        />
+
         <JournalMoodCard moods={moods} onToggle={reading ? undefined : toggleMood} />
       </ScrollView>
 
@@ -629,7 +706,8 @@ export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(funct
           <JournalFormatBar
             state={format}
             onToggle={toggleFormat}
-            count={countLabel(countWords(words, page))}
+            onPhoto={onChoosePhotos ? () => void addPhotos() : undefined}
+            count={countLabel(countWords(words, page), photos.length)}
           />
         </Animated.View>
       )}
@@ -703,6 +781,15 @@ export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(funct
             />
           </ScrollView>
         </JournalSheet>
+      ) : null}
+
+      {viewing !== null ? (
+        <JournalPhotoViewer
+          photos={photos}
+          index={Math.min(viewing, photos.length - 1)}
+          onStep={setViewing}
+          onClose={() => setViewing(null)}
+        />
       ) : null}
 
       {ownForm ? (

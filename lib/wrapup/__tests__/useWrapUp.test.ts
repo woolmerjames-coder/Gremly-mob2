@@ -706,7 +706,8 @@ describe('the wrap up: the journal page', () => {
     await act(async () => {
       res = await onScreen()!.save!(w);
     });
-    expect(res).toEqual({ ok: true });
+    // it says which entry it saved, so the page can send that entry's photos
+    expect(res).toEqual({ ok: true, noteId: 'note-1' });
     expect(mockSaveJournal).toHaveBeenCalledWith({
       text: TEXT,
       moods: ['calm'],
@@ -805,7 +806,8 @@ describe('the wrap up: the journal page', () => {
     await act(async () => {
       res = await onScreen()!.save!(w);
     });
-    expect(res).toEqual({ ok: true });
+    // it says which entry it saved, so the page can send that entry's photos
+    expect(res).toEqual({ ok: true, noteId: 'note-1' });
     expect(mockUpdateJournal).toHaveBeenCalledWith({
       noteId: 'note-1',
       text: TEXT,

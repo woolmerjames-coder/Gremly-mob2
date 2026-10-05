@@ -89,4 +89,11 @@ describe('starting a new entry', () => {
     writeOnPage('   ');
     expect(opened()?.carry).toBeUndefined();
   });
+
+  it('starts with the photos already chosen', () => {
+    writeOnPage('Tired.', ['file:///one.jpg', '']);
+    expect(opened()).toMatchObject({ carry: 'Tired.', carryPhotos: ['file:///one.jpg'] });
+    writeOnPage(null, []);
+    expect(opened()?.carryPhotos).toBeUndefined();
+  });
 });

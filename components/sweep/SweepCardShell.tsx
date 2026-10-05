@@ -23,6 +23,7 @@ import { BRAND } from '../../design/brand';
 import { GremlyMenuButton, GremlyPopupMenu } from './GremlyPopupMenu';
 import type { SweepCandidate, SweepCandidateNote, SweepCardMeta } from '../../lib/sweep/types';
 import { useWorldsForEntity } from '../../lib/store/worldsSelectors';
+import { PrivateImage } from '../PrivateImage';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -529,8 +530,8 @@ export function SweepCardShell({
                   activeOpacity={0.9}
                   accessibilityLabel="Tap to view full photo"
                 >
-                  <Image
-                    source={{ uri: firstAttachment.url }}
+                  <PrivateImage
+                    uri={firstAttachment.url}
                     style={styles.photoHeroImage}
                     resizeMode="cover"
                   />

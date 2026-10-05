@@ -7,7 +7,7 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { ChevronLeft, ChevronRight } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, Image as ImageIcon } from 'lucide-react-native';
 import {
   WEEKDAY_LETTERS,
   entrySnippet,
@@ -20,6 +20,7 @@ import {
   shiftMonth,
 } from '../../lib/journal/calendar';
 import { entryDay, journalEntries, type JournalEntry } from '../../lib/journal/entry';
+import { entryPhotoCount } from '../../lib/journal/photos';
 import { JOURNAL_COPY, dayWords } from '../../lib/journal/words';
 import { MOOD_CONFIG } from '../../lib/shared/moods';
 import { knownMoods } from '../../lib/wrapup/journal';
@@ -202,6 +203,7 @@ export function JournalCalendar({
       {listed.map((e) => {
         const snippet = entrySnippet(e);
         const moods = knownMoods(e.mood);
+        const photos = entryPhotoCount(e);
         return (
           <View key={e.id} style={styles.card} testID={`journal-cal-entry-${e.id}`}>
             <Text style={styles.label}>{dayWords(entryDay(e)).short}</Text>
@@ -213,7 +215,7 @@ export function JournalCalendar({
                 {snippet}
               </Text>
             ) : null}
-            {moods.length ? (
+            {moods.length || photos ? (
               <View style={styles.moods}>
                 {moods.map((m) => (
                   <View key={m} style={[journalStyles.mood, journalStyles.moodOn, styles.mood]}>
@@ -224,6 +226,14 @@ export function JournalCalendar({
                     </Text>
                   </View>
                 ))}
+                {photos ? (
+                  <View style={styles.photos} testID={`journal-cal-photos-${e.id}`}>
+                    <ImageIcon size={12} color={BRIEF.muted} strokeWidth={2} />
+                    <Text style={styles.photosText}>
+                      {photos} {photos === 1 ? 'photo' : 'photos'}
+                    </Text>
+                  </View>
+                ) : null}
               </View>
             ) : null}
             <Pressable
@@ -375,6 +385,8 @@ const styles = StyleSheet.create({
   moods: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 9 },
   mood: { paddingVertical: 3, paddingHorizontal: 9 },
   moodText: { fontSize: 12 },
+  photos: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 4 },
+  photosText: { fontFamily: 'Inter-Regular', fontSize: 12, color: BRIEF.muted },
   open: {
     marginTop: 12,
     height: 44,

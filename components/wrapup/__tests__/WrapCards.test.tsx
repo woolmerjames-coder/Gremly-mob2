@@ -8,6 +8,8 @@ import { WrapRecapCard } from '../WrapRecapCard';
 import { WrapReceiptCard } from '../WrapReceiptCard';
 import { WrapHabitsCard } from '../WrapHabitsCard';
 import { WrapJournalCard } from '../WrapJournalCard';
+import { PrivateImage } from '../../PrivateImage';
+import { useEntryPhotosStore } from '../../../lib/journal/photos';
 import { WrapItemCard } from '../WrapItemCard';
 import { WrapEndMark } from '../WrapEndMark';
 import { ReplyTag } from '../ReplyTag';
@@ -215,6 +217,28 @@ describe('the journal card', () => {
     fireEvent.press(r.getByTestId('wrap-journal-open'));
     expect(onOpen).toHaveBeenCalledTimes(1);
     expect(render(<WrapJournalCard meta={saved} />).queryByTestId('wrap-journal-open')).toBeNull();
+  });
+
+  it('shows the first three photos saved with the entry, and how many more there are', () => {
+    const photo = (id: string, position: number) => ({
+      id,
+      url: `file:///${id}.jpg`,
+      position,
+    });
+    useEntryPhotosStore.setState({
+      byEntry: { [saved.note_id]: ['a', 'b', 'c', 'd', 'e'].map(photo) },
+    });
+    const r = render(<WrapJournalCard meta={saved} />);
+    expect(r.getByTestId('wrap-journal-photos').findAllByType(PrivateImage)).toHaveLength(3);
+    expect(r.getByText('+2')).toBeTruthy();
+    useEntryPhotosStore.setState({ byEntry: {} });
+  });
+
+  it('has no row of photos for an entry without any', () => {
+    useEntryPhotosStore.setState({ byEntry: {} });
+    expect(
+      render(<WrapJournalCard meta={saved} />).queryByTestId('wrap-journal-photos'),
+    ).toBeNull();
   });
 
   it('changes the moods on a saved entry', () => {

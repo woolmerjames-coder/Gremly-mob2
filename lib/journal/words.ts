@@ -113,6 +113,16 @@ export const JOURNAL_COPY = {
   lookBefore: 'The entry before',
   lookAfter: 'The entry after',
   hubEmpty: 'Nothing in your journal yet.',
+  // photos
+  photosAdd: 'Add a photo',
+  photosAddMore: 'Add another photo',
+  photosRemove: 'Remove this photo',
+  photosView: 'Look at this photo',
+  photosCloseView: 'Close the photo',
+  photosFull: 'An entry has room for six photos.',
+  photosNoLibrary: 'Your photos could not be opened. Try again.',
+  photosNeedWords: 'Add a few words or a mood to go with your photos.',
+  photosNotAdded: 'Photos not added',
   // a page of the person's own
   ownAbout: 'Your page.',
   ownNewTitle: 'Make your own page',

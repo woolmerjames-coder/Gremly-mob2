@@ -7,9 +7,11 @@ import React, { useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Check, Maximize2, NotebookPen, Pencil, Undo2 } from 'lucide-react-native';
 import type { SweepJournalMeta } from '../../lib/brief/types';
+import { useEntryPhotos } from '../../lib/journal/photos';
 import { ALL_MOODS, MOOD_CONFIG, type Mood } from '../../lib/shared/moods';
 import { CARD_COPY, journalLabel, partWords } from '../../lib/wrapup/words';
 import { BRIEF } from '../brief/briefStyles';
+import { PrivateImage } from '../PrivateImage';
 import { wrapStyles } from './wrapStyles';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -28,6 +30,9 @@ export type WrapJournalCardProps = {
   /** Open the entry on the journal page, to read it all or add to it */
   onOpen?: () => void;
 };
+
+/** How many of an entry's photos the card shows */
+const SHOWN_PHOTOS = 3;
 
 /** "and three more answers" under the first answer of an entry written on the page */
 function moreAnswers(n: number): string {
@@ -50,6 +55,8 @@ export function WrapJournalCard({
 }: WrapJournalCardProps) {
   const [picked, setPicked] = useState<Mood[]>(() => known(meta.moods));
   const [editing, setEditing] = useState(false);
+  // the photos saved with the entry: they arrive a moment after the words, as they are sent
+  const photos = useEntryPhotos(meta.status === 'saved' ? meta.note_id : null);
 
   if (meta.status === 'removed' || meta.status === 'skipped') {
     return (
@@ -98,6 +105,16 @@ export function WrapJournalCard({
         </View>
       ) : meta.text ? (
         <Text style={styles.text}>{meta.text}</Text>
+      ) : null}
+      {photos.length ? (
+        <View style={styles.photos} testID="wrap-journal-photos">
+          {photos.slice(0, SHOWN_PHOTOS).map((p) => (
+            <PrivateImage key={p.id} uri={p.url} style={styles.photo} resizeMode="cover" />
+          ))}
+          {photos.length > SHOWN_PHOTOS ? (
+            <Text style={styles.morePhotos}>+{photos.length - SHOWN_PHOTOS}</Text>
+          ) : null}
+        </View>
       ) : null}
       <View style={styles.moods}>
         {choosing
@@ -238,6 +255,9 @@ const styles = StyleSheet.create({
   moodOn: { borderColor: BRIEF.peri, backgroundColor: '#ECEEFA' },
   dashed: { borderStyle: 'dashed' },
   parts: { gap: 2 },
+  photos: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  photo: { width: 64, height: 64, borderRadius: 12, backgroundColor: BRIEF.sageWash },
+  morePhotos: { fontFamily: 'Inter-SemiBold', fontSize: 13.5, color: BRIEF.muted },
   prompt: { fontFamily: 'PlusJakartaSans-Bold', fontSize: 13.5, color: BRIEF.mossInk },
   more: { fontFamily: 'Inter-Regular', fontSize: 12.5, color: BRIEF.faint, marginTop: 4 },
   moodText: { fontFamily: 'Inter-SemiBold', fontSize: 12.5, color: BRIEF.moss },

@@ -43,8 +43,16 @@ export function openEntryOnPage(id: string): boolean {
   return true;
 }
 
-/** Opens the day's page to write on, starting with any words already typed. */
-export function writeOnPage(words?: string | null): void {
+/**
+ * Opens the day's page to write on, starting with any words already typed and
+ * any photos already chosen.
+ */
+export function writeOnPage(words?: string | null, photos?: string[] | null): void {
   const carry = words?.trim();
-  openJournal({ day: getDateService().ritualDay(), carry: carry || undefined });
+  const carryPhotos = (photos ?? []).filter(Boolean);
+  openJournal({
+    day: getDateService().ritualDay(),
+    carry: carry || undefined,
+    carryPhotos: carryPhotos.length ? carryPhotos : undefined,
+  });
 }

@@ -660,3 +660,127 @@ describe('reading an older entry, with the rest of the journal a tap away', () =
     expect(queryByTestId('journal-steps')).toBeNull();
   });
 });
+
+describe('photos', () => {
+  const saved = [
+    {
+      id: 'a',
+      url: 'https://x.supabase.co/storage/v1/object/public/log-photos/u1/n1/a.jpg',
+      position: 0,
+    },
+    {
+      id: 'b',
+      url: 'https://x.supabase.co/storage/v1/object/public/log-photos/u1/n1/b.jpg',
+      position: 1,
+    },
+  ];
+  /** The library, handing back these photos whenever it is opened */
+  const library = (...uris: string[]) => jest.fn(async () => ({ ok: true, uris }) as const);
+
+  it('cannot be added where the app has nowhere to keep them', () => {
+    const { queryByTestId } = open();
+    expect(queryByTestId('journal-format-photo')).toBeNull();
+    expect(queryByTestId('journal-photos')).toBeNull();
+  });
+
+  it('are chosen from the bar, shown under the writing, and counted', async () => {
+    const onChoosePhotos = library('file:///one.jpg', 'file:///two.jpg');
+    const { press, type, getByTestId, queryAllByTestId } = open({ onChoosePhotos });
+    type(0, 'Tired but pleased.');
+    await press('journal-format-photo');
+    // there is room for six
+    expect(onChoosePhotos).toHaveBeenCalledWith(6);
+    expect(queryAllByTestId(/^journal-photo-\d+$/)).toHaveLength(2);
+    expect(getByTestId('journal-format-count').props.children).toBe('3 words, 2 photos');
+    await press('journal-photo-add');
+    expect(onChoosePhotos).toHaveBeenLastCalledWith(4);
+  });
+
+  it('are handed over on Done as what was chosen and what was taken off', async () => {
+    const { press, type, onDone } = open({
+      savedPhotos: saved,
+      onChoosePhotos: library('file:///one.jpg'),
+    });
+    type(0, 'Tired but pleased.');
+    await press('journal-format-photo');
+    await press('journal-photo-0-remove');
+    await press('journal-done');
+    expect(onDone.mock.calls[0][0].photos).toEqual({ added: ['file:///one.jpg'], removed: ['a'] });
+  });
+
+  it('let go of a chosen one that is taken off again', async () => {
+    const { press, type, onDone } = open({ onChoosePhotos: library('file:///one.jpg') });
+    type(0, 'Tired.');
+    await press('journal-format-photo');
+    await press('journal-photo-0-remove');
+    await press('journal-done');
+    expect(onDone.mock.calls[0][0].photos).toEqual({ added: [], removed: [] });
+  });
+
+  it('have room for six, and the page says so at the seventh', async () => {
+    const six = Array.from({ length: 6 }, (_, i) => `file:///${i}.jpg`);
+    const onChoosePhotos = library(...six);
+    const { press, getByText, queryByTestId, queryAllByTestId } = open({ onChoosePhotos });
+    await press('journal-format-photo');
+    expect(queryAllByTestId(/^journal-photo-\d+$/)).toHaveLength(6);
+    expect(queryByTestId('journal-photo-add')).toBeNull();
+    await press('journal-format-photo');
+    expect(onChoosePhotos).toHaveBeenCalledTimes(1);
+    expect(getByText('An entry has room for six photos.')).toBeTruthy();
+  });
+
+  it('say why when the library could not be opened', async () => {
+    const onChoosePhotos = jest.fn(async () => ({ ok: false, message: 'No photos.' }) as const);
+    const { press, getByText } = open({ onChoosePhotos });
+    await press('journal-format-photo');
+    expect(getByText('No photos.')).toBeTruthy();
+  });
+
+  it('are not an entry by themselves: Done asks for words or a mood', async () => {
+    const { press, getByText, onDone } = open({ onChoosePhotos: library('file:///one.jpg') });
+    await press('journal-format-photo');
+    await press('journal-done');
+    expect(getByText('Add a few words or a mood to go with your photos.')).toBeTruthy();
+    expect(onDone).not.toHaveBeenCalled();
+  });
+
+  it('are kept with the page when it is closed before Done', async () => {
+    const { press, onClose } = open({ onChoosePhotos: library('file:///one.jpg') });
+    await press('journal-format-photo');
+    await press('journal-close');
+    expect(onClose.mock.calls[0][0].photos).toEqual({ added: ['file:///one.jpg'], removed: [] });
+  });
+
+  it('come back on a page kept from earlier', () => {
+    const { queryAllByTestId, getByTestId } = open({
+      savedPhotos: saved,
+      initialPhotoChanges: { added: ['file:///one.jpg'], removed: ['b'] },
+      onChoosePhotos: library(),
+    });
+    expect(queryAllByTestId(/^journal-photo-\d+$/)).toHaveLength(2);
+    expect(getByTestId('journal-format-count').props.children).toBe('0 words, 2 photos');
+  });
+
+  it('open large from a tile, and close before the page does', async () => {
+    const { press, getByTestId, queryByTestId, onClose } = open({
+      savedPhotos: saved,
+      onChoosePhotos: library(),
+    });
+    await press('journal-photo-1');
+    expect(getByTestId('journal-photo-viewer')).toBeTruthy();
+    await press('journal-close');
+    expect(queryByTestId('journal-photo-viewer')).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('are shown, and only shown, on an entry being read', () => {
+    const { queryAllByTestId, queryByTestId } = open({
+      reading: true,
+      initial: { tpl: FREEFORM, cards: [card(null, p('Tired.'))] },
+      savedPhotos: saved,
+    });
+    expect(queryAllByTestId(/^journal-photo-\d+$/)).toHaveLength(2);
+    expect(queryByTestId('journal-photo-0-remove')).toBeNull();
+    expect(queryByTestId('journal-photo-add')).toBeNull();
+  });
+});

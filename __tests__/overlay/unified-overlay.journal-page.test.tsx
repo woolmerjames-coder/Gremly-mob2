@@ -102,6 +102,29 @@ describe('choosing Journal for a new item', () => {
     });
   });
 
+  it('takes the photos chosen in the sheet along too', () => {
+    const { getByTestId, getByText } = render(
+      <UnifiedOverlayV2
+        visible={true}
+        mode="create"
+        initialEntity={{ type: 'log' }}
+        initialLogPhotoUris={['file:///one.jpg']}
+        onClose={jest.fn()}
+      />,
+    );
+    fireEvent.press(getByTestId('type-pill'));
+    fireEvent.press(getByText('Journal'));
+    act(() => {
+      jest.advanceTimersByTime(400);
+    });
+    expect(mockOpenCreate).toHaveBeenCalledWith({
+      type: 'log',
+      logSubtype: 'journal',
+      initialText: null,
+      initialLogPhotoUris: ['file:///one.jpg'],
+    });
+  });
+
   it('stays in the overlay for any other kind', () => {
     const onClose = jest.fn();
     const { getByTestId, getByText, getByLabelText } = render(

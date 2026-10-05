@@ -27,6 +27,18 @@ jest.mock('../../../lib/journal/ownPages', () => ({
   saveOwnPage: (...a: unknown[]) => mockSaveOwnPage(...a),
   deleteOwnPage: (...a: unknown[]) => mockDeleteOwnPage(...a),
 }));
+// photos: the page's own handling is real, the library and the account are stood in for
+let mockSavedPhotos: { id: string; url: string; position: number }[] = [];
+const mockChoosePhotos = jest.fn();
+const mockSaveEntryPhotos = jest.fn();
+const mockRemovePhotoFiles = jest.fn();
+jest.mock('../../../lib/journal/photos', () => ({
+  ...jest.requireActual('../../../lib/journal/photos'),
+  useEntryPhotos: (noteId: string | null | undefined) => (noteId ? mockSavedPhotos : []),
+  choosePhotos: (...a: unknown[]) => mockChoosePhotos(...a),
+  saveEntryPhotos: (...a: unknown[]) => mockSaveEntryPhotos(...a),
+  removePhotoFiles: (...a: unknown[]) => mockRemovePhotoFiles(...a),
+}));
 // whether they can still make new things: a tester, a subscriber, or inside the trial
 let mockAccess = true;
 jest.mock('../../../lib/subscriptions/useSubscriptionStatus', () => ({
@@ -75,6 +87,10 @@ function host() {
 beforeEach(() => {
   mockNotes = [];
   mockAccess = true;
+  mockSavedPhotos = [];
+  mockChoosePhotos.mockResolvedValue({ ok: true, uris: [] });
+  mockSaveEntryPhotos.mockResolvedValue({ failed: 0 });
+  mockRemovePhotoFiles.mockResolvedValue(undefined);
   mockSavePage.mockResolvedValue({ ok: true, noteId: 'n1' });
   mockDeleteNote.mockResolvedValue(undefined);
   useJournalSession.setState({ open: null, drafts: {}, lastPage: FREEFORM });
@@ -590,5 +606,132 @@ describe('someone whose trial has ended', () => {
     h.open({ day: DAY, save: jest.fn(async () => ({ ok: true }) as const) });
     expect(h.getByTestId('journal-page')).toBeTruthy();
     expect(asked).not.toHaveBeenCalled();
+  });
+});
+
+describe('photos', () => {
+  const address = (name: string) =>
+    `https://x.supabase.co/storage/v1/object/public/log-photos/u1/n7/${name}.jpg`;
+  const A = { id: 'a', url: address('a'), position: 0 };
+  const settle = () => act(async () => undefined);
+
+  it('are sent once a new entry is saved, to the entry it was saved as', async () => {
+    mockChoosePhotos.mockResolvedValue({ ok: true, uris: ['file:///one.jpg'] });
+    const h = host();
+    h.open({ day: DAY });
+    h.type(0, 'Tired but pleased.');
+    await h.press('journal-format-photo');
+    await h.press('journal-done');
+    expect(h.queryByTestId('journal-page')).toBeNull();
+    expect(mockSaveEntryPhotos).toHaveBeenCalledWith('n1', [], {
+      added: ['file:///one.jpg'],
+      removed: [],
+    });
+  });
+
+  it('are sent to the entry the wrap up saved, when the wrap up does the saving', async () => {
+    mockChoosePhotos.mockResolvedValue({ ok: true, uris: ['file:///one.jpg'] });
+    const save = jest.fn(async () => ({ ok: true, noteId: 'wrap-1' }) as const);
+    const h = host();
+    h.open({ day: DAY, save });
+    h.type(0, 'Tired.');
+    await h.press('journal-format-photo');
+    await h.press('journal-done');
+    expect(mockSaveEntryPhotos).toHaveBeenCalledWith('wrap-1', [], expect.anything());
+  });
+
+  it('are left alone when none were chosen or taken off', async () => {
+    const h = host();
+    h.open({ day: DAY });
+    h.type(0, 'Tired.');
+    await h.press('journal-done');
+    expect(mockSaveEntryPhotos).not.toHaveBeenCalled();
+  });
+
+  it('are not sent when the entry was not saved', async () => {
+    mockSavePage.mockResolvedValue({ ok: false, message: 'offline' });
+    mockChoosePhotos.mockResolvedValue({ ok: true, uris: ['file:///one.jpg'] });
+    const h = host();
+    h.open({ day: DAY });
+    h.type(0, 'Tired.');
+    await h.press('journal-format-photo');
+    await h.press('journal-done');
+    expect(mockSaveEntryPhotos).not.toHaveBeenCalled();
+    // the page is still up, with the photo on it
+    expect(h.getByTestId('journal-photo-0')).toBeTruthy();
+  });
+
+  it('show on a saved entry, and one taken off is deleted when the change is saved', async () => {
+    mockNotes = [savedEntry('n7', DAY, 'The budget review.')];
+    mockSavedPhotos = [A];
+    // a change to a saved entry is saved as that entry
+    mockSavePage.mockResolvedValue({ ok: true, noteId: 'n7' });
+    const h = host();
+    h.open({ day: DAY });
+    expect(h.getByTestId('journal-photo-0')).toBeTruthy();
+    await h.press('journal-photo-0-remove');
+    await h.press('journal-done');
+    expect(mockSaveEntryPhotos).toHaveBeenCalledWith('n7', [A], { added: [], removed: ['a'] });
+  });
+
+  it('tell the person when one could not be added, after the page has closed', async () => {
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    mockSaveEntryPhotos.mockResolvedValue({ failed: 1 });
+    mockChoosePhotos.mockResolvedValue({ ok: true, uris: ['file:///one.jpg'] });
+    const h = host();
+    h.open({ day: DAY });
+    h.type(0, 'Tired.');
+    await h.press('journal-format-photo');
+    await h.press('journal-done');
+    await settle();
+    expect(alert).toHaveBeenCalledWith(
+      'Photos not added',
+      'One photo could not be added. Your entry is saved. Open it to add the photo again.',
+    );
+    alert.mockRestore();
+  });
+
+  it('are kept with a page closed before Done, and come back with it', async () => {
+    mockChoosePhotos.mockResolvedValue({ ok: true, uris: ['file:///one.jpg'] });
+    const h = host();
+    h.open({ day: DAY });
+    await h.press('journal-format-photo');
+    await h.press('journal-close');
+    expect(draftFor(`day:${DAY}`)?.photos).toEqual({ added: ['file:///one.jpg'], removed: [] });
+    h.open({ day: DAY });
+    expect(h.getByTestId('journal-photo-0')).toBeTruthy();
+  });
+
+  it('start the page when they were chosen in the add sheet, and are kept if it is closed', async () => {
+    const h = host();
+    h.open({ day: DAY, carryPhotos: ['file:///one.jpg', 'file:///two.jpg'] });
+    expect(h.queryAllByTestId(/^journal-photo-\d+$/)).toHaveLength(2);
+    await h.press('journal-close');
+    expect(draftFor(`day:${DAY}`)?.photos?.added).toHaveLength(2);
+  });
+
+  it('are only shown on an entry being read', () => {
+    mockNotes = [savedEntry('n7', '2026-09-24', 'The budget review.')];
+    mockSavedPhotos = [A];
+    const h = host();
+    h.open({ day: DAY, entryId: 'n7', reading: true });
+    expect(h.getByTestId('journal-photo-0')).toBeTruthy();
+    expect(h.queryByTestId('journal-photo-0-remove')).toBeNull();
+  });
+
+  it('have their files deleted when the entry is deleted', async () => {
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    mockNotes = [savedEntry('n7', '2026-09-24', 'The budget review.')];
+    mockSavedPhotos = [A];
+    const h = host();
+    h.open({ day: DAY, entryId: 'n7', reading: true });
+    await h.press('journal-delete');
+    await act(async () => {
+      (alert.mock.calls[0][2] ?? [])[1].onPress?.();
+    });
+    await settle();
+    expect(mockDeleteNote).toHaveBeenCalledWith('n7');
+    expect(mockRemovePhotoFiles).toHaveBeenCalledWith([A]);
+    alert.mockRestore();
   });
 });

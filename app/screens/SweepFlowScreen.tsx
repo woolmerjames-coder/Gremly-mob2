@@ -129,6 +129,7 @@ import {
 import { cardsLeft } from '../../lib/wrapup/state';
 import { wrapNow } from '../../lib/wrapup/day';
 import { todayThreadParams } from '../../lib/brief/pinned';
+import { PrivateImage } from '../../components/PrivateImage';
 
 // Gremly mascot for summary step
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -2318,8 +2319,8 @@ function SweepDecisionStep({
           onPress={() => setPhotoPreviewUrl(null)}
         >
           {photoPreviewUrl && (
-            <Image
-              source={{ uri: photoPreviewUrl }}
+            <PrivateImage
+              uri={photoPreviewUrl}
               style={{
                 width: Dimensions.get('window').width * 0.9,
                 height: Dimensions.get('window').height * 0.7,

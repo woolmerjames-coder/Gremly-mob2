@@ -88,6 +88,19 @@ describe('a new journal entry', () => {
     expect(page()?.carry).toBe('Tired but pleased.');
   });
 
+  it('starts with the photos already chosen in the add sheet', () => {
+    const { result } = overlay();
+    act(() =>
+      result.current.openCreate({
+        type: 'log',
+        logSubtype: 'journal',
+        initialLogPhotoUris: ['file:///one.jpg'],
+      }),
+    );
+    expect(page()?.carryPhotos).toEqual(['file:///one.jpg']);
+    expect(result.current.state.visible).toBe(false);
+  });
+
   it('leaves every other kind of new item to the overlay', () => {
     const { result } = overlay();
     act(() => result.current.openCreate({ type: 'log', logSubtype: 'idea' }));

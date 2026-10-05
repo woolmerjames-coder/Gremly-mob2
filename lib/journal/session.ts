@@ -12,13 +12,15 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getDateService } from '../date/DateService';
 import type { Mood } from '../shared/moods';
 import { card, type JournalLayout, type JournalPage } from './page';
+import type { PhotoChanges } from './photos';
 import { FREEFORM } from './pages';
 
 export type JournalPart = 'morning' | 'afternoon' | 'evening';
 
 /** What the page hands over on Done */
 export type JournalWritten = { text: string; layout: JournalLayout; moods: Mood[] };
-export type JournalSaveResult = { ok: true } | { ok: false; message: string };
+/** Saved, with the entry it was saved as when the saver knows it, or why it was not */
+export type JournalSaveResult = { ok: true; noteId?: string } | { ok: false; message: string };
 
 /** The goal a check in is written for, and the Space that goal is in */
 export type JournalGoal = { goal_id: string; goal_name: string; space_id: string };
@@ -39,6 +41,8 @@ export type JournalOpen = {
   part?: JournalPart;
   /** Words already typed in the chat box, to start the page with */
   carry?: string;
+  /** Photos already chosen in the add sheet, still on the phone, to start the page with */
+  carryPhotos?: string[];
   /**
    * Saves the entry in place of the page's own saving. The wrap up gives this,
    * so the entry is saved as part of the evening and answered in the thread.
@@ -55,6 +59,8 @@ export type JournalDraft = {
   tpl: string;
   cards: { q: string | null; html: string; custom?: boolean }[];
   moods: Mood[];
+  /** What had been done to the entry's photos: chosen ones still on the phone, saved ones taken off */
+  photos?: PhotoChanges;
   /** When it was kept */
   at: string;
 };
@@ -115,13 +121,18 @@ export function draftKey(at: {
   return at.goalId ? `goal:${at.goalId}` : `day:${at.day}`;
 }
 
-export function keepDraft(key: string, left: { page: JournalPage; moods: Mood[] }): void {
+export function keepDraft(
+  key: string,
+  left: { page: JournalPage; moods: Mood[]; photos?: PhotoChanges },
+): void {
+  const changed = left.photos && (left.photos.added.length || left.photos.removed.length);
   const draft: JournalDraft = {
     tpl: left.page.tpl,
     cards: left.page.cards.map((c) =>
       c.custom ? { q: c.q, html: c.html, custom: true } : { q: c.q, html: c.html },
     ),
     moods: left.moods,
+    ...(changed ? { photos: left.photos } : {}),
     at: getDateService().nowTimestamp(),
   };
   useJournalSession.setState((s) => ({ drafts: { ...s.drafts, [key]: draft } }));

@@ -423,7 +423,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       // a new journal entry is written on the journal page
       if (resolvedEntity?.type === 'log' && resolvedEntity.logSubtype === 'journal') {
         holdOpening(isOpeningRef, debounceTimerRef);
-        writeOnPage(resolvedText);
+        writeOnPage(resolvedText, initialLogPhotoUris);
         return;
       }
       setState({
