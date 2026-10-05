@@ -10,7 +10,8 @@
 // ctx: { env, userId, today (YYYY-MM-DD where they are), timezone, db }
 // (db is workers/shared/db.js). Built per turn with toolContext. On today's
 // thread it also carries day (the plan on screen, set times and items the
-// thread sent) and surface, which picks a surface's own version of a tool.
+// thread sent), week (the person's week, when the thread sent it) and surface,
+// which picks a surface's own version of a tool.
 //
 // Reading tools change nothing. propose_changes changes nothing either: it
 // puts checked changes on a card, and the app applies a card only when the
@@ -24,14 +25,25 @@ import { getItem } from './getItem.js';
 import { getDay } from './getDay.js';
 import { recall } from './recall.js';
 import { webSearch } from './webSearch.js';
-import { proposeChanges, proposeDayChanges } from './proposeChanges.js';
+import { proposeChanges, proposeDayChanges, proposeWeekChanges } from './proposeChanges.js';
+import { getWeek } from './getWeek.js';
+import { hold, offerWeek } from './review.js';
 
 export const TOOLS = [findItems, getItem, getDay, recall, webSearch, proposeChanges];
-const BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));
+
+// The week's tools (the weekly review): offered only where the person's week
+// is known, which is today's thread when the app sent it (surfaces.js).
+export const WEEK_TOOLS = [getWeek, hold, offerWeek];
+
+const BY_NAME = new Map([...TOOLS, ...WEEK_TOOLS].map((t) => [t.name, t]));
 
 // A surface's own version of a tool, under the same name: on today's thread
-// propose_changes can also change the plan on screen and today's set times.
-const FOR_SURFACE = { brief: { propose_changes: proposeDayChanges } };
+// propose_changes can also change the plan on screen and today's set times,
+// and the week's own changes when the thread sent the person's week.
+const FOR_SURFACE = {
+  brief: { propose_changes: proposeDayChanges },
+  brief_week: { propose_changes: proposeWeekChanges },
+};
 
 function toolNamed(name, surface) {
   return FOR_SURFACE[surface]?.[name] || BY_NAME.get(name);
@@ -48,9 +60,23 @@ export function toolDeclarations(tools = TOOLS) {
   return tools.map(({ name, description, parameters }) => ({ name, description, parameters }));
 }
 
+/** Whether a tool only tells the app something about the reply (hold, offer_week). */
+export function isSignal(name) {
+  return BY_NAME.get(name)?.signal === true;
+}
+
 /** The context every tool runs with, for one turn. */
-export function toolContext(env, { userId, today, timezone, day = null }) {
-  return { env, userId, today, timezone: timezone || 'UTC', db: db(env), cache: new Map(), day };
+export function toolContext(env, { userId, today, timezone, day = null, week = null }) {
+  return {
+    env,
+    userId,
+    today,
+    timezone: timezone || 'UTC',
+    db: db(env),
+    cache: new Map(),
+    day,
+    week,
+  };
 }
 
 /**

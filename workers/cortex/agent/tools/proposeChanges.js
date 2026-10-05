@@ -9,16 +9,27 @@
 // Gremly is offering; the agent runner keeps them for the card.
 // ============================================================================
 
-import { OPS, TYPES as FIELD_TYPES, GROUPS, PLAN_KINDS } from '../../../shared/changes/fields.js';
+import {
+  OPS,
+  TYPES as FIELD_TYPES,
+  GROUPS,
+  PLAN_KINDS,
+  STEP_KINDS,
+  WEEK_OPS,
+} from '../../../shared/changes/fields.js';
 import { checkCard, normTime } from '../../../shared/changes/check.js';
+import { DAY_KINDS } from '../../../shared/week.js';
 import { loadItem, worldsAndChapters, isId } from './items.js';
-import { arr, bool, day, int, obj, str, strEnum, time } from './schema.js';
+import { arr, bool, day, int, num, obj, str, strEnum, time } from './schema.js';
 import { trackTasks } from '../tasks.js';
 import { clock, dayWords, trim } from './words.js';
 
 // item changes everywhere; the plan on screen and today's set times only on
 // today's thread, where the request carries them (proposeDayChanges)
 const AGENT_OPS = Object.keys(OPS).filter((op) => op !== 'plan');
+// the week's own changes, only where the thread sent the person's week
+// (proposeWeekChanges)
+const WEEK_OP_NAMES = Object.keys(WEEK_OPS);
 
 /** The field list in words, for the tool's description, from fields.js. */
 export function fieldListWords() {
@@ -151,20 +162,81 @@ const WITH_CARD = {
   tasks: trackTasks.parameters.properties.tasks,
 };
 
-function changeSchema({ plan }) {
+const SHAPE = obj(
+  {
+    busy_days: arr(
+      str('a day, YYYY-MM-DD'),
+      'every busy day of the week, in place of the busy days before',
+    ),
+    hours: obj(
+      {
+        normal_day: num('hours free on a normal day'),
+        busy_day: num('hours free on a busy day'),
+        weekend_day: num('hours free on a day off'),
+      },
+      [],
+      'the hours they have free for their own things on each kind of day, in half hours; only the ones that change',
+    ),
+  },
+  [],
+  'for week_shape: the busy days, the free hours, or both',
+);
+
+const MILESTONE = obj(
+  {
+    goal: str('what it is for, in a few words'),
+    date: day('the date it is for'),
+    steps: arr(
+      obj(
+        {
+          title: str('what the step is'),
+          by: day('the day to finish it by, between today and the date it is for'),
+          minutes: int('roughly how long it takes, in whole minutes'),
+          kind: strEnum(
+            STEP_KINDS,
+            'todo for something they do; check_in for a moment Gremly asks how it is going, in an evening wrap up',
+          ),
+        },
+        ['title', 'by', 'kind'],
+      ),
+      'the steps, in order',
+    ),
+  },
+  ['goal', 'date', 'steps'],
+  'for milestone: something big more than a week away, and the steps towards it',
+);
+
+function changeSchema({ plan, week }) {
+  const ops = [...AGENT_OPS, ...(plan ? ['plan'] : []), ...(week ? WEEK_OP_NAMES : [])];
   const props = {
-    op: strEnum(plan ? [...AGENT_OPS, 'plan'] : AGENT_OPS, 'what the change does'),
+    op: strEnum(ops, 'what the change does'),
     type: strEnum(
       ['todo', 'habit', 'note'],
-      plan ? 'the kind of item; left out for plan' : 'the kind of item',
+      week
+        ? "the kind of item; left out for plan and for the week's shape, intention, milestone and weekly day"
+        : plan
+          ? 'the kind of item; left out for plan'
+          : 'the kind of item',
     ),
     id: str('the item id; left out for add'),
     to: strEnum(['todo', 'habit', 'note'], 'for convert, the kind it becomes'),
-    days: arr(str('a day, YYYY-MM-DD'), 'for log and unlog'),
+    days: arr(
+      str('a day, YYYY-MM-DD'),
+      week
+        ? 'for log and unlog; for habit_days, every day the habit is planned on in the week'
+        : 'for log and unlog',
+    ),
     fields: FIELDS,
     clear: arr(str('a field name'), 'fields to empty'),
   };
   if (plan) props.plan = PLAN;
+  if (week) {
+    props.back_on = day('for later, the day the todo comes back to them');
+    props.shape = SHAPE;
+    props.intention = str('for intention, their intention for the week, one short line');
+    props.milestone = MILESTONE;
+    props.weekday = int('for weekly_day, the day of the week, 0 Sunday to 6 Saturday');
+  }
   return obj(props, plan ? ['op'] : ['op', 'type']);
 }
 
@@ -175,6 +247,15 @@ In today's thread the plan on screen and today's set times change too, with op p
 - plan_add fits one of their items for today into the plan on screen: from the time or the part of the day they named, or, when they named none, into the free time, which the app finds after the time now, around meetings and set times, up to the end of planning. plan_remove takes an item out of the plan; plan_move moves an item in the plan to a new time. When they ask for a stretch of the day to be filled rather than giving a time, each plan_add gives the start of that stretch as after, and no time. The app puts each item at its time, or at the first free time after it when a meeting or something in the plan is already there. The plan is for the rest of today, so no time in it is earlier than the time now.
 - plan_day, when there is no plan on screen: when they accept it, Gremly plans the rest of today from their items, around what is fixed, and shows the plan for them to keep or change.
 Calendar meetings live in their calendar and cannot be changed here, and nothing is added to stand in for one: say plainly that it moves in their calendar. When they give a time for something already listed, change that item rather than adding a new one.`;
+
+const WEEK_DESCRIPTION = `${DAY_DESCRIPTION}
+Their week changes too, with these operations. The days they act on, the week's free hours and busy days and its intention are in what you know about their week:
+- later puts a todo off for now: it leaves its day and comes back to them on back_on, a day still to come and within four weeks. Choose a day when there is likely to be room or before it matters, and bring several back on different days.
+- habit_days sets the days a habit is planned on in the week. Give every day it should be on as days, because the list takes the place of the days it was on; an empty list takes it off the week.
+- week_shape sets which days of the week are busy and the hours they have free for their own things. busy_days is every busy day, in place of the ones before. hours is in half hours, for a normal day, a busy day and a day off, and only the ones that change.
+- intention sets their intention for the week: one short line in the first person, in their words when they gave them.
+- milestone sets up something big with a date more than a week away: what it is for, its date, and two to four steps in order, each with the day to finish it by, and whether it is a todo for them to do or a check_in, a moment Gremly asks how it is going. Only for something that has a date.
+- weekly_day moves the day of the week their weekly review happens on, given as weekday.`;
 
 const HINTS = {
   no_item: 'no item of theirs has that kind and id; look it up with find_items',
@@ -209,6 +290,30 @@ const HINTS = {
   needs_time: 'it needs a time, on a 12 hour clock with am or pm',
   covered:
     "the change to that item already moves it in or out of today's plan, so the card needs only that one row",
+  no_week: 'their week is not known here',
+  already_done: 'it is already done',
+  back_not_ahead: 'a todo put off comes back on a day still to come',
+  back_too_far: 'a todo put off comes back within four weeks',
+  outside_week:
+    'that day is outside the days these changes act on; the days are in what you know about their week',
+  no_review:
+    'their week has no review to keep that on yet; offer_week puts the button to plan their week under your reply',
+  bad_shape: 'the shape needs busy_days, hours or both',
+  bad_milestone: 'a milestone needs what it is for and the date it is for',
+  milestone_not_ahead: 'a milestone is for a date still to come',
+  milestone_needs_steps: 'a milestone needs at least one step',
+  too_many_steps: 'a milestone takes at most six steps',
+  bad_step:
+    'each step needs a title, the day to finish it by as YYYY-MM-DD, and whether it is a todo or a check_in',
+  step_outside: 'each step is finished between today and the date the milestone is for',
+};
+
+// what a week change's own value has to be, when it could not be read
+const WEEK_VALUES = {
+  back_on: 'back_on is a day, YYYY-MM-DD',
+  hours: 'hours are in half hours, from none up to sixteen',
+  intention: 'the intention is one short line',
+  weekday: 'weekday is a whole number, 0 Sunday to 6 Saturday',
 };
 
 function hint(reason) {
@@ -218,6 +323,7 @@ function hint(reason) {
     case 'unknown_field':
       return `${field} is not a field of that kind of item`;
     case 'bad_value':
+      if (WEEK_VALUES[field]) return WEEK_VALUES[field];
       return `the value for ${field} is not valid: days are YYYY-MM-DD, times on a 12 hour clock with am or pm, lengths whole minutes`;
     case 'cannot_clear':
       return `${field} cannot be emptied`;
@@ -334,6 +440,22 @@ export function readPlanRow(c, cid, day) {
   }
 }
 
+// the kind of item a week change is about, when it is about one
+const WEEK_TYPE = { later: 'todo', habit_days: 'habit' };
+
+/** One of the week's own changes, in the change model's own shape. */
+export function toWeekChange(c, i) {
+  const out = { cid: `c${i + 1}`, op: c.op, type: c.type || WEEK_TYPE[c.op] || null };
+  if (c.id) out.id = c.id;
+  if (c.op === 'later') out.back_on = c.back_on;
+  if (c.op === 'habit_days') out.days = c.days;
+  if (c.op === 'week_shape') out.shape = c.shape;
+  if (c.op === 'intention') out.intention = c.intention;
+  if (c.op === 'milestone') out.milestone = c.milestone;
+  if (c.op === 'weekly_day') out.weekday = c.weekday;
+  return out;
+}
+
 /** The tool's change, in the change model's own shape. */
 export function toModelChange(c, i) {
   const out = { cid: `c${i + 1}`, op: c?.op, type: c?.type };
@@ -391,20 +513,110 @@ function planWords(c) {
   }
 }
 
+const WEEKDAY_NAMES = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+];
+const KIND_WORDS = { normal_day: 'a normal day', busy_day: 'a busy day', weekend_day: 'a day off' };
+
+/** One of the week's changes on the card, in words for the model. */
+function weekWords(c, ctx) {
+  const days = (list) => list.map((d) => dayWords(d, ctx.today)).join(', ');
+  switch (c.op) {
+    case 'later':
+      return `later todo “${trim(c.title, 60)}”: comes back ${dayWords(c.fields.back_on, ctx.today)}`;
+    case 'habit_days':
+      return `habit_days habit “${trim(c.title, 60)}”: ${c.days.length ? `planned on ${days(c.days)}` : 'off the week'}`;
+    case 'week_shape': {
+      const s = c.shape || {};
+      const parts = [];
+      if (s.busy_days)
+        parts.push(s.busy_days.length ? `busy days ${days(s.busy_days)}` : 'no busy days');
+      if (s.hours) {
+        parts.push(
+          `free hours ${DAY_KINDS.filter((k) => k in s.hours)
+            .map((k) => `${s.hours[k]} on ${KIND_WORDS[k]}`)
+            .join(', ')}`,
+        );
+      }
+      return `week_shape: ${parts.join('; ')}`;
+    }
+    case 'intention':
+      return `intention: “${trim(c.fields.text, 120)}”`;
+    case 'milestone': {
+      const n = c.milestone.steps.length;
+      return `milestone “${trim(c.title, 60)}” for ${dayWords(c.milestone.date, ctx.today)}: ${n} step${n === 1 ? '' : 's'}`;
+    }
+    default:
+      return `weekly_day: ${WEEKDAY_NAMES[c.fields.weekday]}`;
+  }
+}
+
 /** Whether an item row already settles where the item sits in today's plan. */
 function coversPlan(c) {
   if (c.op === 'plan' || !c.id) return false;
-  if (['done', 'archive', 'skip_today', 'log', 'convert'].includes(c.op)) return true;
+  if (['done', 'archive', 'skip_today', 'log', 'convert', 'later'].includes(c.op)) return true;
   return c.op === 'change' && ('time' in (c.fields || {}) || 'day' in (c.fields || {}));
 }
 
-/** propose_changes, with the plan on screen and today's set times when plan is true. */
-function makeProposeChanges({ plan }) {
+/**
+ * The person's week as the week's changes are checked against it
+ * (checkWeekChange): the days they act on, the shape and the intention as they
+ * stand, and the weekly day, from what the thread sent (ctx.week).
+ */
+export function weekCheckOf(week) {
+  if (!week) return null;
+  return {
+    first: week.first,
+    last: week.last,
+    hours: week.hours || null,
+    busy_days: week.busy_days || [],
+    has_review: !!week.has_review,
+    intention: week.intention || null,
+    weekly_day: week.weekly_day,
+  };
+}
+
+/**
+ * The days each habit named by a habit_days change is planned on now: the
+ * review's working days when it has them, otherwise the days saved.
+ */
+async function plannedDays(ctx, raws) {
+  const ids = [
+    ...new Set(raws.filter((r) => r.op === 'habit_days' && isId(r.id)).map((r) => r.id)),
+  ];
+  const out = new Map();
+  if (!ids.length || !ctx.week) return out;
+  const working = new Map((ctx.week.under_way?.habit_days || []).map((h) => [h.id, h.days]));
+  const toRead = ids.filter((id) => !working.has(id));
+  for (const id of ids) if (working.has(id)) out.set(id, working.get(id));
+  if (toRead.length) {
+    const rows = await ctx.db.select(
+      `habit_plans?owner_id=eq.${ctx.userId}&habit_id=in.(${toRead.join(',')})&planned_date=gte.${ctx.week.first}&planned_date=lte.${ctx.week.last}&select=habit_id,planned_date&limit=200`,
+    );
+    for (const id of toRead) out.set(id, []);
+    for (const r of rows || []) {
+      out.set(r.habit_id, [...(out.get(r.habit_id) || []), String(r.planned_date).slice(0, 10)]);
+    }
+  }
+  return out;
+}
+
+/**
+ * propose_changes, with the plan on screen and today's set times when plan is
+ * true, and the week's own changes when week is true.
+ */
+function makeProposeChanges({ plan, week = false }) {
   return {
     name: 'propose_changes',
-    description: plan ? DAY_DESCRIPTION : DESCRIPTION,
+    description: week ? WEEK_DESCRIPTION : plan ? DAY_DESCRIPTION : DESCRIPTION,
     parameters: obj(
-      { changes: arr(changeSchema({ plan }), 'the changes, one per item'), ...WITH_CARD },
+      { changes: arr(changeSchema({ plan, week }), 'the changes, one per item'), ...WITH_CARD },
       ['changes'],
     ),
 
@@ -413,6 +625,11 @@ function makeProposeChanges({ plan }) {
       // plan rows are read against the day the thread sent; item rows as before
       const early = [];
       const raws = given.map((c, i) => {
+        if (WEEK_OP_NAMES.includes(c?.op)) {
+          if (week) return toWeekChange(c, i);
+          early.push({ cid: `c${i + 1}`, reason: 'unknown_op' });
+          return null;
+        }
         if (c?.op !== 'plan') return toModelChange(c, i);
         const r = plan ? readPlanRow(c, `c${i + 1}`, ctx.day) : { reason: 'unknown_op' };
         if (r.reason) {
@@ -429,19 +646,28 @@ function makeProposeChanges({ plan }) {
         if (r.op !== 'plan' && r.id && isId(r.id) && FIELD_TYPES[r.type])
           wanted.set(`${r.type}:${r.id}`, [r.type, r.id]);
       }
-      const loaded = new Map(
-        await Promise.all(
+      const [loadedList, planned] = await Promise.all([
+        Promise.all(
           [...wanted.entries()].map(async ([key, [type, id]]) => [
             key,
             (await loadItem(ctx, type, id))?.item ?? null,
           ]),
         ),
-      );
+        week ? plannedDays(ctx, kept) : Promise.resolve(new Map()),
+      ]);
+      const loaded = new Map(loadedList);
+      // a habit is read with the days it is planned on, for habit_days
+      for (const [id, days] of planned) {
+        const item = loaded.get(`habit:${id}`);
+        if (item) item.planned_days = days;
+      }
+      const weekCheck = week ? weekCheckOf(ctx.week) : null;
       const { changes, dropped } = checkCard(kept, (raw) => ({
         today: ctx.today,
         item: raw.id && raw.op !== 'plan' ? (loaded.get(`${raw.type}:${raw.id}`) ?? null) : null,
         worlds: lw.worlds.map((w) => w.id),
         chapters: lw.chapters.map((c) => c.id),
+        week: weekCheck,
       }));
       // one row per item: a change that already moves an item in or out of
       // today's plan (a new time or day, done, skipped, stopped) covers it
@@ -469,6 +695,10 @@ function makeProposeChanges({ plan }) {
         for (const c of changes) {
           if (c.op === 'plan') {
             lines.push(`- ${c.cid} plan: ${planWords(c)}`);
+            continue;
+          }
+          if (WEEK_OP_NAMES.includes(c.op)) {
+            lines.push(`- ${c.cid} ${weekWords(c, ctx)}`);
             continue;
           }
           const what = [
@@ -501,3 +731,6 @@ export const proposeChanges = makeProposeChanges({ plan: false });
 
 /** Today's thread: the same tool, which can also change the plan on screen and today's set times. */
 export const proposeDayChanges = makeProposeChanges({ plan: true });
+
+/** Today's thread when it sent the person's week: the week's own changes too. */
+export const proposeWeekChanges = makeProposeChanges({ plan: true, week: true });

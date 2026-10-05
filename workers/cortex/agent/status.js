@@ -18,6 +18,8 @@ export function statusFor(name, args = {}, ctx = {}) {
       return 'Reading it through';
     case 'get_day':
       return !args?.date || args.date === ctx.today ? 'Looking at your day' : 'Looking at that day';
+    case 'get_week':
+      return 'Looking at your week';
     case 'recall':
       return 'Thinking back';
     case 'web_search':

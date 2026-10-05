@@ -5,9 +5,24 @@
 // database, what it hands the model, and that a failing tool never stops a
 // turn.
 
-import { TOOLS, runTool, toolDeclarations, toolsFor } from '../tools/index.js';
+import {
+  TOOLS,
+  WEEK_TOOLS,
+  isSignal,
+  runTool,
+  toolDeclarations,
+  toolsFor,
+} from '../tools/index.js';
 import { daysToRead, habitOnDay } from '../tools/getDay.js';
-import { fieldListWords, readPlanRow, toModelChange } from '../tools/proposeChanges.js';
+import { boardOf, hoursWords } from '../tools/getWeek.js';
+import {
+  fieldListWords,
+  readPlanRow,
+  toModelChange,
+  toWeekChange,
+  weekCheckOf,
+} from '../tools/proposeChanges.js';
+import { SURFACES, surfaceOf } from '../surfaces.js';
 
 const USER = '0b7c6f0e-1d2a-4c3b-9e8f-112233445566';
 const TODAY = '2026-10-02'; // a Friday
@@ -644,6 +659,438 @@ describe('propose_changes and events', () => {
       op: 'add',
       type: 'note',
       fields: { day: '2026-10-08', time: '10:00' },
+    });
+  });
+});
+
+// ── The week's tools (the weekly review) ────────────────────────────────────
+
+describe("the week's tools", () => {
+  // Friday 2 October 2026: the week is Monday 28 September to Sunday 4 October
+  const TODO2 = '55555555-5555-4555-8555-555555555555';
+  const TODO3 = '66666666-6666-4666-8666-666666666666';
+  const week = (over = {}) => ({
+    weekly_day: 0,
+    days_off: [0, 6],
+    review: { week_start: '2026-09-28', span_start: '2026-09-28', status: 'done', kind: 'weekly' },
+    extra_used: false,
+    blocked: false,
+    first: TODAY,
+    last: '2026-10-04',
+    view_first: '2026-09-28',
+    view_last: '2026-10-04',
+    hours: { normal_day: 2, busy_day: 1, weekend_day: 4 },
+    busy_days: ['2026-10-03'],
+    intention: null,
+    has_review: true,
+    under_way: null,
+    ...over,
+  });
+  const weekCtx = (db, over) => ({ ...ctxWith(db), surface: 'brief_week', week: week(over) });
+  const rows = {
+    todos: [
+      { id: TODO, name: 'Dentist', due_day: '2026-10-02', time_estimate_minutes: 60 },
+      { id: TODO2, name: 'Call Mum', due_day: '2026-10-02', time_estimate_minutes: null },
+      { id: TODO3, name: 'Clear the garage', due_day: null, resurface_at: '2026-10-12' },
+    ],
+    habits: [{ id: HABIT, name: 'Run', time_estimate_minutes: 45 }],
+    plans: [
+      { habit_id: HABIT, planned_date: '2026-10-02' },
+      { habit_id: HABIT, planned_date: '2026-10-03' },
+    ],
+  };
+  const weekDb = () =>
+    fakeDb({
+      'todos?': (path) =>
+        path.includes('resurface_at=gt.')
+          ? rows.todos.filter((t) => t.resurface_at)
+          : path.includes('id=in.')
+            ? rows.todos.filter((t) => path.includes(t.id))
+            : path.includes('due_day=gte.')
+              ? rows.todos.filter((t) => t.due_day)
+              : [],
+      'habits?': rows.habits,
+      'habit_plans?': rows.plans,
+      'worlds?': [],
+      'chapters?': [],
+    });
+
+  describe('the declarations', () => {
+    it("are apart from every surface's tools, and added by the brief's week variant", () => {
+      const general = TOOLS.map((t) => t.name);
+      for (const t of WEEK_TOOLS) expect(general).not.toContain(t.name);
+      expect(SURFACES.brief.tools).not.toContain('get_week');
+      expect(SURFACES.chat.tools).not.toContain('offer_week');
+      const s = surfaceOf('brief', 'week');
+      expect(s.tools).toEqual([...SURFACES.brief.tools, 'get_week', 'hold', 'offer_week']);
+      expect(s.toolSet).toBe('brief_week');
+      expect(s.job.startsWith(SURFACES.brief.job)).toBe(true);
+      expect(s.job).not.toMatch(/ — | – | - /);
+      // a surface without the variant is itself
+      expect(surfaceOf('brief')).toBe(SURFACES.brief);
+      expect(surfaceOf('brief', 'nothing')).toBe(SURFACES.brief);
+      expect(surfaceOf('chat', 'week')).toBe(SURFACES.chat);
+    });
+
+    it('read as both providers take them, with no dashes in what the model reads', () => {
+      const decls = toolDeclarations(toolsFor(surfaceOf('brief', 'week').tools, 'brief_week'));
+      for (const d of decls) {
+        expect(d.description.length).toBeGreaterThan(80);
+        expect(d.parameters.type).toBe('object');
+        expect(typeof d.parameters.properties).toBe('object');
+        expect(d.description).not.toMatch(/ — | – | - /);
+      }
+      const change = decls.find((d) => d.name === 'propose_changes').parameters.properties.changes
+        .items.properties;
+      expect(Object.keys(change)).toEqual(
+        expect.arrayContaining(['back_on', 'shape', 'intention', 'milestone', 'weekday', 'plan']),
+      );
+      expect(change.op.enum).toEqual(expect.arrayContaining(['plan', 'later', 'weekly_day']));
+    });
+
+    it('know which tools only tell the app about the reply', () => {
+      expect(isSignal('hold')).toBe(true);
+      expect(isSignal('offer_week')).toBe(true);
+      expect(isSignal('get_week')).toBe(false);
+      expect(isSignal('propose_changes')).toBe(false);
+      expect(isSignal('nope')).toBe(false);
+    });
+  });
+
+  describe('get_week', () => {
+    it('counts each day: what is on it, the kind of day, and the room left', () => {
+      const b = boardOf({
+        days: ['2026-10-01', '2026-10-02', '2026-10-03'],
+        today: TODAY,
+        todos: rows.todos,
+        habits: rows.habits,
+        plans: rows.plans,
+        week: week(),
+      });
+      expect(b.days[0]).toMatchObject({
+        day: '2026-10-01',
+        past: true,
+        kind: 'normal_day',
+        todos: [],
+      });
+      // a todo with no length counts as thirty minutes: 60 + 30 + the run's 45
+      expect(b.days[1]).toMatchObject({
+        kind: 'normal_day',
+        past: false,
+        room: { minutes: 120, placed: 135, left: -15 },
+      });
+      expect(b.days[1].todos.map((t) => t.title)).toEqual(['Dentist', 'Call Mum']);
+      expect(b.days[1].habits).toEqual([{ id: HABIT, title: 'Run', minutes: 45 }]);
+      // a busy day wins over a day off
+      expect(b.days[2]).toMatchObject({
+        kind: 'busy_day',
+        room: { minutes: 60, placed: 45, left: 15 },
+      });
+      expect(b.later).toEqual([{ id: TODO3, title: 'Clear the garage', back_on: '2026-10-12' }]);
+    });
+
+    it("lays the review's working board over what is saved", () => {
+      const b = boardOf({
+        days: ['2026-10-02', '2026-10-03'],
+        today: TODAY,
+        todos: rows.todos,
+        habits: rows.habits,
+        plans: rows.plans,
+        week: week({
+          under_way: {
+            step: 'board',
+            placed: [
+              { id: TODO2, day: '2026-10-03' },
+              { id: TODO3, day: '2026-10-02' },
+            ],
+            later: [{ id: TODO, back_on: '2026-10-20' }],
+            habit_days: [{ id: HABIT, days: ['2026-10-03'] }],
+          },
+        }),
+      });
+      expect(b.days[0].todos.map((t) => t.title)).toEqual(['Clear the garage']);
+      expect(b.days[0].habits).toEqual([]);
+      expect(b.days[1].todos.map((t) => t.title)).toEqual(['Call Mum']);
+      expect(b.days[1].habits.map((h) => h.title)).toEqual(['Run']);
+      expect(b.later).toEqual([{ id: TODO, title: 'Dentist', back_on: '2026-10-20' }]);
+    });
+
+    it('says hours the way the board does', () => {
+      expect(hoursWords(120)).toBe('2 hr');
+      expect(hoursWords(90)).toBe('1 hr 30 min');
+      expect(hoursWords(30)).toBe('30 min');
+      expect(hoursWords(0)).toBe('none');
+      expect(hoursWords(-15)).toBe('15 min');
+      expect(hoursWords(null)).toBe('');
+    });
+
+    it('reads the week in one go and hands it over in words, with ids', async () => {
+      const db = weekDb();
+      const r = await runTool(weekCtx(db), 'get_week', {});
+      expect(r.ok).toBe(true);
+      expect(db.asked.filter((p) => typeof p === 'string' && p.startsWith('todos?'))).toHaveLength(
+        2,
+      );
+      expect(
+        db.asked.some((p) => String(p).includes('due_day=gte.2026-09-28&due_day=lte.2026-10-04')),
+      ).toBe(true);
+      expect(r.text).toContain('THEIR WEEK, Mon 28 Sep to Sun 4 Oct');
+      expect(r.text).toContain(
+        'Hours free for their own things: 2 hr on a normal day, 1 hr on a busy day, 4 hr on a day off.',
+      );
+      expect(r.text).toContain(
+        'Thu 1 Oct (yesterday) (gone), normal day, 2 hr free, none placed, 2 hr left',
+      );
+      expect(r.text).toContain(
+        'Fri 2 Oct (today), normal day, 2 hr free, 2 hr 15 min placed, over by 15 min',
+      );
+      expect(r.text).toContain(
+        `  Todos: Dentist (id ${TODO}), 60 min; Call Mum (id ${TODO2}), 30 min`,
+      );
+      expect(r.text).toContain(`  Habits planned: Run (id ${HABIT}), 45 min`);
+      expect(r.text).toContain(
+        'Sat 3 Oct (tomorrow), busy day, 1 hr free, 45 min placed, 15 min left',
+      );
+      expect(r.text).toContain(
+        `Put off for later, with the day each comes back: Clear the garage (id ${TODO3}) back Mon 12 Oct`,
+      );
+      expect(r.text).not.toContain('nothing on the board is saved');
+    });
+
+    it('says the board is not saved while a review is under way, and reads the todos it names', async () => {
+      const db = weekDb();
+      const r = await runTool(
+        weekCtx(db, {
+          view_first: TODAY,
+          under_way: { step: 'board', placed: [{ id: TODO3, day: '2026-10-04' }], later: [] },
+        }),
+        'get_week',
+        {},
+      );
+      expect(db.asked.some((p) => String(p).includes(`id=in.(${TODO3})`))).toBe(true);
+      expect(r.text).toContain(
+        'as the review has it now; nothing on the board is saved until they finish',
+      );
+      expect(r.text).toContain(`Clear the garage (id ${TODO3}), 30 min`);
+      expect(r.text).toContain('Put off for later: nothing');
+    });
+
+    it('works out no room when the week has no hours yet, and says so', async () => {
+      const r = await runTool(weekCtx(weekDb(), { hours: null }), 'get_week', {});
+      expect(r.text).toContain(
+        'No free hours are set for this week yet, so no room is worked out.',
+      );
+      expect(r.text).toContain('Fri 2 Oct (today), normal day, 2 hr 15 min placed');
+    });
+
+    it('says so when the week is not known', async () => {
+      const r = await runTool(ctxWith(weekDb()), 'get_week', {});
+      expect(r.text).toBe('Their week is not known here.');
+    });
+  });
+
+  describe('hold and offer_week', () => {
+    it('hold keeps the review waiting only while one is under way', async () => {
+      const on = await runTool(weekCtx(fakeDb(), { under_way: { step: 'shape' } }), 'hold', {
+        about: '  how many   hours ',
+      });
+      expect(on.result).toEqual({ signal: { hold: { about: 'how many hours' } } });
+      expect(on.text).toBe('The review stays on this step until they answer.');
+      for (const under of [null, { step: 'done' }]) {
+        const off = await runTool(weekCtx(fakeDb(), { under_way: under }), 'hold', { about: 'x' });
+        expect(off.result.signal).toBeNull();
+        expect(off.text).toContain('nothing to hold');
+      }
+    });
+
+    it("offer_week puts the week's button, and says what it will read", async () => {
+      const planned = await runTool(weekCtx(fakeDb()), 'offer_week', {});
+      expect(planned.result).toMatchObject({
+        signal: { offer: { kind: 'week', done: true } },
+        more: false,
+      });
+      expect(planned.text).toContain('It reads Your week');
+      const not = await runTool(weekCtx(fakeDb(), { review: null }), 'offer_week', {});
+      expect(not.result.signal).toEqual({ offer: { kind: 'week', done: false } });
+      expect(not.text).toContain('It reads Plan your week');
+      expect((await runTool(ctxWith(fakeDb()), 'offer_week', {})).result.signal).toBeNull();
+    });
+
+    it('offer_week has more to say when no review can be started today', async () => {
+      const r = await runTool(
+        weekCtx(fakeDb(), { blocked: true, extra_used: true }),
+        'offer_week',
+        {},
+      );
+      expect(r.result).toMatchObject({ more: true, weekday: 5 });
+      expect(r.text).toContain('It cannot start another review today');
+      expect(r.text).toContain('put the move of their weekly day to Friday on the card');
+    });
+  });
+
+  describe("propose_changes with the week's own changes", () => {
+    const db = () =>
+      fakeDb({
+        'todos?': (path) =>
+          path.includes(TODO)
+            ? [{ id: TODO, name: 'Dentist', due_day: '2026-10-02', archived: false, views: {} }]
+            : [],
+        'habits?': [
+          { id: HABIT, name: 'Run', cadence: 'weekly', target_per_period: 3, archived: false },
+        ],
+        habit_progress: [],
+        'habit_plans?': [{ habit_id: HABIT, planned_date: '2026-10-02' }],
+        drop_world_links: [],
+        drop_chapter_links: [],
+        'worlds?': [],
+        'chapters?': [],
+      });
+
+    it('turns the tool shape into the change model, naming the kind of item itself', () => {
+      expect(toWeekChange({ op: 'later', id: TODO, back_on: '2026-10-12' }, 0)).toEqual({
+        cid: 'c1',
+        op: 'later',
+        type: 'todo',
+        id: TODO,
+        back_on: '2026-10-12',
+      });
+      expect(toWeekChange({ op: 'habit_days', id: HABIT, days: [TODAY] }, 1)).toEqual({
+        cid: 'c2',
+        op: 'habit_days',
+        type: 'habit',
+        id: HABIT,
+        days: [TODAY],
+      });
+      expect(toWeekChange({ op: 'weekly_day', weekday: 3 }, 2)).toEqual({
+        cid: 'c3',
+        op: 'weekly_day',
+        type: null,
+        weekday: 3,
+      });
+    });
+
+    it('gives the checks the week as it stands', () => {
+      expect(weekCheckOf(week())).toEqual({
+        first: TODAY,
+        last: '2026-10-04',
+        hours: { normal_day: 2, busy_day: 1, weekend_day: 4 },
+        busy_days: ['2026-10-03'],
+        has_review: true,
+        intention: null,
+        weekly_day: 0,
+      });
+      expect(weekCheckOf(null)).toBeNull();
+    });
+
+    it('checks each against the week and the item, and says each in words', async () => {
+      const d = db();
+      const r = await runTool(weekCtx(d), 'propose_changes', {
+        changes: [
+          { op: 'later', type: 'todo', id: TODO, back_on: '2026-10-12' },
+          { op: 'habit_days', type: 'habit', id: HABIT, days: ['2026-10-03', '2026-10-04'] },
+          { op: 'week_shape', shape: { busy_days: [], hours: { normal_day: 1.5 } } },
+          { op: 'intention', intention: 'One thing at a time' },
+          {
+            op: 'milestone',
+            milestone: {
+              goal: 'Conference talk',
+              date: '2026-10-20',
+              steps: [
+                { title: 'Outline', by: '2026-10-06', minutes: 45, kind: 'todo' },
+                { title: 'How is it going?', by: '2026-10-12', kind: 'check_in' },
+              ],
+            },
+          },
+          { op: 'weekly_day', weekday: 3 },
+        ],
+      });
+      expect(r.result.dropped).toEqual([]);
+      expect(r.result.changes.map((c) => c.op)).toEqual([
+        'later',
+        'habit_days',
+        'week_shape',
+        'intention',
+        'milestone',
+        'weekly_day',
+      ]);
+      // the habit's days now come from the days saved for the week
+      expect(
+        d.asked.some((p) => String(p).startsWith('habit_plans?') && String(p).includes(HABIT)),
+      ).toBe(true);
+      expect(r.result.changes[1].before).toEqual({ days: ['2026-10-02'] });
+      expect(r.text).toContain('- c1 later todo “Dentist”: comes back Mon 12 Oct');
+      expect(r.text).toContain(
+        '- c2 habit_days habit “Run”: planned on Sat 3 Oct (tomorrow), Sun 4 Oct',
+      );
+      expect(r.text).toContain('- c3 week_shape: no busy days; free hours 1.5 on a normal day');
+      expect(r.text).toContain('- c4 intention: “One thing at a time”');
+      expect(r.text).toContain('- c5 milestone “Conference talk” for Tue 20 Oct: 2 steps');
+      expect(r.text).toContain('- c6 weekly_day: Wednesday');
+    });
+
+    it("reads a habit's days from the review while one is under way, not from what is saved", async () => {
+      const d = db();
+      const r = await runTool(
+        weekCtx(d, {
+          under_way: { step: 'board', habit_days: [{ id: HABIT, days: ['2026-10-03'] }] },
+        }),
+        'propose_changes',
+        { changes: [{ op: 'habit_days', id: HABIT, days: ['2026-10-03'] }] },
+      );
+      expect(d.asked.some((p) => String(p).startsWith('habit_plans?'))).toBe(false);
+      expect(r.result.dropped).toEqual([{ cid: 'c1', reason: 'no_change' }]);
+    });
+
+    it('says why one was dropped, in words the model can act on', async () => {
+      const r = await runTool(weekCtx(db(), { has_review: false }), 'propose_changes', {
+        changes: [
+          { op: 'later', type: 'todo', id: TODO, back_on: TODAY },
+          { op: 'later', type: 'todo', id: TODO, back_on: '2027-01-01' },
+          { op: 'habit_days', type: 'habit', id: HABIT, days: ['2026-10-09'] },
+          { op: 'week_shape', shape: { busy_days: [] } },
+          { op: 'week_shape', shape: { hours: { normal_day: 40 } } },
+          { op: 'weekly_day', weekday: 9 },
+          { op: 'intention', intention: '' },
+        ],
+      });
+      expect(r.result.changes).toEqual([]);
+      expect(r.text).toContain('- c1: a todo put off comes back on a day still to come');
+      expect(r.text).toContain('- c2: a todo put off comes back within four weeks');
+      expect(r.text).toContain('- c3: that day is outside the days these changes act on');
+      expect(r.text).toContain('- c4: their week has no review to keep that on yet');
+      expect(r.text).toContain('- c6: weekday is a whole number, 0 Sunday to 6 Saturday');
+      expect(r.text).toContain('- c7: the intention is one short line');
+    });
+
+    it('a todo put off leaves the plan on screen, so the card needs only that row', async () => {
+      const day = {
+        date: TODAY,
+        now: 600,
+        plan: {
+          status: 'proposal',
+          items: [{ id: TODO, kind: 'todo', title: 'Dentist', start: 710, end: 770 }],
+        },
+        blocks: [],
+        items: new Map([[TODO, { id: TODO, kind: 'todo', title: 'Dentist', minutes: 60 }]]),
+      };
+      const r = await runTool({ ...weekCtx(db()), day }, 'propose_changes', {
+        changes: [
+          { op: 'later', type: 'todo', id: TODO, back_on: '2026-10-12' },
+          { op: 'plan', plan: { kind: 'plan_remove', id: TODO } },
+        ],
+      });
+      expect(r.result.changes.map((c) => c.op)).toEqual(['later']);
+      expect(r.result.dropped).toEqual([{ cid: 'c2', reason: 'covered' }]);
+    });
+
+    it('are not operations anywhere the week was not sent', async () => {
+      for (const surface of [undefined, 'brief']) {
+        const r = await runTool({ ...ctxWith(db()), surface }, 'propose_changes', {
+          changes: [{ op: 'later', type: 'todo', id: TODO, back_on: '2026-10-12' }],
+        });
+        expect(r.result.changes).toEqual([]);
+        expect(r.result.dropped).toEqual([{ cid: 'c1', reason: 'unknown_op' }]);
+      }
     });
   });
 });

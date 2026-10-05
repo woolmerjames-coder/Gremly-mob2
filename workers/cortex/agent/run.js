@@ -11,7 +11,9 @@
 //
 // What comes back: the reply, the card (the last propose_changes, checked by
 // the change model; nothing is applied until the person taps), the task list,
-// and every step with its time. Status lines go out as each tool runs.
+// what the reply tells the app (hold: the weekly review stays on its step;
+// offer: a button goes under the reply), and every step with its time. Status
+// lines go out as each tool runs.
 //
 // It never throws. A model that fails on the first step is tried once on the
 // fallback model; a failure after that returns ok: false with what was done,
@@ -25,7 +27,7 @@ import { buildSystem, FINAL_NOTE, messageWithContext } from './prompt.js';
 import { statusFor } from './status.js';
 import { surfaceOf } from './surfaces.js';
 import { normalizeTasks, tasksReceipt, trackTasks } from './tasks.js';
-import { runTool as defaultRunTool, toolDeclarations, toolsFor } from './tools/index.js';
+import { isSignal, runTool as defaultRunTool, toolDeclarations, toolsFor } from './tools/index.js';
 
 /** The model and its fallback for a surface (models.js agent, AGENT_MODEL_<SURFACE>). */
 export function agentModelsFor(surface) {
@@ -46,6 +48,7 @@ function numbered(changes) {
  * Run one turn of the agent.
  * @param {object} p
  * @param {string} p.surface 'brief' | 'chat' (surfaces.js)
+ * @param {string} [p.variant] a variant of the surface, with more to its job and more tools ('week' on the brief)
  * @param {string} p.persona the surface's persona and care rules, the same from one message to the next
  * @param {string} [p.context] what the surface knows that changes between messages, placed last
  * @param {string} [p.cacheKey] groups one person's turns on this surface for the provider's prompt cache
@@ -65,7 +68,7 @@ export async function runAgent(p) {
   const callModel = deps.callModel || defaultCallModel;
   const runTool = deps.runTool || defaultRunTool;
   const now = deps.now || (() => Date.now());
-  const surface = surfaceOf(p.surface);
+  const surface = surfaceOf(p.surface, p.variant);
   if (!surface)
     return {
       ok: false,
@@ -81,12 +84,13 @@ export async function runAgent(p) {
     google: p.ctx?.env?.GOOGLE_API_KEY || p.ctx?.env?.GEMINI_API_KEY,
     openai: p.ctx?.env?.OPENAI_API_KEY,
   };
+  // the surface's own versions of the tools, or its variant's (tools/index.js)
+  const toolSet = surface.toolSet || surface.name;
   const decls = [
-    ...toolDeclarations(toolsFor(surface.tools, surface.name)),
+    ...toolDeclarations(toolsFor(surface.tools, toolSet)),
     toolDeclarations([trackTasks])[0],
   ];
-  // the tools run with the surface's own versions (tools/index.js)
-  const ctx = { ...p.ctx, surface: surface.name };
+  const ctx = { ...p.ctx, surface: toolSet };
   let tasks = normalizeTasks(p.tasks);
   // the same for every message, so it is cached; what changes rides with the message
   const system = buildSystem(surface, { persona: p.persona });
@@ -114,6 +118,8 @@ export async function runAgent(p) {
   const started = now();
   const steps = [];
   let card = [];
+  // what the reply tells the app, from the tools that only do that (hold, offer_week)
+  const signals = {};
   // what the last step's tools said, in short, for the next step's usage row
   let lastResults = [];
   let model = chosen.model;
@@ -130,6 +136,8 @@ export async function runAgent(p) {
   const done = (extra) => ({
     card: numbered(card),
     tasks,
+    hold: signals.hold || null,
+    offer: signals.offer || null,
     steps,
     model,
     ms: now() - started,
@@ -224,6 +232,9 @@ export async function runAgent(p) {
       provider: res.provider,
     });
     let proposed = null;
+    // a signal that did not take, or whose words the model still has to act
+    // on: the next step hears them
+    let missed = false;
     const results = await Promise.all(
       calls.map(async (call) => {
         const t1 = now();
@@ -248,6 +259,11 @@ export async function runAgent(p) {
           // the task list can travel with the card
           if (Array.isArray(call.args?.tasks)) tasks = normalizeTasks(call.args.tasks);
         }
+        if (isSignal(call.name)) {
+          if (r.ok && r.result?.signal) Object.assign(signals, r.result.signal);
+          // one that did not take, or that has more for the model to act on
+          if (!r.ok || !r.result?.signal || r.result.more) missed = true;
+        }
         steps.push({ kind: 'tool', name: call.name, ms: now() - t1, ok: !!r.ok });
         return {
           id: call.id,
@@ -266,13 +282,18 @@ export async function runAgent(p) {
     }));
     // a reply written with its card is the answer when every change made the
     // card: no step is spent saying it again (when one was dropped, the next
-    // step sees why and puts it right)
+    // step sees why and puts it right). The same goes for a reply written
+    // with a signal that took: the review held, or the week's button put.
     const replyWithCard = String(res.text || '').trim() || String(proposed?.reply || '').trim();
+    const quiet = (c) =>
+      c.name === 'propose_changes' || c.name === trackTasks.name || isSignal(c.name);
+    const cardMade = !proposed || (proposed.ok && !(proposed.result?.dropped || []).length);
     if (
       replyWithCard &&
-      proposed?.ok &&
-      !(proposed.result?.dropped || []).length &&
-      calls.every((c) => c.name === 'propose_changes' || c.name === trackTasks.name)
+      (proposed || calls.some((c) => isSignal(c.name))) &&
+      cardMade &&
+      !missed &&
+      calls.every(quiet)
     ) {
       return done({ ok: true, reply: replyWithCard, stopped: 'answer' });
     }

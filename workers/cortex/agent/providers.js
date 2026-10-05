@@ -78,6 +78,15 @@ export function readGemini(json) {
   return { text, calls, raw: parts, finish: json?.candidates?.[0]?.finishReason || null };
 }
 
+/**
+ * A tool as Gemini takes it. Gemini refuses an object with no properties, so
+ * a tool that takes nothing is declared without parameters.
+ */
+export function geminiTool(t) {
+  if (Object.keys(t.parameters?.properties || {}).length) return t;
+  return { name: t.name, description: t.description };
+}
+
 async function callGemini({ model, system, turns, tools, final, key, thinking, maxOutputTokens }) {
   const body = {
     contents: geminiContents(turns),
@@ -85,7 +94,7 @@ async function callGemini({ model, system, turns, tools, final, key, thinking, m
     generationConfig: { maxOutputTokens, thinkingConfig: { thinkingLevel: thinking } },
   };
   if (tools.length) {
-    body.tools = [{ functionDeclarations: tools }];
+    body.tools = [{ functionDeclarations: tools.map(geminiTool) }];
     body.toolConfig = { functionCallingConfig: { mode: final ? 'NONE' : 'AUTO' } };
   }
   const res = await fetch(`${GEMINI_API_BASE}/${model}:generateContent`, {

@@ -7,6 +7,13 @@
 // instructions), the tools it offers, how many steps a turn may take and how
 // long, before the model must reply with what it has. Budgets come from
 // "Gremly agent: what exists and what it costs".
+//
+// A surface can have a variant: the same surface with more to its job and
+// more tools, for requests that can use them. Today's thread has one, week,
+// used when the app sent the person's week (the weekly review): get_week,
+// hold, offer_week and the week's own changes. A request without the week
+// gets the surface exactly as it is without the variant, instructions and
+// tools both, so an app build that cannot show the review is never offered it.
 // ============================================================================
 
 export const SURFACES = {
@@ -17,6 +24,14 @@ export const SURFACES = {
     // room to put right a change that was dropped; a usual turn takes one or two
     stepCap: 5,
     maxMs: 12000,
+    variants: {
+      week: {
+        // picks this variant's own versions of the tools (tools/index.js)
+        toolSet: 'brief_week',
+        job: `They plan each week with Gremly in a weekly review, in this thread, on their own weekly day; what you know about their week says where that stands. Their week can be read with get_week, and changed on the card like anything else, with the week's own changes. When they ask to plan their week, to do their weekly review or to see the week they planned, put the button to it under your reply with offer_week rather than planning the week yourself in the reply. When they ask for a review and none can be started today, tell them so plainly, with when the next one is, and offer on the card to move their weekly day to the day they are asking on, so their reviews fall when they want them; their items stay as they are.`,
+        tools: ['get_week', 'hold', 'offer_week'],
+      },
+    },
   },
   chat: {
     name: 'chat',
@@ -27,6 +42,18 @@ export const SURFACES = {
   },
 };
 
-export function surfaceOf(name) {
-  return SURFACES[name] || null;
+/**
+ * A surface by name, or one of its variants: the surface's job and tools with
+ * the variant's added, and the variant's own tool set.
+ */
+export function surfaceOf(name, variant) {
+  const base = SURFACES[name] || null;
+  const v = variant ? base?.variants?.[variant] : null;
+  if (!base || !v) return base;
+  return {
+    ...base,
+    job: `${base.job} ${v.job}`,
+    tools: [...base.tools, ...v.tools],
+    toolSet: v.toolSet,
+  };
 }
