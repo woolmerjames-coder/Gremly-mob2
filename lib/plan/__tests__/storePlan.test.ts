@@ -1,4 +1,5 @@
-import { lockPlanItems, placedOn } from '../storePlan';
+import { lockPlanItems, placedOn, poolForDay } from '../storePlan';
+import { getDateService } from '../../date/DateService';
 import { DEFAULT_TIME_BLOCK_PREFERENCES } from '../../capacity/capacityTypes';
 import type { PlanItem } from '../../brief/types';
 
@@ -116,5 +117,22 @@ describe('saying yes to a plan', () => {
       }),
     );
     expect(mockState.creditPlanItems).toHaveBeenCalledWith(3);
+  });
+});
+
+describe('planning another day', () => {
+  it("reads that day's todos and says each is due that day, not today", () => {
+    const today = getDateService().ritualDay();
+    const next = getDateService().addDays(today, 1);
+    mockState.todos = [
+      { id: 'a', name: 'Book the dentist', due_day: next },
+      { id: 'b', name: 'Done already', due_day: next, completed_at: 'x' },
+      { id: 'c', name: 'Due today', due_day: today },
+    ];
+    mockState.habits = [];
+    mockState.habitProgress = [];
+    const pool = poolForDay(next);
+    expect(pool.map((c) => c.id)).toEqual(['a']);
+    expect(pool[0].why).toMatch(/^Due (Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)$/);
   });
 });

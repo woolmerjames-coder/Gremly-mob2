@@ -24,6 +24,8 @@ import type { Habit, Todo } from '../../lib/types';
 import type { DayCardData, HabitWeek } from '../../lib/brief/useDayCard';
 import { ampm, clock } from '../../lib/brief/dayCard';
 import { BRIEF } from './briefStyles';
+import { dueWords } from '../../lib/plan/dayItems';
+import { getDateService } from '../../lib/date/DateService';
 
 export type DueTab = 'todos' | 'habits';
 
@@ -100,8 +102,11 @@ export function DueTodaySheet({
     return null;
   };
 
+  // the sheet shows the day it was opened for: today, or the day being planned
+  const dueLabel = dueWords(data.date, getDateService().today());
+
   const todoRow = (t: Todo) => {
-    const meta = [minutesLabel(t.time_estimate_minutes), 'Due today'].filter(Boolean).join('  ');
+    const meta = [minutesLabel(t.time_estimate_minutes), dueLabel].filter(Boolean).join('  ');
     return (
       <View key={t.id} style={styles.item} testID={`due-todo-${t.id}`}>
         <View style={styles.itemText}>
@@ -162,7 +167,7 @@ export function DueTodaySheet({
       <View style={[styles.sheet, { paddingBottom: insets.bottom + 12 }]} testID="due-today-sheet">
         <View style={styles.grab} />
         <View style={styles.head}>
-          <Text style={styles.title}>{mode === 'add' ? 'Add to the plan' : 'Due today'}</Text>
+          <Text style={styles.title}>{mode === 'add' ? 'Add to the plan' : dueLabel}</Text>
           <TouchableOpacity
             style={styles.close}
             onPress={onClose}
@@ -195,7 +200,9 @@ export function DueTodaySheet({
             data.todosDue.length ? (
               data.todosDue.map(todoRow)
             ) : (
-              <Text style={styles.empty}>Nothing due today</Text>
+              <Text
+                style={styles.empty}
+              >{`Nothing ${dueLabel.charAt(0).toLowerCase()}${dueLabel.slice(1)}`}</Text>
             )
           ) : habitsShown.length ? (
             habitsShown.map(habitRow)

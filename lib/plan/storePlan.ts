@@ -23,6 +23,7 @@ import type { DayMeeting } from '../brief/dayCard';
 import type { PlanItem } from '../brief/types';
 import type { SequencedItem } from '../types';
 import { buildCandidatePool, windowFor, type Candidate } from './candidatePool';
+import { dueWords, habitsOnDay, todosDueOn } from './dayItems';
 import { withFeedAnimation } from '../brief/feeding';
 import { buildDayRecord, type DayRecord, type DayThreadMeta } from '../brief/dayRecord';
 import { useTodayThread } from '../brief/todayThread';
@@ -91,20 +92,14 @@ export function poolForDay(day: string): Candidate[] {
   if (day === today) return poolFromStore();
   const s = useGremlyStore.getState();
   const monday = ds.startOfWeekMonday(day);
-  const weekday = new Date(`${day}T12:00:00Z`).getUTCDay();
   const progress = (s.habitProgress ?? []) as {
     habit_id: string;
     occurred_day: string;
     count?: number;
   }[];
-  const todosDue = s.todos.filter((t) => !t.archived && !t.completed_at && t.due_day === day);
-  const habitsOn = s.habits.filter((h) => {
-    if (h.archived || !h.start_date || h.start_date > day) return false;
-    if (h.end_date && h.end_date < day) return false;
-    if ((h.cadence ?? 'daily') === 'daily') return true;
-    return Array.isArray(h.days_active) && h.days_active.some((d) => d === weekday);
-  });
-  return buildCandidatePool({
+  const todosDue = todosDueOn(s.todos, day);
+  const habitsOn = habitsOnDay(s.habits, day);
+  const pool = buildCandidatePool({
     today: day,
     todosDueToday: todosDue,
     habitsDueToday: habitsOn,
@@ -119,6 +114,8 @@ export function poolForDay(day: string): Candidate[] {
     blocks: s.timeBlockPreferences,
     forToday: false,
   });
+  // the plan is for another day, so a todo due on it is due that day, not today
+  return pool.map((c) => (c.source === 'due' ? { ...c, why: dueWords(day, today) } : c));
 }
 
 /** The todos and habits an earlier plan gave a time on this day. */

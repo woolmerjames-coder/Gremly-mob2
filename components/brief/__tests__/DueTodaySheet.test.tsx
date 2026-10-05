@@ -54,6 +54,20 @@ function data(): DayCardData {
 }
 
 describe('DueTodaySheet', () => {
+  it('for the day being planned, says what is due that day by its name', () => {
+    const r = render(
+      <DueTodaySheet
+        visible
+        onClose={jest.fn()}
+        data={{ ...data(), todosDue: [] }}
+        mode="add"
+        initialTab="todos"
+      />,
+    );
+    // 30 September 2026 is a Wednesday, and not today
+    expect(r.getByText('Nothing due Wednesday')).toBeTruthy();
+  });
+
   it('lists todos due today, with a planned time where the plan placed one', () => {
     const r = render(<DueTodaySheet visible onClose={jest.fn()} data={data()} />);
     expect(r.getByText('Todos (2)')).toBeTruthy();

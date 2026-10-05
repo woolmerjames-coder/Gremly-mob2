@@ -20,6 +20,7 @@ import { dayOfWeekNumber, habitsBehindThisWeek, weeklyTarget } from './behind';
 import { isReturnDay, readDco } from './dco';
 import { buildDayRecord, type DayRecord, type DayThreadMeta } from './dayRecord';
 import { useTodayThread } from './todayThread';
+import { habitsOnDay, todosDueOn } from '../plan/dayItems';
 import {
   habitsLine,
   isCancelledMeeting,
@@ -147,8 +148,8 @@ export function doneSinceMonday(
 
 export function useDayCard(date: string): DayCardData {
   const now = useNowMinutes();
-  const todosDue = useGremlyStore(selectTodosDueToday);
-  const habitsToday = useGremlyStore(selectHabitsDueToday);
+  const todosDueToday = useGremlyStore(selectTodosDueToday);
+  const habitsDueToday = useGremlyStore(selectHabitsDueToday);
   // the quick sweep: what still needs a decision, the number the brief names
   const quickSweep = useGremlyStore(selectQuickSweepCandidates);
   const todos = useGremlyStore((s) => s.todos);
@@ -159,6 +160,16 @@ export function useDayCard(date: string): DayCardData {
   const syncedToday = useGremlyStore((s) => s.calendarEvents[date]);
   const userEvents = useGremlyStore((s) => s.userCalendarEvents);
   const notes = useGremlyStore((s) => s.notes);
+  // another day (planning tomorrow) holds its own todos and habits, not today's
+  const isToday = date === getDateService().today();
+  const todosDue = useMemo(
+    () => (isToday ? todosDueToday : todosDueOn(todos, date)),
+    [isToday, todosDueToday, todos, date],
+  );
+  const habitsToday = useMemo(
+    () => (isToday ? habitsDueToday : habitsOnDay(habits, date)),
+    [isToday, habitsDueToday, habits, date],
+  );
 
   const cancelledKey = useMemo(() => readDco(dco).cancelledCalendarIds.join(','), [dco]);
   const meetings = useMemo<DayMeeting[]>(
