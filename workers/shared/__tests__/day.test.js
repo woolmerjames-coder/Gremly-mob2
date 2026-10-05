@@ -9,6 +9,7 @@ import {
   dayEndHourFrom,
   dayEndHourOf,
   forgetDayEnds,
+  inSmallHours,
   personDay,
   personNow,
 } from '../day.js';
@@ -123,4 +124,18 @@ test('a read that fails after a good one keeps the hour it had', async () => {
     .mockImplementation(async () => ({ ok: false, status: 500, text: async () => 'down' }));
   jest.spyOn(console, 'error').mockImplementation(() => {});
   expect(await dayEndHourOf(ENV, 'u1', { now: 120000 })).toBe(3);
+});
+
+describe('the small hours', () => {
+  it('are after midnight and before their day ends', () => {
+    expect(inSmallHours(0, 3)).toBe(true);
+    expect(inSmallHours(179, 3)).toBe(true);
+    expect(inSmallHours(180, 3)).toBe(false);
+    expect(inSmallHours(23 * 60, 3)).toBe(false);
+  });
+  it('do not exist when their day ends at midnight, or the hour is not known', () => {
+    expect(inSmallHours(30, 0)).toBe(false);
+    expect(inSmallHours(30, undefined)).toBe(false);
+    expect(inSmallHours(undefined, 3)).toBe(false);
+  });
 });

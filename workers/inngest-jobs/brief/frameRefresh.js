@@ -7,10 +7,11 @@
  * it (dco.day_frame).
  */
 
-import { db, localDate } from '../context/db';
+import { db } from '../context/db';
 import { readDayFrame, coversToday } from '../context/dayFrame';
 import { invalidateChatCache } from '../context/cache';
 import { calendarSelects, meetingsFrom } from './data';
+import { personNow } from '../../shared/day.js';
 
 /** Facts about today, as the frame reads them. */
 async function factsAboutToday(env, userId, today) {
@@ -32,7 +33,8 @@ export function frameIsStale(frame, facts) {
 
 export async function refreshDayFrame(env, userId, tz) {
   const d = db(env);
-  const today = localDate(tz);
+  // their day: after midnight it is still yesterday until their day ends
+  const { today } = await personNow(env, userId, tz);
   const [row] = await d.select(
     `user_daily_state?user_id=eq.${userId}&date=eq.${today}&select=id,dco`,
   );

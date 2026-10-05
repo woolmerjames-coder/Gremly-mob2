@@ -467,7 +467,7 @@ export async function buildChatContext(userId, lane, opts, env) {
       getLifeMapForChat(userId, env),
       focusRead,
       fetchRecentActivityDelta(userId, env),
-      fetchTemporalAnchors(userId, timezone, env),
+      fetchTemporalAnchors(userId, timezone, env, todayRead),
       fetchRecentChatSummaries(userId, currentChatId, env),
       getLifePack(userId, env),
       opts?.message ? recallForMessage(userId, opts.message, env) : Promise.resolve(''),
@@ -665,7 +665,7 @@ export function formatSpaceEntities(entities) {
  * Fetch active temporal anchors for a user. KV cached 5 minutes.
  * Enriches each anchor with daysAway and timeDescription.
  */
-export async function fetchTemporalAnchors(userId, timezone, env) {
+export async function fetchTemporalAnchors(userId, timezone, env, today = null) {
   if (!userId) return null;
 
   try {
@@ -696,13 +696,16 @@ export async function fetchTemporalAnchors(userId, timezone, env) {
     const anchors = await response.json();
     if (!Array.isArray(anchors) || anchors.length === 0) return null;
 
-    // Get today's date in the user's timezone
-    const todayStr = new Intl.DateTimeFormat('en-CA', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      timeZone: timezone || 'UTC',
-    }).format(new Date());
+    // Their day when the caller knows it (a day or a promise of one: after
+    // midnight it is still yesterday until their day ends), else the calendar's
+    const todayStr =
+      (await Promise.resolve(today).catch(() => null)) ||
+      new Intl.DateTimeFormat('en-CA', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        timeZone: timezone || 'UTC',
+      }).format(new Date());
 
     const todayMs = new Date(todayStr + 'T00:00:00Z').getTime();
 

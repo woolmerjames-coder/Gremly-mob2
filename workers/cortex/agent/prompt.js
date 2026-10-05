@@ -8,8 +8,9 @@
 // ============================================================================
 
 import { tasksWords } from './tasks.js';
+import { inSmallHours } from '../../shared/day.js';
 
-export const AGENT_PROMPT_VERSION = 'agent-2026-10-04a';
+export const AGENT_PROMPT_VERSION = 'agent-2026-10-05a';
 
 export const CORE_RULES = `HOW YOU WORK
 You can look things up and put changes on a card before you reply. Work like this:
@@ -46,14 +47,45 @@ const MONTHS = [
   'December',
 ];
 
-/** "Today is Friday 2 October 2026, and it is 9:05am where they are." */
-export function todayLine(today, nowMin) {
-  const d = new Date(`${today}T12:00:00Z`);
-  const date = `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+const dateWords = (day) => {
+  const d = new Date(`${day}T12:00:00Z`);
+  return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+};
+const weekdayOf = (day) => WEEKDAYS[new Date(`${day}T12:00:00Z`).getUTCDay()];
+const nextDay = (day) => {
+  const d = new Date(`${day}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+};
+// "9:05am"; an hour on the dot reads "3am" when short
+const clockWords = (min, short = false) => {
+  const h = Math.floor(min / 60);
+  const m = String(min % 60).padStart(2, '0');
+  return `${h % 12 === 0 ? 12 : h % 12}${short && m === '00' ? '' : `:${m}`}${h >= 12 ? 'pm' : 'am'}`;
+};
+
+/**
+ * Whether it is after midnight and before their day ends: the clock has moved
+ * on to the next date and their day has not (workers/shared/day.js).
+ */
+export const isLate = inSmallHours;
+
+/**
+ * "Today is Friday 2 October 2026, and it is 9:05am where they are." After
+ * midnight and before their day ends, the clock's date and their day are told
+ * apart, so the small hours read as the end of their day and not the start of it.
+ * @param {string} today their day (YYYY-MM-DD)
+ * @param {number} [nowMin] minutes after midnight on the clock
+ * @param {number} [dayEndHour] the hour their day ends
+ */
+export function todayLine(today, nowMin, dayEndHour) {
+  const date = dateWords(today);
   if (!Number.isInteger(nowMin)) return `Today is ${date} where they are.`;
-  const h = Math.floor(nowMin / 60);
-  const m = String(nowMin % 60).padStart(2, '0');
-  return `Today is ${date}, and it is ${h % 12 === 0 ? 12 : h % 12}:${m}${h >= 12 ? 'pm' : 'am'} where they are.`;
+  const time = clockWords(nowMin);
+  if (!isLate(nowMin, dayEndHour)) return `Today is ${date}, and it is ${time} where they are.`;
+  const next = nextDay(today);
+  const name = weekdayOf(next);
+  return `It is ${time} on ${dateWords(next)} by the clock where they are, but their day ends at ${clockWords(dayEndHour * 60, true)}, so for them it is still ${date}, late at night, and only tonight is left of it. Their tomorrow is ${dateWords(next)}, and any time of day they name for later is on ${name}, after they have slept. Speak of ${name} by its name.`;
 }
 
 /**
@@ -72,15 +104,15 @@ export function buildSystem(surface, { persona }) {
  * The latest message, with what Gremly knows right now ahead of it: the task
  * list so far, the date and time, and what the surface knows that changes
  * between messages (today's thread: the day).
- * @param {{message: string, today: string, nowMin?: number, tasks?: object[], context?: string}} p
+ * @param {{message: string, today: string, nowMin?: number, dayEndHour?: number, tasks?: object[], context?: string}} p
  */
-export function messageWithContext({ message, today, nowMin, tasks, context }) {
+export function messageWithContext({ message, today, nowMin, dayEndHour, tasks, context }) {
   const asks = tasksWords(tasks);
   const known = [
     asks
       ? `THE TASK LIST SO FAR (what they have asked for in this conversation, and where each stands)\n${asks}`
       : '',
-    todayLine(today, nowMin),
+    todayLine(today, nowMin, dayEndHour),
     context || '',
   ]
     .filter(Boolean)

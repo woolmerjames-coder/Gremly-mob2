@@ -79,6 +79,9 @@ export function checkTurn(s, out) {
   for (const words of e.mentions || []) {
     add('warn', `Reply covers ${words}`, String(out.reply || '').toLowerCase().includes(words), out.reply || '');
   }
+  for (const words of e.notSaid || []) {
+    add('fail', `Reply does not name ${words}`, !String(out.reply || '').toLowerCase().includes(words), out.reply || '');
+  }
   const reply = out.reply || '';
   // the worker replaces a reply that claims a change; the model is judged on its own words
   add(

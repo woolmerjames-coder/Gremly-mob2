@@ -11,10 +11,11 @@
  */
 
 import { CARE_RULES, WRITING_RULES, personBlock } from '../careRules';
-import { db, userTimezone, localDate, personIdentity } from './db';
+import { db, userTimezone, personIdentity } from './db';
 import { jsonCall, modelFor } from './llm';
 import { refreshLifeMapStory } from './story';
 import { invalidateChatCache } from './cache';
+import { personNow } from '../../shared/day.js';
 
 export const CORRECTION_PROMPT_VERSION = 'correction-2026-09-30';
 
@@ -269,7 +270,8 @@ export async function applyCorrection(env, correctionId, runId) {
   await d.remove(`life_facts?user_id=eq.${userId}&run_id=eq.${encodeURIComponent(runId)}`);
   await d.remove(`life_fact_changes?user_id=eq.${userId}&run_id=eq.${encodeURIComponent(runId)}`);
   const tz = await userTimezone(env, userId);
-  const today = localDate(tz);
+  // their day, so a correction after midnight still reaches the day they are in
+  const { today } = await personNow(env, userId, tz);
 
   // Context: the chat around the correction, when it came from a chat.
   let conversation = '';

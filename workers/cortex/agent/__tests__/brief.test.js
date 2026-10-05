@@ -124,6 +124,15 @@ describe('the day the agent knows', () => {
     expect(text).not.toContain('yes busy one');
   });
 
+  it('marks the small hours as the end of their day', () => {
+    const late = readTurnRequest({ ...BODY, now: 46 });
+    expect(renderDay(late, 3)).toContain(
+      'TODAY: Friday 2026-10-02. TIME NOW: 12:46am, after midnight; their Friday ends at 3am.',
+    );
+    expect(renderDay(late, 0)).toContain('TODAY: Friday 2026-10-02. TIME NOW: 12:46am.');
+    expect(renderDay(req, 3)).toContain('TODAY: Friday 2026-10-02. TIME NOW: 9:04am.');
+  });
+
   it('gives the tools the plan on screen, the set times and the items by id', () => {
     const day = dayFrameOf(req);
     expect(day.plan.items.map((x) => x.id)).toEqual([MUM]);

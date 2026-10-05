@@ -46,6 +46,20 @@ export function personDay(calendarDay, nowMin, dayEndHour) {
   return hour > 0 && nowMin < hour * 60 ? addDays(calendarDay, -1) : calendarDay;
 }
 
+/**
+ * Whether a time on the clock (minutes after midnight) falls after midnight and
+ * before their day ends: the calendar has moved on and their day has not. Pure.
+ */
+export function inSmallHours(nowMin, dayEndHour) {
+  return (
+    Number.isInteger(nowMin) &&
+    Number.isInteger(dayEndHour) &&
+    dayEndHour > 0 &&
+    nowMin >= 0 &&
+    nowMin < dayEndHour * 60
+  );
+}
+
 // Every message asks for it, so it is read at most once a minute for a person.
 const KEEP_MS = 60 * 1000;
 const MOST_KEPT = 500;

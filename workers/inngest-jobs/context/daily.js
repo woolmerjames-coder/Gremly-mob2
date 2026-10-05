@@ -30,6 +30,7 @@ import { recentCorrections } from './corrections';
 import { loadStory } from './story';
 import { invalidateChatCache } from './cache';
 import { readThreadReaction } from '../brief/reaction';
+import { personNow } from '../../shared/day.js';
 
 export const DCO_PROMPT_VERSION = 'dco-v4-2026-10-01d';
 
@@ -725,7 +726,9 @@ const MUST_PASS = new Set(['headline', 'lead_what']);
 /** Generate, check, retry once if needed, assemble. Returns the DCO object and run notes. */
 export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
   const tz = tzIn || (await userTimezone(env, userId));
-  const today = localDate(tz);
+  // their day: after midnight it is still yesterday until their day ends, the
+  // same day the brief reads (brief/data.js)
+  const { today } = await personNow(env, userId, tz);
   const [g, person] = await Promise.all([
     gatherDay(env, userId, tz, today),
     personIdentity(env, userId),

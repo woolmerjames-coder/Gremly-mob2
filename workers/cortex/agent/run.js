@@ -53,6 +53,7 @@ function numbered(changes) {
  * @param {string} p.message what the person just said
  * @param {object} p.ctx the tools' context (tools/index.js toolContext): env, userId, today, timezone, db
  * @param {number} [p.nowMin] minutes after midnight where they are
+ * @param {number} [p.dayEndHour] the hour their day ends, so the small hours read as the end of their day
  * @param {{ask: string, status: string}[]} [p.tasks] the task list so far
  * @param {(line: string) => void} [p.onStatus] called with each status line
  * @param {string} [p.firstStatus] a line to show at once, before the first step
@@ -103,6 +104,7 @@ export async function runAgent(p) {
         message: p.message,
         today: p.ctx.today,
         nowMin: p.nowMin,
+        dayEndHour: p.dayEndHour,
         tasks,
         context: p.context,
       }),

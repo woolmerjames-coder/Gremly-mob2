@@ -9,11 +9,12 @@
  * hold. Code applies only what it returns, to the anchors it was shown.
  */
 
-import { db, localDate, relativeDay, personIdentity } from './db';
+import { db, relativeDay, personIdentity } from './db';
 import { jsonCall, modelFor } from './llm';
 import { recentCorrections } from './corrections';
 import { CARE_RULES, personBlock } from '../careRules';
 import { invalidateChatCache } from './cache';
+import { personNow } from '../../shared/day.js';
 
 function trim(text, n) {
   const s = String(text || '').replace(/\s+/g, ' ').trim();
@@ -64,7 +65,8 @@ FOR EACH DATE
  */
 export async function reconcileAnchors(env, userId, tz, { shadow }) {
   const d = db(env);
-  const today = localDate(tz);
+  // their day: after midnight it is still yesterday until their day ends
+  const { today } = await personNow(env, userId, tz);
   const anchors = await d.select(
     `user_temporal_anchors?user_id=eq.${userId}&status=eq.active&select=id,title,description,date_text,resolved_date,date_confidence,source_message,created_at&order=resolved_date.asc.nullslast&limit=60`,
   );

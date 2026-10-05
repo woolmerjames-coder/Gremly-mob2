@@ -19,7 +19,7 @@ import { runAgent } from './run.js';
 import { runTool, toolContext } from './tools/index.js';
 import { AGENT_PROMPT_VERSION } from './prompt.js';
 
-export const CHAT_AGENT_VERSION = `chat-2026-10-04a/${AGENT_PROMPT_VERSION}`;
+export const CHAT_AGENT_VERSION = `chat-2026-10-05a/${AGENT_PROMPT_VERSION}`;
 
 /** How many of their items the search before the first step offers. */
 const FOUND_LIMIT = 8;
@@ -139,7 +139,7 @@ export function chatCacheKey(userId) {
  * @param {string} p.timezone
  * @param {{role: string, content: string}[]} p.messages the conversation, ending with their message
  * @param {object[]} [p.tasks] the task list kept on the chat
- * @param {object} p.preload for chatContext; found may be a promise (the search started alongside triage), else the search runs here; today is the person's day when the caller knows it (workers/shared/day.js)
+ * @param {object} p.preload for chatContext; found may be a promise (the search started alongside triage), else the search runs here; today is the person's day when the caller knows it (workers/shared/day.js), and dayEndHour the hour it ends
  * @param {(line: string) => void} [p.onStatus]
  * @param {object} [p.deps] { ctx, models, agent, now } for tests and replays
  * @returns {Promise<object>} ok with reply, card and tasks, or not ok with why
@@ -180,6 +180,7 @@ export async function runChatTurn({
     message: last.content,
     ctx,
     nowMin: minutesIn(tz, at),
+    dayEndHour: preload.dayEndHour,
     tasks: Array.isArray(tasks) ? tasks : [],
     onStatus,
     models: deps.models,

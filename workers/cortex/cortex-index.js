@@ -2103,15 +2103,19 @@ function extractUrlsFromText(text) {
 // DAILY FOCUS FOR GREETING — lightweight DCO fetch for general-greeting
 // ═══════════════════════════════════════════════════════════════════════════════
 
-async function getDailyFocusForChat(userId, env, timezone = 'UTC') {
+async function getDailyFocusForChat(userId, env, timezone = 'UTC', day = null) {
   if (!userId) return null;
   try {
     const headers = {
       apikey: env.SUPABASE_SERVICE_KEY,
       Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
     };
-    // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
-    const today = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(new Date());
+    // their day when the caller knows it (after midnight it is still yesterday
+    // until their day ends, workers/shared/day.js), else the calendar's date
+    const today =
+      day ||
+      // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
+      new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(new Date());
     const res = await fetch(
       `${env.SUPABASE_URL}/rest/v1/user_daily_state?user_id=eq.${userId}&date=eq.${today}&select=dco`,
       { headers },
@@ -4376,7 +4380,7 @@ After the user confirms and locks in a habit, check the existing habits listed i
           const theirDay = await personNow(env, authenticatedUserId, userTimezone);
           // the daily context, and what is still on the calendar today
           const [dailyFocus, week] = await Promise.all([
-            getDailyFocusForChat(authenticatedUserId, env, userTimezone),
+            getDailyFocusForChat(authenticatedUserId, env, userTimezone, theirDay.today),
             readWeekAhead(authenticatedUserId, userTimezone, env, { today: theirDay.today }),
           ]);
           // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
@@ -4545,7 +4549,13 @@ After the user confirms and locks in a habit, check the existing habits listed i
         let preParse = null;
         try {
           const lifeMap = await getLifeMapForChat(authenticatedUserId, env);
-          const dailyFocus = await getDailyFocusForChat(authenticatedUserId, env);
+          const theirDay = await personNow(env, authenticatedUserId, userTimezone).catch(() => null);
+          const dailyFocus = await getDailyFocusForChat(
+            authenticatedUserId,
+            env,
+            userTimezone,
+            theirDay?.today,
+          );
           const compressedLifeMap = compressLifeMapForHabits(lifeMap, dailyFocus);
 
           preParse = await habitPreParse(
@@ -12780,11 +12790,10 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             const contextKeep = {};
             // their day, for everything here that says today or tomorrow: after
             // midnight it is still yesterday until their day ends (shared/day.js)
-            const theirDayRead = authenticatedUserId
-              ? personNow(env, authenticatedUserId, userTimezone)
-                  .then((n) => n.today)
-                  .catch(() => null)
+            const theirNowRead = authenticatedUserId
+              ? personNow(env, authenticatedUserId, userTimezone).catch(() => null)
               : Promise.resolve(null);
+            const theirDayRead = theirNowRead.then((n) => n?.today ?? null);
             const tContext = Date.now();
             let contextMs = null;
             const contextRead = authenticatedUserId
@@ -12921,6 +12930,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   week: contextKeep.week,
                   found: agentFound,
                   today: await theirDayRead,
+                  dayEndHour: (await theirNowRead)?.dayEndHour,
                 },
                 send: (obj) => writer.write(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`)),
                 timing: {

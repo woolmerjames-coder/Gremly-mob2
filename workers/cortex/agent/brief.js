@@ -30,10 +30,11 @@ import { clockTime } from '../../inngest-jobs/brief/writer.js';
 import { personIdentity, weekdayName } from '../../shared/db.js';
 import { runAgent } from './run.js';
 import { toolContext } from './tools/index.js';
-import { AGENT_PROMPT_VERSION } from './prompt.js';
+import { AGENT_PROMPT_VERSION, isLate } from './prompt.js';
+import { dayEndHourOf } from '../../shared/day.js';
 import { checkForCorrection } from '../context/corrections.js';
 
-export const BRIEF_AGENT_VERSION = `brief-2026-10-05a/${AGENT_PROMPT_VERSION}`;
+export const BRIEF_AGENT_VERSION = `brief-2026-10-05b/${AGENT_PROMPT_VERSION}`;
 
 // the planning day ends here when nothing earlier ends it, as in the day turn
 const DAY_END = 22 * 60;
@@ -56,10 +57,16 @@ export function dayFrameOf(req) {
   };
 }
 
-/** The day in words, with the ids the tools take. */
-export function renderDay(req) {
+/**
+ * The day in words, with the ids the tools take. dayEndHour, the hour their day
+ * ends, marks the small hours as the end of their day.
+ */
+export function renderDay(req, dayEndHour = null) {
   const L = [];
-  L.push(`TODAY: ${weekdayName(req.date)} ${req.date}. TIME NOW: ${clockTime(req.now)}.`);
+  const late = isLate(req.now, dayEndHour)
+    ? `, after midnight; their ${weekdayName(req.date)} ends at ${clockTime(dayEndHour * 60)}`
+    : '';
+  L.push(`TODAY: ${weekdayName(req.date)} ${req.date}. TIME NOW: ${clockTime(req.now)}${late}.`);
   if (req.travel) {
     L.push(
       `TRAVEL TODAY: ${req.travel.label || 'they travel today'}${
@@ -232,10 +239,10 @@ export function wrapContext(wrap) {
 }
 
 /** What Gremly knows about today, with their latest message: what the day is about, the day itself, and the wrap up when one is under way. */
-export function dayContext(req, dco = null, wrap = null) {
+export function dayContext(req, dco = null, wrap = null, dayEndHour = null) {
   const meaning = dayMeaning(dco);
   const evening = wrapContext(wrap);
-  return `WHAT YOU KNOW ABOUT TODAY\n${meaning ? `${meaning}\n\n` : ''}${renderDay(req)}${evening ? `\n\n${evening}` : ''}`;
+  return `WHAT YOU KNOW ABOUT TODAY\n${meaning ? `${meaning}\n\n` : ''}${renderDay(req, dayEndHour)}${evening ? `\n\n${evening}` : ''}`;
 }
 
 /** Today's picture of the day, if the brief has made one; never stops the turn. */
@@ -270,7 +277,7 @@ export function cacheKeyFor(userId) {
  * @param {boolean} p.useAgent AGENT_BRIEF
  * @param {(body: object) => Promise<object|null>} p.dayTurn asks the day turn, as before
  * @param {(line: string) => void} [p.onStatus]
- * @param {object} [p.deps] { person, ctx, models, agent } for tests and replays
+ * @param {object} [p.deps] { person, ctx, models, agent, dayEndHour } for tests and replays
  * @returns {Promise<object>} engine 'agent' with reply, card and tasks, or engine
  *   'day_turn' with the day turn's own answer
  */
@@ -288,20 +295,23 @@ export async function runBriefTurn({ env, userId, body, useAgent, dayTurn, onSta
   const ctx = deps.ctx
     ? { ...deps.ctx, today: req.date, day }
     : toolContext(env, { userId, today: req.date, timezone, day });
-  const [person, dco] = await Promise.all([
+  const [person, dco, dayEndHour] = await Promise.all([
     deps.person || personIdentity(env, userId),
     readDco(ctx, userId, req.date),
+    // when their day ends, so the small hours read as the end of it
+    deps.dayEndHour ?? dayEndHourOf(env, userId),
   ]);
 
   const r = await runAgent({
     surface: 'brief',
     persona: briefPersona(person),
-    context: dayContext(req, dco, readWrap(body?.wrap)),
+    context: dayContext(req, dco, readWrap(body?.wrap), dayEndHour),
     cacheKey: cacheKeyFor(userId),
     history: req.history,
     message: req.text,
     ctx,
     nowMin: req.now,
+    dayEndHour,
     tasks: Array.isArray(body?.tasks) ? body.tasks : [],
     onStatus,
     firstStatus: 'Looking at your day',

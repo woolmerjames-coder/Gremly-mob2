@@ -160,6 +160,36 @@ export const SCENARIOS = [
 ];
 
 /** The calendar for the week ahead, for the preload (context/weekAhead.js). */
+// After midnight and before their day ends (3am): still Saturday for them.
+SCENARIOS.push(
+  {
+    id: 'late-call-afternoon',
+    kind: 'After midnight',
+    nowIso: '2026-10-04T08:20:00Z',
+    today: '2026-10-03',
+    text: 'Can you remind me to call mum this afternoon?',
+    items: [],
+    expect: {
+      askOrRows: true,
+      rows: 1,
+      row: (c) => c.op === 'add' && c.type === 'todo' && c.fields?.day === '2026-10-04',
+      notSaid: /saturday/i,
+    },
+  },
+  {
+    id: 'late-tomorrow',
+    kind: 'After midnight',
+    nowIso: '2026-10-04T07:30:00Z',
+    today: '2026-10-03',
+    text: "What's on tomorrow?",
+    items: [
+      { id: 'plants', kind: 'todo', title: 'Water the plants', due_day: '2026-10-04' },
+      { id: 'deck', kind: 'todo', title: 'Send the partner deck', due_day: '2026-10-05' },
+    ],
+    expect: { rows: 0, mentions: /denver|flight|plants/i, notSaid: /deck|huddle/i },
+  },
+);
+
 export const WEEK = {
   timed: [
     ['2026-10-04T22:56:00Z', '2026-10-05T00:38:00Z', 'Flight to Denver'],

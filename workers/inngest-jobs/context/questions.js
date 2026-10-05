@@ -14,6 +14,7 @@ import { jsonCall, modelFor } from './llm';
 import { recentCorrections } from './corrections';
 import { CARE_RULES, personBlock } from '../careRules';
 import { invalidateChatCache } from './cache';
+import { personNow } from '../../shared/day.js';
 
 function trim(text, n) {
   const s = String(text || '').replace(/\s+/g, ' ').trim();
@@ -65,7 +66,8 @@ FOR EACH QUESTION
  */
 export async function reviewQuestions(env, userId, tz, { shadow }) {
   const d = db(env);
-  const today = localDate(tz);
+  // their day: after midnight it is still yesterday until their day ends
+  const { today } = await personNow(env, userId, tz);
   const questions = await d.select(
     `gremly_questions?user_id=eq.${userId}&status=in.(open,asked)&select=id,question,status,created_at,fact:life_facts(statement,state,about_date)&order=created_at.asc&limit=40`,
   );
