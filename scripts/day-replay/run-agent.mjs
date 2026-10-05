@@ -6,6 +6,15 @@
  *   scripts/day-replay/run-agent.sh                         every scenario, Gemini and Luna
  *   scripts/day-replay/run-agent.sh --only three-asks --models gemini
  *   scripts/day-replay/run-agent.sh --repeat 3              each scenario three times
+ *   scripts/day-replay/run-agent.sh --set week              only the weekly review's scenarios
+ *   scripts/day-replay/run-agent.sh --set day --with-week   the day's scenarios with the week's tools on
+ *
+ * The weekly review's scenarios (week-scenarios.mjs) run with the day's: the
+ * request carries the person's week, as an app build that knows it sends it,
+ * and their checks look at what was proposed, held and offered, never at the
+ * reply's words. --with-week gives every scenario that has no week of its own
+ * a plain one (this week's review done, nothing under way), to show the day's
+ * scenarios pass with the week's tools and changes on as well as without.
  *
  * Keys come from .audit-keys.local (scripts/chat-audit/keys.mjs). Nothing
  * touches a database: the person's items in each scenario stand in for it.
@@ -24,6 +33,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { keys } from '../chat-audit/keys.mjs';
 import { SCENARIOS } from './scenarios.mjs';
+import { WEEK_SCENARIOS, plainWeek } from './week-scenarios.mjs';
 import { checkTurn } from './checks.mjs';
 import { bodyFor } from './body.mjs';
 import { runBriefTurn, BRIEF_AGENT_VERSION } from '../../workers/cortex/agent/brief.js';
@@ -73,7 +83,13 @@ const thinking = flag('--thinking');
 const repeat = Math.max(1, Number(flag('--repeat') || 1));
 const USER = '0b7c6f0e-1d2a-4c3b-9e8f-112233445566';
 
-const scenarios = only ? SCENARIOS.filter((s) => only.split(',').includes(s.id)) : SCENARIOS;
+// which scenarios: the day's, the weekly review's, or both
+const set = flag('--set') || 'all';
+const withWeek = args.includes('--with-week');
+const ALL = [...(set === 'week' ? [] : SCENARIOS), ...(set === 'day' ? [] : WEEK_SCENARIOS)].map((s) =>
+  withWeek && !s.week ? { ...s, week: plainWeek(s.today) } : s,
+);
+const scenarios = only ? ALL.filter((s) => only.split(',').includes(s.id)) : ALL;
 
 /** Each scenario's short ids as the uuids real items have, and back. */
 function idsFor(s) {
@@ -82,10 +98,38 @@ function idsFor(s) {
   return { to, back: new Map([...to].map(([a, b]) => [b, a])) };
 }
 
+/** The week block with the scenario's short ids as uuids. */
+function weekWithUuids(week, id) {
+  const u = week.under_way;
+  const list = (v) => (Array.isArray(v) ? v : []);
+  return {
+    ...week,
+    ...(week.intention?.id ? { intention: { ...week.intention, id: id(week.intention.id) } } : {}),
+    ...(u
+      ? {
+          under_way: {
+            ...u,
+            picks: list(u.picks).map((p) => ({ ...p, item_ids: list(p.item_ids).map(id) })),
+            settled: list(u.settled).map((s) => ({
+              ...s,
+              ...(s.id ? { id: id(s.id) } : {}),
+              ...(s.item_ids ? { item_ids: s.item_ids.map(id) } : {}),
+            })),
+            habit_days: list(u.habit_days).map((h) => ({ ...h, id: id(h.id) })),
+            ...(u.placed ? { placed: u.placed.map((p) => ({ ...p, id: id(p.id) })) } : {}),
+            ...(u.later ? { later: u.later.map((p) => ({ ...p, id: id(p.id) })) } : {}),
+            ...(u.about ? { about: { ...u.about, item_ids: list(u.about.item_ids).map(id) } } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
 function withUuids(body, to) {
   const id = (v) => to.get(v) || v;
   return {
     ...body,
+    ...(body.week ? { week: weekWithUuids(body.week, id) } : {}),
     items: body.items.map((x) => ({ ...x, id: id(x.id) })),
     plan: body.plan ? { ...body.plan, items: body.plan.items.map((x) => ({ ...x, id: id(x.id) })) } : null,
     ...(body.wrap
@@ -124,7 +168,11 @@ function dbFor(s, to) {
       completed_at: null,
       archived: !!x.archived,
       reminders_json: [],
+      // put off for later, with the day it comes back
+      resurface_at: x.back_on || null,
     }));
+  // the habit days saved (the weekly review)
+  const plans = (s.plans || []).map(([habit, day]) => ({ habit_id: to.get(habit), planned_date: day }));
   const habits = (s.items || [])
     .filter((x) => x.kind === 'habit')
     .map((x) => ({
@@ -150,6 +198,21 @@ function dbFor(s, to) {
       const idEq = /(?:^|&)id=eq\.([^&]+)/.exec(query)?.[1];
       if (table === 'todos' && idEq) return todos.filter((r) => r.id === idEq);
       if (table === 'habits' && idEq) return habits.filter((r) => r.id === idEq);
+      // the week board's reads (get_week) and a habit's days (propose_changes)
+      const idIn = /(?:^|&)(?:habit_)?id=in\.\(([^)]*)\)/.exec(query)?.[1]?.split(',');
+      const from = /(?:due_day|planned_date)=gte\.([0-9-]+)/.exec(query)?.[1];
+      const until = /(?:due_day|planned_date)=lte\.([0-9-]+)/.exec(query)?.[1];
+      if (table === 'habit_plans') {
+        return plans.filter(
+          (p) => (!idIn || idIn.includes(p.habit_id)) && (!from || p.planned_date >= from) && (!until || p.planned_date <= until),
+        );
+      }
+      if (table === 'todos' && idIn) return todos.filter((r) => idIn.includes(r.id));
+      if (table === 'todos' && from && until) return todos.filter((r) => r.due_day && r.due_day >= from && r.due_day <= until);
+      if (table === 'todos' && query.includes('resurface_at=gt.')) {
+        const day = /resurface_at=gt\.([0-9-]+)/.exec(query)[1];
+        return todos.filter((r) => r.resurface_at && r.resurface_at > day);
+      }
       if (table === 'todos' && query.includes('due_day=eq.')) {
         const day = /due_day=eq\.([0-9-]+)/.exec(query)[1];
         return todos.filter((r) => r.due_day === day);
@@ -191,6 +254,19 @@ export function asDayChange(c, back) {
   }
   const f = c.fields || {};
   switch (c.op) {
+    // the week's own changes (the weekly review)
+    case 'later':
+      return { kind: 'later', id, title: c.title, day: f.back_on };
+    case 'habit_days':
+      return { kind: 'habit_days', id, title: c.title, days: c.days };
+    case 'week_shape':
+      return { kind: 'week_shape', busy_days: c.shape?.busy_days, hours: c.shape?.hours };
+    case 'intention':
+      return { kind: 'intention', title: f.text };
+    case 'milestone':
+      return { kind: 'milestone', title: c.title, day: c.milestone?.date, steps: c.milestone?.steps };
+    case 'weekly_day':
+      return { kind: 'weekly_day', weekday: f.weekday };
     case 'add':
       return {
         kind: 'create_todo',
@@ -225,14 +301,16 @@ function checkAgent(s, r, back) {
   const changes = (r.card || []).map((c) => asDayChange(c, back));
   const checklist = (r.tasks || []).filter((t) => STATUS[t.status]).map((t) => ({ ask: t.ask, status: STATUS[t.status] }));
   const reply = r.reply || '';
+  // what the reply told the app, and the tools the turn used (the weekly review's checks)
+  const told = { hold: !!r.hold, offer: !!r.offer, tools: r.tools || [] };
   if (s.expect.aboutDay === false) {
     // the agent answers everything: here, a short reply and nothing on the card
-    const checks = checkTurn({ ...s, expect: { aboutDay: true, maxChanges: 0 } }, { about_day: true, changes, checklist, reply });
+    const checks = checkTurn({ ...s, expect: { aboutDay: true, maxChanges: 0 } }, { about_day: true, changes, checklist, reply, ...told });
     checks.push({ level: 'fail', name: 'Answers with a reply', ok: !!reply.trim(), detail: reply });
     return { checks, changes, checklist };
   }
   const expect = { ...s.expect, status: (s.expect.status || []).filter((st) => st === 'needs_answer') };
-  const checks = checkTurn({ ...s, expect }, { about_day: true, changes, checklist, reply });
+  const checks = checkTurn({ ...s, expect }, { about_day: true, changes, checklist, reply, ...told });
   return { checks, changes, checklist };
 }
 
@@ -316,7 +394,7 @@ const done = await pool(jobs, 4, async ({ s, m }) => {
   );
   if (r.out) {
     console.log(`      reply: ${r.out.reply}`);
-    console.log(`      card: ${JSON.stringify(r.changes)}  tools: ${(r.out.tools || []).join(', ') || 'none'}  tasks: ${JSON.stringify(r.out.tasks)}`);
+    console.log(`      card: ${JSON.stringify(r.changes)}  tools: ${(r.out.tools || []).join(', ') || 'none'}  tasks: ${JSON.stringify(r.out.tasks)}${r.out.hold ? `  hold: ${r.out.hold.about}` : ''}${r.out.offer ? '  offer: week' : ''}`);
   }
   return { id: s.id, ...r };
 });
