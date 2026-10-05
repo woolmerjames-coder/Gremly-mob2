@@ -60,16 +60,31 @@ interface JournalSession {
   drafts: Record<string, JournalDraft>;
   /** The page chosen last, which the next new page opens on */
   lastPage: string;
+  /** Whose drafts and last page these are */
+  owner: string | null;
 }
 
 export const useJournalSession = create<JournalSession>()(
-  persist((): JournalSession => ({ open: null, drafts: {}, lastPage: FREEFORM }), {
+  persist((): JournalSession => ({ open: null, drafts: {}, lastPage: FREEFORM, owner: null }), {
     name: 'gremly-journal-page-v1',
     storage: createJSONStorage(() => AsyncStorage),
     // what is on screen holds a function and is only for now
-    partialize: (s) => ({ drafts: s.drafts, lastPage: s.lastPage }),
+    partialize: (s) => ({ drafts: s.drafts, lastPage: s.lastPage, owner: s.owner }),
   }),
 );
+
+/**
+ * What is kept on the phone belongs to one person. Someone else signing in on
+ * it starts without the drafts and the last page of whoever was there before.
+ * Signing out and back in as the same person keeps them.
+ */
+export function keepFor(userId: string): void {
+  const s = useJournalSession.getState();
+  if (s.owner === userId) return;
+  // kept before the phone knew whose they were: they are this person's
+  if (!s.owner) useJournalSession.setState({ owner: userId });
+  else useJournalSession.setState({ owner: userId, drafts: {}, lastPage: FREEFORM });
+}
 
 let turns = 0;
 

@@ -18,11 +18,21 @@ jest.mock('../../../lib/journal/save', () => ({
 jest.mock('../../../lib/wrapup/day', () => ({
   wrapNow: () => ({ day: '2026-09-30', part: 'evening' }),
 }));
+// the person's own pages: the copy on the phone is real, the account is stood in for
+const mockSaveOwnPage = jest.fn();
+const mockDeleteOwnPage = jest.fn();
+jest.mock('../../../lib/journal/ownPages', () => ({
+  ...jest.requireActual('../../../lib/journal/ownPages'),
+  useOwnPagesSync: () => undefined,
+  saveOwnPage: (...a: unknown[]) => mockSaveOwnPage(...a),
+  deleteOwnPage: (...a: unknown[]) => mockDeleteOwnPage(...a),
+}));
 jest.mock('react-native-enriched-html');
 
 import { JournalPageHost } from '../JournalPageHost';
 import { LAYOUT_KEY, newPage, setCardHtml, toLayout } from '../../../lib/journal/page';
-import { FREEFORM, pageById } from '../../../lib/journal/pages';
+import { useOwnPagesStore } from '../../../lib/journal/ownPages';
+import { FREEFORM, pageById, type JournalPageDef } from '../../../lib/journal/pages';
 import { draftFor, keepDraft, openJournal, useJournalSession } from '../../../lib/journal/session';
 
 const DAY = '2026-09-30';
@@ -60,6 +70,7 @@ beforeEach(() => {
   mockSavePage.mockResolvedValue({ ok: true, noteId: 'n1' });
   mockDeleteNote.mockResolvedValue(undefined);
   useJournalSession.setState({ open: null, drafts: {}, lastPage: FREEFORM });
+  useOwnPagesStore.setState({ owner: 'u1', pages: [] });
 });
 
 describe('before anything asks for it', () => {
@@ -300,5 +311,97 @@ describe('a check in on a goal', () => {
     await h.press('journal-done');
     // changed in place: it is already with its goal
     expect(mockSavePage.mock.calls[0][0]).toMatchObject({ entryId: 'c1', goal: null });
+  });
+});
+
+describe('pages of the person’s own', () => {
+  const sunday: JournalPageDef = {
+    id: 'p1',
+    name: 'Sunday reset',
+    about: '',
+    prompts: ['What went well?', 'What next?'],
+    icon: 'own',
+    own: true,
+  };
+
+  it('are among the pages to choose from, and a new page opens on the one used last', () => {
+    useOwnPagesStore.setState({ pages: [sunday] });
+    useJournalSession.setState({ lastPage: 'p1' });
+    const h = host();
+    h.open({ day: DAY });
+    expect(h.getByTestId('journal-page-p1').props.accessibilityState).toEqual({ selected: true });
+    expect(h.getByText('What went well?')).toBeTruthy();
+    expect(h.getByText('Your page.')).toBeTruthy();
+  });
+
+  it('opens on Freeform when the page used last has gone', () => {
+    useJournalSession.setState({ lastPage: 'p1' });
+    const h = host();
+    h.open({ day: DAY });
+    expect(h.getByTestId('journal-page-free').props.accessibilityState).toEqual({
+      selected: true,
+    });
+  });
+
+  it('shows an entry written on one back on that page', () => {
+    useOwnPagesStore.setState({ pages: [sunday] });
+    const written = newPage(sunday);
+    const layout = toLayout(setCardHtml(written, written.cards[0].id, p('The walk.')));
+    mockNotes = [
+      {
+        id: 'n7',
+        subtype: 'journal',
+        created_at: `${DAY}T20:00:00Z`,
+        body: layout.text,
+        views: { sweep_reflection: true, sweep_date: DAY, [LAYOUT_KEY]: layout },
+      },
+    ];
+    const h = host();
+    h.open({ day: DAY });
+    expect(h.getByTestId('journal-page-p1').props.accessibilityState).toEqual({ selected: true });
+    // a question that belongs to the page is not one to rename
+    expect(h.queryByTestId('journal-card-0-prompt')).toBeNull();
+  });
+
+  it('keeps a new one on the account, and makes it the page used last', async () => {
+    mockSaveOwnPage.mockImplementation(async () => {
+      useOwnPagesStore.setState({ pages: [sunday] });
+      return { ok: true, page: sunday };
+    });
+    const h = host();
+    h.open({ day: DAY });
+    await h.press('journal-page-make-own');
+    fireEvent.changeText(h.getByTestId('journal-own-name'), 'Sunday reset');
+    fireEvent.changeText(h.getByTestId('journal-own-question-0'), 'What went well?');
+    fireEvent.changeText(h.getByTestId('journal-own-question-1'), 'What next?');
+    await h.press('journal-own-save');
+    expect(mockSaveOwnPage).toHaveBeenCalledWith({
+      id: null,
+      name: 'Sunday reset',
+      prompts: ['What went well?', 'What next?', ''],
+    });
+    expect(h.getByTestId('journal-page-p1').props.accessibilityState).toEqual({ selected: true });
+    expect(useJournalSession.getState().lastPage).toBe('p1');
+  });
+
+  it('deletes one from the account, and the next new page no longer opens on it', async () => {
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    useOwnPagesStore.setState({ pages: [sunday] });
+    useJournalSession.setState({ lastPage: 'p1' });
+    mockDeleteOwnPage.mockImplementation(async () => {
+      useOwnPagesStore.setState({ pages: [] });
+      return { ok: true };
+    });
+    const h = host();
+    h.open({ day: DAY });
+    await h.press('journal-own-edit');
+    await h.press('journal-own-delete');
+    await act(async () => {
+      (alert.mock.calls[0][2] ?? [])[1].onPress?.();
+    });
+    expect(mockDeleteOwnPage).toHaveBeenCalledWith('p1');
+    expect(h.queryByTestId('journal-page-p1')).toBeNull();
+    expect(useJournalSession.getState().lastPage).toBe(FREEFORM);
+    alert.mockRestore();
   });
 });

@@ -32,7 +32,7 @@ export type JournalPageChipsProps = {
   pages: JournalPageDef[];
   chosen: string;
   onPick: (id: string) => void;
-  /** Left out until people can keep pages of their own */
+  /** Left out where the app cannot keep pages of the person's own */
   onMakeOwn?: () => void;
 };
 

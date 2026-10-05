@@ -82,6 +82,11 @@ export function allPages(own: JournalPageDef[] = []): JournalPageDef[] {
   return [...BUILT_IN_PAGES, ...own.map((p) => ({ ...p, own: true, icon: 'own' as const }))];
 }
 
+/** The page with this id among the pages to choose from, or Freeform when it is not one of them. */
+export function pageIn(pages: JournalPageDef[], id: string | null | undefined): JournalPageDef {
+  return pages.find((p) => p.id === id) ?? BUILT_IN_PAGES[0];
+}
+
 /** The page with this id, or Freeform when it is not one we know (a page since deleted, say). */
 export function pageById(
   id: string | null | undefined,

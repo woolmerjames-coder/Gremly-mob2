@@ -8,9 +8,14 @@
  *
  * Each card's editor keeps its own words. The page collects them when it
  * needs them: before the cards change, on Done, and on close.
+ *
+ * Where the app can keep pages of the person's own, the page offers Make your
+ * own, Keep as my page once the prompts on it are a set of their own, and
+ * Edit on a page they made.
  */
 import React, { forwardRef, useCallback, useImperativeHandle, useRef, useState } from 'react';
 import {
+  Alert,
   Animated,
   Image,
   Keyboard,
@@ -22,20 +27,23 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChevronDown, Pencil, Plus, Trash2 } from 'lucide-react-native';
+import { Bookmark, ChevronDown, Pencil, Plus, Trash2 } from 'lucide-react-native';
 import { htmlToText } from '../../lib/journal/html';
 import {
   addPrompt,
   applyPage,
   isEmpty,
+  isNewSet,
   pageText,
+  promptsOf,
   removePrompt,
   setCardPrompt,
   toLayout,
   type JournalLayout,
   type JournalPage as Page,
 } from '../../lib/journal/page';
-import { pageById, type JournalPageDef } from '../../lib/journal/pages';
+import type { OwnPageForm, OwnPageGone, OwnPageSaved } from '../../lib/journal/ownPages';
+import { FREEFORM, pageIn, type JournalPageDef } from '../../lib/journal/pages';
 import { JOURNAL_COPY, countLabel, dayWords } from '../../lib/journal/words';
 import type { Mood } from '../../lib/shared/moods';
 import { useKeyboardLift } from '../../hooks/useKeyboardLift';
@@ -49,6 +57,7 @@ import {
 } from './JournalEditor';
 import { JournalFormatBar } from './JournalFormatBar';
 import { JournalMoodCard } from './JournalMoodCard';
+import { JournalOwnPageSheet } from './JournalOwnPageSheet';
 import { JournalPageChips } from './JournalPageChips';
 import { JOURNAL_WASH, JOURNAL_WASH_LOOKING, journalStyles } from './journalStyles';
 
@@ -86,6 +95,9 @@ export type JournalPageProps = {
   onEdit?: () => void;
   /** While reading: take this entry out of the journal */
   onDelete?: () => void;
+  /** Keeps a page of the person's own. Given where the app can keep them. */
+  onSaveOwn?: (form: OwnPageForm) => Promise<OwnPageSaved>;
+  onDeleteOwn?: (id: string) => Promise<OwnPageGone>;
   fontFamily?: string;
 };
 
@@ -116,6 +128,8 @@ export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(funct
     onClose,
     onEdit,
     onDelete,
+    onSaveOwn,
+    onDeleteOwn,
     fontFamily,
   },
   ref,
@@ -132,6 +146,8 @@ export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(funct
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  /** The page of their own being made or changed, while its sheet is up */
+  const [ownForm, setOwnForm] = useState<OwnPageForm | null>(null);
   /** What the page held when it opened, to tell whether it was changed */
   const [opened] = useState(() => ({
     text: pageText(initial),
@@ -169,7 +185,7 @@ export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(funct
   const pick = useCallback(
     async (id: string) => {
       if (busy) return;
-      show(applyPage(await collect(), pageById(id, pages)));
+      show(applyPage(await collect(), pageIn(pages, id)));
       setNaming(null);
       onPickPage?.(id);
     },
@@ -210,8 +226,87 @@ export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(funct
     if (!res.ok) say(res.message || JOURNAL_COPY.notSaved);
   }, [busy, collect, moods, onDone, say]);
 
+  /** Open the sheet for a page of their own: a new one, the prompts on the page, or one to change. */
+  const openOwn = useCallback((form: OwnPageForm) => {
+    Keyboard.dismiss();
+    setNaming(null);
+    setOwnForm(form);
+  }, []);
+
+  const keepAsOwn = useCallback(async () => {
+    if (busy) return;
+    openOwn({ name: '', prompts: promptsOf(await collect()) });
+  }, [busy, collect, openOwn]);
+
+  /** Keep the page, then put it on what is being written: answers stay with their questions. */
+  const saveOwn = useCallback(
+    async (
+      form: OwnPageForm,
+      reworded: Record<string, string>,
+    ): Promise<{ ok: true } | { ok: false; message: string }> => {
+      if (!onSaveOwn) return { ok: false, message: JOURNAL_COPY.ownNotSaved };
+      const res = await onSaveOwn(form);
+      if (!res.ok) return res;
+      const current = await collect();
+      const cards = current.cards.map((c) => {
+        if (!c.q) return c;
+        // a question typed on the page matches the kept one whatever space was left round it
+        const q = c.q.trim();
+        // one reworded on the sheet takes its answer with it
+        const now = reworded[q];
+        return { ...c, q: now && res.page.prompts.includes(now) ? now : q };
+      });
+      show(applyPage({ tpl: current.tpl, cards }, res.page));
+      onPickPage?.(res.page.id);
+      Keyboard.dismiss();
+      setOwnForm(null);
+      say(JOURNAL_COPY.ownSaved);
+      return { ok: true };
+    },
+    [collect, onPickPage, onSaveOwn, say, show],
+  );
+
+  const deleteOwn = useCallback(
+    (id: string) => {
+      if (!onDeleteOwn) return;
+      Alert.alert(JOURNAL_COPY.ownDeleteAsk, JOURNAL_COPY.ownDeleteBody, [
+        { text: JOURNAL_COPY.cancel, style: 'cancel' },
+        {
+          text: JOURNAL_COPY.deleteYes,
+          style: 'destructive',
+          onPress: () => {
+            void onDeleteOwn(id).then((res) => {
+              if (!res.ok) {
+                say(res.message);
+                return;
+              }
+              Keyboard.dismiss();
+              setOwnForm(null);
+              // the cards stay as they are, as prompts of their own on a freeform page
+              setPage((p) =>
+                p.tpl === id
+                  ? {
+                      tpl: FREEFORM,
+                      cards: p.cards.map((c) => (c.q === null ? c : { ...c, custom: true })),
+                    }
+                  : p,
+              );
+              say(JOURNAL_COPY.ownDeleted);
+            });
+          },
+        },
+      ]);
+    },
+    [onDeleteOwn, say],
+  );
+
   const close = useCallback(async () => {
     if (busy) return;
+    // the sheet goes first
+    if (ownForm) {
+      setOwnForm(null);
+      return;
+    }
     if (reading) {
       onClose(null);
       return;
@@ -220,7 +315,7 @@ export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(funct
     Keyboard.dismiss();
     const changed = pageText(current) !== opened.text || moods.join(',') !== opened.moods;
     onClose(changed ? { page: current, moods } : null);
-  }, [busy, collect, moods, onClose, opened, reading]);
+  }, [busy, collect, moods, onClose, opened, ownForm, reading]);
 
   useImperativeHandle(ref, () => ({ close: () => void close() }), [close]);
 
@@ -233,7 +328,10 @@ export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(funct
     setMoods((picked) => (picked.includes(m) ? picked.filter((x) => x !== m) : [...picked, m]));
 
   const d = dayWords(day);
-  const def = pageById(page.tpl, pages);
+  const def = pageIn(pages, page.tpl);
+  const canKeepOwn = !!onSaveOwn && !reading;
+  /** The prompts on the page are a set nobody has kept yet */
+  const keepable = canKeepOwn && isNewSet(page, pages);
   const written = page.cards.some((c) => (words[c.id] ?? '').trim()) || moods.length > 0;
   const shown = reading ? page.cards.filter((c) => (words[c.id] ?? '').trim()) : page.cards;
   /** The prompts in order, to number them */
@@ -325,9 +423,29 @@ export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(funct
         </View>
 
         {reading ? null : (
-          <JournalPageChips pages={pages} chosen={def.id} onPick={(id) => void pick(id)} />
+          <JournalPageChips
+            pages={pages}
+            chosen={def.id}
+            onPick={(id) => void pick(id)}
+            onMakeOwn={canKeepOwn ? () => openOwn({ name: '', prompts: [] }) : undefined}
+          />
         )}
-        {def.about && !reading ? <Text style={styles.about}>{def.about}</Text> : null}
+        {reading ? null : def.own && canKeepOwn ? (
+          <View style={styles.aboutRow}>
+            <Text style={styles.aboutOwn}>{JOURNAL_COPY.ownAbout}</Text>
+            <Pressable
+              onPress={() => openOwn({ id: def.id, name: def.name, prompts: def.prompts })}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={`${JOURNAL_COPY.edit} ${def.name}`}
+              testID="journal-own-edit"
+            >
+              <Text style={styles.aboutLink}>{JOURNAL_COPY.edit}</Text>
+            </Pressable>
+          </View>
+        ) : def.about ? (
+          <Text style={styles.about}>{def.about}</Text>
+        ) : null}
 
         <View style={styles.cards}>
           {shown.map((c, i) => {
@@ -377,13 +495,24 @@ export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(funct
               <Plus size={15} color={BRIEF.moss} strokeWidth={2.3} />
               <Text style={journalStyles.addText}>{JOURNAL_COPY.addPrompt}</Text>
             </Pressable>
+            {keepable ? (
+              <Pressable
+                style={[journalStyles.add, styles.keep]}
+                onPress={() => void keepAsOwn()}
+                accessibilityRole="button"
+                testID="journal-keep-page"
+              >
+                <Bookmark size={15} color={BRIEF.moss} strokeWidth={2.1} />
+                <Text style={journalStyles.addText}>{JOURNAL_COPY.keepPage}</Text>
+              </Pressable>
+            ) : null}
           </View>
         )}
 
         <JournalMoodCard moods={moods} onToggle={reading ? undefined : toggleMood} />
       </ScrollView>
 
-      {reading ? null : (
+      {reading || ownForm ? null : (
         <Animated.View style={[styles.bar, { bottom: barBottom }]}>
           {note ? (
             <View style={styles.note} accessibilityLiveRegion="polite" testID="journal-note">
@@ -397,6 +526,31 @@ export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(funct
           />
         </Animated.View>
       )}
+
+      {ownForm ? (
+        <>
+          <JournalOwnPageSheet
+            key={ownForm.id ?? 'new'}
+            initial={ownForm}
+            lift={lift}
+            onSave={saveOwn}
+            onDelete={ownForm.id ? () => deleteOwn(ownForm.id as string) : undefined}
+            onClose={() => {
+              Keyboard.dismiss();
+              setOwnForm(null);
+            }}
+          />
+          {note ? (
+            <View
+              style={[styles.note, styles.noteOverSheet, { top: insets.top + 8 }]}
+              accessibilityLiveRegion="polite"
+              testID="journal-note"
+            >
+              <Text style={styles.noteText}>{note}</Text>
+            </View>
+          ) : null}
+        </>
+      ) : null}
     </View>
   );
 });
@@ -477,6 +631,15 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     color: BRIEF.muted,
   },
+  aboutRow: { flexDirection: 'row', gap: 6, paddingHorizontal: 20, paddingBottom: 12 },
+  aboutOwn: { fontFamily: 'Inter-Regular', fontSize: 13, lineHeight: 19, color: BRIEF.muted },
+  aboutLink: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 13,
+    lineHeight: 19,
+    color: BRIEF.moss,
+    textDecorationLine: 'underline',
+  },
   cards: { paddingHorizontal: 14, gap: 10 },
   addRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 14, paddingTop: 12 },
   bar: { position: 'absolute', left: 14, right: 14 },
@@ -488,5 +651,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: 'rgba(26, 51, 40, 0.94)',
   },
+  // a failed delete is said over the sheet, which covers the bar
+  noteOverSheet: { position: 'absolute', zIndex: 6, marginBottom: 0 },
   noteText: { fontFamily: 'Inter-Regular', fontSize: 13, color: '#F4F1EA' },
+  keep: { borderStyle: 'solid', backgroundColor: 'rgba(255, 255, 255, 0.7)' },
 });

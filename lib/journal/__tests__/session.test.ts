@@ -19,6 +19,7 @@ import {
   draftKey,
   dropDraft,
   keepDraft,
+  keepFor,
   openJournal,
   pageOfDraft,
   setLastPage,
@@ -168,5 +169,34 @@ describe('the page saving an entry itself', () => {
       ok: false,
       message: 'offline',
     });
+  });
+});
+
+describe('whose drafts they are', () => {
+  const key = draftKey({ day: DAY });
+  const keep = () => keepDraft(key, { page: newPage(pageById('rose')), moods: [] });
+
+  it('keeps them for the same person', () => {
+    useJournalSession.setState({ owner: 'u1', drafts: {}, lastPage: 'rose' });
+    keep();
+    keepFor('u1');
+    expect(draftFor(key)).not.toBeNull();
+    expect(useJournalSession.getState().lastPage).toBe('rose');
+  });
+
+  it('starts empty for someone else on the same phone', () => {
+    useJournalSession.setState({ owner: 'u1', drafts: {}, lastPage: 'rose' });
+    keep();
+    keepFor('u2');
+    expect(draftFor(key)).toBeNull();
+    expect(useJournalSession.getState()).toMatchObject({ owner: 'u2', lastPage: FREEFORM });
+  });
+
+  it('takes what was kept before anyone was known as this person’s', () => {
+    useJournalSession.setState({ owner: null, drafts: {}, lastPage: 'rose' });
+    keep();
+    keepFor('u1');
+    expect(draftFor(key)).not.toBeNull();
+    expect(useJournalSession.getState()).toMatchObject({ owner: 'u1', lastPage: 'rose' });
   });
 });

@@ -59,6 +59,11 @@ export function countLabel(words: number, photos = 0): string {
   return photos ? `${w}, ${photos} ${photos === 1 ? 'photo' : 'photos'}` : w;
 }
 
+/** Said when there is no room for another page of the person's own */
+export function tooManyPages(most: number): string {
+  return `You have ${most} pages of your own. Delete one to make another.`;
+}
+
 export const JOURNAL_COPY = {
   kickerSaved: 'Journal · saved',
   kickerLooking: 'Looking back',
@@ -86,4 +91,28 @@ export const JOURNAL_COPY = {
   deleteBody: 'It will be taken out of your journal.',
   deleteYes: 'Delete',
   cancel: 'Cancel',
+  // a page of the person's own
+  ownAbout: 'Your page.',
+  ownNewTitle: 'Make your own page',
+  ownEditTitle: 'Your page',
+  ownSub: 'Your own questions, kept with the built in pages. It opens by itself next time.',
+  ownName: 'Name',
+  ownNamePlaceholder: 'My evening page',
+  ownNameDefault: 'My page',
+  ownQuestions: 'Questions',
+  ownFirstPlaceholder: 'Your first question',
+  ownNextPlaceholder: 'Another question',
+  ownAddQuestion: 'Add a question',
+  ownRemoveQuestion: 'Remove this question',
+  ownSave: 'Save page',
+  ownSaveChanges: 'Save changes',
+  ownDelete: 'Delete this page',
+  ownClose: 'Close without saving',
+  ownNeedsQuestion: 'Add at least one question',
+  ownSaved: 'Saved. It opens by itself next time.',
+  ownDeleted: 'Page deleted. What you wrote stays.',
+  ownDeleteAsk: 'Delete this page?',
+  ownDeleteBody: 'What you wrote on it stays in your journal.',
+  ownNotSaved: 'Your page was not saved. Check your signal and try again.',
+  ownNotDeleted: 'Your page was not deleted. Check your signal and try again.',
 } as const;

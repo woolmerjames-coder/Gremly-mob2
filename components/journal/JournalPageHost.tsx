@@ -7,12 +7,22 @@
  * last. A check in on a goal always starts a new entry. It saves what is
  * written, unless whoever opened the page saves it themselves (the wrap up
  * does), and it keeps a page closed before Done.
+ *
+ * It also holds the person's own pages for the page: it brings them from
+ * their account, and keeps or deletes one when the page asks.
  */
 import React, { useEffect, useMemo, useRef } from 'react';
 import { Alert, Modal } from 'react-native';
 import { checkInOf, entryDay, pageEntryFor, type JournalEntry } from '../../lib/journal/entry';
 import { addWords, newPage, pageOfEntry, type JournalPage as Page } from '../../lib/journal/page';
-import { allPages, pageById } from '../../lib/journal/pages';
+import {
+  deleteOwnPage,
+  ownPages,
+  saveOwnPage,
+  useOwnPages,
+  useOwnPagesSync,
+} from '../../lib/journal/ownPages';
+import { FREEFORM, allPages, pageIn } from '../../lib/journal/pages';
 import { savePage } from '../../lib/journal/save';
 import {
   closeJournal,
@@ -53,7 +63,7 @@ type Start = {
 /** What the page opens with, worked out once when it is asked for. */
 function startOf(request: JournalOpen, lastPage: string): Start | null {
   const notes = useGremlyStore.getState().notes as unknown as JournalEntry[];
-  const pages = allPages();
+  const pages = allPages(ownPages());
   const part = request.part ?? wrapNow().part;
   const goal = request.entryId ? null : (request.goal ?? null);
   const entry = request.entryId
@@ -92,7 +102,7 @@ function startOf(request: JournalOpen, lastPage: string): Start | null {
     page = pageOfEntry(entry, pages, { toWrite: true });
     moods = knownMoods(entry.mood);
   } else {
-    page = newPage(pageById(lastPage));
+    page = newPage(pageIn(pages, lastPage));
     moods = [];
   }
   if (request.carry) page = addWords(page, request.carry);
@@ -116,6 +126,9 @@ function startOf(request: JournalOpen, lastPage: string): Start | null {
 export function JournalPageHost() {
   const request = useJournalSession((s) => s.open);
   const pageRef = useRef<JournalPageHandle>(null);
+  useOwnPagesSync();
+  const own = useOwnPages();
+  const pages = useMemo(() => allPages(own), [own]);
   // worked out when the page is asked for, not again as the journal changes under it
   const start = useMemo(
     () => (request ? startOf(request, useJournalSession.getState().lastPage) : null),
@@ -164,9 +177,16 @@ export function JournalPageHost() {
         kicker={start.kicker}
         initial={start.page}
         initialMoods={start.moods}
-        pages={allPages()}
+        pages={pages}
         reading={start.reading}
         onPickPage={setLastPage}
+        onSaveOwn={saveOwnPage}
+        onDeleteOwn={async (id) => {
+          const res = await deleteOwnPage(id);
+          // the next new page no longer opens on a page that has gone
+          if (res.ok && useJournalSession.getState().lastPage === id) setLastPage(FREEFORM);
+          return res;
+        }}
         onDone={async (result) => {
           const written = { text: result.text, layout: result.layout, moods: result.moods };
           const res = request.save
