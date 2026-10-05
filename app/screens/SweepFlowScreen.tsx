@@ -127,6 +127,7 @@ import {
   recordDecision as recordWrapDecision,
 } from '../../lib/wrapup/session';
 import { cardsLeft } from '../../lib/wrapup/state';
+import { wrapNow } from '../../lib/wrapup/day';
 import { todayThreadParams } from '../../lib/brief/pinned';
 
 // Gremly mascot for summary step
@@ -2883,8 +2884,13 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   const HUB = 0.1;
   const EVENTS = 0.2; // Events spoke sentinel
   const [step, setStep] = useState<number>(quick ? 1 : HUB);
-  // The cards from the thread sort for today; the week planner for the week
-  const sweepIntent: SweepIntent = quick ? 'today' : 'week';
+  // The morning's quick sweep sorts for today. Tonight's wrap up sorts for the
+  // next day, unless it is before the evening, when today still has room. The
+  // week planner sorts for the week.
+  const sweepIntent: SweepIntent = useMemo(() => {
+    if (cardsMode === 'wrap') return wrapNow().evening ? 'tomorrow' : 'today';
+    return quick ? 'today' : 'week';
+  }, [cardsMode, quick]);
   const hubMode = !quick;
   const [completedSections, setCompletedSections] = useState<Set<string>>(new Set());
   const [guidedAll, setGuidedAll] = useState(false);

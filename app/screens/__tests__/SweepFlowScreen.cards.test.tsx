@@ -367,8 +367,24 @@ function saved(id: string, kind: 'todo' | 'note') {
 }
 
 describe('SweepFlowScreen - the cards on their own', () => {
+  // 8:40 PM on Wednesday 30 September in Los Angeles: the evening
+  const ds = getDateService() as any;
+  let was: { clock: () => Date; timezone: string; hour: number };
+  const at = (iso: string) => {
+    ds.clock = () => new Date(iso);
+  };
+  afterEach(() => {
+    ds.clock = was.clock;
+    ds.setTimezone(was.timezone);
+    ds.setDayBoundaryHour(was.hour);
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
+    was = { clock: ds.clock, timezone: ds.getTimezone(), hour: ds.getDayBoundaryHour() };
+    ds.setTimezone('America/Los_Angeles');
+    ds.setDayBoundaryHour(3);
+    at('2026-10-01T03:40:00Z');
     mockRouteParams = { cards: 'wrap' };
     mockCandidates = [mockTodoCandidate, mockNoteCandidate];
     mockNoteCardType = null;
@@ -390,6 +406,32 @@ describe('SweepFlowScreen - the cards on their own', () => {
     expect(result.queryByText(/Welcome to Sweep|A quick sweep/)).toBeNull();
     expect(result.getByText('1 of 2')).toBeTruthy();
     expect(mockCardsOpened).toHaveBeenCalledTimes(1);
+  });
+
+  it('in the evening the next day is chosen already, and Today is not offered', async () => {
+    const result = render(<SweepFlowScreen navigation={mockNavigation} />);
+    await waitFor(() => result.getByText('Test task'));
+    expect(result.queryByText('Today')).toBeNull();
+    fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
+    await waitFor(() => expect(mockApply).toHaveBeenCalledTimes(1));
+    expect(mockApply.mock.calls[0][0]).toMatchObject({ action: 'keep', dueDateStr: '2026-10-01' });
+  });
+
+  it('before the evening today still has room, and is chosen already', async () => {
+    at('2026-09-30T21:00:00Z');
+    const result = render(<SweepFlowScreen navigation={mockNavigation} />);
+    await waitFor(() => result.getByText('Test task'));
+    expect(result.getByText('Today')).toBeTruthy();
+    fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
+    await waitFor(() => expect(mockApply).toHaveBeenCalledTimes(1));
+    expect(mockApply.mock.calls[0][0]).toMatchObject({ action: 'keep', dueDateStr: '2026-09-30' });
+  });
+
+  it("the morning's quick sweep sorts for today, whatever the hour", async () => {
+    mockRouteParams = { cards: 'quick' };
+    const result = render(<SweepFlowScreen navigation={mockNavigation} />);
+    await waitFor(() => result.getByText('Test task'));
+    expect(result.getByText('Today')).toBeTruthy();
   });
 
   it('saves a decision the moment it is made, and hands it to the wrap up with its Undo', async () => {
@@ -612,18 +654,18 @@ describe('SweepFlowScreen - the cards after midnight, before the day ends', () =
     });
   });
 
-  it('Today on a card is the day being wrapped up', async () => {
+  it('the next day is chosen already, and Today is not offered', async () => {
     const result = render(<SweepFlowScreen navigation={mockNavigation} />);
     await waitFor(() => result.getByText('Test task'));
 
-    fireEvent.press(result.getByText('Today'));
+    expect(result.queryByText('Today')).toBeNull();
     fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
     await waitFor(() => expect(mockApply).toHaveBeenCalledTimes(1));
     expect(mockApply.mock.calls[0][0]).toMatchObject({
       candidateId: 'todo-1',
       action: 'keep',
-      dueDateStr: '2026-09-30',
+      dueDateStr: '2026-10-01',
     });
   });
 
