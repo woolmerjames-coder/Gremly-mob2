@@ -2397,7 +2397,8 @@ export interface AgentTask {
  */
 export interface WrapTurnContext {
   step: string;
-  decisions: { title: string; outcome: string }[];
+  /** Tonight's cards: the item's id and kind, what they decided, and what it was before when it moved */
+  decisions: { id?: string; type?: string; title: string; outcome: string; was?: string }[];
   /** The question this message answers, when it answers one */
   answering?: {
     question: string;

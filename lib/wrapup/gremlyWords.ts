@@ -22,6 +22,7 @@ import type { SweepRecord } from '../changes/sweep';
 import { dayRecordFromStore, meetingsFromStore } from '../plan/storePlan';
 import type { WrapNow } from './day';
 import { weekdayOf } from './day';
+import { getDateService } from '../date/DateService';
 import type { WrapQuestion } from './questions';
 import { keptFor } from './state';
 
@@ -43,18 +44,51 @@ function meetingWords(m: { title: string; start: number }): string {
   return `${clock(m.start)} ${ampm(m.start)} ${m.title}`;
 }
 
+/** A day as Gremly reads it, counted from the person's day. */
+function dayName(day: string, now: WrapNow): string {
+  if (day === now.tomorrow) return now.words.tomorrow;
+  if (day === now.day) return 'today';
+  return weekdayOf(day) || day;
+}
+
 /** What one decision on a card came to, in words Gremly reads. */
 export function outcomeWords(d: SweepRecord, now: WrapNow): string {
   if (d.out === 'let_go') return 'let go';
   if (d.out === 'left') return 'left for the next Sweep';
+  // brought back on a later night, with its day moved there
+  const later = typeof d.fields?.later === 'string' ? d.fields.later : null;
+  if (later) return `to come back on ${dayName(later, now)}`;
   const day = typeof d.fields?.day === 'string' ? d.fields.day : null;
-  if (day) {
-    if (day === now.tomorrow) return `kept for ${now.words.tomorrow}`;
-    if (day === now.day) return 'kept for today';
-    return `kept for ${weekdayOf(day) || day}`;
-  }
-  return 'kept';
+  if (day) return `kept for ${dayName(day, now)}`;
+  return 'kept as it is';
 }
+
+/** What a card's item was before tonight's decision moved it, in words; empty when it did not move. */
+export function wasWords(d: SweepRecord): string {
+  const before = d.before || {};
+  if (!('day' in before)) return '';
+  const day = typeof before.day === 'string' && before.day ? before.day : null;
+  if (!day) return 'had no day';
+  const date = getDateService().fromLocalDate(day);
+  return date
+    ? `was due ${weekdayOf(day)} ${date.getDate()} ${MONTHS[date.getMonth()]}`
+    : `was due ${day}`;
+}
+
+const MONTHS = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
 
 /** Travel today, from the day record, in words. */
 function travelWords(day: string): string {
@@ -174,16 +208,27 @@ export function chosenQuestions(
 }
 
 /**
- * Tonight's wrap up for a message typed while it is under way: where it is
- * and what was sorted, so Gremly answers knowing it (agent/brief.js
- * readWrap). Null when there is none or it is finished.
+ * Tonight's wrap up for a message typed in today's thread: where it is and
+ * what was sorted, each card by its item's id with what it was before, so
+ * Gremly answers knowing it and can put one back (agent/brief.js readWrap).
+ * Once it is finished it is sent while it sorted anything, for the rest of
+ * the day. Null when there is none.
  */
 export function wrapTurnContext(w: WrapUpState | null, now: WrapNow): WrapTurnContext | null {
-  if (!w || w.step === 'done') return null;
+  if (!w) return null;
+  const live = (w.decisions || []).filter((d) => !d.undone_at);
+  if (w.step === 'done' && !live.length) return null;
   return {
     step: w.step,
-    decisions: w.decisions
-      .filter((d) => !d.undone_at)
-      .map((d) => ({ title: d.title, outcome: outcomeWords(d, now) })),
+    decisions: live.map((d) => {
+      const was = wasWords(d);
+      return {
+        id: d.id,
+        type: d.type,
+        title: d.title,
+        outcome: outcomeWords(d, now),
+        ...(was ? { was } : {}),
+      };
+    }),
   };
 }

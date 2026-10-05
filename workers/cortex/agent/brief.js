@@ -34,7 +34,7 @@ import { AGENT_PROMPT_VERSION, isLate } from './prompt.js';
 import { dayEndHourOf } from '../../shared/day.js';
 import { checkForCorrection } from '../context/corrections.js';
 
-export const BRIEF_AGENT_VERSION = `brief-2026-10-05b/${AGENT_PROMPT_VERSION}`;
+export const BRIEF_AGENT_VERSION = `brief-2026-10-05c/${AGENT_PROMPT_VERSION}`;
 
 // the planning day ends here when nothing earlier ends it, as in the day turn
 const DAY_END = 22 * 60;
@@ -177,15 +177,22 @@ const WRAP_AT = {
 const UUID_LIKE = /^[0-9a-f-]{36}$/i;
 
 /**
- * Tonight's wrap up as the app sends it with a message typed while it is
- * under way (lib/wrapup): where it is, what was sorted, and the question the
- * message answers, when it answers one. Null when there is none.
+ * Tonight's wrap up as the app sends it with a message in today's thread
+ * (lib/wrapup): where it is, what was sorted (each card by its item's id, with
+ * what it was before when it moved), and the question the message answers,
+ * when it answers one. Null when there is none.
  */
 export function readWrap(raw) {
   if (!raw || typeof raw !== 'object' || !WRAP_AT[raw.step]) return null;
   const str = (v, n) => (typeof v === 'string' ? v.trim().slice(0, n) : '');
   const decisions = (Array.isArray(raw.decisions) ? raw.decisions : [])
-    .map((d) => ({ title: str(d?.title, 100), outcome: str(d?.outcome, 40) }))
+    .map((d) => ({
+      id: UUID_LIKE.test(String(d?.id || '')) ? d.id : null,
+      type: d?.type === 'note' ? 'note' : 'todo',
+      title: str(d?.title, 100),
+      outcome: str(d?.outcome, 40),
+      was: str(d?.was, 40),
+    }))
     .filter((d) => d.title && d.outcome)
     .slice(0, 20);
   const a = raw.answering;
@@ -209,21 +216,38 @@ export function readWrap(raw) {
   };
 }
 
-/** The wrap up under way, for the agent: where it is, and the question a message answers. */
+/**
+ * Tonight's wrap up, for the agent: where it is, what the cards settled and how
+ * to put one back, and the question a message answers.
+ */
 export function wrapContext(wrap) {
   if (!wrap) return '';
-  const L = [
-    'THE EVENING WRAP UP, UNDER WAY',
-    `They are wrapping up their day with Gremly in this thread: the cards for what waits for a decision, their habits, their journal, Gremly's questions, then the close. Where it is now: ${WRAP_AT[wrap.step]}.`,
-  ];
+  const done = wrap.step === 'done';
+  const L = done
+    ? [
+        "TONIGHT'S WRAP UP, FINISHED",
+        'They wrapped up their day with Gremly earlier in this thread.',
+      ]
+    : [
+        'THE EVENING WRAP UP, UNDER WAY',
+        `They are wrapping up their day with Gremly in this thread: the cards for what waits for a decision, their habits, their journal, Gremly's questions, then the close. Where it is now: ${WRAP_AT[wrap.step]}.`,
+      ];
   if (wrap.decisions.length) {
     L.push(
-      `Sorted in the cards tonight: ${wrap.decisions.map((d) => `${d.title} (${d.outcome})`).join('; ')}.`,
+      `Sorted in the cards tonight (id | what it is | what they decided | before tonight):\n${wrap.decisions
+        .map(
+          (d) =>
+            `${d.id || 'no id'} | ${d.type} "${d.title}" | ${d.outcome} | ${d.was || 'not moved'}`,
+        )
+        .join('\n')}`,
+      "When they want one of tonight's decisions put back or changed, offer the change by its id: its day as it was before tonight, or restore one they let go. Keeping one as it is and bringing one back on a later night are the cards' own and cannot go on a card; to bring one of those sooner, offer it a day.",
     );
   }
-  L.push(
-    'The wrap up carries on by itself after your reply, from where it is, so answer what they said and leave its steps to it.',
-  );
+  if (!done) {
+    L.push(
+      'The wrap up carries on by itself after your reply, from where it is, so answer what they said and leave its steps to it.',
+    );
+  }
   const a = wrap.answering;
   if (a) {
     const about = a.item
@@ -232,7 +256,7 @@ export function wrapContext(wrap) {
     L.push(
       '',
       "THEIR MESSAGE ANSWERS GREMLY'S QUESTION",
-      `Gremly asked: "${a.question}"${about}. Their message is the answer, and it is already saved to what Gremly knows. Take it in as a friend would, in one or two short sentences. When the answer means one of their items is wrong or needs to change, put that change on the card with your reply, as your offer; when it changes nothing, say so plainly and put nothing on the card.`,
+      `Gremly asked: "${a.question}"${about}. Their message is the answer, and it is already saved to what Gremly knows. Take it in as a friend would, in one or two short sentences. When the answer means one of their items is wrong or needs to change, offer that change: put it on the card with propose_changes, with your reply, in this step; when it changes nothing, say so plainly and put nothing on the card.`,
     );
   }
   return L.join('\n');

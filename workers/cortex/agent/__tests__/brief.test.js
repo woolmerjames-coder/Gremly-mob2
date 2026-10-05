@@ -441,16 +441,39 @@ describe('a message typed while the evening wrap up is under way', () => {
     const wrap = readWrap({
       step: 'habits',
       decisions: [
-        { title: 'Do taxes', outcome: 'kept for tomorrow' },
+        {
+          id: VET,
+          type: 'todo',
+          title: 'Do taxes',
+          outcome: 'kept for tomorrow',
+          was: 'was due Saturday 3 October',
+        },
+        { id: 'not-an-id', type: 'note', title: 'Gym idea', outcome: 'let go' },
         { title: '', outcome: 'x' },
       ],
     });
     const text = wrapContext(wrap);
     expect(text).toContain('THE EVENING WRAP UP, UNDER WAY');
     expect(text).toContain('Where it is now: their habits.');
-    expect(text).toContain('Sorted in the cards tonight: Do taxes (kept for tomorrow).');
+    expect(text).toContain(
+      `Sorted in the cards tonight (id | what it is | what they decided | before tonight):\n${VET} | todo "Do taxes" | kept for tomorrow | was due Saturday 3 October\nno id | note "Gym idea" | let go | not moved`,
+    );
+    expect(text).toContain("When they want one of tonight's decisions put back or changed");
     expect(text).toContain('carries on by itself after your reply');
     expect(text).not.toContain("GREMLY'S QUESTION");
+  });
+
+  it('once it is finished, still knows what the cards settled, and does not carry on', () => {
+    const text = wrapContext(
+      readWrap({
+        step: 'done',
+        decisions: [{ id: VET, type: 'todo', title: 'Do taxes', outcome: 'kept for Friday' }],
+      }),
+    );
+    expect(text).toContain("TONIGHT'S WRAP UP, FINISHED");
+    expect(text).toContain(`${VET} | todo "Do taxes" | kept for Friday | not moved`);
+    expect(text).not.toContain('carries on by itself');
+    expect(text).not.toContain('UNDER WAY');
   });
 
   it('says which of his questions the message answers, and the item it is about', () => {
@@ -467,7 +490,7 @@ describe('a message typed while the evening wrap up is under way', () => {
     expect(text).toContain(
       `Gremly asked: "Is Bella's vet visit on Friday or Monday?", about their todo "Take Bella to the vet" (id ${VET}), Fri 9 Oct.`,
     );
-    expect(text).toContain('put that change on the card with your reply');
+    expect(text).toContain('put it on the card with propose_changes, with your reply');
   });
 
   it('is nothing when no wrap up is under way, and comes after the day', () => {

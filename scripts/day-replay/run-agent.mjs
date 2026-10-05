@@ -88,14 +88,19 @@ function withUuids(body, to) {
     ...body,
     items: body.items.map((x) => ({ ...x, id: id(x.id) })),
     plan: body.plan ? { ...body.plan, items: body.plan.items.map((x) => ({ ...x, id: id(x.id) })) } : null,
-    ...(body.wrap?.answering?.item
+    ...(body.wrap
       ? {
           wrap: {
             ...body.wrap,
-            answering: {
-              ...body.wrap.answering,
-              item: { ...body.wrap.answering.item, id: id(body.wrap.answering.item.id) },
-            },
+            decisions: (body.wrap.decisions || []).map((d) => (d.id ? { ...d, id: id(d.id) } : d)),
+            ...(body.wrap.answering?.item
+              ? {
+                  answering: {
+                    ...body.wrap.answering,
+                    item: { ...body.wrap.answering.item, id: id(body.wrap.answering.item.id) },
+                  },
+                }
+              : {}),
           },
         }
       : {}),
@@ -117,7 +122,7 @@ function dbFor(s, to) {
       due_time: x.due_time ? `${x.due_time}:00` : null,
       time_estimate_minutes: x.minutes || null,
       completed_at: null,
-      archived: false,
+      archived: !!x.archived,
       reminders_json: [],
     }));
   const habits = (s.items || [])
