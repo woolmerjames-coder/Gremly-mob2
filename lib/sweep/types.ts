@@ -198,9 +198,6 @@ export interface SweepCardMeta {
   /** Primary World pill: AI-derived life domain. Separate dimension from space. */
   world?: { name: string; accentColor: string; extraCount: number };
 
-  /** True if commitment === true (locked-in item) */
-  isLockedIn: boolean;
-
   /** Gremly's contextual response message */
   gremlyResponse: string;
 

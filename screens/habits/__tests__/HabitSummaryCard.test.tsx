@@ -77,6 +77,7 @@ jest.mock('../../../lib/date/DateService', () => ({
     today: () => MOCK_TODAY,
     tomorrow: () => MOCK_TOMORROW,
     now: () => MOCK_NOW,
+    dayNow: () => MOCK_NOW,
   }),
 }));
 

@@ -32,7 +32,9 @@ jest.mock('../providers/RepoProvider', () => ({
 }));
 
 describe('TodayScreen commitments section', () => {
-  test('renders cards for active commitments', async () => {
+  // Lock In is gone from the app. This older Today screen keeps its section
+  // behind the old build flag, which is off everywhere and off when unset.
+  test('is not shown, even when old Lock Ins come back from the store', async () => {
     const mockCommitments = [
       {
         id: 'commitment-1',
@@ -60,14 +62,12 @@ describe('TodayScreen commitments section', () => {
       },
     });
 
-    await waitFor(() => expect(mockRepo.listCommitments).toHaveBeenCalled());
+    await waitFor(() => expect(mockRepo.listDueToday).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId('today-screen')).toBeTruthy());
 
-    const section = await screen.findByTestId('today-section-commitments');
-    expect(section).toBeTruthy();
-
-    const cards = await screen.findAllByTestId(/commitment-card-/);
-    expect(cards).toHaveLength(2);
-    expect(screen.getByText('Morning Run')).toBeTruthy();
-    expect(screen.getByText('Inbox Zero')).toBeTruthy();
+    expect(screen.queryByTestId('today-section-commitments')).toBeNull();
+    expect(screen.queryAllByTestId(/commitment-card-/)).toHaveLength(0);
+    expect(screen.queryByText('Morning Run')).toBeNull();
+    expect(screen.queryByText('Inbox Zero')).toBeNull();
   });
 });

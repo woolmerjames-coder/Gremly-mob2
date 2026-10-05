@@ -85,10 +85,25 @@ import {
 } from '../../lib/repo/dailyThreadRepo';
 import type {
   BriefDayCardMeta,
+  BriefMeta,
   BriefPlanMeta,
   DailyThreadMeta,
+  OfferAction,
   OfferButton,
 } from '../../lib/brief/types';
+import { useWrapUp } from '../../lib/wrapup/useWrapUp';
+import { useEveningTeaser } from '../../lib/wrapup/useEveningTeaser';
+import { currentWrap, takeCardsVisit } from '../../lib/wrapup/session';
+import { cardsLeft, pastCards } from '../../lib/wrapup/state';
+import { WRAP_COPY } from '../../lib/wrapup/words';
+import { wrapTurnContext } from '../../lib/wrapup/gremlyWords';
+import { wrapNow } from '../../lib/wrapup/day';
+import { WrapRecapCard } from '../../components/wrapup/WrapRecapCard';
+import { WrapReceiptCard } from '../../components/wrapup/WrapReceiptCard';
+import { WrapHabitsCard } from '../../components/wrapup/WrapHabitsCard';
+import { WrapJournalCard } from '../../components/wrapup/WrapJournalCard';
+import { WrapItemCard } from '../../components/wrapup/WrapItemCard';
+import { WrapEndMark } from '../../components/wrapup/WrapEndMark';
 import { livePlanOf, usePlanFlow } from '../../lib/plan/usePlanFlow';
 import { useDayTurn } from '../../lib/brief/useDayTurn';
 import { useRenderChanges } from '../../components/brief/ChangeCard';
@@ -111,7 +126,7 @@ import type { AgentTask } from '../../lib/cortex/CortexClient';
 import { useKeyboardOpen } from '../../hooks/useKeyboardOpen';
 import { chipPrompt, homeChipsFor, homePhase, type HomeChipKey } from '../../lib/chat/homeChips';
 import { useNowMinutes } from '../../lib/brief/useDayCard';
-import { selectQuickSweepCount } from '../../lib/store/selectors';
+import { selectWrapUp } from '../../lib/store/selectors';
 
 const MOSS = '#2E5540';
 const LINEN = '#F9F6F1';
@@ -189,6 +204,9 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   const wordFlushIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const wakeOnInput = useWakeOnInput();
+  // set further down, once the hooks they call exist
+  const wrapResumeRef = useRef<() => Promise<void>>(async () => undefined);
+  const homeDockRef = useRef<ReturnType<typeof useHomeDock>>(null);
   const [activeChat, setActiveChat] = useState<SpaceChat | null>(null);
   // the chat on screen right now, for work that finishes after the user may have moved on
   const activeChatIdRef = useRef<string | null>(null);
@@ -279,7 +297,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     () => (isDailyThread ? liveOfferId(rows) : null),
     [isDailyThread, rows],
   );
-  // Planning in today's thread: the plan card, its changes and Lock it in
+  // Planning in today's thread: the plan card, its changes and saying yes to it
   const threadDay =
     (activeChat?.metadata_json as Partial<DailyThreadMeta> | null | undefined)?.ritual_day ??
     getDateService().ritualDay();
@@ -334,10 +352,38 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       pauseSync: () => planFlowRef.current.pauseSync(),
       resumeSync: () => planFlowRef.current.resumeSync(),
     },
-    continueBrief: () => briefOffersRef.current.continueBrief(),
+    continueBrief: () => wrapResumeRef.current(),
+    // while tonight's wrap up is under way, Gremly is told where it is
+    wrapContext: () => wrapTurnContext(currentWrap(), wrapNow()),
   });
   const dayTurnRef = useRef(dayTurn);
   dayTurnRef.current = dayTurn;
+  // The evening wrap up, in today's thread only (lib/wrapup): Gremly opens on
+  // the day, the Sweep cards, habits, the journal, his questions and the close
+  const wrapUp = useWrapUp({
+    threadId: activeChat && isTodaysThread(activeChat) ? activeChat.id : null,
+    saved: (activeChat?.metadata_json as Partial<DailyThreadMeta> | null | undefined)?.sweep,
+    messages,
+    appendBriefMessage,
+    patchMessageMetadata,
+    canCreate,
+    onPaywall: () => navigation.navigate('TrialEndPaywall', { source: 'expiry' }),
+    openCards: () => navigation.navigate('Sweep', { cards: 'wrap' }),
+    openWeek: () => navigation.navigate('Sweep', { week: true }),
+    planDay: (day) => planFlowRef.current.start(null, { day }),
+    restoreDraft: (text) => homeDockRef.current?.prefillDraft(text),
+    // an answer to Gremly's question, or words typed for the journal that were for him
+    askGremly: (text, about) => dayTurnRef.current.ask(text, about),
+  });
+  const wrapUpRef = useRef(wrapUp);
+  wrapUpRef.current = wrapUp;
+  wrapResumeRef.current = () => {
+    // a turn in the thread is done: while the wrap up is under way its buttons
+    // come back, so it waits where it was; otherwise the brief carries on
+    const w = currentWrap();
+    if (wrapUpRef.current.wrap && w && w.step !== 'done') return wrapUpRef.current.resume();
+    return briefOffersRef.current.continueBrief();
+  };
 
   // A change to an existing item that the Worker found after the reply arrives
   // through the same poll as the pill; it is shown once, under the last reply.
@@ -604,6 +650,9 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
               // the question is answered: the brief carries on (a card first
               // waits for its tap, see entityCardHandlers)
               void briefOffersRef.current.continueBrief();
+            } else if (isTodaysThread(chat) && currentWrap() && currentWrap()?.step !== 'done') {
+              // an ordinary turn during the wrap up: its buttons come back
+              void wrapResumeRef.current();
             }
 
             // the Save items pill and any late card follow from the Worker's
@@ -670,6 +719,9 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         await briefOffersRef.current.answerTyped(trimmed);
         return;
       }
+      // The wrap up is waiting for this message: tonight's journal entry, or
+      // the answer to Gremly's question (the pill above the box says which)
+      if (isDailyThread && (await wrapUpRef.current.takeTyped(trimmed))) return;
       // A typed message is a reply to the brief too (feeds Gremly once a day)
       if (isDailyThread && activeChat) void creditFirstReply(activeChat.id);
       // In today's thread every typed message is read against the day first
@@ -746,6 +798,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   // Inside the Gremly home, the shared input box sends through handleSend.
   // Refs keep the registration stable while handleSend and sending change.
   const homeDock = useHomeDock();
+  homeDockRef.current = homeDock;
   const handleSendRef = useRef(handleSend);
   handleSendRef.current = handleSend;
   const sendingRef = useRef(sending);
@@ -845,6 +898,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   }, [clearAbout]);
   // Plan with Gremly (and Plan tomorrow): the brief shows at once, then the plan step
   const pendingPlanRef = useRef<{ day: string } | null>(null);
+  // Wrap up with Gremly: the same, then the wrap up starts or picks up
+  const pendingWrapRef = useRef(false);
   const [skipPlayback, setSkipPlayback] = useState(false);
   useEffect(() => {
     if (threadRequest !== 'today' || !userId) return;
@@ -856,6 +911,10 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       pendingPlanRef.current = {
         day: params?.planDay === 'tomorrow' ? getDateService().addDays(today, 1) : today,
       };
+      setSkipPlayback(true);
+    }
+    if (params?.step === 'wrap') {
+      pendingWrapRef.current = true;
       setSkipPlayback(true);
     }
     navigation.setParams({
@@ -875,22 +934,48 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     params?.planDay,
   ]);
 
-  const handleOfferButton = useCallback(
-    (message: SpaceChatMessage, button: OfferButton) =>
-      briefOffersRef.current.handleOfferButton(message, button),
-    [],
-  );
+  const handleOfferButton = useCallback((message: SpaceChatMessage, button: OfferButton) => {
+    if (briefMetaOf(message)?.wrap) {
+      // typing is how these two are answered: open the keyboard
+      if (button.action === 'journal_write' || button.action === 'answer_other') {
+        homeDockRef.current?.focusInput();
+      }
+      return wrapUpRef.current.handleButton(message, button);
+    }
+    return briefOffersRef.current.handleOfferButton(message, button);
+  }, []);
 
   // Something else: the shared box asks for the answer and opens the keyboard
   const awaitingAnswer = isDailyThread && briefOffers.awaitingAnswer;
+  // In the wrap up the box saves to the journal, or answers Gremly's question:
+  // a pill above it says so, and its X sends the next message to Gremly instead
+  const wrapAwaiting = isDailyThread ? wrapUp.awaiting : null;
   useEffect(() => {
     if (!embedded || !homeDock) return;
-    homeDock.setChatPlaceholder(awaitingAnswer ? BRIEF_COPY.answerPlaceholder : null);
+    homeDock.setChatPlaceholder(
+      awaitingAnswer || wrapAwaiting === 'question'
+        ? BRIEF_COPY.answerPlaceholder
+        : wrapAwaiting === 'journal'
+          ? WRAP_COPY.journalPlaceholder
+          : null,
+    );
+    homeDock.setChatTag(
+      wrapAwaiting
+        ? {
+            kind: wrapAwaiting,
+            label: wrapAwaiting === 'journal' ? WRAP_COPY.journalTag : WRAP_COPY.questionTag,
+            onCancel: () => wrapUpRef.current.cancelAwaiting(),
+          }
+        : null,
+    );
     if (awaitingAnswer) homeDock.focusInput();
-  }, [embedded, homeDock, awaitingAnswer]);
+  }, [embedded, homeDock, awaitingAnswer, wrapAwaiting]);
   useEffect(
     () => () => {
-      if (embedded && homeDock) homeDock.setChatPlaceholder(null);
+      if (embedded && homeDock) {
+        homeDock.setChatPlaceholder(null);
+        homeDock.setChatTag(null);
+      }
     },
     [embedded, homeDock],
   );
@@ -932,6 +1017,9 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     if (!isDailyThread || !activeChat || !threadLoaded || !chatOnScreen) return;
     const meta = (activeChat.metadata_json ?? {}) as Partial<DailyThreadMeta>;
     if (meta.seen_at) return;
+    // opened to wrap the day up, or the wrap up has begun: Gremly's evening
+    // opener is what is said, and no brief is written under or after it
+    if (pendingWrapRef.current || meta.sweep || currentWrap()) return;
     const now = getDateService().now();
     const part = dayPartAt(now.getHours());
     const due: 'first_open' | 'rewrite' | null =
@@ -1034,6 +1122,16 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     else void planFlowRef.current.start(null, { day: pending.day });
   }, [isDailyThread, activeChat, threadLoaded, briefWriting, messages]);
 
+  // The wrap up, once today's thread is on screen with its messages
+  useEffect(() => {
+    if (!pendingWrapRef.current || !isDailyThread || !activeChat || !threadLoaded) return;
+    if (briefWriting || !isTodaysThread(activeChat)) return;
+    if (messages.length && messages[0].chat_id !== activeChat.id) return;
+    pendingWrapRef.current = false;
+    setSkipPlayback(false);
+    void wrapUpRef.current.open();
+  }, [isDailyThread, activeChat, threadLoaded, briefWriting, messages]);
+
   // Coming into Chat (Daily brief in Chat on): an unread brief opens today's
   // thread; within five minutes of leaving, the chat as it was left; after
   // longer, the fresh home with today pinned. A jump from another screen
@@ -1048,13 +1146,35 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   const nowMinutes = useNowMinutes();
   const dayBoundaryHour = useGremlyStore((st) => st.dayBoundaryHour);
   const phase = homePhase(nowMinutes, dayBoundaryHour);
-  const toDecide = useGremlyStore(selectQuickSweepCount);
-  const homeChips = useMemo(() => homeChipsFor(phase, toDecide), [phase, toDecide]);
+  // tonight's cards still to sort: what the pinned card, the chip and the receipt say
+  const wrapCards = useGremlyStore(selectWrapUp).cards;
+  const sessionWrap = useTodayThread(
+    (st) => (st.thread?.metadata_json as Partial<DailyThreadMeta> | undefined)?.sweep ?? null,
+  );
+  const toDecide = useMemo(
+    () => cardsLeft(sessionWrap, wrapCards).length,
+    [sessionWrap, wrapCards],
+  );
+  // the ways into the wrap up: the pinned card's line and the Wrap up today chip
+  const wrapTeaser = useEveningTeaser();
+  const homeChips = useMemo(
+    () => homeChipsFor(phase, { wrap: wrapTeaser.start, planned: wrapTeaser.planned }),
+    [phase, wrapTeaser.start, wrapTeaser.planned],
+  );
   greetingWaitingRef.current = { briefUnread: briefUnreadHere, toDecide };
   const freshHome = !activeChat && !item && !aboutItem;
   const openWrapUp = useCallback(() => {
-    navigation.navigate('Sweep', { quick: true });
-  }, [navigation]);
+    // today's thread, then the wrap up starts or picks up where it was left
+    pendingWrapRef.current = true;
+    setSkipPlayback(true);
+    if (isTodaysThread(activeChat) && threadLoaded) {
+      pendingWrapRef.current = false;
+      setSkipPlayback(false);
+      void wrapUpRef.current.open();
+      return;
+    }
+    void openTodayThread();
+  }, [activeChat, threadLoaded, openTodayThread]);
   const pressChip = useCallback(
     (key: HomeChipKey) => {
       if (key === 'plan_day') {
@@ -1129,7 +1249,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         offer: meta?.type === 'brief-offer' ? meta : null,
       });
       // the quick sweep: only the cards that still need a decision, then back here
-      navigation.navigate('Sweep', { quick: true });
+      navigation.navigate('Sweep', { cards: 'quick' });
     },
     [activeChat, navigation],
   );
@@ -1139,6 +1259,11 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     // an item's chat is never today's thread
     if (item || typeof navigation.addListener !== 'function') return undefined;
     return navigation.addListener('focus', () => {
+      // tonight's cards have closed: the receipt, and what comes next
+      if (takeCardsVisit()) {
+        void wrapUpRef.current.backFromCards();
+        return;
+      }
       const p = takeBriefSweep();
       if (!p || p.threadId !== activeChatIdRef.current) return;
       const outcome = readSweepOutcome(p.before);
@@ -1200,13 +1325,94 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         interactive={!planFlowRef.current.typing}
         onRemove={(id) => void planFlowRef.current.removeItem(message, id)}
         onAdd={(id, kind) => void planFlowRef.current.addItem(message, id, kind)}
-        onLock={() => void planFlowRef.current.lock(message)}
-        onDismiss={() => void planFlowRef.current.dismiss(message)}
+        onYes={() =>
+          void planFlowRef.current.accept(message).then(() => wrapUpRef.current.afterPlan())
+        }
+        onDismiss={() =>
+          void planFlowRef.current.dismiss(message).then(() => wrapUpRef.current.afterPlan())
+        }
         onShowAgain={() => void planFlowRef.current.showAgain(message)}
         onSeeToday={() => navigation.navigate('Tabs', { screen: 'Today' })}
       />
     ),
     [navigation],
+  );
+
+  // The evening wrap up's cards (lib/wrapup). A day's thread from history
+  // draws them from what it saved; only today's can still be acted on.
+  const wrapToday = isTodaysThread(activeChat) ? wrapUp.wrap : null;
+  const savedWrap =
+    wrapToday ??
+    (activeChat?.metadata_json as Partial<DailyThreadMeta> | null | undefined)?.sweep ??
+    null;
+  const wrapBusy = wrapUp.busy;
+  const wrapUndoable = wrapUp.undoable;
+  const renderWrap = useCallback(
+    (message: SpaceChatMessage, meta: BriefMeta) => {
+      const live = !!wrapToday;
+      const w = wrapUpRef.current;
+      switch (meta.type) {
+        case 'sweep-recap':
+          return <WrapRecapCard meta={meta} />;
+        case 'sweep-receipt':
+          return (
+            <WrapReceiptCard
+              decisions={savedWrap?.decisions ?? []}
+              toSort={live && !pastCards(savedWrap) ? toDecide : 0}
+              undoable={live ? wrapUndoable : {}}
+              onUndo={(cid) => void w.undoDecision(cid)}
+              interactive={!wrapBusy}
+            />
+          );
+        case 'sweep-habits':
+          return (
+            <WrapHabitsCard
+              meta={meta}
+              interactive={live && !wrapBusy}
+              onSave={(done, held) => void w.habits.save(message, done, held)}
+              onAll={() => navigation.navigate('Habits')}
+            />
+          );
+        case 'sweep-journal':
+          return (
+            <WrapJournalCard
+              meta={meta}
+              interactive={live && !wrapBusy}
+              onSaveMoods={(moods) => void w.journal.saveMoods(message, moods)}
+              onSkipMoods={() => void w.journal.skipMoods(message)}
+              onEditMoods={
+                live && meta.note_id
+                  ? (moods) => void w.journal.editMoods(message, moods)
+                  : undefined
+              }
+              onUndo={
+                live && meta.note_id && wrapUndoable[`journal:${meta.note_id}`]
+                  ? () => void w.journal.undo(message)
+                  : undefined
+              }
+            />
+          );
+        case 'sweep-item':
+          return (
+            <WrapItemCard
+              meta={meta}
+              onOpen={(it) =>
+                openEntity({ id: it.id, type: it.kind, title: it.title } as EntityCardEntity)
+              }
+            />
+          );
+        case 'sweep-end':
+          return <WrapEndMark meta={meta} />;
+        default:
+          return null;
+      }
+    },
+    [wrapToday, savedWrap, wrapBusy, wrapUndoable, toDecide, navigation, openEntity],
+  );
+  // Write a few lines is left out while the box already saves to the journal
+  const hiddenActions = useMemo(
+    () => (wrapAwaiting === 'journal' ? (['journal_write'] as OfferAction[]) : undefined),
+    [wrapAwaiting],
   );
 
   // Opened from a Mind Drop question ("Chat with Gremly" or "Ask Gremly now"):
@@ -1238,7 +1444,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         await setEntityCardStatus(cardMessage.id, status, summary);
         // a change made in today's thread is done: the brief carries on
         if (status === 'applied' && isTodaysThread(activeChat)) {
-          void briefOffersRef.current.continueBrief();
+          void wrapResumeRef.current();
         }
       },
       onPick: (entity: EntityCardEntity) => {
@@ -1270,11 +1476,13 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             message={item}
             prev={shownRows[index - 1]}
             liveOfferId={offerLive}
-            interactive={!briefOffers.busy && !playback.playing}
+            interactive={!briefOffers.busy && !playback.playing && !wrapBusy}
             onOfferButton={handleOfferButton}
             renderDayCard={renderDayCard}
             renderPlan={renderPlan}
             renderChanges={renderChanges}
+            renderWrap={renderWrap}
+            hiddenActions={hiddenActions}
           />
         );
       }
@@ -1302,6 +1510,9 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       renderDayCard,
       renderPlan,
       renderChanges,
+      renderWrap,
+      hiddenActions,
+      wrapBusy,
       briefOffers.busy,
       playback.playing,
     ],
@@ -1515,7 +1726,11 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                 )
               }
               ListFooterComponent={
-                (briefWriting || playback.typing || planFlow.typing || dayTurn.thinking) &&
+                (briefWriting ||
+                  playback.typing ||
+                  planFlow.typing ||
+                  dayTurn.thinking ||
+                  wrapUp.typing) &&
                 isDailyThread ? (
                   <>
                     {pendingShown ? (
@@ -1605,8 +1820,9 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                     unread={briefUnreadHere}
                     onPress={() => void openTodayThread()}
                     phase={phase}
-                    toDecide={toDecide}
-                    onWrapUp={openWrapUp}
+                    wrapLine={wrapTeaser.pinned}
+                    wrapNudge={wrapTeaser.nudge}
+                    onWrapUp={wrapTeaser.offer ? openWrapUp : undefined}
                   />
                 </View>
               ) : null}

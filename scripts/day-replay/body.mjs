@@ -24,6 +24,8 @@ export function bodyFor(s) {
   return {
     text: s.text,
     question: s.question || null,
+    // tonight's wrap up, when the message is typed while one is under way
+    ...(s.wrap ? { wrap: s.wrap } : {}),
     // Gremly's task list so far in the thread, as the app keeps it (agent only)
     tasks: s.tasks || [],
     history: s.history || [],

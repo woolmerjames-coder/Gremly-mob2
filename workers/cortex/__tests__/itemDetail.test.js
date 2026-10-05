@@ -60,7 +60,7 @@ test('a note in full: its text, list, kind, age and earlier chats, in words', ()
   expect(text).toContain('- what earlier chats about it covered: Talked about Kyoto first.');
 });
 
-test('a todo in full: notes, estimate, commitment, Sweep and the changes made to it', () => {
+test('a todo in full: notes, estimate, why it matters, Sweep and the changes made to it', () => {
   const d = toDetail(
     {
       id: 't1',
@@ -69,7 +69,7 @@ test('a todo in full: notes, estimate, commitment, Sweep and the changes made to
       time_estimate_minutes: 90,
       time_window: 'morning',
       commitment: true,
-      commitment_note: null,
+      commitment_note: 'Dad needs it before the trip',
       sweep_reschedule_count: 3,
       due_day: '2026-10-09',
       due_time: '09:30:00',
@@ -88,7 +88,9 @@ test('a todo in full: notes, estimate, commitment, Sweep and the changes made to
   expect(text).toContain('- its notes: "Policy ends 14 Oct."');
   expect(text).toContain('- takes about 1 hour 30 minutes');
   expect(text).toContain('- best done in the morning');
-  expect(text).toContain('- they committed to it');
+  expect(text).toContain('- why it matters to them, in their words: "Dad needs it before the trip"');
+  // Lock In is gone: the flag on its own says nothing
+  expect(text).not.toMatch(/committed|lock/i);
   expect(text).toContain('- put off in Sweep 3 times');
   expect(text).toContain(
     '- changes made to it: moved from Friday 25 September to Friday 9 October (Thursday 24 September); renamed to "Renew Car Insurance" (Sunday 20 September)',

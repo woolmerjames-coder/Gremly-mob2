@@ -88,7 +88,7 @@ export default function HabitDetailScreen() {
     if (!startDateStr) return null;
 
     const start = new Date(startDateStr);
-    const now = getDateService().now();
+    const now = getDateService().dayNow();
 
     // Count completed weeks (weeks where user hit their target)
     let weeksHit = 0;

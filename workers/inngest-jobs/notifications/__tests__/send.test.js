@@ -18,12 +18,24 @@ import {
   CANARY_WORDS,
   briefFacts,
   compose,
+  touchedTonight,
+  dayStartIso,
 } from '../send';
 import { gatherBrief } from '../../brief/data';
 import { writeDailyBrief } from '../../brief/index';
 import { reportProblem } from '../alert';
+import { jsonCall } from '../../context/llm';
 
 jest.mock('../../context/llm', () => ({ jsonCall: jest.fn() }));
+
+test('the notification day starts at local 3 AM across daylight saving changes', () => {
+  const person = {
+    tz: 'America/Los_Angeles',
+    cortex: { day_boundary_hour: 3 },
+  };
+  expect(dayStartIso({ ...person, ritualDay: '2026-03-08' })).toBe('2026-03-08T10:00:00.000Z');
+  expect(dayStartIso({ ...person, ritualDay: '2026-11-01' })).toBe('2026-11-01T11:00:00.000Z');
+});
 jest.mock('../alert', () => ({ reportProblem: jest.fn(), cronCheckIn: jest.fn() }));
 jest.mock('../../brief/index', () => ({ writeDailyBrief: jest.fn() }));
 jest.mock('../../brief/data', () => ({
@@ -205,8 +217,8 @@ describe('decide', () => {
     expect(v.facts).toMatchObject({ weekday: 'Thursday', meetings_today: 0 });
   });
 
-  it('names the number Sweep will show, due today included', async () => {
-    // gatherBrief's own split (overdue plus undated) would say 1 here
+  it('names the number the wrap up will show: todos due today are cards like any other', async () => {
+    // two due today and one with no day are cards; the one due next week is not
     gatherBrief.mockResolvedValue({
       now: 18 * 60,
       meetings: [],
@@ -234,7 +246,7 @@ describe('decide', () => {
       ritualDay: '2026-10-02',
       todosDue: [],
       habitsForToday: [{ id: 'h1' }, { id: 'h2' }, { id: 'h3' }],
-      sweep: { all: 10, quick: 6 },
+      sweep: { all: 10, evening: 8, quick: 6 },
       sweepWaiting: 6,
       anchors: [
         { date: '2026-10-02', short_label: 'Flying to San Diego' },
@@ -246,7 +258,7 @@ describe('decide', () => {
       meetings_today: 0,
       due_today: 0,
       habits_today: 3,
-      waiting_in_sweep: 10,
+      waiting_in_sweep: 8,
       dated_today: ['Flying to San Diego'],
     });
   });
@@ -257,11 +269,11 @@ describe('decide', () => {
       meetings: [],
       today: '2026-10-02',
       ritualDay: '2026-10-02',
-      sweep: { all: 10, quick: 6 },
+      sweep: { all: 10, evening: 8, quick: 6 },
       sweepWaiting: 6,
     });
     expect(briefFacts(await gatherBrief(), 'brief').waiting_in_sweep).toBe(6);
-    expect(briefFacts(await gatherBrief(), 'sweep').waiting_in_sweep).toBe(10);
+    expect(briefFacts(await gatherBrief(), 'sweep').waiting_in_sweep).toBe(8);
   });
 
   it('says they travel today, and when they set off, from the day record', () => {
@@ -298,6 +310,54 @@ describe('decide', () => {
     mockTables.events = [{ created_at: '2026-10-01T16:30:00Z' }];
     const v = await decide(ON, job, { at: AT });
     expect(v).toMatchObject({ action: 'drop', reason: 'They swept at 5:30pm' });
+  });
+
+  it('counts "already swept" from when their day started, not from midnight', async () => {
+    // a 3am day end: a wrap up finished at 12:30am belongs to the evening before
+    mockTables.cortex_preferences = [{ day_boundary_hour: 3 }];
+    mockTables.events = (path) => {
+      const since = decodeURIComponent(path.match(/created_at=gte\.([^&]+)/)[1]);
+      return since === '2026-10-01T02:00:00.000Z' ? [] : [{ created_at: '2026-10-01T00:30:00Z' }];
+    };
+    const v = await decide(ON, job, { at: AT });
+    expect(v.action).toBe('send');
+  });
+
+  it('says nothing more once the wrap up was opened in the thread, or they said not tonight', async () => {
+    mockTables.scope_chats = [{ sweep: { step: 'declined' } }];
+    expect(await decide(ON, job, { at: AT })).toMatchObject({
+      action: 'drop',
+      reason: 'They said not tonight',
+    });
+    mockTables.scope_chats = [{ sweep: { step: 'partial' } }];
+    expect(await decide(ON, job, { at: AT })).toMatchObject({
+      action: 'drop',
+      reason: 'They had already opened the wrap up',
+    });
+    // a thread with no wrap up yet (the morning brief only) changes nothing
+    mockTables.scope_chats = [{ sweep: null }];
+    expect((await decide(ON, job, { at: AT })).action).toBe('send');
+  });
+
+  it('still goes out when the wrap up was only opened or turned down earlier in the day', async () => {
+    // London: 2pm is before the evening, 5:30pm is in it
+    const early = { started_at: '2026-10-01T13:00:00Z', touched_at: '2026-10-01T13:05:00Z' };
+    mockTables.scope_chats = [{ sweep: { step: 'declined', ...early } }];
+    expect((await decide(ON, job, { at: AT })).action).toBe('send');
+    mockTables.scope_chats = [{ sweep: { step: 'partial', ...early } }];
+    expect((await decide(ON, job, { at: AT })).action).toBe('send');
+    // started earlier, picked up again in the evening: they have seen it tonight
+    mockTables.scope_chats = [
+      { sweep: { step: 'partial', ...early, touched_at: '2026-10-01T16:30:00Z' } },
+    ];
+    expect(await decide(ON, job, { at: AT })).toMatchObject({
+      action: 'drop',
+      reason: 'They had already opened the wrap up',
+    });
+    // after midnight, before their day ends, is still the evening
+    mockTables.cortex_preferences = [{ day_boundary_hour: 3 }];
+    expect(touchedTonight({ touched_at: '2026-10-01T23:30:00Z' }, 'Europe/London', 3)).toBe(true);
+    expect(touchedTonight({ touched_at: '2026-10-01T09:00:00Z' }, 'Europe/London', 3)).toBe(false);
   });
 
   it('drops and reports a wake far past its time', async () => {
@@ -467,6 +527,24 @@ describe('compose', () => {
       route: 'item/todo/abc',
       interruption: 'time-sensitive',
     });
+  });
+  it('words a night with nothing to sort with the writer, like any evening', async () => {
+    jsonCall.mockResolvedValue({
+      output: { title: 'Evening wrap up', body: 'Your Thursday wrap up is ready when you are.' },
+    });
+    const w = await compose({}, { user_id: USER, moment: 'sweep' }, person, {
+      weekday: 'Thursday',
+      waiting_in_sweep: 0,
+    });
+    expect(w).toMatchObject({
+      title: 'Evening wrap up',
+      body: 'Your Thursday wrap up is ready when you are.',
+      route: 'sweep',
+      usedFallback: false,
+    });
+    expect(jsonCall).toHaveBeenCalled();
+    // the writer is told there is nothing to sort, in the evening's own words
+    expect(jsonCall.mock.calls[0][1].user).toMatch(/"waiting_to_sort": 0/);
   });
 });
 

@@ -4,17 +4,22 @@
  * Pure Supabase queries, no AI. Optional KV cache with 5-min TTL.
  *
  * Returns a formatted text block or null if no activity.
+ *
+ * today (a day, or a promise of one) is the person's day when the caller knows
+ * it: after midnight and before their day ends it is still yesterday
+ * (workers/shared/day.js). The calendar's date when it is not given.
  */
 
-export async function buildTodayActivity(userId, timezone, env) {
+export async function buildTodayActivity(userId, timezone, env, { today = null } = {}) {
   if (!userId) return null;
 
   try {
-    // Get today's date in user's timezone
-    const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: timezone || 'UTC' }).format(
+    // Today's date where they are, and their day when it was given
+    const calendarStr = new Intl.DateTimeFormat('en-CA', { timeZone: timezone || 'UTC' }).format(
       new Date(),
     );
-    const nowHour = parseInt(
+    const todayStr = (await Promise.resolve(today).catch(() => null)) || calendarStr;
+    const clockHour = parseInt(
       new Intl.DateTimeFormat('en-US', {
         hour: 'numeric',
         hour12: false,
@@ -22,6 +27,8 @@ export async function buildTodayActivity(userId, timezone, env) {
       }).format(new Date()),
       10,
     );
+    // after midnight on their day, every hour of that day has passed
+    const nowHour = todayStr < calendarStr ? clockHour + 24 : clockHour;
     const nowTime = new Intl.DateTimeFormat('en-US', {
       hour: 'numeric',
       minute: '2-digit',

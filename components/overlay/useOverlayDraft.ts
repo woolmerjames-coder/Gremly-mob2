@@ -189,7 +189,8 @@ const INITIAL_UI: OverlayUI = {
   showImageModal: false,
   showClarificationPopup: false,
   dateModalTarget: null,
-  selectedDate: getDateService().now(),
+  // the day picker starts on the person's day; the time picker on the clock
+  selectedDate: getDateService().dayNow(),
   selectedTime: getDateService().now(),
   showTimePicker: false,
   clearDateFlag: false,

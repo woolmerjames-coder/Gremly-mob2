@@ -3,7 +3,7 @@
  * number the app does not. The rules are the app's own,
  * selectSweepCandidatesUnified in lib/store/selectors.ts: keep the two in step.
  *
- * Todos: open, not locked in for today, not resurfacing later; overdue, due
+ * Todos: open, not resurfacing later; overdue, due
  * today, undated, skipped in an earlier Sweep, or resurfacing today.
  * Notes: an unanswered "is this one you already have?", an idea from the last
  * week, a list, reference or catch all made today, an upcoming event Gremly
@@ -11,46 +11,30 @@
  */
 import { db } from '../context/db';
 import { addDays, localDateOf } from './reminderTimes';
+import { minutesIn } from '../../shared/calendar.js';
+import { DEFAULT_DAY_END_HOUR, personDay } from '../../shared/day.js';
 
 const relationPending = (rel) =>
   !!rel && typeof rel === 'object' && !!rel.classified && rel.status === 'pending';
 
 /**
- * The day a todo's Lock In is for: the day it was made, or the next day when
- * the todo is due then (locked in the evening for tomorrow). The app's
- * lockInDay in lib/plan/storePlan.ts: keep the two in step.
- */
-export function lockInDay(startedDay, dueDay) {
-  if (!startedDay) return dueDay || null;
-  if (dueDay && dueDay > startedDay && dueDay <= addDays(startedDay, 1)) return dueDay;
-  return startedDay;
-}
-
-/**
- * A Lock In lasts the day it was for. The app ends older ones when the day
- * turns over (expireOldLockIns), often after the brief was written, so they
- * are read here as already ended.
- */
-export function lockedIn(t, today, tz) {
-  if (t.commitment !== true) return false;
-  const started = t.commitment_started_at
-    ? localDateOf(new Date(t.commitment_started_at), tz)
-    : null;
-  const day = lockInDay(started, t.due_day || null);
-  return !day || day >= today;
-}
-
-/**
  * What Sweep would show, for the dates as the person sees them (`today` in
  * their time zone): the todos and notes on its cards.
  */
-export function sweepItems({ todos = [], notes = [], today, tz }) {
+export function sweepItems({
+  todos = [],
+  notes = [],
+  today,
+  tz,
+  dayEndHour = DEFAULT_DAY_END_HOUR,
+}) {
   const weekAgo = addDays(today, -7);
   const outTodos = [];
   const outNotes = [];
 
   for (const t of todos) {
-    if (lockedIn(t, today, tz) || t.archived || t.completed_at) continue;
+    // (an old Lock In flag keeps nothing out: Lock In is gone from the app)
+    if (t.archived || t.completed_at) continue;
     const resurface = t.resurface_at || null;
     if (resurface && resurface > today) continue;
     const due = t.due_day || null;
@@ -69,7 +53,9 @@ export function sweepItems({ todos = [], notes = [], today, tz }) {
     const skipped = !!n.skipped_in_sweep_at;
     if (n.swept_at && !resurfacesToday && !skipped && !pending) continue;
 
-    const createdDay = n.created_at ? localDateOf(new Date(n.created_at), tz) : null;
+    const createdDay = n.created_at
+      ? personDay(localDateOf(new Date(n.created_at), tz), minutesIn(tz, n.created_at), dayEndHour)
+      : null;
     const isEvent = n.subtype === 'event';
     const target = n.target_date || null;
     const held = !n.external_source;
@@ -98,6 +84,19 @@ function asks(row) {
   const needs = row.needs_clarification === true || row.v_needs === true;
   const resolved = row.clarification_resolved === true || row.v_resolved === true;
   return pending || (needs && !resolved);
+}
+
+/**
+ * The evening wrap up's cards (the app's selectWrapUp): Sweep's cards counted
+ * from the person's day. A todo that was due that day and did not happen is a
+ * card like any other. Keep the two in step.
+ *
+ * `today` is the person's day, which after midnight is still yesterday until
+ * their day ends.
+ */
+export function eveningItems(input) {
+  const { todos, notes } = sweepItems(input);
+  return { todos, notes };
 }
 
 /**
@@ -137,7 +136,7 @@ export function quickSweepItems(input) {
 }
 
 const TODO_COLS =
-  'id,created_at,due_day,commitment,commitment_started_at,resurface_at,skipped_in_sweep_at,needs_clarification,clarification_resolved,v_needs:views->needs_clarification,v_resolved:views->clarification_resolved';
+  'id,created_at,due_day,resurface_at,skipped_in_sweep_at,needs_clarification,clarification_resolved,v_needs:views->needs_clarification,v_resolved:views->clarification_resolved';
 
 async function readSweepRows(env, userId) {
   const d = db(env);
@@ -163,16 +162,30 @@ async function readSweepRows(env, userId) {
 }
 
 /** Reads what Sweep needs and counts it. */
-export async function sweepWaiting(env, userId, { today, tz }) {
+export async function sweepWaiting(env, userId, { today, tz, dayEndHour }) {
   const rows = await readSweepRows(env, userId);
-  return countSweep({ ...rows, today, tz });
+  return countSweep({ ...rows, today, tz, dayEndHour });
 }
 
-/** Both counts from rows already read (pure). */
-export function countBoth({ todos = [], notes = [], lastSweepAt = null, today, tz }) {
-  const q = quickSweepItems({ todos, notes, today, tz, since: lastSweepAt });
+/**
+ * The counts from rows already read (pure). `day` is the person's day, for the
+ * evening's number; it is the calendar date when left out.
+ */
+export function countBoth({
+  todos = [],
+  notes = [],
+  lastSweepAt = null,
+  today,
+  tz,
+  day = null,
+  dayEndHour,
+}) {
+  const q = quickSweepItems({ todos, notes, today, tz, dayEndHour, since: lastSweepAt });
+  const evening = eveningItems({ todos, notes, today: day || today, tz, dayEndHour });
   return {
-    all: countSweep({ todos, notes, today, tz }),
+    all: countSweep({ todos, notes, today, tz, dayEndHour }),
+    // what the evening wrap up will offer to sort
+    evening: evening.todos.length + evening.notes.length,
     quick: q.pastDay.length + q.noDay.length + q.other.length + q.notes.length,
     pastDay: q.pastDay.length,
     noDay: q.noDay.length,
@@ -184,11 +197,11 @@ export function countBoth({ todos = [], notes = [], lastSweepAt = null, today, t
 }
 
 /**
- * Sweep's count (the evening Sweep) and the quick sweep's (the morning), with
- * what the quick sweep holds:
- * { all, quick, pastDay, noDay, other, notes, newSince, lastSweepAt }.
+ * Sweep's counts: the evening wrap up's cards, the quick sweep's (the
+ * morning), and Sweep's whole list, with what the quick sweep holds:
+ * { all, evening, quick, pastDay, noDay, other, notes, newSince, lastSweepAt }.
  */
-export async function sweepCounts(env, userId, { today, tz }) {
+export async function sweepCounts(env, userId, { today, tz, day = null, dayEndHour }) {
   const rows = await readSweepRows(env, userId);
-  return countBoth({ ...rows, today, tz });
+  return countBoth({ ...rows, today, tz, day, dayEndHour });
 }

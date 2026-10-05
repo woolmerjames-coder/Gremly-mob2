@@ -2,7 +2,7 @@
  * The Sweep count a notification may name: the app's own rules
  * (selectSweepCandidatesUnified), so the number matches what Sweep shows.
  */
-import { countBoth, countSweep, lockedIn, quickSweepItems } from '../sweepCount';
+import { countBoth, countSweep, eveningItems, quickSweepItems } from '../sweepCount';
 
 const today = '2026-10-01';
 const tz = 'America/Los_Angeles';
@@ -12,6 +12,14 @@ const note = (over = {}) => ({
   subtype: 'idea',
   created_at: '2026-10-01T18:00:00Z', // 11am that day in Los Angeles
   ...over,
+});
+
+test('late-night notes count for the person day, respecting a midnight preference', () => {
+  const notes = ['catchall', 'list', 'reference'].map((subtype) =>
+    note({ subtype, created_at: '2026-10-02T08:00:00Z' }),
+  );
+  expect(countBoth({ notes, today, tz, day: today }).evening).toBe(3);
+  expect(countBoth({ notes, today, tz, day: today, dayEndHour: 0 }).evening).toBe(0);
 });
 
 describe('countSweep: todos', () => {
@@ -25,10 +33,9 @@ describe('countSweep: todos', () => {
     expect(countSweep({ todos, today, tz })).toBe(4);
   });
 
-  it('leaves out later todos, locked in ones and ones resurfacing later', () => {
+  it('leaves out later todos, done ones and ones resurfacing later', () => {
     const todos = [
       todo({ due_day: '2026-10-05' }),
-      todo({ due_day: today, commitment: true }),
       todo({ resurface_at: '2026-10-03' }),
       todo({ due_day: today, completed_at: '2026-10-01T17:00:00Z' }),
     ];
@@ -123,41 +130,13 @@ describe('countSweep: notes', () => {
   });
 });
 
-describe('a Lock In lasts its own day', () => {
-  it('counts a todo locked in yesterday as no longer locked in', () => {
+describe('the old Lock In flag', () => {
+  it('keeps nothing out of the count: Lock In is gone from the app', () => {
     const todos = [
-      // locked in by yesterday's plan, never done
-      todo({
-        due_day: '2026-09-30',
-        commitment: true,
-        commitment_started_at: '2026-09-30T16:00:00Z',
-      }),
-      // locked in this morning for today
       todo({ due_day: today, commitment: true, commitment_started_at: '2026-10-01T15:00:00Z' }),
+      todo({ due_day: '2026-09-30', commitment: true }),
     ];
-    expect(lockedIn(todos[0], today, tz)).toBe(false);
-    expect(lockedIn(todos[1], today, tz)).toBe(true);
-    expect(countSweep({ todos, today, tz })).toBe(1);
-  });
-
-  it('a Lock In made last night for today still holds', () => {
-    // 9pm on 30 Sep in Los Angeles, due 1 Oct: the day it was for is today
-    const t = todo({
-      due_day: today,
-      commitment: true,
-      commitment_started_at: '2026-10-01T04:00:00Z',
-    });
-    expect(lockedIn(t, today, tz)).toBe(true);
-  });
-
-  it('a Lock In from an earlier plan ends, even when the todo is due later', () => {
-    // the Sage deck: locked in on 30 Sep, due 3 Oct
-    const t = todo({
-      due_day: '2026-10-03',
-      commitment: true,
-      commitment_started_at: '2026-09-30T16:00:00Z',
-    });
-    expect(lockedIn(t, today, tz)).toBe(false);
+    expect(countSweep({ todos, today, tz })).toBe(2);
   });
 });
 
@@ -225,5 +204,36 @@ describe('the quick sweep: what still needs a decision', () => {
   it('before the decided_at column exists, every undated todo still counts', () => {
     const c = countBoth({ todos: [todo(), todo({ due_day: morning })], today: morning, tz });
     expect(c).toMatchObject({ all: 2, quick: 1, noDay: 1 });
+  });
+});
+
+describe("the evening wrap up's cards", () => {
+  const today = '2026-09-30';
+  const tz = 'America/Los_Angeles';
+
+  it('a todo due today that did not happen is a card like any other', () => {
+    const todos = [
+      { id: 'due1', due_day: today },
+      { id: 'due2', due_day: today },
+      { id: 'late', due_day: '2026-09-28' },
+      { id: 'undated', due_day: null },
+      { id: 'later', due_day: '2026-10-03' },
+    ];
+    const e = eveningItems({ todos, notes: [], today, tz });
+    expect(e.todos.map((t) => t.id)).toEqual(['due1', 'due2', 'late', 'undated']);
+    expect(countBoth({ todos, notes: [], today, tz })).toMatchObject({ all: 4, evening: 4 });
+  });
+
+  it("counts from the person's day after midnight", () => {
+    // 12:30am on 1 Oct, their day still 30 Sep: a todo due 1 Oct is tomorrow's,
+    // not a card tonight
+    const todos = [
+      { id: 'a', due_day: '2026-09-30' },
+      { id: 'b', due_day: '2026-10-01' },
+    ];
+    const c = countBoth({ todos, notes: [], today: '2026-10-01', tz, day: '2026-09-30' });
+    expect(c.evening).toBe(1);
+    // counted from the calendar date both would be cards
+    expect(countBoth({ todos, notes: [], today: '2026-10-01', tz }).evening).toBe(2);
   });
 });

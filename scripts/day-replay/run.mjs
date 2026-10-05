@@ -61,6 +61,8 @@ async function runOne(s, modelKey) {
   const started = Date.now();
   try {
     const req = readTurnRequest(bodyFor(s));
+    // when their day ends; --old-clock leaves it out, as before 5 October
+    if (!args.includes('--old-clock')) req.dayEndHour = s.dayEnd ?? 3;
     const out = await runDayTurn(env, req, { first_name: 'Alex', pronouns: null, identity: {} });
     return { model: modelKey, modelUsed: out.model, ms: Date.now() - started, out, checks: checkTurn(s, out) };
   } catch (err) {

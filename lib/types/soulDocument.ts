@@ -29,6 +29,7 @@ export type FeedingContributionSource =
   | 'sweep'
   | 'journal'
   | 'brief'
+  /** Saying yes to a plan. The name is the old Lock In's: the gauge keeps its sources */
   | 'lock_in'
   | 'space_assign'
   | 'space_chat'

@@ -4,7 +4,7 @@
  * - the day's first reply to the brief (any button, a day card row or a
  *   typed message): 25%, once a day, Not today included. It also writes the
  *   day's daily_briefs row, which training readiness counts.
- * - Lock it in: 5% an item, three a day (lib/plan/storePlan.ts).
+ * - Saying yes to a plan: 5% an item, three items a day (lib/plan/storePlan.ts).
  * - Sweep: unchanged; Sweep credits itself.
  * Gremly plays his drop animation as his colour rises, or the fed animation
  * when a credit crosses 100%.

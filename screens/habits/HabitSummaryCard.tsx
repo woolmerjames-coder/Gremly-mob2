@@ -82,7 +82,7 @@ function formatStartDate(startDate: string | null, readiness: string): string | 
       'Nov',
       'Dec',
     ];
-    const today = ds.now();
+    const today = ds.dayNow();
     const diffDays = Math.ceil((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 
     // Within the next 7 days: show day name

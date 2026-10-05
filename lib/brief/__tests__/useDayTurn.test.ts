@@ -101,9 +101,13 @@ const PLAN = {
   },
 } as unknown as SpaceChatMessage;
 
-function harness(onRender?: (r: ReturnType<typeof useDayTurn>) => void) {
+function harness(
+  onRender?: (r: ReturnType<typeof useDayTurn>) => void,
+  extra: Record<string, unknown> = {},
+) {
   const messages: SpaceChatMessage[] = [PLAN];
   const deps = {
+    ...extra,
     threadId: 't1',
     date: '2026-10-02',
     messages,
@@ -619,5 +623,70 @@ describe('the agent', () => {
     });
     expect(handled).toBe(false);
     expect(messages).toHaveLength(1);
+  });
+});
+
+describe('during the evening wrap up', () => {
+  beforeEach(() => {
+    (callBriefTurn as jest.Mock).mockReset();
+  });
+
+  it('a message typed while it is under way is sent with where it is', async () => {
+    (callBriefTurn as jest.Mock).mockResolvedValue({
+      ok: true,
+      data: { engine: 'agent', reply: 'Tomorrow is light.', card: [], tasks: [] },
+    });
+    const wrap = {
+      step: 'habits',
+      decisions: [{ title: 'Do taxes', outcome: 'kept for tomorrow' }],
+    };
+    const { hook, deps } = harness(undefined, { wrapContext: () => wrap });
+    await act(async () => {
+      await hook.result.current.run("what's on tomorrow?", null);
+    });
+    expect((callBriefTurn as jest.Mock).mock.calls[0][0].wrap).toEqual(wrap);
+    // an ordinary turn: the wrap up's buttons come back after it
+    expect(deps.continueBrief).toHaveBeenCalled();
+  });
+
+  it("an answer to his question is the wrap up's turn: shown already, and the wrap up carries on itself", async () => {
+    (callBriefTurn as jest.Mock).mockResolvedValue({
+      ok: true,
+      data: {
+        engine: 'agent',
+        reply: "Monday it is. I'd move the vet visit there.",
+        card: [
+          {
+            cid: 'c1',
+            op: 'change',
+            type: 'todo',
+            id: 'vet',
+            title: 'Vet',
+            fields: { day: '2026-10-12' },
+          },
+        ],
+        tasks: [],
+      },
+    });
+    const answering = {
+      question: 'Friday or Monday?',
+      item: { id: 'vet', kind: 'todo', title: 'Vet' },
+    };
+    const { hook, deps, messages } = harness(undefined, {
+      wrapContext: () => ({ step: 'questions', decisions: [] }),
+    });
+    let out: { answered: boolean; card: boolean } | null = null;
+    await act(async () => {
+      out = await hook.result.current.ask('Monday', { answering });
+    });
+    expect(out).toEqual({ answered: true, card: true });
+    expect((callBriefTurn as jest.Mock).mock.calls[0][0].wrap).toEqual({
+      step: 'questions',
+      decisions: [],
+      answering,
+    });
+    // their answer is already in the thread: only his reply and the card are added
+    expect(messages.slice(1).map((m) => m.role)).toEqual(['assistant', 'system']);
+    expect(deps.continueBrief).not.toHaveBeenCalled();
   });
 });

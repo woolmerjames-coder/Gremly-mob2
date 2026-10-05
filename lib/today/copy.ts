@@ -14,8 +14,7 @@ type TimeWindow = 'morning' | 'midday' | 'evening';
  */
 function getDayIndex(): number {
   const ds = getDateService();
-  const now = ds.now();
-  const startOfYear = `${now.getFullYear()}-01-01`;
+  const startOfYear = `${ds.today().slice(0, 4)}-01-01`;
   const dayOfYear = ds.daysBetween(startOfYear, ds.today());
   return dayOfYear;
 }

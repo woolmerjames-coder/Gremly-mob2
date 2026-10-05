@@ -13,7 +13,8 @@ export function getRelativeTime(dateString: string | Date): string {
   const diffMs = now.getTime() - date.getTime();
   const diffMins = Math.floor(diffMs / 60000);
   const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = ds.daysBetween(ds.toLocalDate(date), ds.toLocalDate(now));
+  // days counted between the person's days, which end at their day end
+  const diffDays = ds.daysBetween(ds.dayOf(date), ds.today());
 
   if (diffMins < 1) return 'Just now';
   if (diffMins < 60) return `${diffMins}m ago`;

@@ -37,8 +37,7 @@ export interface UseMiniSweepGateReturn {
  * Get today's date string in YYYY-MM-DD format (local time)
  */
 function getTodayDateString(): string {
-  const now = getDateService().now();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  return getDateService().today();
 }
 
 export function useMiniSweepGate(): UseMiniSweepGateReturn {
@@ -62,9 +61,8 @@ export function useMiniSweepGate(): UseMiniSweepGateReturn {
         !t.completed_at &&
         t.due_day === todayDate &&
         !t.daily_block &&
-        !t.commitment &&
         t.created_at != null &&
-        getDateService().extractLocalDate(t.created_at) === todayDate,
+        getDateService().dayOf(t.created_at) === todayDate,
     );
   }, [todos]);
 
@@ -76,7 +74,7 @@ export function useMiniSweepGate(): UseMiniSweepGateReturn {
     if (!miniSweepLastCompletedAt) return false;
     const todayDate = getTodayDateString();
     // miniSweepLastCompletedAt is ISO timestamp, extract date portion
-    const completedDate = getDateService().extractLocalDate(miniSweepLastCompletedAt);
+    const completedDate = getDateService().dayOf(miniSweepLastCompletedAt);
     return completedDate === todayDate;
   }, [miniSweepLastCompletedAt]);
 

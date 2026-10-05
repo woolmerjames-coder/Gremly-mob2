@@ -75,6 +75,10 @@ import { useAuth } from '../../providers/AuthProvider';
 import { useRepo } from '../../providers/RepoProvider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useHomeDock, useHomeMode } from '../../components/home/GremlyHomeDock';
+import { ReplyTag } from '../../components/wrapup/ReplyTag';
+import { useEveningTeaser } from '../../lib/wrapup/useEveningTeaser';
+import { teaserLine } from '../../lib/wrapup/words';
+import { weekdayOf } from '../../lib/wrapup/day';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
 import {
   MidConfidenceChips,
@@ -1038,7 +1042,8 @@ export function getTimingChips(): Array<{ option: TimingOption; label: string }>
  * Converts timing option to ISO date string
  */
 export function timingOptionToDate(option: TimingOption): string | null {
-  const now = getDateService().now();
+  // counted from the person's day, so after midnight Today is still their today
+  const now = getDateService().dayNow();
 
   switch (option) {
     case 'today':
@@ -1148,7 +1153,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const briefUnread = useBriefUnread();
   const userName = useGremlyStore((s) => s.userName);
   const [briefLineShown, setBriefLineShown] = useState(false);
+  // In the evening the same line says the wrap up is waiting, and opens it
+  const wrapTeaser = useEveningTeaser();
+  const wrapLine = !briefUnread && wrapTeaser.nudge;
   const briefLine = useMemo(() => {
+    if (wrapLine)
+      return teaserLine(wrapTeaser.cards, weekdayOf(getDateService().ritualDay()), 'drop');
     if (!briefUnread) return null;
     const firstName = userName ? userName.trim().split(/\s+/)[0] : null;
     return briefReadyLine(getDateService().ritualDay(), {
@@ -1156,7 +1166,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       firstName,
       surface: 'drop',
     });
-  }, [briefUnread, userName, dco]);
+  }, [briefUnread, userName, dco, wrapLine, wrapTeaser.cards]);
   const lastSweepCompletedAt = useGremlyStore((s) => s.lastSweepCompletedAt);
   const feedingGaugeValue = useGremlyStore((s) => s.feedingGaugeValue);
   const isFedToday = useGremlyStore((s) => s.isFedToday);
@@ -1188,9 +1198,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const storeHabits = useGremlyStore((s) => s.habits);
 
   const storeDropsToday = useMemo(() => {
-    const todayStart = getDateService().now();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayISO = todayStart.toISOString();
+    // the person's day: it starts at their day end, not at midnight
+    const todayISO = getDateService().startOfRitualDay().toISOString();
 
     let count = 0;
     for (const item of storeTodos) {
@@ -1207,9 +1216,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   // Actionable drops only (todos + habits) — used for milestone speech at 5/10
   const actionableDropsToday = useMemo(() => {
-    const todayStart = getDateService().now();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayISO = todayStart.toISOString();
+    // the person's day: it starts at their day end, not at midnight
+    const todayISO = getDateService().startOfRitualDay().toISOString();
 
     let count = 0;
     for (const item of storeTodos) {
@@ -3250,12 +3258,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               onPress={() =>
                 navigation.navigate('Tabs', {
                   screen: 'Gremly',
-                  params: todayThreadParams(),
+                  params: todayThreadParams(wrapLine ? 'wrap' : undefined),
                 })
               }
               accessibilityRole="button"
               accessibilityLabel={`${briefLine.lead} ${briefLine.rest}`}
-              testID="drop-brief-ready"
+              testID={wrapLine ? 'drop-wrap-up' : 'drop-brief-ready'}
             >
               <Text style={styles.gremlyMessage}>
                 <Text style={styles.gremlyMessageLead}>{briefLine.lead}</Text> {briefLine.rest}
@@ -3263,6 +3271,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             </Pressable>
           </Reanimated.View>
         )}
+        {/* In Chat, what the next message is when it is not an ordinary one:
+            saved to the journal, or an answer to Gremly's question */}
+        {chatMode && homeMode?.chatTag ? (
+          <View style={styles.replyTag} pointerEvents="box-none">
+            <ReplyTag
+              label={homeMode.chatTag.label}
+              kind={homeMode.chatTag.kind}
+              onCancel={homeMode.chatTag.onCancel}
+            />
+          </View>
+        ) : null}
         {/* Gremly perched on input - always visible */}
         <Animated.View
           style={[styles.inputGremly, styles.inputGremlyTuckOrigin, gremlyTuckStyle]}
@@ -3902,6 +3921,13 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
     inputGremlyPress: {
       flex: 1,
+    },
+    // sits just above the box, on the left, clear of Gremly on the right
+    replyTag: {
+      position: 'absolute',
+      top: -38,
+      left: 2,
+      zIndex: 12,
     },
     inputContainerCompact: {
       minHeight: 0,

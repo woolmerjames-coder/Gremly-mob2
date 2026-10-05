@@ -210,9 +210,13 @@ async function runOne(s, modelKey) {
         profileText: 'IDENTITY: Alex. Lives in San Francisco with their partner Jo and their dog Bella. Works in client services, and is building an app on the side.',
         sessionContext: formatWeekAhead(weekOf(s, to)),
         week: weekOf(s, to),
+        // their day, which after midnight is still the day before until 3am
+        ...(s.today ? { today: s.today } : {}),
+        // --old-clock leaves it out: the clock words as they were before 5 October
+        ...(args.includes('--old-clock') ? {} : { dayEndHour: 3 }),
       },
       deps: {
-        now: () => Date.parse(NOW_ISO),
+        now: () => Date.parse(s.nowIso || NOW_ISO),
         ctx: { env, userId: USER, timezone: TZ, cache: new Map(), db: dbFor(s, to) },
         models: { model: MODELS[modelKey], fallback: MODELS[modelKey], thinking: thinking || undefined },
         agent: {

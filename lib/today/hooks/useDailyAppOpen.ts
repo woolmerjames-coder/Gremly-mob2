@@ -8,6 +8,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getRitualDay } from '../../date/ritualDay';
+import { DEFAULT_DAY_END_HOUR } from '../../date/DateService';
 import { useGremlyStore } from '../../store/useGremlyStore';
 import { eventBus } from '../../events';
 
@@ -32,7 +33,7 @@ interface UseDailyAppOpenReturn {
 function getRitualDateString(): string {
   const { dayBoundaryHour, userTimezone } = useGremlyStore.getState();
   const timezone = userTimezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const boundaryHour = dayBoundaryHour ?? 0;
+  const boundaryHour = dayBoundaryHour ?? DEFAULT_DAY_END_HOUR;
   return getRitualDay(boundaryHour, timezone);
 }
 

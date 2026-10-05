@@ -33,7 +33,7 @@ export default function TodayV3View() {
   const repo = useRepo();
   const { showToast, Toast } = useActionToast();
   const commitmentsEnabled = useMemo(
-    () => (process.env.EXPO_PUBLIC_FEATURE_COMMITMENTS ?? 'on').toLowerCase(),
+    () => (process.env.EXPO_PUBLIC_FEATURE_COMMITMENTS ?? 'off').toLowerCase(),
     [],
   );
   const showCommitments = useMemo(

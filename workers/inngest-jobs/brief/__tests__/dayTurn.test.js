@@ -69,6 +69,11 @@ describe('the day turn: what it is told', () => {
     ]);
     const text = renderTurnInput(req, { first_name: 'James' });
     expect(text).toContain('TODAY: Friday 2026-10-02. TIME NOW: 9:04am.');
+    // in the small hours, the rest of their day is the night
+    const late = renderTurnInput({ ...req, now: 50, dayEndHour: 3 }, { first_name: 'James' });
+    expect(late).toContain(
+      'TIME NOW: 12:50am, after midnight; their Friday ends at 3am, so their tomorrow is Saturday 2026-10-03, and any time of day they name for later is on Saturday, after they have slept.',
+    );
     expect(text).toContain(
       'TRAVEL TODAY: Flying to San Diego; the time they set off is not known yet.',
     );

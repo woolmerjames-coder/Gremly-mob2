@@ -3,9 +3,17 @@ import {
   changeText,
   entriesOf,
   fitPlan,
-  lockText,
+  alreadySetText,
+  dismissedText,
+  notSetLine,
+  planDay,
+  planDayTitle,
+  setTag,
+  yesLabel,
+  yesText,
   opFromButton,
   planHeading,
+  refitKeeping,
   planSummary,
   suggestions,
   unplacedText,
@@ -128,14 +136,51 @@ describe('a plan in the thread', () => {
     expect(
       changeText({ op: 'add', id: 'x', window: null }, 'Strength training', undefined, true),
     ).toBe(
-      "There isn't a good gap for Strength training today, so I've left it off. Lock it in again to update Today.",
+      "There isn't a good gap for Strength training today, so I've left it off. Say yes again to keep the change.",
     );
     expect(unplacedText([{ id: 'a', title: 'Run' }])).toBe(
       "I couldn't find a good gap for Run today, so it's not in the plan.",
     );
     expect(unplacedText([])).toBeNull();
-    expect(lockText(['Book the car service'])).toBe(
-      "Locked in. It's all on Today, with plenty of room left. I've added Book the car service as a todo too.",
+    expect(yesText(['Book the car service'], planDay('2026-09-30', '2026-09-30'))).toBe(
+      "That's all on Today, with plenty of room left. I've added Book the car service as a todo too.",
+    );
+  });
+
+  it('names a plan by its day, in the words the person would use', () => {
+    const today = planDay('2026-09-30', '2026-09-30');
+    const tomorrow = planDay('2026-10-01', '2026-09-30');
+    // after midnight the clock already says Thursday, so "tomorrow" would be misread
+    const late = planDay('2026-10-01', '2026-09-30', true);
+    const further = planDay('2026-10-03', '2026-09-30');
+
+    expect([today.today, tomorrow.today, late.today]).toEqual([true, false, false]);
+    expect(planDayTitle(today)).toBeNull();
+    expect([planDayTitle(tomorrow), planDayTitle(late), planDayTitle(further)]).toEqual([
+      'Tomorrow',
+      'Thursday',
+      'Saturday',
+    ]);
+    expect([yesLabel(today), yesLabel(tomorrow), yesLabel(late)]).toEqual([
+      'Put it on Today',
+      "That's tomorrow",
+      "That's Thursday",
+    ]);
+    expect([setTag(today), setTag(tomorrow), setTag(late)]).toEqual([
+      'On Today',
+      'On Thursday',
+      'On Thursday',
+    ]);
+    expect(notSetLine(today)).toBe('Plan not set');
+    expect(notSetLine(tomorrow)).toBe('Plan not set. The morning brief will have it.');
+    expect(yesText([], tomorrow)).toBe("Done. It'll be on Today when you wake up.");
+    expect(dismissedText(today)).toBe("No problem. It'll be right here if you want it later.");
+    expect(dismissedText(late)).toBe('No problem. The morning brief will bring it.');
+    expect(alreadySetText(today)).toBe(
+      "It's already on Today. Tell me what to change and I'll rework it.",
+    );
+    expect(alreadySetText(late)).toBe(
+      "It's already set for Thursday. Tell me what to change and I'll rework it.",
     );
   });
 
@@ -144,5 +189,72 @@ describe('a plan in the thread', () => {
     expect(whatCanWait(POOL, 0)).toBe(
       'Social posts, Buy Oat Milk and Run can wait until tomorrow without putting the week off track. Strength training is the one to pick back up this week.',
     );
+  });
+});
+
+describe('fitting a plan again after a change', () => {
+  // a travel day: the plan ends at 2:30pm, when they set off
+  const SETS_OFF = 870;
+  const entries: PlanEntry[] = [
+    {
+      id: 'deck',
+      kind: 'todo',
+      title: 'Send the deck',
+      minutes: 60,
+      window: [540, 1320],
+      reason: null,
+    },
+    {
+      id: 'blinkist',
+      kind: 'habit',
+      title: 'Blinkist',
+      minutes: 15,
+      window: [1140, 1155],
+      reason: null,
+    },
+    {
+      id: 'strength',
+      kind: 'habit',
+      title: 'Strength training',
+      minutes: 45,
+      window: [540, 1320],
+      reason: null,
+    },
+  ];
+  // they took Blinkist at 7pm on a card, once home
+  const placed = [
+    { id: 'deck', kind: 'todo' as const, title: 'Send the deck', start: 540, end: 600 },
+    {
+      id: 'blinkist',
+      kind: 'habit' as const,
+      title: 'Blinkist',
+      start: 1140,
+      end: 1155,
+      pinned: true,
+    },
+  ];
+
+  it('keeps a time they set where it is, even after the plan would end, and fits the rest around it', () => {
+    const fit = refitKeeping(entries, placed, [], 540, SETS_OFF);
+    expect(fit.items.find((x) => x.id === 'blinkist')).toMatchObject({
+      start: 1140,
+      end: 1155,
+      pinned: true,
+    });
+    expect(fit.items.find((x) => x.id === 'strength')?.end).toBeLessThanOrEqual(SETS_OFF);
+    expect(fit.unplaced).toEqual([]);
+  });
+
+  it('places afresh what the change itself moves, and fits as before when nothing was set', () => {
+    const moved = refitKeeping(entries, placed, [], 540, SETS_OFF, ['blinkist']);
+    expect(moved.unplaced.map((u) => u.id)).toEqual(['blinkist']);
+    const none = refitKeeping(
+      entries,
+      placed.map((x) => ({ ...x, pinned: false })),
+      [],
+      540,
+      SETS_OFF,
+    );
+    expect(none).toEqual(fitPlan(entries, [], 540, SETS_OFF));
   });
 });

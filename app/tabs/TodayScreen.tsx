@@ -40,7 +40,7 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 const UNDO_TIMEOUT_MS = 3000; // 3 seconds to undo
 
 const COMMITMENTS_FEATURE_ENABLED = (() => {
-  const rawValue = (process.env.EXPO_PUBLIC_FEATURE_COMMITMENTS ?? 'on').toLowerCase();
+  const rawValue = (process.env.EXPO_PUBLIC_FEATURE_COMMITMENTS ?? 'off').toLowerCase();
   return rawValue === 'on' || rawValue === 'true' || rawValue === '1';
 })();
 

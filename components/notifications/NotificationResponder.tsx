@@ -33,7 +33,8 @@ export async function runRoute(
       nav.navigate('Tabs', { screen: 'Gremly', params: todayThreadParams() });
       return;
     case 'sweep':
-      nav.navigate('Sweep');
+      // the evening wrap up, in today's thread: it starts, or picks up where it was left
+      nav.navigate('Tabs', { screen: 'Gremly', params: todayThreadParams('wrap') });
       return;
     case 'summary':
       nav.navigate('WeeklySummary');

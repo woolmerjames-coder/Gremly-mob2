@@ -16,11 +16,10 @@ function formatTime12h(time24: string): string {
 }
 
 function getMinutesUntil(eventTime: string): number {
-  const now = getDateService().now();
   const [h, m] = eventTime.split(':').map(Number);
   const eventMinutes = h * 60 + m;
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
-  return eventMinutes - nowMinutes;
+  // minutes into the person's day: after midnight nothing of today is still ahead
+  return eventMinutes - getDateService().minutesIntoDay();
 }
 
 /* ─── types ───────────────────────────────────────────────────── */

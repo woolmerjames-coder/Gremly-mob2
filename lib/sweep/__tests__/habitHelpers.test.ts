@@ -19,6 +19,7 @@ import {
   type HabitWithMeta,
 } from '../habitHelpers';
 import type { Habit } from '../../types';
+import { getDateService } from '../../date/DateService';
 import type { HabitProgressRow } from '../../store/useGremlyStore';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -202,10 +203,10 @@ describe('getTodayDateString', () => {
 describe('getHabitStreak', () => {
   const today = getTodayDateString();
 
+  // counted from the same today as the streak (the person's day, in their time
+  // zone), not the machine's clock, so the test passes at any hour
   function getDateDaysAgo(daysAgo: number): string {
-    const date = new Date();
-    date.setDate(date.getDate() - daysAgo);
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    return getDateService().addDays(today, -daysAgo);
   }
 
   it('returns 0 for no completions', () => {

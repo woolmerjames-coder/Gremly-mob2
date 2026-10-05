@@ -30,6 +30,7 @@ import { recentCorrections } from './corrections';
 import { loadStory } from './story';
 import { invalidateChatCache } from './cache';
 import { readThreadReaction } from '../brief/reaction';
+import { personNow } from '../../shared/day.js';
 
 export const DCO_PROMPT_VERSION = 'dco-v4-2026-10-01d';
 
@@ -155,7 +156,7 @@ export async function gatherDay(env, userId, tz, today) {
       `notes?owner_id=eq.${userId}&external_source=is.null&subtype=eq.event&archived=eq.false&or=(target_date.gte.${today},end_date.gte.${today})&target_date=lte.${addDays(today, 3)}&select=id,title,body,target_date,event_time,end_date,created_at&order=target_date.asc&limit=50`,
     ),
     d.select(
-      `todos?owner_id=eq.${userId}&completed_at=is.null&archived=eq.false&select=id,title,due_day,scheduled_date,locked_in,time_estimate_minutes,priority_kind,created_at,skipped_in_sweep_at&order=due_day.asc.nullslast&limit=1000`,
+      `todos?owner_id=eq.${userId}&completed_at=is.null&archived=eq.false&select=id,title,due_day,scheduled_date,time_estimate_minutes,priority_kind,created_at,skipped_in_sweep_at&order=due_day.asc.nullslast&limit=1000`,
     ),
     d.select(
       `todos?owner_id=eq.${userId}&completed_at=gte.${encodeURIComponent(dayStart)}&select=id,title&limit=50`,
@@ -287,13 +288,11 @@ export function renderDay(g, tz) {
   const meetingsToday = todayTimed.length;
 
   // Items with a possible claim on today.
-  const dueToday = g.openTodos.filter(
-    (t) => t.due_day === today || t.scheduled_date === today || t.locked_in,
-  );
+  const dueToday = g.openTodos.filter((t) => t.due_day === today || t.scheduled_date === today);
   const overdue = g.openTodos.filter(
     (t) => t.due_day && t.due_day < today && t.scheduled_date !== today,
   );
-  const undated = g.openTodos.filter((t) => !t.due_day && !t.scheduled_date && !t.locked_in);
+  const undated = g.openTodos.filter((t) => !t.due_day && !t.scheduled_date);
   const comingUp = g.openTodos
     .filter(
       (t) =>
@@ -305,9 +304,7 @@ export function renderDay(g, tz) {
     const ref = addRef('t', { type: 'todo', id: t.id, title: t.title });
     return `${ref} | ${trim(t.title, 120)}${t.time_estimate_minutes ? ` | about ${t.time_estimate_minutes} min` : ''}${note ? ` | ${note}` : ''}`;
   };
-  const dueLines = dueToday
-    .slice(0, 25)
-    .map((t) => todoLine(t, t.locked_in ? 'on Today' : 'due today'));
+  const dueLines = dueToday.slice(0, 25).map((t) => todoLine(t, 'due today'));
   const overdueLines = overdue
     .slice(0, 15)
     .map((t) => todoLine(t, `was due ${t.due_day} (${relativeDay(t.due_day, today)})`));
@@ -725,7 +722,9 @@ const MUST_PASS = new Set(['headline', 'lead_what']);
 /** Generate, check, retry once if needed, assemble. Returns the DCO object and run notes. */
 export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
   const tz = tzIn || (await userTimezone(env, userId));
-  const today = localDate(tz);
+  // their day: after midnight it is still yesterday until their day ends, the
+  // same day the brief reads (brief/data.js)
+  const { today } = await personNow(env, userId, tz);
   const [g, person] = await Promise.all([
     gatherDay(env, userId, tz, today),
     personIdentity(env, userId),

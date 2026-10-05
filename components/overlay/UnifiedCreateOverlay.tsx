@@ -125,7 +125,7 @@ const TAG_ANALYTICS_FLAG =
   String(process.env.EXPO_PUBLIC_DEBUG_TAG_ANALYTICS ?? 'off').toLowerCase() === 'on';
 
 const COMMITMENTS_FEATURE_ENABLED = (() => {
-  const rawValue = (process.env.EXPO_PUBLIC_FEATURE_COMMITMENTS ?? 'on').toLowerCase();
+  const rawValue = (process.env.EXPO_PUBLIC_FEATURE_COMMITMENTS ?? 'off').toLowerCase();
   return rawValue === 'on' || rawValue === 'true' || rawValue === '1';
 })();
 

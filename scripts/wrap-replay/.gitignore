@@ -1,0 +1,4 @@
+out/
+.bundle*.mjs
+# real evenings are built from someone's own data: never commit them
+fixtures/

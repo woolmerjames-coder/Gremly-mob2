@@ -64,7 +64,7 @@ import type { QueuedDrop } from '../minddrop/dropQueue';
 import { eventBus } from '../events';
 import { parseHabitFrequency } from '../sweep/habitHelpers';
 import { getDateService } from '../date';
-import { nowTimestamp } from '../date/DateService';
+import { DEFAULT_DAY_END_HOUR, nowTimestamp } from '../date/DateService';
 import { buildHabitFactSheet, computeInputHash, type HabitRead } from '../habits/habitFactSheet';
 import type { HabitCardStats } from '../habits/habitCardStats';
 import celebrationController from '../../app/features/celebration/CelebrationController';
@@ -86,7 +86,6 @@ import {
   type ClarificationWhen,
 } from '../minddrop/clarification';
 import type { TimeBlockPreferences } from '../capacity';
-import { selectSweepCandidates, type SweepEligibleTodo } from '../today/sweepSelectors';
 
 // In-flight ensureEntityClarification calls, keyed by `${type}:${id}`
 const ensureClarificationInflight = new Map<
@@ -755,7 +754,8 @@ export interface GremlyState {
   checkChallengeCompletionOnFedFlip: () => Promise<void>;
   completeSweepSession: (cardsProcessed: number, didJournal: boolean) => Promise<void>;
   completeMorningBrief: () => Promise<void>;
-  commitLockInItems: (count: number) => Promise<void>;
+  /** Saying yes to a plan feeds 5% an item, up to three items a day */
+  creditPlanItems: (count: number) => Promise<void>;
   trackSpaceAssign: () => Promise<void>;
   trackSpaceChat: () => Promise<void>;
   trackSpaceCreate: () => Promise<void>;
@@ -778,7 +778,6 @@ export interface GremlyState {
   // TODO MUTATIONS
   // ═══════════════════════════════════════════════════════════════════
   refreshSkipBudget: () => Promise<void>;
-  bulkSkipSweep: (targetDateStr: string) => Promise<{ movedCount: number }>;
   createTodo: (todo: Partial<Todo>) => Promise<Todo>;
   updateTodo: (id: string, updates: Partial<Todo>) => Promise<void>;
   deleteTodo: (id: string) => Promise<void>;
@@ -1293,7 +1292,7 @@ const initialState = {
   // Gremly age & ritual progress
   gremlyAge: 0,
   gremlyAgeLastIncrementedAt: null as string | null,
-  dayBoundaryHour: 0,
+  dayBoundaryHour: DEFAULT_DAY_END_HOUR,
   onboardingCompletedAt: null as string | null,
   accountCreatedAt: null as string | null,
   firstDropCompletedAt: null as string | null,
@@ -1701,7 +1700,8 @@ export const useGremlyStore = create<GremlyState>()(
             const cortexPrefs = cortexPrefsRes.data as Record<string, unknown> | null;
 
             // Compute ritual day based on user's day boundary and timezone
-            const dayBoundaryHour = (cortexPrefs?.day_boundary_hour as number) ?? 0;
+            const dayBoundaryHour =
+              (cortexPrefs?.day_boundary_hour as number) ?? DEFAULT_DAY_END_HOUR;
             const detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
             const timezone = detectedTimezone;
             const ritualDay = getRitualDay(dayBoundaryHour, timezone);
@@ -2035,7 +2035,7 @@ export const useGremlyStore = create<GremlyState>()(
             // Gremly age & ritual progress
             gremlyAge: 0,
             gremlyAgeLastIncrementedAt: null,
-            dayBoundaryHour: 0,
+            dayBoundaryHour: DEFAULT_DAY_END_HOUR,
             accountCreatedAt: null,
             demoSweepCompletedAt: null,
             todayRitualDay: null,
@@ -2172,54 +2172,6 @@ export const useGremlyStore = create<GremlyState>()(
                   .then(({ error }) => {
                     if (error) {
                       console.error('[GremlyStore] Failed to update unfed streak:', error);
-                    }
-                  });
-              }
-            }
-
-            // Clear commitment on all todos - they need to re-decide each day
-            // Note: Habits use commitment_until which is date-based and self-expiring
-            const todos = get().todos;
-            const todosToReset = todos.filter((t) => t.commitment === true && !t.archived);
-
-            if (todosToReset.length > 0) {
-              console.log(
-                '[ensureCurrentRitualDay] Clearing commitment on',
-                todosToReset.length,
-                'todos',
-              );
-
-              // Optimistic update - clear commitment in local state immediately
-              set((state) => ({
-                todos: state.todos.map((t) =>
-                  t.commitment === true && !t.archived
-                    ? { ...t, commitment: false, commitment_started_at: null }
-                    : t,
-                ),
-              }));
-
-              // Fire and forget - persist to database asynchronously
-              // Don't block the UI waiting for this
-              const userId = get().userId;
-              if (userId) {
-                supabase
-                  .from('todos')
-                  .update({ commitment: false, commitment_started_at: null })
-                  .eq('owner_id', userId)
-                  .in(
-                    'id',
-                    todosToReset.map((t) => t.id),
-                  )
-                  .then(({ error }) => {
-                    if (error) {
-                      console.error(
-                        '[ensureCurrentRitualDay] Failed to clear todo commitments:',
-                        error,
-                      );
-                    } else {
-                      console.log(
-                        '[ensureCurrentRitualDay] ✅ Cleared todo commitments in database',
-                      );
                     }
                   });
               }
@@ -2729,23 +2681,26 @@ export const useGremlyStore = create<GremlyState>()(
           }
         },
 
-        commitLockInItems: async (count: number) => {
-          const existingLockInCount = get().feedingContributions.filter(
-            (c) => c.source === 'lock_in',
-          ).length;
-          const remaining = GAUGE_WEIGHTS.LOCK_IN_CAP - existingLockInCount;
-          if (remaining <= 0) return;
-          const itemsToCredit = Math.min(count, remaining);
-          const value = itemsToCredit * GAUGE_WEIGHTS.LOCK_IN_ITEM;
-          if (value > 0) {
-            await get().addGaugeContribution('lock_in', value);
-          }
+        creditPlanItems: async (count: number) => {
+          // Three items a day, however many plans the day has. What the day has
+          // had so far is read back from its contributions, which carry the
+          // training boost, so the boost is taken off before comparing.
+          // (The source keeps the name the gauge has always had for this.)
+          const boost = !get().graduatedAt ? 1.25 : 1.0;
+          const had =
+            get()
+              .feedingContributions.filter((c) => c.source === 'lock_in')
+              .reduce((sum, c) => sum + c.value, 0) / boost;
+          const room = GAUGE_WEIGHTS.PLAN_CAP * GAUGE_WEIGHTS.PLAN_ITEM - had;
+          const value = Math.min(Math.max(0, count) * GAUGE_WEIGHTS.PLAN_ITEM, room);
+          if (value < 0.001) return;
+          await get().addGaugeContribution('lock_in', value);
           // Track training progress
           if (!get().graduatedAt) {
             get()
               .refreshTrainingReadiness()
               .catch((err) => {
-                console.warn('[GremlyStore] refreshTrainingReadiness after lock-in failed:', err);
+                console.warn('[GremlyStore] refreshTrainingReadiness after a plan failed:', err);
               });
           }
         },
@@ -3285,7 +3240,7 @@ export const useGremlyStore = create<GremlyState>()(
 
           const ds = getDateService();
           const loadedAt = ds.nowTimestamp();
-          const sevenDaysAgoDay = ds.addDays(ds.toLocalDate(ds.now()), -7);
+          const sevenDaysAgoDay = ds.addDays(ds.calendarDay(), -7);
           const sevenDaysAgoIso = `${sevenDaysAgoDay}${loadedAt.slice(10)}`;
 
           try {
@@ -3305,59 +3260,6 @@ export const useGremlyStore = create<GremlyState>()(
           } catch (error) {
             console.error('[GremlyStore] refreshSkipBudget failed:', error);
             set({ skipsUsedLast7Days: 0, skipBudgetLoadedAt: loadedAt });
-          }
-        },
-
-        bulkSkipSweep: async (targetDateStr: string) => {
-          const userId = get().userId;
-          if (!userId) throw new Error('Not authenticated');
-
-          try {
-            const todayDay = getDateService().today();
-            const openTodos = get().todos.filter((t) => !t.archived && t.completed_at == null);
-            const sweepEligibleTodos = openTodos.map(
-              (t) =>
-                ({
-                  ...(t as unknown as SweepEligibleTodo),
-                  tags: t.tags ?? undefined,
-                }) as SweepEligibleTodo,
-            );
-            const candidateTodos = selectSweepCandidates(sweepEligibleTodos, todayDay);
-            const openCandidateTodos = candidateTodos.filter((t) => t.completed_at == null);
-            const todosById = new Map(openTodos.map((t) => [t.id, t]));
-
-            await Promise.all(
-              openCandidateTodos.map(async (candidate) => {
-                const currentTodo = todosById.get(candidate.id);
-                const currentCount = currentTodo?.sweep_reschedule_count ?? 0;
-                await get().updateTodo(candidate.id, {
-                  scheduled_date: targetDateStr,
-                  due_day: targetDateStr,
-                  skipped_in_sweep_at: null,
-                  resurface_at: null,
-                  sweep_reschedule_count: currentCount + 1,
-                });
-              }),
-            );
-
-            const movedCount = openCandidateTodos.length;
-
-            const { error: insertError } = await supabase.from('sweep_skip_events').insert({
-              owner_id: userId,
-              target_date: targetDateStr,
-              todo_count: movedCount,
-            });
-
-            if (insertError) {
-              console.error('[GremlyStore] bulkSkipSweep failed:', insertError);
-              throw insertError;
-            }
-
-            await get().refreshSkipBudget();
-            return { movedCount };
-          } catch (error) {
-            console.error('[GremlyStore] bulkSkipSweep failed:', error);
-            throw error;
           }
         },
 
@@ -11262,7 +11164,7 @@ export const useGremlyStore = create<GremlyState>()(
 
           // Day-aware hydration: keep cached gauge values on same-day
           // re-opens, only reset on day boundaries (Soul Document v8)
-          const dayBoundaryHour = persistedState.dayBoundaryHour ?? 4;
+          const dayBoundaryHour = persistedState.dayBoundaryHour ?? DEFAULT_DAY_END_HOUR;
           const currentRitualDay = getRitualDay(dayBoundaryHour);
           const isSameRitualDay =
             persistedState.todayRitualDay != null &&

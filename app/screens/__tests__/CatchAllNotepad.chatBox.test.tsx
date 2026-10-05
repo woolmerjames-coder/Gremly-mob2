@@ -42,6 +42,7 @@ function SharedBox({ mode }: { mode: 'drop' | 'chat' }) {
       getChat: () => ({ send, isSending: () => false }),
       setChatSending: () => {},
       setChatPlaceholder: () => {},
+      setChatTag: () => {},
       setChatScrolling: () => {},
       prefillDraft: () => {},
       registerDraftSetter: () => {},
@@ -51,7 +52,13 @@ function SharedBox({ mode }: { mode: 'drop' | 'chat' }) {
     [],
   );
   const modeState = React.useMemo<HomeModeState>(
-    () => ({ mode, chatSending: false, chatScrolling: false, chatPlaceholder: null }),
+    () => ({
+      mode,
+      chatSending: false,
+      chatScrolling: false,
+      chatPlaceholder: null,
+      chatTag: null,
+    }),
     [mode],
   );
   // the page is kept, as the Gremly home keeps it, so handing over the box

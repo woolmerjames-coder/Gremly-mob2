@@ -14,7 +14,7 @@ type Props = {
   interactive?: boolean;
   onRemove: (id: string) => void;
   onAdd: (id: string, kind: 'todo' | 'habit') => void;
-  onLock: () => void;
+  onYes: () => void;
   onDismiss: () => void;
   onShowAgain: () => void;
   onSeeToday: () => void;

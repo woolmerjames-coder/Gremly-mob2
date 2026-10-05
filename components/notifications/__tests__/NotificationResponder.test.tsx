@@ -5,7 +5,12 @@ jest.mock('../../../lib/supabase/client', () => ({
   supabase: { from: jest.fn() },
 }));
 jest.mock('../../../lib/brief/pinned', () => ({
-  todayThreadParams: () => ({ mode: 'chat', thread: 'today', threadKey: 'k' }),
+  todayThreadParams: (step?: string) => ({
+    mode: 'chat',
+    thread: 'today',
+    ...(step ? { step } : {}),
+    threadKey: 'k',
+  }),
 }));
 jest.mock('../../../contexts/OverlayContext', () => ({ useGlobalOverlay: jest.fn() }));
 jest.mock('../../../lib/notifications/ask', () => ({ maybeAsk: jest.fn() }));
@@ -31,16 +36,20 @@ it('the brief opens today’s thread in Chat', async () => {
   });
 });
 
-it('sweep, summary and habits open their screens', async () => {
+it('the evening one opens the wrap up in today’s thread, not the old Sweep screen', async () => {
   const n = nav();
   await runRoute('sweep', n, overlay());
+  expect(n.navigate).toHaveBeenCalledWith('Tabs', {
+    screen: 'Gremly',
+    params: expect.objectContaining({ thread: 'today', step: 'wrap' }),
+  });
+});
+
+it('summary and habits open their screens', async () => {
+  const n = nav();
   await runRoute('summary', n, overlay());
   await runRoute('habit/h1', n, overlay());
-  expect(n.navigate.mock.calls).toEqual([
-    ['Sweep'],
-    ['WeeklySummary'],
-    ['HabitDetail', { habitId: 'h1' }],
-  ]);
+  expect(n.navigate.mock.calls).toEqual([['WeeklySummary'], ['HabitDetail', { habitId: 'h1' }]]);
 });
 
 it('a reminder opens its item', async () => {

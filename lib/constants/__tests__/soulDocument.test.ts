@@ -121,11 +121,11 @@ describe('Canonical feeding paths', () => {
     expect(total).toBeGreaterThanOrEqual(FED_THRESHOLD);
   });
 
-  it('Planning day: 4 drops + Brief + 3 lock-ins = 1.04 >= fed', () => {
+  it('Planning day: 4 drops + Brief + 3 planned items = 1.04 >= fed', () => {
     const drops = sumDrops(4);
     const brief = GAUGE_WEIGHTS.BRIEF;
-    const lockIn = Math.min(3, GAUGE_WEIGHTS.LOCK_IN_CAP) * GAUGE_WEIGHTS.LOCK_IN_ITEM;
-    const total = drops + brief + lockIn;
+    const plan = Math.min(3, GAUGE_WEIGHTS.PLAN_CAP) * GAUGE_WEIGHTS.PLAN_ITEM;
+    const total = drops + brief + plan;
     expect(total).toBeCloseTo(1.04, 2);
     expect(total).toBeGreaterThanOrEqual(FED_THRESHOLD);
   });
@@ -259,8 +259,8 @@ describe('Constants sanity', () => {
     }
   });
 
-  it('LOCK_IN_CAP * LOCK_IN_ITEM = 0.15 (max lock-in contribution)', () => {
-    expect(GAUGE_WEIGHTS.LOCK_IN_CAP * GAUGE_WEIGHTS.LOCK_IN_ITEM).toBeCloseTo(0.15, 2);
+  it('PLAN_CAP * PLAN_ITEM = 0.15 (the most a day of planning feeds)', () => {
+    expect(GAUGE_WEIGHTS.PLAN_CAP * GAUGE_WEIGHTS.PLAN_ITEM).toBeCloseTo(0.15, 2);
   });
 
   it('TRAINING_THRESHOLDS.DROPS is 15', () => {

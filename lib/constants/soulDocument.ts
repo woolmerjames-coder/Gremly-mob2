@@ -27,10 +27,10 @@ export const GAUGE_WEIGHTS = {
   JOURNAL_BONUS: 0.2,
   /** Completing Morning Brief: 25% */
   BRIEF: 0.25,
-  /** Per item locked in: 5% */
-  LOCK_IN_ITEM: 0.05,
-  /** Max 3 locked-in items count toward gauge */
-  LOCK_IN_CAP: 3,
+  /** Per item on a plan the person said yes to: 5% */
+  PLAN_ITEM: 0.05,
+  /** At most 3 planned items a day count toward the gauge */
+  PLAN_CAP: 3,
   /** Manually assigning entity to space: 3% */
   SPACE_ASSIGN: 0.03,
   /** Max 3 space assignments per day */
@@ -188,7 +188,6 @@ export const TRAINING_THRESHOLDS = {
   DROPS: 15,
   SWEEPS: 5,
   BRIEFS: 2,
-  LOCK_INS: 2,
   JOURNALS: 3,
   ENTITY_CHAT: 1,
   SPACE: 1,

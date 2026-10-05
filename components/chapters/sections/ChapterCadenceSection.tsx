@@ -41,7 +41,7 @@ export function ChapterCadenceSection({
   // chapterId null/undefined path returns empty array; no heatmap to render
   if (weeks.length === 0) return null;
 
-  const currentWeekKey = weekKey(getDateService().now());
+  const currentWeekKey = weekKey(getDateService().dayNow());
   const axisLabels = AXIS_POSITIONS.map((i) => weeks[i]?.monthLabel ?? '');
 
   return (

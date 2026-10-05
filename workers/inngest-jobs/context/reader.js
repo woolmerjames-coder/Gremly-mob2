@@ -13,16 +13,26 @@
  */
 
 import { CARE_RULES, WRITING_RULES, PRIVATE_RULES, personBlock } from '../careRules';
-import { db, userTimezone, localDate, localDateTime, relativeDay, personIdentity } from './db';
+import {
+  db,
+  userTimezone,
+  localDate,
+  localDateTime,
+  relativeDay,
+  personIdentity,
+  weekdayName,
+} from './db';
 import { jsonCall, modelFor } from './llm';
+import { minutesIn } from '../../shared/calendar.js';
+import { personDay, personNow } from '../../shared/day.js';
 
-export const READER_PROMPT_VERSION = 'reader-2026-09-30';
+export const READER_PROMPT_VERSION = 'reader-2026-10-05';
 
 const MAX_RECORDS_PER_CALL = 60;
 const MAX_CHARS_PER_CALL = 30000;
 const MAX_OPEN_FACTS = 200;
 
-const READER_SCHEMA = {
+export const READER_SCHEMA = {
   type: 'object',
   properties: {
     new_facts: {
@@ -125,7 +135,7 @@ WHAT BELONGS IN THE LEDGER
 EVIDENCE
 - Every new fact cites exactly one record by its ref, and quotes the person's own words from that record (or its title).
 - Lines marked as Gremly's are context to help you read the person's reply. They are never evidence: nothing Gremly said becomes a fact unless the person's own words state it.
-- Resolve relative dates against the date of the record they appear in, not today's date. If a date cannot be pinned down, leave it empty and mark the confidence as unknown.
+- Resolve relative dates against the day of the record they appear in, not today's date. A record made after midnight but before their day ended belongs to the day before the clock's date, as its line says: it speaks from that day, so what it says happened this evening or night happened on that day, its relative days count from it, and a time of day it names for later is after they have slept, on the clock's date. If a date cannot be pinned down, leave it empty and mark the confidence as unknown.
 
 KEEPING THE LEDGER TRUE
 - A plan is planned until a later record shows what happened. When a record shows a planned thing happened, moved, changed or fell through, update that fact and cite the record. If the details changed, give the replacement.
@@ -352,12 +362,11 @@ export async function loadOpenFacts(env, userId, aroundIso) {
   return [...byId.values()].slice(0, MAX_OPEN_FACTS);
 }
 
-function validDate(s) {
-  return typeof s === 'string' &&
-    /^\d{4}-\d{2}-\d{2}$/.test(s) &&
-    !Number.isNaN(Date.parse(`${s}T00:00:00Z`))
-    ? s
-    : null;
+// A day, or the day of a date with a time (the model sometimes adds the time)
+export function validDate(s) {
+  const day =
+    typeof s === 'string' && /^\d{4}-\d{2}-\d{2}(T[\d:.]+Z?)?$/.test(s) ? s.slice(0, 10) : null;
+  return day && !Number.isNaN(Date.parse(`${day}T00:00:00Z`)) ? day : null;
 }
 
 const UPDATE_STATES = new Set(['current', 'happened', 'changed', 'superseded', 'unconfirmed']);
@@ -395,28 +404,31 @@ async function rollbackRun(d, userId, runId) {
 }
 
 /**
- * Read one chunk of records against the ledger and write the result.
- * Returns counts. Throws on model or database failure so Inngest retries.
+ * Their day when the reader runs: after midnight it is still yesterday until
+ * their day ends (workers/shared/day.js).
  */
-export async function readChunk(env, userId, tz, chunk, baseRunId) {
-  const d = db(env);
-  const today = localDate(tz);
-  // Each chunk writes under its own run id. If Inngest retries the step, the
-  // rows a failed attempt left behind are removed first, so a retry never
-  // duplicates facts or questions.
-  const runId = `${baseRunId}:${chunk[0].at}`;
-  await rollbackRun(d, userId, runId);
-  const [openFacts, person] = await Promise.all([
-    loadOpenFacts(env, userId, chunk[0].at),
-    personIdentity(env, userId),
-  ]);
+export function readerToday(tz, at, dayEndHour) {
+  return personDay(localDate(tz, at), minutesIn(tz, at), dayEndHour);
+}
 
+/**
+ * What the reader is given for one chunk: its instructions, the ledger and the
+ * new records, with the refs each line carries. Pure, for readChunk and the
+ * replay (scripts/reader-replay).
+ */
+export function readerRequest({ today, person, chunk, openFacts, tz, dayEndHour = 0 }) {
   const recRef = new Map();
   const recordLines = chunk.map((r, i) => {
     const ref = `r${i + 1}`;
     recRef.set(ref, r);
-    const day = localDateTime(tz, r.at);
-    return `${ref} | ${day} (${relativeDay(day.slice(0, 10), today)}) | ${r.text}`;
+    const clock = localDateTime(tz, r.at);
+    // after midnight and before their day ended, the record is the day before's
+    const day = readerToday(tz, new Date(r.at), dayEndHour);
+    const late =
+      day !== clock.slice(0, 10)
+        ? `, after midnight, so still ${weekdayName(day)} ${day} for them`
+        : '';
+    return `${ref} | ${clock}${late} (${relativeDay(day, today)}) | ${r.text}`;
   });
   const factRef = new Map();
   const factLines = openFacts.map((f, i) => {
@@ -433,11 +445,39 @@ ${factLines.length ? factLines.join('\n') : '(none yet)'}
 
 NEW RECORDS, OLDEST FIRST (ref | when it happened | record):
 ${recordLines.join('\n')}`;
+  return { system: readerSystemPrompt(today, person), user, recRef, factRef };
+}
+
+/**
+ * Read one chunk of records against the ledger and write the result.
+ * Returns counts. Throws on model or database failure so Inngest retries.
+ */
+export async function readChunk(env, userId, tz, chunk, baseRunId) {
+  const d = db(env);
+  // their day, and the hour it ends, for what each record's dates count from
+  const { today, dayEndHour } = await personNow(env, userId, tz);
+  // Each chunk writes under its own run id. If Inngest retries the step, the
+  // rows a failed attempt left behind are removed first, so a retry never
+  // duplicates facts or questions.
+  const runId = `${baseRunId}:${chunk[0].at}`;
+  await rollbackRun(d, userId, runId);
+  const [openFacts, person] = await Promise.all([
+    loadOpenFacts(env, userId, chunk[0].at),
+    personIdentity(env, userId),
+  ]);
+  const { system, user, recRef, factRef } = readerRequest({
+    today,
+    person,
+    chunk,
+    openFacts,
+    tz,
+    dayEndHour,
+  });
 
   const { output, model } = await jsonCall(env, {
     primary: modelFor(env, 'reader'),
     fallback: modelFor(env, 'readerFallback'),
-    system: readerSystemPrompt(today, person),
+    system,
     user,
     schema: READER_SCHEMA,
     maxTokens: 8000,

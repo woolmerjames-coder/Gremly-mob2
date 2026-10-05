@@ -88,7 +88,7 @@ export function computeHabitMetadata(
   // Fall back to habit.target_per_period only if frequency doesn't have a number
   const inferredTarget = extractTargetFromFrequency(habit.frequency);
   const targetPerPeriod = inferredTarget ?? habit.target_per_period ?? 1;
-  const today = getDateService().now();
+  const today = getDateService().dayNow();
 
   // Use inferred cadence and target for the display label
   // This ensures "5 times a week" shows as "5x/week" even if cadence field is wrong

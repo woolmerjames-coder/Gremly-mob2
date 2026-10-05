@@ -1,4 +1,4 @@
-import { isToday, isTomorrow, format } from 'date-fns';
+import { format } from 'date-fns';
 import { getDateService } from '../../../lib/date/DateService';
 
 /**
@@ -52,18 +52,20 @@ export function formatDueDateLabel(dueDate: string | null): string {
 
   try {
     const date = new Date(dueDate);
-    const now = getDateService().now();
+    const ds = getDateService();
+    // a due date is a day: compare it with the person's day
+    const day = ds.extractLocalDate(dueDate);
 
-    if (isToday(date)) {
+    if (day && ds.isToday(day)) {
       return 'Today';
     }
 
-    if (isTomorrow(date)) {
+    if (day && ds.isTomorrow(day)) {
       return 'Tomorrow';
     }
 
     // Check if overdue
-    if (date < now) {
+    if (day ? day < ds.today() : date < ds.now()) {
       return 'Overdue';
     }
 

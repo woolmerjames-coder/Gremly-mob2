@@ -119,3 +119,54 @@ describe('BriefMessage', () => {
     expect(renderAt(7, null).toJSON()).toBeNull();
   });
 });
+
+describe('BriefMessage: the evening wrap up', () => {
+  const offer = msg('w1', 'assistant', 'How was today?', {
+    type: 'brief-offer',
+    kind: 'journal',
+    wrap: true,
+    hint: 'A quiet line under the buttons',
+    buttons: [
+      { id: 'journal_write', label: 'Write a few lines', action: 'journal_write', primary: true },
+      { id: 'journal_mood', label: 'Just pick a mood', action: 'journal_mood' },
+      { id: 'journal_skip', label: 'Skip tonight', action: 'journal_skip' },
+    ],
+  });
+
+  it('draws the wrap up cards through the screen that owns the wrap up', () => {
+    const recap = msg('w2', 'system', '', { type: 'sweep-recap', wrap: true, date: '2026-09-30' });
+    const renderWrap = jest.fn(() => <Text>the recap card</Text>);
+    const r = render(<BriefMessage message={recap} renderWrap={renderWrap} />);
+    expect(r.getByText('the recap card')).toBeTruthy();
+    expect(renderWrap).toHaveBeenCalledWith(
+      recap,
+      expect.objectContaining({ type: 'sweep-recap' }),
+    );
+    // with nothing to draw it, nothing is shown
+    expect(render(<BriefMessage message={recap} />).toJSON()).toBeNull();
+  });
+
+  it('shows the quiet line under a live offer, and can leave a button out', () => {
+    const all = render(<BriefMessage message={offer} liveOfferId="w1" />);
+    expect(all.getByText('Write a few lines')).toBeTruthy();
+    expect(all.getByText('A quiet line under the buttons')).toBeTruthy();
+    const armed = render(
+      <BriefMessage message={offer} liveOfferId="w1" hiddenActions={['journal_write']} />,
+    );
+    expect(armed.queryByText('Write a few lines')).toBeNull();
+    expect(armed.getByText('Just pick a mood')).toBeTruthy();
+  });
+
+  it('draws the time the evening started as a quiet line', () => {
+    const time = msg('w3', 'system', '8:40 PM', { type: 'brief-event', icon: 'time', wrap: true });
+    const r = render(<BriefMessage message={time} />);
+    expect(r.getByTestId('brief-time')).toBeTruthy();
+    expect(r.getByText('8:40 PM')).toBeTruthy();
+  });
+
+  it('never draws a receipt that a newer one replaced', () => {
+    const old = msg('w4', 'system', '', { type: 'sweep-receipt', wrap: true, superseded: true });
+    const r = render(<BriefMessage message={old} renderWrap={() => <Text>receipt</Text>} />);
+    expect(r.toJSON()).toBeNull();
+  });
+});

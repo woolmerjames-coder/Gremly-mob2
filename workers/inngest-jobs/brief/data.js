@@ -13,6 +13,7 @@ import {
   meetingsFrom,
   minutesIn,
 } from '../../shared/calendar.js';
+import { dayEndHourFrom, personDay } from '../../shared/day.js';
 import { buildDcoV4, writeDco } from '../context/daily';
 import { dayOfWeekNumber, isBehindThisWeek, mondayOf, weeklyTarget } from './behind';
 import { readThreadReaction } from './reaction';
@@ -74,9 +75,9 @@ export function clashesOf(meetings) {
   return out;
 }
 
-/** The ritual day: before the person's Day Boundary hour it is still yesterday. */
+/** The ritual day: before the person's Day Boundary hour it is still yesterday (shared/day.js). */
 export function ritualDayFor(today, nowMin, boundaryHour) {
-  return boundaryHour > 0 && nowMin < boundaryHour * 60 ? addDays(today, -1) : today;
+  return personDay(today, nowMin, boundaryHour);
 }
 
 /** Today's DCO, built now if the 4am job has not made one (a first open after a month away). */
@@ -92,12 +93,14 @@ export async function todaysDco(env, userId, tz, today) {
 export async function gatherBrief(env, userId, { at = new Date() } = {}) {
   const d = db(env);
   const tz = await userTimezone(env, userId);
-  const today = localDate(tz, at);
+  const calendarDay = localDate(tz, at);
   const now = minutesIn(tz, at);
   const [prefs] = await d.select(
     `cortex_preferences?owner_id=eq.${userId}&select=day_boundary_hour,gremly_age`,
   );
-  const ritualDay = ritualDayFor(today, now, prefs?.day_boundary_hour ?? 0);
+  const dayEndHour = dayEndHourFrom(prefs?.day_boundary_hour);
+  const ritualDay = ritualDayFor(calendarDay, now, dayEndHour);
+  const today = ritualDay;
   const dayStart = localStartIso(tz, today);
   const dayEnd = localStartIso(tz, addDays(today, 1));
   const monday = mondayOf(today);
@@ -119,7 +122,7 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
     personIdentity(env, userId),
     ...calendarSelects(d, userId, tz, today),
     d.select(
-      `todos?owner_id=eq.${userId}&completed_at=is.null&archived=eq.false&select=id,name,title,due_day,commitment,time_estimate_minutes,created_at,skipped_in_sweep_at,resurface_at,scheduled_start_iso&limit=1000`,
+      `todos?owner_id=eq.${userId}&completed_at=is.null&archived=eq.false&select=id,name,title,due_day,time_estimate_minutes,created_at,skipped_in_sweep_at,resurface_at,scheduled_start_iso&limit=1000`,
     ),
     d.select(
       `notes?owner_id=eq.${userId}&archived=eq.false&external_source=is.null&swept_at=is.null&subtype=in.(idea,catchall,list,reference)&created_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -6)))}&select=id&limit=500`,
@@ -132,7 +135,7 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
     ),
     // Sweep's counts by the app's own rules (the evening Sweep and the
     // morning's quick sweep); null when they cannot be counted
-    sweepCounts(env, userId, { today, tz }).catch(() => null),
+    sweepCounts(env, userId, { today, tz, day: ritualDay, dayEndHour }).catch(() => null),
     // today's thread: set times added there (fixed_blocks) belong to the day
     d
       .select(
@@ -166,12 +169,12 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
 
   // Todos (the app writes name; older rows may only have title)
   const open = (todos || []).map((t) => ({ ...t, title: t.name || t.title || 'Untitled' }));
-  const todosDue = open.filter((t) => t.due_day === today || (t.commitment && t.due_day === today));
+  const todosDue = open.filter((t) => t.due_day === today);
   const overdue = open.filter(
     (t) => t.due_day && t.due_day < today && !(t.resurface_at && t.resurface_at > today),
   );
   const unsortedTodos = open.filter(
-    (t) => !t.due_day && !t.commitment && !(t.resurface_at && t.resurface_at > today),
+    (t) => !t.due_day && !(t.resurface_at && t.resurface_at > today),
   );
   const unsorted = unsortedTodos.length + (notes || []).length;
 

@@ -14,6 +14,7 @@ import { db, localDate } from '../context/db';
 import { gatherBrief, minutesIn } from './data';
 import { decideOffer, questionButtons } from './offer';
 import { writeBrief, BRIEF_PROMPT_VERSION } from './writer';
+import { readLastWrap } from './reaction';
 import {
   appendMessages,
   ensureThread,
@@ -70,6 +71,8 @@ export async function writeDailyBrief(env, userId, { reason = 'scheduled', at = 
   const g = await gatherBrief(env, userId, { at });
   // The brief starts from the second day of the training challenge
   if ((g.gremlyAge ?? 0) < 1) return { skipped: 'new user' };
+  // last night's wrap up, for the writer; the brief never waits on a failed read
+  g.wrap = await readLastWrap(env, userId, g.ritualDay).catch(() => null);
 
   const thread = await ensureThread(env, userId, g.ritualDay);
   const meta = thread.metadata_json || {};

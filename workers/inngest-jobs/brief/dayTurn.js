@@ -23,8 +23,9 @@ import { jsonCall, modelFor } from '../context/llm';
 import { addDays, personIdentity, weekdayName } from '../context/db';
 import { clockTime, noDashes, stripRefs } from './writer';
 import { parseHHMM, toHHMM } from './planPick';
+import { dayEndHourOf, inSmallHours } from '../../shared/day.js';
 
-export const DAY_TURN_PROMPT_VERSION = 'day-turn-2026-10-02b';
+export const DAY_TURN_PROMPT_VERSION = 'day-turn-2026-10-05a';
 const DAY_END = 22 * 60;
 const MAX_CHANGES = 12;
 
@@ -151,7 +152,12 @@ export function readTurnRequest(body) {
 export function renderTurnInput(req, person) {
   const L = [];
   const name = person?.first_name || 'They';
-  L.push(`TODAY: ${weekdayName(req.date)} ${req.date}. TIME NOW: ${clockTime(req.now)}.`);
+  // after midnight and before their day ends, the small hours end their day
+  const next = addDays(req.date, 1);
+  const late = inSmallHours(req.now, req.dayEndHour)
+    ? `, after midnight; their ${weekdayName(req.date)} ends at ${clockTime(req.dayEndHour * 60)}, so their tomorrow is ${weekdayName(next)} ${next}, and any time of day they name for later is on ${weekdayName(next)}, after they have slept`
+    : '';
+  L.push(`TODAY: ${weekdayName(req.date)} ${req.date}. TIME NOW: ${clockTime(req.now)}${late}.`);
   if (req.travel) {
     L.push(
       `TRAVEL TODAY: ${req.travel.label || 'they travel today'}${
@@ -183,7 +189,7 @@ export function renderTurnInput(req, person) {
   const refOf = new Map(req.items.map((x) => [x.id, x.ref]));
   L.push(
     req.plan
-      ? `THE PLAN ON SCREEN, ${req.plan.status === 'locked' ? 'LOCKED IN' : 'A PROPOSAL'} (ref | time | title):\n${req.plan.items
+      ? `THE PLAN ON SCREEN, ${req.plan.status === 'locked' ? 'ON TODAY (they said yes to it)' : 'A PROPOSAL'} (ref | time | title):\n${req.plan.items
           .map((x) => `${refOf.get(x.id)} | ${clockTime(x.start)} | ${x.title}`)
           .join('\n')}`
       : 'THE PLAN ON SCREEN: none yet.',
@@ -477,7 +483,11 @@ export async function runDayTurn(env, req, person) {
 export async function dayTurn(env, userId, body) {
   const req = readTurnRequest(body);
   if (!req.date || !req.text) return { about_day: false, reason: 'nothing to read' };
-  const person = await personIdentity(env, userId).catch(() => null);
+  const [person, dayEndHour] = await Promise.all([
+    personIdentity(env, userId).catch(() => null),
+    dayEndHourOf(env, userId),
+  ]);
+  req.dayEndHour = dayEndHour;
   const { input: _input, ...result } = await runDayTurn(env, req, person);
   if (result.dropped) {
     console.warn(

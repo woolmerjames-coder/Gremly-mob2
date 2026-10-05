@@ -1977,6 +1977,94 @@ export async function callGeneralGreeting(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Gremly's words in the evening wrap up (agent plan step 10)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type WrapMoment = 'open' | 'journal_ask' | 'journal_reply' | 'close' | 'questions';
+
+/** What the wrap up tells Gremly for one moment (workers/cortex/wrap/words.js factsFrom). */
+export interface WrapWordsRequest {
+  moment: WrapMoment;
+  day: string;
+  weekday: string;
+  part: 'early' | 'evening' | 'late';
+  clock: string;
+  day_end?: string;
+  tomorrow_word: string;
+  recap: {
+    counts: { todos: number; habits: number; meetings: number; drops: number };
+    done: { title: string; kind: 'todo' | 'habit' }[];
+    missed: { id: string; title: string }[];
+    planned?: { done: number; total: number } | null;
+  };
+  meetings: string[];
+  travel?: string;
+  cards: number;
+  tonight?: {
+    decisions?: { title: string; outcome: string }[];
+    logged?: string[];
+    held?: string[];
+    not_held?: string[];
+    journal?: 'written' | 'mood' | 'skipped' | null;
+    path?: 'cards' | 'skip' | 'clear' | null;
+  };
+  next?: { meetings: string[]; lined: string[] };
+  entry?: string;
+  questions?: {
+    id: string;
+    question: string;
+    about?: { kind: string; title: string; when?: string };
+  }[];
+}
+
+export type WrapWordsResponse =
+  | { line: string }
+  | { journal: boolean; reply: string; moods?: string[] }
+  | { ask: { id: string; question: string; choices: string[] }[] };
+
+/** How long the wrap up waits for Gremly's words before it says its own. */
+const WRAP_WORDS_TIMEOUT_MS = 8000;
+
+/**
+ * Gremly's words for one moment of the evening wrap up. Null when there are
+ * none in time (no connection, an error, or slower than the wrap up waits):
+ * the wrap up then says its fixed sentence.
+ */
+export async function callWrapWords(req: WrapWordsRequest): Promise<WrapWordsResponse | null> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), WRAP_WORDS_TIMEOUT_MS);
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const sessionToken = await getSessionToken();
+    if (sessionToken) headers.Authorization = `Bearer ${sessionToken}`;
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers,
+      signal: controller.signal,
+      body: JSON.stringify({
+        type: 'wrap-words',
+        timezone: getDateService().getTimezone(),
+        ...req,
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (typeof data?.line === 'string' && data.line.trim()) return { line: data.line.trim() };
+    if (typeof data?.journal === 'boolean') {
+      return { journal: data.journal, reply: String(data.reply ?? '').trim() };
+    }
+    if (Array.isArray(data?.ask)) return { ask: data.ask };
+    return null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Habit Insight (on-demand, per-habit weekly insight line)
 // Direct fetch — does NOT use the inFlight global lock so it never blocks
 // interactive cortex calls.
@@ -2303,6 +2391,21 @@ export interface AgentTask {
   status: 'open' | 'proposed' | 'needs_answer' | 'done' | 'not_possible' | 'dropped';
 }
 
+/**
+ * Tonight's wrap up, sent with a message typed while it is under way, so
+ * Gremly knows where it is (workers/cortex/agent/brief.js readWrap).
+ */
+export interface WrapTurnContext {
+  step: string;
+  /** Tonight's cards: the item's id and kind, what they decided, and what it was before when it moved */
+  decisions: { id?: string; type?: string; title: string; outcome: string; was?: string }[];
+  /** The question this message answers, when it answers one */
+  answering?: {
+    question: string;
+    item: { id: string; kind: string; title: string; when?: string } | null;
+  } | null;
+}
+
 export interface BriefTurnRequest extends DayTurnRequest {
   /** Where they are, for their calendar and their day */
   timezone: string;
@@ -2310,6 +2413,8 @@ export interface BriefTurnRequest extends DayTurnRequest {
   tasks: AgentTask[];
   /** Today's thread, so a correction said in it is filed against it */
   chat_id: string;
+  /** Tonight's wrap up, when the message is typed while it is under way */
+  wrap?: WrapTurnContext;
 }
 
 /**

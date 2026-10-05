@@ -14,6 +14,12 @@ const BRIEF_TYPES: ReadonlySet<string> = new Set<BriefMessageType>([
   'brief-event',
   'brief-reply',
   'brief-changes',
+  'sweep-recap',
+  'sweep-receipt',
+  'sweep-habits',
+  'sweep-journal',
+  'sweep-item',
+  'sweep-end',
 ]);
 
 /** The brief metadata on a message, or null when it is an ordinary chat message. */
@@ -107,7 +113,9 @@ export function liveQuestion(messages: SpaceChatMessage[]): SpaceChatMessage | n
   if (!id) return null;
   const m = messages.find((x) => x.id === id) ?? null;
   const meta = briefMetaOf(m);
-  return meta?.type === 'brief-offer' && meta.kind === 'question' && meta.question_id ? m : null;
+  // a question asked in the evening wrap up is answered there (lib/wrapup)
+  if (meta?.type !== 'brief-offer' || meta.wrap) return null;
+  return meta.kind === 'question' && meta.question_id ? m : null;
 }
 
 /**

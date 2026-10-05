@@ -82,7 +82,7 @@ function toDateString(date: Date): string {
 function getCheckInStatus(habit: Habit | undefined): HabitStatus {
   if (!habit) return 'needs_attention';
 
-  const lastCheckedIn = dateService.extractLocalDate(habit.last_checked_in_at);
+  const lastCheckedIn = dateService.dayOf(habit.last_checked_in_at);
   const yesterday = dateService.yesterday();
   const cadence = habit.cadence ?? 'daily';
 
@@ -184,7 +184,7 @@ export default function HabitsScreen() {
   }, [datePickerHabitId, tempDate, updateHabit]);
 
   // Week date range - rolling 7 days ending today (matches useWeeklyHabitStats)
-  const today = useMemo(() => dateService.now(), []);
+  const today = useMemo(() => dateService.dayNow(), []);
   const { startDate: weekStart, endDate: weekEnd } = useMemo(
     () => getRolling7DayRange(today),
     [today],
@@ -312,7 +312,7 @@ export default function HabitsScreen() {
     const total = activeHabits.length;
 
     const upToDate = activeHabits.filter((habit) => {
-      const lastCheckedIn = dateService.extractLocalDate(habit.last_checked_in_at);
+      const lastCheckedIn = dateService.dayOf(habit.last_checked_in_at);
       const cadence = habit.cadence ?? 'daily';
 
       if (!lastCheckedIn) return false;

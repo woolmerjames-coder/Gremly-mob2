@@ -2,9 +2,11 @@
  * The pinned Today card at the top of Chat's fresh home (Daily brief in
  * Chat): today's thread, one tap away. While the brief waits unread it says
  * so; after that its status line is the locked plan (count and next item) or
- * the shape of the rest of the day. In the evening, while things wait for a
- * decision, it offers to wrap the day up, and a tap starts that instead. Its
- * mark follows the part of the day: the sun, the cup, the moon.
+ * the shape of the rest of the day. While the wrap up is offered, under way
+ * or done its line is the wrap up: waiting, where it was left, or done
+ * (lib/wrapup/words.ts, pinnedLine), and while it is offered a tap starts it
+ * or picks it up. That is the evening, or earlier once Today is all done. Its mark follows the
+ * part of the day: the sun, the cup, the moon.
  */
 
 import React from 'react';
@@ -20,29 +22,25 @@ export type TodayPinnedCardProps = {
   date: string;
   unread: boolean;
   onPress: () => void;
-  /** The part of the day, for the mark and the evening offer; day when left out */
+  /** The part of the day, for the mark; day when left out */
   phase?: HomePhase;
-  /** How many things wait for a decision tonight */
-  toDecide?: number;
-  /** Starts wrapping up the day, when the card offers it */
+  /** The wrap up's line: waiting, part way or done; null while it is not offered */
+  wrapLine?: string | null;
+  /** The wrap up is waiting to be noticed: a dot on the mark */
+  wrapNudge?: boolean;
+  /** Starts or picks up the wrap up, while it is offered */
   onWrapUp?: () => void;
 };
 
 const EVENING_INK = '#4A5486';
 
 /** The card's line: the brief, the evening wrap up, or the shape of the day. */
-export function todayCardLine(p: {
-  unread: boolean;
-  phase: HomePhase;
-  toDecide: number;
-  dayLine: string;
-}): { text: string; tone: 'ready' | 'evening' | 'plain' } {
+export function todayCardLine(p: { unread: boolean; wrapLine?: string | null; dayLine: string }): {
+  text: string;
+  tone: 'ready' | 'evening' | 'plain';
+} {
   if (p.unread) return { text: 'Your brief is ready', tone: 'ready' };
-  if (p.phase === 'evening' && p.toDecide > 0)
-    return {
-      text: `Wrap up today: ${p.toDecide} ${p.toDecide === 1 ? 'thing' : 'things'} to decide`,
-      tone: 'evening',
-    };
+  if (p.wrapLine) return { text: p.wrapLine, tone: 'evening' };
   return { text: p.dayLine, tone: 'plain' };
 }
 
@@ -51,14 +49,14 @@ export function TodayPinnedCard({
   unread,
   onPress,
   phase = 'day',
-  toDecide = 0,
+  wrapLine = null,
+  wrapNudge = false,
   onWrapUp,
 }: TodayPinnedCardProps) {
   const day = useDayCard(date);
   const line = todayCardLine({
     unread,
-    phase,
-    toDecide,
+    wrapLine,
     dayLine: pinStatusLine(day.meetings, day.planned, day.now),
   });
   const wrapUp = line.tone === 'evening' && !!onWrapUp;
@@ -74,7 +72,12 @@ export function TodayPinnedCard({
     >
       <View style={[styles.glyph, evening && styles.glyphEvening]}>
         <Mark size={20} color={evening ? EVENING_INK : BRIEF.moss} strokeWidth={1.8} />
-        {unread ? <View style={styles.markDot} testID="today-pinned-unread" /> : null}
+        {unread || (wrapNudge && line.tone === 'evening') ? (
+          <View
+            style={[styles.markDot, !unread && styles.markDotEvening]}
+            testID={unread ? 'today-pinned-unread' : 'today-pinned-wrap'}
+          />
+        ) : null}
       </View>
       <View style={styles.body}>
         <Text style={styles.kicker}>TODAY WITH GREMLY</Text>
@@ -155,6 +158,7 @@ const styles = StyleSheet.create({
     color: BRIEF.muted,
     marginTop: 2,
   },
+  markDotEvening: { backgroundColor: EVENING_INK, borderColor: '#E6E8F1' },
   statusReady: { fontFamily: 'Inter-SemiBold', color: '#2E6B4C' },
   statusEvening: { fontFamily: 'Inter-SemiBold', color: EVENING_INK },
 });

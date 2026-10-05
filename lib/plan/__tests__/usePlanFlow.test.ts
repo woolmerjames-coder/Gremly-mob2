@@ -13,8 +13,14 @@ import { patchDailyThreadMeta } from '../../repo/dailyThreadRepo';
 import type { SpaceChatMessage } from '../../types';
 
 jest.mock('../../cortex/CortexClient', () => ({ callPlanPick: jest.fn() }));
+let mockLate = false;
 jest.mock('../../date/DateService', () => ({
-  getDateService: () => ({ today: () => '2026-09-30' }),
+  getDateService: () => ({
+    // after midnight the clock says Thursday; the person's day is still Wednesday
+    today: () => (mockLate ? '2026-10-01' : '2026-09-30'),
+    ritualDay: () => '2026-09-30',
+    isInLateNightPeriod: () => mockLate,
+  }),
   nowTimestamp: () => '2026-09-30T20:00:00Z',
 }));
 jest.mock('../storePlan', () => ({
@@ -29,7 +35,8 @@ jest.mock('../../repo/dailyThreadRepo', () => ({
   patchDailyThreadMeta: jest.fn(() => Promise.resolve(null)),
 }));
 jest.mock('../../brief/time', () => ({
-  minutesOfDay: () => 760,
+  minutesOfDay: () => (mockLate ? 30 : 760),
+  minutesOfTheirDay: () => (mockLate ? 24 * 60 + 30 : 760),
   localMinutesToIso: (d: string, m: number) => `${d}T${m}`,
   hhmmToMinutes: (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5)),
   localDateOf: (iso: string) => iso.slice(0, 10),
@@ -243,7 +250,7 @@ describe('planning in the thread', () => {
     expect(plan.items.map((x: any) => x.id)).toEqual(['social', 'oat']);
   });
 
-  it('locks a plan in and says so', async () => {
+  it('says yes to a plan and says so', async () => {
     const { hook, messages, deps } = harness();
     await act(async () => {
       await hook.result.current.start(null);
@@ -255,13 +262,68 @@ describe('planning in the thread', () => {
     const planMsg = messages.find((m) => (m.metadata_json as any).type === 'brief-plan')!;
     const fresh = renderHook(() => usePlanFlow({ ...deps, messages: [...messages] }));
     await act(async () => {
-      await fresh.result.current.lock(planMsg);
+      await fresh.result.current.accept(planMsg);
     });
     expect(lockPlanItems).toHaveBeenCalledWith('2026-09-30', expect.any(Array), []);
     expect((planMsg.metadata_json as any).status).toBe('locked');
     expect(messages[messages.length - 1].content).toBe(
-      "Locked in. It's all on Today, with plenty of room left. I've added Book the car service as a todo too.",
+      "That's all on Today, with plenty of room left. I've added Book the car service as a todo too.",
     );
+  });
+
+  describe('after midnight, before the day ends', () => {
+    beforeEach(() => {
+      mockLate = true;
+    });
+    afterEach(() => {
+      mockLate = false;
+    });
+
+    it('plans the day the clock already shows as another day, from the morning', async () => {
+      const { hook, messages } = harness();
+      await act(async () => {
+        await hook.result.current.start(null, { day: '2026-10-01' });
+      });
+      expect(poolForDay).toHaveBeenCalledWith('2026-10-01');
+      const plan = messages.find((m) => (m.metadata_json as any).type === 'brief-plan')!
+        .metadata_json as any;
+      expect(plan.date).toBe('2026-10-01');
+      // from 8am, not from half past midnight
+      expect(plan.from).toBe(8 * 60);
+      expect(plan.items.every((x: any) => x.start >= 8 * 60)).toBe(true);
+    });
+
+    it('says it will be on Today in the morning, and that the brief will bring a plan put aside', async () => {
+      const { hook, messages, deps } = harness();
+      await act(async () => {
+        await hook.result.current.start(null, { day: '2026-10-01' });
+      });
+      (lockPlanItems as jest.Mock).mockResolvedValue({ created: [], items: [] });
+      const planMsg = messages.find((m) => (m.metadata_json as any).type === 'brief-plan')!;
+      const fresh = renderHook(() => usePlanFlow({ ...deps, messages: [...messages] }));
+      await act(async () => {
+        await fresh.result.current.accept(planMsg);
+      });
+      expect(lockPlanItems).toHaveBeenCalledWith('2026-10-01', expect.any(Array), []);
+      expect(messages[messages.length - 1].content).toBe(
+        "Done. It'll be on Today when you wake up.",
+      );
+      await act(async () => {
+        await fresh.result.current.dismiss(planMsg);
+      });
+      expect(messages[messages.length - 1].content).toBe(
+        'No problem. The morning brief will bring it.',
+      );
+    });
+
+    it('has no room left in the day being wrapped up', async () => {
+      const { hook, messages } = harness();
+      await act(async () => {
+        await hook.result.current.start(null);
+      });
+      expect(messages.some((m) => (m.metadata_json as any).type === 'brief-plan')).toBe(false);
+      expect(messages[messages.length - 1].content).toBe(PLAN_COPY.noRoom);
+    });
   });
 
   it('turns a typed change into a new version and folds the old one', async () => {

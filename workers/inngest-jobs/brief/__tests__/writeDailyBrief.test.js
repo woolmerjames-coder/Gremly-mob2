@@ -6,6 +6,7 @@
 import { writeDailyBrief, fallbackLine, fallbackOffer } from '../index';
 import { gatherBrief } from '../data';
 import { writeBrief } from '../writer';
+import { readLastWrap } from '../reaction';
 import {
   appendMessages,
   ensureThread,
@@ -16,6 +17,7 @@ import {
 
 jest.mock('../data', () => ({ gatherBrief: jest.fn(), minutesIn: jest.fn() }));
 jest.mock('../writer', () => ({ writeBrief: jest.fn(), BRIEF_PROMPT_VERSION: 'test' }));
+jest.mock('../reaction', () => ({ readLastWrap: jest.fn() }));
 jest.mock('../thread', () => ({
   appendMessages: jest.fn(),
   ensureThread: jest.fn(),
@@ -67,6 +69,7 @@ beforeEach(() => {
   supersedeUnseen.mockResolvedValue(0);
   appendMessages.mockResolvedValue(undefined);
   patchThreadMeta.mockResolvedValue(undefined);
+  readLastWrap.mockResolvedValue("LAST NIGHT'S WRAP UP: they finished it.");
 });
 
 const written = () => appendMessages.mock.calls[0][3];
@@ -89,6 +92,8 @@ describe('writing the brief', () => {
     });
     const res = await writeDailyBrief({}, 'user-1', { reason: 'scheduled' });
     expect(res).toMatchObject({ ok: true, offer_kind: 'plan', lines: 2 });
+    // the writer is given last night's wrap up
+    expect(writeBrief.mock.calls[0][1].wrap).toBe("LAST NIGHT'S WRAP UP: they finished it.");
     expect(written().map((r) => r.metadata_json.type)).toEqual([
       'brief-text',
       'brief-text',

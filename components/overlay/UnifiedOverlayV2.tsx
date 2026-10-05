@@ -59,7 +59,6 @@ import {
   ChevronRight,
   Trash2,
   Camera,
-  Diamond,
   Maximize2,
   Star,
   FileText,
@@ -147,7 +146,6 @@ import { ChecklistProgress } from './ChecklistProgress';
 import LinkedItemsSection from './LinkedItemsSection';
 import LinkedEventPicker from './LinkedEventPicker';
 import { TodoPreviewModal } from './TodoPreviewModal';
-import { env } from '../../lib/env';
 import { ClarificationPopup } from '../minddrop/ClarificationPopup';
 import { hasActionableList, type ExtractedListItem, type ListItem } from '../../lib/lists';
 import { TypePill, TypePickerDropdown, deriveEntityType, getTypeConfig } from './TypePicker';
@@ -162,7 +160,6 @@ import {
   originalLabelWords,
   showsOriginalLabel,
 } from '../../lib/chat/changeHistory';
-import { ToggleSwitch } from './ToggleSwitch';
 
 const BASE_LABEL: Record<BaseType, string> = { log: 'Note', todo: 'To-Do', habit: 'Habit' };
 
@@ -1392,27 +1389,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const textInputRef = useRef<TextInput | null>(null);
   const prevConversionMetaRef = useRef(conversionMeta);
 
-  // feature flag for commitments (soft rollout)
-  const commitmentsOn = env.feature.commitments;
   const currentTagsRef = useRef<TagKey[]>(state.tags);
   currentTagsRef.current = state.tags;
   const hasLoadedEditTagsRef = useRef(false);
-
-  async function canEnableCommitment(): Promise<boolean> {
-    try {
-      if (typeof (repo as any).countActiveCommitments === 'function') {
-        const n = await (repo as any).countActiveCommitments();
-        return n < 3;
-      }
-      if (typeof (repo as any).listCommitments === 'function') {
-        const items = await (repo as any).listCommitments();
-        return (items?.length ?? 0) < 3;
-      }
-    } catch (e) {
-      // ignore and allow by default
-    }
-    return true;
-  }
 
   // Derive spaces from store (no useEffect needed)
   const spaces = storeSpaces || [];
@@ -2436,9 +2415,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   const overlaySubtitle = state.compactTitle?.trim() ?? '';
 
-  // Derived "Lock In" state from commitment field
-  const isLockedIn = !!state.commitment && (baseType === 'todo' || baseType === 'habit');
-
   // Log timestamp and mood (Phase L2)
   const logTimestampLabel = isLog
     ? formatLogTimestamp(mode, fullEntity ?? initialEntity ?? null)
@@ -3076,7 +3052,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       const targetDate = parseISO(state.log.target_date);
       const endDate = state.log.end_date ? parseISO(state.log.end_date) : null;
       const eventTime = state.log.event_time;
-      const today = getDateService().now();
+      // the person's day: after midnight Today is still their today
+      const today = getDateService().dayNow();
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
       const isToday = isSameDay(targetDate, today);
@@ -3635,19 +3612,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   </View>
                 </View>
               )}
-
-              {/* Lock In badge */}
-              {isLockedIn ? (
-                <View
-                  style={[
-                    styles.lockedBadge,
-                    { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
-                  ]}
-                >
-                  <Diamond size={12} color="#2E5540" fill="#2E5540" />
-                  <Text style={styles.lockedBadgeText}>Locked In</Text>
-                </View>
-              ) : null}
 
               {/* Habit Build/Break toggle */}
               {baseType === 'habit' && !isViewMode && (
@@ -4351,37 +4315,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 </Text>
                               }
                               onPress={() => toggleRow('linked')}
-                            />
-                          )}
-
-                          {commitmentsOn && (
-                            <StaticRow
-                              icon={Diamond}
-                              label="Lock In"
-                              right={
-                                <ToggleSwitch
-                                  on={isLockedIn}
-                                  onToggle={async () => {
-                                    if (!state.commitment) {
-                                      const ok = await canEnableCommitment();
-                                      if (!ok) return;
-                                    }
-                                    pushUndoEntry('commitment', {
-                                      commitment: state.commitment,
-                                      commitmentNote: state.commitmentNote,
-                                      commitmentStartedAt: state.commitmentStartedAt,
-                                    });
-                                    store.setCommitment(!state.commitment);
-                                    try {
-                                      eventBus.emit('OverlayCommitmentToggled', {
-                                        on: !state.commitment,
-                                      });
-                                    } catch {
-                                      /* fire-and-forget */
-                                    }
-                                  }}
-                                />
-                              }
                             />
                           )}
 
@@ -5158,37 +5091,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             />
                           )}
 
-                          {commitmentsOn && (
-                            <StaticRow
-                              icon={Diamond}
-                              label="Lock In"
-                              right={
-                                <ToggleSwitch
-                                  on={isLockedIn}
-                                  onToggle={async () => {
-                                    if (!state.commitment) {
-                                      const ok = await canEnableCommitment();
-                                      if (!ok) return;
-                                    }
-                                    pushUndoEntry('commitment', {
-                                      commitment: state.commitment,
-                                      commitmentNote: state.commitmentNote,
-                                      commitmentStartedAt: state.commitmentStartedAt,
-                                    });
-                                    store.setCommitment(!state.commitment);
-                                    try {
-                                      eventBus.emit('OverlayCommitmentToggled', {
-                                        on: !state.commitment,
-                                      });
-                                    } catch {
-                                      /* fire-and-forget */
-                                    }
-                                  }}
-                                />
-                              }
-                            />
-                          )}
-
                           {baseType === 'habit' && currentEntityId && (
                             <StaticRow
                               icon={BarChart3}
@@ -5814,11 +5716,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             variant="ghost"
                             onPress={() => {
                               if (d === '__token:today') {
-                                handleTodoDueChange(getDateService().now(), {
+                                handleTodoDueChange(getDateService().dayNow(), {
                                   label: 'Today',
                                 });
                               } else if (d === '__token:tomorrow') {
-                                handleTodoDueChange(addDays(getDateService().now(), 1), {
+                                handleTodoDueChange(addDays(getDateService().dayNow(), 1), {
                                   label: 'Tomorrow',
                                 });
                               } else {
@@ -5832,7 +5734,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   }
                                 } catch (e) {
                                   // Use today as fallback
-                                  setSelectedDate(getDateService().now());
+                                  setSelectedDate(getDateService().dayNow());
                                 }
                                 setDateModalTarget('todo_deadline');
                                 store.setUI({ showDateModal: true });
@@ -5928,13 +5830,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       <Box row gap={2} style={{ flexWrap: 'wrap' }}>
                         <Pressable
                           onPress={() => {
-                            const today = getDateService().now();
                             if (dateModalTarget === 'reminder') {
-                              store.setReminderAt(today.toISOString());
+                              // a reminder is a moment: now
+                              store.setReminderAt(getDateService().now().toISOString());
                               store.setUI({ showDateModal: false });
                               setDateModalTarget(null);
                             } else {
-                              handleDateConfirm(today);
+                              // a date is a day: the person's today
+                              handleDateConfirm(getDateService().dayNow());
                             }
                           }}
                           style={({ pressed }) => ({
@@ -5963,13 +5866,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         </Pressable>
                         <Pressable
                           onPress={() => {
-                            const tomorrow = addDays(getDateService().now(), 1);
                             if (dateModalTarget === 'reminder') {
-                              store.setReminderAt(tomorrow.toISOString());
+                              // a reminder is a moment: this time tomorrow
+                              store.setReminderAt(addDays(getDateService().now(), 1).toISOString());
                               store.setUI({ showDateModal: false });
                               setDateModalTarget(null);
                             } else {
-                              handleDateConfirm(tomorrow);
+                              // a date is a day: the day after the person's today
+                              handleDateConfirm(addDays(getDateService().dayNow(), 1));
                             }
                           }}
                           style={({ pressed }) => ({
@@ -6539,7 +6443,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     </Pressable>
                     <Pressable
                       onPress={() => {
-                        store.setHabitStartDate(format(getDateService().now(), 'yyyy-MM-dd'));
+                        store.setHabitStartDate(getDateService().today());
                         store.setUI({ showHabitStartDatePicker: false });
                       }}
                       style={{
@@ -6867,7 +6771,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       color: storeUI.saving || !canSave ? 'rgba(255,255,255,0.6)' : '#FFFFFF',
                     }}
                   >
-                    {storeUI.saving ? 'Saving...' : isLockedIn ? 'Lock It In →' : 'Save'}
+                    {storeUI.saving ? 'Saving...' : 'Save'}
                   </Text>
                 </Pressable>
               </View>
@@ -6943,7 +6847,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     setIsExpandedEditor(false);
                   }}
                   journalDateTime={
-                    effectiveLogSubtype === 'journal' ? getDateService().now() : undefined
+                    effectiveLogSubtype === 'journal' ? getDateService().dayNow() : undefined
                   }
                   isChecklistMode={isChecklistMode}
                   onToggleChecklistMode={() => {

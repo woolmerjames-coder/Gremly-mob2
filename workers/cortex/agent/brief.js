@@ -30,10 +30,11 @@ import { clockTime } from '../../inngest-jobs/brief/writer.js';
 import { personIdentity, weekdayName } from '../../shared/db.js';
 import { runAgent } from './run.js';
 import { toolContext } from './tools/index.js';
-import { AGENT_PROMPT_VERSION } from './prompt.js';
+import { AGENT_PROMPT_VERSION, isLate } from './prompt.js';
+import { dayEndHourOf } from '../../shared/day.js';
 import { checkForCorrection } from '../context/corrections.js';
 
-export const BRIEF_AGENT_VERSION = `brief-2026-10-03d/${AGENT_PROMPT_VERSION}`;
+export const BRIEF_AGENT_VERSION = `brief-2026-10-05c/${AGENT_PROMPT_VERSION}`;
 
 // the planning day ends here when nothing earlier ends it, as in the day turn
 const DAY_END = 22 * 60;
@@ -56,10 +57,16 @@ export function dayFrameOf(req) {
   };
 }
 
-/** The day in words, with the ids the tools take. */
-export function renderDay(req) {
+/**
+ * The day in words, with the ids the tools take. dayEndHour, the hour their day
+ * ends, marks the small hours as the end of their day.
+ */
+export function renderDay(req, dayEndHour = null) {
   const L = [];
-  L.push(`TODAY: ${weekdayName(req.date)} ${req.date}. TIME NOW: ${clockTime(req.now)}.`);
+  const late = isLate(req.now, dayEndHour)
+    ? `, after midnight; their ${weekdayName(req.date)} ends at ${clockTime(dayEndHour * 60)}`
+    : '';
+  L.push(`TODAY: ${weekdayName(req.date)} ${req.date}. TIME NOW: ${clockTime(req.now)}${late}.`);
   if (req.travel) {
     L.push(
       `TRAVEL TODAY: ${req.travel.label || 'they travel today'}${
@@ -90,7 +97,7 @@ export function renderDay(req) {
   );
   L.push(
     req.plan
-      ? `THE PLAN ON SCREEN, ${req.plan.status === 'locked' ? 'LOCKED IN' : 'A PROPOSAL'} (id | time | title):\n${req.plan.items
+      ? `THE PLAN ON SCREEN, ${req.plan.status === 'locked' ? 'ON TODAY (they said yes to it)' : 'A PROPOSAL'} (id | time | title):\n${req.plan.items
           .map((x) => `${x.id} | ${clockTime(x.start)} | ${x.title}`)
           .join('\n')}`
       : 'THE PLAN ON SCREEN: none yet.',
@@ -154,10 +161,112 @@ export function dayMeaning(dco) {
     : '';
 }
 
-/** What Gremly knows about today, with their latest message: what the day is about, then the day itself. */
-export function dayContext(req, dco = null) {
+/** Where tonight's wrap up has got to, in words (lib/brief/types.ts WrapStep). */
+const WRAP_AT = {
+  offer: 'Gremly has opened on the day and offered the cards',
+  cards: 'they are going through the cards',
+  partial: 'they closed the cards part way',
+  habits: 'their habits',
+  journal: 'their journal',
+  questions: "Gremly's questions",
+  close: 'the close',
+  declined: 'they put it off for now',
+  done: 'it is finished',
+};
+
+const UUID_LIKE = /^[0-9a-f-]{36}$/i;
+
+/**
+ * Tonight's wrap up as the app sends it with a message in today's thread
+ * (lib/wrapup): where it is, what was sorted (each card by its item's id, with
+ * what it was before when it moved), and the question the message answers,
+ * when it answers one. Null when there is none.
+ */
+export function readWrap(raw) {
+  if (!raw || typeof raw !== 'object' || !WRAP_AT[raw.step]) return null;
+  const str = (v, n) => (typeof v === 'string' ? v.trim().slice(0, n) : '');
+  const decisions = (Array.isArray(raw.decisions) ? raw.decisions : [])
+    .map((d) => ({
+      id: UUID_LIKE.test(String(d?.id || '')) ? d.id : null,
+      type: d?.type === 'note' ? 'note' : 'todo',
+      title: str(d?.title, 100),
+      outcome: str(d?.outcome, 40),
+      was: str(d?.was, 40),
+    }))
+    .filter((d) => d.title && d.outcome)
+    .slice(0, 20);
+  const a = raw.answering;
+  const item = a?.item && UUID_LIKE.test(String(a.item.id || '')) ? a.item : null;
+  return {
+    step: raw.step,
+    decisions,
+    answering: str(a?.question, 300)
+      ? {
+          question: str(a.question, 300),
+          item: item
+            ? {
+                id: item.id,
+                kind: ['todo', 'habit', 'note'].includes(item.kind) ? item.kind : 'item',
+                title: str(item.title, 100),
+                when: str(item.when, 30),
+              }
+            : null,
+        }
+      : null,
+  };
+}
+
+/**
+ * Tonight's wrap up, for the agent: where it is, what the cards settled and how
+ * to put one back, and the question a message answers.
+ */
+export function wrapContext(wrap) {
+  if (!wrap) return '';
+  const done = wrap.step === 'done';
+  const L = done
+    ? [
+        "TONIGHT'S WRAP UP, FINISHED",
+        'They wrapped up their day with Gremly earlier in this thread.',
+      ]
+    : [
+        'THE EVENING WRAP UP, UNDER WAY',
+        `They are wrapping up their day with Gremly in this thread: the cards for what waits for a decision, their habits, their journal, Gremly's questions, then the close. Where it is now: ${WRAP_AT[wrap.step]}.`,
+      ];
+  if (wrap.decisions.length) {
+    L.push(
+      `Sorted in the cards tonight (id | what it is | what they decided | before tonight):\n${wrap.decisions
+        .map(
+          (d) =>
+            `${d.id || 'no id'} | ${d.type} "${d.title}" | ${d.outcome} | ${d.was || 'not moved'}`,
+        )
+        .join('\n')}`,
+      "When they want one of tonight's decisions put back or changed, offer the change by its id: its day as it was before tonight, or restore one they let go. Keeping one as it is and bringing one back on a later night are the cards' own and cannot go on a card; to bring one of those sooner, offer it a day.",
+    );
+  }
+  if (!done) {
+    L.push(
+      'The wrap up carries on by itself after your reply, from where it is, so answer what they said and leave its steps to it.',
+    );
+  }
+  const a = wrap.answering;
+  if (a) {
+    const about = a.item
+      ? `, about their ${a.item.kind} "${a.item.title}" (id ${a.item.id})${a.item.when ? `, ${a.item.when}` : ''}`
+      : '';
+    L.push(
+      '',
+      "THEIR MESSAGE ANSWERS GREMLY'S QUESTION",
+      `Gremly asked: "${a.question}"${about}. Their message is the answer, and it is already saved to what Gremly knows. Take it in as a friend would, in one or two short sentences. When the answer means one of their items is wrong or needs to change, offer that change: put it on the card with propose_changes, with your reply, in this step; when it changes nothing, say so plainly and put nothing on the card.`,
+    );
+  }
+  return L.join('\n');
+}
+
+/** What Gremly knows about today, with their latest message: what the day is about, the day itself, and the wrap up when one is under way. */
+export function dayContext(req, dco = null, wrap = null, dayEndHour = null) {
   const meaning = dayMeaning(dco);
-  return `WHAT YOU KNOW ABOUT TODAY\n${meaning ? `${meaning}\n\n` : ''}${renderDay(req)}`;
+  const evening = wrapContext(wrap);
+  return `WHAT YOU KNOW ABOUT TODAY\n${meaning ? `${meaning}\n\n` : ''}${renderDay(req, dayEndHour)}${evening ? `\n\n${evening}` : ''}`;
 }
 
 /** Today's picture of the day, if the brief has made one; never stops the turn. */
@@ -192,7 +301,7 @@ export function cacheKeyFor(userId) {
  * @param {boolean} p.useAgent AGENT_BRIEF
  * @param {(body: object) => Promise<object|null>} p.dayTurn asks the day turn, as before
  * @param {(line: string) => void} [p.onStatus]
- * @param {object} [p.deps] { person, ctx, models, agent } for tests and replays
+ * @param {object} [p.deps] { person, ctx, models, agent, dayEndHour } for tests and replays
  * @returns {Promise<object>} engine 'agent' with reply, card and tasks, or engine
  *   'day_turn' with the day turn's own answer
  */
@@ -210,20 +319,23 @@ export async function runBriefTurn({ env, userId, body, useAgent, dayTurn, onSta
   const ctx = deps.ctx
     ? { ...deps.ctx, today: req.date, day }
     : toolContext(env, { userId, today: req.date, timezone, day });
-  const [person, dco] = await Promise.all([
+  const [person, dco, dayEndHour] = await Promise.all([
     deps.person || personIdentity(env, userId),
     readDco(ctx, userId, req.date),
+    // when their day ends, so the small hours read as the end of it
+    deps.dayEndHour ?? dayEndHourOf(env, userId),
   ]);
 
   const r = await runAgent({
     surface: 'brief',
     persona: briefPersona(person),
-    context: dayContext(req, dco),
+    context: dayContext(req, dco, readWrap(body?.wrap), dayEndHour),
     cacheKey: cacheKeyFor(userId),
     history: req.history,
     message: req.text,
     ctx,
     nowMin: req.now,
+    dayEndHour,
     tasks: Array.isArray(body?.tasks) ? body.tasks : [],
     onStatus,
     firstStatus: 'Looking at your day',
@@ -273,6 +385,9 @@ export function answeredInThread(result) {
 export async function learnFromTurn({ env, userId, body, result, deps = {} }) {
   const req = readTurnRequest(body || {});
   if (!req.text || !answeredInThread(result)) return { sent: 0 };
+  // an answer to one of Gremly's questions is saved by the app as the answer
+  // (lib/wrapup, answerQuestion), so it is not read a second time here
+  if (readWrap(body?.wrap)?.answering) return { sent: 0 };
   const lines = req.history.map((m) => `${m.role === 'user' ? 'User' : 'Gremly'}: ${m.content}`);
   lines.push(`User: ${req.text}`);
   if (typeof result?.reply === 'string' && result.reply) lines.push(`Gremly: ${result.reply}`);

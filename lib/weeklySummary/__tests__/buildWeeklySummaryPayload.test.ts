@@ -320,21 +320,15 @@ describe('buildWeeklySummaryPayload', () => {
     expect(result!.stats.ideasCaptured).toBe(2);
   });
 
-  // ── Lock-ins ──────────────────────────────────────────────────────────────
+  // ── Lock In is gone ───────────────────────────────────────────────────────
 
-  it('counts lock-ins from todos and habits', async () => {
+  it('says nothing about Lock Ins, even for one made in the past', async () => {
     const state = makeBaseState({
-      todos: [
-        makeTodo({ locked_in_at: '2025-12-15T08:00:00Z' }), // This week
-        makeTodo({ locked_in_at: '2025-12-01T08:00:00Z' }), // Not this week
-      ],
-      habits: [
-        makeHabit({ locked_in_at: '2025-12-16T08:00:00Z' }), // This week
-      ],
+      todos: [makeTodo({ locked_in_at: '2025-12-15T08:00:00Z' })],
     });
     mockGetState.mockReturnValue(state);
     const result = await buildWeeklySummaryPayload();
-    expect(result!.stats.lockIns).toBe(2);
+    expect(result!.stats).not.toHaveProperty('lockIns');
   });
 
   // ── Mind Drops ────────────────────────────────────────────────────────────
@@ -510,7 +504,6 @@ describe('buildWeeklySummaryPayload', () => {
     expect(result!.stats.todosCreated).toBe(0);
     expect(result!.stats.journalEntries).toBe(0);
     expect(result!.stats.ideasCaptured).toBe(0);
-    expect(result!.stats.lockIns).toBe(0);
     expect(result!.stats.mindDropsCreated).toBe(0);
     expect(result!.stats.mindDropsSwept).toBe(0);
     expect(result!.completedTodos).toEqual([]);

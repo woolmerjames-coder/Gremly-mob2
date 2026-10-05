@@ -36,7 +36,7 @@ export const TimelineOverlay: React.FC<TimelineOverlayProps> = ({
 
   const [adding, setAdding] = React.useState(false);
   const [title, setTitle] = React.useState('');
-  const [date, setDate] = React.useState<string>(format(getDateService().now(), 'yyyy-MM-dd'));
+  const [date, setDate] = React.useState<string>(getDateService().today());
   const [note, setNote] = React.useState<string>('');
 
   const handleAdd = async () => {
@@ -47,7 +47,7 @@ export const TimelineOverlay: React.FC<TimelineOverlayProps> = ({
         date,
       });
       setTitle('');
-      setDate(format(getDateService().now(), 'yyyy-MM-dd'));
+      setDate(getDateService().today());
       setNote('');
       setAdding(false);
     } catch (e) {

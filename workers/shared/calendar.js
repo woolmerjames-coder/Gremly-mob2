@@ -41,14 +41,14 @@ export function minutesIn(tz, at) {
   return p.hour * 60 + p.minute;
 }
 
-/** The UTC instant of local midnight on dateStr. */
-export function localStartIso(tz, dateStr) {
+/** The UTC instant of a local hour on dateStr (midnight by default). */
+export function localStartIso(tz, dateStr, hour = 0) {
   const [y, mo, d] = dateStr.split('-').map(Number);
-  let guess = Date.UTC(y, mo - 1, d, 0, 0);
+  let guess = Date.UTC(y, mo - 1, d, hour, 0);
   for (let i = 0; i < 2; i++) {
     const p = partsIn(tz, new Date(guess));
     guess +=
-      Date.UTC(y, mo - 1, d, 0, 0) -
+      Date.UTC(y, mo - 1, d, hour, 0) -
       Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
   }
   return new Date(guess).toISOString();

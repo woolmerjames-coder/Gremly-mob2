@@ -8,15 +8,12 @@ import {
 
 jest.mock('../../store/useGremlyStore', () => ({
   useGremlyStore: { getState: () => ({}) },
-  isHabitLockedIn: () => false,
 }));
 jest.mock('../../store/selectors', () => ({ selectSweepCandidatesUnified: () => [] }));
 
 const TODAY = '2026-09-30';
-const snap = (entries: [string, string | null, boolean?][]): SweepSnapshot => ({
-  candidates: new Map(
-    entries.map(([id, due, locked]) => [id, { title: id, dueDay: due, lockedIn: !!locked }]),
-  ),
+const snap = (entries: [string, string | null][]): SweepSnapshot => ({
+  candidates: new Map(entries.map(([id, due]) => [id, { title: id, dueDay: due }])),
 });
 
 describe('handing Sweep back to the thread', () => {
@@ -31,13 +28,13 @@ describe('handing Sweep back to the thread', () => {
     const after = snap([['oat', TODAY]]);
     const now = (id: string) =>
       ({
-        oat: { title: 'Buy Oat Milk', dueDay: TODAY, lockedIn: false },
-        tap: { title: 'Fix the tap', dueDay: '2026-10-05', lockedIn: false },
-        plumber: { title: 'Call the plumber', dueDay: '2026-09-29', lockedIn: true },
-        bank: { title: 'Bank', dueDay: null, lockedIn: false },
+        oat: { title: 'Buy Oat Milk', dueDay: TODAY },
+        tap: { title: 'Fix the tap', dueDay: '2026-10-05' },
+        plumber: { title: 'Call the plumber', dueDay: TODAY },
+        bank: { title: 'Bank', dueDay: null },
       })[id] ?? null;
     const o = compareSweep(before, after, now, TODAY);
-    // oat (dated today), tap (dated later), plumber (locked in) changed; idea and bank left Sweep
+    // oat and plumber (dated today), tap (dated later) changed; idea and bank left Sweep
     expect(o.swept).toBe(5);
     expect(o.kept.map((k) => k.title)).toEqual(['Buy Oat Milk', 'Call the plumber']);
     expect(o.allDone).toBe(false);

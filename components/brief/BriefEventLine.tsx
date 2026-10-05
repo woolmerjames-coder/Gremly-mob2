@@ -2,13 +2,21 @@
 
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { Check, Inbox, Lock, Pencil } from 'lucide-react-native';
+import { ArrowRight, Check, Inbox, Lock, Pencil } from 'lucide-react-native';
 import type { BriefEventMeta } from '../../lib/brief/types';
 import { BRIEF } from './briefStyles';
 
-const ICONS = { sweep: Inbox, saved: Pencil, locked: Lock } as const;
+const ICONS = { sweep: Inbox, saved: Pencil, locked: Lock, moved: ArrowRight } as const;
 
 export function BriefEventLine({ text, icon }: { text: string; icon?: BriefEventMeta['icon'] }) {
+  // a clock time alone: a quiet divider where the evening starts
+  if (icon === 'time') {
+    return (
+      <View style={styles.wrap} testID="brief-time">
+        <Text style={styles.time}>{text}</Text>
+      </View>
+    );
+  }
   const Icon = (icon && ICONS[icon]) || Check;
   return (
     <View style={styles.wrap} testID="brief-event">
@@ -40,5 +48,12 @@ const styles = StyleSheet.create({
     fontFamily: 'PlusJakartaSans-SemiBold',
     fontSize: 12.5,
     color: BRIEF.moss,
+  },
+  time: {
+    fontFamily: 'PlusJakartaSans-SemiBold',
+    fontSize: 11,
+    letterSpacing: 0.4,
+    color: BRIEF.faint,
+    fontVariant: ['tabular-nums'],
   },
 });

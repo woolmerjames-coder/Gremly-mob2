@@ -98,7 +98,7 @@ export function useEventQuickAdd(options: EventQuickAddOptions): UseEventQuickAd
           // Get date context for Phase 2
           const ds = getDateService();
           const currentDate = ds.today(); // YYYY-MM-DD
-          const dayOfWeek = format(ds.now(), 'EEEE');
+          const dayOfWeek = format(ds.dayNow(), 'EEEE');
           const timezone = ds.getTimezone();
 
           console.log('[EventQuickAdd] Running Phase 1.5a + Phase 2 in parallel');

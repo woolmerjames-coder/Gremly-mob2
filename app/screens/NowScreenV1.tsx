@@ -31,7 +31,7 @@ import { NowFocusRow } from '../../components/now/NowFocusRow';
 import { BreakHabitCard } from '../../components/now/BreakHabitCard';
 import { NowCalendarEventRow } from '../../components/now/NowCalendarEventRow';
 import { NowFutureDivider } from '../../components/now/NowFutureDivider';
-import { RolledOverSection, RecentDropsSection, SweepPill } from '../../components/now';
+import { RolledOverSection, RecentDropsSection } from '../../components/now';
 import { NowQuickAddModal } from '../../components/now/NowQuickAddModal';
 import { OverwhelmSelectSheet } from '../../components/now/OverwhelmSelectSheet';
 import { OverwhelmPlanSheet } from '../../components/now/OverwhelmPlanSheet';
@@ -52,12 +52,10 @@ import WeeklySummaryBanner from '../../components/WeeklySummaryBanner';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useHasCompletedOnboarding } from '../../lib/store/lifecycleSelectors';
 import {
-  useLockedItems,
   useActiveItems,
   useTodayProgress,
   useOverdueTodos,
   useRecentDrops,
-  useSweepCountUnified,
   useCompletedToday,
   useTodayHabits,
   useYourNotes,
@@ -89,6 +87,8 @@ import { useBriefUnread } from '../../lib/brief/todayThread';
 import { briefReadyLine, todayThreadParams } from '../../lib/brief/pinned';
 import { isReturnDay, readDco } from '../../lib/brief/dco';
 import { BriefReadyBubble } from '../../components/brief/BriefReadyBubble';
+import { useEveningTeaser } from '../../lib/wrapup/useEveningTeaser';
+import { TODAY_BUTTON, teaserLine } from '../../lib/wrapup/words';
 import { useDayCard } from '../../lib/brief/useDayCard';
 import { TimeBlockSection } from '../../components/now/TimeBlockSection';
 import {
@@ -100,25 +100,6 @@ import {
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPE TRANSFORMERS - Convert raw store types to Now screen types
 // ═══════════════════════════════════════════════════════════════════════════════
-
-/** Transform raw Todo/Habit to NowLockedItem */
-function toLockedItem(item: Todo | Habit, spacesMap: Map<string, Space>): NowLockedItem {
-  const isHabit = 'cadence' in item;
-  const spaceId = item.space_id ?? null;
-  const space = spaceId ? spacesMap.get(spaceId) : null;
-  return {
-    id: item.id,
-    type: isHabit ? 'habit' : 'todo',
-    name: item.name,
-    locked: true as const,
-    dueDay: isHabit ? null : ((item as Todo).due_day ?? null),
-    cadence: isHabit ? (item as Habit).cadence : undefined,
-    targetPerPeriod: isHabit ? (item as Habit).target_per_period : undefined,
-    frequency: isHabit ? (item as Habit).frequency : undefined,
-    spaceId,
-    spaceName: space?.name ?? null,
-  };
-}
 
 /** Transform raw Todo/Habit to NowActiveItem */
 function toActiveItem(item: Todo | Habit, spacesMap: Map<string, Space>): NowActiveItem {
@@ -339,6 +320,10 @@ export default function NowScreenV1() {
   const briefUnread = useBriefUnread();
   const briefDco = useGremlyStore((s) => s.dco);
   const briefUserName = useGremlyStore((s) => s.userName);
+  // In the evening the same bubble says the wrap up is waiting, and the
+  // header button starts it (the floating Sweep pill is gone)
+  const wrapTeaser = useEveningTeaser();
+  const wrapBubble = !briefUnread && wrapTeaser.nudge;
   const briefReady = useMemo(
     () =>
       briefUnread
@@ -347,15 +332,17 @@ export default function NowScreenV1() {
             firstName: briefUserName ? briefUserName.trim().split(/\s+/)[0] : null,
             surface: 'today',
           })
-        : null,
-    [briefUnread, briefDco, briefUserName],
+        : wrapBubble
+          ? teaserLine(wrapTeaser.cards, '', 'today')
+          : null,
+    [briefUnread, briefDco, briefUserName, wrapBubble, wrapTeaser.cards],
   );
 
   // Sweep completion detection for day picker
   const lastSweepCompletedAt = useGremlyStore((s) => s.lastSweepCompletedAt);
   const hasSweepedToday = useMemo(() => {
     if (!lastSweepCompletedAt) return false;
-    const sweepDay = getDateService().extractLocalDate(lastSweepCompletedAt);
+    const sweepDay = getDateService().dayOf(lastSweepCompletedAt);
     return sweepDay === todayStr;
   }, [lastSweepCompletedAt, todayStr]);
 
@@ -406,7 +393,6 @@ export default function NowScreenV1() {
   }, [hasCompletedOnboarding, firstTodayVisitCompletedAt, isInitialized]);
 
   // Today's items - from selectors (single source of truth)
-  const rawLockedItems = useLockedItems();
   const activeItems = useActiveItems();
   const completedToday = useCompletedToday();
   const overdueTodos = useOverdueTodos();
@@ -415,18 +401,11 @@ export default function NowScreenV1() {
   // Hidden today items (Not Today feature)
   const hiddenTodayIds = useGremlyStore((s) => s.hiddenTodayIds);
 
-  // Filter out hidden items from locked and active lists
-  const lockedItems = useMemo(
-    () => rawLockedItems.filter((item) => !hiddenTodayIds.includes(item.id)),
-    [rawLockedItems, hiddenTodayIds],
-  );
+  // Filter out hidden items
   const visibleActiveItems = useMemo(
     () => activeItems.filter((item) => !hiddenTodayIds.includes(item.id)),
     [activeItems, hiddenTodayIds],
   );
-
-  // Derive lockedItemIds from filtered result
-  const lockedItemIds = useMemo(() => new Set(lockedItems.map((item) => item.id)), [lockedItems]);
 
   // Habits
   const habitsToday = useTodayHabits();
@@ -453,26 +432,23 @@ export default function NowScreenV1() {
 
   // Compute today's habit and todo counts for header
   const todayHabitCount = habitsToday.length;
-  const todayTodoCount = useMemo(() => {
-    // Count todos in locked + active items (not habits)
-    const lockedTodoCount = lockedItems.filter((item) => !('cadence' in item)).length;
-    const activeTodoCount = visibleActiveItems.filter((item) => !('cadence' in item)).length;
-    return lockedTodoCount + activeTodoCount;
-  }, [lockedItems, visibleActiveItems]);
+  const todayTodoCount = useMemo(
+    // todos on Today (not habits)
+    () => visibleActiveItems.filter((item) => !('cadence' in item)).length,
+    [visibleActiveItems],
+  );
 
   // Calculate remaining time estimate for incomplete todos
   const remainingMinutes = useMemo(() => {
-    const allItems = [...lockedItems, ...visibleActiveItems];
-    return allItems
+    return visibleActiveItems
       .filter((item) => !('cadence' in item)) // Only todos
       .reduce((sum, item) => {
         const todo = item as Todo;
         return sum + (todo.time_estimate_minutes ?? 0);
       }, 0);
-  }, [lockedItems, visibleActiveItems]);
+  }, [visibleActiveItems]);
 
   // Sweep count (unified includes todos, notes, and unconfirmed habits)
-  const sweepCandidateCount = useSweepCountUnified();
 
   // Logs count for header
   const logsToday = useTodayLogsCount();
@@ -486,7 +462,8 @@ export default function NowScreenV1() {
 
   // NowData for header (computed locally)
   const nowData = useMemo(() => {
-    const now = getDateService().now();
+    // the person's day: after midnight Today still shows the day it has been
+    const now = getDateService().dayNow();
 
     // Just the date, no greeting (NowHeader adds its own greeting)
     const dateTimeLabel = format(now, 'EEEE, MMMM d');
@@ -506,44 +483,8 @@ export default function NowScreenV1() {
   const uncompleteHabit = useGremlyStore((state) => state.uncompleteHabit);
   const updateTodo = useGremlyStore((state) => state.updateTodo);
 
-  // Locked items - transform lockedItems to Now types
-  // lockedItems comes from useLockedItems selector, filtered to exclude hidden items
-  const displayLockedItems = useMemo((): NowLockedItem[] => {
-    return lockedItems.map((item) => {
-      const isTodo = !('cadence' in item);
-      const space = spacesMap.get(item.space_id ?? '');
-
-      if (isTodo) {
-        const todo = item as any; // Todo type
-        return {
-          id: item.id,
-          type: 'todo' as const,
-          name: item.name || todo.title || 'Untitled',
-          locked: true as const,
-          dueDay: todo.due_day ?? null,
-          spaceId: item.space_id ?? null,
-          spaceName: space?.name ?? null,
-        };
-      } else {
-        const habit = item as any; // Habit type
-        return {
-          id: item.id,
-          type: 'habit' as const,
-          name: item.name || 'Untitled',
-          locked: true as const,
-          cadence: habit.cadence,
-          targetPerPeriod: habit.target_per_period,
-          frequency: habit.frequency,
-          spaceId: item.space_id ?? null,
-          spaceName: space?.name ?? null,
-        };
-      }
-    });
-  }, [lockedItems, spacesMap]);
-
   // Derived: has any work today
-  const hasAnyTodayWork =
-    displayLockedItems.length > 0 || visibleActiveItems.length > 0 || completedToday.length > 0;
+  const hasAnyTodayWork = visibleActiveItems.length > 0 || completedToday.length > 0;
 
   // Active items - transform to Now types and apply time window sorting
   const displayActiveItems = useMemo(() => {
@@ -551,8 +492,7 @@ export default function NowScreenV1() {
     return sortActiveItems(transformed);
   }, [visibleActiveItems, spacesMap]);
 
-  // Sort active items respecting morning brief sequence
-  // NOTE: Locked items are handled separately - they appear at the VERY TOP before any time blocks
+  // Sort active items respecting the day's plan sequence
   const sortedActiveItems = useMemo(() => {
     // Build priority map from sequences
     const priorityMap = new Map<string, number>();
@@ -575,17 +515,14 @@ export default function NowScreenV1() {
       });
     }
 
-    // Filter OUT locked items - they're rendered separately at the top
-    const nonLockedItems = displayActiveItems.filter((item) => !lockedItemIds.has(item.id));
-
     // Sort by sequence priority, then unsequenced
-    return [...nonLockedItems].sort((a, b) => {
+    return [...displayActiveItems].sort((a, b) => {
       // Sort by sequence priority
       const aPriority = priorityMap.get(a.id) ?? 999;
       const bPriority = priorityMap.get(b.id) ?? 999;
       return aPriority - bPriority;
     });
-  }, [displayActiveItems, brief, lockedItemIds]);
+  }, [displayActiveItems, brief]);
 
   // Completed items - transform to Now types
   const displayCompletedToday = useMemo(() => {
@@ -765,12 +702,12 @@ export default function NowScreenV1() {
 
   // Handle overwhelm plan submission
   const handleOverwhelmSubmit = useCallback(() => {
-    const selectedItems = [...displayLockedItems, ...visibleActiveItems]
+    const selectedItems = visibleActiveItems
       .filter((item) => overwhelm.selectedIds.includes(item.id))
       .map((item) => ({ id: item.id, title: item.name }));
 
     void overwhelm.requestPlan(selectedItems);
-  }, [overwhelm, displayLockedItems, visibleActiveItems]);
+  }, [overwhelm, visibleActiveItems]);
 
   // Handle add press - opens quick-add MindDrop modal
   const handleAddPress = useCallback(() => {
@@ -788,6 +725,11 @@ export default function NowScreenV1() {
     if (hasSweepedToday) setShowDayPicker(true);
     else openPlanWithGremly();
   }, [hasSweepedToday, openPlanWithGremly]);
+  const headerPlanLabel = wrapTeaser.offer
+    ? TODAY_BUTTON.wrap
+    : wrapTeaser.done
+      ? TODAY_BUTTON.done
+      : 'Plan with Gremly';
 
   // Add item to Today's Focus by setting due_day to today
   const handleAddToToday = useCallback(
@@ -901,7 +843,10 @@ export default function NowScreenV1() {
           lead={briefReady.lead}
           rest={briefReady.rest}
           onPress={() =>
-            navigation.navigate('Tabs', { screen: 'Gremly', params: todayThreadParams() })
+            navigation.navigate('Tabs', {
+              screen: 'Gremly',
+              params: todayThreadParams(wrapBubble ? 'wrap' : undefined),
+            })
           }
         />
       ) : null}
@@ -919,12 +864,25 @@ export default function NowScreenV1() {
               styles.headerOrganizeButton,
               pressed && styles.headerButtonPressed,
             ]}
-            onPress={handleOpenBrief}
+            onPress={
+              // the way into the wrap up while it is offered: in the evening, once it
+              // is under way, or as soon as everything on Today is done
+              wrapTeaser.offer
+                ? () =>
+                    navigation.navigate('Tabs', {
+                      screen: 'Gremly',
+                      params: todayThreadParams('wrap'),
+                    })
+                : wrapTeaser.done
+                  ? () =>
+                      navigation.navigate('Tabs', { screen: 'Gremly', params: todayThreadParams() })
+                  : handleOpenBrief
+            }
             testID="header-organize"
             accessibilityRole="button"
-            accessibilityLabel="Plan with Gremly"
+            accessibilityLabel={headerPlanLabel}
           >
-            <Text style={styles.headerOrganizeButtonText}>Plan with Gremly</Text>
+            <Text style={styles.headerOrganizeButtonText}>{headerPlanLabel}</Text>
           </Pressable>
 
           {/* Add to Today button - sage */}
@@ -943,7 +901,6 @@ export default function NowScreenV1() {
 
       <View style={styles.focusSectionWrapper}>
         <TodayFocusList
-          lockedItems={displayLockedItems}
           activeItems={sortedActiveItems}
           futureItems={[]} // Future items selector not implemented yet
           progressPercent={progressPercent}
@@ -956,23 +913,9 @@ export default function NowScreenV1() {
           onAddToToday={handleAddToToday}
           bottomInset={insets.bottom}
           brief={brief}
-          lockedItemIds={lockedItemIds}
           eventNotes={todayEventNotes}
           onEventPress={handleKeyDatePress}
           onEventQuickAction={handleEventQuickAction}
-        />
-      </View>
-
-      {/* Sweep Pill - fixed above tab bar */}
-      <View
-        style={[styles.sweepPillContainer, { bottom: insets.bottom + 16 }]}
-        pointerEvents="box-none"
-      >
-        <SweepPill
-          count={sweepCandidateCount}
-          onPress={() => {
-            navigation.navigate('Sweep');
-          }}
         />
       </View>
 
@@ -995,7 +938,7 @@ export default function NowScreenV1() {
 
       <OverwhelmSelectSheet
         visible={overwhelm.step === 'select'}
-        items={[...displayLockedItems, ...displayActiveItems]}
+        items={displayActiveItems}
         selectedIds={overwhelm.selectedIds}
         onToggleSelect={overwhelm.toggleSelection}
         onSubmit={handleOverwhelmSubmit}
@@ -1271,7 +1214,6 @@ function OptimisticQuickAddCard({
 /* eslint-enable react-hooks/refs */
 
 type TodayFocusListProps = {
-  lockedItems: NowLockedItem[];
   activeItems: NowActiveItem[];
   futureItems: NowFutureItem[];
   progressPercent: number;
@@ -1288,7 +1230,6 @@ type TodayFocusListProps = {
     day_sequence?: { id: string }[];
     evening_sequence?: { id: string }[];
   } | null;
-  lockedItemIds?: Set<string>;
   /** All event notes for today (external + native, from useEventNotesForDate) */
   eventNotes?: Note[];
   onEventPress?: (event: Note) => void;
@@ -1296,7 +1237,6 @@ type TodayFocusListProps = {
 };
 
 function TodayFocusList({
-  lockedItems,
   activeItems,
   futureItems,
   progressPercent,
@@ -1309,7 +1249,6 @@ function TodayFocusList({
   onAddToToday,
   bottomInset,
   brief,
-  lockedItemIds,
   eventNotes = [],
   onEventPress,
   onEventQuickAction,
@@ -1324,25 +1263,11 @@ function TodayFocusList({
   // Group all event notes by time block
   const eventNotesByBlock = useMemo(() => groupKeyDatesByTimeBlock(eventNotes ?? []), [eventNotes]);
 
-  // Build flat sorted list: locked + active items merged, sorted by sequence
+  // Build the flat list, sorted by the plan's sequence
   const sortedItems = useMemo(() => {
-    // Convert locked items to NowActiveItem format so they flow through block grouping
-    const lockedAsActive: NowActiveItem[] = lockedItems.map((item) => ({
-      id: item.id,
-      type: item.type,
-      name: item.name,
-      locked: false as const, // Type compat — tracked via lockedItemIds
-      dueDay: item.dueDay ?? null,
-      cadence: item.cadence,
-      targetPerPeriod: item.targetPerPeriod,
-      frequency: item.frequency,
-      spaceId: item.spaceId ?? null,
-      spaceName: item.spaceName ?? null,
-    }));
-
-    // Merge locked + active, dedup by id
+    // dedup by id
     const seen = new Set<string>();
-    const allItems = [...lockedAsActive, ...activeItems].filter((item) => {
+    const allItems = activeItems.filter((item) => {
       if (seen.has(item.id)) return false;
       seen.add(item.id);
       return true;
@@ -1361,7 +1286,7 @@ function TodayFocusList({
     };
 
     return allItems.sort((a, b) => getSequencePriority(a.id) - getSequencePriority(b.id));
-  }, [activeItems, brief, lockedItems]);
+  }, [activeItems, brief]);
 
   // Group items by time block using multiple signals (brief sequences, store time_window, scheduled time)
   const { itemsByBlock, breakHabitsByBlock } = useMemo(() => {
@@ -1447,8 +1372,8 @@ function TodayFocusList({
   // Merge events and tasks into chronological lists per block
   const unifiedByBlock = useMemo(() => {
     const blocks = ['morning', 'afternoon', 'evening', 'anytime', 'allday'] as const;
-    const now = getDateService().now();
-    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    // minutes into the person's day: after midnight nothing of today is still ahead
+    const nowMinutes = getDateService().minutesIntoDay();
     const result: Record<
       string,
       Array<{
@@ -1550,8 +1475,7 @@ function TodayFocusList({
     return false;
   };
 
-  const hasNoItems =
-    lockedItems.length === 0 && activeItems.length === 0 && pendingDrops.length === 0;
+  const hasNoItems = activeItems.length === 0 && pendingDrops.length === 0;
   const isAllComplete = progressPercent === 100 && hasAnyTodayWork && pendingDrops.length === 0;
 
   const emptyState = getTodayEmptyState();
@@ -1594,7 +1518,6 @@ function TodayFocusList({
                 item={entry.item!}
                 isCompleted={false}
                 isLocked={false}
-                isLockedIn={lockedItemIds?.has(entry.id)}
                 isFirst={index === 0}
                 onPress={() => onPressItem?.(entry.item!)}
                 onToggleComplete={() => onToggleComplete?.(entry.item!)}
@@ -1622,7 +1545,6 @@ function TodayFocusList({
                 item={entry.item!}
                 isCompleted={false}
                 isLocked={false}
-                isLockedIn={lockedItemIds?.has(entry.id)}
                 isFirst={index === 0}
                 onPress={() => onPressItem?.(entry.item!)}
                 onToggleComplete={() => onToggleComplete?.(entry.item!)}
@@ -1653,7 +1575,6 @@ function TodayFocusList({
                 item={entry.item!}
                 isCompleted={false}
                 isLocked={false}
-                isLockedIn={lockedItemIds?.has(entry.id)}
                 isFirst={index === 0}
                 onPress={() => onPressItem?.(entry.item!)}
                 onToggleComplete={() => onToggleComplete?.(entry.item!)}
@@ -1684,7 +1605,6 @@ function TodayFocusList({
                 item={entry.item!}
                 isCompleted={false}
                 isLocked={false}
-                isLockedIn={lockedItemIds?.has(entry.id)}
                 isFirst={index === 0}
                 onPress={() => onPressItem?.(entry.item!)}
                 onToggleComplete={() => onToggleComplete?.(entry.item!)}
@@ -1715,7 +1635,6 @@ function TodayFocusList({
                 item={entry.item!}
                 isCompleted={false}
                 isLocked={false}
-                isLockedIn={lockedItemIds?.has(entry.id)}
                 isFirst={index === 0}
                 onPress={() => onPressItem?.(entry.item!)}
                 onToggleComplete={() => onToggleComplete?.(entry.item!)}
@@ -1770,8 +1689,8 @@ function TodayFocusList({
         />
       ))}
 
-      {/* Extra space for fixed SweepPill above tab bar */}
-      <View style={{ height: bottomInset + 80 }} />
+      {/* Room to scroll the last row clear of the tab bar */}
+      <View style={{ height: bottomInset + 24 }} />
     </ScrollView>
   );
 }
@@ -1849,12 +1768,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     color: '#2E5540', // Moss green
-  },
-  sweepPillContainer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    alignItems: 'center',
   },
   listContainer: {
     flex: 1,

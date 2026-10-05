@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { Coffee, MessageSquare, Search } from 'lucide-react-native';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
-import { today, yesterday, extractLocalDate } from '../../lib/date/DateService';
+import { today, yesterday, getDateService } from '../../lib/date/DateService';
 import type { SpaceChat } from '../../lib/types';
 
 interface ChatHistorySheetProps {
@@ -21,7 +21,8 @@ interface ChatHistorySheetProps {
 }
 
 function formatRelativeDate(dateStr: string): string {
-  const localDate = extractLocalDate(dateStr);
+  // the person's day the chat was last used in
+  const localDate = getDateService().dayOf(dateStr);
   if (!localDate) return '';
 
   if (localDate === today()) return 'Today';

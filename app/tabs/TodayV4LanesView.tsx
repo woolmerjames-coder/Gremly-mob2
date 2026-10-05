@@ -73,7 +73,7 @@ export default function TodayV4LanesView() {
   const repo = useRepo();
   const { openEdit } = useUnifiedOverlayController();
   const commitmentsEnabled = useMemo(
-    () => (process.env.EXPO_PUBLIC_FEATURE_COMMITMENTS ?? 'on').toLowerCase(),
+    () => (process.env.EXPO_PUBLIC_FEATURE_COMMITMENTS ?? 'off').toLowerCase(),
     [],
   );
   const showCommitments = useMemo(
@@ -82,7 +82,7 @@ export default function TodayV4LanesView() {
   );
   const { items: commitmentItems } = useCommitments(showCommitments);
   const displayName = (user?.user_metadata?.first_name as string) ?? 'James';
-  const todayString = format(getDateService().now(), 'EEEE, MMMM do');
+  const todayString = format(getDateService().dayNow(), 'EEEE, MMMM do');
   const verticalGuideColor =
     colorScheme === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(34,34,34,0.06)';
   const doneCount = right.length;

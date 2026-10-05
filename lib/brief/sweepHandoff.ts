@@ -5,13 +5,13 @@
  * the swipe cards that still need a decision (selectQuickSweepCandidates).
  * On the way in the brief notes what was waiting, and when the
  * thread is back on screen it compares. What left Sweep was swept; what now
- * carries today's date, or became a Lock In, was kept for today. Then the
+ * carries today's date was kept for today. Then the
  * thread gets an event line and Gremly's follow-up, worked out from data:
  * plan around what was kept, or add it to the plan already there. Closing
  * Sweep before deciding anything puts the offer's buttons back.
  */
 
-import { useGremlyStore, isHabitLockedIn } from '../store/useGremlyStore';
+import { useGremlyStore } from '../store/useGremlyStore';
 import { selectQuickSweepCandidates } from '../store/selectors';
 import { getDateService } from '../date/DateService';
 import type { BriefOfferMeta, OfferButton } from './types';
@@ -20,7 +20,6 @@ import { planLabel } from './offerFlow';
 export interface SweepItemState {
   title: string;
   dueDay: string | null;
-  lockedIn: boolean;
 }
 
 export interface SweepSnapshot {
@@ -41,16 +40,11 @@ let pending: PendingSweep | null = null;
 function stateOf(id: string): SweepItemState | null {
   const s = useGremlyStore.getState();
   const t = s.todos.find((x) => x.id === id);
-  if (t)
-    return {
-      title: t.name || t.title || 'Untitled',
-      dueDay: t.due_day ?? null,
-      lockedIn: !!t.commitment,
-    };
+  if (t) return { title: t.name || t.title || 'Untitled', dueDay: t.due_day ?? null };
   const h = s.habits.find((x) => x.id === id);
-  if (h) return { title: h.name || 'Habit', dueDay: null, lockedIn: isHabitLockedIn(h) };
+  if (h) return { title: h.name || 'Habit', dueDay: null };
   const n = s.notes.find((x) => x.id === id);
-  if (n) return { title: n.title || 'Note', dueDay: null, lockedIn: false };
+  if (n) return { title: n.title || 'Note', dueDay: null };
   return null;
 }
 
@@ -84,8 +78,7 @@ export interface SweepOutcome {
 
 /**
  * What happened in Sweep: everything that left Sweep, or stayed with a new
- * date or a Lock In, was swept; what now carries today's date or is locked
- * in was kept for today.
+ * date, was swept; what now carries today's date was kept for today.
  */
 export function compareSweep(
   before: SweepSnapshot,
@@ -98,10 +91,9 @@ export function compareSweep(
   for (const [id, was] of before.candidates) {
     const is = now(id);
     const left = !after.candidates.has(id);
-    const changed = !!is && (is.dueDay !== was.dueDay || is.lockedIn !== was.lockedIn);
+    const changed = !!is && is.dueDay !== was.dueDay;
     if (left || changed) swept++;
-    const forToday =
-      !!is && ((is.dueDay === today && was.dueDay !== today) || (is.lockedIn && !was.lockedIn));
+    const forToday = !!is && is.dueDay === today && was.dueDay !== today;
     if (forToday) kept.push({ id, title: is!.title });
   }
   return { swept, kept, allDone: after.candidates.size === 0 };

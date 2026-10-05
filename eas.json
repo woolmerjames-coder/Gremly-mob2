@@ -9,7 +9,7 @@
       "distribution": "internal",
       "env": {
         "EXPO_PUBLIC_FEATURE_OVERLAY_V2": "on",
-        "EXPO_PUBLIC_FEATURE_COMMITMENTS": "on",
+        "EXPO_PUBLIC_FEATURE_COMMITMENTS": "off",
         "EXPO_PUBLIC_CLASSIFY_V3": "on"
       }
     },
@@ -17,7 +17,7 @@
       "distribution": "store",
       "env": {
         "EXPO_PUBLIC_FEATURE_OVERLAY_V2": "on",
-        "EXPO_PUBLIC_FEATURE_COMMITMENTS": "on",
+        "EXPO_PUBLIC_FEATURE_COMMITMENTS": "off",
         "EXPO_PUBLIC_CLASSIFY_V3": "on"
       },
       "channel": "preview"
@@ -29,7 +29,7 @@
         "EXPO_PUBLIC_CALENDAR_WORKER_URL": "https://gremly-calendar-worker.woolmerjames.workers.dev",
         "EXPO_PUBLIC_GOOGLE_CLIENT_ID": "81105861621-ombuvivk9f9kifkoji8pgvnfsvstovqi.apps.googleusercontent.com",
         "EXPO_PUBLIC_FEATURE_OVERLAY_V2": "on",
-        "EXPO_PUBLIC_FEATURE_COMMITMENTS": "on",
+        "EXPO_PUBLIC_FEATURE_COMMITMENTS": "off",
         "EXPO_PUBLIC_CLASSIFY_V3": "on"
       },
       "channel": "production"

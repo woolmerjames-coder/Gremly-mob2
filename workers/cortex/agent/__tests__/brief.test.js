@@ -14,8 +14,10 @@ import {
   dayFrameOf,
   dayMeaning,
   learnFromTurn,
+  readWrap,
   renderDay,
   runBriefTurn,
+  wrapContext,
 } from '../brief.js';
 import { readTurnRequest } from '../../../inngest-jobs/brief/dayTurn.js';
 import { CHAT_WRITING_RULES } from '../../../inngest-jobs/careRules.js';
@@ -120,6 +122,15 @@ describe('the day the agent knows', () => {
     expect(text).toContain("GREMLY'S OPEN QUESTION: none");
     expect(text).not.toMatch(/\bi1\b/);
     expect(text).not.toContain('yes busy one');
+  });
+
+  it('marks the small hours as the end of their day', () => {
+    const late = readTurnRequest({ ...BODY, now: 46 });
+    expect(renderDay(late, 3)).toContain(
+      'TODAY: Friday 2026-10-02. TIME NOW: 12:46am, after midnight; their Friday ends at 3am.',
+    );
+    expect(renderDay(late, 0)).toContain('TODAY: Friday 2026-10-02. TIME NOW: 12:46am.');
+    expect(renderDay(req, 3)).toContain('TODAY: Friday 2026-10-02. TIME NOW: 9:04am.');
   });
 
   it('gives the tools the plan on screen, the set times and the items by id', () => {
@@ -420,5 +431,108 @@ describe('learning from the turn', () => {
       deps: { checkForCorrection: check },
     });
     expect(checked).toHaveLength(1);
+  });
+});
+
+describe('a message typed while the evening wrap up is under way', () => {
+  const VET = '0b7c6f0e-1d2a-4c3b-9e8f-112233445566';
+
+  it('tells Gremly where the wrap up is, what was sorted, and that it carries on by itself', () => {
+    const wrap = readWrap({
+      step: 'habits',
+      decisions: [
+        {
+          id: VET,
+          type: 'todo',
+          title: 'Do taxes',
+          outcome: 'kept for tomorrow',
+          was: 'was due Saturday 3 October',
+        },
+        { id: 'not-an-id', type: 'note', title: 'Gym idea', outcome: 'let go' },
+        { title: '', outcome: 'x' },
+      ],
+    });
+    const text = wrapContext(wrap);
+    expect(text).toContain('THE EVENING WRAP UP, UNDER WAY');
+    expect(text).toContain('Where it is now: their habits.');
+    expect(text).toContain(
+      `Sorted in the cards tonight (id | what it is | what they decided | before tonight):\n${VET} | todo "Do taxes" | kept for tomorrow | was due Saturday 3 October\nno id | note "Gym idea" | let go | not moved`,
+    );
+    expect(text).toContain("When they want one of tonight's decisions put back or changed");
+    expect(text).toContain('carries on by itself after your reply');
+    expect(text).not.toContain("GREMLY'S QUESTION");
+  });
+
+  it('once it is finished, still knows what the cards settled, and does not carry on', () => {
+    const text = wrapContext(
+      readWrap({
+        step: 'done',
+        decisions: [{ id: VET, type: 'todo', title: 'Do taxes', outcome: 'kept for Friday' }],
+      }),
+    );
+    expect(text).toContain("TONIGHT'S WRAP UP, FINISHED");
+    expect(text).toContain(`${VET} | todo "Do taxes" | kept for Friday | not moved`);
+    expect(text).not.toContain('carries on by itself');
+    expect(text).not.toContain('UNDER WAY');
+  });
+
+  it('says which of his questions the message answers, and the item it is about', () => {
+    const wrap = readWrap({
+      step: 'questions',
+      decisions: [],
+      answering: {
+        question: "Is Bella's vet visit on Friday or Monday?",
+        item: { id: VET, kind: 'todo', title: 'Take Bella to the vet', when: 'Fri 9 Oct' },
+      },
+    });
+    const text = wrapContext(wrap);
+    expect(text).toContain("THEIR MESSAGE ANSWERS GREMLY'S QUESTION");
+    expect(text).toContain(
+      `Gremly asked: "Is Bella's vet visit on Friday or Monday?", about their todo "Take Bella to the vet" (id ${VET}), Fri 9 Oct.`,
+    );
+    expect(text).toContain('put it on the card with propose_changes, with your reply');
+  });
+
+  it('is nothing when no wrap up is under way, and comes after the day', () => {
+    expect(readWrap(null)).toBeNull();
+    expect(readWrap({ step: 'somewhere' })).toBeNull();
+    expect(wrapContext(null)).toBe('');
+    const req = readTurnRequest({ text: 'hi', date: '2026-10-03', now: 600, items: [] });
+    const ctx = dayContext(req, null, readWrap({ step: 'journal', decisions: [] }));
+    expect(ctx.indexOf('TODAY:')).toBeLessThan(ctx.indexOf('THE EVENING WRAP UP'));
+  });
+
+  it('calls a plan they said yes to On Today, not Lock In', () => {
+    const req = readTurnRequest({
+      text: 'hi',
+      date: '2026-10-03',
+      now: 600,
+      items: [{ id: 't1', kind: 'todo', title: 'Taxes' }],
+      plan: {
+        status: 'locked',
+        items: [{ id: 't1', kind: 'todo', title: 'Taxes', start: 660, end: 720 }],
+      },
+    });
+    const text = renderDay(req);
+    expect(text).toContain('THE PLAN ON SCREEN, ON TODAY (they said yes to it)');
+    expect(text).not.toMatch(/LOCKED IN/);
+  });
+
+  it('an answer is not read again for corrections: the app saves it as the answer', async () => {
+    const check = jest.fn().mockResolvedValue({ sent: 1 });
+    const out = await learnFromTurn({
+      env: {},
+      userId: 'u1',
+      body: {
+        text: 'Monday',
+        date: '2026-10-03',
+        history: [],
+        wrap: { step: 'questions', decisions: [], answering: { question: 'Friday or Monday?' } },
+      },
+      result: { engine: 'agent', reply: 'Monday it is.' },
+      deps: { checkForCorrection: check },
+    });
+    expect(out).toEqual({ sent: 0 });
+    expect(check).not.toHaveBeenCalled();
   });
 });

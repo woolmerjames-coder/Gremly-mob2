@@ -326,7 +326,7 @@ export async function runClassifyV3(
     const dayOfWeek = new Intl.DateTimeFormat('en-US', {
       weekday: 'long',
       timeZone: ds.getTimezone(),
-    }).format(ds.now());
+    }).format(ds.dayNow());
 
     const res = await fetch(cortexUrl, {
       method: 'POST',

@@ -245,7 +245,7 @@ function ChapterDateBanner({ chapter, palette }: { chapter: Chapter } & PaletteP
 
   if (chapter.start_date) {
     const start = new Date(chapter.start_date);
-    const today = getDateService().now();
+    const today = getDateService().dayNow();
     const dayNumber = differenceInCalendarDays(today, start) + 1;
     dayLabel = `day ${dayNumber}`;
 

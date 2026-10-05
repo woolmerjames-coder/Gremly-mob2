@@ -34,16 +34,12 @@ jest.mock('../../../lib/store/selectors', () => ({
         resurfacingDate: null,
         spaceName: null,
         spaceId: null,
-        isLockedIn: false,
         gremlyResponse: 'Test gremly response',
       },
     })),
-  useSweepIntroStats: () => ({ stats: { urgentCount: 0, pendingCount: 0 }, isLoading: false }),
   useIsLoading: () => false,
   useActiveSpaces: () => [],
   useSkipBudget: () => ({ used: 0, remaining: 3, total: 3, canSkip: true }),
-  selectTodayLockedItems: () => [], // No locked items in tests
-  selectTodayLockedItemsIncludingCompleted: () => [], // No locked items in tests
 }));
 
 jest.mock('../../../lib/store/useGremlyStore', () => {
@@ -204,6 +200,17 @@ jest.mock('../../../lib/today/useTodayInteractions', () => ({
   }),
 }));
 
+// The week planner's habits step is its own screen with its own tests: here it
+// only has to show that the cards handed over to it
+jest.mock('../../components/sweep/SweepHabitsCheckInStep', () => {
+  const React = require('react');
+  const { Text } = require('react-native');
+  return {
+    __esModule: true,
+    SweepHabitsCheckInStep: () => React.createElement(Text, null, 'Week habits step'),
+  };
+});
+
 // Mock navigation
 const mockGoBack = jest.fn();
 jest.mock('@react-navigation/native', () => {
@@ -218,7 +225,7 @@ jest.mock('@react-navigation/native', () => {
       effect();
     },
     useRoute: () => ({
-      params: {},
+      params: { week: true },
     }),
   };
 });
@@ -315,26 +322,17 @@ const mockNoteCandidate: SweepCandidate = {
   } as any,
 };
 
-const INTRO_DECISION_LABEL =
-  /Close out today|Wrap up today|Plan today|Anything for today\?|Set up tomorrow instead/;
-
-function pressIntroDecisionIntent(result: ReturnType<typeof render>) {
-  const button = result.getAllByText(INTRO_DECISION_LABEL)[0];
-  fireEvent.press(button);
-}
-
 /**
- * Helper to render and navigate to decision step (step 1)
- * Flow: Intro (0) → Decision (1)
+ * Helper to render and get to the cards. Sweep's whole list, saved at the
+ * end, is the week planner's now: open it and take the guided path.
  */
 async function renderAtDecisionStep() {
   const result = render(<SweepFlowScreen navigation={mockNavigation} />);
 
-  // Step 0: Intro - tap a non-week intent row to go to Decision
   await waitFor(() => {
-    expect(result.getAllByText(INTRO_DECISION_LABEL).length).toBeGreaterThan(0);
+    expect(result.getByText('Lead me through it all')).toBeTruthy();
   });
-  pressIntroDecisionIntent(result);
+  fireEvent.press(result.getByText('Lead me through it all'));
 
   return result;
 }
@@ -348,67 +346,6 @@ describe('SweepFlowScreen - Decision Step', () => {
     mockStoreTodos = [];
     mockStoreNotes = [];
     mockLiveNotes = [];
-  });
-
-  describe('Intro Step', () => {
-    beforeEach(() => {
-      // Need candidates to show intro (otherwise shows "All clear!" immediately)
-      mockCandidates = [mockTodoCandidate];
-    });
-
-    it('renders the intro step first', () => {
-      const result = render(<SweepFlowScreen navigation={mockNavigation} />);
-
-      // First-time users see "Welcome to Sweep!", otherwise "A quick sweep"
-      expect(result.getByText(/Welcome to Sweep|A quick sweep/)).toBeTruthy();
-      expect(result.getAllByText(INTRO_DECISION_LABEL).length).toBeGreaterThan(0);
-    });
-
-    it('advances to decision step when button is pressed', async () => {
-      const result = render(<SweepFlowScreen navigation={mockNavigation} />);
-
-      // Tap a non-week intent to enter decision flow
-      pressIntroDecisionIntent(result);
-
-      // Should now be on decision step (shows card or loading)
-      await waitFor(() => {
-        // Should see the todo we mocked
-        expect(result.getByText('Test task')).toBeTruthy();
-      });
-    });
-  });
-
-  describe('Loading State', () => {
-    it('shows empty celebration when store has no candidates', () => {
-      // When there are no candidates, intro shows "All clear!" celebration
-      mockCandidates = [];
-
-      const result = render(<SweepFlowScreen navigation={mockNavigation} />);
-
-      expect(result.getByText('All clear!')).toBeTruthy();
-      expect(result.getByText('Back to Today')).toBeTruthy();
-    });
-  });
-
-  describe('Empty State', () => {
-    it('shows empty celebration when no candidates from start', () => {
-      mockCandidates = [];
-
-      const result = render(<SweepFlowScreen navigation={mockNavigation} />);
-
-      expect(result.getByText('All clear!')).toBeTruthy();
-    });
-
-    it('shows Back to Today button in empty state', () => {
-      mockCandidates = [];
-
-      const result = render(<SweepFlowScreen navigation={mockNavigation} />);
-
-      expect(result.getByText('Back to Today')).toBeTruthy();
-    });
-
-    // Note: When there are no candidates, clicking "Back to Today" closes sweep
-    // There is no decision step to navigate through - just direct to empty celebration
   });
 
   describe('Card Display', () => {
@@ -567,12 +504,12 @@ describe('SweepFlowScreen - Decision Step', () => {
       fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       await waitFor(() => {
-        expect(result.getByText('Habits today')).toBeTruthy();
+        expect(result.getByText('Week habits step')).toBeTruthy();
       });
       expect(result.queryByText('Test note')).toBeNull();
     });
 
-    it('auto-advances to habits step after all cards processed', async () => {
+    it('moves on to the habits step after all cards are processed', async () => {
       mockCandidates = [mockTodoCandidate];
       mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate]);
 
@@ -584,26 +521,10 @@ describe('SweepFlowScreen - Decision Step', () => {
 
       fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
-      // Should auto-advance to Habits step (step 2)
+      // On to the week planner's habits step (step 2)
       await waitFor(() => {
-        expect(result.getByText('Habits today')).toBeTruthy();
+        expect(result.getByText('Week habits step')).toBeTruthy();
       });
-    });
-  });
-
-  describe('Step Navigation', () => {
-    it('hides intro content after advancing to decision step', async () => {
-      // Need candidates to show intro and then advance
-      mockCandidates = [mockTodoCandidate];
-
-      const result = await renderAtDecisionStep();
-
-      await waitFor(() => {
-        result.getByText('Test task');
-      });
-
-      // Intro content should no longer be visible
-      expect(result.queryAllByText(INTRO_DECISION_LABEL)).toHaveLength(0);
     });
   });
 

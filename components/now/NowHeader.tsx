@@ -165,8 +165,8 @@ export function NowHeader({
   const timedEvents = events.filter((e) => e.event_time && !e.is_all_day);
   const totalHours = timedEvents.length; // 1hr estimate per event
 
-  const now = getDateService().now();
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  // minutes into the person's day: after midnight nothing of today is still ahead
+  const nowMinutes = getDateService().minutesIntoDay();
   const upcomingEvent = events.find((e) => {
     if (!e.event_time) return false;
     const [h, m] = e.event_time.split(':').map(Number);

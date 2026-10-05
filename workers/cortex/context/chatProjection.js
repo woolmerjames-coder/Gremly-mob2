@@ -442,31 +442,46 @@ export async function buildChatContext(userId, lane, opts, env) {
     const timezone = opts?.timezone || 'UTC';
     const currentChatId = opts?.currentChatId;
 
-    // Fetch all context in parallel. Ask Gremly also reads the week ahead.
+    // Fetch all context in parallel. Ask Gremly also reads the week ahead,
+    // from the person's day when the caller knows it (opts.today, a day or a
+    // promise of one: workers/shared/day.js).
     const focusRead = getDailyFocusForChat(userId, env);
+    const todayRead = Promise.resolve(opts?.today).catch(() => null);
     const weekRead =
       lane === 'general'
         ? readWeekAhead(userId, timezone, env, {
             cancelledIds: focusRead.then((f) => f?.cancelledCalendarIds || []),
+            today: todayRead,
           })
         : Promise.resolve(null);
-    const [lifeMap, dailyFocus, recentDelta, temporalAnchors, chatSummaries, lifePack, recall, week] = await Promise.all([
+    const [
+      lifeMap,
+      dailyFocus,
+      recentDelta,
+      temporalAnchors,
+      chatSummaries,
+      lifePack,
+      recall,
+      week,
+    ] = await Promise.all([
       getLifeMapForChat(userId, env),
       focusRead,
       fetchRecentActivityDelta(userId, env),
-      fetchTemporalAnchors(userId, timezone, env),
+      fetchTemporalAnchors(userId, timezone, env, todayRead),
       fetchRecentChatSummaries(userId, currentChatId, env),
       getLifePack(userId, env),
       opts?.message ? recallForMessage(userId, opts.message, env) : Promise.resolve(''),
       weekRead,
     ]);
 
-    const todayStr = new Intl.DateTimeFormat('en-CA', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      timeZone: timezone,
-    }).format(new Date());
+    const todayStr =
+      (await todayRead) ||
+      new Intl.DateTimeFormat('en-CA', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        timeZone: timezone,
+      }).format(new Date());
 
     const parts = [];
 
@@ -512,9 +527,11 @@ export async function buildChatContext(userId, lane, opts, env) {
     // Token safety. The life pack is the person's whole story, so the limits
     // leave room for it; truncation cuts from the end.
     const MAX_CONTEXT_CHARS =
-      lane === 'general' ? 26000
-      : lane === 'space' || lane === 'world' || lane === 'chapter' ? 20000
-      : 12000;
+      lane === 'general'
+        ? 26000
+        : lane === 'space' || lane === 'world' || lane === 'chapter'
+          ? 20000
+          : 12000;
     if (result.length > MAX_CONTEXT_CHARS) {
       console.warn(
         `[ChatProjection] Context truncated for ${userId.slice(0, 8)}: ${result.length} → ${MAX_CONTEXT_CHARS} chars`,
@@ -648,7 +665,7 @@ export function formatSpaceEntities(entities) {
  * Fetch active temporal anchors for a user. KV cached 5 minutes.
  * Enriches each anchor with daysAway and timeDescription.
  */
-export async function fetchTemporalAnchors(userId, timezone, env) {
+export async function fetchTemporalAnchors(userId, timezone, env, today = null) {
   if (!userId) return null;
 
   try {
@@ -679,13 +696,16 @@ export async function fetchTemporalAnchors(userId, timezone, env) {
     const anchors = await response.json();
     if (!Array.isArray(anchors) || anchors.length === 0) return null;
 
-    // Get today's date in the user's timezone
-    const todayStr = new Intl.DateTimeFormat('en-CA', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      timeZone: timezone || 'UTC',
-    }).format(new Date());
+    // Their day when the caller knows it (a day or a promise of one: after
+    // midnight it is still yesterday until their day ends), else the calendar's
+    const todayStr =
+      (await Promise.resolve(today).catch(() => null)) ||
+      new Intl.DateTimeFormat('en-CA', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        timeZone: timezone || 'UTC',
+      }).format(new Date());
 
     const todayMs = new Date(todayStr + 'T00:00:00Z').getTime();
 
@@ -862,7 +882,9 @@ export async function fetchWorldEntities(userId, worldId, env) {
     if (env.CONTEXT_CACHE) {
       const cached = await env.CONTEXT_CACHE.get(cacheKey);
       if (cached) {
-        console.log(`[ChatProjection] World entities cache hit for ${userId.slice(0, 8)}:${worldId.slice(0, 8)}`);
+        console.log(
+          `[ChatProjection] World entities cache hit for ${userId.slice(0, 8)}:${worldId.slice(0, 8)}`,
+        );
         return JSON.parse(cached);
       }
     }
@@ -877,11 +899,15 @@ export async function fetchWorldEntities(userId, worldId, env) {
       fetch(
         `${env.SUPABASE_URL}/rest/v1/worlds?id=eq.${worldId}&owner_id=eq.${userId}&select=id,name,archetypes&limit=1`,
         { headers },
-      ).then((r) => r.json()).catch(() => []),
+      )
+        .then((r) => r.json())
+        .catch(() => []),
       fetch(
         `${env.SUPABASE_URL}/rest/v1/drop_world_links?world_id=eq.${worldId}&owner_id=eq.${userId}&select=drop_id,drop_type&limit=100`,
         { headers },
-      ).then((r) => r.json()).catch(() => []),
+      )
+        .then((r) => r.json())
+        .catch(() => []),
     ]);
 
     const world = Array.isArray(worldRes) && worldRes.length > 0 ? worldRes[0] : null;
@@ -897,19 +923,25 @@ export async function fetchWorldEntities(userId, worldId, env) {
         ? fetch(
             `${env.SUPABASE_URL}/rest/v1/todos?id=in.(${todoIds.join(',')})&is_complete=eq.false&select=title,target_date&limit=15`,
             { headers },
-          ).then((r) => r.json()).catch(() => [])
+          )
+            .then((r) => r.json())
+            .catch(() => [])
         : Promise.resolve([]),
       habitIds.length > 0
         ? fetch(
             `${env.SUPABASE_URL}/rest/v1/habits?id=in.(${habitIds.join(',')})&archived=eq.false&select=title,frequency&limit=10`,
             { headers },
-          ).then((r) => r.json()).catch(() => [])
+          )
+            .then((r) => r.json())
+            .catch(() => [])
         : Promise.resolve([]),
       noteIds.length > 0
         ? fetch(
             `${env.SUPABASE_URL}/rest/v1/notes?id=in.(${noteIds.join(',')})&archived=eq.false&select=title,subtype,target_date&limit=10`,
             { headers },
-          ).then((r) => r.json()).catch(() => [])
+          )
+            .then((r) => r.json())
+            .catch(() => [])
         : Promise.resolve([]),
     ]);
 
@@ -1000,7 +1032,9 @@ export async function fetchChapterEntities(userId, chapterId, env) {
     if (env.CONTEXT_CACHE) {
       const cached = await env.CONTEXT_CACHE.get(cacheKey);
       if (cached) {
-        console.log(`[ChatProjection] Chapter entities cache hit for ${userId.slice(0, 8)}:${chapterId.slice(0, 8)}`);
+        console.log(
+          `[ChatProjection] Chapter entities cache hit for ${userId.slice(0, 8)}:${chapterId.slice(0, 8)}`,
+        );
         return JSON.parse(cached);
       }
     }
@@ -1015,11 +1049,15 @@ export async function fetchChapterEntities(userId, chapterId, env) {
       fetch(
         `${env.SUPABASE_URL}/rest/v1/chapters?id=eq.${chapterId}&owner_id=eq.${userId}&select=id,title,summary,target_description,phase,start_date,end_date&limit=1`,
         { headers },
-      ).then((r) => r.json()).catch(() => []),
+      )
+        .then((r) => r.json())
+        .catch(() => []),
       fetch(
         `${env.SUPABASE_URL}/rest/v1/drop_chapter_links?chapter_id=eq.${chapterId}&select=drop_id,drop_type&limit=100`,
         { headers },
-      ).then((r) => r.json()).catch(() => []),
+      )
+        .then((r) => r.json())
+        .catch(() => []),
     ]);
 
     const chapter = Array.isArray(chapterRes) && chapterRes.length > 0 ? chapterRes[0] : null;
@@ -1035,19 +1073,25 @@ export async function fetchChapterEntities(userId, chapterId, env) {
         ? fetch(
             `${env.SUPABASE_URL}/rest/v1/todos?id=in.(${todoIds.join(',')})&is_complete=eq.false&select=title,target_date&limit=15`,
             { headers },
-          ).then((r) => r.json()).catch(() => [])
+          )
+            .then((r) => r.json())
+            .catch(() => [])
         : Promise.resolve([]),
       habitIds.length > 0
         ? fetch(
             `${env.SUPABASE_URL}/rest/v1/habits?id=in.(${habitIds.join(',')})&archived=eq.false&select=title,frequency&limit=10`,
             { headers },
-          ).then((r) => r.json()).catch(() => [])
+          )
+            .then((r) => r.json())
+            .catch(() => [])
         : Promise.resolve([]),
       noteIds.length > 0
         ? fetch(
             `${env.SUPABASE_URL}/rest/v1/notes?id=in.(${noteIds.join(',')})&archived=eq.false&select=title,subtype,target_date&limit=10`,
             { headers },
-          ).then((r) => r.json()).catch(() => [])
+          )
+            .then((r) => r.json())
+            .catch(() => [])
         : Promise.resolve([]),
     ]);
 

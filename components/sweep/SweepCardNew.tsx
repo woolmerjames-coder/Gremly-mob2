@@ -24,6 +24,7 @@ import { Text, Box } from '../../ui';
 import { BRAND } from '../../design/brand';
 import { parseDayString } from '../../lib/date/computeDueDay';
 import { getDateService } from '../../lib/date';
+import { tomorrowLabel } from '../../lib/wrapup/day';
 import { useActiveSpaces } from '../../lib/store/selectors';
 import { SweepCardShell } from './SweepCardShell';
 import { TodoActionZone } from './TodoActionZone';
@@ -35,6 +36,20 @@ import { WorldPickerSheet } from './WorldPickerSheet';
 import { SweepConversionToast } from './SweepConversionToast';
 import type { SweepCandidate, SweepCardMeta } from '../../lib/sweep/types';
 import type { WeekDay } from '../../lib/store/weekGridSelectors';
+
+/**
+ * The person's day, at noon. After midnight it is still yesterday until their
+ * day ends, so Today and Tomorrow on a card mean what they mean everywhere
+ * else in the evening (the receipt, the thread, Today).
+ */
+function theirDay(): Date {
+  const ds = getDateService();
+  return ds.fromLocalDate(ds.ritualDay()) ?? ds.now();
+}
+function theirDayPlus(days: number): string {
+  const ds = getDateService();
+  return ds.addDays(ds.ritualDay(), days);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -154,9 +169,9 @@ export function SweepCardNew({
   const [selectedDate, setSelectedDate] = useState(() => {
     if (candidate.kind === 'todo' && candidate.raw.due_day) {
       const parsed = parseDayString(candidate.raw.due_day);
-      return parsed || getDateService().now();
+      return parsed || theirDay();
     }
-    return getDateService().now();
+    return theirDay();
   });
   const [clearDateFlag, setClearDateFlag] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -213,8 +228,8 @@ export function SweepCardNew({
 
     // Restore from previousDecision
     if (previousDecision?.dueDate) {
-      const tomorrow = addDays(getDateService().now(), 1);
-      const monday = nextMonday(getDateService().now());
+      const tomorrow = addDays(theirDay(), 1);
+      const monday = nextMonday(theirDay());
 
       if (isSameDay(previousDecision.dueDate, tomorrow)) {
         setSelectedAction('tomorrow');
@@ -256,9 +271,9 @@ export function SweepCardNew({
     // Pre-fill date from candidate
     if (candidate.kind === 'todo' && candidate.raw.due_day) {
       const parsed = parseDayString(candidate.raw.due_day);
-      setSelectedDate(parsed || getDateService().now());
+      setSelectedDate(parsed || theirDay());
     } else {
-      setSelectedDate(getDateService().now());
+      setSelectedDate(theirDay());
     }
   }, [candidate.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -324,11 +339,11 @@ export function SweepCardNew({
       const ds = getDateService();
       let dueDateStr: string | null = null;
       if (selectedAction === 'today') {
-        dueDateStr = ds.today();
+        dueDateStr = ds.ritualDay();
       } else if (selectedAction === 'tomorrow') {
-        dueDateStr = ds.tomorrow();
+        dueDateStr = ds.addDays(ds.ritualDay(), 1);
       } else if (selectedAction === 'nextweek') {
-        dueDateStr = ds.toLocalDate(ds.getNextWeekday(1));
+        dueDateStr = ds.toLocalDate(ds.getNextWeekday(1, theirDay()));
       } else if (selectedAction === 'pickdate' && confirmedCustomDate) {
         dueDateStr = ds.toLocalDate(confirmedCustomDate);
       }
@@ -399,9 +414,9 @@ export function SweepCardNew({
         const ds = getDateService();
         let resurfaceDateStr: string | undefined;
         if (resurfaceTiming === 'nextweek') {
-          resurfaceDateStr = ds.toLocalDate(addDays(getDateService().now(), 7));
+          resurfaceDateStr = ds.toLocalDate(addDays(theirDay(), 7));
         } else if (resurfaceTiming === '2weeks') {
-          resurfaceDateStr = ds.toLocalDate(addDays(getDateService().now(), 14));
+          resurfaceDateStr = ds.toLocalDate(addDays(theirDay(), 14));
         } else if (resurfaceTiming === 'pick' && confirmedResurfaceDate) {
           resurfaceDateStr = ds.toLocalDate(confirmedResurfaceDate);
         }
@@ -611,9 +626,7 @@ export function SweepCardNew({
               daysUntilEventOverride={
                 overriddenEventDate
                   ? Math.round(
-                      (overriddenEventDate.getTime() -
-                        getDateService().now().setHours(0, 0, 0, 0)) /
-                        86400000,
+                      (overriddenEventDate.getTime() - theirDay().setHours(0, 0, 0, 0)) / 86400000,
                     )
                   : undefined
               }
@@ -719,31 +732,29 @@ export function SweepCardNew({
                     <>
                       <Pressable
                         onPress={() => {
-                          setSelectedDate(addDays(getDateService().now(), 1));
+                          setSelectedDate(addDays(theirDay(), 1));
                           setClearDateFlag(false);
                         }}
                         style={({ pressed }) => [
                           styles.dateChip,
                           pressed && styles.dateChipPressed,
                           !clearDateFlag &&
-                            getDateService().toLocalDate(selectedDate) ===
-                              getDateService().tomorrow() &&
+                            getDateService().toLocalDate(selectedDate) === theirDayPlus(1) &&
                             styles.dateChipSelected,
                         ]}
                       >
-                        <Text style={styles.dateChipText}>Tomorrow</Text>
+                        <Text style={styles.dateChipText}>{tomorrowLabel()}</Text>
                       </Pressable>
                       <Pressable
                         onPress={() => {
-                          setSelectedDate(addDays(getDateService().now(), 7));
+                          setSelectedDate(addDays(theirDay(), 7));
                           setClearDateFlag(false);
                         }}
                         style={({ pressed }) => [
                           styles.dateChip,
                           pressed && styles.dateChipPressed,
                           !clearDateFlag &&
-                            getDateService().toLocalDate(selectedDate) ===
-                              getDateService().daysFromNow(7) &&
+                            getDateService().toLocalDate(selectedDate) === theirDayPlus(7) &&
                             styles.dateChipSelected,
                         ]}
                       >
@@ -754,15 +765,14 @@ export function SweepCardNew({
                     <>
                       <Pressable
                         onPress={() => {
-                          setSelectedDate(getDateService().now());
+                          setSelectedDate(theirDay());
                           setClearDateFlag(false);
                         }}
                         style={({ pressed }) => [
                           styles.dateChip,
                           pressed && styles.dateChipPressed,
                           !clearDateFlag &&
-                            getDateService().toLocalDate(selectedDate) ===
-                              getDateService().today() &&
+                            getDateService().toLocalDate(selectedDate) === theirDayPlus(0) &&
                             styles.dateChipSelected,
                         ]}
                       >
@@ -770,19 +780,18 @@ export function SweepCardNew({
                       </Pressable>
                       <Pressable
                         onPress={() => {
-                          setSelectedDate(addDays(getDateService().now(), 1));
+                          setSelectedDate(addDays(theirDay(), 1));
                           setClearDateFlag(false);
                         }}
                         style={({ pressed }) => [
                           styles.dateChip,
                           pressed && styles.dateChipPressed,
                           !clearDateFlag &&
-                            getDateService().toLocalDate(selectedDate) ===
-                              getDateService().tomorrow() &&
+                            getDateService().toLocalDate(selectedDate) === theirDayPlus(1) &&
                             styles.dateChipSelected,
                         ]}
                       >
-                        <Text style={styles.dateChipText}>Tomorrow</Text>
+                        <Text style={styles.dateChipText}>{tomorrowLabel()}</Text>
                       </Pressable>
                       <Pressable
                         onPress={() => {

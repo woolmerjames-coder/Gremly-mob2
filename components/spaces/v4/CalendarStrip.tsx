@@ -9,7 +9,10 @@ export type CalendarStripProps = {
   activeDate?: Date;
 };
 
-export const CalendarStrip: React.FC<CalendarStripProps> = ({ days, activeDate = getDateService().now() }) => {
+export const CalendarStrip: React.FC<CalendarStripProps> = ({
+  days,
+  activeDate = getDateService().dayNow(),
+}) => {
   const fmt = (d: Date) => format(d, 'EEE').slice(0, 3);
   const isSame = (a: Date, b: Date) =>
     a.getFullYear() === b.getFullYear() &&

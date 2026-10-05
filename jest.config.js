@@ -20,6 +20,7 @@ module.exports = {
   setupFilesAfterEnv: [
     '@testing-library/jest-native/extend-expect',
     '<rootDir>/__tests__/setup/console.silence.ts',
+    '<rootDir>/__tests__/setup/dayEnd.ts',
   ],
   moduleNameMapper: {
     '\\.(png|jpg|jpeg|gif|webp|svg|lottie)$': '<rootDir>/__mocks__/fileMock.js',

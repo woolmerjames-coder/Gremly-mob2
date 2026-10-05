@@ -18,8 +18,6 @@ import {
   selectTodosCompletedToday,
   selectHabitsCompletedToday,
   selectOverdueTodos,
-  selectLockedTodos,
-  selectTodayLockedItems,
   selectTodayActiveItems,
   selectTodayCompletedItems,
   selectTodayProgress,
@@ -152,7 +150,6 @@ function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
   const notes = useGremlyStore((s) => s.notes);
 
   // Use memoized selectors for derived data
-  const lockedItemsRaw = useGremlyStore(selectTodayLockedItems);
   const activeItemsRaw = useGremlyStore(selectTodayActiveItems);
   const completedItemsRaw = useGremlyStore(selectTodayCompletedItems);
   const sweepCandidatesWithMeta = useGremlyStore(selectSweepCandidatesUnified);
@@ -163,15 +160,10 @@ function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
   return useMemo(() => {
     const todayDayString = getTodayDayString();
 
-    // Filter out deleted items for optimistic UI
-    const lockedItems = lockedItemsRaw
-      .filter((item) => !deletedItemIds.has(item.id))
-      .map((item) => ({
-        ...item,
-        type: 'id' in item && 'target_count' in item ? ('habit' as const) : ('todo' as const),
-        name: (item as any).name || (item as any).title || '',
-      })) as NowLockedItem[];
+    // Nothing is locked any more: what is on Today is the active list
+    const lockedItems: NowLockedItem[] = [];
 
+    // Filter out deleted items for optimistic UI
     const activeItems = activeItemsRaw
       .filter((item) => !deletedItemIds.has(item.id))
       .map((item) => ({
@@ -374,7 +366,6 @@ function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
       completionSummary,
     };
   }, [
-    lockedItemsRaw,
     activeItemsRaw,
     completedItemsRaw,
     sweepCandidatesWithMeta,

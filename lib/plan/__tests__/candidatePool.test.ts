@@ -27,7 +27,7 @@ function input(over: Partial<PoolInput> = {}): PoolInput {
     habits: [],
     doneThisWeek: new Map(),
     doneToday: new Set(),
-    lockedHabitIds: new Set(),
+    placedIds: new Set(),
     daysGone: 3,
     claims: [],
     reach: null,
@@ -75,30 +75,43 @@ describe('the candidate pool', () => {
 
   it('puts claims first, then what is on Today, and leaves out done and archived items', () => {
     const claimed = todo('claimed', { due_day: TODAY, time_estimate_minutes: 20 });
-    const committed = todo('committed', { due_day: TODAY, commitment: true });
+    // the plan gave this one a time this morning
+    const placed = todo('placed', { due_day: TODAY });
     const done = todo('done', { due_day: TODAY, completed_at: '2026-09-30T10:00:00Z' });
     const run = habit('run', { time_window: 'evening' });
     const pool = buildCandidatePool(
       input({
-        todos: [claimed, committed, done],
+        todos: [claimed, placed, done],
         todosDueToday: [claimed, done],
         habits: [run],
         habitsDueToday: [run],
-        lockedHabitIds: new Set(),
+        placedIds: new Set(['placed']),
         claims: [{ type: 'todo', id: 'claimed', why: 'Dana needs it today' }],
       }),
     );
-    expect(pool.map((c) => c.id)).toEqual(['claimed', 'committed', 'run']);
+    expect(pool.map((c) => c.id)).toEqual(['claimed', 'placed', 'run']);
+    expect(pool[1]).toMatchObject({ why: 'On Today', source: 'today' });
     expect(pool[0]).toMatchObject({ minutes: 20, why: 'Dana needs it today', source: 'claim' });
     expect(pool[2].window).toEqual([17 * 60, 22 * 60]);
   });
 
-  it('counts a Lock In only for the day it is due, as Today shows it', () => {
-    // locked in yesterday, then moved to Saturday in Sweep: not on today
-    const moved = todo('moved', { due_day: '2026-10-03', commitment: true });
+  it('takes no notice of an old Lock In: only a time the plan gave today counts as on Today', () => {
+    const flagged = todo('flagged', { due_day: '2026-10-03', commitment: true });
     const undated = todo('undated', { due_day: null, commitment: true });
-    const pool = buildCandidatePool(input({ todos: [moved, undated] }));
-    expect(pool.map((c) => c.id)).toEqual([]);
+    expect(buildCandidatePool(input({ todos: [flagged, undated] })).map((c) => c.id)).toEqual([]);
+    // an undated todo the plan placed today is on Today
+    const pool = buildCandidatePool(
+      input({ todos: [flagged, undated], placedIds: new Set(['undated']) }),
+    );
+    expect(pool.map((c) => [c.id, c.source])).toEqual([['undated', 'today']]);
+  });
+
+  it('leaves what is on Today out of a plan for another day', () => {
+    const placed = todo('placed', { due_day: null });
+    const pool = buildCandidatePool(
+      input({ todos: [placed], placedIds: new Set(['placed']), forToday: false }),
+    );
+    expect(pool).toEqual([]);
   });
 
   it('adds the reach: a todo as it is, a fact as a suggestion', () => {

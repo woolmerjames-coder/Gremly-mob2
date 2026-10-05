@@ -119,11 +119,6 @@ export function computeSweepCardMeta(
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Locked-in status (commitment field on todos)
-  // ─────────────────────────────────────────────────────────────────────────
-  const isLockedIn = candidate.kind === 'todo' && candidate.raw.commitment === true;
-
-  // ─────────────────────────────────────────────────────────────────────────
   // Reschedule count (todos only)
   // ─────────────────────────────────────────────────────────────────────────
   const rescheduleCount =
@@ -132,7 +127,7 @@ export function computeSweepCardMeta(
   // ─────────────────────────────────────────────────────────────────────────
   // Gremly response
   // ─────────────────────────────────────────────────────────────────────────
-  const gremlyResponse = getGremlyResponse(candidate, isNew, isLockedIn, rescheduleCount);
+  const gremlyResponse = getGremlyResponse(candidate, isNew, rescheduleCount);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Note card type (only for notes)
@@ -216,7 +211,6 @@ export function computeSweepCardMeta(
     resurfacingDate,
     spaceName,
     spaceId,
-    isLockedIn,
     gremlyResponse,
     rescheduleCount,
     noteCardType,

@@ -34,7 +34,7 @@ describe('the pinned Today card', () => {
     expect(queryByTestId('today-pinned-unread')).toBeNull();
   });
 
-  it('offers to wrap up in the evening while things wait, and a tap starts it', () => {
+  it('offers to wrap up in the evening, and a tap starts it', () => {
     const onPress = jest.fn();
     const onWrapUp = jest.fn();
     const { getByText, getByTestId } = render(
@@ -43,29 +43,48 @@ describe('the pinned Today card', () => {
         unread={false}
         onPress={onPress}
         phase="evening"
-        toDecide={3}
+        wrapLine="Wrap up today: 3 things to decide"
+        wrapNudge
         onWrapUp={onWrapUp}
       />,
     );
     expect(getByText('Wrap up today: 3 things to decide')).toBeTruthy();
+    expect(getByTestId('today-pinned-wrap')).toBeTruthy();
     fireEvent.press(getByTestId('today-pinned-card'));
     expect(onWrapUp).toHaveBeenCalled();
     expect(onPress).not.toHaveBeenCalled();
   });
 
-  it('keeps the day in the evening when nothing waits, and the brief first while unread', () => {
-    const one = render(
+  it('says it is wrapped up once done, and a tap opens the thread', () => {
+    const onPress = jest.fn();
+    const { getByText, getByTestId, queryByTestId } = render(
       <TodayPinnedCard
         date="2026-10-01"
         unread={false}
-        onPress={() => {}}
+        onPress={onPress}
         phase="evening"
-        toDecide={0}
+        wrapLine="Wrapped up, and Gremly is fed"
       />,
+    );
+    expect(getByText('Wrapped up, and Gremly is fed')).toBeTruthy();
+    expect(queryByTestId('today-pinned-wrap')).toBeNull();
+    fireEvent.press(getByTestId('today-pinned-card'));
+    expect(onPress).toHaveBeenCalled();
+  });
+
+  it('keeps the day when there is no evening line, and the brief first while unread', () => {
+    const one = render(
+      <TodayPinnedCard date="2026-10-01" unread={false} onPress={() => {}} phase="evening" />,
     );
     expect(one.getByText('Two meetings left, clear from 8:30')).toBeTruthy();
     const two = render(
-      <TodayPinnedCard date="2026-10-01" unread onPress={() => {}} phase="evening" toDecide={1} />,
+      <TodayPinnedCard
+        date="2026-10-01"
+        unread
+        onPress={() => {}}
+        phase="evening"
+        wrapLine="Wrap up today: 1 thing to decide"
+      />,
     );
     expect(two.getByText('Your brief is ready')).toBeTruthy();
   });

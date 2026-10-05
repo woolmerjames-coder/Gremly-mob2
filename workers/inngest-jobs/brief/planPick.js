@@ -14,8 +14,9 @@
 
 import { CARE_RULES, WRITING_RULES, PRIVATE_RULES, personBlock } from '../careRules';
 import { jsonCall, modelFor } from '../context/llm';
-import { db, userTimezone, localDate, personIdentity } from '../context/db';
+import { db, userTimezone, personIdentity } from '../context/db';
 import { noDashes, stripRefs, clockTime } from './writer';
+import { personNow } from '../../shared/day.js';
 
 export const PLAN_PICK_PROMPT_VERSION = 'plan-pick-2026-10-02b';
 const DAY_END = 22 * 60;
@@ -327,7 +328,8 @@ export function checkOps(output, req) {
 
 async function planContext(env, userId, forDay) {
   const tz = await userTimezone(env, userId);
-  const today = localDate(tz);
+  // their day: a plan made after midnight for the day after it is tomorrow's
+  const { today } = await personNow(env, userId, tz);
   if (forDay && forDay !== today) {
     // tomorrow's plan: today's claims and reach are not about that day
     const person = await personIdentity(env, userId);

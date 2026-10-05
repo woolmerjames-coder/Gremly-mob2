@@ -75,7 +75,7 @@ function formatTime12(hhmm: string): string {
 function hhmmToISO(hhmm: string | null | undefined): string | null {
   if (!hhmm) return null;
   const [h, m] = hhmm.split(':').map(Number);
-  const d = getDateService().now();
+  const d = getDateService().dayNow();
   d.setHours(h, m, 0, 0);
   return d.toISOString();
 }

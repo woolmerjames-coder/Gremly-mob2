@@ -20,6 +20,7 @@ jest.mock('../../lib/text/compactTitle', () => ({
 jest.mock('../../lib/date', () => ({
   getDateService: () => ({
     now: () => new Date('2026-04-11T10:00:00Z'),
+    dayNow: () => new Date('2026-04-11T10:00:00Z'),
     today: () => '2026-04-11',
   }),
 }));

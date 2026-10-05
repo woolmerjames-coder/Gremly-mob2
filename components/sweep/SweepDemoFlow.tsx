@@ -297,7 +297,6 @@ function demoMeta(candidate: SweepCandidate): SweepCardMeta {
     resurfacedFromDate: null,
     spaceName: null,
     spaceId: null,
-    isLockedIn: false,
     gremlyResponse: '',
     rescheduleCount: 0,
   };

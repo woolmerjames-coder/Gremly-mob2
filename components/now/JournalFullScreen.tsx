@@ -24,7 +24,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MoreHorizontal } from 'lucide-react-native';
-import { format, addDays, subDays, parseISO, isToday, isSameDay } from 'date-fns';
+import { format, addDays, subDays, parseISO } from 'date-fns';
 
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
@@ -153,7 +153,8 @@ export function JournalFullScreen({
   const [saving, setSaving] = useState(false);
   const [content, setContent] = useState('');
   const [originalContent, setOriginalContent] = useState('');
-  const [currentDate, setCurrentDate] = useState<Date>(getDateService().now());
+  // the person's day: a journal written after midnight belongs to the day it closes
+  const [currentDate, setCurrentDate] = useState<Date>(getDateService().dayNow());
   const [currentJournalId, setCurrentJournalId] = useState<string | null>(null);
   // FIX 2: Use index-based prompt cycling instead of random
   const [promptIndex, setPromptIndex] = useState(-1); // -1 means no prompt shown yet
@@ -211,7 +212,7 @@ export function JournalFullScreen({
           // Check if it's a journal by looking for subtype or body content
           const entryDate = drop.created_at;
           if (!entryDate) return false;
-          return isSameDay(parseISO(entryDate), date);
+          return getDateService().dayOf(entryDate) === getDateService().toLocalDate(date);
         });
 
         if (journalForDate) {
@@ -244,7 +245,7 @@ export function JournalFullScreen({
         // Create mode: start fresh with today's date
         setContent('');
         setOriginalContent('');
-        setCurrentDate(getDateService().now());
+        setCurrentDate(getDateService().dayNow());
         setCurrentJournalId(null);
         // Focus input after mount
         setTimeout(() => inputRef.current?.focus(), 300);
@@ -499,7 +500,7 @@ export function JournalFullScreen({
   const goToNextDay = useCallback(() => {
     const nextDate = addDays(currentDate, 1);
     // Don't go past today
-    if (nextDate <= getDateService().now()) {
+    if (getDateService().toLocalDate(nextDate) <= getDateService().today()) {
       void loadJournalForDate(nextDate);
     }
   }, [currentDate, loadJournalForDate]);
@@ -569,7 +570,7 @@ export function JournalFullScreen({
   // Format nav dates
   const prevDateLabel = format(subDays(currentDate, 1), 'MMM d');
   const nextDateLabel = format(addDays(currentDate, 1), 'MMM d');
-  const canGoNext = !isToday(currentDate);
+  const canGoNext = getDateService().toLocalDate(currentDate) < getDateService().today();
 
   return (
     <Modal

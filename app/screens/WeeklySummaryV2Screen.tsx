@@ -63,11 +63,11 @@ import {
   AlertTriangle,
   BookOpen,
   Bell,
-  Lock,
   CalendarDays,
   Plus,
   MessageCircle,
   Mail,
+  Zap,
 } from 'lucide-react-native';
 import { addDays, nextMonday, format } from 'date-fns';
 import { triggerLight, triggerSuccess } from '../../lib/haptics';
@@ -1025,13 +1025,13 @@ function StaleTriageCard({ card }: { card: WSV2StaleTriageCard }) {
     [totalCount],
   );
 
-  // ── Lock In ────────────────────────────────────────────────────────────
-  const handleLockIn = useCallback(
+  // ── Do it today: the todo is dated today, so it is on Today ────────────
+  const handleDoToday = useCallback(
     async (item: MatchedStaleItem) => {
       triggerLight();
       if (item.todoId) {
         const today = getDateService().today();
-        await updateTodo(item.todoId, { locked_in: true, due_day: today });
+        await updateTodo(item.todoId, { due_day: today });
       }
       triageItem(item.idx);
     },
@@ -1072,7 +1072,7 @@ function StaleTriageCard({ card }: { card: WSV2StaleTriageCard }) {
   const handleRemind = useCallback(
     async (item: MatchedStaleItem) => {
       triggerLight();
-      const tomorrow = addDays(getDateService().now(), 1);
+      const tomorrow = addDays(getDateService().dayNow(), 1);
       const dateStr = format(tomorrow, 'yyyy-MM-dd');
 
       const reminder: ItemReminder = {
@@ -1206,14 +1206,14 @@ function StaleTriageCard({ card }: { card: WSV2StaleTriageCard }) {
                       {/* Action buttons */}
                       <View style={staleStyles.actionRow}>
                         <Pressable
-                          onPress={() => handleLockIn(item)}
+                          onPress={() => handleDoToday(item)}
                           style={({ pressed }) => [
-                            staleStyles.lockInBtn,
+                            staleStyles.todayBtn,
                             pressed && { opacity: 0.8 },
                           ]}
                         >
-                          <Lock size={16} color={WS.sageDark} strokeWidth={2} />
-                          <Text style={staleStyles.lockInText}>Lock In</Text>
+                          <Zap size={16} color={WS.sageDark} strokeWidth={2} />
+                          <Text style={staleStyles.todayText}>Do today</Text>
                         </Pressable>
 
                         <Pressable
@@ -1262,7 +1262,7 @@ function StaleTriageCard({ card }: { card: WSV2StaleTriageCard }) {
                         >
                           <Pressable
                             onPress={() => {
-                              const tomorrow = addDays(getDateService().now(), 1);
+                              const tomorrow = addDays(getDateService().dayNow(), 1);
                               const dateStr = format(tomorrow, 'yyyy-MM-dd');
                               handleDateSelect(item, dateStr, 'Tomorrow');
                             }}
@@ -1276,7 +1276,7 @@ function StaleTriageCard({ card }: { card: WSV2StaleTriageCard }) {
 
                           <Pressable
                             onPress={() => {
-                              const monday = nextMonday(getDateService().now());
+                              const monday = nextMonday(getDateService().dayNow());
                               const dateStr = format(monday, 'yyyy-MM-dd');
                               handleDateSelect(item, dateStr, 'Next Week');
                             }}
@@ -1290,7 +1290,7 @@ function StaleTriageCard({ card }: { card: WSV2StaleTriageCard }) {
 
                           <Pressable
                             onPress={() => {
-                              const twoWeeks = addDays(getDateService().now(), 14);
+                              const twoWeeks = addDays(getDateService().dayNow(), 14);
                               const dateStr = format(twoWeeks, 'yyyy-MM-dd');
                               handleDateSelect(item, dateStr, 'In 2 Weeks');
                             }}
@@ -2583,7 +2583,7 @@ const staleStyles = StyleSheet.create({
     gap: 8,
     marginTop: 10,
   },
-  lockInBtn: {
+  todayBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
@@ -2592,7 +2592,7 @@ const staleStyles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: WS.sage,
   },
-  lockInText: {
+  todayText: {
     fontSize: 13,
     fontFamily: 'Inter-Medium',
     color: WS.sageDark,

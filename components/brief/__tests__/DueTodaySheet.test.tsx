@@ -1,10 +1,6 @@
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
 
-jest.mock('../../../lib/store/useGremlyStore', () => ({
-  isHabitLockedIn: (h: any) => !!h.commitment_until,
-}));
-
 import { DueTodaySheet } from '../DueTodaySheet';
 import type { DayCardData } from '../../../lib/brief/useDayCard';
 
@@ -58,33 +54,27 @@ function data(): DayCardData {
 }
 
 describe('DueTodaySheet', () => {
-  it('lists todos due today, with a planned time where Lock it in placed one', () => {
-    const r = render(
-      <DueTodaySheet visible onClose={jest.fn()} data={data()} onLockIn={jest.fn()} />,
-    );
+  it('lists todos due today, with a planned time where the plan placed one', () => {
+    const r = render(<DueTodaySheet visible onClose={jest.fn()} data={data()} />);
     expect(r.getByText('Todos (2)')).toBeTruthy();
     expect(r.getByText('3:30 PM')).toBeTruthy();
-    expect(r.getByTestId('due-lock-plumber')).toBeTruthy();
+  });
+
+  it('has no Lock In button on a row', () => {
+    const r = render(<DueTodaySheet visible onClose={jest.fn()} data={data()} />);
+    expect(r.queryByTestId('due-lock-plumber')).toBeNull();
+    expect(r.queryByText(/lock/i)).toBeNull();
   });
 
   it('shows habits with the week, behind ones first and tagged', () => {
-    const onLockIn = jest.fn();
     const r = render(
-      <DueTodaySheet
-        visible
-        onClose={jest.fn()}
-        data={data()}
-        initialTab="habits"
-        onLockIn={onLockIn}
-      />,
+      <DueTodaySheet visible onClose={jest.fn()} data={data()} initialTab="habits" />,
     );
     expect(r.getByText('Habits (3)')).toBeTruthy();
     expect(r.getByTestId('due-behind-social')).toBeTruthy();
     expect(r.queryByTestId('due-behind-pushups')).toBeNull();
     expect(r.getByText('0 of 3 this week')).toBeTruthy();
     expect(r.getByText('Daily')).toBeTruthy();
-    fireEvent.press(r.getByTestId('due-lock-pushups'));
-    expect(onLockIn).toHaveBeenCalledWith('pushups', 'habit');
   });
 
   it('adds to the plan in add mode', () => {
