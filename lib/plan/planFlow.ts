@@ -142,6 +142,35 @@ export function fitAround(
   };
 }
 
+/**
+ * Fit a plan again after a change to it. What the person gave a time
+ * themselves (pinned) stays exactly there, even after the plan would
+ * otherwise end, such as an evening at home after a trip; everything else is
+ * fitted around it. touched: items the change itself moves or takes out,
+ * which it places afresh.
+ */
+export function refitKeeping(
+  entries: PlanEntry[],
+  placed: PlanItem[],
+  busy: Busy[],
+  from: number,
+  dayEnd: number = PLAN_DAY_END,
+  touched: Iterable<string> = [],
+): Pick<BriefPlanMeta, 'items' | 'unplaced' | 'order' | 'from'> {
+  const ids = new Set(entries.map((e) => e.id));
+  const skip = new Set(touched);
+  const keep = placed.filter((x) => x.pinned && ids.has(x.id) && !skip.has(x.id));
+  if (!keep.length) return fitPlan(entries, busy, from, dayEnd);
+  const kept = new Set(keep.map((x) => x.id));
+  return fitAround(
+    keep,
+    entries.filter((e) => !kept.has(e.id)),
+    busy,
+    from,
+    dayEnd,
+  );
+}
+
 /** Apply one change. A move with no time asks for later than where it is now. */
 export function applyOp(
   entries: PlanEntry[],

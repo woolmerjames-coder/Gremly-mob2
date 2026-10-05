@@ -13,6 +13,7 @@ import {
   yesText,
   opFromButton,
   planHeading,
+  refitKeeping,
   planSummary,
   suggestions,
   unplacedText,
@@ -188,5 +189,72 @@ describe('a plan in the thread', () => {
     expect(whatCanWait(POOL, 0)).toBe(
       'Social posts, Buy Oat Milk and Run can wait until tomorrow without putting the week off track. Strength training is the one to pick back up this week.',
     );
+  });
+});
+
+describe('fitting a plan again after a change', () => {
+  // a travel day: the plan ends at 2:30pm, when they set off
+  const SETS_OFF = 870;
+  const entries: PlanEntry[] = [
+    {
+      id: 'deck',
+      kind: 'todo',
+      title: 'Send the deck',
+      minutes: 60,
+      window: [540, 1320],
+      reason: null,
+    },
+    {
+      id: 'blinkist',
+      kind: 'habit',
+      title: 'Blinkist',
+      minutes: 15,
+      window: [1140, 1155],
+      reason: null,
+    },
+    {
+      id: 'strength',
+      kind: 'habit',
+      title: 'Strength training',
+      minutes: 45,
+      window: [540, 1320],
+      reason: null,
+    },
+  ];
+  // they took Blinkist at 7pm on a card, once home
+  const placed = [
+    { id: 'deck', kind: 'todo' as const, title: 'Send the deck', start: 540, end: 600 },
+    {
+      id: 'blinkist',
+      kind: 'habit' as const,
+      title: 'Blinkist',
+      start: 1140,
+      end: 1155,
+      pinned: true,
+    },
+  ];
+
+  it('keeps a time they set where it is, even after the plan would end, and fits the rest around it', () => {
+    const fit = refitKeeping(entries, placed, [], 540, SETS_OFF);
+    expect(fit.items.find((x) => x.id === 'blinkist')).toMatchObject({
+      start: 1140,
+      end: 1155,
+      pinned: true,
+    });
+    expect(fit.items.find((x) => x.id === 'strength')?.end).toBeLessThanOrEqual(SETS_OFF);
+    expect(fit.unplaced).toEqual([]);
+  });
+
+  it('places afresh what the change itself moves, and fits as before when nothing was set', () => {
+    const moved = refitKeeping(entries, placed, [], 540, SETS_OFF, ['blinkist']);
+    expect(moved.unplaced.map((u) => u.id)).toEqual(['blinkist']);
+    const none = refitKeeping(
+      entries,
+      placed.map((x) => ({ ...x, pinned: false })),
+      [],
+      540,
+      SETS_OFF,
+    );
+    expect(none).toEqual(fitPlan(entries, [], 540, SETS_OFF));
   });
 });

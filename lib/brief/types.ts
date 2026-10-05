@@ -160,6 +160,12 @@ export interface PlanItem {
   fromFact?: boolean;
   /** The item's time in the store when the plan last saw it (lib/plan/livePlan.ts) */
   seen?: string;
+  /**
+   * A time the person set themselves (a card, a time changed on the item): it
+   * stays exactly there when the plan is fitted again, even after the plan
+   * would otherwise end (lib/plan/planFlow.ts refitKeeping)
+   */
+  pinned?: boolean;
 }
 
 /** An item the picker chose that had no gap, kept so a change can try again. */

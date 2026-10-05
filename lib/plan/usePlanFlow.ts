@@ -29,6 +29,7 @@ import {
   entriesOf,
   entryFromCandidate,
   fitAround,
+  refitKeeping,
   fitPlan,
   alreadySetText,
   dismissedText,
@@ -134,9 +135,18 @@ function frameForPicker(rec: DayRecord) {
 }
 
 /** Re-fit a day's plan around its meetings and set times, ending when they set off. */
-function fitForDay(entries: PlanEntry[], day: string, from: number) {
-  const rec = dayRecordFromStore(day);
-  return fitPlan(entries, rec.busy, from, rec.planEnd);
+/**
+ * A plan fitted again after a change, keeping what the person gave a time
+ * themselves where it is (planFlow.ts refitKeeping).
+ */
+function refitForDay(
+  entries: PlanEntry[],
+  meta: BriefPlanMeta,
+  from: number,
+  touched: Iterable<string> = [],
+) {
+  const rec = dayRecordFromStore(meta.date);
+  return refitKeeping(entries, meta.items, rec.busy, from, rec.planEnd, touched);
 }
 
 /** The pool for a plan: the day's candidates, plus anything the plan holds that is not one now. */
@@ -188,10 +198,16 @@ export function usePlanFlow(deps: PlanFlowDeps) {
     const moved = new Set(sync.moved);
     let patch: Partial<BriefPlanMeta> = { items: sync.items };
     if (moved.size && meta.status === 'proposal') {
+      // a time changed on the item is one the person set, and so is any set before
       const pinned = sync.items
-        .filter((x) => moved.has(x.id))
-        .map((x) => ({ ...x, window: [x.start, x.end] as [number, number] }));
-      const rest = entriesOf({ ...meta, items: sync.items.filter((x) => !moved.has(x.id)) });
+        .filter((x) => moved.has(x.id) || x.pinned)
+        .map((x) =>
+          moved.has(x.id)
+            ? { ...x, window: [x.start, x.end] as [number, number], pinned: true }
+            : x,
+        );
+      const held = new Set(pinned.map((x) => x.id));
+      const rest = entriesOf({ ...meta, items: sync.items.filter((x) => !held.has(x.id)) });
       const rec = dayRecordFromStore(meta.date);
       const fit = fitAround(pinned, rest, rec.busy, fromFor(meta), rec.planEnd);
       const seenOf = new Map(sync.items.map((x) => [x.id, x.seen]));
@@ -426,7 +442,7 @@ export function usePlanFlow(deps: PlanFlowDeps) {
         extraRef.current = null;
         if (extra && !pool.some((c) => c.id === extra.id)) pool.push(extra);
         const next = applyOp(entries, op, pool, from, meta.items);
-        const fit = fitForDay(next, meta.date, from);
+        const fit = refitForDay(next, meta, from, [op.id]);
         await d.patchMessageMetadata(planMsg.id, { ...fit });
         await refreshSuggestions(planMsg, { ...meta, ...fit });
         if (op.op === 'add' && !fit.items.some((x) => x.id === op.id)) {
@@ -463,7 +479,12 @@ export function usePlanFlow(deps: PlanFlowDeps) {
         let entries = entriesOf(meta);
         const pool = poolWith(entries, meta.date);
         for (const op of ops) entries = applyOp(entries, op, pool, from, meta.items);
-        const fit = fitForDay(entries, meta.date, from);
+        const fit = refitForDay(
+          entries,
+          meta,
+          from,
+          ops.map((o) => o.id),
+        );
         const first = ops[0];
         const title = pool.find((c) => c.id === first.id)?.title ?? 'that';
         await replaceOpen(true, meta.date);
@@ -569,7 +590,7 @@ export function usePlanFlow(deps: PlanFlowDeps) {
         const adding = ids.filter((id) => !entries.some((e) => e.id === id));
         for (const id of adding)
           entries = applyOp(entries, { op: 'add', id, window: null }, pool, from, meta.items);
-        const fit = fitForDay(entries, meta.date, from);
+        const fit = refitForDay(entries, meta, from);
         const placed = adding.filter((id) => fit.items.some((x) => x.id === id));
         const titles = (list: string[]) =>
           list.map((id) => pool.find((c) => c.id === id)?.title ?? 'that');
@@ -637,11 +658,17 @@ export function usePlanFlow(deps: PlanFlowDeps) {
               window: [start, start + e.minutes] as [number, number],
               minutes: e.minutes,
               fromFact: e.fromFact,
+              pinned: true,
             };
           });
+        // times they set before this card stay where they are too
+        for (const x of meta.items) {
+          if (x.pinned && !pins.has(x.id) && !remove.has(x.id)) pinned.push(x);
+        }
+        const held = new Set(pinned.map((x) => x.id));
         const fit = fitAround(
           pinned,
-          entries.filter((e) => !pins.has(e.id)),
+          entries.filter((e) => !held.has(e.id)),
           rec.busy,
           from,
           rec.planEnd,
