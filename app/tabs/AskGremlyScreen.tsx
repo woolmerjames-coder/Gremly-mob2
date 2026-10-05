@@ -40,7 +40,15 @@ import { supabase } from '../../lib/supabase/client';
 import { nowTimestamp, getDateService } from '../../lib/date/DateService';
 import MascotLottie from '../components/MascotLottie';
 import * as Haptics from 'expo-haptics';
-import { Clock, SquarePen, ChevronLeft, Bookmark, ChevronRight, X } from 'lucide-react-native';
+import {
+  Clock,
+  SquarePen,
+  ChevronLeft,
+  Bookmark,
+  ChevronRight,
+  ChevronDown,
+  X,
+} from 'lucide-react-native';
 import { NavigationRouteContext, useNavigation } from '@react-navigation/native';
 import type {
   EntityCardEntity,
@@ -56,6 +64,7 @@ import { useMascotActions } from '../../hooks/useMascotActions';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import { useHomeDock, useHomeMode } from '../../components/home/GremlyHomeDock';
 import { talkAboutOpener, type TalkAboutItem } from '../../lib/chat/talkAboutOpeners';
+import { addedBy, followOffset, nearBottom } from '../../lib/chat/follow';
 import { anchorFor, anchorMetadata, anchorOf } from '../../lib/chat/chatAnchor';
 import { waitForExtraction } from '../../lib/chat/waitForExtraction';
 import { findItemChat } from '../../lib/chat/itemChat';
@@ -424,16 +433,31 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     }
   }, [updateStreamingContent]);
 
-  // Auto-scroll on new messages
+  // Following what is added, at the reader's pace (lib/chat/follow.ts): the
+  // thread moves only while they are at the bottom, never past the top of the
+  // first line they have not seen, and shows when there is more below
   messageCountRef.current = messages.length;
+  const followRef = useRef(true);
+  // where the first line not yet seen starts, while there is one
+  const anchorTopRef = useRef<number | null>(null);
+  // the last follow reached the end: the next line added is the first one not yet seen
+  const caughtUpRef = useRef(true);
+  const metricsRef = useRef({ y: 0, height: 0, content: 0 });
+  // the thread's height as it was last taken in, where anything added next starts
+  const takenInRef = useRef(0);
+  // the rows the thread has taken in, so it knows what was just added
+  const seenRowsRef = useRef(0);
+  // the typing bubble under the thread, part of its height until a line takes its place
+  const footerHeightRef = useRef(0);
+  const [moreBelow, setMoreBelow] = useState(false);
+  // a chat opened afresh starts at its end, following
   useEffect(() => {
-    if (!activeChat) return;
-    const timer = setTimeout(() => {
-      if (scrollHeld()) return;
-      flatListRef.current?.scrollToEnd({ animated: true });
-    }, 150);
-    return () => clearTimeout(timer);
-  }, [messages, activeChat]);
+    followRef.current = true;
+    anchorTopRef.current = null;
+    caughtUpRef.current = true;
+    seenRowsRef.current = 0;
+    setMoreBelow(false);
+  }, [activeChat?.id]);
 
   // Poll extractions when resuming an existing chat
   useEffect(() => {
@@ -1103,6 +1127,93 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   );
   const shownRowsRef = useRef(shownRows);
   shownRowsRef.current = shownRows;
+
+  // Gremly is working on a line in today's thread: the typing bubble under it
+  const typingFooter = !!(
+    (briefWriting || playback.typing || planFlow.typing || dayTurn.thinking || wrapUp.typing) &&
+    isDailyThread
+  );
+  const typingFooterRef = useRef(typingFooter);
+  typingFooterRef.current = typingFooter;
+
+  /** The thread grew: take in what was added, then follow it while the reader is at the bottom. */
+  const followGrowth = (content: number) => {
+    const before = takenInRef.current;
+    takenInRef.current = content;
+    metricsRef.current.content = content;
+    // the typing bubble was part of what came before; it has gone once the line it stood for is in
+    const footerBefore = footerHeightRef.current;
+    if (!typingFooterRef.current) footerHeightRef.current = 0;
+    const rows = shownRowsRef.current;
+    const seen = seenRowsRef.current;
+    seenRowsRef.current = rows.length;
+    const list = flatListRef.current;
+    if (!list) return;
+    // a new plan card, or the brief's first line as it plays in, scrolls so its top is in view
+    const planId = pendingPlanScrollRef.current;
+    const index = planId ? rows.findIndex((m) => m.id === planId) : -1;
+    if (index >= 0) {
+      pendingPlanScrollRef.current = null;
+      list.scrollToIndex({ index, viewPosition: 0, animated: true });
+      return;
+    }
+    if (scrollHeld()) return;
+    // a chat just opened: its end
+    if (!seen) {
+      anchorTopRef.current = null;
+      caughtUpRef.current = true;
+      list.scrollToEnd({ animated: false });
+      return;
+    }
+    const by = rows.length > seen ? addedBy(rows, seen) : null;
+    // what they send or tap brings them to it
+    if (by === 'them') followRef.current = true;
+    if (by && !followRef.current) {
+      setMoreBelow(true);
+      return;
+    }
+    if (!followRef.current) return;
+    if (by === 'them' || (by && (anchorTopRef.current === null || caughtUpRef.current))) {
+      const pad = embedded ? 120 : 200;
+      anchorTopRef.current = Math.max(0, before - pad - footerBefore);
+    }
+    const end = Math.max(0, content - metricsRef.current.height);
+    const to = followOffset(metricsRef.current, anchorTopRef.current);
+    // a line that runs past the screen stays at its top while it grows
+    caughtUpRef.current = to >= end;
+    if (!caughtUpRef.current) setMoreBelow(true);
+    list.scrollToOffset({ offset: to, animated: true });
+  };
+
+  /** Where the reader is: at the bottom they are following again and have seen it all. */
+  const readerAt = (e: {
+    nativeEvent: {
+      contentOffset: { y: number };
+      layoutMeasurement: { height: number };
+      contentSize: { height: number };
+    };
+  }) => {
+    const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
+    const m = { y: contentOffset.y, height: layoutMeasurement.height, content: contentSize.height };
+    metricsRef.current = m;
+    return nearBottom(m);
+  };
+  const settleReader = (e: Parameters<typeof readerAt>[0]) => {
+    const near = readerAt(e);
+    followRef.current = near;
+    if (near) {
+      anchorTopRef.current = null;
+      caughtUpRef.current = true;
+      setMoreBelow(false);
+    }
+  };
+  const toLatest = () => {
+    followRef.current = true;
+    anchorTopRef.current = null;
+    caughtUpRef.current = true;
+    setMoreBelow(false);
+    flatListRef.current?.scrollToEnd({ animated: true });
+  };
   // the message Gremly is working on, until it is saved into the thread
   const lastShown = shownRows[shownRows.length - 1];
   const pendingShown =
@@ -1672,99 +1783,114 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         {/* Content area — takes remaining space */}
         <View style={styles.flex}>
           {inConversation ? (
-            <AppFlatList
-              ref={flatListRef}
-              data={shownRows}
-              keyExtractor={keyExtractor}
-              renderItem={renderMessage}
-              style={styles.messages}
-              contentContainerStyle={[
-                styles.messagesContent,
-                embedded && styles.messagesContentEmbedded,
-                messages.length === 0 && styles.emptyListContent,
-              ]}
-              removeClippedSubviews={false}
-              maxToRenderPerBatch={10}
-              windowSize={10}
-              initialNumToRender={15}
-              onContentSizeChange={() => {
-                setTimeout(() => {
-                  // a new plan card, or the brief's first line as it plays in,
-                  // scrolls so its top is in view
-                  const planId = pendingPlanScrollRef.current;
-                  const index = planId
-                    ? shownRowsRef.current.findIndex((m) => m.id === planId)
-                    : -1;
-                  if (index >= 0) {
-                    pendingPlanScrollRef.current = null;
-                    flatListRef.current?.scrollToIndex({ index, viewPosition: 0, animated: true });
-                    return;
-                  }
-                  if (scrollHeld()) return;
-                  flatListRef.current?.scrollToEnd({ animated: true });
-                }, 100);
-              }}
-              onScrollToIndexFailed={() => flatListRef.current?.scrollToEnd({ animated: true })}
-              // Inside the Gremly home, Gremly steps aside while you scroll
-              onScrollBeginDrag={embedded ? () => homeDock?.setChatScrolling(true) : undefined}
-              onScrollEndDrag={embedded ? () => homeDock?.setChatScrolling(false) : undefined}
-              onMomentumScrollBegin={embedded ? () => homeDock?.setChatScrolling(true) : undefined}
-              onMomentumScrollEnd={embedded ? () => homeDock?.setChatScrolling(false) : undefined}
-              ListEmptyComponent={
-                // today's thread with nothing in it yet (the brief could not be
-                // written, or it is someone's first day): the day card, from the store
-                isDailyThread &&
-                threadLoaded &&
-                !briefWriting &&
-                !playback.playing &&
-                !playback.waiting ? (
-                  <View style={styles.dailyEmpty} testID="daily-thread-empty">
-                    <BriefDayCardBlock date={threadDay} />
-                  </View>
-                ) : (
-                  <View style={styles.flex} />
-                )
-              }
-              ListFooterComponent={
-                (briefWriting ||
-                  playback.typing ||
-                  planFlow.typing ||
-                  dayTurn.thinking ||
-                  wrapUp.typing) &&
-                isDailyThread ? (
-                  <>
-                    {pendingShown ? (
-                      // what they just sent, at once, while Gremly works on it
-                      <View style={styles.messageContainer} testID="day-turn-pending">
+            <>
+              <AppFlatList
+                ref={flatListRef}
+                data={shownRows}
+                keyExtractor={keyExtractor}
+                renderItem={renderMessage}
+                style={styles.messages}
+                contentContainerStyle={[
+                  styles.messagesContent,
+                  embedded && styles.messagesContentEmbedded,
+                  messages.length === 0 && styles.emptyListContent,
+                ]}
+                removeClippedSubviews={false}
+                maxToRenderPerBatch={10}
+                windowSize={10}
+                initialNumToRender={15}
+                onLayout={(e) => {
+                  metricsRef.current.height = e.nativeEvent.layout.height;
+                }}
+                onContentSizeChange={(_w: number, h: number) => {
+                  setTimeout(() => followGrowth(h), 100);
+                }}
+                scrollEventThrottle={64}
+                onScroll={(e) => {
+                  if (readerAt(e) && moreBelow) setMoreBelow(false);
+                }}
+                onScrollToIndexFailed={() => flatListRef.current?.scrollToEnd({ animated: true })}
+                // Inside the Gremly home, Gremly steps aside while you scroll
+                onScrollBeginDrag={embedded ? () => homeDock?.setChatScrolling(true) : undefined}
+                onScrollEndDrag={(e) => {
+                  settleReader(e);
+                  if (embedded) homeDock?.setChatScrolling(false);
+                }}
+                onMomentumScrollBegin={
+                  embedded ? () => homeDock?.setChatScrolling(true) : undefined
+                }
+                onMomentumScrollEnd={(e) => {
+                  settleReader(e);
+                  if (embedded) homeDock?.setChatScrolling(false);
+                }}
+                ListEmptyComponent={
+                  // today's thread with nothing in it yet (the brief could not be
+                  // written, or it is someone's first day): the day card, from the store
+                  isDailyThread &&
+                  threadLoaded &&
+                  !briefWriting &&
+                  !playback.playing &&
+                  !playback.waiting ? (
+                    <View style={styles.dailyEmpty} testID="daily-thread-empty">
+                      <BriefDayCardBlock date={threadDay} />
+                    </View>
+                  ) : (
+                    <View style={styles.flex} />
+                  )
+                }
+                ListFooterComponent={
+                  typingFooter ? (
+                    <View
+                      onLayout={(e) => {
+                        footerHeightRef.current = e.nativeEvent.layout.height;
+                      }}
+                    >
+                      {pendingShown ? (
+                        // what they just sent, at once, while Gremly works on it
+                        <View style={styles.messageContainer} testID="day-turn-pending">
+                          <ChatBubble
+                            message={
+                              {
+                                id: 'day-turn-pending',
+                                role: 'user',
+                                content: pendingShown,
+                              } as unknown as SpaceChatMessage
+                            }
+                          />
+                        </View>
+                      ) : null}
+                      <View style={styles.messageContainer} testID="brief-writing">
                         <ChatBubble
                           message={
                             {
-                              id: 'day-turn-pending',
-                              role: 'user',
-                              content: pendingShown,
+                              id: 'brief-writing',
+                              role: 'assistant',
+                              content: '',
+                              isStreaming: true,
+                              // what Gremly is doing while it works on a message in the thread
+                              loadingMessage: dayTurn.thinking ? dayTurn.status : null,
                             } as unknown as SpaceChatMessage
                           }
                         />
                       </View>
-                    ) : null}
-                    <View style={styles.messageContainer} testID="brief-writing">
-                      <ChatBubble
-                        message={
-                          {
-                            id: 'brief-writing',
-                            role: 'assistant',
-                            content: '',
-                            isStreaming: true,
-                            // what Gremly is doing while it works on a message in the thread
-                            loadingMessage: dayTurn.thinking ? dayTurn.status : null,
-                          } as unknown as SpaceChatMessage
-                        }
-                      />
                     </View>
-                  </>
-                ) : null
-              }
-            />
+                  ) : null
+                }
+              />
+              {moreBelow ? (
+                <TouchableOpacity
+                  style={[styles.moreBelow, embedded && styles.moreBelowEmbedded]}
+                  onPress={toLatest}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Jump to the latest"
+                  testID="chat-more-below"
+                >
+                  <ChevronDown size={15} color={MOSS} strokeWidth={2.4} />
+                  <Text style={styles.moreBelowText}>Latest</Text>
+                </TouchableOpacity>
+              ) : null}
+            </>
           ) : item && !itemReady ? (
             <View style={styles.flex} testID="item-chat-loading" />
           ) : aboutItem && aboutOpener ? (
@@ -2377,6 +2503,35 @@ const styles = StyleSheet.create({
   },
   messagesContentEmbedded: {
     paddingBottom: 120,
+  },
+  // there is more below while they read further up: one tap to the latest
+  moreBelow: {
+    position: 'absolute',
+    alignSelf: 'center',
+    bottom: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(46,85,64,0.18)',
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  // inside the Gremly home, above the save pill's line
+  moreBelowEmbedded: {
+    bottom: 52,
+  },
+  moreBelowText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 13,
+    color: MOSS,
   },
   // Chat opened about a drop: Gremly's opener at the top, the drop attached
   // just above the shared box (left of Gremly)

@@ -1,5 +1,5 @@
 /**
- * The pill above the box while the next message is not an ordinary one: it
+ * The pill at the top of the box while the next message is not an ordinary one: it
  * is being saved to the journal, or it answers Gremly's question. The X sends
  * the next message to Gremly instead.
  */

@@ -402,6 +402,9 @@ type MindDropInputProps = {
   voiceState?: VoiceCaptureState;
   /** Each new value opens the keyboard on the box (the Gremly home asks) */
   focusRequest?: number;
+  /** A row at the top of the box, above the text (Chat's reply tag) */
+  header?: React.ReactNode;
+  headerStyle?: any;
 };
 
 const MindDropInput = React.memo<MindDropInputProps>(
@@ -438,6 +441,8 @@ const MindDropInput = React.memo<MindDropInputProps>(
     onMicPress,
     voiceState = 'idle',
     focusRequest = 0,
+    header,
+    headerStyle,
   }) => {
     const inputRef = React.useRef<TextInput>(null);
     // the box keeps its own text so typing never jumps while the value
@@ -496,6 +501,11 @@ const MindDropInput = React.memo<MindDropInputProps>(
           });
         }}
       >
+        {header ? (
+          <View style={headerStyle} testID="minddrop-input-header">
+            {header}
+          </View>
+        ) : null}
         <View
           testID="minddrop-input-height-wrapper"
           style={[
@@ -3271,17 +3281,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             </Pressable>
           </Reanimated.View>
         )}
-        {/* In Chat, what the next message is when it is not an ordinary one:
-            saved to the journal, or an answer to Gremly's question */}
-        {chatMode && homeMode?.chatTag ? (
-          <View style={styles.replyTag} pointerEvents="box-none">
-            <ReplyTag
-              label={homeMode.chatTag.label}
-              kind={homeMode.chatTag.kind}
-              onCancel={homeMode.chatTag.onCancel}
-            />
-          </View>
-        ) : null}
         {/* Gremly perched on input - always visible */}
         <Animated.View
           style={[styles.inputGremly, styles.inputGremlyTuckOrigin, gremlyTuckStyle]}
@@ -3337,6 +3336,19 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           iconColor={c.mossGreen}
           heightWrapperStyle={styles.inputHeightWrapper}
           inputDynHeight={compactTyping ? compactInputHeight : inputDynHeight}
+          // In Chat, what the next message is when it is not an ordinary one
+          // (saved to the journal, or an answer to Gremly's question), as the
+          // box's top row, so it never sits over the thread
+          header={
+            chatMode && homeMode?.chatTag ? (
+              <ReplyTag
+                label={homeMode.chatTag.label}
+                kind={homeMode.chatTag.kind}
+                onCancel={homeMode.chatTag.onCancel}
+              />
+            ) : undefined
+          }
+          headerStyle={styles.inputHeader}
           onCameraPress={chatMode ? undefined : handleMindDropPhotoAction}
           showCamera={!chatMode}
           onCalendarPress={chatMode ? undefined : handleCalendarToggle}
@@ -3922,12 +3934,11 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     inputGremlyPress: {
       flex: 1,
     },
-    // sits just above the box, on the left, clear of Gremly on the right
-    replyTag: {
-      position: 'absolute',
-      top: -38,
-      left: 2,
-      zIndex: 12,
+    // the reply tag's row at the top of the box, clear of Gremly on the right
+    inputHeader: {
+      flexDirection: 'row',
+      paddingRight: INPUT_ICON_PADDING_RIGHT,
+      marginBottom: 8,
     },
     inputContainerCompact: {
       minHeight: 0,
