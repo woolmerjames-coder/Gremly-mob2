@@ -72,7 +72,6 @@ import {
   type JournalOpen,
   type JournalPart,
 } from '../../lib/journal/session';
-import { useEntryFacts } from '../../lib/journal/took';
 import { JOURNAL_COPY, checkInKicker, dayWords, writingKicker } from '../../lib/journal/words';
 import type { Mood } from '../../lib/shared/moods';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
@@ -256,8 +255,6 @@ export function JournalPageHost() {
 
   // the photos already saved with the entry on screen
   const savedPhotos = useEntryPhotos(start?.entryId);
-  // and, for one being read, what Gremly kept from it
-  const took = useEntryFacts(start?.reading ? start.entryId : null);
 
   // a new entry, asked for by someone who can no longer make new things
   const { hasAccess, isLoading } = useSubscriptionStatus();
@@ -338,7 +335,6 @@ export function JournalPageHost() {
         initialMoods={start.moods}
         // words carried in from the chat box have left it, and are only on this page
         unkept={(!!request.carry || !!request.carryPhotos?.length) && !start.reading}
-        took={took}
         savedPhotos={savedPhotos}
         initialPhotoChanges={start.photos}
         onChoosePhotos={start.reading ? undefined : choosePhotos}

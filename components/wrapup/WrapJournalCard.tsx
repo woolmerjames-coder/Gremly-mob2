@@ -8,11 +8,9 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Check, Maximize2, NotebookPen, Pencil, Undo2 } from 'lucide-react-native';
 import type { SweepJournalMeta } from '../../lib/brief/types';
 import { useEntryPhotos } from '../../lib/journal/photos';
-import { useEntryFacts } from '../../lib/journal/took';
 import { ALL_MOODS, MOOD_CONFIG, type Mood } from '../../lib/shared/moods';
 import { CARD_COPY, journalLabel, partWords } from '../../lib/wrapup/words';
 import { BRIEF } from '../brief/briefStyles';
-import { JournalTookLine, JournalTookSheet } from '../journal/JournalTook';
 import { PrivateImage } from '../PrivateImage';
 import { wrapStyles } from './wrapStyles';
 
@@ -59,9 +57,6 @@ export function WrapJournalCard({
   const [editing, setEditing] = useState(false);
   // the photos saved with the entry: they arrive a moment after the words, as they are sent
   const photos = useEntryPhotos(meta.status === 'saved' ? meta.note_id : null);
-  // what Gremly kept from it, once his reader has been through it
-  const took = useEntryFacts(meta.status === 'saved' ? meta.note_id : null);
-  const [tookUp, setTookUp] = useState(false);
 
   if (meta.status === 'removed' || meta.status === 'skipped') {
     return (
@@ -237,10 +232,6 @@ export function WrapJournalCard({
           </Pressable>
         </View>
       ) : null}
-      {took.length && !choosing ? (
-        <JournalTookLine count={took.length} onPress={() => setTookUp(true)} />
-      ) : null}
-      {tookUp ? <JournalTookSheet facts={took} onClose={() => setTookUp(false)} /> : null}
     </View>
   );
 }

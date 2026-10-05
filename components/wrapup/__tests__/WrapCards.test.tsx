@@ -10,7 +10,6 @@ import { WrapHabitsCard } from '../WrapHabitsCard';
 import { WrapJournalCard } from '../WrapJournalCard';
 import { PrivateImage } from '../../PrivateImage';
 import { useEntryPhotosStore } from '../../../lib/journal/photos';
-import { useEntryFactsStore } from '../../../lib/journal/took';
 import { WrapItemCard } from '../WrapItemCard';
 import { WrapEndMark } from '../WrapEndMark';
 import { ReplyTag } from '../ReplyTag';
@@ -233,45 +232,6 @@ describe('the journal card', () => {
     expect(r.getByTestId('wrap-journal-photos').findAllByType(PrivateImage)).toHaveLength(3);
     expect(r.getByText('+2')).toBeTruthy();
     useEntryPhotosStore.setState({ byEntry: {} });
-  });
-
-  it('says what Gremly took from the entry once he has read it, with the list behind it', () => {
-    useEntryFactsStore.setState({
-      byEntry: {
-        [saved.note_id]: [
-          {
-            id: 'f1',
-            statement: 'Ran eleven miles.',
-            quote: null,
-            private: false,
-            standing: 'held',
-          },
-          {
-            id: 'f2',
-            statement: 'Is training for a 10k.',
-            quote: null,
-            private: false,
-            standing: 'held',
-          },
-        ],
-      },
-    });
-    const r = render(<WrapJournalCard meta={saved} />);
-    expect(r.getByText('Gremly took two things from this')).toBeTruthy();
-    expect(r.queryByTestId('journal-took-sheet')).toBeNull();
-    fireEvent.press(r.getByTestId('journal-took-line'));
-    expect(r.getByTestId('journal-took-sheet')).toBeTruthy();
-    expect(r.getByText('Is training for a 10k.')).toBeTruthy();
-    fireEvent.press(r.getByTestId('journal-took-close'));
-    expect(r.queryByTestId('journal-took-sheet')).toBeNull();
-    useEntryFactsStore.setState({ byEntry: {} });
-  });
-
-  it('says nothing about Gremly for an entry he has not read, or took nothing from', () => {
-    useEntryFactsStore.setState({ byEntry: {} });
-    const r = render(<WrapJournalCard meta={saved} />);
-    expect(r.queryByTestId('journal-took-line')).toBeNull();
-    expect(r.queryByText(/Gremly took/)).toBeNull();
   });
 
   it('has no row of photos for an entry without any', () => {
