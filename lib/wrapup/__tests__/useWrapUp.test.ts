@@ -761,10 +761,16 @@ describe("the wrap up: Gremly's questions", () => {
 describe('the wrap up: the close', () => {
   it('says what tomorrow holds, and feeds for a night with nothing to sort', async () => {
     mockMeetings.mockImplementation((day: string) => (day === TOMORROW ? [{}, {}, {}] : []));
+    // every todo planned for tomorrow counts, not only what moved there tonight
+    mockState.todos = ['t1', 't2', 't3', 't4', 't5'].map((id) => ({
+      id,
+      name: id,
+      due_day: TOMORROW,
+    }));
     const t = await clearNight();
     await toQuestions(t);
     expect(t.last().content).toBe(
-      "That's Wednesday wrapped up. Tomorrow has three meetings, and nothing else lined up yet.",
+      "That's Wednesday wrapped up. Tomorrow has three meetings, and five todos planned.",
     );
     expect(
       (t.last().metadata_json as unknown as BriefOfferMeta).buttons.map((b) => b.action),
@@ -806,13 +812,18 @@ describe('the wrap up: the other choices', () => {
   it('Move it all on: todos move, the rest waits, a skip is used, and habits and the journal still come', async () => {
     mockFetchQuestions.mockResolvedValue([Q2]);
     // each move is a decision kept for tomorrow, as the change model records it
-    mockApplyDecision.mockImplementation(
-      async (d: { candidateId: string; dueDateStr: string }) => ({
+    mockApplyDecision.mockImplementation(async (d: { candidateId: string; dueDateStr: string }) => {
+      // the todo moves in the store, as keeping it for a day does
+      mockState.todos = [
+        ...mockState.todos,
+        { id: d.candidateId, name: `Todo ${d.candidateId}`, due_day: d.dueDateStr },
+      ];
+      return {
         ok: true,
         record: record(d.candidateId, 'kept', { fields: { day: d.dueDateStr } }),
         revert: jest.fn().mockResolvedValue(undefined),
-      }),
-    );
+      };
+    });
     const t = setup();
     await act(() => t.hook.result.current.open());
     mockState.refreshSkipBudget.mockImplementation(async () => {
@@ -843,7 +854,7 @@ describe('the wrap up: the other choices', () => {
     expect(mockState.addGaugeContribution).not.toHaveBeenCalled();
     // the close names what was moved to tomorrow
     expect(t.last().content).toBe(
-      "That's Wednesday wrapped up. Tomorrow has Todo a and Todo b lined up.",
+      "That's Wednesday wrapped up. Tomorrow has Todo a and Todo b planned.",
     );
   });
 

@@ -162,9 +162,9 @@ describe('the wrap up in the thread', () => {
   });
 
   it('closes with tomorrow and the two buttons', () => {
-    const [close] = closeMsgs({ day: DAY, meetings: 3, lined: ['Car service'], canPlan: true });
+    const [close] = closeMsgs({ day: DAY, meetings: 3, todos: ['Car service'], canPlan: true });
     expect(close.content).toBe(
-      "That's Wednesday wrapped up. Tomorrow has three meetings, and Car service lined up.",
+      "That's Wednesday wrapped up. Tomorrow has three meetings, and Car service planned.",
     );
     expect(offerOf(close).buttons.map((b) => [b.label, b.action])).toEqual([
       ['Plan tomorrow', 'plan_tomorrow'],
@@ -241,7 +241,7 @@ describe('the wrap up in the thread', () => {
       'Skip',
     ]);
     expect(journalAskMsgs(false, true)[0].content).toBe('How is today going?');
-    expect(labels(closeMsgs({ day: EARLY, meetings: 0, lined: [], canPlan: true })[0])).toEqual([
+    expect(labels(closeMsgs({ day: EARLY, meetings: 0, todos: [], canPlan: true })[0])).toEqual([
       'Plan tomorrow',
       'Thanks, Gremly',
     ]);

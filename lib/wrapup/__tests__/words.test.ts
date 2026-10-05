@@ -100,21 +100,28 @@ test('a skip says what moved, what waits and the skips left', () => {
   );
 });
 
-test('the close says what tomorrow holds', () => {
+test('the close says what tomorrow holds, every todo planned for it counted', () => {
   expect(closeLine(EVENING, 3, ['the eye test', 'the car service'])).toBe(
-    "That's Wednesday wrapped up. Tomorrow has three meetings, and the eye test and the car service lined up.",
+    "That's Wednesday wrapped up. Tomorrow has three meetings, and the eye test and the car service planned.",
   );
   expect(closeLine(EVENING, 3, ['a', 'b', 'c', 'd'])).toBe(
-    "That's Wednesday wrapped up. Tomorrow has three meetings, and four things lined up.",
+    "That's Wednesday wrapped up. Tomorrow has three meetings, and four todos planned.",
   );
+  expect(
+    closeLine(
+      EVENING,
+      3,
+      Array.from({ length: 49 }, (_, i) => `t${i}`),
+    ),
+  ).toBe("That's Wednesday wrapped up. Tomorrow has three meetings, and 49 todos planned.");
   expect(closeLine(LATE, 0, [])).toBe(
-    "That's Wednesday wrapped up. Thursday has nothing lined up yet.",
+    "That's Wednesday wrapped up. Thursday has nothing planned yet.",
   );
   expect(closeLine(EVENING, 1, [])).toBe(
-    "That's Wednesday wrapped up. Tomorrow has one meeting, and nothing else lined up yet.",
+    "That's Wednesday wrapped up. Tomorrow has one meeting, and no todos planned yet.",
   );
   expect(closeLine(EVENING, 0, ['Book Eye Test'])).toBe(
-    "That's Wednesday wrapped up. Tomorrow has Book Eye Test lined up.",
+    "That's Wednesday wrapped up. Tomorrow has Book Eye Test planned.",
   );
 });
 

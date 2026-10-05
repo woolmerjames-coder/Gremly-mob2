@@ -11,7 +11,13 @@ jest.mock('../../plan/storePlan', () => ({
 import type { WrapUpState } from '../../brief/types';
 import type { SweepRecord } from '../../changes/sweep';
 import type { WrapNow } from '../day';
-import { outcomeWords, wasWords, wrapTurnContext } from '../gremlyWords';
+import {
+  cardTitles,
+  outcomeWords,
+  todosPlannedFor,
+  wasWords,
+  wrapTurnContext,
+} from '../gremlyWords';
 
 const NOW = {
   day: '2026-10-03',
@@ -102,5 +108,29 @@ describe('what a message in the thread carries about tonight', () => {
     );
     expect(done?.step).toBe('done');
     expect(done?.decisions[0].outcome).toBe('kept as it is');
+  });
+});
+
+describe('what the close and the opening are told', () => {
+  it('names what is waiting in the cards', () => {
+    expect(
+      cardTitles([
+        { candidate: { raw: { name: 'Submit to Apple Health' } } },
+        { candidate: { raw: { title: 'Hotel ideas' } } },
+        { candidate: { raw: {} } },
+      ]),
+    ).toEqual(['Submit to Apple Health', 'Hotel ideas']);
+  });
+
+  it('has every open todo planned for the day, timed ones first', () => {
+    const todos = [
+      { id: '1', name: 'Untimed', due_day: '2026-10-04' },
+      { id: '2', name: 'At nine', due_day: '2026-10-04', due_time: '09:00' },
+      { id: '3', name: 'Done', due_day: '2026-10-04', completed_at: 'x' },
+      { id: '4', name: 'Archived', due_day: '2026-10-04', archived: true },
+      { id: '5', name: 'Another day', due_day: '2026-10-05' },
+      { id: '6', name: 'At eight', due_day: '2026-10-04', due_time: '08:00' },
+    ];
+    expect(todosPlannedFor(todos, '2026-10-04')).toEqual(['At eight', 'At nine', 'Untimed']);
   });
 });

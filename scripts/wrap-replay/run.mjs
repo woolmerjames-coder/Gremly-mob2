@@ -120,9 +120,12 @@ function checks(moment, f, out, expect = {}) {
     if (expect.moods) add('Moods that fit', moods.length > 0 && moods.every((m) => expect.moods.includes(m)), moods.join(', '));
   }
   const text = out.line ?? out.reply ?? '';
+  // what this evening's line must leave out, or must say
+  for (const w of expect.notNamed || []) add(`Leaves out ${w}`, !text.toLowerCase().includes(w.toLowerCase()), text);
+  if (expect.mentions) add(`Says ${expect.mentions}`, new RegExp(expect.mentions, 'i').test(text), text);
   add('No dashes', !DASH.test(text), text);
   add('No emoji', !EMOJI.test(text), text);
-  const cap = { open: 40, journal_ask: 18, journal_reply: 38, close: 42 }[moment] ?? 40;
+  const cap = { open: 40, journal_ask: 18, journal_reply: 38, close: 45 }[moment] ?? 40;
   add(`Short (${cap} words)`, words(text) <= cap + 3, words(text));
   if (moment === 'journal_ask') add('Asks one question', (text.match(/\?/g) || []).length === 1, text);
   else add('Asks nothing', !/\?/.test(text), text);
@@ -137,7 +140,8 @@ function checks(moment, f, out, expect = {}) {
 const jobs = [];
 for (const e of evenings) {
   if (only && !only.includes(e.id)) continue;
-  for (const moment of e.moments || []) jobs.push({ id: `${e.id}:${moment}`, e, moment, f: { ...e.facts, moment } });
+  for (const moment of e.moments || [])
+    jobs.push({ id: `${e.id}:${moment}`, e, moment, f: { ...e.facts, moment }, expect: e.expect?.[moment] });
 }
 for (const x of [...ENTRIES, ...real.entries]) {
   if (only && !only.includes(x.id) && !only.includes(x.evening)) continue;
@@ -153,7 +157,7 @@ for (const x of [...QUESTIONS, ...real.questions]) {
 async function runOne(job) {
   // as the Worker reads the app's request
   const f = factsFrom(job.f);
-  const p = wrapPrompt(f, { person: job.e.person, dco: job.e.dco });
+  const p = wrapPrompt(f, { person: job.e.person, dco: job.e.dco, life: job.e.life || null });
   const t0 = Date.now();
   try {
     const res = await helperFetch('wrap_words', {

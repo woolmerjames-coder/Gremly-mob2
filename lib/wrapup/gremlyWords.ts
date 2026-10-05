@@ -102,6 +102,33 @@ function travelWords(day: string): string {
   }
 }
 
+type Row = Record<string, any>;
+
+const titleOf = (r: Row | null | undefined): string =>
+  String(r?.name || r?.title || r?.body || '').trim();
+
+/** What is waiting in the cards, by title, in the order they come. */
+export function cardTitles(cards: { candidate: { raw?: Row } }[]): string[] {
+  return cards.map((c) => titleOf(c.candidate.raw)).filter(Boolean);
+}
+
+/** Every todo planned for a day (open, due that day), by title, timed ones first in time order. */
+export function todosPlannedFor(todos: Row[], day: string): string[] {
+  return todos
+    .filter((t) => !t.archived && !t.completed_at && t.due_day === day)
+    .map((t, i) => ({ t, i }))
+    .sort((a, b) => {
+      const at = a.t.due_time ? String(a.t.due_time) : null;
+      const bt = b.t.due_time ? String(b.t.due_time) : null;
+      if (at && bt && at !== bt) return at < bt ? -1 : 1;
+      if (at && !bt) return -1;
+      if (!at && bt) return 1;
+      return a.i - b.i;
+    })
+    .map(({ t }) => titleOf(t))
+    .filter(Boolean);
+}
+
 export interface WrapFactsInput {
   moment: WrapMoment;
   now: WrapNow;
@@ -110,6 +137,12 @@ export interface WrapFactsInput {
   recap: Omit<SweepRecapMeta, 'type'>;
   /** Cards waiting to be sorted */
   cards: number;
+  /** What is waiting in the cards, by title */
+  cardTitles: string[];
+  /** Every todo planned for tomorrow, by title */
+  tomorrowTodos: string[];
+  /** Whether the close offers to plan tomorrow */
+  canPlan: boolean;
   wrap: WrapUpState | null;
   habits?: HabitsTonight | null;
   entry?: string;
@@ -140,6 +173,8 @@ export function wrapFacts(i: WrapFactsInput): WrapWordsRequest {
     meetings: meetingsFromStore(now.day).map(meetingWords).slice(0, 12),
     travel: travelWords(now.day) || undefined,
     cards: i.cards,
+    card_titles: i.cardTitles.slice(0, 12),
+    can_plan: i.canPlan,
     tonight: {
       decisions: live.map((d) => ({ title: d.title, outcome: outcomeWords(d, now) })),
       logged: i.habits?.logged ?? [],
@@ -151,6 +186,8 @@ export function wrapFacts(i: WrapFactsInput): WrapWordsRequest {
     next: {
       meetings: meetingsFromStore(now.tomorrow).map(meetingWords).slice(0, 10),
       lined: keptFor(w, now.tomorrow).slice(0, 10),
+      todos: i.tomorrowTodos.slice(0, 15),
+      todo_count: i.tomorrowTodos.length,
     },
     ...(i.entry ? { entry: i.entry } : {}),
     ...(i.questions

@@ -26,12 +26,19 @@ const BODY = {
   },
   meetings: ['9:00 AM Team standup', '2:00 PM Budget review'],
   cards: 3,
+  card_titles: ['Book the car service', 'Renew the passport'],
+  can_plan: true,
   tonight: {
     decisions: [{ title: 'Book the car service', outcome: 'kept for tomorrow' }],
     journal: 'written',
     path: 'cards',
   },
-  next: { meetings: ['11:00 AM Board review'], lined: ['Book the car service'] },
+  next: {
+    meetings: ['11:00 AM Board review'],
+    lined: ['Book the car service'],
+    todos: ['Book the car service', 'Email the caterer'],
+    todo_count: 2,
+  },
 };
 
 const DCO = { lead_story: { what: 'The board deck goes out', why_today: 'Thursday review.' } };
@@ -50,20 +57,67 @@ describe('what Gremly is told', () => {
     expect(p.user).toContain('Habits they logged today: Morning run.');
     expect(p.user).toContain('Their plan for today had 5 things, and 4 got done.');
     expect(p.user).toContain('Planned for today and not done: Book the car service.');
-    expect(p.user).toContain('Waiting to be sorted in the cards: 3 things.');
+    expect(p.user).toContain(
+      'WAITING IN THE CARDS (3)\nBook the car service; Renew the passport; and 1 more.',
+    );
+    // the cards bring up what is in them, so his words leave it out
+    expect(p.system).toContain('Leave those things out of your words entirely');
     // the wrap up so far is for the moments after the opening
     expect(p.user).not.toContain('THE WRAP UP SO FAR');
   });
 
-  it('closes with what was sorted and the shape of the next day', () => {
+  it('closes with what was sorted and what the next day holds, every todo counted', () => {
     const p = wrapPrompt(factsFrom({ ...BODY, moment: 'close' }), {});
     expect(p.user).toContain(
       'Sorted in the cards tonight: Book the car service (kept for tomorrow).',
     );
     expect(p.user).toContain('They wrote in their journal tonight.');
     expect(p.user).toContain('On their calendar tomorrow: 11:00 AM Board review.');
-    expect(p.user).toContain('Todos lined up for tomorrow: Book the car service.');
+    expect(p.user).toContain(
+      'Todos planned for tomorrow (2): Book the car service; Email the caterer.',
+    );
+    expect(p.user).toContain('Moved there tonight in the cards: Book the car service.');
+    expect(p.user).toContain('A button under your words offers to plan tomorrow with them now.');
+    expect(p.system).toContain('say how many todos are planned for it');
+    expect(p.system).toContain('offer, as yourself, to plan it with them now');
     expect(p.system).toContain('Say no goodbye or goodnight');
+  });
+
+  it('counts more todos than it lists, and says when the next day is already planned', () => {
+    const many = Array.from({ length: 15 }, (_, i) => `Todo ${i + 1}`);
+    const p = wrapPrompt(
+      factsFrom({
+        ...BODY,
+        moment: 'close',
+        can_plan: false,
+        next: { meetings: [], lined: [], todos: many, todo_count: 49 },
+      }),
+      {},
+    );
+    expect(p.user).toContain('Todos planned for tomorrow (49): Todo 1;');
+    expect(p.user).toContain('Todo 15; and 34 more.');
+    expect(p.user).toContain('A plan for tomorrow is already in the thread.');
+    expect(p.system).not.toContain('offer, as yourself, to plan it');
+  });
+
+  it('from an app that sends no count, says only what moved there tonight', () => {
+    const p = wrapPrompt(
+      factsFrom({
+        ...BODY,
+        moment: 'close',
+        can_plan: undefined,
+        next: { meetings: [], lined: ['Book the car service'] },
+      }),
+      {},
+    );
+    expect(p.user).toContain('Todos moved to tomorrow tonight: Book the car service.');
+    expect(p.user).not.toContain('No todos are planned');
+    expect(p.user).not.toContain('A button under your words');
+  });
+
+  it('asks the journal question about the day as a whole, never one event in it', () => {
+    const p = wrapPrompt(factsFrom({ ...BODY, moment: 'journal_ask' }), {});
+    expect(p.system).toContain('never names or builds on one event, item, place or person from it');
   });
 
   it('before the evening the day is not over, and after midnight it is still their day', () => {

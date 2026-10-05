@@ -286,16 +286,16 @@ export function sweptEvent(decided: number): string {
   return `Swept ${decided} ${decided === 1 ? 'thing' : 'things'}`;
 }
 
-/** The close: the day wrapped up, and what tomorrow holds. */
-export function closeLine(d: WrapDay, meetings: number, lined: string[]): string {
+/** The close: the day wrapped up, and what tomorrow holds, its meetings and every todo planned for it. */
+export function closeLine(d: WrapDay, meetings: number, todos: string[]): string {
   const has: string[] = [];
   if (meetings > 0) has.push(`${numberWord(meetings)} ${meetings === 1 ? 'meeting' : 'meetings'}`);
   let tail: string;
-  if (!lined.length)
-    tail = has.length ? ', and nothing else lined up yet' : ' nothing lined up yet';
-  else if (lined.length <= 3) {
-    tail = `${has.length ? ', and ' : ' '}${listWords(lined)} lined up`;
-  } else tail = `${has.length ? ', and ' : ' '}${things(lined.length)} lined up`;
+  if (!todos.length) tail = has.length ? ', and no todos planned yet' : ' nothing planned yet';
+  else if (todos.length <= 3) {
+    tail = `${has.length ? ', and ' : ' '}${listWords(todos)} planned`;
+  } else
+    tail = `${has.length ? ', and ' : ' '}${numberWord(todos.length)} ${todos.length === 1 ? 'todo' : 'todos'} planned`;
   return `That's ${d.weekday} wrapped up. ${tomorrowCap(d)} has${has.length ? ` ${has[0]}` : ''}${tail}.`;
 }
 

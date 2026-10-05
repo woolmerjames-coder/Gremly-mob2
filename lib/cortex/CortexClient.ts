@@ -2000,6 +2000,10 @@ export interface WrapWordsRequest {
   meetings: string[];
   travel?: string;
   cards: number;
+  /** What is waiting in the cards, by title */
+  card_titles?: string[];
+  /** Whether the close offers to plan tomorrow (no plan for it in the thread yet) */
+  can_plan?: boolean;
   tonight?: {
     decisions?: { title: string; outcome: string }[];
     logged?: string[];
@@ -2008,7 +2012,15 @@ export interface WrapWordsRequest {
     journal?: 'written' | 'mood' | 'skipped' | null;
     path?: 'cards' | 'skip' | 'clear' | null;
   };
-  next?: { meetings: string[]; lined: string[] };
+  next?: {
+    meetings: string[];
+    /** Todos moved to tomorrow in the cards tonight */
+    lined: string[];
+    /** The first of the todos planned for tomorrow, by title */
+    todos?: string[];
+    /** How many todos are planned for tomorrow */
+    todo_count?: number;
+  };
   entry?: string;
   questions?: {
     id: string;

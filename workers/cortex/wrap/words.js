@@ -9,7 +9,7 @@
 //   journal_ask    the journal question, about the actual day
 //   journal_reply  his reply to what they wrote, and whether it was a journal
 //                  entry at all or something they were asking him
-//   close          the close, with tomorrow's shape
+//   close          the close, with what their next day holds
 //   questions      which of his open questions to ask tonight, with choices
 // Each is one short call, written from the day as the app holds it (sent with
 // the request) and what Gremly knows about the day (its picture of today, the
@@ -29,7 +29,7 @@ import { db, personIdentity } from '../../shared/db.js';
 import { helperFetch } from '../helperClient.js';
 import { dayMeaning } from '../agent/brief.js';
 
-export const WRAP_WORDS_VERSION = 'wrap-2026-10-05b';
+export const WRAP_WORDS_VERSION = 'wrap-2026-10-05c';
 
 export const MOMENTS = ['open', 'journal_ask', 'journal_reply', 'close', 'questions'];
 
@@ -129,15 +129,27 @@ export function tonightFacts(f) {
   return L;
 }
 
-/** Their next day, for the close. */
+/** Their next day, for the close: its calendar, every todo planned for it, counted, and whether it is planned yet. */
 export function tomorrowFacts(f) {
   const n = f.next || {};
   const L = [];
   const name = f.tomorrow_word || 'tomorrow';
   if ((n.meetings || []).length) L.push(`On their calendar ${name}: ${list(n.meetings)}.`);
   else L.push(`Nothing is on their calendar ${name}.`);
-  if ((n.lined || []).length) L.push(`Todos lined up for ${name}: ${list(n.lined)}.`);
-  else L.push(`No todos are lined up for ${name} yet.`);
+  const todos = n.todos || [];
+  if (n.todo_count === null || n.todo_count === undefined) {
+    // an app from before the count was sent: only what moved there tonight is known
+    if ((n.lined || []).length) L.push(`Todos moved to ${name} tonight: ${list(n.lined)}.`);
+  } else if (n.todo_count > 0) {
+    const more = n.todo_count - todos.length;
+    L.push(
+      `Todos planned for ${name} (${n.todo_count}): ${list(todos)}${more > 0 ? `; and ${more} more` : ''}.`,
+    );
+    if ((n.lined || []).length) L.push(`Moved there tonight in the cards: ${list(n.lined)}.`);
+  } else L.push(`No todos are planned for ${name}.`);
+  if (f.can_plan === true)
+    L.push(`A button under your words offers to plan ${name} with them now.`);
+  if (f.can_plan === false) L.push(`A plan for ${name} is already in the thread.`);
   return L;
 }
 
@@ -146,13 +158,13 @@ const JOBS = {
 They have just started wrapping up their day in today's thread, the same thread the morning brief opened. Write Gremly's first words: look back on the day with them as a friend who knows what it was about. Pick the one or two things that mattered most to them, named the way they would name them, and leave the rest: never walk through their calendar or their list. A card under your words shows the day in numbers, so do not recite counts.
 ${
   f.cards > 0
-    ? 'After your words Gremly offers the cards, which hold only the things still waiting for a decision. When something they planned for today did not happen and the day has room for it, you may touch on it once, lightly, as something to settle in a moment; otherwise leave it out. Ask nothing and say nothing about what comes next.'
+    ? 'After your words Gremly offers the cards, which hold the things under WAITING IN THE CARDS. Leave those things out of your words entirely, by name and by allusion: the cards bring each of them up in a moment. Ask nothing and say nothing about what comes next.'
     : 'Nothing is waiting to be sorted, so after looking back, say in your own words that this one will be short. Ask nothing.'
 }
 One or two short sentences, under 40 words in all.`,
 
   journal_ask: (f) => `YOUR WORDS NOW
-Ask them about their day for their journal: one short, open question, under 18 words, about how ${f.part === 'early' ? 'the day so far has felt' : 'the day felt'} or what it meant to them, not about their tasks. Write only the question, in one sentence; one thing from the day may be part of it when it matters to them. It should invite a few honest lines, not a yes or a no.`,
+Ask them about their day for their journal: one short, open question, under 18 words, about ${f.part === 'early' ? 'the day so far as a whole, or how they are in the middle of it' : 'the day as a whole, or how they are now at the end of it'}. The journal is theirs, so the question leaves them free to write about whatever mattered most to them: it may carry the feel of the day as you know it, but it never names or builds on one event, item, place or person from it, and is never about their tasks. Write only the question: one sentence that asks one thing, in your own words. It should invite a few honest lines, not a yes or a no.`,
 
   journal_reply: () => `YOUR WORDS NOW
 They were asked about their day for their journal and wrote what is under THEIR ENTRY. First decide whether it is a journal entry: words about their day, how they feel, or their life, however short. It is not a journal entry when it is addressed to Gremly, asking him a question or asking him to do something.
@@ -161,7 +173,7 @@ When it is a journal entry, also choose the moods it carries: the one or two tha
 Return only JSON: {"journal": true or false, "reply": "your words, or an empty string when it is not a journal entry", "moods": [the moods, or none]}.`,
 
   close: (f) => `YOUR WORDS NOW
-The wrap up is finished. Write the close: say their ${f.weekday || 'day'} is wrapped up, and give them the shape of ${f.tomorrow_word || 'tomorrow'} from what is known under THEIR NEXT DAY, naming the one or two things that matter most in it rather than the list; when nothing is known about it, say it is open. One or two short sentences, under 40 words in all. Say no goodbye${f.part === 'early' ? '' : ' or goodnight'} and ask nothing: Gremly's goodbye comes when they tap.`,
+The wrap up is finished. Write the close: say in a few words that their ${f.weekday || 'day'} is wrapped up, without looking back over it again, then tell them what ${f.tomorrow_word || 'tomorrow'} holds, from THEIR NEXT DAY, its calendar and its todos together. Name the one or two things in it that matter most rather than the list, and say how many todos are planned for it whenever there are more than a few. When more todos are planned than one day can hold, say so plainly and kindly, without alarm${f.can_plan === true ? ', and offer, as yourself, to plan it with them now' : ''}. When nothing is on its calendar and no todos are planned, say it is open. Two short sentences at most, under 45 words in all. Say no goodbye${f.part === 'early' ? '' : ' or goodnight'} and ask nothing: Gremly's goodbye comes when they tap.`,
 
   questions: () => `YOUR CHOICE NOW
 Gremly has open questions he has been waiting to ask them, under OPEN QUESTIONS, each with its id and, when it is about one of their items, that item. Choose at most two to ask now. Ask a question only when its answer would change something for them or let Gremly get something right about their life, and prefer what is coming up soon. Leave out any question about something they sorted in the cards tonight, since what they did with it already answers it or makes it moot. Choosing none is right when none fits.
@@ -182,8 +194,10 @@ export function wrapPrompt(f, { person = null, dco = null } = {}) {
   if (meaning) parts.push(meaning);
   parts.push(`THEIR DAY AS THE APP HOLDS IT\n${dayFacts(f).join('\n')}`);
   if (moment === 'open' && f.cards > 0) {
+    const named = f.card_titles || [];
+    const more = f.cards - named.length;
     parts.push(
-      `Waiting to be sorted in the cards: ${f.cards} ${f.cards === 1 ? 'thing' : 'things'}.`,
+      `WAITING IN THE CARDS (${f.cards})\n${named.length ? `${list(named)}${more > 0 ? `; and ${more} more` : ''}.` : `${f.cards} ${f.cards === 1 ? 'thing' : 'things'}.`}`,
     );
   }
   const tonight = tonightFacts(f);
@@ -312,6 +326,8 @@ export function factsFrom(body = {}) {
     meetings: strs(body.meetings, 12),
     travel: str(body.travel, 160),
     cards: Math.max(0, Number(body.cards) || 0),
+    card_titles: strs(body.card_titles, 12),
+    can_plan: typeof body.can_plan === 'boolean' ? body.can_plan : null,
     tonight: {
       decisions: titled(t.decisions, 20).map((d) => ({
         title: d.title,
@@ -323,7 +339,12 @@ export function factsFrom(body = {}) {
       journal: ['written', 'mood', 'skipped'].includes(t.journal) ? t.journal : null,
       path: ['cards', 'skip', 'clear'].includes(t.path) ? t.path : null,
     },
-    next: { meetings: strs(n.meetings, 10), lined: strs(n.lined, 10) },
+    next: {
+      meetings: strs(n.meetings, 10),
+      lined: strs(n.lined, 10),
+      todos: strs(n.todos, 15),
+      todo_count: Number.isFinite(n.todo_count) ? Math.max(0, Math.floor(n.todo_count)) : null,
+    },
     entry: str(body.entry, 4000),
     questions: (Array.isArray(body.questions) ? body.questions : [])
       .filter((q) => q && q.id && q.question)

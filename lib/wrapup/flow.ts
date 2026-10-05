@@ -327,14 +327,15 @@ export function closeButtons(d: WrapDay, canPlan: boolean): OfferButton[] {
 export function closeMsgs(p: {
   day: WrapDay;
   meetings: number;
-  lined: string[];
+  /** Every todo planned for tomorrow, by title */
+  todos: string[];
   canPlan: boolean;
   /** Gremly's own words for the close, when they came */
   gremly?: string | null;
 }): WrapMsg[] {
   return [
     offer(
-      p.gremly || closeLine(p.day, p.meetings, p.lined),
+      p.gremly || closeLine(p.day, p.meetings, p.todos),
       'wrap_close',
       closeButtons(p.day, p.canPlan),
     ),

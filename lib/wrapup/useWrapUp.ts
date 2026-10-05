@@ -85,10 +85,12 @@ import {
   type WrapQuestion,
 } from './questions';
 import {
+  cardTitles,
   chosenQuestions,
   gremlyWords,
   journalOf,
   lineOf,
+  todosPlannedFor,
   wrapFacts,
   type HabitsTonight,
 } from './gremlyWords';
@@ -106,15 +108,7 @@ import {
   updateWrap,
   useWrapSession,
 } from './session';
-import {
-  cardsLeft,
-  decidedIds,
-  keptFor,
-  newSince,
-  newWrapState,
-  pastCards,
-  sweepCounts,
-} from './state';
+import { cardsLeft, decidedIds, newSince, newWrapState, pastCards, sweepCounts } from './state';
 import { touchedTonight } from './teaser';
 import { WRAP_COPY, habitsSavedLine, nightLine, partWords } from './words';
 
@@ -398,6 +392,9 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
           plan: lockedPlan(depsRef.current.messages, now.day),
         }),
         cards: cardsLeft(w, cards).length,
+        cardTitles: cardTitles(cardsLeft(w, cards)),
+        tomorrowTodos: todosPlannedFor(st.todos, now.tomorrow),
+        canPlan: !planFor(depsRef.current.messages, now.tomorrow),
         wrap: w,
         habits: habitsTonightRef.current,
         ...more,
@@ -521,13 +518,12 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
       ).catch((err) => console.warn('[WrapUp] could not credit the wrap up:', err));
     }
     const words = await withTyping(gremlyWords(factsFor('close')));
-    const { now } = readNow();
-    const lined = keptFor(currentWrap(), now.tomorrow);
+    const { st, now } = readNow();
     await save(
       closeMsgs({
         day: now.words,
         meetings: meetingsFromStore(now.tomorrow).length,
-        lined,
+        todos: todosPlannedFor(st.todos, now.tomorrow),
         canPlan: !planFor(depsRef.current.messages, now.tomorrow),
         gremly: lineOf(words),
       }),
