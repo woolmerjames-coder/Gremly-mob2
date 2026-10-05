@@ -160,6 +160,35 @@ export const SCENARIOS = [
 ];
 
 /** The calendar for the week ahead, for the preload (context/weekAhead.js). */
+// A heavy day: far more todos planned for it than meetings (on 4 Oct a real
+// one had 49 todos, and Ask Gremly named two and called the day mostly open).
+const HEAVY_TITLES = [
+  'Fix the onboarding crash', 'Write the launch email', 'Submit the app for review', 'Reply to the landlord',
+  'Book the dentist', 'Renew the passport', 'Pay the water bill', 'Update the pitch deck',
+  'Call the bank about the card', 'Order the birthday cake', 'Send the invoice to Harbour', 'Plan the team offsite',
+  'Draft the board update', 'Clean out the garage', 'Back up the laptop', 'Return the library books',
+  'Schedule the car service', 'Review the contract changes', 'Prep the QBR slides', 'Buy running shoes',
+  'Sort the tax receipts', 'Email the accountant', 'Fix the shed door', 'Write the blog post',
+  'Test the new build', 'Update the privacy policy', 'Record the demo video', 'Set up the analytics dashboard',
+  'Book flights for Denver', 'Find a present for Sam', 'Call Mum', 'Plan the week',
+  'Tidy the inbox', 'Answer the recruiter', 'Read the onboarding notes', 'Renew the gym membership',
+  'Fix the bike light', 'Order printer ink', 'Cancel the old phone plan', 'Write the thank you cards',
+];
+const HEAVY_DAY = HEAVY_TITLES.map((title, i) => ({ id: `h${i + 1}`, kind: 'todo', title, due_day: '2026-10-05' }));
+
+SCENARIOS.push({
+  id: 'heavy-day',
+  kind: 'A day full of todos',
+  text: "What's on Monday?",
+  items: HEAVY_DAY,
+  expect: {
+    rows: 0,
+    // the day's todos, by number, not only its one meeting
+    mentions: /\b40\b|forty/i,
+    notSaid: /\b(mostly|pretty|fairly|wide|largely) (open|clear|free|light)\b|light day|quiet day/i,
+  },
+});
+
 // After midnight and before their day ends (3am): still Saturday for them.
 SCENARIOS.push(
   {

@@ -139,11 +139,17 @@ test('each of the seven days, in their time zone, with what is on it', () => {
 
 test('in words: times where they are, clear days said to be clear, what is still open', () => {
   const text = formatWeekAhead(week());
-  expect(text).toContain('Sat 3 Oct (today): todos: Do taxes at 3:00pm');
-  expect(text).toContain('Sun 4 Oct (tomorrow): 3:56pm to 5:38pm Flight to San Francisco');
-  expect(text).toContain('Mon 5 Oct: 8:00am to 8:30am Team huddle');
+  expect(text).toContain('Sat 3 Oct (today):\n  todos planned for it (1): Do taxes at 3:00pm');
+  expect(text).toContain(
+    'Sun 4 Oct (tomorrow):\n  on their calendar (1): 3:56pm to 5:38pm Flight to San Francisco',
+  );
+  expect(text).toContain('Mon 5 Oct:\n  on their calendar (1): 8:00am to 8:30am Team huddle');
   expect(text).toContain('Thu 8 Oct: nothing planned');
-  expect(text).toContain('Fri 9 Oct: all day: Office closed; US office closed');
+  expect(text).toContain(
+    'Fri 9 Oct:\n  on their calendar (2): all day: Office closed; US office closed',
+  );
+  // an answer about a day covers its todos as well as its calendar
+  expect(text).toContain('an answer about a day covers both its calendar and its todos');
   expect(text).toContain('Still open from before today: Tax form (was Tue 29 Sep)');
   expect(formatWeekAhead(null)).toBe('');
 });
@@ -151,7 +157,9 @@ test('in words: times where they are, clear days said to be clear, what is still
 test('with ids, for the agent: each todo carries its id, and the words are otherwise the same', () => {
   const plain = formatWeekAhead(week());
   const text = formatWeekAhead(week(), { ids: true });
-  expect(text).toContain('Tue 6 Oct: 9:30am to 10:00am Vet. todos: Book flights (id t2)');
+  expect(text).toContain(
+    'Tue 6 Oct:\n  on their calendar (1): 9:30am to 10:00am Vet\n  todos planned for it (1): Book flights (id t2)',
+  );
   expect(text).toMatch(/Still open from before today: Tax form \(id [^)]+\) \(was Tue 29 Sep\)/);
   expect(text.replace(/ \(id [^)]+\)/g, '')).toBe(plain);
 });

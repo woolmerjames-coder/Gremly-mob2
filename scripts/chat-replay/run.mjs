@@ -13,7 +13,7 @@
  * Output goes to scripts/chat-replay/out/ (gitignored).
  */
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -37,7 +37,23 @@ const thinking = flag('--thinking');
 const repeat = Math.max(1, Number(flag('--repeat') || 3));
 const USER = '0b7c6f0e-1d2a-4c3b-9e8f-112233445566';
 const TZ = 'America/Los_Angeles';
-const scenarios = only ? SCENARIOS.filter((s) => only.split(',').includes(s.id)) : SCENARIOS;
+// Real conversations, built from someone's own data, go in fixtures/*.json (never
+// committed): a scenario as in scenarios.mjs, with its own week ({ timed, allDay }
+// as [start, end, title]), profileText, and expect patterns as strings.
+const fromFixtures = [];
+const FIXTURES = join(HERE, 'fixtures');
+if (existsSync(FIXTURES)) {
+  for (const f of readdirSync(FIXTURES).filter((x) => x.endsWith('.json'))) {
+    const list = JSON.parse(readFileSync(join(FIXTURES, f), 'utf8'));
+    for (const s of Array.isArray(list) ? list : [list]) {
+      const e = s.expect || {};
+      for (const k of ['mentions', 'notSaid']) if (typeof e[k] === 'string') e[k] = new RegExp(e[k], 'i');
+      fromFixtures.push({ ...s, real: true });
+    }
+  }
+}
+const ALL = [...SCENARIOS, ...fromFixtures];
+const scenarios = only ? ALL.filter((s) => only.split(',').includes(s.id)) : ALL;
 
 // tokens and price of every model call in a turn, read from each reply
 const turnUsage = new AsyncLocalStorage();
@@ -147,18 +163,20 @@ function weekOf(s, to) {
   const todos = (s.items || [])
     .filter((x) => x.kind === 'todo' && x.due_day)
     .map((x) => ({ id: to.get(x.id), name: x.title, due_day: x.due_day, due_time: x.due_time ? `${x.due_time}:00` : null }));
+  const first = s.today || '2026-10-03';
+  const week = s.week || WEEK;
   return weekFrom({
-      first: '2026-10-03',
+      first,
       tz: TZ,
       synced: {
-        timed: WEEK.timed.map(([a, b, t], i) => ({ id: `m${i}`, title: t, start_at: a, end_at: b, is_all_day: false })),
-        allDay: WEEK.allDay.map(([a, b, t], i) => ({ id: `a${i}`, title: t, start_at: a, end_at: b, is_all_day: true })),
+        timed: week.timed.map(([a, b, t], i) => ({ id: `m${i}`, title: t, start_at: a, end_at: b, is_all_day: false })),
+        allDay: (week.allDay || []).map(([a, b, t], i) => ({ id: `a${i}`, title: t, start_at: a, end_at: b, is_all_day: true })),
         long: [],
       },
       noteEvents: [],
       quickEvents: [],
-      todos: todos.filter((t) => t.due_day >= '2026-10-03'),
-      overdue: todos.filter((t) => t.due_day < '2026-10-03'),
+      todos: todos.filter((t) => t.due_day >= first),
+      overdue: todos.filter((t) => t.due_day < first),
   });
 }
 
@@ -207,7 +225,7 @@ async function runOne(s, modelKey) {
       timezone: TZ,
       messages: [...(s.history || []), { role: 'user', content: s.text }],
       preload: {
-        profileText: 'IDENTITY: Alex. Lives in San Francisco with their partner Jo and their dog Bella. Works in client services, and is building an app on the side.',
+        profileText: s.profileText || 'IDENTITY: Alex. Lives in San Francisco with their partner Jo and their dog Bella. Works in client services, and is building an app on the side.',
         sessionContext: formatWeekAhead(weekOf(s, to)),
         week: weekOf(s, to),
         // their day, which after midnight is still the day before until 3am

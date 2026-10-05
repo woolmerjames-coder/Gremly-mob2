@@ -138,25 +138,34 @@ export function formatWeekAhead(week, { ids = false } = {}) {
   const idOf = (t) => (ids && t.id ? ` (id ${t.id})` : '');
   const lines = [
     "=== THE WEEK AHEAD (their calendar and the todos they've planned, read just now) ===",
-    'The next seven days as the app has them. A day with nothing listed has nothing on their calendar and no todos planned for it. When they ask about the days ahead, answer from this, and when a day is clear, say so rather than filling it in.',
+    'The next seven days as the app has them, each with what is on its calendar and the todos planned for it, counted. A day with nothing listed has nothing on their calendar and no todos planned for it. When they ask about the days ahead, answer from this: an answer about a day covers both its calendar and its todos, and says how many todos there are when there are more than a few. Never describe a day with todos planned as having little on it, and when a day is clear, say so rather than filling it in.',
   ];
   for (const day of week.days) {
     const parts = [];
-    if (day.meetings.length)
-      parts.push(
-        some(
-          day.meetings,
-          MOST_A_DAY,
-          (m) => `${clock(m.start)} to ${clock(m.end)} ${trim(m.title, 60)}`,
-        ),
-      );
-    if (day.allDay.length) parts.push(`all day: ${some(day.allDay, 5, (a) => trim(a.title, 60))}`);
+    const onCalendar = day.meetings.length + day.allDay.length;
+    if (onCalendar) {
+      const entries = [
+        ...(day.allDay.length ? [`all day: ${some(day.allDay, 5, (a) => trim(a.title, 60))}`] : []),
+        ...(day.meetings.length
+          ? [
+              some(
+                day.meetings,
+                MOST_A_DAY,
+                (m) => `${clock(m.start)} to ${clock(m.end)} ${trim(m.title, 60)}`,
+              ),
+            ]
+          : []),
+      ];
+      parts.push(`  on their calendar (${onCalendar}): ${entries.join('; ')}`);
+    }
     if (day.todos.length)
       parts.push(
-        `todos: ${some(day.todos, MOST_TODOS_A_DAY, (t) => `${trim(t.title, 60)}${idOf(t)}${t.due_time ? ` at ${clock(t.due_time)}` : ''}`)}`,
+        `  todos planned for it (${day.todos.length}): ${some(day.todos, MOST_TODOS_A_DAY, (t) => `${trim(t.title, 60)}${idOf(t)}${t.due_time ? ` at ${clock(t.due_time)}` : ''}`)}`,
       );
     lines.push(
-      `${dayWords(day.date, week.first)}: ${parts.length ? parts.join('. ') : 'nothing planned'}`,
+      parts.length
+        ? `${dayWords(day.date, week.first)}:\n${parts.join('\n')}`
+        : `${dayWords(day.date, week.first)}: nothing planned`,
     );
   }
   if (week.overdue.length)

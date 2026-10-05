@@ -19,7 +19,7 @@ import { runAgent } from './run.js';
 import { runTool, toolContext } from './tools/index.js';
 import { AGENT_PROMPT_VERSION } from './prompt.js';
 
-export const CHAT_AGENT_VERSION = `chat-2026-10-05a/${AGENT_PROMPT_VERSION}`;
+export const CHAT_AGENT_VERSION = `chat-2026-10-05b/${AGENT_PROMPT_VERSION}`;
 
 /** How many of their items the search before the first step offers. */
 const FOUND_LIMIT = 8;
