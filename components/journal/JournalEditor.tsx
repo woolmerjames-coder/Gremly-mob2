@@ -6,7 +6,7 @@
  * and asked for them when the page needs them, so typing never waits on the
  * rest of the screen. To show different words, give it a new key.
  */
-import React, { forwardRef, useImperativeHandle, useRef } from 'react';
+import React, { forwardRef, useImperativeHandle, useRef, useState } from 'react';
 import type { NativeSyntheticEvent } from 'react-native';
 import {
   EnrichedTextInput,
@@ -81,6 +81,9 @@ export const JournalEditor = forwardRef<JournalEditorHandle, JournalEditorProps>
     ref,
   ) {
     const input = useRef<EnrichedTextInputInstance | null>(null);
+    // The editor replaces everything in it whenever its starting words change,
+    // so it is only ever given the words it was first shown with.
+    const [first] = useState(initialHtml);
 
     useImperativeHandle(
       ref,
@@ -95,15 +98,15 @@ export const JournalEditor = forwardRef<JournalEditorHandle, JournalEditorProps>
           else if (kind === 'bullets') editor.toggleUnorderedList();
           else editor.toggleOrderedList();
         },
-        html: async () => (input.current ? input.current.getHTML() : initialHtml),
+        html: async () => (input.current ? input.current.getHTML() : first),
       }),
-      [initialHtml],
+      [first],
     );
 
     return (
       <EnrichedTextInput
         ref={input}
-        defaultValue={initialHtml || undefined}
+        defaultValue={first || undefined}
         placeholder={placeholder}
         placeholderTextColor={BRIEF.faint}
         cursorColor={BRIEF.moss}

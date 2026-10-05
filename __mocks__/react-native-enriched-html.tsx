@@ -15,6 +15,15 @@ const toHtml = (text: string) =>
         .join('')}</html>`
     : '';
 
+const toWords = (html: string) =>
+  html
+    .replace(/<\/(p|li)>|<br>/g, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .trim();
+
 /** Every formatting button pressed on any editor since the last clear */
 export const pressedFormats: string[] = [];
 
@@ -39,6 +48,7 @@ export const EnrichedTextInput = forwardRef<any, any>(function EnrichedTextInput
       ref={box}
       testID={props.testID}
       placeholder={props.placeholder}
+      defaultValue={toWords(props.defaultValue ?? '')}
       editable={props.editable}
       multiline
       onFocus={props.onFocus}
