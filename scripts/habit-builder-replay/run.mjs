@@ -1,0 +1,116 @@
+/**
+ * The habit builder's replay (workers/cortex/habitBuilderPrompt.js): habits
+ * that overlap something Gremly already has, where the builder points the
+ * person at it. It must name what the app has now, where it really is: the
+ * evening wrap up is in Chat, and Lock In and the Sweep banner are gone.
+ *
+ *   scripts/habit-builder-replay/run.sh [--only id,id] [--repeat n]
+ *
+ * The model is CHAT_MODEL (workers/cortex/wrangler.toml), as the habit builder
+ * runs. Every name and message is made up.
+ * GEMINI_TEST_API_KEY comes from the environment.
+ */
+
+import { writeFileSync, mkdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { HABIT_BUILDER_PROMPT } from '../../workers/cortex/habitBuilderPrompt.js';
+import { geminiGenerate } from '../../workers/cortex/geminiClient.js';
+import { configureModels } from '../../workers/cortex/models.js';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const args = process.argv.slice(2);
+const flag = (name) => {
+  const i = args.indexOf(name);
+  return i >= 0 ? args[i + 1] : null;
+};
+const only = flag('--only');
+const repeat = Math.max(1, Number(flag('--repeat') || 1));
+const MODEL = flag('--model') || 'gemini-3-flash-preview';
+
+const CONTEXT = `\n\n=== SESSION CONTEXT ===\nExisting habits: none yet.\nUSER PROFILE: Alex, works in client services, lives with their partner Jo.`;
+
+// What no reply may say: things the app no longer has
+// (top priorities in general are fine; Lock In as a feature is checked below)
+const GONE = /evening sweep|sweep banner|organi[sz]e button|daily planner|mind drop tab|chat tab/i;
+// Lock In as the feature's name (locking in a habit they are shaping is fine)
+const LOCK_IN = /\bLock[- ]In\b|\block[- ]ins?\b(?= (are|is|for|as) )/;
+
+const SCENARIOS = [
+  {
+    id: 'journal-at-night',
+    look: 'Points to the evening wrap up in Chat for the journal, not a Sweep banner on Today.',
+    messages: [
+      { role: 'user', content: 'I want to start journaling every night before bed' },
+      { role: 'assistant', content: "Love that. What's pulling you toward it right now?" },
+      { role: 'user', content: 'My head is just full at night and I want to get things out of it before sleeping' },
+    ],
+    mentions: /wrap/i,
+  },
+  {
+    id: 'reflect-and-mood',
+    look: 'Reflecting on the day and tracking mood: the evening wrap up in Chat.',
+    messages: [
+      { role: 'user', content: 'I want to reflect on my day each evening and keep track of my mood' },
+      { role: 'assistant', content: 'That sounds like a good way to close the day. What made you want to start?' },
+      { role: 'user', content: "I've noticed my moods swing and I don't know why. Want to spot patterns" },
+    ],
+    mentions: /wrap/i,
+  },
+  {
+    id: 'plan-mornings',
+    look: 'Planning the day: no Organize button and no Lock In, which are gone.',
+    messages: [
+      { role: 'user', content: 'I want to plan my day every morning so I stop feeling scattered' },
+      { role: 'assistant', content: "Scattered is a rough way to spend a day. What does a scattered day look like for you?" },
+      { role: 'user', content: 'I just react to whatever comes up and the important stuff never happens' },
+    ],
+  },
+  {
+    id: 'quit-vaping',
+    look: 'A habit being broken: checked in on in the evening wrap up, if the tracking is mentioned.',
+    messages: [
+      { role: 'user', content: 'I want to quit vaping' },
+      { role: 'assistant', content: "That's a big one, and a good one. What's making now the time?" },
+      { role: 'user', content: "My partner's been on at me and honestly I'm sick of feeling like I need it. Mostly I vape in the evenings after work" },
+    ],
+  },
+];
+
+async function runOne(s) {
+  const started = Date.now();
+  try {
+    const out = await geminiGenerate(
+      `${HABIT_BUILDER_PROMPT}${CONTEXT}`,
+      s.messages,
+      { model: MODEL, temperature: 0.7, maxOutputTokens: 2048, thinkingLevel: 'low', label: 'habit_builder_replay' },
+      process.env.GEMINI_TEST_API_KEY,
+    );
+    const reply = String(out.text || out.content || out.reply || '').trim();
+    if (!reply) return { id: s.id, ok: false, ms: Date.now() - started, error: `no reply: ${JSON.stringify(out).slice(0, 300)}` };
+    const checks = [
+      { name: 'Names nothing the app no longer has', ok: !GONE.test(reply), detail: (reply.match(GONE) || [])[0] || '' },
+      { name: 'Never names Lock In', ok: !LOCK_IN.test(reply), detail: (reply.match(LOCK_IN) || [])[0] || '' },
+    ];
+    const warns = s.mentions ? [{ name: `Mentions ${s.mentions}`, ok: s.mentions.test(reply) }] : [];
+    return { id: s.id, ok: checks.every((c) => c.ok), ms: Date.now() - started, checks, warns, reply };
+  } catch (err) {
+    return { id: s.id, ok: false, ms: Date.now() - started, error: String(err?.message || err) };
+  }
+}
+
+configureModels({ GEMINI_API_KEY: process.env.GEMINI_TEST_API_KEY });
+const scenarios = only ? SCENARIOS.filter((s) => only.split(',').includes(s.id)) : SCENARIOS;
+const jobs = scenarios.flatMap((s) => Array.from({ length: repeat }, () => s));
+console.log(`${jobs.length} habit builder replies on ${MODEL}`);
+const results = await Promise.all(jobs.map(runOne));
+for (const r of results) {
+  const why = r.error || (r.checks || []).filter((c) => !c.ok).map((c) => `${c.name}: ${c.detail}`).join('; ');
+  const warn = (r.warns || []).filter((w) => !w.ok).map((w) => `warn: ${w.name}`).join('; ');
+  console.log(`${r.ok ? 'ok  ' : 'FAIL'}  ${r.id} · ${r.ms}ms${why ? ` · ${why}` : ''}${warn ? ` · ${warn}` : ''}`);
+  if (r.reply) console.log(`      ${r.reply.replace(/\s+/g, ' ').slice(0, 600)}`);
+}
+console.log(`\n${results.filter((r) => r.ok).length} of ${results.length} name only what the app has`);
+const dir = join(HERE, 'out', new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19));
+mkdirSync(dir, { recursive: true });
+writeFileSync(join(dir, 'results.json'), JSON.stringify(results, null, 2));

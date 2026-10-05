@@ -29,7 +29,7 @@ const DETAIL = {
   todo: {
     table: 'todos',
     select:
-      'id,name,title,body,notes,tags,list_items,subtype,due_day,due_time,time_estimate_minutes,time_window,commitment,commitment_note,sweep_reschedule_count,created_at,views,chat_summary,space_id',
+      'id,name,title,body,notes,tags,list_items,subtype,due_day,due_time,time_estimate_minutes,time_window,commitment_note,sweep_reschedule_count,created_at,views,chat_summary,space_id',
   },
   habit: {
     table: 'habits',
@@ -114,8 +114,8 @@ export function toDetail(row, type, opts = {}) {
       ...base,
       due_day: row.due_day || null,
       due_time: clockTime(row.due_time),
-      committed: !!row.commitment,
-      commitment: textOf(row.commitment_note, NOTES_MAX),
+      // their own words on why it matters, written with a Lock In before it was removed
+      matters: textOf(row.commitment_note, NOTES_MAX),
       put_off: Number(row.sweep_reschedule_count) > 0 ? Number(row.sweep_reschedule_count) : 0,
     };
   }
@@ -125,8 +125,7 @@ export function toDetail(row, type, opts = {}) {
       frequency: row.frequency || null,
       replacement: textOf(row.replacement_text, NOTES_MAX),
       floor: textOf(row.floor_note, NOTES_MAX),
-      committed: !!row.commitment_note,
-      commitment: textOf(row.commitment_note, NOTES_MAX),
+      matters: textOf(row.commitment_note, NOTES_MAX),
       logged_days: [...new Set(opts.loggedDays || [])].sort().reverse(),
       last_done_day: localDay(row.last_completed_at, tz),
     };
@@ -199,8 +198,7 @@ export function itemDetailText(d, todayIso) {
   if (d.estimate) lines.push(`- takes about ${minutesInWords(d.estimate)}`);
   if (d.time_window)
     lines.push(`- best done ${d.time_window === 'day' ? 'during the day' : `in the ${d.time_window}`}`);
-  if (d.committed)
-    lines.push(`- they committed to it${d.commitment ? `: ${quoted(d.commitment)}` : ''}`);
+  if (d.matters) lines.push(`- why it matters to them, in their words: ${quoted(d.matters)}`);
   if (d.put_off) lines.push(`- put off in Sweep ${d.put_off === 1 ? 'once' : `${d.put_off} times`}`);
   if (d.type === 'habit') {
     if (d.replacement) lines.push(`- what they do instead: ${quoted(d.replacement)}`);

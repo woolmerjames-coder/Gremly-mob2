@@ -120,7 +120,7 @@ export function inversePlanChange(p: PlanChange, plan: BriefPlanMeta | null): Pl
   };
 }
 
-const NOTE_ORDER = ['in the plan', 'due today', 'past its day', 'locked in', 'upcoming', 'no day'];
+const NOTE_ORDER = ['in the plan', 'due today', 'past its day', 'upcoming', 'no day'];
 
 /**
  * What one card came to, in words, for Gremly's history: what they accepted,
@@ -188,13 +188,11 @@ export function buildDayTurnRequest(
           ? 'due today'
           : due && due < date
             ? 'past its day'
-            : t.commitment
-              ? 'locked in'
-              : due && due <= soon
-                ? 'upcoming'
-                : !due && t.created_at && (localDateOf(t.created_at) ?? '') >= recent
-                  ? 'no day'
-                  : null;
+            : due && due <= soon
+              ? 'upcoming'
+              : !due && t.created_at && (localDateOf(t.created_at) ?? '') >= recent
+                ? 'no day'
+                : null;
       return note
         ? {
             id: t.id,

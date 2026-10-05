@@ -29,7 +29,6 @@ export interface OrganizeDayTask {
   energyType: 'deep_focus' | 'administrative' | 'physical' | 'social' | 'quick';
   dueDate: string | null;
   priority: 'high' | 'medium' | 'low' | null;
-  isLockedIn: boolean;
   currentBlock: 'morning' | 'day' | 'evening' | null;
   timeWindowPreference: 'morning' | 'day' | 'evening' | 'any' | null;
   /** For habits: whether the weekly/monthly goal is already met */
@@ -235,7 +234,6 @@ export function buildOrganizeDayRequest(params: BuildRequestParams): OrganizeDay
         energyType: validateEnergyType((t as any).energy_type),
         dueDate: t.due_day ?? null,
         priority: null, // Todo type doesn't have priority
-        isLockedIn: t.locked_in ?? false,
         currentBlock:
           t.time_window && t.time_window !== 'any'
             ? (t.time_window as 'morning' | 'day' | 'evening')
@@ -268,7 +266,6 @@ export function buildOrganizeDayRequest(params: BuildRequestParams): OrganizeDay
         energyType: validateEnergyType((h as any).energy_type),
         dueDate: null,
         priority: null,
-        isLockedIn: false,
         currentBlock:
           h.time_window && h.time_window !== 'any'
             ? (h.time_window as 'morning' | 'day' | 'evening')

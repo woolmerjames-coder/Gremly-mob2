@@ -11,7 +11,7 @@ const SELECT = {
   todo: {
     table: 'todos',
     select:
-      'id,name,title,body,notes,due_day,due_time,target_date,time_estimate_minutes,reminders_json,time_window,tags,is_pinned,completed_at,archived,list_items,subtype,commitment,commitment_note,sweep_reschedule_count,created_at,views,chat_summary,space_id',
+      'id,name,title,body,notes,due_day,due_time,target_date,time_estimate_minutes,reminders_json,time_window,tags,is_pinned,completed_at,archived,list_items,subtype,commitment_note,sweep_reschedule_count,created_at,views,chat_summary,space_id',
   },
   habit: {
     table: 'habits',

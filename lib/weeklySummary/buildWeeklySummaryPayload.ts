@@ -25,7 +25,6 @@ export interface WeeklySummaryPayload {
       }
     >;
     journalEntries: number;
-    lockIns: number;
     ideasCaptured: number;
     mindDropsCreated: number;
     mindDropsSwept: number;
@@ -253,17 +252,6 @@ export async function buildWeeklySummaryPayload(): Promise<WeeklySummaryPayload 
       n.subtype === 'idea' &&
       dayInRange(dayFromTimestamp(n.created_at), weekStartDate, weekEndDate),
   ).length;
-
-  // 6. Lock-ins: count todos + habits with locked_in_at within the week
-  const lockIns =
-    todos.filter(
-      (t) =>
-        t.locked_in_at && dayInRange(dayFromTimestamp(t.locked_in_at), weekStartDate, weekEndDate),
-    ).length +
-    habits.filter(
-      (h) =>
-        h.locked_in_at && dayInRange(dayFromTimestamp(h.locked_in_at), weekStartDate, weekEndDate),
-    ).length;
 
   // 8. Mind Drops created / swept
   const allItemsThisWeek = [
@@ -634,7 +622,6 @@ export async function buildWeeklySummaryPayload(): Promise<WeeklySummaryPayload 
       todosCompletedLastWeek: completedLastWeek.length,
       habitsTracked,
       journalEntries,
-      lockIns,
       ideasCaptured,
       mindDropsCreated,
       mindDropsSwept,
@@ -657,7 +644,6 @@ export async function buildWeeklySummaryPayload(): Promise<WeeklySummaryPayload 
     todosCompletedLastWeek: payload.stats.todosCompletedLastWeek,
     habitsTracked: Object.keys(payload.stats.habitsTracked).length,
     journalEntries: payload.stats.journalEntries,
-    lockIns: payload.stats.lockIns,
     ideasCaptured: payload.stats.ideasCaptured,
     mindDropsCreated: payload.stats.mindDropsCreated,
     mindDropsSwept: payload.stats.mindDropsSwept,

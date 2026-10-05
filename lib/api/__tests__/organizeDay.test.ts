@@ -174,7 +174,8 @@ describe('buildOrganizeDayRequest', () => {
       expect(task.estimateMinutes).toBe(45);
       expect(task.visibleMinutes).toBe(45);
       expect(task.currentBlock).toBe('morning');
-      expect(task.isLockedIn).toBe(true);
+      // Lock In is gone: nothing about it is sent
+      expect(task).not.toHaveProperty('isLockedIn');
     });
 
     it('uses fallback estimate of 30 when time_estimate_minutes is null', () => {
@@ -260,7 +261,7 @@ describe('buildOrganizeDayRequest', () => {
       expect(task.title).toBe('Morning meditation');
       expect(task.type).toBe('habit');
       expect(task.visibleMinutes).toBe(15);
-      expect(task.isLockedIn).toBe(false); // habits are never locked in
+      expect(task).not.toHaveProperty('isLockedIn');
     });
   });
 
