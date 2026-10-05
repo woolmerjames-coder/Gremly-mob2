@@ -1,5 +1,6 @@
 // Types for check.js, for the app's TypeScript.
-import type { ChangeOp, ItemType } from './fields';
+import type { ChangeOp, ItemType, WeekOp } from './fields';
+import type { WeekHours } from '../week';
 
 export interface Schedule {
   per: 'day' | 'week' | 'month';
@@ -22,10 +23,29 @@ export interface PlanChange {
   /** The day turn's own words for the row */
   label?: string;
 }
+/** The week's busy days and free hours, the parts of them a change sets. */
+export interface WeekShape {
+  busy_days?: string[];
+  hours?: WeekHours;
+}
+/** One step towards a milestone: a todo to do, or a check in Gremly holds. */
+export interface MilestoneStep {
+  title: string;
+  /** The day to finish it by */
+  by: string;
+  minutes?: number;
+  kind: 'todo' | 'check_in';
+}
+export interface Milestone {
+  goal: string;
+  /** The date it is for */
+  date: string;
+  steps: MilestoneStep[];
+}
 /** One checked change, as the card shows it and the app applies it. */
 export interface Change {
   cid: string;
-  op: ChangeOp;
+  op: ChangeOp | WeekOp;
   type: ItemType | null;
   id: string | null;
   /** The item's name as it reads now, or the new name for an add */
@@ -35,6 +55,23 @@ export interface Change {
   days?: string[];
   to?: ItemType;
   plan?: PlanChange;
+  /** week_shape: the busy days and hours it sets */
+  shape?: WeekShape;
+  /** milestone: what is set up */
+  milestone?: Milestone;
+}
+/** The person's week, for the week's own changes (checkWeekChange). */
+export interface WeekCheckContext {
+  /** The days the week's changes act on */
+  first: string;
+  last: string;
+  hours?: WeekHours | null;
+  busy_days?: string[];
+  /** The week has a review, which keeps its shape and its check ins */
+  has_review?: boolean;
+  intention?: { id?: string | null; text: string } | null;
+  /** 0 Sunday to 6 Saturday */
+  weekly_day?: number;
 }
 export interface CheckContext {
   today?: string;
@@ -42,6 +79,7 @@ export interface CheckContext {
   worlds?: string[];
   chapters?: string[];
   groups?: Array<'main' | 'asked'>;
+  week?: WeekCheckContext | null;
 }
 export declare function normDay(v: unknown): string | undefined;
 export declare function normTime(v: unknown): string | undefined;
@@ -59,6 +97,10 @@ export declare function beforeValue(
   field: string,
 ): any;
 export declare function checkChange(
+  raw: Record<string, any>,
+  ctx?: CheckContext,
+): { ok: true; change: Change } | { ok: false; reason: string };
+export declare function checkWeekChange(
   raw: Record<string, any>,
   ctx?: CheckContext,
 ): { ok: true; change: Change } | { ok: false; reason: string };

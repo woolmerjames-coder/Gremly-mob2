@@ -17,6 +17,13 @@
  * - to: for 'convert', the kind it becomes
  * - plan: for 'plan', the day turn's set time or plan change
  *
+ * The week's own operations (WEEK_OPS in fields.js) are checked here too, by
+ * checkWeekChange, against the person's week on the context (ctx.week): the
+ * days they act on, the week's hours and busy days, its intention, and the
+ * weekly day. They come with what they need by name: back_on for 'later',
+ * days for 'habit_days', shape for 'week_shape', intention, milestone, and
+ * weekday for 'weekly_day'. With no week on the context they are dropped.
+ *
  * What comes back adds:
  * - title: the item's name as it reads now (or the new name for an add)
  * - before: each changed field's value on the item as it was read, filled in
@@ -30,7 +37,17 @@
  * Pure: no clock, no I/O. Today comes in on the context.
  */
 
-import { TYPES, OPS, PLAN_KINDS, fieldDef } from './fields.js';
+import {
+  TYPES,
+  OPS,
+  PLAN_KINDS,
+  WEEK_OPS,
+  STEP_KINDS,
+  WEEK_LIMITS,
+  NAME_LIMIT,
+  fieldDef,
+} from './fields.js';
+import { DAY_KINDS, LATER_MAX_DAYS, daysBetween, normHours } from '../week.js';
 
 // ── Values ──────────────────────────────────────────────────────────────────
 
@@ -362,8 +379,9 @@ function readPlan(plan) {
  * @returns {{ok: true, change: object} | {ok: false, reason: string}}
  */
 export function checkChange(raw, ctx = {}) {
-  if (!raw || typeof raw !== 'object' || !(raw.op in OPS))
-    return { ok: false, reason: 'unknown_op' };
+  if (!raw || typeof raw !== 'object') return { ok: false, reason: 'unknown_op' };
+  if (WEEK_OP_NAMES.includes(raw.op)) return checkWeekChange(raw, ctx);
+  if (!(raw.op in OPS)) return { ok: false, reason: 'unknown_op' };
   const base = { cid: raw.cid || null, op: raw.op };
 
   if (raw.op === 'plan') {
@@ -438,6 +456,223 @@ export function checkChange(raw, ctx = {}) {
   }
 }
 
+// ── The week ────────────────────────────────────────────────────────────────
+
+const WEEK_OP_NAMES = Object.keys(WEEK_OPS);
+
+/** Days as a sorted list with no repeats, or null when one is not a real date. */
+function dayList(days) {
+  if (!Array.isArray(days)) return null;
+  const list = [...new Set(days.map(normDay))];
+  return list.some((d) => !d) ? null : list.sort();
+}
+
+const sameList = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+/** A milestone's steps, read against today and the date it is for. */
+function readSteps(steps, today, date) {
+  if (!Array.isArray(steps) || !steps.length) return { error: 'milestone_needs_steps' };
+  if (steps.length > WEEK_LIMITS.steps) return { error: 'too_many_steps' };
+  const out = [];
+  for (const s of steps) {
+    const title = normText(s?.title, NAME_LIMIT);
+    const by = normDay(s?.by);
+    if (!title || !by || !STEP_KINDS.includes(s?.kind)) return { error: 'bad_step' };
+    // a step is done between now and the date it leads up to
+    if ((today && by < today) || by > date) return { error: 'step_outside' };
+    const step = { title, by, kind: s.kind };
+    if (s.minutes != null) {
+      const minutes = normMinutes(s.minutes);
+      if (minutes === undefined) return { error: 'bad_step' };
+      step.minutes = minutes;
+    }
+    out.push(step);
+  }
+  return { steps: out };
+}
+
+/**
+ * Check one of the week's own changes (WEEK_OPS) against the person's week.
+ * @param {object} raw the change as proposed
+ * @param {{today?: string, item?: object|null, week?: {first: string, last: string,
+ *   hours?: object|null, busy_days?: string[], has_review?: boolean,
+ *   intention?: {id?: string|null, text: string}|null, weekly_day?: number}|null}} ctx
+ *   week: the days the week's changes act on (first to last), the week's shape
+ *   and intention as they stand, whether the week has a review to keep its
+ *   shape and check ins on, and the weekly day. A habit's snapshot carries
+ *   planned_days, the days it is planned on now.
+ * @returns {{ok: true, change: object} | {ok: false, reason: string}}
+ */
+export function checkWeekChange(raw, ctx = {}) {
+  const w = ctx.week;
+  if (!w || !normDay(w.first) || !normDay(w.last)) return { ok: false, reason: 'no_week' };
+  const base = { cid: raw.cid || null, op: raw.op };
+  const today = ctx.today || null;
+  const inWeek = (d) => d >= w.first && d <= w.last;
+  // the item a change names, as the item changes read it
+  const itemFor = (type) => {
+    if (raw.type !== type) return { reason: 'op_not_for_type' };
+    const item = ctx.item;
+    if (!item || (raw.id && item.id && item.id !== raw.id)) return { reason: 'no_item' };
+    if (item.external_source) return { reason: 'calendar_item' };
+    if (item.archived === true) return { reason: 'archived' };
+    return { item };
+  };
+
+  switch (raw.op) {
+    case 'later': {
+      const r = itemFor('todo');
+      if (r.reason) return { ok: false, reason: r.reason };
+      if (r.item.completed_at) return { ok: false, reason: 'already_done' };
+      const back = normDay(raw.back_on);
+      if (!back) return { ok: false, reason: 'bad_value:back_on' };
+      // every Later comes back: on a day still to come, within four weeks
+      if (today && back <= today) return { ok: false, reason: 'back_not_ahead' };
+      if (today && daysBetween(today, back) > LATER_MAX_DAYS)
+        return { ok: false, reason: 'back_too_far' };
+      const before = {
+        back_on: normDay(r.item.resurface_at) ?? null,
+        day: normDay(r.item.due_day) ?? null,
+      };
+      if (before.back_on === back && before.day === null) return { ok: false, reason: 'no_change' };
+      return {
+        ok: true,
+        change: {
+          ...base,
+          type: 'todo',
+          id: r.item.id || raw.id,
+          title: itemTitle('todo', r.item),
+          fields: { back_on: back },
+          before,
+        },
+      };
+    }
+    case 'habit_days': {
+      const r = itemFor('habit');
+      if (r.reason) return { ok: false, reason: r.reason };
+      const days = dayList(raw.days);
+      if (!days) return { ok: false, reason: 'bad_days' };
+      if (days.some((d) => !inWeek(d))) return { ok: false, reason: 'outside_week' };
+      const was = (dayList(r.item.planned_days) || []).filter(inWeek);
+      if (sameList(days, was)) return { ok: false, reason: 'no_change' };
+      return {
+        ok: true,
+        change: {
+          ...base,
+          type: 'habit',
+          id: r.item.id || raw.id,
+          title: itemTitle('habit', r.item),
+          days,
+          before: { days: was },
+        },
+      };
+    }
+    case 'week_shape': {
+      // the shape is kept on the week's review, so there has to be one
+      if (!w.has_review) return { ok: false, reason: 'no_review' };
+      const s = raw.shape;
+      if (!s || typeof s !== 'object' || Array.isArray(s))
+        return { ok: false, reason: 'bad_shape' };
+      const shape = {};
+      const before = {};
+      if (s.busy_days != null) {
+        const days = dayList(s.busy_days);
+        if (!days) return { ok: false, reason: 'bad_days' };
+        if (days.some((d) => !inWeek(d))) return { ok: false, reason: 'outside_week' };
+        const was = dayList(w.busy_days) || [];
+        if (!sameList(days, was)) {
+          shape.busy_days = days;
+          before.busy_days = was;
+        }
+      }
+      if (s.hours != null) {
+        if (typeof s.hours !== 'object' || Array.isArray(s.hours))
+          return { ok: false, reason: 'bad_value:hours' };
+        const hours = {};
+        const hoursWas = {};
+        for (const kind of DAY_KINDS) {
+          if (s.hours[kind] == null) continue;
+          const h = normHours(s.hours[kind]);
+          if (h === undefined) return { ok: false, reason: 'bad_value:hours' };
+          const was = normHours(w.hours?.[kind]) ?? null;
+          if (h === was) continue;
+          hours[kind] = h;
+          hoursWas[kind] = was;
+        }
+        if (Object.keys(hours).length) {
+          shape.hours = hours;
+          before.hours = hoursWas;
+        }
+      }
+      if (!Object.keys(shape).length) return { ok: false, reason: 'no_change' };
+      return { ok: true, change: { ...base, type: null, id: null, title: '', shape, before } };
+    }
+    case 'intention': {
+      const text = normText(raw.intention, WEEK_LIMITS.intention);
+      if (!text) return { ok: false, reason: 'bad_value:intention' };
+      const was = typeof w.intention?.text === 'string' ? w.intention.text.trim() : null;
+      if (text === was) return { ok: false, reason: 'no_change' };
+      return {
+        ok: true,
+        change: {
+          ...base,
+          type: 'note',
+          // the week's intention when it has one already: that note is rewritten
+          id: w.intention?.id || null,
+          title: text,
+          fields: { text },
+          before: { text: was || null },
+        },
+      };
+    }
+    case 'milestone': {
+      const m = raw.milestone;
+      if (!m || typeof m !== 'object') return { ok: false, reason: 'bad_milestone' };
+      const goal = normText(m.goal, WEEK_LIMITS.goal);
+      const date = normDay(m.date);
+      if (!goal || !date) return { ok: false, reason: 'bad_milestone' };
+      if (today && date <= today) return { ok: false, reason: 'milestone_not_ahead' };
+      const r = readSteps(m.steps, today, date);
+      if (r.error) return { ok: false, reason: r.error };
+      // check ins are kept on the week's review, so there has to be one
+      if (!w.has_review && r.steps.some((s) => s.kind === 'check_in'))
+        return { ok: false, reason: 'no_review' };
+      return {
+        ok: true,
+        change: {
+          ...base,
+          type: null,
+          id: null,
+          title: goal,
+          milestone: { goal, date, steps: r.steps },
+        },
+      };
+    }
+    case 'weekly_day': {
+      const d = raw.weekday;
+      if (!Number.isInteger(d) || d < 0 || d > 6) return { ok: false, reason: 'bad_value:weekday' };
+      const was = Number.isInteger(w.weekly_day) ? w.weekly_day : null;
+      if (d === was) return { ok: false, reason: 'no_change' };
+      return {
+        ok: true,
+        change: {
+          ...base,
+          type: null,
+          id: null,
+          title: '',
+          fields: { weekday: d },
+          before: { weekday: was },
+        },
+      };
+    }
+    default:
+      return { ok: false, reason: 'unknown_op' };
+  }
+}
+
+/** The week's changes a card holds one of: a second is a conflict. */
+const ONE_PER_CARD = ['week_shape', 'intention', 'weekly_day'];
+
 // ── A card ──────────────────────────────────────────────────────────────────
 
 /**
@@ -461,7 +696,11 @@ export function checkCard(raws, ctxFor) {
       return;
     }
     const c = r.change;
-    const key = c.op === 'plan' || !c.id ? null : `${c.type}:${c.id}`;
+    const key = ONE_PER_CARD.includes(c.op)
+      ? `week:${c.op}`
+      : c.op === 'plan' || !c.id
+        ? null
+        : `${c.type}:${c.id}`;
     if (key && rowFor.has(key)) {
       const row = rowFor.get(key);
       if (row.op === 'change' && c.op === 'change') {

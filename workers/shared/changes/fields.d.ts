@@ -36,6 +36,18 @@ export type ChangeOp =
   | 'restore'
   | 'convert'
   | 'plan';
+/** The week's own operations (the weekly review), kept apart from OPS. */
+export type WeekOp =
+  | 'later'
+  | 'habit_days'
+  | 'week_shape'
+  | 'intention'
+  | 'milestone'
+  | 'weekly_day';
+export declare const WEEK_OPS: Record<WeekOp, string>;
+export declare const STEP_KINDS: Array<'todo' | 'check_in'>;
+export declare const WEEK_LIMITS: { intention: number; goal: number; steps: number };
+export declare const NAME_LIMIT: number;
 export declare const FIELDS_VERSION: number;
 export declare const GROUPS: Record<FieldGroup, string>;
 export declare const OPS: Record<ChangeOp, string>;
