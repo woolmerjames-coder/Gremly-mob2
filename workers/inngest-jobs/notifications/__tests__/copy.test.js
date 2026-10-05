@@ -110,6 +110,12 @@ describe('the fixed lines', () => {
       expect(checkCopy(fallbackCopy(m, { lastNote: true }))).toBeNull();
     }
   });
+  it('call the evening one their wrap up, never Sweep', () => {
+    const line = fallbackCopy('sweep', { weekday: 'Wednesday' });
+    expect(line.title).toBe('Ready to wrap up Wednesday?');
+    expect(`${line.title} ${line.body}`).not.toMatch(/sweep/i);
+    expect(fallbackCopy('sweep', {}).title).toBe('Ready to wrap up?');
+  });
 });
 
 describe('reminderCopy', () => {
@@ -154,6 +160,7 @@ it('puts the moment, the angle, the facts and the recent lines in the prompt', (
   expect(system.fixed).toMatch(/GREMLY'S VOICE/);
   expect(user).toMatch(/WHAT THIS IS/);
   expect(user).toMatch(/ANGLE: Invite one small thing/);
-  expect(user).toMatch(/"waiting_in_sweep": 3/);
+  expect(user).toMatch(/"waiting_to_sort": 3/);
+  expect(user).not.toMatch(/waiting_in_sweep|Sweep/);
   expect(user).toMatch(/- Earlier line/);
 });

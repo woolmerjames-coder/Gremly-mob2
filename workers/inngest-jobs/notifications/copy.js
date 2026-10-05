@@ -11,7 +11,7 @@
 import { PRIVATE_RULES, WRITING_RULES } from '../careRules';
 import { jsonCall } from '../context/llm';
 
-export const COPY_PROMPT_VERSION = 'notif-copy-2026-10-02b';
+export const COPY_PROMPT_VERSION = 'notif-copy-2026-10-05a';
 export const COPY_MODELS = Object.freeze({
   primary: { provider: 'google', model: 'gemini-3.8-flash' },
   fallback: { provider: 'openai', model: 'gpt-6-luna' },
@@ -35,7 +35,8 @@ export const ANGLE_RULES = Object.freeze({
 const MOMENT_RULES = Object.freeze({
   brief:
     "Today's brief is written and waiting in Chat. Tell them their day is ready, about today only.",
-  sweep: 'There are a few things waiting in Sweep this evening. Make a short sweep feel light.',
+  sweep:
+    "It is the evening, and the wrap up of their day is ready in Chat: Gremly looks back on the day with them, helps them settle anything still waiting to be sorted, and asks about the day for their journal. Invite them to it lightly, through one real thing from their day in the facts; when things are waiting to be sorted, say a few are ready to settle as part of it, never as a job. Call it their wrap up, the way the app does.",
   habit_checkin:
     'They usually log this habit by now and have not today. Ask, lightly, whether it happened.',
   nudge:
@@ -64,8 +65,8 @@ export function fallbackCopy(moment, f = {}) {
       };
     case 'sweep':
       return {
-        title: 'Evening sweep',
-        body: 'A few things are waiting. A couple of minutes and you’re clear.',
+        title: f.weekday ? `Ready to wrap up ${f.weekday}?` : 'Ready to wrap up?',
+        body: 'A look back at your day, and a few things to settle, in Chat.',
       };
     case 'habit_checkin':
       return {
@@ -143,6 +144,20 @@ export function checkCopy(out, recentLines = []) {
   return null;
 }
 
+/**
+ * The facts as the writer reads them. In the evening the things waiting are
+ * the wrap up's, so they are named as what waits to be sorted, the way the app
+ * says it, rather than by the old Sweep screen's name.
+ */
+export function factsShown(moment, facts) {
+  const f = { ...(facts || {}) };
+  if (moment === 'sweep' && 'waiting_in_sweep' in f) {
+    f.waiting_to_sort = f.waiting_in_sweep;
+    delete f.waiting_in_sweep;
+  }
+  return f;
+}
+
 export function buildPrompt({ moment, angle, facts, recentLines }) {
   const system = {
     fixed: `You write one push notification from Gremly, a small companion creature in a personal app.\n\n${VOICE_RULES}\n\n${WRITING_RULES}\n\n${PRIVATE_RULES}\n\nReturn JSON with "title" (may be empty) and "body".`,
@@ -151,7 +166,7 @@ export function buildPrompt({ moment, angle, facts, recentLines }) {
   const lines = [];
   lines.push(`WHAT THIS IS: ${MOMENT_RULES[moment] || 'A notification from Gremly.'}`);
   if (angle && ANGLE_RULES[angle]) lines.push(`ANGLE: ${ANGLE_RULES[angle]}`);
-  lines.push(`FACTS:\n${JSON.stringify(facts || {}, null, 1)}`);
+  lines.push(`FACTS:\n${JSON.stringify(factsShown(moment, facts), null, 1)}`);
   lines.push(
     `RECENT LINES (do not repeat or echo):\n${
       (recentLines || [])
