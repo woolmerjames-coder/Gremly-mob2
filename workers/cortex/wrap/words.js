@@ -34,7 +34,7 @@ import { db, personIdentity } from '../../shared/db.js';
 import { helperFetch } from '../helperClient.js';
 import { dayMeaning } from '../agent/brief.js';
 
-export const WRAP_WORDS_VERSION = 'wrap-2026-10-05e';
+export const WRAP_WORDS_VERSION = 'wrap-2026-10-05f';
 
 export const MOMENTS = [
   'open',
@@ -213,8 +213,12 @@ They have just checked in on their habits, as THE WRAP UP SO FAR shows. Write Gr
   night: (f) => `YOUR WORDS NOW
 They have just tapped to end the wrap up. Write Gremly's ${f.part === 'early' ? 'goodbye for now, for the rest of their day' : 'goodnight'}: one short sentence, under 20 words, warm and personal, in the light of the day they had and what is ahead, using their first name when it fits. The close just told them what their next day holds, so do not go over it again, and name nothing from the day that an earlier line under WHAT GREMLY HAS SAID SO FAR already named: this is about them, not the day's events. Ask nothing.`,
 
-  close: (f) => `YOUR WORDS NOW
-The wrap up is finished. Write the close: say in a few words that their ${f.weekday || 'day'} is wrapped up, without looking back over it again, then tell them what ${f.tomorrow_word || 'tomorrow'} holds, from THEIR NEXT DAY, its calendar and its todos together. Name the one or two things in it that matter most rather than the list, and say how many todos are planned for it whenever there are more than a few. When more todos are planned than one day can hold, say so plainly and kindly, without alarm${f.can_plan === true ? ', and offer, as yourself, to plan it with them now' : ''}. When nothing is on its calendar and no todos are planned, say it is open. Two short sentences at most, under 45 words in all. Say no goodbye${f.part === 'early' ? '' : ' or goodnight'} and ask nothing: Gremly's goodbye comes when they tap.`,
+  close: (f) => {
+    const next = f.tomorrow_word || 'tomorrow';
+    const early = f.part === 'early';
+    return `YOUR WORDS NOW
+The wrap up is finished, and this is the end of their ${early ? 'wrap up' : 'day'}. Write the close: mark warmly, in your own words, that their ${f.weekday || 'day'} is closed out and well done, without looking back over it again, and then turn them toward ${early ? 'enjoying the rest of their day' : 'rest, which is what comes next'}. ${next.charAt(0).toUpperCase() + next.slice(1)} gets one short mention at most, from THEIR NEXT DAY: how full it is in a few words, always with the number of todos when there are more than a few, never its list. When nothing is on its calendar and no todos are planned, say it is open.${f.can_plan === true ? ` A button under your words lets them plan ${next} if they want to, so say nothing about planning.` : ''} Two short sentences at most, under 40 words in all. Say no goodbye${early ? '' : ' or goodnight'} and ask nothing: Gremly's ${early ? 'goodbye' : 'goodnight'} comes when they tap.`;
+  },
 
   questions: () => `YOUR CHOICE NOW
 Gremly has open questions he has been waiting to ask them, under OPEN QUESTIONS, each with its id and, when it is about one of their items, that item. Choose at most two to ask now. Ask a question only when its answer would change something for them or let Gremly get something right about their life, and prefer what is coming up soon. Leave out any question about something they sorted in the cards tonight, since what they did with it already answers it or makes it moot. Choosing none is right when none fits.

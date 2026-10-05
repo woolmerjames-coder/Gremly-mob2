@@ -164,11 +164,11 @@ describe('the wrap up in the thread', () => {
   it('closes with tomorrow and the two buttons', () => {
     const [close] = closeMsgs({ day: DAY, meetings: 3, todos: ['Car service'], canPlan: true });
     expect(close.content).toBe(
-      "That's Wednesday wrapped up. Tomorrow has three meetings, and Car service planned.",
+      "That's Wednesday closed out, nicely done. Time to rest now. Tomorrow has three meetings, and Car service planned.",
     );
     expect(offerOf(close).buttons.map((b) => [b.label, b.action])).toEqual([
-      ['Plan tomorrow', 'plan_tomorrow'],
       ['Night, Gremly', 'night'],
+      ['Plan tomorrow', 'plan_tomorrow'],
     ]);
   });
 
@@ -242,8 +242,8 @@ describe('the wrap up in the thread', () => {
     ]);
     expect(journalAskMsgs(false, true)[0].content).toBe('How is today going?');
     expect(labels(closeMsgs({ day: EARLY, meetings: 0, todos: [], canPlan: true })[0])).toEqual([
-      'Plan tomorrow',
       'Thanks, Gremly',
+      'Plan tomorrow',
     ]);
     // the buttons put back for a step keep to the same words
     const again = buttonsAgain('journal', {

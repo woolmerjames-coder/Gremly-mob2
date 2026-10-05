@@ -286,7 +286,7 @@ export function sweptEvent(decided: number): string {
   return `Swept ${decided} ${decided === 1 ? 'thing' : 'things'}`;
 }
 
-/** The close: the day wrapped up, and what tomorrow holds, its meetings and every todo planned for it. */
+/** The close: the day closed out, rest first, and what tomorrow holds in one line, its meetings and every todo planned for it. */
 export function closeLine(d: WrapDay, meetings: number, todos: string[]): string {
   const has: string[] = [];
   if (meetings > 0) has.push(`${numberWord(meetings)} ${meetings === 1 ? 'meeting' : 'meetings'}`);
@@ -296,7 +296,8 @@ export function closeLine(d: WrapDay, meetings: number, todos: string[]): string
     tail = `${has.length ? ', and ' : ' '}${listWords(todos)} planned`;
   } else
     tail = `${has.length ? ', and ' : ' '}${numberWord(todos.length)} ${todos.length === 1 ? 'todo' : 'todos'} planned`;
-  return `That's ${d.weekday} wrapped up. ${tomorrowCap(d)} has${has.length ? ` ${has[0]}` : ''}${tail}.`;
+  const next = d.early ? 'Enjoy the rest of your day.' : 'Time to rest now.';
+  return `That's ${d.weekday} closed out, nicely done. ${next} ${tomorrowCap(d)} has${has.length ? ` ${has[0]}` : ''}${tail}.`;
 }
 
 export function planTomorrowButton(d: WrapDay): string {

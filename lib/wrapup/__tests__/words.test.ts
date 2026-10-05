@@ -101,11 +101,14 @@ test('a skip says what moved, what waits and the skips left', () => {
 });
 
 test('the close says what tomorrow holds, every todo planned for it counted', () => {
+  expect(closeLine({ ...EVENING, early: true }, 0, [])).toBe(
+    "That's Wednesday closed out, nicely done. Enjoy the rest of your day. Tomorrow has nothing planned yet.",
+  );
   expect(closeLine(EVENING, 3, ['the eye test', 'the car service'])).toBe(
-    "That's Wednesday wrapped up. Tomorrow has three meetings, and the eye test and the car service planned.",
+    "That's Wednesday closed out, nicely done. Time to rest now. Tomorrow has three meetings, and the eye test and the car service planned.",
   );
   expect(closeLine(EVENING, 3, ['a', 'b', 'c', 'd'])).toBe(
-    "That's Wednesday wrapped up. Tomorrow has three meetings, and four todos planned.",
+    "That's Wednesday closed out, nicely done. Time to rest now. Tomorrow has three meetings, and four todos planned.",
   );
   expect(
     closeLine(
@@ -113,15 +116,17 @@ test('the close says what tomorrow holds, every todo planned for it counted', ()
       3,
       Array.from({ length: 49 }, (_, i) => `t${i}`),
     ),
-  ).toBe("That's Wednesday wrapped up. Tomorrow has three meetings, and 49 todos planned.");
+  ).toBe(
+    "That's Wednesday closed out, nicely done. Time to rest now. Tomorrow has three meetings, and 49 todos planned.",
+  );
   expect(closeLine(LATE, 0, [])).toBe(
-    "That's Wednesday wrapped up. Thursday has nothing planned yet.",
+    "That's Wednesday closed out, nicely done. Time to rest now. Thursday has nothing planned yet.",
   );
   expect(closeLine(EVENING, 1, [])).toBe(
-    "That's Wednesday wrapped up. Tomorrow has one meeting, and no todos planned yet.",
+    "That's Wednesday closed out, nicely done. Time to rest now. Tomorrow has one meeting, and no todos planned yet.",
   );
   expect(closeLine(EVENING, 0, ['Book Eye Test'])).toBe(
-    "That's Wednesday wrapped up. Tomorrow has Book Eye Test planned.",
+    "That's Wednesday closed out, nicely done. Time to rest now. Tomorrow has Book Eye Test planned.",
   );
 });
 

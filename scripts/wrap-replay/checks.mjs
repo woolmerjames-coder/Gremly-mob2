@@ -60,6 +60,11 @@ export function checks(moment, f, out, expect = {}) {
   }
   if (f.part === 'late' && moment !== 'journal_reply') add('Names the next day', !/\btomorrow\b/i.test(text), text);
   if (moment === 'close') add('No goodnight', !/good ?night|sleep well/i.test(text), text);
+  // the close turns them to rest (before the evening, to the rest of their day)
+  if (moment === 'close' && f.part !== 'early') {
+    add('Turns to rest', /\b(rest|sleep|bed|unwind|wind down|switch off|recharge|night)\b/i.test(text.replace(/good ?night/gi, '')), text);
+  }
+  if (moment === 'close') add('Two sentences at most', (text.match(/[.!?](\s|$)/g) || []).length <= 2, text);
   if (moment === 'journal_reply') add('Says it is saved', /journal|saved/i.test(text), text);
   return c;
 }

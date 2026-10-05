@@ -320,12 +320,13 @@ export function answeredMsgs(
 
 // ── the close ────────────────────────────────────────────────────────────────
 
+/** Goodnight first, the one the close leads to; planning tomorrow is there for whoever wants it. */
 export function closeButtons(d: WrapDay, canPlan: boolean): OfferButton[] {
   return [
+    { id: 'night', label: partWords(d.early).bye, action: 'night', primary: true },
     ...(canPlan
       ? [{ id: 'plan_tomorrow', label: planTomorrowButton(d), action: 'plan_tomorrow' as const }]
       : []),
-    { id: 'night', label: partWords(d.early).bye, action: 'night', primary: true },
   ];
 }
 

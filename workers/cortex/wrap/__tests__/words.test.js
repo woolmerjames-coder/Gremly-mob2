@@ -87,8 +87,10 @@ describe('what Gremly is told', () => {
     );
     expect(p.user).toContain('Moved there tonight in the cards: Book the car service.');
     expect(p.user).toContain('A button under your words offers to plan tomorrow with them now.');
-    expect(p.system).toContain('say how many todos are planned for it');
-    expect(p.system).toContain('offer, as yourself, to plan it with them now');
+    // the end of their day: closed out, rest next, tomorrow in one short mention
+    expect(p.system).toContain('turn them toward rest, which is what comes next');
+    expect(p.system).toContain('always with the number of todos when there are more than a few');
+    expect(p.system).toContain('so say nothing about planning');
     expect(p.system).toContain('Say no goodbye or goodnight');
   });
 
@@ -106,7 +108,7 @@ describe('what Gremly is told', () => {
     expect(p.user).toContain('Todos planned for tomorrow (49): Todo 1;');
     expect(p.user).toContain('Todo 15; and 34 more.');
     expect(p.user).toContain('A plan for tomorrow is already in the thread.');
-    expect(p.system).not.toContain('offer, as yourself, to plan it');
+    expect(p.system).not.toContain('A button under your words');
   });
 
   it('from an app that sends no count, says only what moved there tonight', () => {

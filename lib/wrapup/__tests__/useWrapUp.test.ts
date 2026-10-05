@@ -770,11 +770,11 @@ describe('the wrap up: the close', () => {
     const t = await clearNight();
     await toQuestions(t);
     expect(t.last().content).toBe(
-      "That's Wednesday wrapped up. Tomorrow has three meetings, and five todos planned.",
+      "That's Wednesday closed out, nicely done. Time to rest now. Tomorrow has three meetings, and five todos planned.",
     );
     expect(
       (t.last().metadata_json as unknown as BriefOfferMeta).buttons.map((b) => b.action),
-    ).toEqual(['plan_tomorrow', 'night']);
+    ).toEqual(['night', 'plan_tomorrow']);
     // 26%, once
     expect(mockState.addGaugeContribution).toHaveBeenCalledTimes(1);
     expect(mockState.addGaugeContribution).toHaveBeenCalledWith('sweep', 0.26);
@@ -854,7 +854,7 @@ describe('the wrap up: the other choices', () => {
     expect(mockState.addGaugeContribution).not.toHaveBeenCalled();
     // the close names what was moved to tomorrow
     expect(t.last().content).toBe(
-      "That's Wednesday wrapped up. Tomorrow has Todo a and Todo b planned.",
+      "That's Wednesday closed out, nicely done. Time to rest now. Tomorrow has Todo a and Todo b planned.",
     );
   });
 
@@ -1037,7 +1037,7 @@ describe('the wrap up: before the evening', () => {
     ]);
     await toQuestions(t);
     const close = t.last().metadata_json as unknown as BriefOfferMeta;
-    expect(close.buttons.map((b) => b.label)).toEqual(['Plan tomorrow', 'Thanks, Gremly']);
+    expect(close.buttons.map((b) => b.label)).toEqual(['Thanks, Gremly', 'Plan tomorrow']);
     await act(() => t.hook.result.current.handleButton(...t.button('night')));
     expect(t.said()).toContainEqual(['brief-text', 'Enjoy the rest of your day, Sam.']);
     expect(currentWrap()?.step).toBe('done');
