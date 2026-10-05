@@ -14,6 +14,7 @@ import DSPreview from '../app/(dev)/DSPreview';
 import DevLogin from '../app/(dev)/DevLogin';
 import RecentItems from '../app/(dev)/RecentItems';
 import DevTools from '../app/(dev)/DevTools';
+import JournalEditorTrial from '../app/(dev)/JournalEditorTrial';
 import SpaceDetailScreen from '../app/screens/SpaceDetailScreen';
 import CatchAllNotepad from '../app/screens/CatchAllNotepad';
 import SweepFlowScreen from '../app/screens/SweepFlowScreen';
@@ -71,6 +72,7 @@ export type RootStackParamList = {
   DSPreview: undefined;
   DevLogin: undefined;
   DevTools: undefined;
+  JournalEditorTrial: undefined;
   RecentItems: undefined;
   SpaceDetail: { id: string };
   CatchAllNotepad: undefined;
@@ -406,6 +408,13 @@ export default function RootNavigator() {
               name="DevTools"
               component={DevTools}
               options={{ title: 'Dev Tools', presentation: 'modal', headerShown: true }}
+            />
+          )}
+          {__DEV__ && (
+            <Stack.Screen
+              name="JournalEditorTrial"
+              component={JournalEditorTrial}
+              options={{ title: 'Journal editor trial', presentation: 'modal', headerShown: true }}
             />
           )}
         </>

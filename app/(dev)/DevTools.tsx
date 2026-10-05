@@ -86,6 +86,22 @@ export default function DevTools() {
           </View>
         )}
 
+        {/* Journal editor trial (piece 1 of the journal page plan; removed once the editor is chosen) */}
+        <View style={styles.section}>
+          <Text variant="title" style={styles.sectionTitle}>
+            Journal editor trial
+          </Text>
+          <Text variant="subtle" style={styles.hint}>
+            Try bold, italics and lists in the journal editor before the page is built on it.
+          </Text>
+          <Button
+            label="Open the editor trial"
+            onPress={() => navigation.navigate('JournalEditorTrial' as never)}
+            testID="open-journal-editor-trial"
+            style={styles.button}
+          />
+        </View>
+
         {/* Current State */}
         <View style={styles.section}>
           <Text variant="title" style={styles.sectionTitle}>
