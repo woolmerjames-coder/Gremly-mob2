@@ -16,6 +16,42 @@ James's docs for this work (Claude Docs):
   in `Claude outputs/evening-thread-in-chat-v2.html`). Switch it to With step
   10 to see each item below as James signed it off.
 
+## Where each row stands (5 Oct, after step 10)
+
+Built on `sweep-updates-10.04`. The step 10 doc has the replays and what
+James does: https://claude.ai/code/artifact/7bf7e0ef-de86-4300-83e8-cf9dbcb57e4a
+
+| #   | Where it stands                                                                                                                                                                                                         | Commit                 |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| 1   | Done. Gremly writes the opener, the journal question, his reply and the close, with typing dots; the fixed sentence after 8s                                                                                            | `923e284f`             |
+| 2   | Done. He picks up to two of the questions that may be asked and words them                                                                                                                                              | `923e284f`             |
+| 3   | Done. He leaves out a question about anything sorted tonight; the rule's own filter stays                                                                                                                               | `923e284f`             |
+| 4   | Done. The answer goes to him with the question; an item that is wrong comes back on a change card                                                                                                                       | `923e284f`, `f30c8092` |
+| 5   | Done. He writes the choices for every question he asks                                                                                                                                                                  | `923e284f`             |
+| 6   | Done. A message in today's thread carries the wrap up's state, and tonight's cards stay with it once it is finished                                                                                                     | `923e284f`, `f30c8092` |
+| 7   | Done in today's thread: he sees tonight's cards by id with what they were before, and puts one back with an ordinary change. Keep and later stay off the card. Ask Gremly does not read tonight's cards yet             | `f30c8092`             |
+| 8   | Done: the background reader, corrections, questions and anchors review, the daily context job, the day frame refresh, the plan picker, the greeting, the habit builder's day picture                                    | `5ccc1dc6`             |
+| 9   | Done for nights with cards. Clear nights pass the replay through the writer (8 of 8), but `send.js` still sends the fixed line: one branch to delete once the other session's staged `send.js` is committed             | `fe91ad6a`, `08e6066e` |
+| 10  | Done. His reply tells a journal entry from a message for him                                                                                                                                                            | `923e284f`             |
+| 11  | Done. `scripts/wrap-replay`, `notif-replay`, `reader-replay`, `habit-builder-replay`, and new scenarios in `day-replay` and `chat-replay`                                                                               | each commit            |
+| 12  | Done. In the small hours he is told the clock's date and their day apart                                                                                                                                                | `5ccc1dc6`             |
+| 13  | Done. The brief is given last night's wrap up: finished or where it stopped, what moved to today by name, the journal                                                                                                   | `ff82a678`, `56c22ac9` |
+| 14  | Done. The moods come from his reply to the entry, read with the day                                                                                                                                                     | `b0274df5`             |
+| 15  | Done, apart from `brief/data.js` (staged by another session), the old daily picture fallback (`inngest-index.js` today facts) and the Worlds readers. They read flags the SQL clears; change them before the columns go | `9bd4c6db`             |
+| 16  | Done                                                                                                                                                                                                                    | `923e284f`, `ff82a678` |
+
+Also found and fixed: a time set on today's plan moved when the plan was
+fitted again (`425903c3`), and the habit builder sent people to a Sweep banner
+and an Organize button that are gone (`9bd4c6db`).
+
+Still open after step 10:
+
+- The daily context job lists journal entries and notes by the clock's time,
+  so one written at 1am reads as the next day's. The reader now files their
+  dates right; the daily context job needs its own replay before its lines
+  change.
+- Ask Gremly does not read tonight's cards (row 7 is today's thread only).
+
 ## What was built
 
 The evening Sweep is a conversation with Gremly in today's thread, the same

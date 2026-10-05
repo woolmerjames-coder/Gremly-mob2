@@ -15,20 +15,20 @@ the item search all stay; the middle layer that handles a message changes.
 
 ## The plan and where it stands
 
-| Step | What                              | Status                          |
-| ---- | --------------------------------- | ------------------------------- |
-| 1    | Map what exists (reuse map)       | Done                            |
-| 2    | Measure today, budget per surface | Done                            |
-| 3    | One change model                  | Done                            |
-| 4    | The tools                         | Done                            |
-| 5    | The core loop                     | Done                            |
-| 6    | Triage update                     | Done                            |
-| 7    | The brief on the core             | Done, merged to main            |
-| 8    | Replay suites and model choice    | Folded into 7 and 9             |
-| 9    | General chat on the core          | Built, James testing            |
-| 10   | Sweep on the core                 | Next. Redesign built, see below |
-| 11   | Focused model audit               | After chat and Sweep            |
-| 12   | Rollout and watching              |                                 |
+| Step | What                              | Status                         |
+| ---- | --------------------------------- | ------------------------------ |
+| 1    | Map what exists (reuse map)       | Done                           |
+| 2    | Measure today, budget per surface | Done                           |
+| 3    | One change model                  | Done                           |
+| 4    | The tools                         | Done                           |
+| 5    | The core loop                     | Done                           |
+| 6    | Triage update                     | Done                           |
+| 7    | The brief on the core             | Done, merged to main           |
+| 8    | Replay suites and model choice    | Folded into 7 and 9            |
+| 9    | General chat on the core          | Done, merged to main (PR #145) |
+| 10   | Sweep on the core                 | Built on `sweep-updates-10.04` |
+| 11   | Focused model audit               | After chat and Sweep           |
+| 12   | Rollout and watching              |                                |
 
 Docs (Claude Docs; James comments and edits in them):
 
@@ -49,7 +49,10 @@ Docs (Claude Docs; James comments and edits in them):
   https://claude.ai/code/artifact/43136371-876e-446a-9371-401bcdd3c036
 - The Sweep redesign's build plan and status (the wrap up in today's thread):
   https://claude.ai/code/artifact/57fedd81-a249-4ab0-9918-e06904ce0759
-- In this repo, the list step 10 starts from: `docs/agent/SWEEP_STEP10.md`.
+- In this repo, the list step 10 started from, with where each row stands:
+  `docs/agent/SWEEP_STEP10.md`.
+- Step 10, Sweep on the agent: what was built, the replays, what James does:
+  https://claude.ai/code/artifact/7bf7e0ef-de86-4300-83e8-cf9dbcb57e4a
 
 Each step so far has had its own doc. Keep that going: one doc per step, made
 before the work, filled as it goes, ending with what is next.
@@ -219,6 +222,39 @@ Gemini 3.8 Flash) costs about 0.5 cents a message, against 0.03 for the agent,
 and the quick lane waits for it: compare it with `find_items` when the agent
 lane goes to everyone.
 
+**Step 10, Sweep on the core (4 and 5 Oct, `sweep-updates-10.04`).** The
+evening wrap up in today's thread now has Gremly's side in it. Row by row it
+is in `docs/agent/SWEEP_STEP10.md`; in short:
+
+- Gremly writes the opener, the journal question, his reply to an entry, the
+  questions and the close (`workers/cortex/wrap/words.js`, type `wrap-words`,
+  helper job `wrap_words` on Luna), with typing dots; the fixed sentence is the
+  fallback after 8s. Counts and buttons stay fixed. His reply also tells a
+  journal entry from a message for him, and picks the entry's moods with the
+  day. Replay: `scripts/wrap-replay`.
+- Anything typed during the wrap up goes to the agent with the wrap up's state
+  (`readWrap`, `wrapContext` in `agent/brief.js`): where it is, tonight's cards
+  by id with what they were before (so one can be put back), and the question
+  a message answers. An answer that shows an item is wrong comes back as a
+  change card.
+- Gremly's side counts today from the day end (`workers/shared/day.js`
+  `personNow`): the background reader, corrections, questions and anchors
+  review, the daily context job, the day frame refresh, the plan picker, the
+  greeting. In the small hours he is told the clock's date and their day
+  apart (`todayLine` in `agent/prompt.js`). Replay: `scripts/reader-replay`
+  and the late scenarios in `scripts/day-replay` and `scripts/chat-replay`.
+- The morning brief reads last night's wrap up (`readLastWrap`,
+  `summariseWrap` in `brief/reaction.js`). Lock In is out of what Gremly reads
+  and the habit builder's app knowledge (`habitBuilderPrompt.js`, replay
+  `scripts/habit-builder-replay`). The evening notification says wrap up,
+  never Sweep (`scripts/notif-replay`).
+
+Left, each said in `SWEEP_STEP10.md`: the clear night line through the
+writer (one line in `send.js`) and the brief's commitment selects
+(`brief/data.js`), both in files another session has staged; the old daily
+picture fallback and the Worlds readers still name Lock In; the daily context
+job shows journal times by the clock; Ask Gremly does not read tonight's cards.
+
 **Step 11, focused model audit.** After chat and Sweep, a smaller audit of
 only the places that could be better, from replays and real use: a stronger
 model for harder jobs where it earns its cost, `none` thinking on a bigger
@@ -272,15 +308,19 @@ to 53 at about 3.2s, but its replies were sloppier), and Gemini caching.
   "to" and logs every time it fires.
 - James is staying in this session on Fable rather than switching models at
   step 6; this file still holds everything a fresh session would need.
-- Steps 1 to 7 are merged to main (PR #144, f8de3b13). Step 9 is on
-  `chat-fixes-10.3` (worktree `gremly-mob2.worktrees/chat-fixes-103`). James
-  merges, deploys (inngest-jobs, then cortex) and builds when he chooses.
+- Steps 1 to 7 are merged to main (PR #144, f8de3b13), and step 9 (PR #145,
+  ba101d14). Step 10 is on `sweep-updates-10.04`. James merges, deploys
+  (inngest-jobs, then cortex) and builds when he chooses.
 - Model audits (James, 3 Oct): no separate bake-off before each surface;
   start each surface on what works, and audit in one focused pass after chat
   and Sweep.
 - Ask Gremly's agent lane (James, 4 Oct): on for his account until Sweep is
   done; straight after step 10, `AGENT_CHAT = "on"` for everyone, before the
-  TestFlight build. The quick lane's card and the item matcher swap follow it.
+  TestFlight build (set in `wrangler.toml` on `sweep-updates-10.04`). The quick
+  lane's card and the item matcher swap follow it.
+- The wrap up (James, 4 Oct): Gremly writes the opener and the close fresh,
+  with typing dots; anything typed in the wrap up goes to him; counts and
+  buttons stay fixed.
 
 ## How to work here
 
@@ -294,9 +334,13 @@ to 53 at about 3.2s, but its replies were sloppier), and Gemini caching.
   for app data, Lucide icons, mockup is spec, nothing switched on only in
   development builds.
 - A corpus or replay run comes before any prompt or model change.
-- Git (Cowork): the worktree is mounted at `$HOME/mnt/morning-brief-fixes-102`
-  and the main repo at `$HOME/mnt/gremly-mob2`; git needs
-  `export GIT_DIR=$HOME/mnt/gremly-mob2/.git/worktrees/morning-brief-fixes-102 GIT_WORK_TREE=$HOME/mnt/morning-brief-fixes-102`.
+- Git (Cowork): the step 10 worktree is mounted at
+  `$HOME/mnt/sweep-updates-1004` and the main repo at `$HOME/mnt/gremly-mob2`;
+  git needs
+  `export GIT_DIR=$HOME/mnt/gremly-mob2/.git/worktrees/sweep-updates-1004 GIT_WORK_TREE=$HOME/mnt/sweep-updates-1004`.
+  Never stash, check out or do anything that unlinks files on the mount; edit
+  in place. When another session has files staged in the same worktree, commit
+  only your own with `git commit -o <paths>`.
   Commit as James with `HUSKY=0` (lint-staged cannot run under GIT_DIR) and
   the attribution trailers your session gives you:
   `HUSKY=0 git -c "user.name=James Woolmer" -c user.email=woolmerjames@gmail.com commit`.
