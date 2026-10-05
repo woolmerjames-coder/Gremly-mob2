@@ -79,6 +79,9 @@ export function checkTurn(s, out) {
   for (const words of e.mentions || []) {
     add('warn', `Reply covers ${words}`, String(out.reply || '').toLowerCase().includes(words), out.reply || '');
   }
+  for (const like of e.notSaidLike || []) {
+    add('fail', `Reply says nothing like /${like}/`, !new RegExp(like, 'i').test(String(out.reply || '')), out.reply || '');
+  }
   for (const words of e.notSaid || []) {
     add('fail', `Reply does not name ${words}`, !String(out.reply || '').toLowerCase().includes(words), out.reply || '');
   }

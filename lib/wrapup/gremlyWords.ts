@@ -31,6 +31,16 @@ export interface HabitsTonight {
   logged: string[];
   held: string[];
   notHeld: string[];
+  /** The first logged habit with a run of days, as it stands now */
+  streak?: { title: string; days: number } | null;
+}
+
+/** Gremly himself, as the wrap up tells him: his age, his stage and its nature, and whether he is fed today. */
+export interface GremlyNow {
+  age: number;
+  tier: string;
+  nature?: string;
+  fed_today: boolean;
 }
 
 /** "3 AM", "midnight": when their day ends. */
@@ -143,6 +153,11 @@ export interface WrapFactsInput {
   tomorrowTodos: string[];
   /** Whether the close offers to plan tomorrow */
   canPlan: boolean;
+  /** What Gremly has said in tonight's wrap up so far, in order */
+  said: string[];
+  gremly: GremlyNow | null;
+  /** Sorting the cards just fed Gremly */
+  fedByCards?: boolean;
   wrap: WrapUpState | null;
   habits?: HabitsTonight | null;
   entry?: string;
@@ -182,7 +197,11 @@ export function wrapFacts(i: WrapFactsInput): WrapWordsRequest {
       not_held: i.habits?.notHeld ?? [],
       journal: w?.journal ?? null,
       path: w?.path ?? null,
+      streak: i.habits?.streak ?? null,
+      ...(i.fedByCards ? { fed_by_cards: true } : {}),
     },
+    gremly: i.gremly,
+    said: i.said.slice(-8),
     next: {
       meetings: meetingsFromStore(now.tomorrow).map(meetingWords).slice(0, 10),
       lined: keptFor(w, now.tomorrow).slice(0, 10),
@@ -216,6 +235,34 @@ export function journalOf(
   res: WrapWordsResponse | null,
 ): { journal: boolean; reply: string; moods: string[] } | null {
   return res && 'journal' in res ? { ...res, moods: res.moods ?? [] } : null;
+}
+
+/**
+ * What Gremly said in tonight's wrap up so far, in order: his lines in the
+ * thread since it started, the latest eight.
+ */
+export function saidTonight(
+  messages: { role: string; content: string; created_at?: string; metadata_json?: unknown }[],
+  startedAt: string | null | undefined,
+): string[] {
+  const since = startedAt ? Date.parse(startedAt) : NaN;
+  return messages
+    .filter((m) => {
+      const meta = m.metadata_json as { wrap?: boolean } | null | undefined;
+      if (m.role !== 'assistant' || !meta?.wrap || !m.content?.trim()) return false;
+      return !Number.isFinite(since) || !m.created_at || Date.parse(m.created_at) >= since;
+    })
+    .map((m) => m.content.trim())
+    .slice(-8);
+}
+
+/** The line before tonight's questions in his words, when he chose every one of them. */
+export function questionsIntroOf(
+  res: WrapWordsResponse | null,
+  chosen: WrapQuestion[],
+): string | null {
+  if (!res || !('ask' in res) || !res.intro) return null;
+  return chosen.length && chosen.length === res.ask.length ? res.intro : null;
 }
 
 /**

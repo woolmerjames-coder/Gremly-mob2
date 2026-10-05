@@ -1149,6 +1149,72 @@ describe("the wrap up: Gremly's own words", () => {
     expect((t.last().metadata_json as any).kind).toBe('journal');
   });
 
+  it('reacts to the cards and the habits, and says goodnight, told what he has said and who he is', async () => {
+    mockState.gremlyAge = 61;
+    mockState.currentTierName = 'Sage';
+    mockState.isFedToday = true;
+    mockState.habits = [{ id: 'h1', name: 'Blinkist', start_date: '2026-09-01', cadence: 'daily' }];
+    words({
+      open: { line: 'A full day, Sam.' },
+      sorted: { line: 'Everything has a home now.' },
+      habits: { line: 'Blinkist again, lovely.' },
+      close: { line: 'Wednesday is wrapped up.' },
+      night: { line: 'Rest well, Sam.' },
+    });
+    const t = setup();
+    await act(() => t.hook.result.current.open());
+    await act(() => t.hook.result.current.handleButton(...t.button('sweep')));
+    act(() => {
+      recordDecision(record('a'), jest.fn());
+      recordDecision(record('b', 'let_go'), jest.fn());
+      recordDecision(record('n'), jest.fn());
+    });
+    await act(() => t.hook.result.current.backFromCards());
+    expect(t.said()).toContainEqual(['brief-text', 'Everything has a home now.']);
+    const sorted = mockWrapWords.mock.calls.find((c) => c[0].moment === 'sorted')[0];
+    // the cards just fed him, and he knows what he said when it opened
+    expect(sorted.tonight.fed_by_cards).toBe(true);
+    expect(sorted.said).toContain('A full day, Sam.');
+    expect(sorted.gremly).toEqual({
+      age: 61,
+      tier: 'Sage',
+      nature: 'Warm, steady, occasionally profound.',
+      fed_today: true,
+    });
+    await act(() => t.hook.result.current.habits.save(t.card('sweep-habits'), ['h1'], {}));
+    expect(t.said()).toContainEqual(['brief-text', 'Blinkist again, lovely.']);
+    expect(t.said()).not.toContainEqual(['brief-text', expect.stringContaining('Logged.')]);
+    const habits = mockWrapWords.mock.calls.find((c) => c[0].moment === 'habits')[0];
+    expect(habits.tonight.logged).toEqual(['Blinkist']);
+    expect(habits.said).toContain('Everything has a home now.');
+    await toQuestions(t);
+    expect(t.last().content).toBe('Wednesday is wrapped up.');
+    // his goodnight is asked for as the close is said, knowing the close
+    const night = mockWrapWords.mock.calls.filter((c) => c[0].moment === 'night');
+    expect(night).toHaveLength(1);
+    expect(night[0][0].said).toContain('Wednesday is wrapped up.');
+    await act(() => t.hook.result.current.handleButton(...t.button('night')));
+    // the tap shows at once, then his words and the end card
+    expect(types(t).slice(-3)).toEqual(['brief-reply', 'brief-text', 'sweep-end']);
+    expect(t.messages[t.messages.length - 2].content).toBe('Rest well, Sam.');
+    expect(mockWrapWords.mock.calls.filter((c) => c[0].moment === 'night')).toHaveLength(1);
+    expect(currentWrap()?.step).toBe('done');
+  });
+
+  it('says the line before his questions in his words when he chose every one', async () => {
+    mockFetchQuestions.mockResolvedValue([Q1, Q2]);
+    words({
+      questions: {
+        intro: 'Just one thing, so I get it right.',
+        ask: [{ id: 'q2', question: 'Friday or Saturday?', choices: ['Friday', 'Saturday'] }],
+      },
+    });
+    const t = await clearNight();
+    await toQuestions(t);
+    expect(t.messages[t.messages.length - 2].content).toBe('Just one thing, so I get it right.');
+    expect(t.last().content).toBe('Friday or Saturday?');
+  });
+
   it("chooses tonight's questions, in his words with answers to tap", async () => {
     mockFetchQuestions.mockResolvedValue([Q1, Q2]);
     words({

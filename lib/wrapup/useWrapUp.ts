@@ -37,7 +37,11 @@ import { applyChange } from '../changes/apply';
 import { checkChange } from '../changes/model';
 import { contextFor } from '../changes/snapshot';
 import { applySweepDecision } from '../changes/sweep';
-import { calculateSweepContribution, GAUGE_WEIGHTS } from '../constants/soulDocument';
+import {
+  calculateSweepContribution,
+  GAUGE_WEIGHTS,
+  getTierForAge,
+} from '../constants/soulDocument';
 import { getDateService } from '../date/DateService';
 import { meetingsFromStore } from '../plan/storePlan';
 import type { Mood } from '../shared/moods';
@@ -59,7 +63,7 @@ import {
   leaveRestMsgs,
   moodAskMsgs,
   newSinceMsgs,
-  nightMsgs,
+  nightEndMsgs,
   nightOnlyMsgs,
   notTonightMsgs,
   offerAgain,
@@ -90,11 +94,14 @@ import {
   gremlyWords,
   journalOf,
   lineOf,
+  questionsIntroOf,
+  saidTonight,
   todosPlannedFor,
   wrapFacts,
+  type GremlyNow,
   type HabitsTonight,
 } from './gremlyWords';
-import type { WrapMoment } from '../cortex/CortexClient';
+import type { WrapMoment, WrapWordsResponse } from '../cortex/CortexClient';
 import { recapFrom } from './recap';
 import {
   type Awaiting,
@@ -177,6 +184,19 @@ function readNow() {
     cards,
     skipsLeft: Math.max(0, WEEKLY_SKIP_BUDGET - (st.skipsUsedLast7Days ?? 0)),
     firstName: name ? name.split(/\s+/)[0] : null,
+  };
+}
+
+/** Gremly himself as the store has him: his age, his stage and its nature, and whether he is fed today. */
+function gremlyNow(st: any): GremlyNow | null {
+  const age = Number(st.gremlyAge) || 0;
+  if (age <= 0) return null;
+  const tier = getTierForAge(age);
+  return {
+    age,
+    tier: String(st.currentTierName || tier?.name || ''),
+    ...(tier?.personality ? { nature: tier.personality } : {}),
+    fed_today: st.isFedToday === true,
   };
 }
 
@@ -304,6 +324,10 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
   const questionsRef = useRef<Promise<WrapQuestion[]> | null>(null);
   // habits checked in during the wrap up, for what Gremly says after
   const habitsTonightRef = useRef<HabitsTonight | null>(null);
+  // the line before tonight's questions, in Gremly's words when he chose them
+  const questionsIntroRef = useRef<string | null>(null);
+  // Gremly's goodnight, asked for once the close is said, so the tap never waits long
+  const nightRef = useRef<Promise<WrapWordsResponse | null> | null>(null);
   // an answer put a fix on the card: the next question waits for the card
   const cardPendingRef = useRef(false);
 
@@ -374,9 +398,20 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
 
   /** What Gremly is told for a moment, from the day as it stands now. */
   const factsFor = useCallback(
-    (moment: WrapMoment, more: { entry?: string; questions?: WrapQuestion[] } = {}) => {
+    (
+      moment: WrapMoment,
+      more: {
+        entry?: string;
+        questions?: WrapQuestion[];
+        fedByCards?: boolean;
+        /** Lines just said that the thread may not hold yet */
+        alsoSaid?: string[];
+      } = {},
+    ) => {
       const { st, now, cards } = readNow();
       const w = currentWrap();
+      const { alsoSaid = [], ...rest } = more;
+      const said = saidTonight(visibleThreadMessages(depsRef.current.messages), w?.started_at);
       return wrapFacts({
         moment,
         now,
@@ -395,9 +430,11 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
         cardTitles: cardTitles(cardsLeft(w, cards)),
         tomorrowTodos: todosPlannedFor(st.todos, now.tomorrow),
         canPlan: !planFor(depsRef.current.messages, now.tomorrow),
+        said: [...said, ...alsoSaid.filter((x) => !said.includes(x))],
+        gremly: gremlyNow(st),
         wrap: w,
         habits: habitsTonightRef.current,
-        ...more,
+        ...rest,
         aboutOf: (q) => {
           const it = linkedItem(q);
           return it
@@ -433,10 +470,9 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
       const ctx = { day: readNow().now.day, decidedIds: decidedIds(w), askedToday };
       const askable = askableQuestions(open, ctx);
       if (!askable.length) return [];
-      const chosen = chosenQuestions(
-        await gremlyWords(factsFor('questions', { questions: askable })),
-        askable,
-      );
+      const res = await gremlyWords(factsFor('questions', { questions: askable }));
+      const chosen = chosenQuestions(res, askable);
+      questionsIntroRef.current = chosen ? questionsIntroOf(res, chosen) : null;
       return chosen ?? pickQuestions(open, ctx);
     })();
     questionsRef.current = work;
@@ -468,20 +504,24 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
   }, []);
 
   /** Feeding for the cards sorted so far: what the old Sweep gave, credited as it goes. */
-  const creditCards = useCallback(async () => {
+  /** Feeds for the cards sorted since the last credit; true when Gremly was just fed. */
+  const creditCards = useCallback(async (): Promise<boolean> => {
     const w = currentWrap();
-    if (!w) return;
+    if (!w) return false;
     const decided = sweepCounts(w.decisions).decided;
     const had = w.credited ?? 0;
-    if (decided <= had) return;
+    if (decided <= had) return false;
     const delta =
       calculateSweepContribution(decided, false) - calculateSweepContribution(had, false);
     updateWrap((x) => (x ? { ...x, credited: decided } : x));
-    if (delta > 0.0001) {
-      await withFeedAnimation(() => store().addGaugeContribution('sweep', delta)).catch((err) =>
-        console.warn('[WrapUp] could not credit the cards:', err),
-      );
-    }
+    if (delta <= 0.0001) return false;
+    return withFeedAnimation(() => store().addGaugeContribution('sweep', delta)).then(
+      () => true,
+      (err) => {
+        console.warn('[WrapUp] could not credit the cards:', err);
+        return false;
+      },
+    );
   }, []);
 
   /** Put the buttons for the step back when none are live (after a chat turn, or on coming back). */
@@ -519,15 +559,16 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
     }
     const words = await withTyping(gremlyWords(factsFor('close')));
     const { st, now } = readNow();
-    await save(
-      closeMsgs({
-        day: now.words,
-        meetings: meetingsFromStore(now.tomorrow).length,
-        todos: todosPlannedFor(st.todos, now.tomorrow),
-        canPlan: !planFor(depsRef.current.messages, now.tomorrow),
-        gremly: lineOf(words),
-      }),
-    );
+    const msgs = closeMsgs({
+      day: now.words,
+      meetings: meetingsFromStore(now.tomorrow).length,
+      todos: todosPlannedFor(st.todos, now.tomorrow),
+      canPlan: !planFor(depsRef.current.messages, now.tomorrow),
+      gremly: lineOf(words),
+    });
+    await save(msgs);
+    // his goodnight is asked for now, so it is there when they tap
+    nightRef.current = gremlyWords(factsFor('night', { alsoSaid: msgs.map((m) => m.content) }));
   }, [save, withTyping, factsFor]);
 
   const nextQuestion = useCallback(async () => {
@@ -583,7 +624,7 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
     queueRef.current = picked;
     setStep('questions', { questions: picked.map((q) => q.id) });
     setAwaiting('question');
-    await save(questionsStartMsgs(picked.length, picked[0]));
+    await save(questionsStartMsgs(picked.length, picked[0], questionsIntroRef.current));
   }, [save, toClose, withTyping, prepareQuestions]);
 
   /** After the journal: good night when only the journal was wanted, the close on a skip night, else his questions. */
@@ -714,19 +755,20 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
     }
 
     await receiptsAway();
-    await creditCards();
+    const fed = await creditCards();
     const c = sweepCounts(currentWrap()?.decisions ?? []);
     if (left > 0) {
       if (!extra) setStep('partial');
       await save(partialMsgs(c.decided, left, now.words));
       return;
     }
-    await save(sortedMsgs(c.letGo));
+    const words = await withTyping(gremlyWords(factsFor('sorted', { fedByCards: fed })));
+    await save(sortedMsgs(c.letGo, lineOf(words)));
     if (extra) return buttonsBack();
     await settle('cards');
     await pause();
     await toHabits();
-  }, [save, pause, settle, toHabits, receiptsAway, creditCards, buttonsBack]);
+  }, [save, pause, settle, toHabits, receiptsAway, creditCards, buttonsBack, withTyping, factsFor]);
 
   const backFromCards = useCallback(() => run(cardsBack), [run, cardsBack]);
   const resume = useCallback(
@@ -940,7 +982,11 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
             return;
           case 'night': {
             const { now, firstName } = readNow();
-            await save(nightMsgs(button, firstName, now.day, now.words.early));
+            await save([tapped(button)]);
+            const asked = nightRef.current ?? gremlyWords(factsFor('night'));
+            nightRef.current = null;
+            const words = await withTyping(asked);
+            await save(nightEndMsgs(firstName, now.day, now.words.early, lineOf(words)));
             setStep('done', { finished_at: getDateService().nowTimestamp() });
             useMascotStore.getState().requestMode(store().isFedToday ? 'fed' : 'waving');
             return;
@@ -963,6 +1009,8 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
       answered,
       nextQuestion,
       buttonsBack,
+      withTyping,
+      factsFor,
     ],
   );
 
@@ -1134,30 +1182,32 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
             }
           }
           await patch(message.id, { status: 'saved', done: built, held });
-          habitsTonightRef.current = {
+          const tonight: HabitsTonight = {
             logged: built.map(titleOf),
             held: heldIds.filter((id) => logged.has(id)).map(titleOf),
             notHeld: Object.keys(held)
               .filter((id) => held[id] === 'not')
               .map(titleOf),
+            streak,
           };
+          habitsTonightRef.current = tonight;
+          const words = await withTyping(gremlyWords(factsFor('habits')));
           await save([
             say(
-              habitsSavedLine({
-                logged: built.length,
-                streak,
-                held: heldIds.filter((id) => logged.has(id)).map(titleOf),
-                notHeld: Object.keys(held)
-                  .filter((id) => held[id] === 'not')
-                  .map(titleOf),
-                early: card.early,
-              }),
+              lineOf(words) ||
+                habitsSavedLine({
+                  logged: built.length,
+                  streak,
+                  held: tonight.held,
+                  notHeld: tonight.notHeld,
+                  early: card.early,
+                }),
             ),
           ]);
           await pause();
           await toJournal();
         }),
-      [run, patch, save, pause, toJournal],
+      [run, patch, save, pause, toJournal, withTyping, factsFor],
     ),
   };
 

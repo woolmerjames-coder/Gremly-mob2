@@ -186,8 +186,9 @@ export function partialMsgs(sorted: number, left: number, d: WrapDay): WrapMsg[]
   return [receiptMsg(), offer(partialLine(sorted, left, d), 'wrap_partial', partialButtons(left))];
 }
 
-export function sortedMsgs(letGo: number): WrapMsg[] {
-  return [receiptMsg(), say(sortedLine(letGo))];
+/** Every card has a place: the receipt, and Gremly's words on it (his own when they came). */
+export function sortedMsgs(letGo: number, gremly?: string | null): WrapMsg[] {
+  return [receiptMsg(), say(gremly || sortedLine(letGo))];
 }
 
 export function leaveRestMsgs(button: OfferButton, left: number, d: WrapDay): WrapMsg[] {
@@ -295,8 +296,12 @@ export function questionMsg(q: WrapQuestion): WrapMsg {
   return offer(q.question, 'question', questionButtons(q.choices), { question_id: q.id });
 }
 
-export function questionsStartMsgs(n: number, first: WrapQuestion): WrapMsg[] {
-  return [say(questionsIntro(n)), questionMsg(first)];
+export function questionsStartMsgs(
+  n: number,
+  first: WrapQuestion,
+  gremly?: string | null,
+): WrapMsg[] {
+  return [say(gremly || questionsIntro(n)), questionMsg(first)];
 }
 
 /** After an answer: thanks, the saved line, and the item it was about, to open. */
@@ -352,8 +357,19 @@ export function nightMsgs(
   firstName: string | null,
   day: string,
   early = false,
+  gremly?: string | null,
 ): WrapMsg[] {
-  return [tapped(button), say(nightLine(firstName, early)), card({ type: 'sweep-end', date: day })];
+  return [tapped(button), ...nightEndMsgs(firstName, day, early, gremly)];
+}
+
+/** Gremly's goodnight (his own when it came) and the end card, after the tap. */
+export function nightEndMsgs(
+  firstName: string | null,
+  day: string,
+  early = false,
+  gremly?: string | null,
+): WrapMsg[] {
+  return [say(gremly || nightLine(firstName, early)), card({ type: 'sweep-end', date: day })];
 }
 
 // ── the other choices on the offer ───────────────────────────────────────────

@@ -1980,7 +1980,15 @@ export async function callGeneralGreeting(
 // Gremly's words in the evening wrap up (agent plan step 10)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type WrapMoment = 'open' | 'journal_ask' | 'journal_reply' | 'close' | 'questions';
+export type WrapMoment =
+  | 'open'
+  | 'journal_ask'
+  | 'journal_reply'
+  | 'sorted'
+  | 'habits'
+  | 'close'
+  | 'night'
+  | 'questions';
 
 /** What the wrap up tells Gremly for one moment (workers/cortex/wrap/words.js factsFrom). */
 export interface WrapWordsRequest {
@@ -2011,7 +2019,15 @@ export interface WrapWordsRequest {
     not_held?: string[];
     journal?: 'written' | 'mood' | 'skipped' | null;
     path?: 'cards' | 'skip' | 'clear' | null;
+    /** A habit logged tonight with a run of days, as it stands now */
+    streak?: { title: string; days: number } | null;
+    /** Sorting the cards just fed Gremly */
+    fed_by_cards?: boolean;
   };
+  /** Gremly himself: his age, his stage and its nature, and whether he is fed today */
+  gremly?: { age: number; tier: string; nature?: string; fed_today: boolean } | null;
+  /** What Gremly has said in tonight's wrap up so far, in order */
+  said?: string[];
   next?: {
     meetings: string[];
     /** Todos moved to tomorrow in the cards tonight */
@@ -2032,7 +2048,7 @@ export interface WrapWordsRequest {
 export type WrapWordsResponse =
   | { line: string }
   | { journal: boolean; reply: string; moods?: string[] }
-  | { ask: { id: string; question: string; choices: string[] }[] };
+  | { ask: { id: string; question: string; choices: string[] }[]; intro?: string };
 
 /** How long the wrap up waits for Gremly's words before it says its own. */
 const WRAP_WORDS_TIMEOUT_MS = 8000;
@@ -2065,9 +2081,15 @@ export async function callWrapWords(req: WrapWordsRequest): Promise<WrapWordsRes
     const data = await res.json();
     if (typeof data?.line === 'string' && data.line.trim()) return { line: data.line.trim() };
     if (typeof data?.journal === 'boolean') {
-      return { journal: data.journal, reply: String(data.reply ?? '').trim() };
+      const moods = Array.isArray(data.moods)
+        ? data.moods.filter((m: unknown): m is string => typeof m === 'string')
+        : [];
+      return { journal: data.journal, reply: String(data.reply ?? '').trim(), moods };
     }
-    if (Array.isArray(data?.ask)) return { ask: data.ask };
+    if (Array.isArray(data?.ask)) {
+      const intro = typeof data.intro === 'string' ? data.intro.trim() : '';
+      return intro ? { ask: data.ask, intro } : { ask: data.ask };
+    }
     return null;
   } catch {
     return null;

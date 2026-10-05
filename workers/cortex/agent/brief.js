@@ -34,7 +34,7 @@ import { AGENT_PROMPT_VERSION, isLate } from './prompt.js';
 import { dayEndHourOf } from '../../shared/day.js';
 import { checkForCorrection } from '../context/corrections.js';
 
-export const BRIEF_AGENT_VERSION = `brief-2026-10-05c/${AGENT_PROMPT_VERSION}`;
+export const BRIEF_AGENT_VERSION = `brief-2026-10-05d/${AGENT_PROMPT_VERSION}`;
 
 // the planning day ends here when nothing earlier ends it, as in the day turn
 const DAY_END = 22 * 60;
@@ -256,7 +256,7 @@ export function wrapContext(wrap) {
     L.push(
       '',
       "THEIR MESSAGE ANSWERS GREMLY'S QUESTION",
-      `Gremly asked: "${a.question}"${about}. Their message is the answer, and it is already saved to what Gremly knows. Take it in as a friend would, in one or two short sentences. When the answer means one of their items is wrong or needs to change, offer that change: put it on the card with propose_changes, with your reply, in this step; when it changes nothing, say so plainly and put nothing on the card.`,
+      `Gremly asked: "${a.question}"${about}. Their message is the answer, and it is already saved to what Gremly knows. Take it in as a friend would, in one or two short sentences. When the answer means one of their items is wrong or needs to change, offer that change: put it on the card with propose_changes, with your reply, in this step; when it changes nothing, put nothing on the card, and take the answer in without remarking that nothing changes.`,
     );
   }
   return L.join('\n');

@@ -27,10 +27,13 @@ import {
   WRAP_COPY,
   clearLine,
   closeLine,
+  habitsSavedLine,
   missedLine,
+  nightLine,
   offerLine,
   openerLine,
   partWords,
+  sortedLine,
 } from '../../lib/wrapup/words.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -84,7 +87,26 @@ function fixedLine(moment, f) {
   }
   if (moment === 'journal_ask') return partWords(d.early).journalAsk;
   if (moment === 'journal_reply') return WRAP_COPY.journalSaved;
-  if (moment === 'close') return closeLine(d, f.next?.meetings?.length || 0, f.next?.lined || []);
+  if (moment === 'close') {
+    const n = f.next || {};
+    const count = n.todo_count ?? (n.lined || []).length;
+    const todos = Array.from({ length: count }, (_, i) => n.todos?.[i] ?? n.lined?.[i] ?? 'a todo');
+    return closeLine(d, (n.meetings || []).length, todos);
+  }
+  if (moment === 'sorted') {
+    return sortedLine((f.tonight?.decisions || []).filter((x) => x.outcome === 'let go').length);
+  }
+  if (moment === 'habits') {
+    const t = f.tonight || {};
+    return habitsSavedLine({
+      logged: (t.logged || []).length,
+      streak: t.streak || null,
+      held: t.held || [],
+      notHeld: t.not_held || [],
+      early: d.early,
+    });
+  }
+  if (moment === 'night') return nightLine(null, d.early);
   return '';
 }
 
@@ -109,6 +131,13 @@ function checks(moment, f, out, expect = {}) {
       add(`No dashes: ${q.id}`, !DASH.test(q.question), q.question);
       add(`A question: ${q.id}`, /\?$/.test(q.question), q.question);
     }
+    // the line before them, in his words
+    if (ids.length) {
+      const intro = out.intro || '';
+      add('A line before them', !!intro, intro);
+      add('Intro short (16 words)', words(intro) <= 19, intro);
+      add('Intro without dashes', !DASH.test(intro), intro);
+    }
     return c;
   }
   if (moment === 'journal_reply') {
@@ -125,11 +154,17 @@ function checks(moment, f, out, expect = {}) {
   if (expect.mentions) add(`Says ${expect.mentions}`, new RegExp(expect.mentions, 'i').test(text), text);
   add('No dashes', !DASH.test(text), text);
   add('No emoji', !EMOJI.test(text), text);
-  const cap = { open: 40, journal_ask: 18, journal_reply: 38, close: 45 }[moment] ?? 40;
+  const cap = { open: 40, journal_ask: 18, journal_reply: 38, sorted: 22, habits: 28, close: 45, night: 20 }[moment] ?? 40;
   add(`Short (${cap} words)`, words(text) <= cap + 3, words(text));
   if (moment === 'journal_ask') add('Asks one question', (text.match(/\?/g) || []).length === 1, text);
   else add('Asks nothing', !/\?/.test(text), text);
-  if (f.part === 'early') add('Nothing about tonight', !NIGHT.test(text), text);
+  if (f.part === 'early') {
+    // a habit's own name is not about the night
+    const t = f.tonight || {};
+    let plain = text;
+    for (const h of [...(t.logged || []), ...(t.held || []), ...(t.not_held || [])]) plain = plain.split(h).join('');
+    add('Nothing about tonight', !NIGHT.test(plain), text);
+  }
   if (f.part === 'late' && moment !== 'journal_reply') add('Names the next day', !/\btomorrow\b/i.test(text), text);
   if (moment === 'close') add('No goodnight', !/good ?night|sleep well/i.test(text), text);
   if (moment === 'journal_reply') add('Says it is saved', /journal|saved/i.test(text), text);
@@ -154,9 +189,9 @@ for (const x of [...QUESTIONS, ...real.questions]) {
   jobs.push({ id: `${x.id}:questions`, e, moment: 'questions', f: { ...e.facts, moment: 'questions', questions: x.questions }, expect: x.expect });
 }
 
-async function runOne(job) {
+async function runOne(job, said = []) {
   // as the Worker reads the app's request
-  const f = factsFrom(job.f);
+  const f = factsFrom(said.length ? { ...job.f, said } : job.f);
   const p = wrapPrompt(f, { person: job.e.person, dco: job.e.dco, life: job.e.life || null });
   const t0 = Date.now();
   try {
@@ -194,9 +229,32 @@ async function pool(items, n, fn) {
   return out;
 }
 
-const runs = jobs.flatMap((j) => Array.from({ length: repeat }, () => j));
+// an evening's moments run in order, each told what Gremly has already said tonight, as in the app
+const chains = [];
+for (let k = 0; k < repeat; k++) {
+  const byEvening = new Map();
+  for (const job of jobs) {
+    const key = job.moment === 'journal_reply' || job.moment === 'questions' ? job.id : job.e.id;
+    if (!byEvening.has(key)) byEvening.set(key, []);
+    byEvening.get(key).push(job);
+  }
+  chains.push(...byEvening.values());
+}
+const runs = chains.flat();
 console.log(`Running ${runs.length} calls (${jobs.length} moments × ${repeat}) on ${model}, ${WRAP_WORDS_VERSION}…`);
-const results = await pool(runs, 4, async (job) => ({ job, r: await runOne(job) }));
+const results = (
+  await pool(chains, 4, async (chain) => {
+    const said = [];
+    const out = [];
+    for (const job of chain) {
+      const r = await runOne(job, [...said]);
+      out.push({ job, r });
+      const line = r.out?.line;
+      if (line) said.push(line);
+    }
+    return out;
+  })
+).flat();
 
 let pass = 0;
 const times = [];
@@ -211,7 +269,7 @@ for (const job of jobs) {
     const said = !r.out
       ? `(nothing${r.error ? `: ${r.error}` : ''})`
       : job.moment === 'questions'
-        ? JSON.stringify(r.out.ask)
+        ? `${r.out.intro ? `${r.out.intro} ` : ''}${JSON.stringify(r.out.ask)}`
         : job.moment === 'journal_reply' && !r.out.journal
           ? '(not a journal entry: goes to Gremly)'
           : `${r.out.line ?? r.out.reply}${job.moment === 'journal_reply' ? `  {moods: ${(r.out.moods || []).join(', ') || 'none'}}` : ''}`;

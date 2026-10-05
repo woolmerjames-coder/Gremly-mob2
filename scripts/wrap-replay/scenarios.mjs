@@ -61,9 +61,12 @@ export const EVENINGS = [
           { title: 'Plan the team offsite', outcome: 'kept for Friday' },
         ],
         logged: ['Stretch before bed'],
+        streak: { title: 'Stretch before bed', days: 5 },
+        fed_by_cards: true,
         journal: 'written',
         path: 'cards',
       },
+      gremly: { age: 34, tier: 'Pathfinder', nature: "Purposeful. Knows where it's going. Steady.", fed_today: true },
       next: {
         meetings: ['9:00 AM Team standup', '11:00 AM Board review', '3:00 PM Design crit'],
         lined: ['Book the car service', 'Pick up the dry cleaning'],
@@ -71,7 +74,7 @@ export const EVENINGS = [
         todo_count: 3,
       },
     },
-    moments: ['open', 'journal_ask', 'close'],
+    moments: ['open', 'journal_ask', 'sorted', 'habits', 'close', 'night'],
     expect: { open: { notNamed: ['car service', 'onboarding', 'offsite'] } },
   },
   {
@@ -124,7 +127,7 @@ export const EVENINGS = [
       },
       next: { meetings: [], lined: ['Pack for the coast'], todos: ['Pack for the coast'], todo_count: 1 },
     },
-    moments: ['open', 'journal_ask', 'close'],
+    moments: ['open', 'journal_ask', 'sorted', 'close', 'night'],
     expect: { open: { notNamed: ['bike light', 'printer'] } },
   },
   {
@@ -152,9 +155,11 @@ export const EVENINGS = [
           { title: 'Book the car service', outcome: 'moved to Thursday' },
           { title: 'Email the caterer', outcome: 'moved to Thursday' },
         ],
+        not_held: ['No sugar after dinner'],
         journal: 'skipped',
         path: 'cards',
       },
+      gremly: { age: 3, tier: 'Nestling', nature: 'Finding words. Simple excitement.', fed_today: false },
       next: {
         meetings: ['11:00 AM Board review'],
         lined: ['Book the car service', 'Email the caterer'],
@@ -162,7 +167,7 @@ export const EVENINGS = [
         todo_count: 2,
       },
     },
-    moments: ['open', 'journal_ask', 'close'],
+    moments: ['open', 'journal_ask', 'sorted', 'habits', 'close', 'night'],
     expect: { open: { notNamed: ['car service', 'caterer', 'gym', 'photo'] } },
   },
   {
@@ -203,7 +208,7 @@ export const EVENINGS = [
         todo_count: 3,
       },
     },
-    moments: ['open', 'journal_ask', 'close'],
+    moments: ['open', 'journal_ask', 'sorted', 'habits', 'close', 'night'],
     expect: { open: { notNamed: ['dentist', 'passport'] }, journal_ask: { notNamed: ['flight', 'Lisbon'] } },
   },
   {

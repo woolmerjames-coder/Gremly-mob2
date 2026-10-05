@@ -14,6 +14,8 @@ import type { WrapNow } from '../day';
 import {
   cardTitles,
   outcomeWords,
+  questionsIntroOf,
+  saidTonight,
   todosPlannedFor,
   wasWords,
   wrapTurnContext,
@@ -132,5 +134,38 @@ describe('what the close and the opening are told', () => {
       { id: '6', name: 'At eight', due_day: '2026-10-04', due_time: '08:00' },
     ];
     expect(todosPlannedFor(todos, '2026-10-04')).toEqual(['At eight', 'At nine', 'Untimed']);
+  });
+});
+
+describe('what he has said tonight', () => {
+  const m = (role: string, content: string, wrap: boolean, created_at?: string) => ({
+    role,
+    content,
+    created_at,
+    metadata_json: { type: 'brief-text', wrap },
+  });
+
+  it("is his wrap up lines since it started, in order, without their taps or the morning's", () => {
+    const said = saidTonight(
+      [
+        m('assistant', 'Morning brief line.', false, '2026-10-04T15:00:00Z'),
+        m('assistant', 'An earlier wrap up.', true, '2026-10-04T18:00:00Z'),
+        m('assistant', 'A full day.', true, '2026-10-05T03:01:00Z'),
+        m('user', 'Sweep now', true, '2026-10-05T03:02:00Z'),
+        m('assistant', '', true, '2026-10-05T03:03:00Z'),
+        m('assistant', 'Everything has a place.', true, '2026-10-05T03:04:00Z'),
+      ],
+      '2026-10-05T03:00:00Z',
+    );
+    expect(said).toEqual(['A full day.', 'Everything has a place.']);
+  });
+
+  it('takes the line before his questions only when he chose every one', () => {
+    const q = { id: 'q1', question: 'A?', choices: [] } as any;
+    const res = { ask: [{ id: 'q1', question: 'A?', choices: [] }], intro: 'One thing.' };
+    expect(questionsIntroOf(res, [q])).toBe('One thing.');
+    expect(questionsIntroOf({ ...res, ask: [...res.ask, res.ask[0]] }, [q])).toBeNull();
+    expect(questionsIntroOf({ ask: res.ask }, [q])).toBeNull();
+    expect(questionsIntroOf(null, [q])).toBeNull();
   });
 });

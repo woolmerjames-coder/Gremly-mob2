@@ -41,6 +41,10 @@ const SAT_ITEMS = [
   { id: 'pushups', kind: 'habit', title: 'Pushups', minutes: 10, note: 'habit today' },
 ];
 
+// a reply that tells them nothing changes, instead of taking in what they said
+const NO_CHANGE_TALK =
+  "(doesn'?t|does not|won'?t) change|changes? nothing|no changes?\\b|nothing (needs|has) to (change|move)|nothing needs (changing|moving)|(items|plans) (need|as they are)|need changing";
+
 export const SCENARIOS = [
   {
     id: 'airport-and-call',
@@ -264,7 +268,7 @@ export const SCENARIOS = [
   {
     id: 'wrap-answer-no-change',
     title: "The wrap up's question answered, and the item is right",
-    look: 'Takes the answer in and says nothing needs changing; nothing on the card.',
+    look: 'Takes the answer in as a friend would, without announcing that nothing changes; nothing on the card.',
     today: '2026-10-03',
     at: '20:50',
     text: 'Friday',
@@ -280,7 +284,11 @@ export const SCENARIOS = [
     meetings: [],
     record: { travel: null, blocks: [] },
     plan: null,
-    expect: { aboutDay: true, maxChanges: 0 },
+    expect: {
+      aboutDay: true,
+      maxChanges: 0,
+      notSaidLike: [NO_CHANGE_TALK],
+    },
   },
   {
     id: 'wrap-answer-life',
@@ -298,7 +306,12 @@ export const SCENARIOS = [
     meetings: [],
     record: { travel: null, blocks: [] },
     plan: null,
-    expect: { aboutDay: true, forbid: ['cancel', 'complete', 'move_day'], maxChanges: 1 },
+    expect: {
+      aboutDay: true,
+      forbid: ['cancel', 'complete', 'move_day'],
+      maxChanges: 1,
+      notSaidLike: [NO_CHANGE_TALK],
+    },
   },
   {
     id: 'present-before-anniversary',

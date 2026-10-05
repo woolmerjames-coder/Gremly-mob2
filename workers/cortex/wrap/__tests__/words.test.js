@@ -4,7 +4,16 @@
 // Gremly's own words in the evening wrap up (workers/cortex/wrap/words.js):
 // what he is told for each moment, and what the app is given back.
 
-import { factsFrom, readWrapWords, timeWords, wrapPrompt, writeWrapWords } from '../words.js';
+import {
+  factsFrom,
+  gremlyState,
+  lifeNowWords,
+  readWrapWords,
+  storyTail,
+  timeWords,
+  wrapPrompt,
+  writeWrapWords,
+} from '../words.js';
 import { configureModels } from '../../models.js';
 
 const BODY = {
@@ -161,8 +170,98 @@ describe('what Gremly is told', () => {
     expect(p.system).toContain('Choose at most two');
   });
 
+  it('reacts to the cards in his words, naming no item, and to letting go only when something was', () => {
+    const p = wrapPrompt(factsFrom({ ...BODY, moment: 'sorted' }), {});
+    expect(p.system).toContain('name no item and recite no count');
+    expect(p.system).toContain('Nothing was let go tonight');
+    expect(p.user).toContain('THE WRAP UP SO FAR');
+    const freed = wrapPrompt(
+      factsFrom({
+        ...BODY,
+        moment: 'sorted',
+        tonight: { decisions: [{ title: 'Old idea', outcome: 'let go' }], path: 'cards' },
+      }),
+      {},
+    );
+    expect(freed.system).toContain('Letting something go is a choice that frees them');
+  });
+
+  it('reacts to the habits alone, told plainly which held and which did not, and a run of days', () => {
+    const p = wrapPrompt(
+      factsFrom({
+        ...BODY,
+        moment: 'habits',
+        tonight: {
+          logged: ['Stretch'],
+          held: ['No coffee'],
+          not_held: ['No sugar'],
+          streak: { title: 'Stretch', days: 5 },
+          path: 'cards',
+        },
+      }),
+      {},
+    );
+    expect(p.system).toContain('reaction to their habits alone');
+    expect(p.user).toContain('Habits checked in during the wrap up: Stretch.');
+    expect(p.user).toContain(
+      'Habits they are giving up that they kept off today, which went well: No coffee.',
+    );
+    expect(p.user).toContain(
+      'Habits they are giving up that they did not keep off today: No sugar.',
+    );
+    expect(p.user).toContain('Stretch now has a run of 5 days.');
+  });
+
+  it('says goodnight knowing the next day and what he already said, never going over it again', () => {
+    const p = wrapPrompt(
+      factsFrom({ ...BODY, moment: 'night', said: ['A full day.', 'Wednesday is wrapped up.'] }),
+      {},
+    );
+    expect(p.system).toContain("Write Gremly's goodnight");
+    expect(p.user).toContain('THEIR NEXT DAY');
+    expect(p.user).toContain(
+      'WHAT GREMLY HAS SAID SO FAR, IN ORDER\n- A full day.\n- Wednesday is wrapped up.',
+    );
+    const early = wrapPrompt(factsFrom({ ...BODY, moment: 'night', part: 'early' }), {});
+    expect(early.system).toContain('goodbye for now, for the rest of their day');
+    // the opening is the first thing he says
+    const open = wrapPrompt(factsFrom({ ...BODY, said: ['Earlier.'] }), {});
+    expect(open.user).not.toContain('WHAT GREMLY HAS SAID SO FAR');
+  });
+
+  it('is told their life now and himself, and the journal question is told neither the day picture nor travel', () => {
+    const life = 'Training for a half marathon in November.';
+    const gremly = { age: 61, tier: 'Sage', nature: 'Warm, steady.', fed_today: true };
+    const open = wrapPrompt(factsFrom({ ...BODY, gremly }), { dco: DCO, life });
+    expect(open.user).toContain(`THEIR LIFE NOW\n${life}`);
+    expect(open.user).toContain(
+      'GREMLY HIMSELF\nGremly is age 61, at his Sage stage. His nature at this stage: Warm, steady. He is fed for today.',
+    );
+    expect(open.system).toContain('his nature at his stage colors how he speaks');
+    const ask = wrapPrompt(factsFrom({ ...BODY, moment: 'journal_ask', travel: 'flying home' }), {
+      dco: DCO,
+      life,
+    });
+    expect(ask.user).not.toContain('THEIR LIFE NOW');
+    expect(ask.user).not.toContain('WHAT TODAY IS ABOUT');
+    expect(ask.user).not.toContain('flying home');
+    expect(gremlyState(null)).toBe('');
+    expect(gremlyState({ age: 4, tier: 'Nestling', fed_today: false })).toBe(
+      'Gremly is age 4, at his Nestling stage.',
+    );
+  });
+
   it('keeps no example, word list or dash in what it asks of him', () => {
-    for (const moment of ['open', 'journal_ask', 'journal_reply', 'close', 'questions']) {
+    for (const moment of [
+      'open',
+      'journal_ask',
+      'journal_reply',
+      'sorted',
+      'habits',
+      'close',
+      'night',
+      'questions',
+    ]) {
       const p = wrapPrompt(factsFrom({ ...BODY, moment }), {});
       const job = p.system.slice(p.system.indexOf('YOUR'));
       expect(job).not.toMatch(/\s[-–—]\s|[–—]|for example|e\.g\./i);
@@ -225,6 +324,36 @@ describe('what the app is given back', () => {
       ],
     });
   });
+
+  it('the line before his questions, when he chose any', () => {
+    const f = { questions: [{ id: 'q1', question: 'A?' }] };
+    expect(
+      readWrapWords(
+        'questions',
+        JSON.stringify({ intro: 'One quick thing.', ask: [{ id: 'q1', question: 'A?' }] }),
+        f,
+      ),
+    ).toEqual({ ask: [{ id: 'q1', question: 'A?', choices: [] }], intro: 'One quick thing.' });
+    expect(readWrapWords('questions', JSON.stringify({ intro: 'Hm.', ask: [] }), f)).toEqual({
+      ask: [],
+    });
+  });
+});
+
+describe('their life now', () => {
+  it('is the end of their story, from a sentence start, and the Chapters they are in', () => {
+    const story = `${'Long ago things happened. '.repeat(40)}Now they are training for a race.`;
+    const tail = storyTail(story, 120);
+    expect(tail.endsWith('Now they are training for a race.')).toBe(true);
+    expect(tail.startsWith('Long ago') || tail.startsWith('Now')).toBe(true);
+    expect(storyTail('Short.')).toBe('Short.');
+    expect(
+      lifeNowWords('Short story.', [
+        { title: 'Training for Bay to Breakers', card_subtitle: 'Strength and swim' },
+      ]),
+    ).toBe('Short story.\nChapters now: Training for Bay to Breakers (Strength and swim).');
+    expect(lifeNowWords('', [])).toBe('');
+  });
 });
 
 describe('one moment end to end', () => {
@@ -249,9 +378,11 @@ describe('one moment end to end', () => {
       env: {},
       userId: 'u1',
       body: BODY,
-      deps: { person: { first_name: 'Alex' }, dco: DCO },
+      deps: { person: { first_name: 'Alex' }, dco: DCO, life: 'Training for a race.' },
     });
     expect(out).toEqual({ line: 'A full day, and the deck went out.' });
+    expect(sent).toHaveLength(1);
+    expect(sent[0].body.messages[1].content).toContain('THEIR LIFE NOW\nTraining for a race.');
     expect(sent[0].url).toContain('api.openai.com');
     expect(sent[0].body.model).toBe('gpt-6-luna');
     expect(sent[0].body.messages[0].content).toContain('You are Gremly');
