@@ -162,15 +162,14 @@ export async function readThreadReaction(env, userId, ritualDay) {
 }
 
 /**
- * Yesterday's thread for the morning brief, in one read: the reaction to
- * yesterday's brief, and last night's wrap up (null when none was started).
- * `ritualDay` is yesterday; the brief's today is the day after it.
+ * Last night's wrap up for the morning brief of `today` (the person's day), in
+ * words (summariseWrap), or null when none was started. It was in yesterday's
+ * thread; only the thread's state is read, not its messages.
  */
-export async function readLastNight(env, userId, ritualDay) {
-  const t = await readThread(env, userId, ritualDay);
-  if (!t) return { reaction: null, wrap: null };
-  return {
-    reaction: `YESTERDAY'S BRIEF (${ritualDay}): ${summariseThread(t.thread.metadata_json, t.messages)}.`,
-    wrap: summariseWrap(t.thread.metadata_json?.sweep, addDays(ritualDay, 1)),
-  };
+export async function readLastWrap(env, userId, today) {
+  const yesterday = addDays(today, -1);
+  const threads = await db(env).select(
+    `scope_chats?user_id=eq.${userId}&chat_type=eq.daily&metadata_json->>ritual_day=eq.${yesterday}&select=metadata_json&limit=1`,
+  );
+  return summariseWrap(threads?.[0]?.metadata_json?.sweep, today);
 }
