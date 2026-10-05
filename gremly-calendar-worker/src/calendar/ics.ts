@@ -1,10 +1,13 @@
 import type { CalendarEvent, Env } from '../types';
+import { fetchWindow } from './window';
 import { TokenStorage } from '../storage/tokens';
 
 function parseIcsContent(icsContent: string, startDate: string, endDate: string): CalendarEvent[] {
   const events: CalendarEvent[] = [];
-  const startFilter = new Date(startDate + 'T00:00:00Z');
-  const endFilter = new Date(endDate + 'T23:59:59Z');
+  // in UTC, a day either side, so every local time on the days asked for is in it
+  const { from, to } = fetchWindow(startDate, endDate);
+  const startFilter = new Date(from);
+  const endFilter = new Date(to);
 
   const veventRegex = /BEGIN:VEVENT([\s\S]*?)END:VEVENT/g;
   let match;

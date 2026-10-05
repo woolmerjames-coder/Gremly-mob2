@@ -4,6 +4,7 @@
  */
 
 import type { CalendarEvent, MSGraphCalendarResponse, MSGraphEvent, Env } from '../types';
+import { fetchWindow } from './window';
 import { getValidOutlookToken } from '../auth/outlook';
 import { TokenStorage } from '../storage/tokens';
 
@@ -85,44 +86,54 @@ async function fetchAllCalendars(accessToken: string): Promise<MSGraphCalendar[]
 /**
  * Fetch events from a specific calendar
  */
-async function fetchEventsFromCalendar(
+export async function fetchEventsFromCalendar(
   accessToken: string,
   calendarId: string,
   calendarName: string,
   startDate: string,
   endDate: string,
 ): Promise<CalendarEvent[]> {
-  const startDateTime = `${startDate}T00:00:00`;
-  const endDateTime = `${endDate}T23:59:59`;
+  // in UTC, a day either side, so every local time on the days asked for is in it
+  const { from, to } = fetchWindow(startDate, endDate);
 
   const params = new URLSearchParams({
-    startDateTime,
-    endDateTime,
+    startDateTime: from,
+    endDateTime: to,
     $select: 'id,subject,start,end,isAllDay,location,bodyPreview',
     $orderby: 'start/dateTime',
     $top: '100',
   });
 
-  const url = `${MICROSOFT_GRAPH_URL}/me/calendars/${calendarId}/calendarView?${params}`;
+  // a busy calendar runs past one page: every page is read
+  const events: CalendarEvent[] = [];
+  let url: string | undefined =
+    `${MICROSOFT_GRAPH_URL}/me/calendars/${calendarId}/calendarView?${params}`;
+  for (let page = 0; url && page < MAX_PAGES; page++) {
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        Prefer: 'outlook.timezone="UTC"',
+      },
+    });
 
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-  });
+    if (!response.ok) {
+      console.error(
+        `[Outlook] Failed to fetch events from calendar "${calendarName}":`,
+        response.status,
+      );
+      return events;
+    }
 
-  if (!response.ok) {
-    console.error(
-      `[Outlook] Failed to fetch events from calendar "${calendarName}":`,
-      response.status,
-    );
-    return [];
+    const data: MSGraphCalendarResponse = await response.json();
+    events.push(...data.value.map((event) => transformEvent(event, calendarName)));
+    url = data['@odata.nextLink'];
   }
-
-  const data: MSGraphCalendarResponse = await response.json();
-  return data.value.map((event) => transformEvent(event, calendarName));
+  return events;
 }
+
+/** Pages read from one calendar at most: 2,000 events, far beyond any week. */
+const MAX_PAGES = 20;
 
 /**
  * Fetch calendar events for a date range from ALL calendars

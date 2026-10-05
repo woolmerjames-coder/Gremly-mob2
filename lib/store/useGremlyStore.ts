@@ -7387,9 +7387,11 @@ export const useGremlyStore = create<GremlyState>()(
                   const endStr = dateService.utcDatePortion(event.endAt); // "YYYY-MM-DD" (exclusive)
 
                   if (!startStr || !endStr) continue;
-                  // Add the event to every date from start to end (exclusive)
-                  let cursor = startStr;
-                  while (cursor < endStr) {
+                  // Add the event to every date from start to end (exclusive),
+                  // on the days asked for: the calendar is asked for a day
+                  // either side, and the days outside keep what they had
+                  let cursor = startStr < startDate ? startDate : startStr;
+                  while (cursor < endStr && cursor <= endDate) {
                     const existing = eventsByDate[cursor] || [];
                     eventsByDate[cursor] = [...existing, event];
                     cursor = dateService.addDays(cursor, 1);
@@ -7406,14 +7408,9 @@ export const useGremlyStore = create<GremlyState>()(
                     continue;
                   }
 
-                  console.log(
-                    '[GremlyStore] Event:',
-                    event.title,
-                    'startAt:',
-                    event.startAt,
-                    '-> dateKey:',
-                    dateKey,
-                  );
+                  // the calendar is asked for a day either side of the days
+                  // asked for; those days keep what they had
+                  if (dateKey < startDate || dateKey > endDate) continue;
 
                   const existing = eventsByDate[dateKey] || [];
                   eventsByDate[dateKey] = [...existing, event];
