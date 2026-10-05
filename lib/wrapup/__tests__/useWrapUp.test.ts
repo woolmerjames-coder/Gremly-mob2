@@ -59,10 +59,12 @@ jest.mock('../../sweep/engine', () => ({
   markSweepCompleted: (...a: unknown[]) => mockCompleted(...a),
 }));
 const mockSaveJournal = jest.fn();
+const mockUpdateJournal = jest.fn();
 const mockSetMoods = jest.fn();
 let mockJournalNote: string | null = null;
 jest.mock('../journal', () => ({
   saveJournal: (...a: unknown[]) => mockSaveJournal(...a),
+  updateJournal: (...a: unknown[]) => mockUpdateJournal(...a),
   setJournalMoods: (...a: unknown[]) => mockSetMoods(...a),
   journalFor: () => mockJournalNote,
   journalTitle: (weekday: string, written: boolean) =>
@@ -106,6 +108,9 @@ jest.mock('../day', () => ({
 import { useWrapUp } from '../useWrapUp';
 import { currentWrap, resetWrapSession, useWrapSession, recordDecision } from '../session';
 import { WRAP_COPY } from '../words';
+import { newPage, setCardHtml, toLayout } from '../../journal/page';
+import { pageById } from '../../journal/pages';
+import { draftKey, keepDraft, useJournalSession } from '../../journal/session';
 
 const DAY = '2026-09-30';
 const TOMORROW = '2026-10-01';
@@ -205,6 +210,7 @@ const card = (id: string, kind = 'todo') => ({ candidate: { id, kind } });
 beforeEach(() => {
   jest.clearAllMocks();
   resetWrapSession();
+  useJournalSession.setState({ open: null, drafts: {}, lastPage: 'free' });
   seq = 0;
   mockLate = false;
   mockEarly = false;
@@ -663,6 +669,178 @@ async function toQuestions(t: ReturnType<typeof setup>) {
   await act(() => t.hook.result.current.handleButton(...t.button('journal_skip')));
 }
 
+describe('the wrap up: the journal page', () => {
+  /** A page written on Rose, thorn, bud, as the page hands it over on Done */
+  const written = (moods: string[] = []) => {
+    const rose = newPage(pageById('rose'));
+    let page = setCardHtml(rose, rose.cards[0].id, '<html><p>The lake at seven.</p></html>');
+    page = setCardHtml(page, rose.cards[1].id, '<html><p>The budget review.</p></html>');
+    const layout = toLayout(page);
+    return { text: layout.text, layout, moods: moods as never };
+  };
+  const TEXT =
+    'Rose: the best part of today\nThe lake at seven.\n\nThorn: the hard part\nThe budget review.';
+  const onScreen = () => useJournalSession.getState().open;
+
+  it('Open my journal opens the page for the day, and leaves the offer as it is', async () => {
+    const t = await clearNight();
+    const n = t.messages.length;
+    await act(() => t.hook.result.current.handleButton(...t.button('journal_page')));
+    expect(onScreen()).toMatchObject({ day: DAY, part: 'evening', save: expect.any(Function) });
+    expect(onScreen()?.carry).toBeUndefined();
+    expect(t.messages).toHaveLength(n);
+    expect(mockSaveJournal).not.toHaveBeenCalled();
+  });
+
+  it('takes along what was already typed in the box', async () => {
+    const t = await clearNight();
+    act(() => t.hook.result.current.journal.openPage('Tired but pleased.'));
+    expect(onScreen()).toMatchObject({ day: DAY, carry: 'Tired but pleased.' });
+  });
+
+  it('Done saves the entry with its page, then the thread shows it and carries on', async () => {
+    const t = await clearNight();
+    await act(() => t.hook.result.current.handleButton(...t.button('journal_page')));
+    const w = written(['calm']);
+    let res: unknown;
+    await act(async () => {
+      res = await onScreen()!.save!(w);
+    });
+    expect(res).toEqual({ ok: true });
+    expect(mockSaveJournal).toHaveBeenCalledWith({
+      text: TEXT,
+      moods: ['calm'],
+      day: DAY,
+      weekday: 'Wednesday',
+      part: 'evening',
+      page: w.layout,
+      dayMoods: expect.any(Promise),
+    });
+    const said = t.said();
+    expect(said).toContainEqual(['brief-event', WRAP_COPY.journalWrote]);
+    expect(said).toContainEqual(['brief-text', WRAP_COPY.journalSaved]);
+    expect(t.card('sweep-journal').metadata_json).toMatchObject({
+      status: 'saved',
+      note_id: 'note-1',
+      text: TEXT,
+      moods: ['calm'],
+      parts: [
+        { q: 'Rose: the best part of today', text: 'The lake at seven.' },
+        { q: 'Thorn: the hard part', text: 'The budget review.' },
+      ],
+    });
+    // the journal's buttons are answered, and the evening moves on to the close
+    const asked = t.messages.find(
+      (m) =>
+        (m.metadata_json as any).type === 'brief-offer' &&
+        (m.metadata_json as any).kind === 'journal',
+    );
+    expect((asked?.metadata_json as any).chosen.id).toBe('journal_page');
+    expect(currentWrap()).toMatchObject({ journal: 'written', journal_fed: true });
+    expect(t.hook.result.current.awaiting).toBeNull();
+    expect(t.hook.result.current.undoable['journal:note-1']).toBe(true);
+    expect(mockState.addGaugeContribution).toHaveBeenCalledWith('journal', 0.2);
+    expect(currentWrap()?.step).not.toBe('journal');
+  });
+
+  it('counts moods alone on the page as the reflection, with nothing for Gremly to read', async () => {
+    const t = await clearNight();
+    act(() => t.hook.result.current.journal.openPage());
+    const empty = toLayout(newPage(pageById('free')));
+    await act(async () => {
+      await onScreen()!.save!({ text: '', layout: empty, moods: ['tired'] as never });
+    });
+    expect(mockSaveJournal.mock.calls[0][0]).toMatchObject({ text: '', moods: ['tired'] });
+    expect(mockWrapWords).not.toHaveBeenCalledWith(
+      expect.objectContaining({ moment: 'journal_reply' }),
+    );
+    expect(currentWrap()?.journal).toBe('mood');
+  });
+
+  it('stays out of the thread when the page could not be saved, so the page keeps its words', async () => {
+    mockSaveJournal.mockResolvedValue({ ok: false, message: 'offline' });
+    const t = await clearNight();
+    act(() => t.hook.result.current.journal.openPage());
+    const n = t.messages.length;
+    let res: unknown;
+    await act(async () => {
+      res = await onScreen()!.save!(written());
+    });
+    expect(res).toEqual({ ok: false, message: 'offline' });
+    expect(t.messages).toHaveLength(n);
+    expect(t.hook.result.current.awaiting).toBe('journal');
+    expect(currentWrap()?.journal).toBeNull();
+  });
+
+  it('opens a page that is half written when more is typed in the box, with those words', async () => {
+    const t = await clearNight();
+    keepDraft(draftKey({ day: DAY }), { page: newPage(pageById('rose')), moods: [] });
+    let used = false;
+    await act(async () => {
+      used = await t.hook.result.current.takeTyped('One more thought.');
+    });
+    expect(used).toBe(true);
+    expect(onScreen()).toMatchObject({ day: DAY, carry: 'One more thought.' });
+    expect(mockSaveJournal).not.toHaveBeenCalled();
+    expect(t.said()).not.toContainEqual(['brief-reply', 'One more thought.']);
+  });
+
+  it('sends them to the paywall when they cannot make new items', async () => {
+    const t = await clearNight({ canCreate: false });
+    await act(() => t.hook.result.current.handleButton(...t.button('journal_page')));
+    expect(t.calls.onPaywall).toHaveBeenCalled();
+    expect(onScreen()).toBeNull();
+  });
+
+  it('opens a saved entry from its card, and the card follows what is changed', async () => {
+    mockUpdateJournal.mockResolvedValue({ ok: true, moods: Promise.resolve(['good']) });
+    const t = await clearNight();
+    await act(async () => {
+      await t.hook.result.current.takeTyped('Tired but pleased.');
+    });
+    act(() => t.hook.result.current.journal.openSaved(t.card('sweep-journal')));
+    expect(onScreen()).toMatchObject({ day: DAY, entryId: 'note-1' });
+    const w = written();
+    let res: unknown;
+    await act(async () => {
+      res = await onScreen()!.save!(w);
+    });
+    expect(res).toEqual({ ok: true });
+    expect(mockUpdateJournal).toHaveBeenCalledWith({
+      noteId: 'note-1',
+      text: TEXT,
+      moods: [],
+      page: w.layout,
+    });
+    expect(t.card('sweep-journal').metadata_json).toMatchObject({
+      text: TEXT,
+      parts: [
+        { q: 'Rose: the best part of today', text: 'The lake at seven.' },
+        { q: 'Thorn: the hard part', text: 'The budget review.' },
+      ],
+      // the moods read from the new words, once they arrive
+      moods: ['good'],
+    });
+    // no second entry is made
+    expect(mockSaveJournal).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the card as it was when the change could not be saved', async () => {
+    mockUpdateJournal.mockResolvedValue({ ok: false, message: 'offline' });
+    const t = await clearNight();
+    await act(async () => {
+      await t.hook.result.current.takeTyped('Tired but pleased.');
+    });
+    act(() => t.hook.result.current.journal.openSaved(t.card('sweep-journal')));
+    let res: unknown;
+    await act(async () => {
+      res = await onScreen()!.save!(written());
+    });
+    expect(res).toEqual({ ok: false, message: 'offline' });
+    expect((t.card('sweep-journal').metadata_json as any).text).toBe('Tired but pleased.');
+  });
+});
+
 describe("the wrap up: Gremly's questions", () => {
   beforeEach(() => {
     mockFetchQuestions.mockResolvedValue([Q1, Q2]);
@@ -1032,6 +1210,7 @@ describe('the wrap up: before the evening', () => {
     const journal = t.last().metadata_json as unknown as BriefOfferMeta;
     expect(journal.buttons.map((b) => b.label)).toEqual([
       'Write a few lines',
+      'Open my journal',
       'Just pick a mood',
       'Skip',
     ]);

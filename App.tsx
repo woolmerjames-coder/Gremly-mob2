@@ -17,6 +17,7 @@ import { DsToggleProvider } from './providers/DsToggleProvider';
 import { CelebrationProvider } from './app/features/celebration/CelebrationProvider';
 import { OverlayProvider } from './contexts/OverlayContext';
 import { OverlayHost } from './components/OverlayHost';
+import { JournalPageHost } from './components/journal/JournalPageHost';
 import RootNavigator from './navigation/RootNavigator';
 import { supabase } from './lib/supabase/client';
 import { logAppEvent } from './lib/appEvents';
@@ -370,6 +371,8 @@ function App() {
                                 <ReadOnlyBanner />
                                 <RootNavigator />
                                 <OverlayHost />
+                                {/* The journal page, opened from anywhere */}
+                                <JournalPageHost />
                                 <NotificationResponder navigationRef={navigationRef} />
                               </NavigationContainer>
                               <GlobalEventPopup />

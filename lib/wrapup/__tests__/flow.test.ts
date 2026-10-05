@@ -9,6 +9,7 @@ import {
   closeMsgs,
   habitsMsgs,
   journalAskMsgs,
+  journalSavedMsgs,
   nightMsgs,
   notTonightMsgs,
   offerButtons,
@@ -123,15 +124,38 @@ describe('the wrap up in the thread', () => {
     expect(msgs[1].meta).toMatchObject({ type: 'sweep-habits', status: 'open', already: ['Run'] });
   });
 
-  it('asks about the day with the three ways to answer', () => {
+  it('asks about the day with the four ways to answer', () => {
     const [ask] = journalAskMsgs(false);
     expect(ask.content).toBe('How was today?');
     expect(offerOf(ask).buttons.map((b) => b.action)).toEqual([
       'journal_write',
+      'journal_page',
       'journal_mood',
       'journal_skip',
     ]);
+    expect(offerOf(ask).buttons[1].label).toBe('Open my journal');
     expect(journalAskMsgs(true)[0].content).toBe('Of course. How was today?');
+  });
+
+  it('shows an entry written on the journal page with its answers and picked moods', () => {
+    const [, saved] = journalSavedMsgs({
+      day: '2026-09-30',
+      noteId: 'n1',
+      title: 'Wednesday evening',
+      text: 'Thorn: the hard part\nThe budget review.',
+      moods: ['calm'],
+      parts: [{ q: 'Thorn: the hard part', text: 'The budget review.' }],
+    });
+    expect(saved.meta).toMatchObject({
+      type: 'sweep-journal',
+      status: 'saved',
+      moods: ['calm'],
+      parts: [{ q: 'Thorn: the hard part', text: 'The budget review.' }],
+    });
+    // a quick reply has no parts, and no moods until they are read
+    const [, quick] = journalSavedMsgs({ day: '2026-09-30', noteId: 'n1', title: 't', text: 'Hi' });
+    expect(quick.meta).toMatchObject({ moods: [] });
+    expect('parts' in quick.meta).toBe(false);
   });
 
   it("puts Gremly's question with its choices, Something else and Skip", () => {
@@ -237,6 +261,7 @@ describe('the wrap up in the thread', () => {
     expect(labels(opening[opening.length - 1])).toContain('Not now');
     expect(labels(journalAskMsgs(false, true)[0])).toEqual([
       'Write a few lines',
+      'Open my journal',
       'Just pick a mood',
       'Skip',
     ]);

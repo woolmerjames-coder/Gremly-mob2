@@ -5,7 +5,7 @@
  */
 import React, { useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Check, NotebookPen, Pencil, Undo2 } from 'lucide-react-native';
+import { Check, Maximize2, NotebookPen, Pencil, Undo2 } from 'lucide-react-native';
 import type { SweepJournalMeta } from '../../lib/brief/types';
 import { ALL_MOODS, MOOD_CONFIG, type Mood } from '../../lib/shared/moods';
 import { CARD_COPY, journalLabel, partWords } from '../../lib/wrapup/words';
@@ -25,7 +25,15 @@ export type WrapJournalCardProps = {
   onEditMoods?: (moods: Mood[]) => void;
   /** Present while the entry can still be taken back out */
   onUndo?: () => void;
+  /** Open the entry on the journal page, to read it all or add to it */
+  onOpen?: () => void;
 };
+
+/** "and three more answers" under the first answer of an entry written on the page */
+function moreAnswers(n: number): string {
+  const words = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
+  return `and ${words[n] ?? n} more ${n === 1 ? 'answer' : 'answers'}`;
+}
 
 function known(moods: string[] | undefined): Mood[] {
   return (moods ?? []).filter((m): m is Mood => (ALL_MOODS as readonly string[]).includes(m));
@@ -38,6 +46,7 @@ export function WrapJournalCard({
   onSkipMoods,
   onEditMoods,
   onUndo,
+  onOpen,
 }: WrapJournalCardProps) {
   const [picked, setPicked] = useState<Mood[]>(() => known(meta.moods));
   const [editing, setEditing] = useState(false);
@@ -76,7 +85,20 @@ export function WrapJournalCard({
           </View>
         )}
       </View>
-      {meta.text ? <Text style={styles.text}>{meta.text}</Text> : null}
+      {meta.parts?.length ? (
+        // written on the journal page: its first answer, and how many more there are
+        <View style={styles.parts} testID="wrap-journal-parts">
+          {meta.parts[0].q ? <Text style={styles.prompt}>{meta.parts[0].q}</Text> : null}
+          <Text style={styles.text} numberOfLines={3}>
+            {meta.parts[0].text}
+          </Text>
+          {meta.parts.length > 1 ? (
+            <Text style={styles.more}>{moreAnswers(meta.parts.length - 1)}</Text>
+          ) : null}
+        </View>
+      ) : meta.text ? (
+        <Text style={styles.text}>{meta.text}</Text>
+      ) : null}
       <View style={styles.moods}>
         {choosing
           ? ALL_MOODS.map((m) => {
@@ -107,7 +129,7 @@ export function WrapJournalCard({
           <>
             {onEditMoods ? (
               <Pressable
-                style={[styles.mood, styles.more]}
+                style={[styles.mood, styles.dashed]}
                 onPress={() => {
                   setPicked(known(meta.moods));
                   setEditing(true);
@@ -120,9 +142,21 @@ export function WrapJournalCard({
                 <Text style={styles.moodText}>{CARD_COPY.journalMoods}</Text>
               </Pressable>
             ) : null}
+            {onOpen ? (
+              <Pressable
+                style={[styles.mood, styles.dashed]}
+                onPress={onOpen}
+                disabled={!interactive}
+                accessibilityRole="button"
+                testID="wrap-journal-open"
+              >
+                <Maximize2 size={12} color={BRIEF.moss} strokeWidth={2.2} />
+                <Text style={styles.moodText}>{CARD_COPY.journalOpen}</Text>
+              </Pressable>
+            ) : null}
             {onUndo ? (
               <Pressable
-                style={[styles.mood, styles.more]}
+                style={[styles.mood, styles.dashed]}
                 onPress={onUndo}
                 disabled={!interactive}
                 accessibilityRole="button"
@@ -202,7 +236,10 @@ const styles = StyleSheet.create({
     backgroundColor: BRIEF.white,
   },
   moodOn: { borderColor: BRIEF.peri, backgroundColor: '#ECEEFA' },
-  more: { borderStyle: 'dashed' },
+  dashed: { borderStyle: 'dashed' },
+  parts: { gap: 2 },
+  prompt: { fontFamily: 'PlusJakartaSans-Bold', fontSize: 13.5, color: BRIEF.mossInk },
+  more: { fontFamily: 'Inter-Regular', fontSize: 12.5, color: BRIEF.faint, marginTop: 4 },
   moodText: { fontFamily: 'Inter-SemiBold', fontSize: 12.5, color: BRIEF.moss },
   moodTextOn: { color: BRIEF.periInk },
 });

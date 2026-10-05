@@ -228,6 +228,7 @@ export function habitsMsgs(
 export function journalButtons(early = false): OfferButton[] {
   return [
     { id: 'journal_write', label: WRAP_COPY.journalWrite, action: 'journal_write', primary: true },
+    { id: 'journal_page', label: WRAP_COPY.journalPage, action: 'journal_page' },
     { id: 'journal_mood', label: WRAP_COPY.journalMood, action: 'journal_mood' },
     { id: 'journal_skip', label: partWords(early).journalSkip, action: 'journal_skip' },
   ];
@@ -253,6 +254,10 @@ export function journalSavedMsgs(p: {
   early?: boolean;
   /** Gremly's reply to what they wrote, when it came */
   reply?: string | null;
+  /** The moods they picked themselves, on the journal page */
+  moods?: string[];
+  /** Written on the journal page: each card's prompt and words */
+  parts?: { q: string | null; text: string }[];
 }): WrapMsg[] {
   return [
     say(p.reply || WRAP_COPY.journalSaved),
@@ -263,7 +268,8 @@ export function journalSavedMsgs(p: {
       note_id: p.noteId,
       title: p.title,
       text: p.text,
-      moods: [],
+      ...(p.parts?.length ? { parts: p.parts } : {}),
+      moods: p.moods ?? [],
       ...(p.early ? { early: true } : {}),
     }),
   ];

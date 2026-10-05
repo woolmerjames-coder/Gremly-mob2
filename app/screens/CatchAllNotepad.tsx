@@ -3360,6 +3360,18 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 label={homeMode.chatTag.label}
                 kind={homeMode.chatTag.kind}
                 onCancel={homeMode.chatTag.onCancel}
+                onExpand={
+                  homeMode.chatTag.onExpand
+                    ? () => {
+                        // what is typed goes to the journal page, and leaves the box
+                        const typed = note.trim();
+                        handleChangeText('');
+                        homeMode.chatTag?.onExpand?.(typed);
+                      }
+                    : undefined
+                }
+                expandLabel={homeMode.chatTag.expandLabel}
+                expandHint={homeMode.chatTag.expandHint}
               />
             ) : undefined
           }

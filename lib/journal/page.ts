@@ -170,6 +170,11 @@ export function toLayout(page: JournalPage): JournalLayout {
   };
 }
 
+/** A saved page as the card in the thread shows it: each card's prompt and its plain words. */
+export function layoutParts(layout: JournalLayout): { q: string | null; text: string }[] {
+  return layout.cards.map((c) => ({ q: c.q, text: htmlToText(c.html) }));
+}
+
 export function readLayout(views: unknown): JournalLayout | null {
   const raw = (views as Record<string, unknown> | null | undefined)?.[LAYOUT_KEY] as
     | Partial<JournalLayout>

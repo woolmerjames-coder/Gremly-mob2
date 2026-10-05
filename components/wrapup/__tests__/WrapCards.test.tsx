@@ -188,6 +188,35 @@ describe('the journal card', () => {
     expect(onUndo).toHaveBeenCalledTimes(1);
   });
 
+  it('shows an entry written on the journal page by its first answer, and how many more', () => {
+    const page = {
+      ...saved,
+      text: 'What am I proud of today?\nThe deck.\n\nWhat am I grateful for?\nThe run.\n\nTired.',
+      parts: [
+        { q: 'What am I proud of today?', text: 'The deck.' },
+        { q: 'What am I grateful for?', text: 'The run.' },
+        { q: null, text: 'Tired.' },
+      ],
+    };
+    const r = render(<WrapJournalCard meta={page} />);
+    expect(r.getByText('What am I proud of today?')).toBeTruthy();
+    expect(r.getByText('The deck.')).toBeTruthy();
+    expect(r.getByText('and two more answers')).toBeTruthy();
+    expect(r.queryByText('The run.')).toBeNull();
+    // one answer has nothing more to count
+    const one = render(<WrapJournalCard meta={{ ...page, parts: [page.parts[2]] }} />);
+    expect(one.getByText('Tired.')).toBeTruthy();
+    expect(one.queryByText(/more answer/)).toBeNull();
+  });
+
+  it('opens the entry on the journal page', () => {
+    const onOpen = jest.fn();
+    const r = render(<WrapJournalCard meta={saved} onOpen={onOpen} />);
+    fireEvent.press(r.getByTestId('wrap-journal-open'));
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(render(<WrapJournalCard meta={saved} />).queryByTestId('wrap-journal-open')).toBeNull();
+  });
+
   it('changes the moods on a saved entry', () => {
     const onEditMoods = jest.fn();
     const r = render(<WrapJournalCard meta={saved} onEditMoods={onEditMoods} />);
@@ -252,5 +281,39 @@ describe('the item, the end and the pill', () => {
     expect(r.getByText('Saving to your journal')).toBeTruthy();
     fireEvent.press(r.getByTestId('reply-tag-cancel'));
     expect(onCancel).toHaveBeenCalledTimes(1);
+    // with nothing more to offer, it has no way to the journal page
+    expect(r.queryByTestId('reply-tag-expand')).toBeNull();
+  });
+
+  it('the journal pill opens the full page, by its arrows', () => {
+    const onExpand = jest.fn();
+    const r = render(
+      <ReplyTag
+        label="Saving to your journal"
+        kind="journal"
+        onCancel={jest.fn()}
+        onExpand={onExpand}
+        expandHint="Open the full journal page"
+      />,
+    );
+    fireEvent.press(r.getByLabelText('Open the full journal page'));
+    expect(onExpand).toHaveBeenCalledTimes(1);
+  });
+
+  it('with a page half written, the pill says so and offers to open it', () => {
+    const onExpand = jest.fn();
+    const r = render(
+      <ReplyTag
+        label="Draft in your journal"
+        kind="journal"
+        onExpand={onExpand}
+        expandLabel="Open"
+      />,
+    );
+    expect(r.getByText('Draft in your journal')).toBeTruthy();
+    fireEvent.press(r.getByText('Open'));
+    expect(onExpand).toHaveBeenCalledTimes(1);
+    // the next message can only join the draft, so there is no X
+    expect(r.queryByTestId('reply-tag-cancel')).toBeNull();
   });
 });

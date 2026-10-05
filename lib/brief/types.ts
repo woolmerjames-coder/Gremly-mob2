@@ -105,6 +105,7 @@ export type OfferAction =
   | 'plan_week' // the week planner
   | 'sweep_leave' // leave the cards that are left for the morning
   | 'journal_write' // the next typed message is tonight's journal entry
+  | 'journal_page' // open the full journal page for tonight's entry
   | 'journal_mood' // pick a mood instead of writing
   | 'journal_skip' // no journal tonight
   | 'journal_only' // after Not tonight: just the journal
@@ -296,6 +297,8 @@ export interface SweepJournalMeta extends BriefMetaBase {
   note_id?: string | null;
   title?: string;
   text?: string;
+  /** An entry written on the journal page: each card's prompt (none for free writing) and its words */
+  parts?: { q: string | null; text: string }[];
   moods?: string[];
   /** Asked before the evening, so the card's words do not say tonight */
   early?: boolean;

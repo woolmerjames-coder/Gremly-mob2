@@ -107,6 +107,7 @@ import { cardsLeft, pastCards } from '../../lib/wrapup/state';
 import { WRAP_COPY } from '../../lib/wrapup/words';
 import { wrapTurnContext } from '../../lib/wrapup/gremlyWords';
 import { wrapNow } from '../../lib/wrapup/day';
+import { draftKey, useJournalSession } from '../../lib/journal/session';
 import { WrapRecapCard } from '../../components/wrapup/WrapRecapCard';
 import { WrapReceiptCard } from '../../components/wrapup/WrapReceiptCard';
 import { WrapHabitsCard } from '../../components/wrapup/WrapHabitsCard';
@@ -982,6 +983,11 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   // In the wrap up the box saves to the journal, or answers Gremly's question:
   // a pill above it says so, and its X sends the next message to Gremly instead
   const wrapAwaiting = isDailyThread ? wrapUp.awaiting : null;
+  // A journal page was closed half written today: the pill offers to open it,
+  // and what is typed in the box joins it
+  const journalDraft = useJournalSession(
+    (s) => !!s.drafts[draftKey({ day: getDateService().ritualDay() })],
+  );
   useEffect(() => {
     if (!embedded || !homeDock) return;
     homeDock.setChatPlaceholder(
@@ -991,17 +997,33 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
           ? WRAP_COPY.journalPlaceholder
           : null,
     );
+    const openPage = (typed: string) => wrapUpRef.current.journal.openPage(typed || undefined);
     homeDock.setChatTag(
-      wrapAwaiting
-        ? {
-            kind: wrapAwaiting,
-            label: wrapAwaiting === 'journal' ? WRAP_COPY.journalTag : WRAP_COPY.questionTag,
-            onCancel: () => wrapUpRef.current.cancelAwaiting(),
-          }
-        : null,
+      wrapAwaiting === 'journal'
+        ? journalDraft
+          ? {
+              kind: 'journal',
+              label: WRAP_COPY.journalDraftTag,
+              onExpand: openPage,
+              expandLabel: WRAP_COPY.journalDraftOpen,
+            }
+          : {
+              kind: 'journal',
+              label: WRAP_COPY.journalTag,
+              onCancel: () => wrapUpRef.current.cancelAwaiting(),
+              onExpand: openPage,
+              expandHint: WRAP_COPY.journalExpand,
+            }
+        : wrapAwaiting === 'question'
+          ? {
+              kind: 'question',
+              label: WRAP_COPY.questionTag,
+              onCancel: () => wrapUpRef.current.cancelAwaiting(),
+            }
+          : null,
     );
     if (awaitingAnswer) homeDock.focusInput();
-  }, [embedded, homeDock, awaitingAnswer, wrapAwaiting]);
+  }, [embedded, homeDock, awaitingAnswer, wrapAwaiting, journalDraft]);
   useEffect(
     () => () => {
       if (embedded && homeDock) {
@@ -1531,6 +1553,11 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
               onUndo={
                 live && meta.note_id && wrapUndoable[`journal:${meta.note_id}`]
                   ? () => void w.journal.undo(message)
+                  : undefined
+              }
+              onOpen={
+                live && meta.note_id && meta.status === 'saved'
+                  ? () => w.journal.openSaved(message)
                   : undefined
               }
             />

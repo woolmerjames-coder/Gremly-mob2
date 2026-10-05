@@ -44,6 +44,14 @@ import {
 } from '../constants/soulDocument';
 import { getDateService } from '../date/DateService';
 import { meetingsFromStore } from '../plan/storePlan';
+import { layoutParts } from '../journal/page';
+import {
+  draftFor,
+  draftKey,
+  openJournal,
+  type JournalSaveResult,
+  type JournalWritten,
+} from '../journal/session';
 import type { Mood } from '../shared/moods';
 import { WEEKLY_SKIP_BUDGET, selectWrapUp } from '../store/selectors';
 import { useGremlyStore } from '../store/useGremlyStore';
@@ -51,7 +59,7 @@ import { useMascotStore } from '../store/useMascotStore';
 import { answerQuestion, markQuestionAsked } from '../story/storyApi';
 import { supabase } from '../supabase/client';
 import { markSweepCompleted } from '../sweep/engine';
-import { wrapNow } from './day';
+import { wrapNow, type WrapNow } from './day';
 import {
   answeredMsgs,
   buttonsAgain,
@@ -80,7 +88,7 @@ import {
   type WrapMsg,
 } from './flow';
 import { habitsToCheckIn, runBefore } from './habits';
-import { journalFor, journalTitle, saveJournal, setJournalMoods } from './journal';
+import { journalFor, journalTitle, saveJournal, setJournalMoods, updateJournal } from './journal';
 import {
   askableQuestions,
   fetchWrapQuestions,
@@ -260,6 +268,10 @@ export interface WrapUp {
     skipMoods: (message: SpaceChatMessage) => Promise<void>;
     editMoods: (message: SpaceChatMessage, moods: Mood[]) => Promise<void>;
     undo: (message: SpaceChatMessage) => Promise<void>;
+    /** Open the journal page for the day's entry, starting with any words already typed */
+    openPage: (carry?: string) => void;
+    /** Open a saved entry on the journal page, to change it */
+    openSaved: (message: SpaceChatMessage) => void;
   };
 }
 
@@ -320,6 +332,8 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
   const queueRef = useRef<WrapQuestion[]>([]);
   // Gremly is writing his next words: the thread shows him typing
   const [typing, setTyping] = useState(false);
+  // the journal page, opened from a button that is set up before the page's saving is
+  const openPageRef = useRef<(carry?: string) => void>(() => undefined);
   // tonight's questions, chosen while the journal is asked, so none waits on them
   const questionsRef = useRef<Promise<WrapQuestion[]> | null>(null);
   // habits checked in during the wrap up, for what Gremly says after
@@ -897,6 +911,10 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
           // nothing is added: the box saves to the journal from here
           setAwaiting('journal');
           return;
+        case 'journal_page':
+          // the offer stays as it is until the page is saved
+          openPageRef.current();
+          return;
         case 'answer_other':
           setAwaiting('question');
           return;
@@ -1023,6 +1041,92 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
     ).catch((err) => console.warn('[WrapUp] could not credit the journal:', err));
   }, []);
 
+  /**
+   * The journal page's Done, when the page was opened from the wrap up. The
+   * entry is saved first, so the page stays open with its words if that
+   * fails. Then the page closes and the thread carries on behind it: the
+   * entry's card, Gremly's reply to it, and whatever comes after the journal.
+   */
+  const savePage = useCallback(
+    async (
+      written: JournalWritten,
+      at: { day: string; weekday: string; part: WrapNow['part']; early: boolean },
+    ): Promise<JournalSaveResult> => {
+      // Gremly is mid step, and the thread could not carry on from the save
+      if (busyRef.current) return { ok: false, message: WRAP_COPY.journalBusy };
+      const text = written.text.trim();
+      // read by Gremly while it saves, as a quick reply is; moods alone have nothing to read
+      const reading = text
+        ? gremlyWords(factsFor('journal_reply', { entry: text }))
+        : Promise.resolve(null);
+      const res = await saveJournal({
+        text,
+        moods: written.moods,
+        day: at.day,
+        weekday: at.weekday,
+        part: at.part,
+        page: written.layout,
+        // only the app's own moods are kept (journal.ts knownMoods)
+        dayMoods: reading.then((r) => (journalOf(r)?.moods ?? []) as Mood[]),
+      });
+      if (!res.ok) return { ok: false, message: res.message };
+      void run(async () => {
+        setAwaiting(null);
+        const live = liveWrapOffer(depsRef.current.messages);
+        if (live?.meta.kind === 'journal') await choose(live.m, 'journal_page');
+        await save([event(WRAP_COPY.journalWrote, 'saved')]);
+        const reply = journalOf(await withTyping(reading));
+        holdUndo(`journal:${res.noteId}`, res.revert);
+        const out = await save(
+          journalSavedMsgs({
+            day: at.day,
+            noteId: res.noteId,
+            title: res.title,
+            text,
+            early: at.early,
+            reply: reply?.journal ? reply.reply : null,
+            moods: written.moods,
+            parts: layoutParts(written.layout),
+          }),
+        );
+        updateWrap((x) => (x ? { ...x, journal: text ? 'written' : 'mood' } : x));
+        creditJournal();
+        // the moods read from their words arrive a little later
+        const card = out[1];
+        void res.moods.then((found) => {
+          if (found?.length && card) void patch(card.id, { moods: found });
+        });
+        await pause();
+        await afterJournal();
+      });
+      return { ok: true };
+    },
+    [run, choose, save, pause, patch, afterJournal, creditJournal, withTyping, factsFor],
+  );
+
+  /** Open the journal page for the day's entry. It saves through the wrap up. */
+  const openPage = useCallback(
+    (carry?: string) => {
+      const d = depsRef.current;
+      if (!d.canCreate) return d.onPaywall();
+      const { now } = readNow();
+      const at = {
+        day: now.day,
+        weekday: now.words.weekday,
+        part: now.part,
+        early: !!now.words.early,
+      };
+      openJournal({
+        day: now.day,
+        part: now.part,
+        carry,
+        save: (written) => savePage(written, at),
+      });
+    },
+    [savePage],
+  );
+  openPageRef.current = openPage;
+
   const takeTyped = useCallback(
     async (text: string): Promise<boolean> => {
       const d = depsRef.current;
@@ -1056,6 +1160,11 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
       if (!d.canCreate) {
         d.restoreDraft?.(text);
         d.onPaywall();
+        return true;
+      }
+      // a page is half written for the day: these words join it, and it opens to finish
+      if (draftFor(draftKey({ day: readNow().now.day }))) {
+        openPage(words);
         return true;
       }
       await run(async () => {
@@ -1130,7 +1239,19 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
       });
       return true;
     },
-    [run, choose, save, pause, patch, answered, afterJournal, creditJournal, withTyping, factsFor],
+    [
+      run,
+      choose,
+      save,
+      pause,
+      patch,
+      answered,
+      afterJournal,
+      creditJournal,
+      withTyping,
+      factsFor,
+      openPage,
+    ],
   );
 
   const cancelAwaiting = useCallback(() => setAwaiting(null), []);
@@ -1276,6 +1397,42 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
         if (!(await runUndo(`journal:${meta.note_id}`))) return;
         await patch(message.id, { status: 'removed' });
         updateWrap((x) => (x ? { ...x, journal: 'skipped' } : x));
+      },
+      [patch],
+    ),
+    openPage,
+    /** Open a saved entry on the journal page. Its card in the thread follows what is changed. */
+    openSaved: useCallback(
+      (message: SpaceChatMessage) => {
+        const meta = briefMetaOf(message);
+        if (meta?.type !== 'sweep-journal' || meta.status !== 'saved' || !meta.note_id) return;
+        const noteId = meta.note_id;
+        openJournal({
+          day: meta.date,
+          entryId: noteId,
+          save: async (written) => {
+            const res = await updateJournal({
+              noteId,
+              text: written.text,
+              moods: written.moods,
+              page: written.layout,
+            });
+            if (!res.ok) return res;
+            const shown = {
+              text: written.text.trim(),
+              parts: layoutParts(written.layout),
+              moods: written.moods,
+            };
+            await patch(message.id, shown).catch((err) =>
+              console.warn('[WrapUp] could not update the journal card:', err),
+            );
+            // the moods read from the new words arrive a little later
+            void res.moods.then((found) => {
+              if (found?.length) void patch(message.id, { moods: found });
+            });
+            return { ok: true };
+          },
+        });
       },
       [patch],
     ),
