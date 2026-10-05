@@ -37,6 +37,10 @@ export function useEveningTeaser(): EveningTeaserView {
   const wrap = useTodayThread(
     (s) => (s.thread?.metadata_json as Partial<DailyThreadMeta> | undefined)?.sweep ?? null,
   );
+  const dismissed = useTodayThread(
+    (s) =>
+      !!(s.thread?.metadata_json as Partial<DailyThreadMeta> | undefined)?.wrap_nudge_dismissed_at,
+  );
   return useMemo(() => {
     const phase = homePhase(minutes, boundaryHour);
     const evening = started && phase === 'evening';
@@ -56,7 +60,14 @@ export function useEveningTeaser(): EveningTeaserView {
     // everything on Today is done: the same count Today's own progress shows
     const dayDone = progress.totalEligible > 0 && progress.completedCount >= progress.totalEligible;
     const tonight = touchedTonight(wrap, boundaryHour);
-    const teaser = eveningTeaser({ phase, wrap, cards, dayDone, touchedTonight: tonight });
+    const teaser = eveningTeaser({
+      phase,
+      wrap,
+      cards,
+      dayDone,
+      touchedTonight: tonight,
+      dismissed,
+    });
     const finished = wrap?.step === 'done' || wrap?.step === 'close';
     const done = finished && !teaser.offer;
     // a no said earlier in the day is not tonight's answer: the evening reads as not yet started
@@ -77,5 +88,5 @@ export function useEveningTeaser(): EveningTeaserView {
       done,
       planned,
     };
-  }, [started, minutes, boundaryHour, wrap, cards, fed, progress, todos, habits]);
+  }, [started, minutes, boundaryHour, wrap, cards, fed, progress, todos, habits, dismissed]);
 }

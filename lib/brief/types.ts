@@ -386,4 +386,6 @@ export interface DailyThreadMeta {
   agent_tasks?: AgentTask[];
   /** Tonight's wrap up (lib/wrapup) */
   sweep?: WrapUpState | null;
+  /** When Gremly's wrap up line was put away for the day (lib/wrapup/dismiss.ts) */
+  wrap_nudge_dismissed_at?: string | null;
 }

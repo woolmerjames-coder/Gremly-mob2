@@ -78,6 +78,7 @@ import { useHomeDock, useHomeMode } from '../../components/home/GremlyHomeDock';
 import { ReplyTag } from '../../components/wrapup/ReplyTag';
 import { useEveningTeaser } from '../../lib/wrapup/useEveningTeaser';
 import { teaserLine } from '../../lib/wrapup/words';
+import { dismissWrapNudge } from '../../lib/wrapup/dismiss';
 import { weekdayOf } from '../../lib/wrapup/day';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
 import {
@@ -3264,7 +3265,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             exiting={FadeOut.duration(150)}
           >
             <Pressable
-              style={styles.gremlyMessageBackdrop}
+              style={[styles.gremlyMessageBackdrop, styles.gremlyMessageRow]}
               onPress={() =>
                 navigation.navigate('Tabs', {
                   screen: 'Gremly',
@@ -3275,9 +3276,23 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               accessibilityLabel={`${briefLine.lead} ${briefLine.rest}`}
               testID={wrapLine ? 'drop-wrap-up' : 'drop-brief-ready'}
             >
-              <Text style={styles.gremlyMessage}>
-                <Text style={styles.gremlyMessageLead}>{briefLine.lead}</Text> {briefLine.rest}
+              {/* one size, all bold */}
+              <Text style={[styles.gremlyMessage, styles.gremlyMessageBold]}>
+                {`${briefLine.lead} ${briefLine.rest}`}
               </Text>
+              {/* the wrap up line can be put away for the day, here and on Today */}
+              {wrapLine ? (
+                <Pressable
+                  onPress={() => void dismissWrapNudge()}
+                  hitSlop={10}
+                  accessibilityRole="button"
+                  accessibilityLabel="Dismiss"
+                  testID="drop-wrap-up-dismiss"
+                  style={styles.gremlyMessageDismiss}
+                >
+                  <X size={14} color="#6B7A72" strokeWidth={2.4} />
+                </Pressable>
+              ) : null}
             </Pressable>
           </Reanimated.View>
         )}
@@ -3892,10 +3907,20 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       lineHeight: 20,
       fontFamily: 'Inter-Medium',
     },
-    gremlyMessageLead: {
+    // the brief and wrap up line: its words, then the way to put it away
+    gremlyMessageRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    gremlyMessageBold: {
       fontFamily: 'Inter-SemiBold',
       fontWeight: '600',
       color: '#1A3328',
+      flexShrink: 1,
+    },
+    gremlyMessageDismiss: {
+      marginLeft: 10,
+      alignSelf: 'center',
     },
     gremlyMessageCelebration: {
       backgroundColor: '#F2F7F2',

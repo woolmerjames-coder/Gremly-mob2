@@ -89,6 +89,7 @@ import { isReturnDay, readDco } from '../../lib/brief/dco';
 import { BriefReadyBubble } from '../../components/brief/BriefReadyBubble';
 import { useEveningTeaser } from '../../lib/wrapup/useEveningTeaser';
 import { TODAY_BUTTON, teaserLine } from '../../lib/wrapup/words';
+import { dismissWrapNudge } from '../../lib/wrapup/dismiss';
 import { useDayCard } from '../../lib/brief/useDayCard';
 import { TimeBlockSection } from '../../components/now/TimeBlockSection';
 import {
@@ -848,6 +849,8 @@ export default function NowScreenV1() {
               params: todayThreadParams(wrapBubble ? 'wrap' : undefined),
             })
           }
+          // the wrap up line can be put away for the day, here and on Drop
+          onDismiss={wrapBubble ? () => void dismissWrapNudge() : undefined}
         />
       ) : null}
       <WeeklySummaryBanner />
