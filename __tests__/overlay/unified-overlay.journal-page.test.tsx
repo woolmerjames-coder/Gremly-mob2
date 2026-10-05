@@ -77,7 +77,7 @@ describe('choosing Journal for a new item', () => {
     fireEvent.press(getByText('Journal'));
     expect(onClose).toHaveBeenCalled();
     act(() => {
-      jest.advanceTimersByTime(150);
+      jest.advanceTimersByTime(400);
     });
     expect(mockOpenCreate).toHaveBeenCalledWith({
       type: 'log',
@@ -93,7 +93,7 @@ describe('choosing Journal for a new item', () => {
     fireEvent.press(getByTestId('type-pill'));
     fireEvent.press(getByText('Journal'));
     act(() => {
-      jest.advanceTimersByTime(150);
+      jest.advanceTimersByTime(400);
     });
     expect(mockOpenCreate).toHaveBeenCalledWith({
       type: 'log',
@@ -110,7 +110,7 @@ describe('choosing Journal for a new item', () => {
     fireEvent.press(getByTestId('type-pill'));
     fireEvent.press(getByText('Idea'));
     act(() => {
-      jest.advanceTimersByTime(150);
+      jest.advanceTimersByTime(400);
     });
     expect(onClose).not.toHaveBeenCalled();
     expect(mockOpenCreate).not.toHaveBeenCalled();
@@ -127,7 +127,7 @@ describe('choosing Journal for an item that already exists', () => {
     fireEvent.press(getByTestId('type-pill'));
     fireEvent.press(getByText('Journal'));
     act(() => {
-      jest.advanceTimersByTime(150);
+      jest.advanceTimersByTime(400);
     });
     expect(onClose).not.toHaveBeenCalled();
     expect(mockOpenCreate).not.toHaveBeenCalled();

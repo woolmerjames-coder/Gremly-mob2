@@ -3643,13 +3643,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       ? [heading, words].filter(Boolean).join('\n')
                       : words;
                   onClose?.();
+                  // once the picker has gone: it and the page are both sheets
                   setTimeout(() => {
                     globalOverlay.openCreate({
                       type: 'log',
                       logSubtype: 'journal',
                       initialText: typed || null,
                     });
-                  }, 100);
+                  }, 350);
                   return;
                 }
                 const config = getTypeConfig(entityType);

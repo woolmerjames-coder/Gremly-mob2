@@ -14,16 +14,27 @@ import { openJournal } from './session';
 const UNSORTED = 'needs_review';
 
 /**
- * Opens a saved entry on the page, to read. False when the page is not the
- * place for it: it is not a journal entry, it has been taken out of the
- * journal, or it is a drop still waiting to be sorted.
+ * The saved entry with this id, when the page is the place for it. It is not
+ * when the item is not a journal entry, has been taken out of the journal, or
+ * is a drop still waiting to be sorted.
  */
-export function openEntryOnPage(id: string): boolean {
+function pageEntry(id: string): JournalEntry | null {
   const notes = useGremlyStore.getState().notes as unknown as (JournalEntry & {
     labels?: string[] | null;
   })[];
   const entry = notes.find((n) => n.id === id);
-  if (!entry || !isJournal(entry) || entry.labels?.includes(UNSORTED)) return false;
+  return entry && isJournal(entry) && !entry.labels?.includes(UNSORTED) ? entry : null;
+}
+
+/** Whether an item opens on the journal page. */
+export function opensOnPage(id: string): boolean {
+  return !!pageEntry(id);
+}
+
+/** Opens a saved entry on the page, to read. False when the page is not the place for it. */
+export function openEntryOnPage(id: string): boolean {
+  const entry = pageEntry(id);
+  if (!entry) return false;
   openJournal({
     day: entryDay(entry) || getDateService().ritualDay(),
     entryId: entry.id,

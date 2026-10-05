@@ -13,7 +13,7 @@ import { RelationPopup } from '../components/minddrop/RelationPopup';
 import { RelationToastHost } from '../components/minddrop/RelationToast';
 import type { ClarificationWhen } from '../lib/minddrop/clarification';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
-import { openEntryOnPage, writeOnPage } from '../lib/journal/open';
+import { openEntryOnPage, opensOnPage, writeOnPage } from '../lib/journal/open';
 import { useJournalSession } from '../lib/journal/session';
 import * as Haptics from 'expo-haptics';
 
@@ -612,20 +612,27 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
 
   const openItemThenReturn = useCallback(
     (target: { id: string; type: 'todo' | 'habit' | 'note' }, onReturn: () => void) => {
+      // A journal entry opens on the journal page, which is a sheet like the
+      // popup. Two sheets changing places in the same moment can leave neither
+      // showing, so the popup closes first, and comes back once the page has gone.
+      if (target.type === 'note' && opensOnPage(target.id)) {
+        setTimeout(() => {
+          if (!openEntryOnPage(target.id)) {
+            onReturn();
+            return;
+          }
+          const stop = useJournalSession.subscribe((s) => {
+            if (s.open) return;
+            stop();
+            setTimeout(onReturn, 600);
+          });
+        }, 300);
+        return;
+      }
       returnAfterOverlay.current = onReturn;
       if (!openStoreItem(target)) {
         returnAfterOverlay.current = null;
         onReturn();
-        return;
-      }
-      // a journal entry went to the journal page: come back when that closes
-      if (useJournalSession.getState().open?.entryId === target.id) {
-        returnAfterOverlay.current = null;
-        const stop = useJournalSession.subscribe((s) => {
-          if (s.open) return;
-          stop();
-          setTimeout(onReturn, 250);
-        });
         return;
       }
       // If the overlay did not open (another open was already under way), come back anyway

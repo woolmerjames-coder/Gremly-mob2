@@ -36,15 +36,6 @@ jest.mock('react-native-actions-sheet', () => {
   };
 });
 
-jest.mock('../../components/JournalInspiration', () => {
-  const _React = require('react');
-  const { View } = require('react-native');
-  return {
-    __esModule: true,
-    default: () => <View testID="journal-inspiration" />,
-  };
-});
-
 describe.skip('ManualAddSheet - Catch All', () => {
   const originalEnv = process.env;
 

@@ -135,7 +135,7 @@ import { todayThreadParams } from '../../lib/brief/pinned';
 const GREMLY_MASCOT_CELEBRATE = require('../../assets/mascot/sweepcomplete.png');
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Cortex URL helpers (same pattern as JournalFullScreen.tsx)
+// Cortex URL helpers
 // ─────────────────────────────────────────────────────────────────────────────
 const safeGetEnv = typeof getEnv === 'function' ? getEnv : undefined;
 

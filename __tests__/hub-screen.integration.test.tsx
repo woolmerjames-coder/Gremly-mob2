@@ -136,10 +136,11 @@ jest.mock('../contexts/OverlayContext', () => ({
 }));
 
 // Mock UnifiedOverlayController
+const mockOpenEdit = jest.fn();
 jest.mock('../hooks/useUnifiedOverlayController', () => ({
   useUnifiedOverlayController: () => ({
     openCreate: jest.fn(),
-    openEdit: jest.fn(),
+    openEdit: (...args: unknown[]) => mockOpenEdit(...args),
     openPrefill: jest.fn(),
     close: jest.fn(),
   }),
@@ -152,22 +153,6 @@ jest.mock('../providers/ThemeProvider', () => ({
     theme: 'light',
     toggleTheme: jest.fn(),
   }),
-}));
-
-// Mock useJournalAnalysis (added by Hub V2)
-const mockAnalyze = jest.fn().mockResolvedValue(undefined);
-let mockJournalAnalysis = {
-  analysis: null as any,
-  entryCount: 0,
-  loading: false,
-  error: null,
-  onCooldown: false,
-  nextAvailableAt: null,
-  nextAvailableLabel: null,
-  analyze: mockAnalyze,
-};
-jest.mock('../hooks/useJournalAnalysis', () => ({
-  useJournalAnalysis: () => mockJournalAnalysis,
 }));
 
 // =============================================================================
@@ -561,17 +546,6 @@ describe('HubScreen - Journal View Data Filtering', () => {
     mockStoreData.unsortedItems = [];
     mockStoreData.isLoading = false;
     mockStoreData.isInitialized = true;
-    // Reset journal analysis mock
-    mockJournalAnalysis = {
-      analysis: null,
-      entryCount: 0,
-      loading: false,
-      error: null,
-      onCooldown: false,
-      nextAvailableAt: null,
-      nextAvailableLabel: null,
-      analyze: mockAnalyze,
-    };
   });
 
   it('calls repo with subtypes: [journal] when switching to Journal View', async () => {
@@ -767,204 +741,21 @@ describe('HubScreen - Journal View Data Filtering', () => {
     });
   });
 
-  it('shows analyze CTA in Journal View when journals exist', async () => {
-    // Use recent dates to ensure journals appear in the filtered view
+  it('lists the journal with no Journal Insights, and opens an entry when its row is tapped', async () => {
     const now = new Date();
     const recentDate = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString(); // 1 day ago
-    const mockJournals = [
-      {
-        id: 'journal-1',
-        type: 'note' as const,
-        subtype: 'journal' as const,
-        date: recentDate,
-        created_at: recentDate,
-        body: 'Had a great day today!',
-        ai_placed: false,
-      },
-    ];
-
-    mockStoreData.journals = mockJournals;
-
-    const { getByTestId } = render(
-      <TestWrapper>
-        <HubScreen />
-      </TestWrapper>,
-    );
-
-    await waitFor(() => {
-      expect(getByTestId('hub-screen')).toBeTruthy();
-    });
-
-    // Switch to Journal View
-    const journalToggle = getByTestId('hub-view-toggle-journals');
-    fireEvent.press(journalToggle);
-
-    await waitFor(() => {
-      expect(getByTestId('journal-analyze-cta')).toBeTruthy();
-    });
-  });
-
-  it('opens analyze modal when CTA is tapped', async () => {
-    // Use recent dates to ensure journals appear in the filtered view
-    const now = new Date();
-    const recentDate = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString(); // 1 day ago
-    const mockJournals = [
-      {
-        id: 'journal-1',
-        type: 'note' as const,
-        subtype: 'journal' as const,
-        date: recentDate,
-        created_at: recentDate,
-        body: 'Had a great day today!',
-        ai_placed: false,
-      },
-    ];
-
-    mockStoreData.journals = mockJournals;
-
-    const { getByTestId, queryByText } = render(
-      <TestWrapper>
-        <HubScreen />
-      </TestWrapper>,
-    );
-
-    await waitFor(() => {
-      expect(getByTestId('hub-screen')).toBeTruthy();
-    });
-
-    // Switch to Journal View
-    const journalToggle = getByTestId('hub-view-toggle-journals');
-    fireEvent.press(journalToggle);
-
-    await waitFor(() => {
-      expect(getByTestId('journal-analyze-cta')).toBeTruthy();
-    });
-
-    // Tap the analyze CTA
-    fireEvent.press(getByTestId('journal-analyze-cta'));
-
-    await waitFor(() => {
-      expect(getByTestId('journal-analyze-modal')).toBeTruthy();
-      expect(queryByText('Journal Insights')).toBeTruthy();
-      expect(queryByText(/This is a reflection based on what you've shared/i)).toBeTruthy();
-    });
-  });
-
-  it('closes analyze modal when close button is tapped', async () => {
-    // Use recent dates to ensure journals appear in the filtered view
-    const now = new Date();
-    const recentDate = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString(); // 1 day ago
-    const mockJournals = [
-      {
-        id: 'journal-1',
-        type: 'note' as const,
-        subtype: 'journal' as const,
-        date: recentDate,
-        created_at: recentDate,
-        body: 'Had a great day today!',
-        ai_placed: false,
-      },
-    ];
-
-    mockStoreData.journals = mockJournals;
-
-    const { getByTestId, queryByTestId } = render(
-      <TestWrapper>
-        <HubScreen />
-      </TestWrapper>,
-    );
-
-    await waitFor(() => {
-      expect(getByTestId('hub-screen')).toBeTruthy();
-    });
-
-    // Switch to Journal View
-    const journalToggle = getByTestId('hub-view-toggle-journals');
-    fireEvent.press(journalToggle);
-
-    await waitFor(() => {
-      expect(getByTestId('journal-analyze-cta')).toBeTruthy();
-    });
-
-    // Open the modal
-    fireEvent.press(getByTestId('journal-analyze-cta'));
-
-    await waitFor(() => {
-      expect(getByTestId('journal-analyze-modal')).toBeTruthy();
-    });
-
-    // Close the modal
-    fireEvent.press(getByTestId('journal-analyze-modal-close'));
-
-    await waitFor(() => {
-      // Modal should be closed (not visible)
-      expect(queryByTestId('journal-analyze-modal')).toBeNull();
-    });
-  });
-
-  it('shows journal count in modal after loading', async () => {
-    // Pre-populate the journal analysis mock so the CTA shows cached results immediately
-    mockJournalAnalysis = {
-      ...mockJournalAnalysis,
-      analysis: {
-        themes: [{ label: 'Growth', count: 2, description: 'Personal growth entries' }],
-        patterns: [
-          {
-            label: 'Daily reflection',
-            sentiment: 'positive',
-            description: 'Consistent journaling',
-          },
-        ],
-        mood_arc: { trend: 'improving' as const, summary: 'Getting better' },
-        journaling_habits: {
-          frequency: '3x/week',
-          preferred_time: 'Evening',
-          avg_length: 'Medium',
-          observation: 'Consistent journaling pattern',
-        },
-        suggestion: { text: 'Keep it up!' },
-      },
-      entryCount: 3,
-      loading: false,
-      error: null,
+    const journal = {
+      id: 'journal-1',
+      type: 'note' as const,
+      subtype: 'journal' as const,
+      date: recentDate,
+      created_at: recentDate,
+      body: 'Had a great day today!',
+      ai_placed: false,
     };
+    mockStoreData.journals = [journal];
 
-    // Mock 3 journals for the initial view (component now reads from store, not repo)
-    // Use dates that are definitely within 30 days of the test run date
-    const now = new Date();
-    const mockJournals = [
-      {
-        id: 'journal-1',
-        type: 'note' as const,
-        subtype: 'journal' as const,
-        date: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
-        created_at: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString(),
-        body: 'Journal 1',
-        ai_placed: false,
-      },
-      {
-        id: 'journal-2',
-        type: 'note' as const,
-        subtype: 'journal' as const,
-        date: new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString(), // 5 days ago
-        created_at: new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-        body: 'Journal 2',
-        ai_placed: false,
-      },
-      {
-        id: 'journal-3',
-        type: 'note' as const,
-        subtype: 'journal' as const,
-        date: new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString(), // 10 days ago
-        created_at: new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString(),
-        body: 'Journal 3',
-        ai_placed: false,
-      },
-    ];
-
-    mockStoreData.journals = mockJournals;
-
-    const { getByTestId, queryByText } = render(
+    const { getByTestId, queryByTestId, queryByText } = render(
       <TestWrapper>
         <HubScreen />
       </TestWrapper>,
@@ -975,24 +766,18 @@ describe('HubScreen - Journal View Data Filtering', () => {
     });
 
     // Switch to Journal View
-    const journalToggle = getByTestId('hub-view-toggle-journals');
-    fireEvent.press(journalToggle);
+    fireEvent.press(getByTestId('hub-view-toggle-journals'));
 
     await waitFor(() => {
-      expect(getByTestId('journal-analyze-cta')).toBeTruthy();
+      expect(getByTestId('journal-view-timeline')).toBeTruthy();
     });
+    expect(queryByTestId('journal-analyze-cta')).toBeNull();
+    expect(queryByText('Journal Insights')).toBeNull();
 
-    // Open the modal
-    fireEvent.press(getByTestId('journal-analyze-cta'));
-
-    // Wait for loading to complete and count to appear
-    // The async handler runs synchronously in tests, so the count should appear quickly
-    await waitFor(
-      () => {
-        expect(getByTestId('analyze-journal-count')).toBeTruthy();
-        expect(queryByText(/Based on 3 journal/i)).toBeTruthy();
-      },
-      { timeout: 3000 },
-    );
+    // the overlay controller is what sends a journal entry to the journal page
+    fireEvent.press(getByTestId('journal-timeline-journal-1'));
+    expect(mockOpenEdit).toHaveBeenCalledWith({
+      record: expect.objectContaining({ id: 'journal-1' }),
+    });
   });
 });

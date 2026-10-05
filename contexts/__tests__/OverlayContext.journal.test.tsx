@@ -141,13 +141,36 @@ describe('a question that steps aside while its item is open', () => {
     const { result } = overlay();
     const onReturn = jest.fn();
     act(() => result.current.openItemThenReturn({ id: 'j1', type: 'note' }, onReturn));
-    expect(page()).toMatchObject({ entryId: 'j1' });
+    // the popup closes first, then the page opens
+    expect(page()).toBeNull();
     act(() => {
-      jest.advanceTimersByTime(2000);
+      jest.advanceTimersByTime(300);
+    });
+    expect(page()).toMatchObject({ entryId: 'j1', reading: true });
+    expect(result.current.state.visible).toBe(false);
+    act(() => {
+      jest.advanceTimersByTime(3000);
     });
     expect(onReturn).not.toHaveBeenCalled();
 
     act(() => closeJournal());
+    act(() => {
+      jest.advanceTimersByTime(600);
+    });
+    expect(onReturn).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens any other item in the overlay, and comes back when that closes', () => {
+    const { result } = overlay();
+    const onReturn = jest.fn();
+    act(() => result.current.openItemThenReturn({ id: 'i1', type: 'note' }, onReturn));
+    expect(result.current.state).toMatchObject({ visible: true, mode: 'edit' });
+    expect(page()).toBeNull();
+    act(() => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(onReturn).not.toHaveBeenCalled();
+    act(() => result.current.close());
     act(() => {
       jest.advanceTimersByTime(300);
     });

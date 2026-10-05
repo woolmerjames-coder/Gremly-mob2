@@ -8,7 +8,7 @@ jest.mock('../../store/useGremlyStore', () => ({
 }));
 
 import { getDateService } from '../../date/DateService';
-import { openEntryOnPage, writeOnPage } from '../open';
+import { openEntryOnPage, opensOnPage, writeOnPage } from '../open';
 import { useJournalSession } from '../session';
 
 const opened = () => useJournalSession.getState().open;
@@ -28,6 +28,9 @@ describe('opening a saved entry', () => {
         views: { sweep_reflection: true, sweep_date: '2026-09-24' },
       },
     ];
+    expect(opensOnPage('n1')).toBe(true);
+    // asking does not open it
+    expect(opened()).toBeNull();
     expect(openEntryOnPage('n1')).toBe(true);
     expect(opened()).toMatchObject({ day: '2026-09-24', entryId: 'n1', reading: true });
   });
@@ -64,6 +67,8 @@ describe('opening a saved entry', () => {
     ];
     expect(openEntryOnPage('out')).toBe(false);
     expect(openEntryOnPage('held')).toBe(false);
+    expect(opensOnPage('out')).toBe(false);
+    expect(opensOnPage('held')).toBe(false);
     expect(opened()).toBeNull();
   });
 });

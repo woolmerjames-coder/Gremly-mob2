@@ -801,8 +801,12 @@ export default function NowScreenV1() {
   const handleSelectJournal = useCallback(
     (log: LogItem) => {
       setNotesVisible(false);
-      // one the page cannot show (taken out of the journal since) opens as any note does
-      if (!openEntryOnPage(log.id)) openEntityOverlay({ id: log.id, type: 'note' });
+      // The notes sheet closes first: two sheets changing places in the same
+      // moment can leave neither showing. One the page cannot show (taken out
+      // of the journal since) opens as any note does.
+      setTimeout(() => {
+        if (!openEntryOnPage(log.id)) openEntityOverlay({ id: log.id, type: 'note' });
+      }, 300);
     },
     [openEntityOverlay],
   );

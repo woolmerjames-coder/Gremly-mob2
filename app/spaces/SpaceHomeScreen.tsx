@@ -992,7 +992,11 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     (checkIn: Note) => {
       console.log('[SpaceHome] Opening check-in note:', checkIn.id);
       setShowKeyDatesModal(false);
-      overlay.openEdit({ record: checkIn, spaceId });
+      // A check in opens on the journal page, a sheet like this one. This one
+      // closes first: two changing places in the same moment can leave neither showing.
+      setTimeout(() => {
+        overlay.openEdit({ record: checkIn, spaceId });
+      }, 300);
     },
     [overlay, spaceId],
   );
