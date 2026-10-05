@@ -81,12 +81,15 @@ async function sendTo(model, job, body, opts) {
 
   if (provider === 'openai') {
     const b = { ...body, model };
+    // a call may ask for more thinking than the least; only reasoning models take it
+    const asked = b.reasoning_effort;
+    delete b.reasoning_effort;
     if (isOpenAIReasoningModel(model)) {
       const cap = capWithHeadroom(b);
       delete b.max_tokens;
       delete b.temperature;
       b.max_completion_tokens = cap;
-      const effort = openAIMinimalEffort(model);
+      const effort = asked || openAIMinimalEffort(model);
       if (effort) b.reasoning_effort = effort;
     }
     return fetch(OPENAI_URL, {

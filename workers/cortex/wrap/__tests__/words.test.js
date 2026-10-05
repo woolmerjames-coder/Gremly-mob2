@@ -385,6 +385,8 @@ describe('one moment end to end', () => {
     expect(sent[0].body.messages[1].content).toContain('THEIR LIFE NOW\nTraining for a race.');
     expect(sent[0].url).toContain('api.openai.com');
     expect(sent[0].body.model).toBe('gpt-6-luna');
+    // Luna thinks a little before writing
+    expect(sent[0].body.reasoning_effort).toBe('low');
     expect(sent[0].body.messages[0].content).toContain('You are Gremly');
   });
 });

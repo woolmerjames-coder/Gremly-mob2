@@ -74,7 +74,7 @@ export const EVENINGS = [
         todo_count: 3,
       },
     },
-    moments: ['open', 'journal_ask', 'sorted', 'habits', 'close', 'night'],
+    moments: ['open', 'sorted', 'habits', 'journal_ask', 'close', 'night'],
     expect: { open: { notNamed: ['car service', 'onboarding', 'offsite'] } },
   },
   {
@@ -127,7 +127,7 @@ export const EVENINGS = [
       },
       next: { meetings: [], lined: ['Pack for the coast'], todos: ['Pack for the coast'], todo_count: 1 },
     },
-    moments: ['open', 'journal_ask', 'sorted', 'close', 'night'],
+    moments: ['open', 'sorted', 'journal_ask', 'close', 'night'],
     expect: { open: { notNamed: ['bike light', 'printer'] } },
   },
   {
@@ -167,7 +167,7 @@ export const EVENINGS = [
         todo_count: 2,
       },
     },
-    moments: ['open', 'journal_ask', 'sorted', 'habits', 'close', 'night'],
+    moments: ['open', 'sorted', 'habits', 'journal_ask', 'close', 'night'],
     expect: { open: { notNamed: ['car service', 'caterer', 'gym', 'photo'] } },
   },
   {
@@ -208,7 +208,7 @@ export const EVENINGS = [
         todo_count: 3,
       },
     },
-    moments: ['open', 'journal_ask', 'sorted', 'habits', 'close', 'night'],
+    moments: ['open', 'sorted', 'habits', 'journal_ask', 'close', 'night'],
     expect: { open: { notNamed: ['dentist', 'passport'] }, journal_ask: { notNamed: ['flight', 'Lisbon'] } },
   },
   {

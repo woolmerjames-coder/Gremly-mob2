@@ -68,6 +68,16 @@ test('a reasoning model gets the reasoning shape: no temperature, headroom, effo
   expect(b.messages).toEqual(BODY.messages);
 });
 
+test('a call may ask a reasoning model to think more; a model that does not reason never sees it', async () => {
+  configureModels({ OPENAI_API_KEY: 'k', MODEL_WRAP_WORDS: 'gpt-6-luna' });
+  const calls = stubFetch(() => jsonResponse({ choices: [{ message: { content: 'ok' } }] }));
+  await helperFetch('wrap_words', { ...BODY, reasoning_effort: 'low' });
+  expect(calls[0].body.reasoning_effort).toBe('low');
+  await helperFetch('triage_mode', { ...BODY, reasoning_effort: 'low' });
+  expect(calls[1].body.model).toBe('gpt-4.1-mini');
+  expect(calls[1].body).not.toHaveProperty('reasoning_effort');
+});
+
 test('gpt-5 nano asks for minimal effort', async () => {
   configureModels({ OPENAI_API_KEY: 'k', MODEL_LOADING_MESSAGE: 'gpt-5-nano' });
   const calls = stubFetch(() =>

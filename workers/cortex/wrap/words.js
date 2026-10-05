@@ -34,7 +34,7 @@ import { db, personIdentity } from '../../shared/db.js';
 import { helperFetch } from '../helperClient.js';
 import { dayMeaning } from '../agent/brief.js';
 
-export const WRAP_WORDS_VERSION = 'wrap-2026-10-05d';
+export const WRAP_WORDS_VERSION = 'wrap-2026-10-05e';
 
 export const MOMENTS = [
   'open',
@@ -482,6 +482,28 @@ export function factsFrom(body = {}) {
 }
 
 /**
+ * How much the writer thinks before writing. On Luna, a little: in the writer
+ * test (scripts/wrap-replay/writers.mjs) the least thinking sometimes got a
+ * habit backwards or a count wrong, and a little thinking kept them right for
+ * a few tenths of a second more. A Gemini fallback ignores it.
+ */
+export const WRAP_WORDS_EFFORT = 'low';
+
+/** The helper call for one moment, as the Worker sends it and the replays send it. */
+export function wrapWordsBody(p, { effort = WRAP_WORDS_EFFORT } = {}) {
+  return {
+    messages: [
+      { role: 'system', content: p.system },
+      { role: 'user', content: p.user },
+    ],
+    max_tokens: p.json ? 300 : 160,
+    temperature: 0.7,
+    ...(p.json ? { response_format: { type: 'json_object' } } : {}),
+    ...(effort ? { reasoning_effort: effort } : {}),
+  };
+}
+
+/**
  * One moment's words for the app (type wrap-words). Null when the model gave
  * nothing usable; the app then says its fixed sentence.
  */
@@ -497,15 +519,7 @@ export async function writeWrapWords({ env, userId, body, deps = {} }) {
         : null,
   ]);
   const p = wrapPrompt(f, { person, dco, life });
-  const res = await helperFetch('wrap_words', {
-    messages: [
-      { role: 'system', content: p.system },
-      { role: 'user', content: p.user },
-    ],
-    max_tokens: p.json ? 300 : 160,
-    temperature: 0.7,
-    ...(p.json ? { response_format: { type: 'json_object' } } : {}),
-  });
+  const res = await helperFetch('wrap_words', wrapWordsBody(p));
   if (!res.ok) return null;
   const data = await res.json();
   return readWrapWords(f.moment, data.choices?.[0]?.message?.content || '', f);
