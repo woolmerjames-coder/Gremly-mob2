@@ -20,4 +20,7 @@ export const obj = (properties, required = [], description) => ({
 
 const DAY = 'a date as YYYY-MM-DD';
 export const day = (description) => str(`${description}, ${DAY}`);
-export const time = (description) => str(`${description}, HH:MM on a 24 hour clock`);
+// written the way every time Gremly reads is written: a 12 hour clock with am or pm
+const TIME =
+  'a time of day on a 12 hour clock with am or pm, written the way times are written everywhere Gremly reads them';
+export const time = (description) => str(`${description}, ${TIME}`);

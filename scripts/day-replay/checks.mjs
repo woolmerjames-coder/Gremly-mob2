@@ -27,7 +27,7 @@ export function checkTurn(s, out) {
   if (!out.about_day || !e.aboutDay) return checks;
 
   const changes = out.changes || [];
-  const desc = changes.map((c) => `${c.kind}${c.id ? `:${c.id}` : ''}${c.day ? `/${c.day}` : ''}${c.start != null ? `@${c.start}` : ''}`).join(', ');
+  const desc = changes.map((c) => `${c.kind}${c.id ? `:${c.id}` : ''}${c.day ? `/${c.day}` : ''}${c.start != null ? `@${c.start}` : ''}${c.after != null ? `>${c.after}` : ''}`).join(', ');
   for (const want of e.changes || []) {
     const hit = changes.some(
       (c) =>
@@ -84,6 +84,27 @@ export function checkTurn(s, out) {
   }
   for (const words of e.notSaid || []) {
     add('fail', `Reply does not name ${words}`, !String(out.reply || '').toLowerCase().includes(words), out.reply || '');
+  }
+  // the plan is for the rest of today: no plan time is before now
+  const planTimed = changes.filter((c) => ['plan_add', 'plan_move'].includes(c.kind) && c.start != null);
+  if (s.at) {
+    const early = planTimed.filter((c) => c.start < toMin(s.at));
+    add('fail', `No plan time before ${s.at}`, !early.length, desc);
+  }
+  if (e.planAddsUntimed) {
+    // they named no time, so the app finds the free time
+    const timed = changes.filter((c) => c.kind === 'plan_add' && c.start != null);
+    add('fail', 'Plan adds carry no time of their own', !timed.length, desc);
+  }
+  if (e.planFrom) {
+    const early = planTimed.filter((c) => c.start < toMin(e.planFrom));
+    add('fail', `No plan time before ${e.planFrom}`, !early.length, desc);
+  }
+  if (e.planAddsFrom) {
+    // they named the part of the day, so what is added starts there
+    const adds = changes.filter((c) => c.kind === 'plan_add');
+    const from = (c) => c.start ?? c.after;
+    add('warn', `Plan adds start at ${e.planAddsFrom} or later`, adds.length && adds.every((c) => from(c) != null && from(c) >= toMin(e.planAddsFrom)), desc);
   }
   const reply = out.reply || '';
   // the worker replaces a reply that claims a change; the model is judged on its own words

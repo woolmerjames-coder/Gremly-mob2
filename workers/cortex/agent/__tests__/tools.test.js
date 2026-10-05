@@ -490,6 +490,20 @@ describe("propose_changes in today's thread", () => {
     ).toBe('not_here');
   });
 
+  it('reads plan times the way Gremly reads them, and refuses one already gone', () => {
+    // 7:35am
+    const morning = { ...day, now: 455 };
+    const row = (plan) => readPlanRow({ op: 'plan', plan }, 'c1', morning);
+    expect(row({ kind: 'plan_add', id: HABIT, time: '2:45pm' }).raw.plan.start).toBe(885);
+    expect(row({ kind: 'plan_move', id: TODO, time: '6pm' }).raw.plan.start).toBe(1080);
+    expect(row({ kind: 'plan_move', id: TODO, time: '14:00' }).raw.plan.start).toBe(840);
+    // 2:45pm written on a 24 hour clock by mistake reads as 2:45am, which has gone
+    expect(row({ kind: 'plan_add', id: HABIT, time: '02:45' }).reason).toBe('past_time');
+    expect(row({ kind: 'plan_move', id: TODO, time: '7am' }).reason).toBe('past_time');
+    // a set time earlier today is still a fact about the day
+    expect(row({ kind: 'add_block', title: 'Gym', time: '6am' }).raw.plan.start).toBe(360);
+  });
+
   it('puts plan changes and item changes on one card, in the order given', async () => {
     const db = fakeDb({
       'todos?id=eq.': [

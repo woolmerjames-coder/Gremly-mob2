@@ -47,10 +47,23 @@ export function normDay(v) {
   return s;
 }
 
-/** A time on a 24 hour clock as HH:MM, or undefined. Seconds are dropped. */
+/**
+ * A time as HH:MM on a 24 hour clock, or undefined. It reads a 24 hour time
+ * (seconds are dropped) and a 12 hour one with am or pm, the way times are
+ * written to Gremly everywhere it reads them.
+ */
 export function normTime(v) {
   if (typeof v !== 'string') return undefined;
-  const m = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(v.trim());
+  const s = v.trim().toLowerCase().replace(/\./g, '');
+  const twelve = /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/.exec(s);
+  if (twelve) {
+    const h12 = Number(twelve[1]);
+    const min = Number(twelve[2] ?? 0);
+    if (h12 < 1 || h12 > 12 || min > 59) return undefined;
+    const h = (h12 % 12) + (twelve[3] === 'pm' ? 12 : 0);
+    return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+  }
+  const m = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(s);
   if (!m) return undefined;
   const h = Number(m[1]);
   const min = Number(m[2]);
@@ -331,13 +344,15 @@ function readPlan(plan) {
     v == null ? null : Number.isInteger(v) && v >= 0 && v <= 1440 ? v : undefined;
   const start = mins(plan.start);
   const end = mins(plan.end);
-  if (start === undefined || end === undefined) return { error: 'bad_plan_time' };
+  const after = mins(plan.after);
+  if (start === undefined || end === undefined || after === undefined)
+    return { error: 'bad_plan_time' };
   if (plan.kind === 'add_block' && (start == null || !String(plan.title || '').trim()))
     return { error: 'bad_plan' };
   if (plan.kind !== 'add_block' && plan.kind !== 'plan_day' && !plan.id)
     return { error: 'bad_plan' };
   if (plan.kind === 'plan_move' && start == null) return { error: 'bad_plan_time' };
-  return { plan: { ...plan, start, end } };
+  return { plan: { ...plan, start, end, ...(after != null ? { after } : {}) } };
 }
 
 /**

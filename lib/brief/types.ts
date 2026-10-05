@@ -162,10 +162,15 @@ export interface PlanItem {
   seen?: string;
   /**
    * A time the person set themselves (a card, a time changed on the item): it
-   * stays exactly there when the plan is fitted again, even after the plan
-   * would otherwise end (lib/plan/planFlow.ts refitKeeping)
+   * stays there when the plan is fitted again, even after the plan would
+   * otherwise end (lib/plan/planFlow.ts placePlan)
    */
   pinned?: boolean;
+  /**
+   * Picked by the person (Add something, kept in Sweep): it keeps its place
+   * ahead of anything Gremly chose (lib/plan/planFlow.ts placePlan)
+   */
+  chosen?: boolean;
 }
 
 /** An item the picker chose that had no gap, kept so a change can try again. */
@@ -177,6 +182,8 @@ export interface UnplacedItem {
   minutes?: number;
   reason?: string | null;
   fromFact?: boolean;
+  /** Picked by the person (PlanItem.chosen) */
+  chosen?: boolean;
 }
 
 export interface BriefPlanMeta extends BriefMetaBase {

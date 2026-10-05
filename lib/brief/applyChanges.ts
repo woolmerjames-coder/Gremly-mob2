@@ -215,6 +215,7 @@ function planEffectOf(c: Change, createdId: string | null, ctx: CardContext, out
           id: p.id,
           kind: p.item === 'habit' ? 'habit' : 'todo',
           start: p.start ?? null,
+          ...(p.after != null ? { after: p.after } : {}),
           minutes: p.minutes ?? null,
         });
       }

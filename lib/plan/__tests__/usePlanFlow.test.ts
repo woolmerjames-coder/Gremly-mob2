@@ -232,9 +232,10 @@ describe('planning in the thread', () => {
     );
     const plan = messages.find((m) => (m.metadata_json as any).type === 'brief-plan')!
       .metadata_json as any;
-    expect(plan.items.map((x: any) => [x.id, x.reason])).toEqual([
-      ['social', 'Behind'],
-      ['oat', 'Kept for today'],
+    // what they kept is theirs, so it claims its time first
+    expect(plan.items.map((x: any) => [x.id, x.reason, !!x.chosen])).toEqual([
+      ['oat', 'Kept for today', true],
+      ['social', 'Behind', false],
     ]);
   });
 

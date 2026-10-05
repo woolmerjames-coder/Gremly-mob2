@@ -187,7 +187,7 @@ export function asDayChange(c, back) {
   };
   if (c.op === 'plan') {
     const p = c.plan || {};
-    return { kind: p.kind, id: p.id ? back.get(p.id) || p.id : id, title: c.title, start: p.start ?? null, travel: p.travel === true };
+    return { kind: p.kind, id: p.id ? back.get(p.id) || p.id : id, title: c.title, start: p.start ?? null, after: p.after ?? null, travel: p.travel === true };
   }
   const f = c.fields || {};
   switch (c.op) {

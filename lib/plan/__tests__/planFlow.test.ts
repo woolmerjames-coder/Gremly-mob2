@@ -14,6 +14,7 @@ import {
   opFromButton,
   planHeading,
   refitKeeping,
+  placePlan,
   planSummary,
   suggestions,
   unplacedText,
@@ -256,5 +257,134 @@ describe('fitting a plan again after a change', () => {
       SETS_OFF,
     );
     expect(none).toEqual(fitPlan(entries, [], 540, SETS_OFF));
+  });
+});
+
+describe('placing a plan in the order things claim time', () => {
+  // Monday 5 October, 7:35am: meetings until 8:30, then 11:15 to 2pm
+  const NOW = 455;
+  const FROM = 510;
+  const BUSY = [
+    { start: 450, end: 510 },
+    { start: 675, end: 720 },
+    { start: 750, end: 780 },
+    { start: 810, end: 840 },
+  ];
+  const todo = (id: string, minutes: number, extra: Partial<PlanEntry> = {}): PlanEntry => ({
+    id,
+    kind: 'todo',
+    title: id,
+    minutes,
+    window: [FROM, 1320],
+    reason: null,
+    ...extra,
+  });
+  const at = (fit: ReturnType<typeof placePlan>, id: string) =>
+    fit.items.find((x) => x.id === id)?.start ?? null;
+  const overlaps = (fit: ReturnType<typeof placePlan>) =>
+    fit.items.some((a, i) => fit.items.some((b, j) => i < j && a.start < b.end && b.start < a.end));
+
+  it('never puts a named time before now, and never two things on top of each other', () => {
+    const entries = [todo('agent', 45), todo('split', 15), todo('input', 30)];
+    // the 2:45am plan: times already gone, and one on top of another
+    const pins = new Map([
+      ['agent', 165],
+      ['split', 180],
+      ['input', 210],
+    ]);
+    const fit = placePlan(entries, { busy: BUSY, from: FROM, now: NOW, pins });
+    expect(fit.items.every((x) => x.start >= NOW)).toBe(true);
+    expect(overlaps(fit)).toBe(false);
+    expect(fit.unplaced).toEqual([]);
+  });
+
+  it('keeps a named time exactly where it was named when it is free', () => {
+    const fit = placePlan([todo('pushups', 10)], {
+      busy: BUSY,
+      from: FROM,
+      now: NOW,
+      pins: new Map([['pushups', 1080]]),
+    });
+    expect(fit.items[0]).toMatchObject({ id: 'pushups', start: 1080, end: 1090, pinned: true });
+  });
+
+  it("keeps what they picked when Gremly fills the evening, and leaves off Gremly's first", () => {
+    // taxes was picked at 5pm; Gremly's card puts four hours of things from 5pm
+    const taxes = todo('taxes', 60, { chosen: true });
+    const placed = [
+      { id: 'taxes', kind: 'todo' as const, title: 'taxes', start: 1020, end: 1080, chosen: true },
+    ];
+    const gremly = ['a', 'b', 'c', 'd', 'e'].map((id) => todo(id, 60));
+    const entries = [...gremly, taxes];
+    const fit = placePlan(entries, {
+      busy: BUSY,
+      from: FROM,
+      now: NOW,
+      placed,
+      // a long morning so the day is short of room
+      dayEnd: 1080 + 4 * 60,
+    });
+    expect(at(fit, 'taxes')).toBe(1020);
+    expect(fit.items.find((x) => x.id === 'taxes')?.chosen).toBe(true);
+    expect(overlaps(fit)).toBe(false);
+  });
+
+  it('moves what they picked to the next free time when a time they name lands on it, and keeps it in', () => {
+    const taxes = todo('taxes', 60, { chosen: true });
+    const placed = [
+      { id: 'taxes', kind: 'todo' as const, title: 'taxes', start: 1020, end: 1080, chosen: true },
+    ];
+    const fit = placePlan([todo('run', 30), taxes], {
+      busy: BUSY,
+      from: FROM,
+      now: NOW,
+      placed,
+      pins: new Map([['run', 1020]]),
+    });
+    expect(at(fit, 'run')).toBe(1020);
+    expect(at(fit, 'taxes')).toBeGreaterThanOrEqual(1050);
+    expect(fit.unplaced).toEqual([]);
+  });
+
+  it('places what they picked ahead of what Gremly chose when there is room for only one', () => {
+    const fit = placePlan([todo('gremly', 60), todo('mine', 60, { chosen: true })], {
+      busy: [],
+      from: 1200,
+      dayEnd: 1290,
+      now: 1200,
+    });
+    expect(fit.items.map((x) => x.id)).toEqual(['mine']);
+    expect(fit.unplaced.map((x) => x.id)).toEqual(['gremly']);
+  });
+
+  it('marks a pick as theirs when it is added', () => {
+    const pool: Candidate[] = [
+      {
+        id: 'taxes',
+        kind: 'todo',
+        title: 'Do taxes',
+        minutes: 60,
+        why: 'Due today',
+        window: null,
+        source: 'due',
+      },
+    ];
+    const next = applyOp(
+      [],
+      { op: 'add', id: 'taxes', window: null, chosen: true },
+      pool,
+      FROM,
+      [],
+    );
+    expect(next[0]).toMatchObject({ id: 'taxes', chosen: true, reason: 'Added by you' });
+    // picking something Gremly already put in makes it theirs too
+    const again = applyOp(
+      [todo('taxes', 60)],
+      { op: 'add', id: 'taxes', window: null, chosen: true },
+      pool,
+      FROM,
+      [],
+    );
+    expect(again[0]).toMatchObject({ chosen: true, reason: 'Added by you' });
   });
 });

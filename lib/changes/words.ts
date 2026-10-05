@@ -214,7 +214,10 @@ function planWords(change: Change): string {
     case 'remove_block':
       return `Take out ${change.title}`;
     case 'plan_add':
-      return at ? `Fit ${change.title} in at ${at}` : `Fit ${change.title} in today`;
+      if (at) return `Fit ${change.title} in at ${at}`;
+      return p.after != null
+        ? `Fit ${change.title} in from ${formatTime(`${Math.floor(p.after / 60)}:${String(p.after % 60).padStart(2, '0')}`)}`
+        : `Fit ${change.title} in today`;
     case 'plan_remove':
       return `Take ${change.title} out of today's plan`;
     case 'plan_day':

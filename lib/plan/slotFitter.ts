@@ -45,12 +45,14 @@ const up = (m: number) => Math.ceil(m / STEP_MINUTES) * STEP_MINUTES;
  * @param busy meetings (and anything else fixed) on the day
  * @param from nothing starts before this (the time now, rounded up)
  * @param dayEnd nothing ends after this
+ * @param buffer the gap kept either side of what is already there
  */
 export function fitSlots(
   items: FitItem[],
   busy: Busy[],
   from: number,
   dayEnd: number = PLAN_DAY_END,
+  buffer: number = BUFFER_MINUTES,
 ): FitResult {
   const taken: Busy[] = busy
     .filter((b) => b.end > b.start)
@@ -71,13 +73,13 @@ export function fitSlots(
     for (let guard = 0; guard < 500 && start + minutes <= hi; guard++) {
       const end = start + minutes;
       const hit = taken
-        .filter((b) => start < b.end + BUFFER_MINUTES && end > b.start - BUFFER_MINUTES)
+        .filter((b) => start < b.end + buffer && end > b.start - buffer)
         .sort((a, b) => b.end - a.end)[0];
       if (!hit) {
         found = start;
         break;
       }
-      start = up(hit.end + BUFFER_MINUTES);
+      start = up(hit.end + buffer);
     }
     if (found === null) {
       unplaced.push(item.id);

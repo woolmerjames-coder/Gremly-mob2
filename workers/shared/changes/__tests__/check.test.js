@@ -63,7 +63,17 @@ describe('values', () => {
     expect(normTime('9:05')).toBe('09:05');
     expect(normTime('14:00:00')).toBe('14:00');
     expect(normTime('24:00')).toBeUndefined();
-    expect(normTime('2pm')).toBeUndefined();
+  });
+
+  it('reads times the way Gremly reads them, with am or pm', () => {
+    expect(normTime('2pm')).toBe('14:00');
+    expect(normTime('2:45pm')).toBe('14:45');
+    expect(normTime('2:45 PM')).toBe('14:45');
+    expect(normTime('12am')).toBe('00:00');
+    expect(normTime('12:30pm')).toBe('12:30');
+    expect(normTime('9 a.m.')).toBe('09:00');
+    expect(normTime('13pm')).toBeUndefined();
+    expect(normTime('2')).toBeUndefined();
   });
 
   it('reads lengths from a minute to a day', () => {

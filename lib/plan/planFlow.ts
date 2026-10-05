@@ -8,6 +8,9 @@ import type { BriefPlanMeta, OfferButton, PlanItem, UnplacedItem } from '../brie
 import type { Candidate } from './candidatePool';
 import { fitSlots, freeMinutes, PLAN_DAY_END, type Busy } from './slotFitter';
 
+/** A time the person named may go as late as midnight, past the end of planning */
+const LATEST = 24 * 60;
+
 /** An item in a plan, placed or not. */
 export interface PlanEntry {
   id: string;
@@ -17,6 +20,8 @@ export interface PlanEntry {
   window: [number, number];
   reason: string | null;
   fromFact?: boolean;
+  /** Picked by the person: it is placed ahead of anything Gremly chose */
+  chosen?: boolean;
 }
 
 /** A change to the plan: by a tap, a suggestion or a typed message. */
@@ -24,7 +29,12 @@ export interface PlanOp {
   op: 'remove' | 'add' | 'move';
   id: string;
   window: [number, number] | null;
+  /** An add the person picked themselves (Add something, kept in Sweep) */
+  chosen?: boolean;
 }
+
+/** Why something the person picked is in the plan */
+export const CHOSEN_REASON = 'Added by you';
 
 const DEFAULT_MINUTES = 30;
 
@@ -58,6 +68,7 @@ export function entriesOf(meta: BriefPlanMeta): PlanEntry[] {
       window: x.window ?? [from, PLAN_DAY_END],
       reason: x.reason ?? null,
       fromFact: x.fromFact,
+      ...(x.chosen ? { chosen: true } : {}),
     });
   meta.items.forEach((x) => add(x, x.start, x.end));
   meta.unplaced.forEach((x) => add(x));
@@ -67,87 +78,137 @@ export function entriesOf(meta: BriefPlanMeta): PlanEntry[] {
   return out;
 }
 
+export interface PlaceOptions {
+  /** Meetings and set times */
+  busy: Busy[];
+  /** Nothing Gremly places starts before this (the time now on today's plan) */
+  from: number;
+  /** Nothing Gremly places ends after this (10pm, or when they set off) */
+  dayEnd?: number;
+  /** The earliest a time the person named can go: the time now today, midnight on another day */
+  now?: number;
+  /** Times named in this change, by item: each goes there, or at the first free time after it */
+  pins?: Map<string, number>;
+  /** The plan as it is now: what the person picked or gave a time before keeps its place */
+  placed?: PlanItem[];
+  /** Items the change itself moves or takes out: placed afresh */
+  touched?: Iterable<string>;
+}
+
 /**
- * Place the entries and describe the result as a plan message. `busy` is
- * meetings and set times; nothing ends after `dayEnd` (10pm, or when they set
- * off: lib/brief/dayRecord.ts).
+ * Place a plan's items and describe the result as a plan message. Items claim
+ * time in this order, so what the person asked for is never pushed out by
+ * what Gremly chose:
+ *   1. a time named in this change: there, or the first free time after it;
+ *   2. what the person picked themselves: where it already is, else anywhere
+ *      in its window;
+ *   3. a time they named before: where it is;
+ *   4. everything else, in placing order, in its window.
+ * A named time stays where it was named when that time is free, even after the
+ * plan would otherwise end; when a meeting or something already in the plan is
+ * there, it goes at the first free time after. It is never before now. Nothing
+ * else goes before `from` or after `dayEnd`.
  */
+export function placePlan(
+  entries: PlanEntry[],
+  opts: PlaceOptions,
+): Pick<BriefPlanMeta, 'items' | 'unplaced' | 'order' | 'from'> {
+  const { busy, from } = opts;
+  const dayEnd = opts.dayEnd ?? PLAN_DAY_END;
+  const floor = opts.now ?? 0;
+  const pins = opts.pins ?? new Map<string, number>();
+  const touched = new Set(opts.touched ?? []);
+  const was = new Map(
+    (opts.placed ?? []).filter((x) => !touched.has(x.id)).map((x) => [x.id, x] as const),
+  );
+
+  type Claim = { e: PlanEntry; tries: [number, number][]; named: boolean };
+  const claims: Claim[] = [];
+  const claimed = new Set<string>();
+  const claim = (e: PlanEntry, tries: [number, number][], named: boolean) => {
+    if (claimed.has(e.id)) return;
+    claimed.add(e.id);
+    claims.push({ e, tries, named });
+  };
+  for (const e of entries) {
+    const at = pins.get(e.id);
+    if (at !== undefined) claim(e, [[Math.max(at, floor), LATEST]], true);
+  }
+  for (const e of entries) {
+    if (!e.chosen) continue;
+    const w = was.get(e.id);
+    if (w?.pinned && w.start >= floor) claim(e, [[w.start, LATEST]], true);
+    else if (w && w.start >= from) claim(e, [[w.start, dayEnd], e.window], false);
+    else claim(e, [e.window], false);
+  }
+  for (const e of entries) {
+    const w = was.get(e.id);
+    if (w?.pinned) claim(e, [[Math.max(w.start, floor), LATEST]], true);
+  }
+  for (const e of entries) claim(e, [e.window], false);
+
+  const items: PlanItem[] = [];
+  const unplaced: UnplacedItem[] = [];
+  for (const c of claims) {
+    const e = c.e;
+    const others = items.map((x) => ({ start: x.start, end: x.end }));
+    let spot: { start: number; end: number } | null = null;
+    for (const w of c.tries) {
+      const one = [{ id: e.id, minutes: e.minutes, window: w }];
+      const fit = c.named
+        ? // a named time: there when it is free, with no gap needed around it
+          fitSlots(one, [...busy, ...others], floor, LATEST, 0)
+        : fitSlots(one, [...busy, ...others], from, dayEnd);
+      if (fit.placed.length) {
+        spot = fit.placed[0];
+        break;
+      }
+    }
+    if (!spot) {
+      unplaced.push({
+        id: e.id,
+        title: e.title,
+        kind: e.kind,
+        window: e.window,
+        minutes: e.minutes,
+        reason: e.reason,
+        fromFact: e.fromFact,
+        ...(e.chosen ? { chosen: true } : {}),
+      });
+      continue;
+    }
+    items.push({
+      id: e.id,
+      kind: e.kind,
+      title: e.title,
+      start: spot.start,
+      end: spot.end,
+      reason: e.reason,
+      window: e.window,
+      minutes: e.minutes,
+      fromFact: e.fromFact,
+      ...(c.named ? { pinned: true } : {}),
+      ...(e.chosen ? { chosen: true } : {}),
+    });
+  }
+  items.sort((a, b) => a.start - b.start || a.id.localeCompare(b.id));
+  return { from, order: claims.map((c) => c.e.id), items, unplaced };
+}
+
+/** Place a new plan: what the person picked first, then the rest in order. */
 export function fitPlan(
   entries: PlanEntry[],
   busy: Busy[],
   from: number,
   dayEnd: number = PLAN_DAY_END,
 ): Pick<BriefPlanMeta, 'items' | 'unplaced' | 'order' | 'from'> {
-  const fit = fitSlots(
-    entries.map((e) => ({ id: e.id, minutes: e.minutes, window: e.window })),
-    busy,
-    from,
-    dayEnd,
-  );
-  const byId = new Map(entries.map((e) => [e.id, e]));
-  return {
-    from,
-    order: entries.map((e) => e.id),
-    items: fit.placed.map((p) => {
-      const e = byId.get(p.id)!;
-      return {
-        id: e.id,
-        kind: e.kind,
-        title: e.title,
-        start: p.start,
-        end: p.end,
-        reason: e.reason,
-        window: e.window,
-        minutes: e.minutes,
-        fromFact: e.fromFact,
-      };
-    }),
-    unplaced: fit.unplaced.map((id) => {
-      const e = byId.get(id)!;
-      return {
-        id: e.id,
-        title: e.title,
-        kind: e.kind,
-        window: e.window,
-        minutes: e.minutes,
-        reason: e.reason,
-        fromFact: e.fromFact,
-      };
-    }),
-  };
+  return placePlan(entries, { busy, from, dayEnd });
 }
 
 /**
- * Fit a plan where some items have a time the person set (a card, the day
- * turn): those stay exactly there, and everything else is fitted around them,
- * the meetings and the set times.
- */
-export function fitAround(
-  pinned: PlanItem[],
-  rest: PlanEntry[],
-  busy: Busy[],
-  from: number,
-  dayEnd: number = PLAN_DAY_END,
-): Pick<BriefPlanMeta, 'items' | 'unplaced' | 'order' | 'from'> {
-  const fit = fitPlan(
-    rest,
-    [...busy, ...pinned.map((x) => ({ start: x.start, end: x.end }))],
-    from,
-    dayEnd,
-  );
-  return {
-    ...fit,
-    items: [...pinned, ...fit.items].sort((a, b) => a.start - b.start),
-    order: [...pinned.map((x) => x.id), ...(fit.order ?? [])],
-  };
-}
-
-/**
- * Fit a plan again after a change to it. What the person gave a time
- * themselves (pinned) stays exactly there, even after the plan would
- * otherwise end, such as an evening at home after a trip; everything else is
- * fitted around it. touched: items the change itself moves or takes out,
- * which it places afresh.
+ * Fit a plan again after a change. What the person picked or gave a time
+ * themselves keeps its place; touched: items the change itself moves or takes
+ * out, which it places afresh.
  */
 export function refitKeeping(
   entries: PlanEntry[],
@@ -156,19 +217,9 @@ export function refitKeeping(
   from: number,
   dayEnd: number = PLAN_DAY_END,
   touched: Iterable<string> = [],
+  now: number = 0,
 ): Pick<BriefPlanMeta, 'items' | 'unplaced' | 'order' | 'from'> {
-  const ids = new Set(entries.map((e) => e.id));
-  const skip = new Set(touched);
-  const keep = placed.filter((x) => x.pinned && ids.has(x.id) && !skip.has(x.id));
-  if (!keep.length) return fitPlan(entries, busy, from, dayEnd);
-  const kept = new Set(keep.map((x) => x.id));
-  return fitAround(
-    keep,
-    entries.filter((e) => !kept.has(e.id)),
-    busy,
-    from,
-    dayEnd,
-  );
+  return placePlan(entries, { busy, from, dayEnd, placed, touched, now });
 }
 
 /** Apply one change. A move with no time asks for later than where it is now. */
@@ -182,9 +233,16 @@ export function applyOp(
   if (op.op === 'remove') return entries.filter((e) => e.id !== op.id);
   const existing = entries.find((e) => e.id === op.id);
   if (op.op === 'add') {
-    if (existing) return entries;
+    if (existing) {
+      // picking something Gremly already put in makes it theirs
+      return op.chosen
+        ? entries.map((e) => (e.id === op.id ? { ...e, chosen: true, reason: CHOSEN_REASON } : e))
+        : entries;
+    }
     const c = pool.find((x) => x.id === op.id);
-    return c ? [...entries, entryFromCandidate(c, from, op.window)] : entries;
+    if (!c) return entries;
+    const e = entryFromCandidate(c, from, op.window);
+    return [...entries, op.chosen ? { ...e, chosen: true, reason: CHOSEN_REASON } : e];
   }
   // move
   const now = placed.find((p) => p.id === op.id);

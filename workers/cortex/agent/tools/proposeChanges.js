@@ -10,7 +10,7 @@
 // ============================================================================
 
 import { OPS, TYPES as FIELD_TYPES, GROUPS, PLAN_KINDS } from '../../../shared/changes/fields.js';
-import { checkCard } from '../../../shared/changes/check.js';
+import { checkCard, normTime } from '../../../shared/changes/check.js';
 import { loadItem, worldsAndChapters, isId } from './items.js';
 import { arr, bool, day, int, obj, str, strEnum, time } from './schema.js';
 import { trackTasks } from '../tasks.js';
@@ -37,7 +37,7 @@ Rules:
 - Name an item by an id you were given, in what you know or by a tool; never guess an id.
 - Put everything for one item in one change.
 - Fields marked * are ${GROUPS.asked}.
-- Days are YYYY-MM-DD and times HH:MM on a 24 hour clock, worked out from today's date.
+- Days are YYYY-MM-DD, worked out from today's date. Times are on a 12 hour clock with am or pm, the way every time you read is written.
 - To empty a field, name it in clear. To add to an item's text rather than replace it, use text_add.
 - Gremly keeps todos, habits and notes. Something that happens on a set day or at a set time whatever they do is an event, and an event is a note with the day it happens and, when known, its time and when it ends. Something they need to do is a todo.
 - A todo has one date, the day to do it; set a deadline only when they name one.
@@ -129,8 +129,13 @@ const PLAN = obj(
       'the item id for plan_add, plan_remove and plan_move; the set time id for remove_block',
     ),
     title: str('for add_block, what the set time is'),
-    time: time('the start: for add_block and plan_move, and for plan_add when they named a time'),
+    time: time(
+      'the start: for add_block and plan_move; for plan_add, only when they said when it should happen, a time or a part of the day, and then the start of it; when they did not say when, leave it out, and the app fits the item into the free time',
+    ),
     end_time: time('for add_block, when it ends, if they said'),
+    after: time(
+      'for plan_add, when they asked for a stretch of the day to be filled rather than a time: when that stretch starts; the app fits the item into the free time from there',
+    ),
     length: int('for plan_add, how long in whole minutes, if they said'),
     travel: bool('for add_block, true when it is part of their travel'),
   },
@@ -167,7 +172,7 @@ const DAY_DESCRIPTION = `${DESCRIPTION}
 In today's thread the plan on screen and today's set times change too, with op plan and plan.kind:
 - add_block: a set time today that the day must be planned around and that is not one of their items, with travel true when it is part of their travel. It is the whole change for that time, so it is not also made a new item. Something new they tell you about on another day is a new item for that day and time instead: a note when it happens whatever they do, a todo when it is something they do.
 - remove_block: one of today's set times that no longer holds, by its id.
-- plan_add fits one of their items for today into the plan on screen, at a time when they gave one; plan_remove takes an item out of the plan; plan_move moves an item in the plan to a new time.
+- plan_add fits one of their items for today into the plan on screen: from the time or the part of the day they named, or, when they named none, into the free time, which the app finds after the time now, around meetings and set times, up to the end of planning. plan_remove takes an item out of the plan; plan_move moves an item in the plan to a new time. When they ask for a stretch of the day to be filled rather than giving a time, each plan_add gives the start of that stretch as after, and no time. The app puts each item at its time, or at the first free time after it when a meeting or something in the plan is already there. The plan is for the rest of today, so no time in it is earlier than the time now.
 - plan_day, when there is no plan on screen: when they accept it, Gremly plans the rest of today from their items, around what is fixed, and shows the plan for them to keep or change.
 Calendar meetings live in their calendar and cannot be changed here, and nothing is added to stand in for one: say plainly that it moves in their calendar. When they give a time for something already listed, change that item rather than adding a new one.`;
 
@@ -190,7 +195,9 @@ const HINTS = {
     'Gremly keeps todos, habits and notes; something that happens at a set day or time is a note with its day and time',
   not_here: "the plan and set times change only in today's thread",
   bad_plan: 'that plan change is missing what it needs: a kind, and an id or a title',
-  bad_plan_time: 'times are HH:MM on a 24 hour clock',
+  bad_plan_time: 'times are on a 12 hour clock with am or pm',
+  past_time:
+    'that time has already gone today; the plan runs from the time now, and with no time named the app finds the free time',
   no_plan:
     'there is no plan on screen to change; plan_day offers to make one, and to set a time on an item today, change its time',
   has_plan: 'there is already a plan on screen; change it with plan_add, plan_remove or plan_move',
@@ -199,7 +206,7 @@ const HINTS = {
   no_block: 'there is no set time today with that id',
   not_today: 'that item is not one of their things for today; change its day first',
   needs_title: 'a set time needs a title',
-  needs_time: 'it needs a time, HH:MM on a 24 hour clock',
+  needs_time: 'it needs a time, on a 12 hour clock with am or pm',
   covered:
     "the change to that item already moves it in or out of today's plan, so the card needs only that one row",
 };
@@ -211,7 +218,7 @@ function hint(reason) {
     case 'unknown_field':
       return `${field} is not a field of that kind of item`;
     case 'bad_value':
-      return `the value for ${field} is not valid: days are YYYY-MM-DD, times HH:MM on a 24 hour clock, lengths whole minutes`;
+      return `the value for ${field} is not valid: days are YYYY-MM-DD, times on a 12 hour clock with am or pm, lengths whole minutes`;
     case 'cannot_clear':
       return `${field} cannot be emptied`;
     case 'cannot_add':
@@ -229,11 +236,12 @@ function hint(reason) {
   }
 }
 
+/** A time as Gremly writes it (normTime reads either clock), in minutes from midnight. */
 const toMinutes = (v) => {
-  const m = /^(\d{1,2}):(\d{2})$/.exec(String(v ?? '').trim());
-  if (!m) return null;
-  const n = Number(m[1]) * 60 + Number(m[2]);
-  return n >= 0 && n <= 24 * 60 ? n : null;
+  const t = normTime(String(v ?? ''));
+  if (!t) return null;
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
 };
 
 /**
@@ -248,10 +256,25 @@ export function readPlanRow(c, cid, day) {
   const given = (v) => v !== undefined && v !== null && v !== '';
   const start = given(p.time) ? toMinutes(p.time) : null;
   const end = given(p.end_time) ? toMinutes(p.end_time) : null;
-  if ((given(p.time) && start == null) || (given(p.end_time) && end == null))
+  const after = given(p.after) ? toMinutes(p.after) : null;
+  if (
+    (given(p.time) && start == null) ||
+    (given(p.end_time) && end == null) ||
+    (given(p.after) && after == null)
+  )
     return { reason: 'bad_plan_time' };
+  // the plan is for the rest of today: a time already gone is not one to plan at
+  if (
+    (p.kind === 'plan_add' || p.kind === 'plan_move') &&
+    start != null &&
+    Number.isFinite(day.now) &&
+    start < day.now
+  )
+    return { reason: 'past_time' };
   const inPlan = new Map((day.plan?.items || []).map((x) => [x.id, x]));
-  const item = day.items.get(p.id) || null;
+  // the item may be named on the plan change or on the change around it
+  const pid = p.id ?? c?.id;
+  const item = day.items.get(pid) || null;
   const row = (title, plan, type = null, id = null) => ({
     raw: { cid, op: 'plan', type, id, title, plan: { ...plan, title } },
   });
@@ -268,13 +291,13 @@ export function readPlanRow(c, cid, day) {
       });
     }
     case 'remove_block': {
-      const block = day.blocks.find((b) => b.id === p.id);
+      const block = day.blocks.find((b) => b.id === pid);
       if (!block) return { reason: 'no_block' };
       return row(block.title, { kind: 'remove_block', id: block.id }, null, block.id);
     }
     case 'plan_add': {
       if (!day.plan) return { reason: 'no_plan' };
-      if (inPlan.has(p.id)) return { reason: 'in_plan' };
+      if (inPlan.has(pid)) return { reason: 'in_plan' };
       if (!item) return { reason: 'not_today' };
       const minutes =
         Number.isInteger(p.length) && p.length >= 5 && p.length <= 480 ? p.length : null;
@@ -285,6 +308,7 @@ export function readPlanRow(c, cid, day) {
           id: item.id,
           item: item.kind,
           start,
+          ...(start == null && after != null ? { after } : {}),
           minutes: minutes ?? item.minutes ?? null,
         },
         item.kind,
@@ -297,7 +321,7 @@ export function readPlanRow(c, cid, day) {
       return row('Plan the rest of today', { kind: 'plan_day' });
     case 'plan_remove':
     case 'plan_move': {
-      const placed = inPlan.get(p.id);
+      const placed = inPlan.get(pid);
       if (!day.plan) return { reason: 'no_plan' };
       if (!placed) return { reason: 'not_in_plan' };
       if (p.kind === 'plan_move' && start == null) return { reason: 'needs_time' };
@@ -359,7 +383,7 @@ function planWords(c) {
     case 'remove_block':
       return `take out the set time “${trim(c.title, 60)}”`;
     case 'plan_add':
-      return `fit “${trim(c.title, 60)}” into the plan${at}`;
+      return `fit “${trim(c.title, 60)}” into the plan${at || (p.after != null ? ` from ${clock(p.after)}` : '')}`;
     case 'plan_remove':
       return `take “${trim(c.title, 60)}” out of the plan`;
     default:

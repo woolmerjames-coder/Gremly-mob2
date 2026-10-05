@@ -27,6 +27,7 @@ import {
 } from '../../inngest-jobs/careRules.js';
 import { readTurnRequest } from '../../inngest-jobs/brief/dayTurn.js';
 import { clockTime } from '../../inngest-jobs/brief/writer.js';
+import { normTime } from '../../shared/changes/check.js';
 import { personIdentity, weekdayName } from '../../shared/db.js';
 import { runAgent } from './run.js';
 import { toolContext } from './tools/index.js';
@@ -34,7 +35,7 @@ import { AGENT_PROMPT_VERSION, isLate } from './prompt.js';
 import { dayEndHourOf } from '../../shared/day.js';
 import { checkForCorrection } from '../context/corrections.js';
 
-export const BRIEF_AGENT_VERSION = `brief-2026-10-05d/${AGENT_PROMPT_VERSION}`;
+export const BRIEF_AGENT_VERSION = `brief-2026-10-05e/${AGENT_PROMPT_VERSION}`;
 
 // the planning day ends here when nothing earlier ends it, as in the day turn
 const DAY_END = 22 * 60;
@@ -43,6 +44,8 @@ const DAY_END = 22 * 60;
 export function dayFrameOf(req) {
   return {
     date: req.date,
+    // minutes after midnight where they are: the plan runs from here
+    now: req.now,
     plan: req.plan ? { status: req.plan.status, items: req.plan.items } : null,
     blocks: req.blocks.map((b) => ({
       id: b.id,
@@ -55,6 +58,14 @@ export function dayFrameOf(req) {
       req.items.map((x) => [x.id, { id: x.id, kind: x.kind, title: x.title, minutes: x.minutes }]),
     ),
   };
+}
+
+/** An item's time as every other time here reads ("2:45pm"), or "-". */
+function clockOf(t) {
+  const hhmm = normTime(String(t ?? ''));
+  if (!hhmm) return '-';
+  const [h, m] = hhmm.split(':').map(Number);
+  return clockTime(h * 60 + m);
 }
 
 /**
@@ -107,7 +118,7 @@ export function renderDay(req, dayEndHour = null) {
       req.items
         .map(
           (x) =>
-            `${x.id} | ${x.kind} | ${x.title} | ${x.due_day || 'no day'} | ${x.due_time || '-'} | ${x.minutes ? `${x.minutes} min` : '-'} | ${x.note || '-'}`,
+            `${x.id} | ${x.kind} | ${x.title} | ${x.due_day || 'no day'} | ${clockOf(x.due_time)} | ${x.minutes ? `${x.minutes} min` : '-'} | ${x.note || '-'}`,
         )
         .join('\n') || '(none)'
     }`,

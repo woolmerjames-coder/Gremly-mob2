@@ -278,6 +278,31 @@ describe("applying the agent's card", () => {
     expect(res.frameChanged).toBe(true);
   });
 
+  it('carries the stretch of the day they asked to fill with an item that has no time', async () => {
+    const card = [
+      {
+        cid: 'c1',
+        op: 'plan',
+        type: 'todo',
+        id: 'deck',
+        title: 'Finish the deck',
+        plan: {
+          kind: 'plan_add',
+          id: 'deck',
+          item: 'todo',
+          start: null,
+          after: 1020,
+          minutes: 45,
+          title: 'Finish the deck',
+        },
+      },
+    ] as Change[];
+    const res = await applyCardChanges(card, ctx);
+    expect(res.plan.add).toEqual([
+      { id: 'deck', kind: 'todo', start: null, after: 1020, minutes: 45 },
+    ]);
+  });
+
   it('a new day takes an item out of the plan; what is not in the plan stays out of it', async () => {
     const card = [
       {

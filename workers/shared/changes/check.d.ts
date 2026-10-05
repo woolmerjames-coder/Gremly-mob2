@@ -15,6 +15,8 @@ export interface PlanChange {
   /** Minutes from local midnight */
   start?: number | null;
   end?: number | null;
+  /** plan_add with no time: a stretch of the day to fit it into, from here */
+  after?: number | null;
   minutes?: number | null;
   travel?: boolean;
   /** The day turn's own words for the row */
