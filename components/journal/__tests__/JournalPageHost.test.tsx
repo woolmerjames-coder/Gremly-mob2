@@ -39,6 +39,16 @@ jest.mock('../../../lib/journal/photos', () => ({
   saveEntryPhotos: (...a: unknown[]) => mockSaveEntryPhotos(...a),
   removePhotoFiles: (...a: unknown[]) => mockRemovePhotoFiles(...a),
 }));
+// what Gremly kept from an entry, as his reader wrote it down
+let mockTook: Record<string, unknown>[] = [];
+const mockTookAsked: (string | null | undefined)[] = [];
+jest.mock('../../../lib/journal/took', () => ({
+  ...jest.requireActual('../../../lib/journal/took'),
+  useEntryFacts: (noteId: string | null | undefined) => {
+    mockTookAsked.push(noteId);
+    return noteId ? mockTook : [];
+  },
+}));
 // whether they can still make new things: a tester, a subscriber, or inside the trial
 let mockAccess = true;
 jest.mock('../../../lib/subscriptions/useSubscriptionStatus', () => ({
@@ -87,6 +97,8 @@ function host() {
 beforeEach(() => {
   mockNotes = [];
   mockAccess = true;
+  mockTook = [];
+  mockTookAsked.length = 0;
   mockSavedPhotos = [];
   mockChoosePhotos.mockResolvedValue({ ok: true, uris: [] });
   mockSaveEntryPhotos.mockResolvedValue({ failed: 0 });
@@ -733,5 +745,33 @@ describe('photos', () => {
     expect(mockDeleteNote).toHaveBeenCalledWith('n7');
     expect(mockRemovePhotoFiles).toHaveBeenCalledWith([A]);
     alert.mockRestore();
+  });
+});
+
+describe('what Gremly took', () => {
+  const fact = {
+    id: 'f1',
+    statement: 'The budget review went badly.',
+    quote: null,
+    private: false,
+    standing: 'held',
+  };
+
+  it('is shown under an entry being read', () => {
+    mockNotes = [savedEntry('n24', '2026-09-24', 'The budget review.')];
+    mockTook = [fact];
+    const h = host();
+    h.open({ day: DAY, entryId: 'n24', reading: true });
+    expect(h.getByText('What Gremly took')).toBeTruthy();
+    expect(h.getByText('The budget review went badly.')).toBeTruthy();
+  });
+
+  it('is not asked for while an entry is being written or changed', () => {
+    mockNotes = [savedEntry('n7', DAY, 'The budget review.')];
+    mockTook = [fact];
+    const h = host();
+    h.open({ day: DAY });
+    expect(h.queryByTestId('journal-took')).toBeNull();
+    expect(mockTookAsked.every((id) => !id)).toBe(true);
   });
 });

@@ -72,6 +72,7 @@ import {
   type PhotosChosen,
 } from '../../lib/journal/photos';
 import { FREEFORM, pageIn, type JournalPageDef } from '../../lib/journal/pages';
+import { TOOK_COPY, type EntryFact } from '../../lib/journal/took';
 import { JOURNAL_COPY, countLabel, dayWords } from '../../lib/journal/words';
 import type { Mood } from '../../lib/shared/moods';
 import { useKeyboardLift } from '../../hooks/useKeyboardLift';
@@ -90,6 +91,7 @@ import { JournalOwnPageSheet } from './JournalOwnPageSheet';
 import { JournalPageChips } from './JournalPageChips';
 import { JournalPhotoViewer, JournalPhotos } from './JournalPhotos';
 import { JournalSheet } from './JournalSheet';
+import { JournalTookList } from './JournalTook';
 import { JOURNAL_WASH, JOURNAL_WASH_LOOKING, journalStyles } from './journalStyles';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -162,6 +164,8 @@ export type JournalPageProps = {
   onToday?: (left: JournalPageLeft | null) => void;
   /** While reading: the entries written before and after this one */
   steps?: { before: JournalPageStep | null; after: JournalPageStep | null };
+  /** While reading: what Gremly kept from this entry, once his reader has been through it */
+  took?: EntryFact[];
   /** The photos already saved with the entry */
   savedPhotos?: EntryPhoto[];
   /** What had been done to the photos on a page kept from earlier */
@@ -206,6 +210,7 @@ export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(funct
     onLookAt,
     onToday,
     steps,
+    took,
     savedPhotos,
     initialPhotoChanges,
     onChoosePhotos,
@@ -694,6 +699,19 @@ export const JournalPage = forwardRef<JournalPageHandle, JournalPageProps>(funct
         />
 
         <JournalMoodCard moods={moods} onToggle={reading ? undefined : toggleMood} />
+
+        {reading && took?.length ? (
+          <View testID="journal-took">
+            <View style={journalStyles.section}>
+              <View style={journalStyles.sectionBar} />
+              <Text style={journalStyles.sectionText}>{TOOK_COPY.section}</Text>
+            </View>
+            <View style={styles.took}>
+              <JournalTookList facts={took} />
+              <Text style={styles.tookFoot}>{TOOK_COPY.foot}</Text>
+            </View>
+          </View>
+        ) : null}
       </ScrollView>
 
       {reading || ownForm ? null : (
@@ -934,6 +952,15 @@ const styles = StyleSheet.create({
   noteText: { fontFamily: 'Inter-Regular', fontSize: 13, color: '#F4F1EA' },
   keep: { borderStyle: 'solid', backgroundColor: 'rgba(255, 255, 255, 0.7)' },
   calendar: { flexGrow: 0, flexShrink: 1 },
+  took: { paddingHorizontal: 14 },
+  tookFoot: {
+    marginTop: 10,
+    marginHorizontal: 6,
+    fontFamily: 'Inter-Regular',
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: BRIEF.muted,
+  },
   // stepping between entries, under one being read
   steps: {
     position: 'absolute',

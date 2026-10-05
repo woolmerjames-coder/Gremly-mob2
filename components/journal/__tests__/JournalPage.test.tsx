@@ -784,3 +784,31 @@ describe('photos', () => {
     expect(queryByTestId('journal-photo-add')).toBeNull();
   });
 });
+
+describe('what Gremly took from an entry', () => {
+  const took = [
+    {
+      id: 'f1',
+      statement: 'Ran eleven miles.',
+      quote: 'Eleven miles',
+      private: false,
+      standing: 'held' as const,
+    },
+  ];
+  const entry = { tpl: FREEFORM, cards: [card(null, p('Eleven miles today.'))] };
+
+  it('is listed under an entry being read', () => {
+    const { getByTestId, getByText } = open({ reading: true, initial: entry, took });
+    expect(getByTestId('journal-took')).toBeTruthy();
+    expect(getByText('What Gremly took')).toBeTruthy();
+    expect(getByText('Ran eleven miles.')).toBeTruthy();
+  });
+
+  it('is not shown when there is nothing, or while the entry is being written', () => {
+    expect(
+      open({ reading: true, initial: entry, took: [] }).queryByTestId('journal-took'),
+    ).toBeNull();
+    expect(open({ reading: true, initial: entry }).queryByTestId('journal-took')).toBeNull();
+    expect(open({ initial: entry, took }).queryByTestId('journal-took')).toBeNull();
+  });
+});
