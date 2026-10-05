@@ -6,7 +6,8 @@
  */
 import { useGremlyStore } from '../store/useGremlyStore';
 import { getDateService } from '../date/DateService';
-import type { CheckContext, ItemType } from './model';
+import { WEEK_OPS, type CheckContext, type ItemType } from './model';
+import { plannedDays, weekCheckContext } from './week';
 
 type Item = Record<string, any>;
 
@@ -39,14 +40,30 @@ export function snapshotOf(type: ItemType, id: string | null | undefined): Item 
   return snap;
 }
 
-/** What one change is checked against: its item, today, and the Worlds and Chapters there are. */
-export function contextFor(raw: { type?: string | null; id?: string | null }): CheckContext {
+/**
+ * What one change is checked against: its item, today, and the Worlds and
+ * Chapters there are. One of the week's own changes is also checked against
+ * the person's week, and a habit's days against the days it is planned on now.
+ */
+export function contextFor(raw: {
+  op?: string | null;
+  type?: string | null;
+  id?: string | null;
+}): CheckContext {
   const s = useGremlyStore.getState() as any;
   const type = raw.type as ItemType | undefined;
-  return {
+  const ctx: CheckContext = {
     today: getDateService().today(),
     item: type && raw.id ? snapshotOf(type, raw.id) : null,
     worlds: (s.worlds ?? []).map((w: any) => w.id),
     chapters: (s.chapters ?? []).map((c: any) => c.id),
   };
+  if (raw.op && raw.op in WEEK_OPS) {
+    const week = weekCheckContext();
+    ctx.week = week;
+    if (raw.op === 'habit_days' && ctx.item) {
+      ctx.item = { ...ctx.item, planned_days: plannedDays(ctx.item.id, week.first, week.last) };
+    }
+  }
+  return ctx;
 }

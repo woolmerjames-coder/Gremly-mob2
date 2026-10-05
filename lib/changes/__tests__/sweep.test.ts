@@ -371,15 +371,25 @@ describe('what cannot be saved', () => {
 });
 
 describe('kept apart from what Gremly can propose', () => {
-  it('keep and later are not operations of the change model', () => {
+  it('keep and later are not operations on the general list every surface is offered', () => {
     for (const op of Object.keys(SWEEP_OPS)) {
       expect(op in OPS).toBe(false);
       for (const type of Object.values(TYPES)) expect(type.ops).not.toContain(op);
-      expect(checkChange({ op, type: 'todo', id: 't1' }, { item: todo('t1') })).toEqual({
-        ok: false,
-        reason: 'unknown_op',
-      });
     }
+  });
+
+  it('keeping an item as it is cannot be proposed at all', () => {
+    expect(checkChange({ op: 'keep', type: 'todo', id: 't1' }, { item: todo('t1') })).toEqual({
+      ok: false,
+      reason: 'unknown_op',
+    });
+  });
+
+  it("putting one off is the weekly review's own change, dropped wherever the week is not known", () => {
+    expect(checkChange({ op: 'later', type: 'todo', id: 't1' }, { item: todo('t1') })).toEqual({
+      ok: false,
+      reason: 'no_week',
+    });
   });
 });
 

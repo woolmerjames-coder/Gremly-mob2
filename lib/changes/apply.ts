@@ -25,6 +25,7 @@ import { createColumns, writeFor } from './patch';
 import { historyLines } from './history';
 import { applyLinks, copyLinks, hasLinks } from './links';
 import { doneWords, type NameLookup } from './words';
+import { applyWeekChange } from './week';
 
 export interface ApplyOptions {
   source: ChangeSource;
@@ -299,6 +300,17 @@ async function applyOne(change: Change, opts: ApplyOptions): Promise<Outcome> {
     case 'plan':
       // today's plan is re-fitted by the thread from what was applied
       return ok(nothing);
+    // the week's own changes (the weekly review), each with its own writer
+    case 'later':
+    case 'habit_days':
+    case 'week_shape':
+    case 'intention':
+    case 'milestone':
+    case 'weekly_day': {
+      const r = await applyWeekChange(change);
+      if (!r.ok) return { cid: change.cid, ...r };
+      return ok(r.revert, r.createdId);
+    }
     default:
       throw new Error(`No way to apply ${change.op}`);
   }

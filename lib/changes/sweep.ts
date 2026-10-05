@@ -11,9 +11,15 @@
  * operations (change, archive). Keeping an item as it is and bringing it back
  * later are Sweep's own. They write Sweep's marks (swept_at, resurface_at,
  * skipped_in_sweep_at), which the change model keeps off its field list on
- * purpose, so Gremly is never told about them and cannot propose them:
- * checkChange answers unknown_op for both. They live here, beside the model,
- * and nothing in workers/shared/changes knows them.
+ * purpose, so no surface is offered them as fields or as general operations.
+ * They live here, beside the model.
+ *
+ * The weekly review has a later of its own in the model (the later change,
+ * WEEK_OPS in workers/shared/changes/fields.js, applied by lib/changes/week.ts
+ * through lib/changes/later.ts): the day cleared, the back day set, no
+ * reminder. Gremly can offer that one where the person's week is known. The
+ * cards' Later here still writes the day and a reminder; it moves to the same
+ * writer when the old sweep is retired.
  */
 import { useGremlyStore } from '../store/useGremlyStore';
 import { supabase } from '../supabase/client';
@@ -24,7 +30,7 @@ import { applyChange } from './apply';
 import { checkChange } from './model';
 import { contextFor, findItem } from './snapshot';
 
-/** Sweep's own operations. Never added to OPS: the agent's tool list is built from that. */
+/** Sweep's own operations. Never added to OPS: every surface's tool list is built from that. */
 export const SWEEP_OPS = {
   keep: 'keep an item as it is: Sweep has looked at it',
   later: 'bring an item back in a later Sweep',

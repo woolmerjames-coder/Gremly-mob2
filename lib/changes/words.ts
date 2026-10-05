@@ -9,6 +9,21 @@ import { formatDay, formatDays, formatTime } from '../chat/dayWords';
 import type { Change, Schedule } from './model';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const WEEKDAY_NAMES = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+];
+// the three kinds of day a week's free hours are set for, in the order they are said
+const DAY_KIND_WORDS = [
+  ['normal_day', 'a normal day'],
+  ['busy_day', 'a busy day'],
+  ['weekend_day', 'a day off'],
+] as const;
 const KIND = { todo: 'todo', habit: 'habit', note: 'note' } as const;
 
 type Opts = { relative?: boolean };
@@ -150,6 +165,88 @@ function movedFrom(change: Change, opts: Opts): string {
 export type NameLookup = (kind: 'worlds' | 'chapters', id: string) => string;
 const noNames: NameLookup = () => 'a World';
 
+// ── The week's own changes (the weekly review) ──────────────────────────────
+
+/** "1 hr 30 min free on a normal day and 4 hr on a day off", for the hours a change sets. */
+function hoursPhrase(hours: Record<string, number> | undefined): string {
+  const parts = DAY_KIND_WORDS.filter(([kind]) => hours?.[kind] != null).map(
+    ([kind, words], i) =>
+      `${minutesWords(Math.round(hours![kind] * 60)) || 'no time'}${i === 0 ? ' free' : ''} on ${words}`,
+  );
+  return listWords(parts);
+}
+
+/** What changed in a habit's days: one day moved, days added, days taken off, or the whole list. */
+function habitDaysWords(change: Change, opts: Opts): string {
+  const t = change.title;
+  const days = change.days ?? [];
+  const was: string[] = change.before?.days ?? [];
+  const added = days.filter((d) => !was.includes(d));
+  const removed = was.filter((d) => !days.includes(d));
+  if (!days.length) return `Take ${t} off the week`;
+  if (added.length === 1 && removed.length === 1) {
+    return `Move ${t} from ${formatDay(removed[0], opts)} to ${formatDay(added[0], opts)}`;
+  }
+  if (added.length && !removed.length && was.length)
+    return `Add ${t} on ${formatDays(added, opts)}`;
+  if (removed.length && !added.length) return `Take ${t} off ${formatDays(removed, opts)}`;
+  return `Plan ${t} on ${formatDays(days, opts)}`;
+}
+
+/** The busy days and the free hours a change to the week's shape sets, each as a phrase. */
+function shapePhrases(change: Change, opts: Opts): { busy: string | null; hours: string | null } {
+  const s = change.shape ?? {};
+  return {
+    busy: s.busy_days
+      ? s.busy_days.length
+        ? `${formatDays(s.busy_days, opts)} as busy ${s.busy_days.length === 1 ? 'day' : 'days'}`
+        : 'no busy days'
+      : null,
+    hours: s.hours ? hoursPhrase(s.hours) : null,
+  };
+}
+
+/** "2 steps to do and 1 check in" */
+function stepsWords(change: Change): string {
+  const steps = change.milestone?.steps ?? [];
+  const todos = steps.filter((s) => s.kind === 'todo').length;
+  const asks = steps.length - todos;
+  return listWords(
+    [
+      todos ? `${todos} ${todos === 1 ? 'step' : 'steps'} to do` : '',
+      asks ? `${asks} check ${asks === 1 ? 'in' : 'ins'}` : '',
+    ].filter(Boolean),
+  );
+}
+
+/** The row for one of the week's own changes, or null when the change is not one. */
+function weekRowWords(change: Change, opts: Opts): string | null {
+  const t = change.title;
+  switch (change.op) {
+    case 'later': {
+      const back = formatDay(change.fields?.back_on, opts);
+      // already put off: the day it comes back moves
+      return change.before?.back_on
+        ? `Bring ${t} back on ${back}, not ${formatDay(change.before.back_on, opts)}`
+        : `Put ${t} off until ${back}`;
+    }
+    case 'habit_days':
+      return habitDaysWords(change, opts);
+    case 'week_shape': {
+      const { busy, hours } = shapePhrases(change, opts);
+      return `This week: ${[busy, hours].filter(Boolean).join(', with ')}`;
+    }
+    case 'intention':
+      return `Set this week's intention: “${change.fields?.text ?? t}”`;
+    case 'milestone':
+      return `Set up ${t} for ${formatDay(change.milestone?.date, opts)}: ${stepsWords(change)}`;
+    case 'weekly_day':
+      return `Move your weekly review to ${WEEKDAY_NAMES[change.fields?.weekday]}s`;
+    default:
+      return null;
+  }
+}
+
 /** One line for the change's row on a card. */
 export function rowWords(change: Change, opts: Opts & { names?: NameLookup } = {}): string {
   const t = change.title;
@@ -197,7 +294,7 @@ export function rowWords(change: Change, opts: Opts & { names?: NameLookup } = {
     case 'plan':
       return planWords(change);
     default:
-      return t;
+      return weekRowWords(change, opts) ?? t;
   }
 }
 
@@ -249,6 +346,18 @@ export function buttonWords(change: Change): string {
       return change.type === 'todo' ? 'Yes, cancel it' : 'Yes, put it away';
     case 'convert':
       return 'Yes, turn it into one';
+    case 'later':
+      return 'Yes, put it off';
+    case 'habit_days':
+      return 'Yes, plan it';
+    case 'week_shape':
+      return 'Yes, change my week';
+    case 'intention':
+      return 'Yes, set it';
+    case 'milestone':
+      return 'Yes, set it up';
+    case 'weekly_day':
+      return 'Yes, move it';
     default:
       return 'Yes, do it';
   }
@@ -285,6 +394,22 @@ export function doneWords(change: Change, opts: { names?: NameLookup } = {}): st
       return `${t} is back.`;
     case 'convert':
       return `${t} is now a ${KIND[change.to!]}.`;
+    case 'later':
+      return `${t} comes back on ${formatDay(change.fields?.back_on, fixed)}.`;
+    case 'habit_days':
+      return change.days?.length
+        ? `${t} is planned on ${formatDays(change.days, fixed)}.`
+        : `${t} has no days planned.`;
+    case 'week_shape': {
+      const { busy, hours } = shapePhrases(change, fixed);
+      return `Your week now has ${listWords([busy, hours].filter((p): p is string => !!p))}.`;
+    }
+    case 'intention':
+      return 'Your intention is set.';
+    case 'milestone':
+      return `${t} is set up.`;
+    case 'weekly_day':
+      return `Your weekly review is now on ${WEEKDAY_NAMES[change.fields?.weekday]}s.`;
     default:
       return 'Done.';
   }

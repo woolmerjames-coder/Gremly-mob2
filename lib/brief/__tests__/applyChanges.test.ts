@@ -330,6 +330,27 @@ describe("applying the agent's card", () => {
     expect(res.plan.pin).toEqual([]);
   });
 
+  it('a todo put off for later leaves its day, and with it the plan', async () => {
+    const card = [
+      {
+        cid: 'c1',
+        op: 'later',
+        type: 'todo',
+        id: 'mum',
+        title: 'Call Mum',
+        fields: { back_on: '2026-10-12' },
+        before: { back_on: null, day: '2026-10-02' },
+      },
+    ] as Change[];
+    const res = await applyCardChanges(card, { ...ctx, inPlan: new Set(['mum']) });
+    expect(res.done).toEqual(['c1']);
+    expect(store.updateTodo).toHaveBeenCalledWith(
+      'mum',
+      expect.objectContaining({ resurface_at: '2026-10-12', due_day: null }),
+    );
+    expect(res.plan).toEqual({ add: [], remove: ['mum'], pin: [] });
+  });
+
   it("marks a yes to Gremly's offer to plan the day, for the planner to take over", async () => {
     const card = [
       { cid: 'c1', op: 'plan', title: 'Plan the rest of today', plan: { kind: 'plan_day' } },

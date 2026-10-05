@@ -247,6 +247,7 @@ function planEffectOf(c: Change, createdId: string | null, ctx: CardContext, out
     case 'archive':
     case 'skip_today':
     case 'convert':
+    case 'later': // put off for later, it leaves its day, and with it today's plan
       return offPlan(c.id);
     case 'log':
       if ((c.days ?? []).includes(ctx.date)) offPlan(c.id);
