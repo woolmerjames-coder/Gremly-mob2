@@ -26,6 +26,9 @@ export const MODELS = {
   // the day turn in today's thread: chosen on the replay suite (scripts/day-replay)
   dayTurn: { provider: 'openai', model: 'gpt-6-luna' },
   dayTurnFallback: { provider: 'google', model: 'gemini-3.8-flash' },
+  // the weekly read (week/read.js): Luna at medium effort, chosen on the week replay (scripts/week-replay)
+  weekRead: { provider: 'openai', model: 'gpt-6-luna' },
+  weekReadFallback: { provider: 'google', model: 'gemini-3.8-flash' },
 };
 
 export function modelFor(env, job) {
