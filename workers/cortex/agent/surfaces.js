@@ -11,8 +11,10 @@
 // A surface can have a variant: the same surface with more to its job and
 // more tools, for requests that can use them. Today's thread has one, week,
 // used when the app sent the person's week (the weekly review): get_week,
-// hold, offer_week and the week's own changes. A request without the week
-// gets the surface exactly as it is without the variant, instructions and
+// hold, offer_week and the week's own changes. Ask Gremly has one too, week,
+// with offer_week alone: the review happens in today's thread, so from chat
+// Gremly can only put the button to it under a reply. A request without the
+// week gets the surface exactly as it is without the variant, instructions and
 // tools both, so an app build that cannot show the review is never offered it.
 // ============================================================================
 
@@ -39,6 +41,12 @@ export const SURFACES = {
     tools: ['find_items', 'get_item', 'get_day', 'recall', 'web_search', 'propose_changes'],
     stepCap: 6,
     maxMs: 20000,
+    variants: {
+      week: {
+        job: `They plan each week with Gremly in a weekly review, which happens in today's thread, on their own weekly day; what you know about their week says where that stands. When they ask to plan their week, to do their weekly review or to see the week they planned, put the button to it under your reply with offer_week rather than planning the week yourself in the reply. When they ask for a review and none can be started today, tell them so plainly, with when the next one is.`,
+        tools: ['offer_week'],
+      },
+    },
   },
 };
 

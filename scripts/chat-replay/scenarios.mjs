@@ -234,3 +234,58 @@ export const WEEK = {
   ],
   allDay: [['2026-10-09T00:00:00Z', '2026-10-10T23:59:59Z', 'Office closed']],
 };
+
+/**
+ * Their week (the weekly review), as an app build that can show it sends it
+ * with a message (lib/cortex/CortexClient.ts WeekTurnContext). THEIR_WEEK is
+ * what --with-week gives every scenario that has none of its own: Sunday is
+ * their weekly day, this week's review is not done, and the extra is free.
+ */
+export const THEIR_WEEK = { weekly_day: 0, days_off: [0, 6], review: null, extra_used: false };
+
+// Asking Gremly for their week in Ask Gremly: the button goes under the reply
+// (offer_week), and nothing about their week goes on the card, which cannot
+// change it from here. expect.offer: 'plan' (the button reads Plan your week),
+// 'week' (it reads Your week), 'may' (a button is fine and so is none), or
+// left out (no button).
+SCENARIOS.push(
+  {
+    id: 'week-plan',
+    kind: 'Their week',
+    text: 'Can we plan my week?',
+    items: [],
+    // Thursday is their weekly day, so Saturday is inside the review's window
+    theirWeek: { weekly_day: 4, days_off: [0, 6], review: null, extra_used: false },
+    expect: { rows: 0, offer: 'plan' },
+  },
+  {
+    id: 'week-see',
+    kind: 'Their week',
+    text: 'Show me the week I planned',
+    items: [],
+    theirWeek: {
+      weekly_day: 4,
+      days_off: [0, 6],
+      review: { week_start: '2026-10-02', span_start: '2026-10-02', status: 'done', kind: 'weekly' },
+      extra_used: false,
+    },
+    expect: { rows: 0, offer: 'week' },
+  },
+  {
+    id: 'week-extra-used',
+    kind: 'Their week',
+    text: "I'd like to do another weekly review today",
+    items: [],
+    // Monday is their weekly day, so Saturday would be the extra, and it is used
+    theirWeek: {
+      weekly_day: 1,
+      days_off: [0, 6],
+      review: { week_start: '2026-09-29', span_start: '2026-09-30', status: 'done', kind: 'extra' },
+      extra_used: true,
+    },
+    // no review can be started, and the weekly day cannot be moved from Ask
+    // Gremly, so nothing goes on the card. The button to the week they planned
+    // may be there or not.
+    expect: { rows: 0, offer: 'may' },
+  },
+);

@@ -18,8 +18,9 @@ import { localDateOf, minutesIn } from '../../shared/calendar.js';
 import { runAgent } from './run.js';
 import { runTool, toolContext } from './tools/index.js';
 import { AGENT_PROMPT_VERSION } from './prompt.js';
+import { readWeek, weekFrameOf, weekLine } from './brief.js';
 
-export const CHAT_AGENT_VERSION = `chat-2026-10-05b/${AGENT_PROMPT_VERSION}`;
+export const CHAT_AGENT_VERSION = `chat-2026-10-06a/${AGENT_PROMPT_VERSION}`;
 
 /** How many of their items the search before the first step offers. */
 const FOUND_LIMIT = 8;
@@ -96,7 +97,9 @@ function weekWithIds(sessionContext, week) {
  * What the agent knows that changes between messages: the preload the quick
  * lane's writer reads (who they are, today so far, the conversation in short,
  * the item a chat is about, their life and week), with the week's todos
- * carrying their ids, and their items that share words with the message.
+ * carrying their ids, and their items that share words with the message. When
+ * the app sent their week (the weekly review), one line about it too: their
+ * weekly day, where this week's review stands, and whether the extra is free.
  */
 export function chatContext({
   profileText,
@@ -106,6 +109,7 @@ export function chatContext({
   sessionContext,
   week,
   found,
+  theirWeek,
 }) {
   return [
     profileText ? `ABOUT THIS USER\n${profileText}` : '',
@@ -115,6 +119,7 @@ export function chatContext({
       ? `THIS CHAT IS ABOUT ONE OF THEIR ITEMS: the ${anchor.type} "${anchor.title}" (id ${anchor.id})`
       : '',
     weekWithIds(sessionContext, week),
+    typeof theirWeek === 'string' ? theirWeek : '',
     typeof found === 'string' ? found : '',
   ]
     .filter(Boolean)
@@ -140,6 +145,7 @@ export function chatCacheKey(userId) {
  * @param {{role: string, content: string}[]} p.messages the conversation, ending with their message
  * @param {object[]} [p.tasks] the task list kept on the chat
  * @param {object} p.preload for chatContext; found may be a promise (the search started alongside triage), else the search runs here; today is the person's day when the caller knows it (workers/shared/day.js), and dayEndHour the hour it ends
+ * @param {object} [p.week] the person's week as the app sent it (lib/cortex/CortexClient.ts WeekTurnContext); with it Gremly knows where their weekly review stands and can put the button to it under a reply
  * @param {(line: string) => void} [p.onStatus]
  * @param {object} [p.deps] { ctx, models, agent, now } for tests and replays
  * @returns {Promise<object>} ok with reply, card and tasks, or not ok with why
@@ -151,6 +157,7 @@ export async function runChatTurn({
   messages,
   tasks = [],
   preload = {},
+  week: sentWeek = null,
   onStatus,
   deps = {},
 }) {
@@ -166,15 +173,27 @@ export async function runChatTurn({
   const at = deps.now ? deps.now() : Date.now();
   // their day, which after midnight is still yesterday until their day ends
   const today = preload.today || localDateOf(tz, at);
-  const ctx = deps.ctx ? { ...deps.ctx, today } : toolContext(env, { userId, today, timezone: tz });
+  // their week, when this app build sends it. A review is never under way in
+  // Ask Gremly: it happens in today's thread.
+  const theirWeek = readWeek(sentWeek ? { ...sentWeek, under_way: null } : null, today);
+  const weekFrame = weekFrameOf(theirWeek, today);
+  const ctx = deps.ctx
+    ? { ...deps.ctx, today, week: weekFrame }
+    : toolContext(env, { userId, today, timezone: tz, week: weekFrame });
   const found =
     preload.found !== undefined
       ? await Promise.resolve(preload.found).catch(() => '')
       : await foundForMessage({ ...ctx, surface: 'chat' }, last.content).catch(() => '');
   const r = await runAgent({
     surface: 'chat',
+    variant: theirWeek ? 'week' : undefined,
     persona: chatAgentPersona(),
-    context: chatContext({ ...preload, found }),
+    context: chatContext({
+      ...preload,
+      found,
+      // the weekly day is moved on the card in today's thread, not here
+      theirWeek: theirWeek ? weekLine(theirWeek, today, { moveOnCard: false }) : '',
+    }),
     cacheKey: chatCacheKey(userId),
     history: turns.slice(0, -1).map((m) => ({ role: m.role, content: m.content })),
     message: last.content,
@@ -193,6 +212,16 @@ export async function runChatTurn({
     tools: (r.steps || []).filter((s) => s.kind === 'tool').map((s) => s.name),
     prompt_version: CHAT_AGENT_VERSION,
   };
-  if (r.ok) return { ok: true, reply: r.reply, card: r.card, tasks: r.tasks, ...how };
+  if (r.ok) {
+    return {
+      ok: true,
+      reply: r.reply,
+      card: r.card,
+      tasks: r.tasks,
+      // the button to their week goes under the reply
+      ...(r.offer ? { offer: r.offer } : {}),
+      ...how,
+    };
+  }
   return { ok: false, error: String(r.error || 'failed').slice(0, 200), ...how };
 }

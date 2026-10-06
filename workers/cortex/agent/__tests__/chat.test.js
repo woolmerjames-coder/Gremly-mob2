@@ -172,6 +172,69 @@ describe('one turn', () => {
     expect(seen[0].system).toContain('YOUR JOB HERE\nThis is a conversation with the person');
   });
 
+  it("knows their week when the app sends it, and puts the week's button under the reply", async () => {
+    const seen = [];
+    const callModel = async (args) => {
+      seen.push({ ...args, turns: args.turns.map((t) => ({ ...t })) });
+      // with their week known the reply comes with the button; without it, alone
+      const canOffer = args.tools.some((t) => t.name === 'offer_week');
+      return {
+        ok: true,
+        provider: 'openai-responses',
+        text: 'The button below opens your weekly review.',
+        raw: [],
+        calls: canOffer ? [{ id: 'c1', nativeId: 'c1', name: 'offer_week', args: {} }] : [],
+      };
+    };
+    const turn = (week) =>
+      runChatTurn({
+        env: {},
+        userId: 'u1',
+        timezone: 'America/Los_Angeles',
+        messages: [{ role: 'user', content: 'Can we plan my week?' }],
+        preload: { found: '' },
+        week,
+        // Saturday 3 October 2026, 10am in Los Angeles
+        deps: { ctx, agent: { callModel }, now: () => Date.parse('2026-10-03T17:00:00Z') },
+      });
+    const r = await turn({
+      weekly_day: 0,
+      days_off: [0, 6],
+      review: null,
+      extra_used: false,
+      // a review is never under way in Ask Gremly, whatever is sent
+      under_way: { step: 'shape', first: '2026-10-05', last: '2026-10-11' },
+    });
+    expect(r).toMatchObject({
+      ok: true,
+      reply: 'The button below opens your weekly review.',
+      offer: { kind: 'week', done: false },
+    });
+    expect(seen[0].system).toContain('put the button to it under your reply with offer_week');
+    expect(seen[0].tools.map((t) => t.name)).toEqual([
+      'find_items',
+      'get_item',
+      'get_day',
+      'recall',
+      'web_search',
+      'propose_changes',
+      'offer_week',
+      'track_tasks',
+    ]);
+    const said = seen[0].turns.at(-1).text;
+    expect(said).toContain('THEIR WEEK: Their weekly review is on Sundays');
+    expect(said).not.toContain('THE WEEKLY REVIEW, UNDER WAY');
+    expect(said).not.toContain('is under way in this thread');
+
+    // without their week the turn is what it was: no line, no tool, no button
+    seen.length = 0;
+    const plain = await turn(null);
+    expect(plain.offer).toBeUndefined();
+    expect(seen[0].system).not.toContain('offer_week');
+    expect(seen[0].tools.map((t) => t.name)).not.toContain('offer_week');
+    expect(seen[0].turns.at(-1).text).not.toContain('THEIR WEEK');
+  });
+
   it('reads the items its message names before the first step: started alongside triage, or here', async () => {
     const contexts = [];
     const callModel = async (args) => {

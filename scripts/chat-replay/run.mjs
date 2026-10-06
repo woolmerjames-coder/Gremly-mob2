@@ -8,6 +8,7 @@
  *
  *   scripts/chat-replay/run.sh                          every scenario on Luna, three times
  *   scripts/chat-replay/run.sh --only vet-friday --models gemini,openai --repeat 1
+ *   scripts/chat-replay/run.sh --with-week              every scenario sent their week (the weekly review)
  *
  * Keys come from the environment (OPENAI_API_KEY, GEMINI_TEST_API_KEY).
  * Output goes to scripts/chat-replay/out/ (gitignored).
@@ -17,7 +18,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { SCENARIOS, WEEK, NOW_ISO } from './scenarios.mjs';
+import { SCENARIOS, WEEK, NOW_ISO, THEIR_WEEK } from './scenarios.mjs';
 import { runChatTurn, CHAT_AGENT_VERSION } from '../../workers/cortex/agent/chat.js';
 import { configureModels } from '../../workers/cortex/models.js';
 import { runTool } from '../../workers/cortex/agent/tools/index.js';
@@ -35,6 +36,11 @@ const models = (flag('--models') || 'openai').split(',').filter((m) => MODELS[m]
 const only = flag('--only');
 const thinking = flag('--thinking');
 const repeat = Math.max(1, Number(flag('--repeat') || 3));
+// --with-week: every scenario is sent their week, as an app build that can show
+// the weekly review sends it, so the week's line and button are there for all
+const withWeek = args.includes('--with-week');
+/** Their week for a scenario: its own, or the usual one when every scenario gets one. */
+const theirWeekOf = (s) => s.theirWeek || (withWeek ? THEIR_WEEK : null);
 const USER = '0b7c6f0e-1d2a-4c3b-9e8f-112233445566';
 const TZ = 'America/Los_Angeles';
 // Real conversations, built from someone's own data, go in fixtures/*.json (never
@@ -207,6 +213,14 @@ function check(s, r, back) {
   // saying the change is on a card to accept is true; saying it is done is not
   const sentences = reply.split(/(?<=[.!?])\s+/).filter((x) => !/\bcard\b/i.test(x));
   add('Nothing spoken of as done', !sentences.some((x) => CLAIMS.some((re) => re.test(x))), reply);
+  // the week's button: there when they asked for their week, and reading what
+  // it opens; never there when they asked for something else
+  if (theirWeekOf(s)) {
+    const offer = r.offer || null;
+    if (e.offer === 'plan') add('The Plan your week button', !!offer && offer.done === false, JSON.stringify(offer));
+    else if (e.offer === 'week') add('The Your week button', !!offer && offer.done === true, JSON.stringify(offer));
+    else if (e.offer !== 'may') add('No week button unasked', !offer, JSON.stringify(offer));
+  }
   add('At most one question', asked <= 1, reply);
   add('No dashes as punctuation', !/\s[-–—]\s|—/.test(reply), reply);
   add('A reply', reply.trim().length > 0, reply);
@@ -233,6 +247,7 @@ async function runOne(s, modelKey) {
         // --old-clock leaves it out: the clock words as they were before 5 October
         ...(args.includes('--old-clock') ? {} : { dayEndHour: 3 }),
       },
+      week: theirWeekOf(s),
       deps: {
         now: () => Date.parse(s.nowIso || NOW_ISO),
         ctx: { env, userId: USER, timezone: TZ, cache: new Map(), db: dbFor(s, to) },
@@ -290,7 +305,7 @@ const done = await pool(jobs, 4, async ({ s, m }) => {
   );
   if (r.out) {
     console.log(`      reply: ${r.out.reply}`);
-    console.log(`      card: ${JSON.stringify(r.rows.map((c) => ({ op: c.op, type: c.type, id: c.id, title: c.title, fields: c.fields })))}  tools: ${(r.out.tools || []).join(', ') || 'none'}`);
+    console.log(`      card: ${JSON.stringify(r.rows.map((c) => ({ op: c.op, type: c.type, id: c.id, title: c.title, fields: c.fields })))}  tools: ${(r.out.tools || []).join(', ') || 'none'}${r.out.offer ? `  offer: ${r.out.offer.done ? 'Your week' : 'Plan your week'}` : ''}`);
   }
   return { id: s.id, kind: s.kind, ...r };
 });

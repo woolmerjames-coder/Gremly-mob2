@@ -2308,6 +2308,8 @@ async function answerWithAgent({
     messages,
     tasks: Array.isArray(body.agentTasks) ? body.agentTasks : [],
     preload,
+    // their week, from an app build that can show the weekly review's button
+    week: body.week && typeof body.week === 'object' ? body.week : null,
     onStatus: (line) => {
       send({ searching: true, query: line, isLoadingHint: true }).catch(() => {});
     },
@@ -2333,6 +2335,8 @@ async function answerWithAgent({
     agent: {
       card: turn.card,
       tasks: turn.tasks,
+      // the button to their week, when Gremly put one under the reply
+      ...(turn.offer ? { offer: turn.offer } : {}),
       model: turn.model,
       ms: turn.ms,
       tools: turn.tools,
