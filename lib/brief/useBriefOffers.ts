@@ -36,9 +36,11 @@ import {
   liveOfferId,
   liveQuestion,
   planOfferToBringBack,
+  wrapBegun,
   visibleThreadMessages,
 } from './messages';
 import { scheduleDcoRefresh } from './dcoRefresh';
+import { minutesOfTheirDay } from './time';
 import { CHECKIN_COPY, applyCheckIn, briefWeekFacts, checkInWaiting } from './checkIn';
 import {
   afterAnswer,
@@ -110,7 +112,7 @@ export interface BriefOffers {
    * question, or the plan offer once more. Nothing when an offer is already
    * waiting at the bottom.
    */
-  continueBrief: () => Promise<void>;
+  continueBrief: (how?: { afterWeek?: boolean }) => Promise<void>;
   /**
    * A habit check in was answered and the brief's own offer has not followed
    * it yet (checkInOfferOwed): continueBrief shows it.
@@ -445,9 +447,18 @@ export function useBriefOffers(deps: BriefOffersDeps): BriefOffers {
   );
 
   const continueBrief = useCallback(
-    () =>
+    (how: { afterWeek?: boolean } = {}) =>
       run(async () => {
         const msgs = depsRef.current.messages;
+        // The weekly review has just ended (afterWeek). Nothing of the
+        // morning's follows it once the wrap up has spoken (a review begun at
+        // its close), or by the evening, when the day's planning is past; the
+        // small hours before their day ends count as evening.
+        if (
+          how.afterWeek &&
+          (wrapBegun(msgs) || dayPartAt(Math.floor(minutesOfTheirDay() / 60)) === 'evening')
+        )
+          return;
         if (heldOffer(msgs)) {
           if (liveQuestion(msgs)) return;
           await reveal();
@@ -470,7 +481,7 @@ export function useBriefOffers(deps: BriefOffersDeps): BriefOffers {
           ]);
           return;
         }
-        const offer = planOfferToBringBack(msgs);
+        const offer = planOfferToBringBack(msgs, !!how.afterWeek);
         const meta = briefMetaOf(offer);
         if (!offer || meta?.type !== 'brief-offer') return;
         await pause();

@@ -124,20 +124,42 @@ export function liveQuestion(messages: SpaceChatMessage[]): SpaceChatMessage | n
   return meta.kind === 'question' && meta.question_id ? m : null;
 }
 
+/** Whether the wrap up has spoken in the thread. */
+export function wrapBegun(messages: SpaceChatMessage[]): boolean {
+  return visibleThreadMessages(messages).some((m) => !!briefMetaOf(m)?.wrap);
+}
+
+/** The button that opens the weekly review from the brief's offer (lib/brief/checkIn.ts). */
+export const PLAN_WEEK_BUTTON = 'plan_week';
+
 /**
- * The plan offer to bring back once a change made in the thread is done: the
- * day's latest offer, when it offers planning, nothing was chosen on it, the
- * thread has moved past it, no plan has been made since, and it is not itself
- * one brought back already.
+ * The plan offer to bring back once a change made in the thread is done, or
+ * the weekly review has ended: the thread's latest offer, when it offers
+ * planning, the thread has moved past it, no plan has been made since,
+ * nothing was chosen on it, and it is not itself one brought back already.
+ *
+ * Once the weekly review has ended (afterWeek) the day's offer is looked for
+ * behind it: the review's own offers are passed over, and Plan my week chosen
+ * on the day's offer does not count against it, on an offer brought back
+ * before too. That was not a no to planning the day, so Plan my day is still
+ * theirs. Only then: after a turn in the thread while the review is opening
+ * or under way, the offer must not come back under it. And nothing comes back
+ * once the wrap up has spoken: the day's planning is past by then.
  */
-export function planOfferToBringBack(messages: SpaceChatMessage[]): SpaceChatMessage | null {
+export function planOfferToBringBack(
+  messages: SpaceChatMessage[],
+  afterWeek = false,
+): SpaceChatMessage | null {
   const visible = visibleThreadMessages(messages);
   if (liveOfferId(visible)) return null;
   for (let i = visible.length - 1; i >= 0; i--) {
     const meta = briefMetaOf(visible[i]);
-    if (meta?.type === 'brief-plan') return null;
-    if (meta?.type !== 'brief-offer') continue;
-    if (meta.chosen || meta.brought_back_from || meta.kind === 'question') return null;
+    if (meta?.type === 'brief-plan' || (afterWeek && meta?.wrap)) return null;
+    if (meta?.type !== 'brief-offer' || (afterWeek && meta.week)) continue;
+    const chose = meta.chosen?.id ?? null;
+    const forWeek = afterWeek && chose === PLAN_WEEK_BUTTON;
+    if (!forWeek && (chose || meta.brought_back_from)) return null;
+    if (meta.kind === 'question') return null;
     return meta.buttons.some((b) => b.action === 'plan') ? visible[i] : null;
   }
   return null;

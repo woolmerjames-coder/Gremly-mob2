@@ -4,6 +4,7 @@ import { answerQuestion, markQuestionAsked } from '../../story/storyApi';
 import { creditFirstReply } from '../feeding';
 import { BRIEF_COPY } from '../offerFlow';
 import { applyCheckIn, briefWeekFacts } from '../checkIn';
+import { getDateService } from '../../date/DateService';
 import type { SpaceChatMessage } from '../../types';
 
 jest.mock('../../story/storyApi', () => ({
@@ -268,6 +269,32 @@ describe('a reply typed under the question, and the brief carrying on', () => {
     });
   });
 
+  it('shows nothing of the morning’s after a weekly review begun at the wrap up’s close', async () => {
+    const answered = msg('q', 'assistant', {
+      ...(QUESTION.metadata_json as any),
+      chosen: { id: 'typed', at: 'now' },
+    });
+    const thread = [
+      answered,
+      PLAN_HELD,
+      msg('e1', 'assistant', { type: 'brief-text', part: 'evening', wrap: true }),
+      msg('done', 'system', { type: 'week-card', card: 'done', week: true }),
+    ];
+    const { hook, added } = setup(thread);
+    await act(async () => {
+      await hook.result.current.continueBrief({ afterWeek: true });
+    });
+    expect(added).toHaveLength(0);
+
+    // a turn in the thread still shows the held offer, as it always has
+    const turn = setup([...thread, said('u1', 'Thanks'), reply('a1', 'Any time.')]);
+    await act(async () => {
+      await turn.hook.result.current.continueBrief();
+    });
+    expect(turn.added).toHaveLength(1);
+    expect(turn.added[0].meta).toMatchObject({ revealed_from: 'plan-held' });
+  });
+
   it('waits while the question is still the last thing said', async () => {
     const { hook, added } = setup([QUESTION, PLAN_HELD]);
     await act(async () => {
@@ -314,6 +341,90 @@ describe('a reply typed under the question, and the brief carrying on', () => {
       await second.hook.result.current.continueBrief();
     });
     expect(second.added).toHaveLength(0);
+  });
+
+  describe('after the weekly review', () => {
+    const ds = getDateService() as any;
+    let clock: () => Date;
+    const chosen = msg('plan-shown', 'assistant', {
+      ...(PLAN_SHOWN.metadata_json as any),
+      review_offer: true,
+      chosen: { id: 'plan_week', at: 'now' },
+    });
+    const tap = msg('tap', 'user', {
+      type: 'brief-reply',
+      button_id: 'plan_week',
+      action: 'plan_week',
+    });
+    const reviewed = [
+      chosen,
+      tap,
+      msg('done', 'system', { type: 'week-card', card: 'done', week: true }),
+      msg('line', 'assistant', { type: 'brief-text', part: 'morning', ids: [], week: true }),
+    ];
+    // a local hour of the day, whatever timezone the suite runs in
+    const at = (hour: number) => {
+      ds.clock = () => new Date(2026, 9, 4, hour, 30, 0);
+    };
+    beforeEach(() => {
+      clock = ds.clock;
+    });
+    afterEach(() => {
+      ds.clock = clock;
+    });
+
+    it('brings Plan my day back once the review chosen on the offer is over', async () => {
+      at(9);
+      const { hook, added } = setup(reviewed);
+      await act(async () => {
+        await hook.result.current.continueBrief({ afterWeek: true });
+      });
+      expect(added).toHaveLength(1);
+      expect(added[0].meta).toMatchObject({
+        type: 'brief-offer',
+        kind: 'plan',
+        brought_back_from: 'plan-shown',
+      });
+      expect(added[0].meta.chosen).toBeUndefined();
+      expect(added[0].meta.buttons.map((b: any) => b.action)).toEqual([
+        'plan',
+        'what_can_wait',
+        'not_today',
+      ]);
+    });
+
+    it('does not put it back under a review that is still opening', async () => {
+      at(9);
+      // they typed while the read was being made: that turn is not the review's end
+      const { hook, added } = setup([
+        chosen,
+        tap,
+        said('u1', 'What time is my flight'),
+        reply('a1', 'At three.'),
+      ]);
+      await act(async () => {
+        await hook.result.current.continueBrief();
+      });
+      expect(added).toHaveLength(0);
+    });
+
+    it('lets the day be once the review ends in the evening, or in the small hours', async () => {
+      at(19);
+      const evening = setup(reviewed);
+      await act(async () => {
+        await evening.hook.result.current.continueBrief({ afterWeek: true });
+      });
+      expect(evening.added).toHaveLength(0);
+
+      // half past midnight, before their day ends at three: still the evening before
+      ds.setDayBoundaryHour(3);
+      at(0);
+      const late = setup(reviewed);
+      await act(async () => {
+        await late.hook.result.current.continueBrief({ afterWeek: true });
+      });
+      expect(late.added).toHaveLength(0);
+    });
   });
 
   it('does not bring the plan offer back once something was chosen on it or a plan was made', async () => {

@@ -5,6 +5,7 @@ import {
   isBriefMessage,
   liveOfferId,
   liveQuestion,
+  planOfferToBringBack,
   visibleThreadMessages,
 } from '../messages';
 import type { SpaceChatMessage } from '../../types';
@@ -114,5 +115,106 @@ describe("Gremly's question in the thread", () => {
     ]) {
       expect(isBriefMessage(msg(type, 'system', { type }))).toBe(true);
     }
+  });
+});
+
+describe('the plan offer that comes back', () => {
+  const PLAN = {
+    type: 'brief-offer',
+    kind: 'plan',
+    brief_id: 'b1',
+    review_offer: true,
+    buttons: [
+      { id: 'plan', label: 'Plan my day', action: 'plan', primary: true },
+      { id: 'not_today', label: 'Not today', action: 'not_today' },
+    ],
+  };
+  const weekChosen = { ...PLAN, chosen: { id: 'plan_week', at: 'now' } };
+  // the weekly review as it sits in the thread once it is over
+  const review = [
+    msg('tap', 'user', { type: 'brief-reply', button_id: 'plan_week', action: 'plan_week' }),
+    msg('open', 'assistant', {
+      type: 'brief-offer',
+      kind: 'week',
+      week: true,
+      chosen: { id: 'week_start', at: 'now' },
+      buttons: [{ id: 'week_start', label: 'Start', action: 'week_start' }],
+    }),
+    msg('go', 'user', { type: 'brief-reply', button_id: 'week_start', week: true }),
+    msg('done', 'system', {
+      type: 'week-card',
+      card: 'done',
+      week_start: '2026-10-05',
+      week: true,
+    }),
+    msg('line', 'assistant', { type: 'brief-text', part: 'morning', ids: [], week: true }),
+  ];
+
+  it('is the plan offer once the weekly review they chose on it has ended', () => {
+    const thread = [msg('offer', 'assistant', weekChosen), ...review];
+    expect(planOfferToBringBack(thread, true)?.id).toBe('offer');
+  });
+
+  it('stays away while that review is still opening: a turn in the thread is not its end', () => {
+    // Plan my week tapped, the read still being made, and they type something
+    const thread = [
+      msg('offer', 'assistant', weekChosen),
+      review[0],
+      msg('typed', 'user', null),
+      msg('reply', 'assistant', null),
+    ];
+    expect(planOfferToBringBack(thread)).toBeNull();
+  });
+
+  it('is the plan offer when the review was opened from somewhere else', () => {
+    const thread = [msg('offer', 'assistant', PLAN), ...review.slice(1)];
+    expect(planOfferToBringBack(thread, true)?.id).toBe('offer');
+    // but not on a turn while that review is opening or under way: the review's own offer is in the way
+    const opening = [
+      ...thread.slice(0, 3),
+      msg('typed', 'user', null),
+      msg('reply', 'assistant', null),
+    ];
+    expect(planOfferToBringBack(opening)).toBeNull();
+  });
+
+  it('comes back after the review on an offer that was itself brought back', () => {
+    const back = { ...weekChosen, brought_back_from: 'first' };
+    const thread = [
+      msg('first', 'assistant', PLAN),
+      msg('u', 'user', null),
+      msg('offer', 'assistant', back),
+      ...review,
+    ];
+    expect(planOfferToBringBack(thread, true)?.id).toBe('offer');
+  });
+
+  it('stays away after any other answer, a plan, or the wrap up', () => {
+    const no = { ...PLAN, chosen: { id: 'not_today', at: 'now' } };
+    expect(planOfferToBringBack([msg('offer', 'assistant', no), ...review], true)).toBeNull();
+    const planned = msg('plan', 'system', { type: 'brief-plan', status: 'proposal', items: [] });
+    expect(
+      planOfferToBringBack([msg('offer', 'assistant', weekChosen), ...review, planned], true),
+    ).toBeNull();
+    const wrap = msg('wrap', 'assistant', { type: 'brief-text', part: 'evening', wrap: true });
+    expect(
+      planOfferToBringBack([msg('offer', 'assistant', weekChosen), ...review, wrap], true),
+    ).toBeNull();
+  });
+
+  it('waits while one of the review’s own offers is still live', () => {
+    const asking = msg('day', 'assistant', {
+      type: 'brief-offer',
+      kind: 'week_day',
+      week: true,
+      buttons: [{ id: 'week_keep_day', label: 'Keep', action: 'week_keep_day' }],
+    });
+    const thread = [msg('offer', 'assistant', weekChosen), ...review, asking];
+    expect(planOfferToBringBack(thread, true)).toBeNull();
+  });
+
+  it('is nothing when the brief had no plan to offer', () => {
+    const bare = { ...weekChosen, kind: 'none', buttons: [] };
+    expect(planOfferToBringBack([msg('offer', 'assistant', bare), ...review], true)).toBeNull();
   });
 });

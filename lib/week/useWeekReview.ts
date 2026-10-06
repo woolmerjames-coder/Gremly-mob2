@@ -171,6 +171,12 @@ export interface WeekReviewDeps {
   tellGremly: (text: string) => Promise<{ answered: boolean; card: boolean; hold?: string | null }>;
   /** Pause between the lines Gremly adds; 0 in tests */
   pauseMs?: number;
+  /**
+   * The review has let go of the thread: it is finished, with any question
+   * about their weekly day answered, or they turned it down or stopped. The
+   * screen lets the brief carry on from here (Plan my day comes back).
+   */
+  onEnded?: () => void;
 }
 
 function store(): any {
@@ -449,36 +455,49 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
    * had. A thread that went off screen part way cannot be told anything: the
    * review is picked up from its row when the thread is back.
    */
-  const run = useCallback(
-    (work: () => Promise<void>, failed: string = WEEK_COPY.stepFailed): Promise<void> => {
-      if (busyRef.current) return Promise.resolve();
+  const attempt = useCallback(
+    (work: () => Promise<void>, failed: string = WEEK_COPY.stepFailed): Promise<boolean> => {
+      if (busyRef.current) return Promise.resolve(true);
       busyRef.current = true;
       setBusy(true);
+      // false when the step failed and the thread was told so
       const going = (async () => {
         try {
           await work();
+          return true;
         } catch (err) {
           if (err instanceof LeftThread) {
             console.warn('[Week] the thread went off screen part way through a step');
             patchSession({ left: true });
-            return;
+            return true;
           }
           console.warn('[Week] a step failed:', err);
           try {
             await save([say(failed, nowPart())]);
           } catch (e) {
-            if (e instanceof LeftThread) patchSession({ left: true });
             console.warn('[Week] and the thread could not be told that it failed:', e);
+            if (e instanceof LeftThread) {
+              // the thread is off screen: nothing was told, and it is picked up when it is back
+              patchSession({ left: true });
+              return true;
+            }
           }
+          return false;
         } finally {
           busyRef.current = false;
           setBusy(false);
         }
       })();
-      idleRef.current = going;
+      idleRef.current = going.then(() => undefined);
       return going;
     },
     [save],
+  );
+  /** A step, for the callers that have nothing to do when it fails beyond what the thread was told. */
+  const run = useCallback(
+    (work: () => Promise<void>, failed?: string): Promise<void> =>
+      attempt(work, failed).then(() => undefined),
+    [attempt],
   );
 
   const choose = useCallback(
@@ -616,7 +635,10 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
       if (asksAboutDay(row, on)) {
         await saveRow((now) => ({ answers: { ...now.answers, day_asked: true } }));
         await save(dayQuestionMsgs(weekdayOf(today()), useThisWeek.getState().weeklyDay));
+        // the thread is still the review's until that question is answered (answerDay)
+        return;
       }
+      depsRef.current.onEnded?.();
     },
     [save, saveRow],
   );
@@ -888,7 +910,14 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
    * or on the wrap up's close): the review goes straight in, or picks up
    * where it was left, with no opening to answer first.
    */
-  const startNow = useCallback(() => run(() => route(true), WEEK_COPY.openFailed), [route, run]);
+  const startNow = useCallback(async () => {
+    const opened = await attempt(() => route(true), WEEK_COPY.openFailed);
+    // Their yes was an answer somewhere else, and on the brief's offer it
+    // spent that offer. When the review then never began, the thread is the
+    // day's again: the brief carries on, so Plan my day comes back with Plan
+    // my week beside it.
+    if (!opened && session().row?.status !== 'started') depsRef.current.onEnded?.();
+  }, [attempt, route]);
 
   // Back in the thread after it went off screen part way through a step: what
   // the review could not add then is put there now, from what its row says.
@@ -1066,15 +1095,19 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
             return;
           case 'week_skip':
             await skip();
+            depsRef.current.onEnded?.();
             return;
           case 'week_stop':
             await save(stoppedMsgs(part));
+            depsRef.current.onEnded?.();
             return;
           case 'week_keep_day':
             await answerDay(false);
+            depsRef.current.onEnded?.();
             return;
           case 'week_move_day':
             await answerDay(true);
+            depsRef.current.onEnded?.();
             return;
           default:
         }

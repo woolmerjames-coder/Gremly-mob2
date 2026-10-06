@@ -97,6 +97,8 @@ function harness(extra: Record<string, unknown> = {}) {
       card: false,
       hold: null as string | null,
     })),
+    // the thread is told when the review is over, so the brief can carry on
+    onEnded: jest.fn(),
     pauseMs: 0,
     ...extra,
   };
@@ -417,8 +419,11 @@ describe('opening the review', () => {
     const h = harness();
     await h.go((r) => r.open());
     await h.tap('week_start');
+    expect(h.deps.onEnded).not.toHaveBeenCalled();
     await h.tap('week_stop');
     expect(h.thread().slice(-2)).toEqual(['me: Not now', `gremly: ${WEEK_COPY.stopped}`]);
+    // the thread is the day's again
+    expect(h.deps.onEnded).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -435,6 +440,8 @@ describe('not this week', () => {
     ]);
     expect(useThisWeek.getState().review?.status).toBe('skipped');
     expect(callWeekRead).not.toHaveBeenCalled();
+    // the thread is the day's again
+    expect(h.deps.onEnded).toHaveBeenCalledTimes(1);
   });
 
   it('makes the week’s row when Gremly has made no read for it yet', async () => {
@@ -1242,10 +1249,13 @@ describe('a review on another day than their weekly day', () => {
       'gremly: One more thing. You planned this on a Wednesday. Want Wednesday to be your weekly day from now on?',
     ]);
     expect(rows['row-1'].answers.day_asked).toBe(true);
+    // the thread is still the review's until that question is answered
+    expect(h.deps.onEnded).not.toHaveBeenCalled();
     await h.tap('week_keep_day');
     expect(h.thread().slice(-2)).toEqual(['me: Keep Sunday', 'gremly: Sunday it stays.']);
     expect(saveWeeklyDay).not.toHaveBeenCalled();
     expect(moveWeekReview).not.toHaveBeenCalled();
+    expect(h.deps.onEnded).toHaveBeenCalledTimes(1);
   });
 
   it('moves their weekly day when they say so, and the review counts as the new week’s', async () => {
@@ -1275,6 +1285,7 @@ describe('a review on another day than their weekly day', () => {
       'me: Make it Wednesday',
       "gremly: Done. Your weekly review is on Wednesdays from now on, and this one counts as this week's.",
     ]);
+    expect(h.deps.onEnded).toHaveBeenCalledTimes(1);
   });
 
   it('takes the thread’s cards with the review to the new week, so they stay its own', async () => {
@@ -1359,6 +1370,29 @@ describe('when a step goes wrong', () => {
     await h.go((r) => r.open());
     expect(h.thread()).toEqual([`gremly: ${WEEK_COPY.openFailed}`]);
     expect(useWeekSession.getState().row).toBeNull();
+    // opened from the Week button: the day's own offer was never answered, so it is still theirs
+    expect(h.deps.onEnded).not.toHaveBeenCalled();
+  });
+
+  it('hands the thread back when a yes given elsewhere could not open the review', async () => {
+    // Plan my week on the brief's offer: that offer is answered, and the week then cannot be read
+    (getWeekSettings as jest.Mock).mockRejectedValue(new Error('offline'));
+    const h = harness();
+    await h.go((r) => r.startNow());
+    expect(h.thread()).toEqual([`gremly: ${WEEK_COPY.openFailed}`]);
+    // the brief carries on, so Plan my day comes back with Plan my week beside it
+    expect(h.deps.onEnded).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the thread when a review already under way fails to pick up', async () => {
+    const h = await started();
+    // something came after its card, and the card cannot be brought back
+    await h.go((r) => r.takeTyped('One second'));
+    h.deps.patchMessageMetadata.mockRejectedValueOnce(new Error('offline'));
+    await h.go((r) => r.startNow());
+    expect(h.thread().slice(-1)).toEqual([`gremly: ${WEEK_COPY.openFailed}`]);
+    // the review is still theirs to carry on with: the brief stays out of its way
+    expect(h.deps.onEnded).not.toHaveBeenCalled();
   });
 
   it('takes a milestone’s steps back when the review cannot be saved, so a second tap does not make them twice', async () => {
@@ -1766,7 +1800,10 @@ describe('the week’s board', () => {
     const h = await onBoard();
     const r = () => h.hook.result.current;
     await h.go(() => r().board.open());
+    expect(h.deps.onEnded).not.toHaveBeenCalled();
     await h.go(() => r().board.done());
+    // the review is over on their weekly day: the thread is told once, so the brief can carry on
+    expect(h.deps.onEnded).toHaveBeenCalledTimes(1);
     // only what differs from what is saved: the marking is on its Tuesday already
     expect(saveBoard).toHaveBeenCalledWith({
       place: [{ id: ID.boiler, day: WED }],
