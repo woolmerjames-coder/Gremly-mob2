@@ -73,9 +73,11 @@ export function fallbackCopy(moment, f = {}) {
         body: 'Tap for the rundown in Chat.',
       };
     case 'sweep':
+      // Neutral on purpose: it is also sent on an evening with nothing to
+      // sort, so it says nothing of things waiting.
       return {
         title: f.weekday ? `Ready to wrap up ${f.weekday}?` : 'Ready to wrap up?',
-        body: 'A look back at your day, and a few things to settle, in Chat.',
+        body: 'A look back at your day, whenever you are ready, in Chat.',
       };
     case 'habit_checkin':
       return {

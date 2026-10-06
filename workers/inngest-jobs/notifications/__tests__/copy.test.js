@@ -154,6 +154,9 @@ describe('the fixed lines', () => {
     expect(line.title).toBe('Ready to wrap up Wednesday?');
     expect(`${line.title} ${line.body}`).not.toMatch(/sweep/i);
     expect(fallbackCopy('sweep', {}).title).toBe('Ready to wrap up?');
+    // it is also sent on an evening with nothing to sort, so it promises nothing waiting
+    expect(line.body).toBe('A look back at your day, whenever you are ready, in Chat.');
+    expect(checkCopy(line)).toBeNull();
   });
 });
 
