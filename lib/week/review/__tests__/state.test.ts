@@ -33,7 +33,7 @@ const DAYS = daysPlanned(ON);
 const OFF = [0, 6];
 
 describe('the steps of a review', () => {
-  it('are all six when the read has something for each', () => {
+  it('are all seven when the read has something for each, ending with the board', () => {
     expect(stepsFor(madeUpRead(), SUN)).toEqual([
       'challenge',
       'priorities',
@@ -41,35 +41,37 @@ describe('the steps of a review', () => {
       'intention',
       'ahead',
       'needs_you',
+      'board',
     ]);
   });
 
   it('leave out a step with nothing to show', () => {
     const thin = madeUpRead({ priority_options: [], milestones: [], needs_you: [] });
-    expect(stepsFor(thin, SUN)).toEqual(['challenge', 'shape', 'intention']);
-    // a read that could not be made has the challenge, the shape and the intention still
-    expect(stepsFor(null, SUN)).toEqual(['challenge', 'shape', 'intention']);
+    expect(stepsFor(thin, SUN)).toEqual(['challenge', 'shape', 'intention', 'board']);
+    // a read that could not be made has the challenge, the shape, the intention and the board still
+    expect(stepsFor(null, SUN)).toEqual(['challenge', 'shape', 'intention', 'board']);
   });
 
   it('go on to the next one, and to done after the last', () => {
     const steps = stepsFor(madeUpRead(), SUN);
     expect(stepAfter(steps, 'challenge')).toBe('priorities');
     expect(stepAfter(steps, 'ahead')).toBe('needs_you');
-    expect(stepAfter(steps, 'needs_you')).toBe('done');
+    expect(stepAfter(steps, 'needs_you')).toBe('board');
+    expect(stepAfter(steps, 'board')).toBe('done');
     const thin = stepsFor(madeUpRead({ priority_options: [], milestones: [], needs_you: [] }), SUN);
     expect(stepAfter(thin, 'challenge')).toBe('shape');
-    expect(stepAfter(thin, 'intention')).toBe('done');
+    expect(stepAfter(thin, 'intention')).toBe('board');
     // a step the read no longer has (its milestones have gone by): the next one it does have
     expect(stepAfter(thin, 'priorities')).toBe('shape');
-    expect(stepAfter(thin, 'ahead')).toBe('done');
+    expect(stepAfter(thin, 'ahead')).toBe('board');
   });
 
   it('are read from the row: the challenge until it says otherwise, and done when finished', () => {
     expect(stepOf(madeUpRow())).toBe('challenge');
     expect(stepOf(madeUpRow({ answers: { step: 'shape' } }))).toBe('shape');
     expect(stepOf(madeUpRow({ answers: { step: 'done' } }))).toBe('done');
-    // the board is not a step of the conversation yet
-    expect(stepOf(madeUpRow({ answers: { step: 'board' } }))).toBe('challenge');
+    expect(stepOf(madeUpRow({ answers: { step: 'board' } }))).toBe('board');
+    expect(isPast('shape', 'board')).toBe(true);
     expect(stepOf(null)).toBe('challenge');
     expect(isPast('priorities', 'shape')).toBe(true);
     expect(isPast('shape', 'shape')).toBe(false);

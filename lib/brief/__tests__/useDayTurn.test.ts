@@ -789,7 +789,8 @@ describe('their week, and the weekly review', () => {
       revert: async () => undefined,
     });
     const onApplied = jest.fn();
-    const { hook, messages } = harness(undefined, { onApplied });
+    const onUndone = jest.fn();
+    const { hook, messages } = harness(undefined, { onApplied, onUndone });
     const cardMessage = {
       id: 'card-1',
       role: 'system',
@@ -803,5 +804,11 @@ describe('their week, and the weekly review', () => {
     // only what was saved, in the change model's shape
     expect(onApplied).toHaveBeenCalledTimes(1);
     expect(onApplied.mock.calls[0][0]).toEqual([card[0]]);
+    // and when the card's changes are taken back, the ritual is told that too
+    expect(onUndone).not.toHaveBeenCalled();
+    await act(async () => {
+      await hook.result.current.undo(cardMessage);
+    });
+    expect(onUndone).toHaveBeenCalledTimes(1);
   });
 });

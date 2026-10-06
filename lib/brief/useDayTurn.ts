@@ -81,6 +81,8 @@ export interface DayTurnDeps {
   ritualContext?: () => { wrap?: WrapTurnContext | null; week?: WeekTurnContext | null };
   /** A card's changes were applied: the weekly review keeps what was decided */
   onApplied?: (changes: Change[]) => void | Promise<void>;
+  /** A card's changes were taken back with its Undo: the weekly review plans from the items as they are */
+  onUndone?: () => void | Promise<void>;
 }
 
 /** How one turn is run: for the wrap up, its message is already in the thread and it carries on itself. */
@@ -618,6 +620,11 @@ export function useDayTurn(deps: DayTurnDeps) {
         undoRef.current.delete(message.id);
         setUndoable((u) => u.filter((x) => x !== message.id));
         await d.patchMessageMetadata(message.id, { status: 'undone' });
+        if (meta.card?.length && d.onUndone) {
+          await Promise.resolve(d.onUndone()).catch((err) =>
+            console.warn('[DayTurn] the ritual could not take the undone changes:', err),
+          );
+        }
         await d.appendBriefMessage('system', undoneEventText(entry.count), {
           type: 'brief-event',
           icon: 'saved',

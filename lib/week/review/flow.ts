@@ -174,6 +174,9 @@ export function stepIntro(step: ChatStep, read: WeekRead | null, today: string):
       return aheadIntro(milestonesShown(read, today).length);
     case 'needs_you':
       return needsYouIntro((read?.needs_you ?? []).length);
+    case 'board':
+      // the board's line is drawn with its card, from the board as it stands
+      return '';
   }
 }
 
@@ -182,7 +185,8 @@ export function stepMsgs(
   step: ChatStep,
   o: { weekStart: string; read: WeekRead | null; today: string; part: DayPart },
 ): WeekMsg[] {
-  return [say(stepIntro(step, o.read, o.today), o.part), card(step, o.weekStart)];
+  const intro = stepIntro(step, o.read, o.today);
+  return [...(intro ? [say(intro, o.part)] : []), card(step, o.weekStart)];
 }
 
 /** A review picked up in a thread that does not hold it: every card so far, then the one it is on. */
@@ -220,15 +224,10 @@ export function talkMsgs(title: string, question: string): WeekMsg[] {
 /** The week is planned: the summary card, and Gremly's last line. */
 export function doneMsgs(o: {
   weekStart: string;
-  guessed: boolean;
   part: DayPart;
   summary: WeekCardMeta['summary'];
 }): WeekMsg[] {
-  return [
-    ...(o.guessed ? [say(WEEK_COPY.guessed, o.part)] : []),
-    card('done', o.weekStart, { summary: o.summary }),
-    say(WEEK_COPY.doneLine, o.part),
-  ];
+  return [card('done', o.weekStart, { summary: o.summary }), say(WEEK_COPY.doneLine, o.part)];
 }
 
 /** A review done on another day than their weekly day: asked once whether to move it. */

@@ -15,6 +15,7 @@ import type { Milestone } from '../../changes/model';
 import type { WeekAnswers, WeekRead, WeekReviewRow } from '../../repo/weekReviewRepo';
 import {
   DEFAULT_DAYS_OFF,
+  FALLBACK_HOURS,
   WEEK_STEPS,
   addDays,
   cycleOf,
@@ -42,8 +43,8 @@ import {
 /** What a review opened today is (workers/shared/week.js reviewWith). */
 export type ReviewOn = ReturnType<typeof reviewWith>;
 
-/** The steps of the conversation, in order. The board joins before done in batch 4. */
-export type ChatStep = Exclude<WeekStep, 'offer' | 'board' | 'done'>;
+/** The steps of the conversation, in order, ending with the week's board. */
+export type ChatStep = Exclude<WeekStep, 'offer' | 'done'>;
 const CHAT_STEPS: ChatStep[] = [
   'challenge',
   'priorities',
@@ -51,10 +52,11 @@ const CHAT_STEPS: ChatStep[] = [
   'intention',
   'ahead',
   'needs_you',
+  'board',
 ];
 
-/** Hours a card starts from when neither last week nor Gremly's guess gives any. */
-export const FALLBACK_HOURS: Required<WeekHours> = { normal_day: 2, busy_day: 1, weekend_day: 4 };
+/** Hours a card starts from when neither last week nor Gremly's guess gives any (shared with the board). */
+export { FALLBACK_HOURS };
 
 /** How many priorities they keep, and how many moments the timeline has room for. */
 export const MAX_PRIORITIES = 3;
@@ -261,6 +263,8 @@ export function settledText(
       return aheadText((a.milestones ?? []).map((m) => m.goal));
     case 'needs_you':
       return WEEK_COPY.enough;
+    case 'board':
+      return WEEK_COPY.weekPlanned;
     default:
       return null;
   }
@@ -336,6 +340,12 @@ export interface WeekContextInput {
   talking: number | null;
   /** The question Gremly's last reply left the review waiting on */
   hold: string | null;
+  /** The week's board as it stands (lib/week/board workingPicture), once there is one */
+  board?: {
+    placed: { id: string; day: string }[];
+    later: { id: string; back_on: string }[];
+    habit_days: { id: string; days: string[] }[];
+  } | null;
 }
 
 /**
@@ -377,10 +387,10 @@ export function weekTurnContext(p: WeekContextInput): WeekTurnContext {
       .filter((o) => o.gremly_pick)
       .map((o) => ({ text: o.text, item_ids: o.item_ids ?? [] })),
     settled: settledFor(review, days),
-    // the board joins in batch 4: nothing is placed, put off or given days here yet
-    habit_days: [],
-    placed: [],
-    later: [],
+    // the board as it stands, none of it saved until they finish
+    habit_days: (p.board?.habit_days ?? []).slice(0, 40),
+    placed: (p.board?.placed ?? []).slice(0, 200),
+    later: (p.board?.later ?? []).slice(0, 200),
     about: about
       ? {
           title: about.title,

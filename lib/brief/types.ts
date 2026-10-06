@@ -352,6 +352,7 @@ export type WeekCardKind =
   | 'intention'
   | 'ahead'
   | 'needs_you'
+  | 'board'
   | 'done';
 
 /**
@@ -370,6 +371,8 @@ export interface WeekCardMeta extends BriefMetaBase {
   at?: string;
   /** A step's card: what they settled on it, as their message under the card */
   settled?: string | null;
+  /** board: Gremly's line above the card, as it read when the week was planned */
+  intro?: string;
   /** done: the week in short, as it stood when the card was made */
   summary?: { intention: string | null; tiles: { num: string; label: string }[] };
   /** done: shown again from the Week button (Your week), not at the end of a review */

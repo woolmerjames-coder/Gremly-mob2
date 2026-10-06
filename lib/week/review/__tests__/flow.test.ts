@@ -27,20 +27,42 @@ import {
 import {
   TALK_REASONS,
   WEEK_COPY,
+  addToDay,
+  ageLabel,
   aheadIntro,
   aheadText,
+  backLabel,
+  backWhen,
+  boardIntro,
+  dayLetter,
+  dayTally,
   doneTiles,
+  habitPlanned,
   hoursLabel,
+  hoursRound,
   intentionQuote,
+  keepQuestion,
+  keptText,
+  laterLine,
+  loadLabel,
+  leftLabel,
+  minsLabel,
+  moveTarget,
   needsYouIntro,
   openerLine,
+  overfullLine,
   prioritiesButton,
+  relievedText,
+  roomLine,
   setUpButton,
   shortDate,
   shortDay,
   skippedLine,
   spanLabel,
   stepWhen,
+  stillLine,
+  todoStateLabel,
+  weekDayLabel,
   whenLabel,
 } from '../words';
 import { MON, SUN, THU, WED, WEEK_START, madeUpRead } from './madeUpWeek';
@@ -78,7 +100,7 @@ describe('every message of the review', () => {
     }),
     ...notQuiteMsgs('evening'),
     ...talkMsgs('Sort the boiler', 'What is making this one hard?'),
-    ...doneMsgs({ weekStart: WEEK_START, guessed: true, part: 'evening', summary: undefined }),
+    ...doneMsgs({ weekStart: WEEK_START, part: 'evening', summary: undefined }),
     ...dayQuestionMsgs(3, 0),
     ...recapMsgs(WEEK_START, undefined, 'evening'),
     ...planAgainMsgs(),
@@ -274,32 +296,26 @@ describe('each step', () => {
 describe('the end', () => {
   const summary = {
     intention: 'Fewer things, finished.',
-    tiles: doneTiles({ priorities: 2, steps: 3, talked: 1 }),
+    tiles: doneTiles({ todos: 12, habits: 5, steps: 3 }),
   };
 
   it('is the summary card, kept on the card, and Gremly’s last line', () => {
-    const msgs = doneMsgs({ weekStart: WEEK_START, guessed: false, part: 'evening', summary });
+    const msgs = doneMsgs({ weekStart: WEEK_START, part: 'evening', summary });
     expect(msgs.map((m) => m.meta.type)).toEqual(['week-card', 'brief-text']);
     expect(msgs[0].meta).toMatchObject({ card: 'done', summary });
     expect(msgs[1].content).toBe(WEEK_COPY.doneLine);
   });
 
-  it('says so first when Gremly’s guesses were taken', () => {
-    const msgs = doneMsgs({ weekStart: WEEK_START, guessed: true, part: 'evening', summary });
-    expect(msgs[0].content).toBe(WEEK_COPY.guessed);
-    expect(msgs).toHaveLength(3);
-  });
-
   it('counts the week in three tiles, in the singular when it is one', () => {
-    expect(doneTiles({ priorities: 1, steps: 1, talked: 1 })).toEqual([
-      { num: '1', label: 'thing that matters most' },
+    expect(doneTiles({ todos: 1, habits: 1, steps: 1 })).toEqual([
+      { num: '1', label: 'todo spread across the week' },
+      { num: '1', label: 'habit session with a day' },
       { num: '1', label: "step set up for what's coming" },
-      { num: '1', label: 'thing talked through' },
     ]);
-    expect(doneTiles({ priorities: 3, steps: 0, talked: 2 }).map((t) => t.label)).toEqual([
-      'things that matter most',
+    expect(doneTiles({ todos: 12, habits: 0, steps: 2 }).map((t) => t.label)).toEqual([
+      'todos spread across the week',
+      'habit sessions with a day',
       "steps set up for what's coming",
-      'things talked through',
     ]);
   });
 
@@ -386,5 +402,204 @@ describe('days and hours in words', () => {
     );
     // an intention is kept exactly as they wrote it
     expect(intentionQuote(' Fewer things, finished. ')).toBe('“Fewer things, finished.”');
+  });
+});
+
+describe('the board in words', () => {
+  it('writes minutes and hours as the board shows them', () => {
+    expect(minsLabel(90)).toBe('1h 30m');
+    expect(minsLabel(120)).toBe('2h');
+    expect(minsLabel(45)).toBe('45m');
+    expect(minsLabel(0)).toBe('0m');
+    expect(hoursRound(545)).toBe('9h');
+    expect(hoursRound(0)).toBe('0h');
+    expect(roomLine(17 * 60)).toBe('Your room this week: about 17h');
+    expect(leftLabel(75)).toBe('1h 15m free');
+    expect(leftLabel(0)).toBe('0m free');
+    expect(leftLabel(-20)).toBe('20m over');
+    expect(addToDay(MON)).toBe('+ Add to Mon');
+    expect(dayLetter(THU)).toBe('T');
+    expect(habitPlanned(1, 2)).toBe('1 of 2 planned');
+  });
+
+  it('has Gremly say the week as he spread it, from the board’s own figures', () => {
+    const base = { all: 60, room: 600, habits: 0, gremly: 0, own: 0, later: 0 };
+    const line = boardIntro({
+      all: 20 * 60,
+      room: 17 * 60,
+      habits: 3 * 60,
+      gremly: 12,
+      own: 0,
+      later: 30,
+    });
+    expect(line).toBe(
+      "Now the week itself. Everything on your list would take about 20h, and you have about 14h once your habits are in. So I've spread 12 todos across the days, priorities first, and the rest wait in Later. Move anything you like.",
+    );
+    expect(boardIntro({ ...base, gremly: 1 })).toContain(
+      "So I've spread one todo across the days, priorities first, and nothing is left for Later.",
+    );
+    expect(boardIntro({ ...base, later: 2 })).toContain(
+      'So nothing is on the days yet, and it all waits in Later.',
+    );
+    // habits that take more than the days give leave no room, never less than none
+    expect(boardIntro({ ...base, room: 60, habits: 120, gremly: 1 })).toContain(
+      'you have about 0h once your habits are in',
+    );
+    expect(boardIntro({ ...base, all: 0 })).toBe(
+      'Now the week itself. Nothing is waiting on your list, so the days are clear. Add anything you like.',
+    );
+  });
+
+  it('counts only what Gremly placed as his, and names what they had placed themselves', () => {
+    const base = { all: 60, room: 600, habits: 0, gremly: 0, own: 0, later: 0 };
+    expect(boardIntro({ ...base, gremly: 5, own: 7, later: 3 })).toContain(
+      "So I've spread 5 todos across the days, around the 7 you'd already placed, priorities first, and the rest wait in Later.",
+    );
+    expect(boardIntro({ ...base, gremly: 1, own: 1 })).toContain(
+      "So I've spread one todo across the days, around the one you'd already placed, priorities first, and nothing is left for Later.",
+    );
+    // nothing of his on the days: he does not say he spread anything
+    expect(boardIntro({ ...base, own: 4, later: 2 })).toContain(
+      "So I've left the 4 todos you'd already placed where they are, and the rest wait in Later.",
+    );
+    expect(boardIntro({ ...base, own: 1 })).toContain(
+      "So I've left the one todo you'd already placed where it is, and nothing is left for Later.",
+    );
+  });
+
+  it('says how long a todo has waited, and nothing for one added this month', () => {
+    const t = (created: string | null, moved = 0, step = false) => ({ created, moved, step });
+    expect(ageLabel(t('2026-08-02', 3), SUN)).toEqual({
+      text: 'Since Aug, moved 3×',
+      old: false,
+      show: true,
+    });
+    expect(ageLabel(t('2026-08-02'), SUN)).toEqual({ text: 'Since Aug', old: false, show: true });
+    // moved fifteen times, it counts as old
+    expect(ageLabel(t('2026-08-02', 15), SUN).old).toBe(true);
+    // another year says so, or the month could be read as this year's
+    expect(ageLabel(t('2025-10-20', 1), SUN).text).toBe('Since Oct 2025, moved 1×');
+    expect(ageLabel(t('2026-10-01', 4), SUN)).toEqual({ text: '', old: false, show: false });
+    expect(ageLabel(t(null), SUN).show).toBe(false);
+    // a step set up in the review says so, whenever it was made
+    expect(ageLabel(t('2026-10-04', 0, true), SUN)).toEqual({
+      text: 'New step',
+      old: false,
+      show: true,
+    });
+  });
+
+  it('says the day a Later comes back: the day this month, the date in another', () => {
+    expect(backLabel('2026-10-12', SUN)).toBe('Back Mon 12');
+    expect(backLabel('2026-11-02', '2026-10-28')).toBe('Back 2 Nov');
+  });
+});
+
+describe('your week in words', () => {
+  const day = (over: Record<string, unknown> = {}) => ({
+    when: 'past' as 'past' | 'today' | 'ahead',
+    planned: 4 as number | null,
+    done: 3,
+    alsoDone: 0,
+    todos: [] as { state: string }[],
+    habits: [] as { planned: boolean; done: boolean }[],
+    ...over,
+  });
+
+  it('says how a day went, or what it holds', () => {
+    expect(dayTally(day())).toBe('3 of 4 done');
+    expect(dayTally(day({ alsoDone: 2 }))).toBe('3 of 4 done, and 2 more');
+    // nothing was planned for the day, or no plan was kept for it
+    expect(dayTally(day({ planned: 0, done: 0, alsoDone: 2 }))).toBe('2 done');
+    expect(dayTally(day({ planned: null, done: 0 }))).toBe('Nothing planned');
+    expect(
+      dayTally(
+        day({
+          when: 'today',
+          planned: null,
+          done: 0,
+          todos: [{ state: 'open' }, { state: 'done' }],
+          habits: [{ planned: true, done: false }],
+        }),
+      ),
+    ).toBe('2 to do');
+    // a day still to come
+    expect(dayTally(day({ when: 'ahead', done: 0 }))).toBe('4 planned');
+    expect(dayTally(day({ when: 'ahead', done: 1 }))).toBe('4 planned, 1 done');
+    expect(
+      dayTally(day({ when: 'ahead', planned: null, done: 0, todos: [{ state: 'open' }] })),
+    ).toBe('1 planned');
+    expect(dayTally(day({ when: 'ahead', planned: 0, done: 0 }))).toBe('Nothing planned');
+  });
+
+  it('names a day, with Today on the day itself', () => {
+    expect(weekDayLabel(WED, WED)).toBe('Today, Wed 7');
+    expect(weekDayLabel(THU, WED)).toBe('Thu 8');
+  });
+
+  it('says what became of a todo, and nothing where its tick or its day says it', () => {
+    const says = (state: string, to: string | null, when: 'past' | 'today' | 'ahead' = 'past') =>
+      todoStateLabel({ state, to }, when, MON, '2026-10-11', WED);
+    expect(says('done', null)).toBeNull();
+    expect(says('open', null)).toBe('Not done');
+    expect(says('open', null, 'today')).toBeNull();
+    expect(says('open', null, 'ahead')).toBeNull();
+    // a day in the week by its name, a day outside it by its date
+    expect(says('moved', THU)).toBe('Moved to Thu');
+    expect(says('moved', '2026-10-14')).toBe('Moved to 14 Oct');
+    expect(says('later', '2026-10-13')).toBe('In Later, back Tue 13');
+    expect(says('later', '2026-11-02')).toBe('In Later, back 2 Nov');
+    expect(says('later', null)).toBe('No day now');
+    // put off until a day that has come: it is back with them
+    expect(says('later', WED)).toBe('Back from Later');
+    expect(says('later', MON)).toBe('Back from Later');
+    expect(says('back', null, 'today')).toBe('Back from Later');
+    expect(says('back', null, 'ahead')).toBe('Comes back from Later');
+    expect(says('let_go', null)).toBe('Let go');
+  });
+
+  it('says what is waiting in Later in one line', () => {
+    expect(laterLine(0, null, WED)).toBe('Nothing is waiting in Later.');
+    expect(laterLine(1, '2026-10-13', WED)).toBe(
+      'One thing is waiting in Later. It comes back Tue 13.',
+    );
+    expect(laterLine(12, '2026-11-02', WED)).toBe(
+      '12 things are waiting in Later. The next comes back 2 Nov.',
+    );
+    expect(backWhen('2026-10-12', WED)).toBe('Mon 12');
+  });
+});
+
+describe('their own days in words', () => {
+  it('asks what to do with them, naming the days they overfill', () => {
+    expect(keepQuestion(9, [])).toBe(
+      "You've already put 9 todos on the days we're planning. Shall I plan around them, or would you rather I rearranged them?",
+    );
+    expect(keepQuestion(6, [WED])).toContain('Wednesday holds more than it has room for.');
+    expect(keepQuestion(6, [MON, WED])).toContain(
+      'Monday and Wednesday hold more than they have room for.',
+    );
+    expect(keepQuestion(8, [MON, WED, THU])).toContain(
+      'Monday, Wednesday and Thursday hold more than they have room for.',
+    );
+    expect(keptText('all')).toBe('Keep my days');
+    expect(keptText('some')).toBe('Keep some');
+    expect(keptText('none')).toBe('Rearrange it all');
+    expect(loadLabel(185, 120)).toBe('3h 5m of 2h');
+  });
+
+  it('says how far over a day is, what would move where, and what they chose', () => {
+    expect(overfullLine(WED, 80, 2)).toBe(
+      "Wednesday holds 1h 20m more than it has room for. Here's what I'd move, if you agree.",
+    );
+    expect(overfullLine(WED, 80, 1)).toContain("Here's the one thing I'd move, if you agree.");
+    expect(overfullLine(WED, 80, 0)).toBe('Wednesday holds 1h 20m more than it has room for.');
+    expect(moveTarget(THU, null, SUN)).toBe('Thu');
+    expect(moveTarget(null, '2026-10-13', SUN)).toBe('Later, back Tue 13');
+    expect(moveTarget(null, null, SUN)).toBe('Later');
+    expect(stillLine(30)).toBe('That would still leave it 30m over.');
+    expect(relievedText(WED, 'moved')).toBe('Move these off Wednesday');
+    expect(relievedText(WED, 'changed')).toBe('I changed Wednesday myself');
+    expect(relievedText(WED, 'left')).toBe('Leave Wednesday as it is');
   });
 });
