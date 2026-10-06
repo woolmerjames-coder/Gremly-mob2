@@ -25,6 +25,7 @@ import {
   stepsFor,
   summaryWeekButton,
   weekButton,
+  weekCardToday,
   weekTurnContext,
 } from '../state';
 import { ID, MON, SAT, SUN, THU, TUE, WED, WEEK_START, madeUpRead, madeUpRow } from './madeUpWeek';
@@ -397,6 +398,19 @@ describe('the Week button', () => {
       expect(weekButton(day, 0, row('ready')).highlighted).toBe(true);
       expect(weekButton(day, 0, row('started')).highlighted).toBe(true);
     }
+  });
+
+  it('leads Today on their weekly day only, until the review is done or put off for the week', () => {
+    expect(weekCardToday(SUN, 0, null)).toBe(true);
+    expect(weekCardToday(SUN, 0, row('ready'))).toBe(true);
+    expect(weekCardToday(SUN, 0, row('started'))).toBe(true);
+    expect(weekCardToday(SUN, 0, row('done'))).toBe(false);
+    expect(weekCardToday(SUN, 0, row('skipped'))).toBe(false);
+    // the days after keep the highlighted button, without the card
+    for (const day of [MON, TUE, WED, SAT]) expect(weekCardToday(day, 0, null)).toBe(false);
+    // and it follows their own weekly day
+    expect(weekCardToday(WED, 3, null)).toBe(true);
+    expect(weekCardToday(SUN, 3, null)).toBe(false);
   });
 
   it('reads Your week once the review is done, with no highlight', () => {

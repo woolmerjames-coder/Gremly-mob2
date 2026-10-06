@@ -428,6 +428,21 @@ export function weekButton(
 }
 
 /**
+ * Whether Today leads with Plan your week: on their weekly day itself, until
+ * this week's review is done or they have said not this week. It is a card at
+ * the top of Today, or a button on the weekly summary's banner while that is
+ * showing (components/WeeklySummaryBanner).
+ * @param row the review of the week they are in (lib/week/thisWeek)
+ */
+export function weekCardToday(
+  today: string,
+  weeklyDay: number,
+  row: Pick<WeekReviewRow, 'status' | 'week_start'> | null,
+): boolean {
+  return cycleOf(today, weeklyDay).since === 0 && weekButton(today, weeklyDay, row).highlighted;
+}
+
+/**
  * The button the weekly summary ends on, beside Done: Plan next week on their
  * weekly day, Plan your week on the days after, and Your week once the review
  * is done. Null for any summary but the one of the week that has just ended:

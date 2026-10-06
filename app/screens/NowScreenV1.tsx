@@ -82,11 +82,11 @@ import type {
 import type { SweepCandidate } from '../../lib/today/sweepSelectors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import type { Habit, Todo, Space, Note } from '../../lib/types';
-import { eventBus } from '../../lib/events';
 import { useBriefUnread } from '../../lib/brief/todayThread';
 import { briefReadyLine, todayThreadParams } from '../../lib/brief/pinned';
 import { useThisWeek } from '../../lib/week/thisWeek';
-import { weekButton } from '../../lib/week/review/state';
+import { weekButton, weekCardToday } from '../../lib/week/review/state';
+import { WEEK_COPY } from '../../lib/week/review/words';
 import { isReturnDay, readDco } from '../../lib/brief/dco';
 import { BriefReadyBubble } from '../../components/brief/BriefReadyBubble';
 import { useEveningTeaser } from '../../lib/wrapup/useEveningTeaser';
@@ -327,7 +327,8 @@ export default function NowScreenV1() {
   // header button starts it (the floating Sweep pill is gone)
   const wrapTeaser = useEveningTeaser();
   // The Week button (the weekly review): their weekly day and this week's
-  // review are read each time Today comes on screen, and the button waits for
+  // review are read each time Today comes on screen, and again when their day
+  // turns over with Today already on screen (todayStr). The button waits for
   // them, so it never shows a day or a state that is not theirs
   const weekly = useThisWeek();
   const weekUserId = useGremlyStore((s) => s.userId);
@@ -336,13 +337,16 @@ export default function NowScreenV1() {
     const read = () => void useThisWeek.getState().refresh();
     read();
     return navigation.addListener('focus', read);
-  }, [navigation, weekUserId]);
+  }, [navigation, weekUserId, todayStr]);
   const week = useMemo(
-    () =>
-      weekly.loaded
-        ? weekButton(getDateService().ritualDay(), weekly.weeklyDay, weekly.review)
-        : null,
-    [weekly.loaded, weekly.weeklyDay, weekly.review],
+    () => (weekly.loaded ? weekButton(todayStr, weekly.weeklyDay, weekly.review) : null),
+    [weekly.loaded, weekly.weeklyDay, weekly.review, todayStr],
+  );
+  // On their weekly day, until the review is done, Today leads with Plan your
+  // week: a card of its own, or a button on the weekly summary's banner
+  const weekCard = useMemo(
+    () => weekly.loaded && weekCardToday(todayStr, weekly.weeklyDay, weekly.review),
+    [weekly.loaded, weekly.weeklyDay, weekly.review, todayStr],
   );
   const wrapBubble = !briefUnread && wrapTeaser.nudge;
   const briefReady = useMemo(
@@ -392,18 +396,6 @@ export default function NowScreenV1() {
     console.log('[NowScreen] Fetching calendar:', todayStr, 'to', weekFromNow);
     fetchCalendarEvents(todayStr, weekFromNow);
   }, [isInitialized, fetchCalendarEvents, todayStr]);
-
-  // Listen for "Plan your tomorrow" from sweep completion
-  useEffect(() => {
-    const unsub = eventBus.on('openTomorrowBrief', () => {
-      // Daily brief in Chat: today's thread, with a plan for tomorrow
-      navigation.navigate('Tabs', {
-        screen: 'Gremly',
-        params: todayThreadParams('plan', 'tomorrow'),
-      });
-    });
-    return () => unsub();
-  }, [navigation]);
 
   // Show first-visit bubble for new users
   useEffect(() => {
@@ -895,7 +887,22 @@ export default function NowScreenV1() {
           onDismiss={wrapBubble ? () => void dismissWrapNudge() : undefined}
         />
       ) : null}
-      <WeeklySummaryBanner />
+      <WeeklySummaryBanner
+        planWeek={
+          weekCard
+            ? {
+                label: WEEK_COPY.planWeek,
+                note: WEEK_COPY.todayCardNote,
+                // today's thread, where the review starts or picks up
+                onPress: () =>
+                  navigation.navigate('Tabs', {
+                    screen: 'Gremly',
+                    params: todayThreadParams('week'),
+                  }),
+              }
+            : null
+        }
+      />
       <View style={styles.focusSectionHeader}>
         {/* Left: Section title only */}
         <View style={styles.focusSectionHeaderLeft}>

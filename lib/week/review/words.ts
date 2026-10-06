@@ -190,6 +190,8 @@ export const WEEK_COPY = {
   resumed: "Let's pick your week up where we left it.",
   yourWeek: "Here's the week you planned.",
   planWeek: 'Plan your week',
+  // under Plan your week on its card at the top of Today, on their weekly day
+  todayCardNote: 'Ten minutes with Gremly to set up the week ahead.',
   seeWeek: 'Your week',
   planNext: 'Plan next week',
   planAgainLine:
