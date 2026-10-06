@@ -74,6 +74,8 @@ export interface BoardHabitRule {
   breaking?: boolean;
   start_date?: string | null;
   end_date?: string | null;
+  /** The stretches it is paused for (habitWeek.js pauseSpans): no day of one is open */
+  paused?: { first: string; last: string }[];
 }
 
 export declare function habitOpenDays(h: BoardHabitRule, days: string[]): string[];

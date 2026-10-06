@@ -281,13 +281,19 @@ export function spreadReturns(list, { days, load, cap }) {
 
 /**
  * The days among those planned that a habit runs on at all: inside its start
- * and end, and for a daily habit kept to set weekdays, only those.
- * @param {{cadence?: string, days_active?: number[], start_date?: string|null, end_date?: string|null}} h
+ * and end, not a day it is paused on, and for a daily habit kept to set
+ * weekdays, only those.
+ * @param {{cadence?: string, days_active?: number[], start_date?: string|null, end_date?: string|null, paused?: {first: string, last: string}[]}} h
+ *   paused: the stretches it is paused for (habitWeek.js pauseSpans)
  * @param {string[]} days
  */
 export function habitOpenDays(h, days) {
+  const paused = Array.isArray(h.paused) ? h.paused : [];
   const live = days.filter(
-    (d) => (!h.start_date || h.start_date <= d) && (!h.end_date || h.end_date >= d),
+    (d) =>
+      (!h.start_date || h.start_date <= d) &&
+      (!h.end_date || h.end_date >= d) &&
+      !paused.some((p) => p.first <= d && d <= p.last),
   );
   if (h.cadence !== 'daily' || !h.days_active?.length) return live;
   return live.filter((d) => h.days_active.includes(weekdayOf(d)));
