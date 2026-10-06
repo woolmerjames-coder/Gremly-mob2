@@ -255,6 +255,97 @@ writer (one line in `send.js`) and the brief's commitment selects
 picture fallback and the Worlds readers still name Lock In; the daily context
 job shows journal times by the clock; Ask Gremly does not read tonight's cards.
 
+**The weekly review (batch 1 of 7 built, 5 Oct, `various-fixes-10.4`).** A
+new conversation in today's thread that plans the week, run by the same brief
+agent and written through the same change cards. The plan, with James's
+decisions, the tested prompts and the rules for whoever builds it:
+https://claude.ai/code/artifact/37dbe8b4-c594-4335-aec6-9c0eaf59997b. It is
+built one batch at a time; each batch stops when it is green and is reviewed
+before James deploys. Batch 1 is Gremly's side and the change model:
+
+- The week's date rules are in `workers/shared/week.js`, for both Workers and
+  the app (`lib/week/model.ts`): the weekly day (Sunday unless they choose
+  another), the cycle a day is in, what a review started on a day plans
+  (`reviewOn`), the kind of day a date is, and a day's room. Dates and numbers
+  only.
+- Six kinds of change for the week, `WEEK_OPS` in
+  `workers/shared/changes/fields.js`, checked by `checkWeekChange` in
+  `check.js`: later, habit_days, week_shape, intention, milestone, weekly_day.
+  They are kept apart from `OPS`, because every surface's tools are built from
+  `OPS`. The app applies them in `lib/changes/week.ts`, with Undo and words
+  (`words.ts`). A Later is written by `lib/changes/later.ts`: back day in
+  `resurface_at`, the day cleared, no reminder, `resurface_count` up by one.
+- The app tells Gremly about the week by sending `week` with a message in
+  today's thread (`WeekTurnContext` in `lib/cortex/CortexClient.ts`, read by
+  `readWeek` in `agent/brief.js`). With it the brief runs its week variant
+  (`surfaces.js`): one line about their week in the day (`weekLine`),
+  `weekContext` beside `wrapContext` while a review is under way, the tools
+  `get_week`, `hold` and `offer_week` (`agent/tools/getWeek.js`,
+  `review.js`), and the week's changes on the card. Without `week` a request
+  is sent exactly what it was sent before, instructions, tools and message,
+  so an app build that cannot show the review is never offered it. Nothing in
+  the app sends `week` yet.
+- `hold` and `offer_week` only tell the app about the reply (`run.js` calls
+  them signals): the answer carries `hold: { question }` when the review
+  should wait for what Gremly asked, and `offer: { kind: 'week', done }` when
+  the week's button goes under the reply. A reply written with either is the
+  answer, with no step spent after it.
+- The table is `weekly_reviews` (migration
+  `20261005210000_weekly_reviews.sql`, with `days_off` on
+  `notification_preferences`); the app reads and writes it through
+  `lib/repo/weekReviewRepo.ts` and holds this week's row in
+  `lib/week/thisWeek.ts`.
+- Replay: thirteen week scenarios in `scripts/day-replay/week-scenarios.mjs`
+  run with the day's (`run-agent.sh`; `--set week` or `--set day` for one set,
+  `--with-week` to run the day's scenarios with the week's tools on). Their
+  checks look at what was proposed, held and offered, never at the reply's
+  words. On Luna at low thinking the week set passes 37 to 39 of 39, about
+  2.6s typical. What slips is Gremly asking a question without `hold`, or
+  holding to ask where it could have offered the change. The day set passes
+  about 96 of 99 with or without the week: which scenario slips changes from
+  run to run, and `wrap-answer-fixes-item` slips most (4 of 8 on the commit
+  before this batch, so it is not from this work).
+
+What the next batches need to know:
+
+- James's decisions on top of the plan (5 Oct): a Later item showing on Today
+  on its back day is batch 4; the wrap up cards' own Later
+  (`lib/changes/sweep.ts`, which still writes the day and a reminder) moves to
+  `lib/changes/later.ts` in batch 6; Ask Gremly gets `offer_week` and the week
+  line in batch 3, with a chat replay before and after.
+- Batch 3 wires the app: `useDayTurn`'s `wrapContext` hook becomes the hook
+  for both rituals and sends `week`; the answer's `offer` draws the Week
+  button and `hold` keeps the review on its step. Gremly sometimes asks a
+  question without calling `hold`; the task list then says `needs_answer` or
+  `open`, which is what the brief already waits on (`waitingOn` in
+  `useDayTurn.ts`), so the review can wait on either.
+- The settings screen (`hooks/useNotificationSettings.ts`) and
+  `lib/week/thisWeek.ts` each hold the weekly day. When the setting moves to
+  the Your week section, give it one home.
+- A review of next week, brought forward, has a row for another week than the
+  one today is in. The shape, the intention and a milestone carry
+  `week_start`, and the app reads that week's row from the account when it is
+  not the one it holds; `useThisWeek` itself only ever holds this week's.
+- When the weekly day moves, the week they are in moves with it, so the review
+  the app holds is let go and read again. The plan says a review just done
+  out of cycle should count as the new week's when they choose to move the
+  day at its Done step: that re-keying is not built.
+- Undo of a Later puts the todo's day back, and the database then stamps the
+  day as set by the person, as it does for any day change. Undo of a habit
+  day that had been kept or missed brings it back as planned.
+
+Found on the way and left as they were, because none is from this work:
+
+- `wrap-answer-fixes-item` in the day replay fails about half its runs, and
+  the short reply check on `week-ahead` fails about one run in seven.
+- The wrap replay's travel day slips now and then on its check that nothing
+  is said about tonight (47 of 47, then 45 of 47, on the same code;
+  `workers/cortex/wrap` is untouched here).
+- A brief turn whose date is not a real day throws in `renderDay`
+  (`weekdayName`), so the turn answers failed with no reason given.
+- `PLAN_KINDS` in `workers/shared/changes/fields.d.ts` is typed without
+  `plan_day`, which `fields.js` has.
+
 **Step 11, focused model audit.** After chat and Sweep, a smaller audit of
 only the places that could be better, from replays and real use: a stronger
 model for harder jobs where it earns its cost, `none` thinking on a bigger
@@ -338,9 +429,17 @@ to 53 at about 3.2s, but its replies were sloppier), and Gemini caching.
   `$HOME/mnt/sweep-updates-1004` and the main repo at `$HOME/mnt/gremly-mob2`;
   git needs
   `export GIT_DIR=$HOME/mnt/gremly-mob2/.git/worktrees/sweep-updates-1004 GIT_WORK_TREE=$HOME/mnt/sweep-updates-1004`.
+  `various-fixes-10.4` is checked out in the worktree
+  `gremly-mob2.worktrees/morning-brief-fixes-102` (ask for that folder; its
+  GIT_DIR is `.git/worktrees/morning-brief-fixes-102`).
   Never stash, check out or do anything that unlinks files on the mount; edit
   in place. When another session has files staged in the same worktree, commit
   only your own with `git commit -o <paths>`.
+  The mount cannot delete, so git leaves its lock files behind: a plain
+  `git status` leaves `index.lock`, and a commit leaves `HEAD.lock` and
+  `next-index-*.lock`, and a lock left in place stops every other git command
+  in that worktree. Read with `GIT_OPTIONAL_LOCKS=0` set, and after any
+  command that writes, move the locks it left into `.git/claude-stale/`.
   Commit as James with `HUSKY=0` (lint-staged cannot run under GIT_DIR) and
   the attribution trailers your session gives you:
   `HUSKY=0 git -c "user.name=James Woolmer" -c user.email=woolmerjames@gmail.com commit`.
