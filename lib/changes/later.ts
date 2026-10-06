@@ -6,9 +6,8 @@
  * back by its date, never by a notification of its own.
  *
  * This is the writer the weekly review's Later uses (the later change,
- * lib/changes/week.ts). The wrap up cards' own Later (lib/changes/sweep.ts)
- * still writes the day and a reminder; it moves to this writer when the old
- * sweep is retired.
+ * lib/changes/week.ts), and a todo card's Later writes the same columns
+ * (lib/changes/sweep.ts).
  */
 import { useGremlyStore } from '../store/useGremlyStore';
 
