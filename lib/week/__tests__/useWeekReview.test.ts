@@ -8,7 +8,7 @@ import { act, renderHook } from '@testing-library/react-native';
 import type { SpaceChatMessage } from '../../types';
 import { useWeekReview, chatWeekContext } from '../useWeekReview';
 import { resetWeekSession, useWeekSession } from '../review/session';
-import { WEEK_COPY } from '../review/words';
+import { WEEK_COPY, doneLine } from '../review/words';
 import { reliefBasis, spreadBasis } from '../model';
 import { useThisWeek } from '../thisWeek';
 import {
@@ -220,6 +220,36 @@ async function finishBoard(h: ReturnType<typeof harness>) {
   });
   await h.go((r) => r.board.done());
 }
+
+describe('the last line', () => {
+  it('names the check ins still to come, and not one settled or already gone', async () => {
+    const checkIn = (id: string, goal: string, date: string, status: 'open' | 'done') => ({
+      id,
+      goal,
+      goal_date: '2026-11-01',
+      date,
+      title: `How is ${goal} going`,
+      status,
+    });
+    const h = await started({
+      status: 'started',
+      answers: { step: 'needs_you' },
+      checkins: [
+        checkIn('c-1', 'Run a 10k', '2026-10-09', 'open'),
+        checkIn('c-2', 'Finish the shed', '2026-10-07', 'done'),
+        checkIn('c-3', 'Learn the piece', '2026-10-02', 'open'),
+        // dated today: tonight's wrap up may be done already, so it is not promised
+        checkIn('c-4', 'Read the book', '2026-10-04', 'open'),
+      ],
+    });
+    await h.go((r) => r.needsYou.done());
+    await finishBoard(h);
+    expect(h.thread().slice(-1)).toEqual([
+      `gremly: ${doneLine({ habits: false, checkIns: [{ goal: 'Run a 10k', date: '2026-10-09' }] })}`,
+    ]);
+    expect(h.thread().slice(-1)[0]).toContain('how “Run a 10k” is going on Fri 9 Oct');
+  });
+});
 
 describe('opening the review', () => {
   it('on their weekly day is the mark, the time and Gremly asking for ten minutes', async () => {
@@ -540,7 +570,10 @@ describe('going through the steps', () => {
     expect(rows['row-1']).toMatchObject({ status: 'done', answers: { step: 'done' } });
     expect(typeof rows['row-1'].completed_at).toBe('string');
     expect((h.cardOf('board')!.metadata_json as any).settled).toBe('Week planned');
-    expect(h.thread().slice(-2)).toEqual(['[done]', `gremly: ${WEEK_COPY.doneLine}`]);
+    expect(h.thread().slice(-2)).toEqual([
+      '[done]',
+      `gremly: ${doneLine({ habits: false, checkIns: [] })}`,
+    ]);
     expect((h.cardOf('done')!.metadata_json as any).summary).toEqual({
       intention: 'Leave school by five twice.',
       tiles: [
@@ -680,7 +713,10 @@ describe('just plan it', () => {
     expect(h.thread().slice(-1)).toEqual(['[board]']);
     await finishBoard(h);
     expect(rows['row-1'].status).toBe('done');
-    expect(h.thread().slice(-2)).toEqual(['[done]', `gremly: ${WEEK_COPY.doneLine}`]);
+    expect(h.thread().slice(-2)).toEqual([
+      '[done]',
+      `gremly: ${doneLine({ habits: false, checkIns: [] })}`,
+    ]);
     expect((h.cardOf('priorities')!.metadata_json as any).settled).toBe(
       'Get the reports started, Clear the marking',
     );

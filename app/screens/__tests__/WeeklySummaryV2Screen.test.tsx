@@ -6,15 +6,28 @@
  */
 
 import React from 'react';
-import { render } from '@testing-library/react-native';
+import { Dimensions, FlatList } from 'react-native';
+import { fireEvent, render } from '@testing-library/react-native';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mocks
 // ─────────────────────────────────────────────────────────────────────────────
 
 const mockGoBack = jest.fn();
+const mockNavigate = jest.fn();
+// their week as the app holds it: not read yet unless a test says so
+const mockWeek: Record<string, unknown> = { weeklyDay: 0, review: null, loaded: false };
+jest.mock('../../../lib/week/thisWeek', () => ({
+  useThisWeek: Object.assign((pick: (w: Record<string, unknown>) => unknown) => pick(mockWeek), {
+    getState: () => ({ ...mockWeek, refresh: jest.fn(async () => undefined) }),
+  }),
+}));
 jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ goBack: mockGoBack, addListener: jest.fn(() => jest.fn()) }),
+  useNavigation: () => ({
+    goBack: mockGoBack,
+    navigate: mockNavigate,
+    addListener: jest.fn(() => jest.fn()),
+  }),
   useRoute: () => ({
     params: { weekStartDate: '2025-12-15' },
   }),
@@ -114,9 +127,12 @@ jest.mock('../../../design/brand', () => ({
   },
 }));
 
+// the person's day, for the button to their week on the last card
+let mockRitualDay = '2025-12-21';
 jest.mock('../../../lib/date', () => ({
   getDateService: () => ({
     today: () => '2025-12-15',
+    ritualDay: () => mockRitualDay,
     fromLocalDate: (str: string) => (str ? new Date(str + 'T00:00:00') : null),
     addDays: (dateStr: string, days: number) => {
       const d = new Date(dateStr + 'T00:00:00');
@@ -415,6 +431,77 @@ describe('WeeklySummaryV2Screen', () => {
   it('does not call goBack on mount', () => {
     render(<WeeklySummaryV2Screen />);
     expect(mockGoBack).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The last card: Done, and their week
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('WeeklySummaryV2Screen, the last card', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    Object.assign(mockWeek, { weeklyDay: 0, review: null, loaded: true });
+    // Sunday 21 December 2025: the week the summary covers ends today
+    mockRitualDay = '2025-12-21';
+  });
+  afterAll(() => {
+    Object.assign(mockWeek, { weeklyDay: 0, review: null, loaded: false });
+  });
+
+  /** Swipe to the last card, as the list reports it when a swipe comes to rest. */
+  const toLastCard = (r: ReturnType<typeof render>) => {
+    const last = mockV2Content.cards.length - 1;
+    fireEvent(r.UNSAFE_getByType(FlatList), 'momentumScrollEnd', {
+      nativeEvent: { contentOffset: { x: Dimensions.get('window').width * last } },
+    });
+    expect(r.getByTestId('summary-done')).toBeTruthy();
+  };
+
+  it('ends on Plan next week, which starts the weekly review in today’s thread', () => {
+    const r = render(<WeeklySummaryV2Screen />);
+    expect(r.queryByTestId('summary-plan-week')).toBeNull();
+    toLastCard(r);
+    expect(r.getByText('Plan next week')).toBeTruthy();
+    fireEvent.press(r.getByTestId('summary-plan-week'));
+    expect(mockNavigate).toHaveBeenCalledWith('Tabs', {
+      screen: 'Gremly',
+      // they have said yes by tapping, so the review goes straight in
+      params: expect.objectContaining({ mode: 'chat', thread: 'today', step: 'week_now' }),
+    });
+    // Done still closes the summary
+    fireEvent.press(r.getByTestId('summary-done'));
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads Plan your week on the days after, and Your week once it is planned', () => {
+    mockRitualDay = '2025-12-23';
+    const later = render(<WeeklySummaryV2Screen />);
+    toLastCard(later);
+    expect(later.getByText('Plan your week')).toBeTruthy();
+    later.unmount();
+
+    Object.assign(mockWeek, { review: { week_start: '2025-12-22', status: 'done' } });
+    const done = render(<WeeklySummaryV2Screen />);
+    toLastCard(done);
+    expect(done.getByText('Your week')).toBeTruthy();
+    fireEvent.press(done.getByTestId('summary-plan-week'));
+    expect(mockNavigate).toHaveBeenCalledWith('YourWeek');
+  });
+
+  it('is Done alone for an older week, or before their week has been read', () => {
+    // a week on: the summary on screen is no longer the week that has just ended
+    mockRitualDay = '2025-12-29';
+    const old = render(<WeeklySummaryV2Screen />);
+    toLastCard(old);
+    expect(old.queryByTestId('summary-plan-week')).toBeNull();
+    old.unmount();
+
+    mockRitualDay = '2025-12-21';
+    Object.assign(mockWeek, { loaded: false });
+    const unread = render(<WeeklySummaryV2Screen />);
+    toLastCard(unread);
+    expect(unread.queryByTestId('summary-plan-week')).toBeNull();
   });
 });
 

@@ -28,6 +28,7 @@ import {
   INTENTION_LEFT,
   TALK_REASONS,
   WEEK_COPY,
+  doneLine,
   aheadIntro,
   dayKeptLine,
   dayMovedLine,
@@ -221,13 +222,17 @@ export function talkMsgs(title: string, question: string): WeekMsg[] {
 
 // ── done ─────────────────────────────────────────────────────────────────────
 
-/** The week is planned: the summary card, and Gremly's last line. */
+/**
+ * The week is planned: the summary card, and Gremly's last line, which says
+ * what happens next (the habits planned, the check ins to come).
+ */
 export function doneMsgs(o: {
   weekStart: string;
   part: DayPart;
   summary: WeekCardMeta['summary'];
+  next: Parameters<typeof doneLine>[0];
 }): WeekMsg[] {
-  return [card('done', o.weekStart, { summary: o.summary }), say(WEEK_COPY.doneLine, o.part)];
+  return [card('done', o.weekStart, { summary: o.summary }), say(doneLine(o.next), o.part)];
 }
 
 /** A review done on another day than their weekly day: asked once whether to move it. */

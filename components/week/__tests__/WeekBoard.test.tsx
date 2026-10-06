@@ -234,7 +234,9 @@ describe('the habits', () => {
     const { getByTestId, getByText, onToggleHabit } = sheet();
     fireEvent.press(getByTestId('week-board-tab-habits'));
     expect(
-      getByText("Pick the days you'll do each one. I've started you off away from the busy days."),
+      getByText(
+        "Pick the days you'll do each one. I've started you off away from the busy days, and each morning I'll check in on that day's.",
+      ),
     ).toBeTruthy();
     expect(getByText('2 of 2 planned')).toBeTruthy();
     expect(getByText('40m')).toBeTruthy();

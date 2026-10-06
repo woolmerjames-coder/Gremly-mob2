@@ -97,6 +97,9 @@ import type {
   V07Deck as V07DeckType,
 } from '../../lib/types';
 import { V07DeckRenderer } from './weeklySummary/v07/V07DeckRenderer';
+import { useThisWeek } from '../../lib/week/thisWeek';
+import { summaryWeekButton } from '../../lib/week/review/state';
+import { todayThreadParams } from '../../lib/brief/pinned';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -1743,6 +1746,40 @@ export default function WeeklySummaryV2Screen() {
     navigation.goBack();
   }, [navigation]);
 
+  // The summary of the week that has just ended closes on their week: the
+  // weekly review of the week ahead, or the week itself once it is planned
+  // (lib/week/review/state.ts summaryWeekButton). An older summary has neither.
+  const weeklyDay = useThisWeek((w) => w.weeklyDay);
+  const weekReview = useThisWeek((w) => w.review);
+  const weekLoaded = useThisWeek((w) => w.loaded);
+  const weekButton = useMemo(
+    () =>
+      weekLoaded
+        ? summaryWeekButton(
+            getDateService().ritualDay(),
+            weeklyDay,
+            weekReview,
+            summary?.week_end_date,
+          )
+        : null,
+    [weekLoaded, weeklyDay, weekReview, summary?.week_end_date],
+  );
+  useEffect(() => {
+    void useThisWeek.getState().refresh();
+  }, []);
+  const handleWeek = useCallback(() => {
+    if (!weekButton) return;
+    if (weekButton.done) {
+      navigation.navigate('YourWeek' as never);
+      return;
+    }
+    // they have said yes by tapping: the review goes straight in, in today's thread
+    (navigation as any).navigate('Tabs', {
+      screen: 'Gremly',
+      params: todayThreadParams('week_now'),
+    });
+  }, [navigation, weekButton]);
+
   // ── Button press animation ───────────────────────────────────────────
   const buttonScale = useSharedValue(1);
 
@@ -1901,17 +1938,39 @@ export default function WeeklySummaryV2Screen() {
             </Pressable>
           </Animated.View>
         ) : (
-          <Animated.View style={buttonAnimStyle}>
-            <Pressable
-              style={styles.doneButton}
-              onPress={handleDone}
-              onPressIn={handleButtonPressIn}
-              onPressOut={handleButtonPressOut}
-            >
-              <Check size={18} color="#FFFFFF" strokeWidth={2.5} />
-              <Text style={styles.doneButtonText}>Done</Text>
-            </Pressable>
-          </Animated.View>
+          <View style={styles.lastRow}>
+            <Animated.View style={[buttonAnimStyle, styles.lastRowButton]}>
+              <Pressable
+                style={weekButton ? styles.doneQuietButton : styles.doneButton}
+                onPress={handleDone}
+                onPressIn={handleButtonPressIn}
+                onPressOut={handleButtonPressOut}
+                testID="summary-done"
+              >
+                <Check
+                  size={18}
+                  color={weekButton ? BRAND.colors.mossGreen : '#FFFFFF'}
+                  strokeWidth={2.5}
+                />
+                <Text style={weekButton ? styles.doneQuietButtonText : styles.doneButtonText}>
+                  Done
+                </Text>
+              </Pressable>
+            </Animated.View>
+            {weekButton ? (
+              <View style={styles.lastRowButton}>
+                <Pressable
+                  style={styles.doneButton}
+                  onPress={handleWeek}
+                  accessibilityRole="button"
+                  testID="summary-plan-week"
+                >
+                  <Text style={styles.doneButtonText}>{weekButton.label}</Text>
+                  <ChevronRight size={18} color="#FFFFFF" strokeWidth={2.5} />
+                </Pressable>
+              </View>
+            ) : null}
+          </View>
         )}
       </View>
     </View>
@@ -2029,6 +2088,30 @@ const styles = StyleSheet.create({
   },
   doneButtonText: {
     color: '#FFFFFF',
+    fontSize: 17,
+    fontFamily: 'Inter-Medium',
+  },
+  // the last card: Done, and beside it their week when the summary is the latest
+  lastRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  lastRowButton: {
+    flex: 1,
+  },
+  doneQuietButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: BRAND.colors.mossGreen,
+    height: 52,
+    borderRadius: BRAND.radius.xl,
+    gap: 8,
+  },
+  doneQuietButtonText: {
+    color: BRAND.colors.mossGreen,
     fontSize: 17,
     fontFamily: 'Inter-Medium',
   },

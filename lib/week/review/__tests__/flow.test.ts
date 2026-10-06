@@ -100,7 +100,12 @@ describe('every message of the review', () => {
     }),
     ...notQuiteMsgs('evening'),
     ...talkMsgs('Sort the boiler', 'What is making this one hard?'),
-    ...doneMsgs({ weekStart: WEEK_START, part: 'evening', summary: undefined }),
+    ...doneMsgs({
+      weekStart: WEEK_START,
+      part: 'evening',
+      summary: undefined,
+      next: { habits: true, checkIns: [{ goal: 'Run a 10k', date: '2026-10-09' }] },
+    }),
     ...dayQuestionMsgs(3, 0),
     ...recapMsgs(WEEK_START, undefined, 'evening'),
     ...planAgainMsgs(),
@@ -300,10 +305,31 @@ describe('the end', () => {
   };
 
   it('is the summary card, kept on the card, and Gremly’s last line', () => {
-    const msgs = doneMsgs({ weekStart: WEEK_START, part: 'evening', summary });
+    const next = { habits: false, checkIns: [] };
+    const msgs = doneMsgs({ weekStart: WEEK_START, part: 'evening', summary, next });
     expect(msgs.map((m) => m.meta.type)).toEqual(['week-card', 'brief-text']);
     expect(msgs[0].meta).toMatchObject({ card: 'done', summary });
-    expect(msgs[1].content).toBe(WEEK_COPY.doneLine);
+    expect(msgs[1].content).toBe(
+      "That's your week. Each morning I'll bring that day's plan. It's here whenever you want to look at it again.",
+    );
+  });
+
+  it('says what the mornings and the wrap ups bring when habits and check ins were planned', () => {
+    const next = {
+      habits: true,
+      checkIns: [
+        { goal: 'Run a 10k', date: '2026-10-16' },
+        { goal: 'Finish the shed', date: '2026-10-14' },
+        { goal: 'Learn the piece', date: '2026-10-18' },
+      ],
+    };
+    const [, line] = doneMsgs({ weekStart: WEEK_START, part: 'evening', summary, next });
+    // the two soonest, in the order they come
+    expect(line.content).toBe(
+      "That's your week. Each morning I'll bring that day's plan and check in on the habits you planned for it. " +
+        "I'll also ask how “Finish the shed” is going on Wed 14 Oct, and how “Run a 10k” is going on Fri 16 Oct at the wrap up. " +
+        "It's here whenever you want to look at it again.",
+    );
   });
 
   it('counts the week in three tiles, in the singular when it is one', () => {

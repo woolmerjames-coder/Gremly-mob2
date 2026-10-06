@@ -57,6 +57,33 @@ export function shortDate(day: string): string {
   return `${d} ${MONTH_SHORT[m - 1] ?? ''}`.trim();
 }
 
+/**
+ * Gremly's last line of a review: what happens with the week from here. Each
+ * morning's brief brings the day, with the check in on a habit planned for it
+ * when any were; a milestone's check ins are asked at the wrap up on their
+ * days, the first two named here.
+ */
+export function doneLine(p: {
+  /** Habit days were planned in this review */
+  habits: boolean;
+  /** The check ins still to come, with their goal and day */
+  checkIns: { goal: string; date: string }[];
+}): string {
+  const parts = ["That's your week."];
+  parts.push(
+    p.habits
+      ? "Each morning I'll bring that day's plan and check in on the habits you planned for it."
+      : "Each morning I'll bring that day's plan.",
+  );
+  const asks = [...p.checkIns]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(0, 2)
+    .map((c) => `how “${c.goal}” is going on ${shortDay(c.date)} ${shortDate(c.date)}`);
+  if (asks.length) parts.push(`I'll also ask ${asks.join(', and ')} at the wrap up.`);
+  parts.push("It's here whenever you want to look at it again.");
+  return parts.join(' ');
+}
+
 /** "Mon 5" for a YYYY-MM-DD day: a step's day on a milestone card. */
 export function stepWhen(day: string): string {
   return `${shortDay(day)} ${Number(day.split('-')[2])}`;
@@ -159,7 +186,6 @@ export const WEEK_COPY = {
   typeHint: 'Tell Gremly anything',
 
   doneKicker: 'YOUR WEEK',
-  doneLine: "That's your week. It's here whenever you want to look at it again.",
   guessed: "I've gone with my best guesses for the rest. Change anything that isn't right.",
   resumed: "Let's pick your week up where we left it.",
   yourWeek: "Here's the week you planned.",
@@ -190,10 +216,11 @@ export const WEEK_COPY = {
   busyNote: "A busy day, so I've kept it light",
   closeTray: 'Close',
   nothingOnDay: 'Nothing on this day yet.',
-  habitsIntro: "Pick the days you'll do each one. I've started you off away from the busy days.",
+  habitsIntro:
+    "Pick the days you'll do each one. I've started you off away from the busy days, and each morning I'll check in on that day's.",
   noHabits: 'No habits to plan this week.',
   laterIntro:
-    "Nothing here is lost. Each one has a day it comes back: it shows up on Today and in that night's wrap up. Tap one to give it a day this week instead.",
+    "Nothing here is lost. Each one has a day it comes back: it shows up in that night's wrap up and on Today, and I'll nudge you if you haven't been in. Tap one to give it a day this week instead.",
   laterIntroLoose:
     "Each of these comes back on its day, on Today and in that night's wrap up. The ones with no day yet wait until you give them one. Tap one to give it a day this week.",
   noDayYet: 'No day yet',

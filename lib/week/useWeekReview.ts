@@ -272,6 +272,8 @@ function stepCards(messages: SpaceChatMessage[], weekStart: string) {
 export interface WeekReview {
   /** Open the review: start it, pick it up where it was left, or show the week once it is done */
   open: () => Promise<void>;
+  /** The same, when they have already said yes: no opening to answer, straight into the review */
+  startNow: () => Promise<void>;
   /** A tap on one of the review's buttons in the thread */
   handleButton: (message: SpaceChatMessage, button: OfferButton) => Promise<void>;
   /** A message typed while the review is under way. False when it is not the review's. */
@@ -594,7 +596,23 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
       const on = session().on;
       patchSession({ finishedHere: true, talking: null, hold: null, editing: null, fixing: false });
       // the summary goes on the card itself, so it reads the same on any day
-      await save(doneMsgs({ weekStart: row.week_start, part: nowPart(), summary: recapOf(row) }));
+      await save(
+        doneMsgs({
+          weekStart: row.week_start,
+          part: nowPart(),
+          summary: recapOf(row),
+          // what happens with the week from here: the morning check ins on
+          // the habits they planned, and the milestone check ins still to come
+          next: {
+            habits: (row.answers.planned?.habit_days ?? 0) > 0,
+            // from tomorrow on: tonight's wrap up may already be done, so
+            // one dated today is not promised for a day it may not be asked on
+            checkIns: row.checkins
+              .filter((c) => c.status === 'open' && c.date > today())
+              .map((c) => ({ goal: c.goal, date: c.date })),
+          },
+        }),
+      );
       if (asksAboutDay(row, on)) {
         await saveRow((now) => ({ answers: { ...now.answers, day_asked: true } }));
         await save(dayQuestionMsgs(weekdayOf(today()), useThisWeek.getState().weeklyDay));
@@ -865,6 +883,12 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
   );
 
   const open = useCallback(() => run(() => route(false), WEEK_COPY.openFailed), [route, run]);
+  /**
+   * They already said yes somewhere else (Plan my week on the brief's offer,
+   * or on the wrap up's close): the review goes straight in, or picks up
+   * where it was left, with no opening to answer first.
+   */
+  const startNow = useCallback(() => run(() => route(true), WEEK_COPY.openFailed), [route, run]);
 
   // Back in the thread after it went off screen part way through a step: what
   // the review could not add then is put there now, from what its row says.
@@ -1920,6 +1944,7 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
   return useMemo(
     () => ({
       open,
+      startNow,
       handleButton,
       takeTyped,
       carryOn,
@@ -1944,6 +1969,7 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
     }),
     [
       open,
+      startNow,
       handleButton,
       takeTyped,
       carryOn,

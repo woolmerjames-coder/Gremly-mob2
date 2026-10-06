@@ -428,6 +428,28 @@ export function weekButton(
 }
 
 /**
+ * The button the weekly summary ends on, beside Done: Plan next week on their
+ * weekly day, Plan your week on the days after, and Your week once the review
+ * is done. Null for any summary but the one of the week that has just ended:
+ * an older week opened from the archive has no week ahead to plan.
+ * @param summaryWeekEnd the last day of the week the summary covers
+ * @param row the review of the week they are in (lib/week/thisWeek)
+ */
+export function summaryWeekButton(
+  today: string,
+  weeklyDay: number,
+  row: Pick<WeekReviewRow, 'status' | 'week_start'> | null,
+  summaryWeekEnd: string | null | undefined,
+): { label: string; done: boolean } | null {
+  const cycle = cycleOf(today, weeklyDay);
+  // the week that has just ended is the one that ended on the weekly day this cycle began on
+  if (!summaryWeekEnd || summaryWeekEnd.slice(0, 10) !== cycle.start) return null;
+  const week = weekButton(today, weeklyDay, row);
+  if (week.done) return { label: week.label, done: true };
+  return { label: cycle.since === 0 ? WEEK_COPY.planNext : week.label, done: false };
+}
+
+/**
  * The week a finished review counts for once its day becomes their weekly
  * day: the week that starts the day after today. Its first planned day moves
  * inside that week when it was before it.

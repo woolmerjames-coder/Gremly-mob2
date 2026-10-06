@@ -23,6 +23,7 @@ import {
   stepAfter,
   stepOf,
   stepsFor,
+  summaryWeekButton,
   weekButton,
   weekTurnContext,
 } from '../state';
@@ -471,6 +472,70 @@ describe('a review done on another day than their weekly day', () => {
     expect(rekeyed(SAT, 6, { span_start: '2026-10-12' })).toEqual({
       week_start: '2026-10-11',
       span_start: '2026-10-12',
+    });
+  });
+});
+
+describe('the button the weekly summary ends on', () => {
+  const row = (status: string, weekStart = WEEK_START) =>
+    ({ status, week_start: weekStart }) as any;
+
+  it('is Plan next week on their weekly day, for the week that has just ended', () => {
+    expect(summaryWeekButton(SUN, 0, null, SUN)).toEqual({ label: 'Plan next week', done: false });
+    expect(summaryWeekButton(SUN, 0, row('ready'), SUN)).toEqual({
+      label: 'Plan next week',
+      done: false,
+    });
+    // a review begun and left is still theirs to plan
+    expect(summaryWeekButton(SUN, 0, row('started'), SUN)?.done).toBe(false);
+  });
+
+  it('is Plan your week on the days after, while the review is still to do', () => {
+    for (const day of [MON, TUE, WED, SAT]) {
+      expect(summaryWeekButton(day, 0, null, SUN)).toEqual({
+        label: 'Plan your week',
+        done: false,
+      });
+    }
+    // said not this week: the summary still offers it, since they came to it themselves
+    expect(summaryWeekButton(MON, 0, row('skipped'), SUN)).toEqual({
+      label: 'Plan your week',
+      done: false,
+    });
+  });
+
+  it('is Your week once the review is done', () => {
+    for (const day of [SUN, MON, SAT]) {
+      expect(summaryWeekButton(day, 0, row('done'), SUN)).toEqual({
+        label: 'Your week',
+        done: true,
+      });
+    }
+    // last week's finished review is not this week's
+    expect(summaryWeekButton(SUN, 0, row('done', '2026-09-28'), SUN)).toEqual({
+      label: 'Plan next week',
+      done: false,
+    });
+  });
+
+  it('is nothing for an older summary, or one with no last day', () => {
+    expect(summaryWeekButton(SUN, 0, null, '2026-09-27')).toBeNull();
+    expect(summaryWeekButton(WED, 0, row('done'), '2026-09-27')).toBeNull();
+    expect(summaryWeekButton(SUN, 0, null, null)).toBeNull();
+    expect(summaryWeekButton(SUN, 0, null, undefined)).toBeNull();
+  });
+
+  it('goes by their own weekly day', () => {
+    // a Wednesday weekly day: the week that has just ended is the one that ended on Wednesday
+    expect(summaryWeekButton(WED, 3, null, WED)).toEqual({ label: 'Plan next week', done: false });
+    expect(summaryWeekButton(THU, 3, null, WED)).toEqual({ label: 'Plan your week', done: false });
+    expect(summaryWeekButton(WED, 3, null, SUN)).toBeNull();
+  });
+
+  it('reads a last day given with a time', () => {
+    expect(summaryWeekButton(SUN, 0, null, `${SUN}T00:00:00Z`)).toEqual({
+      label: 'Plan next week',
+      done: false,
     });
   });
 });
