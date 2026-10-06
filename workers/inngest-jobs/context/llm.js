@@ -29,6 +29,12 @@ export const MODELS = {
   // the weekly read (week/read.js): Luna at medium effort, chosen on the week replay (scripts/week-replay)
   weekRead: { provider: 'openai', model: 'gpt-6-luna' },
   weekReadFallback: { provider: 'google', model: 'gemini-3.8-flash' },
+  // the week spread (week/spread.js): Luna at low effort, as tested with the plan
+  weekSpread: { provider: 'openai', model: 'gpt-6-luna' },
+  weekSpreadFallback: { provider: 'google', model: 'gemini-3.8-flash' },
+  // what could leave their over-full days, asked beside the spread (week/relief.js)
+  weekRelief: { provider: 'openai', model: 'gpt-6-luna' },
+  weekReliefFallback: { provider: 'google', model: 'gemini-3.8-flash' },
 };
 
 export function modelFor(env, job) {
