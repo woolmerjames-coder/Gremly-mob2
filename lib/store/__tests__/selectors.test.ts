@@ -512,6 +512,26 @@ describe('selectTodosDueToday', () => {
 
     expect(result.map((t) => t.id).sort()).toEqual(['t1', 't3']);
   });
+
+  it('includes a todo put off whose day to come back is today, and only on that day', () => {
+    const later = (id: string, o: Record<string, unknown>) =>
+      makeTodo({ id, due_day: null, ...o } as Partial<Todo>);
+    const state = makeState({
+      todos: [
+        later('back-today', { resurface_at: '2025-12-15' }),
+        later('back-tomorrow', { resurface_at: '2025-12-16' }),
+        // its back day has gone by: it waits in the wrap up's cards, not on Today
+        later('back-yesterday', { resurface_at: '2025-12-14' }),
+        later('no-day', {}),
+        // given a day of its own since: that day decides
+        makeTodo({ id: 'moved-on', due_day: '2025-12-17', resurface_at: '2025-12-15' } as any),
+        later('done', { resurface_at: '2025-12-15', completed_at: '2025-12-15T09:00:00Z' }),
+        later('archived', { resurface_at: '2025-12-15', archived: true }),
+      ],
+    });
+
+    expect(selectTodosDueToday(state as any).map((t) => t.id)).toEqual(['back-today']);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════

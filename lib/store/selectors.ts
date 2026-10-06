@@ -506,12 +506,22 @@ export const selectActiveTodos = createSelector([selectTodos], (todos): Todo[] =
   todos.filter((t) => !t.archived && !t.completed_at),
 );
 
-/** Todos due today (due_day = today, not completed, not archived, not hidden) */
+/**
+ * Todos on Today: the ones due today, and the ones put off (Later) whose day
+ * to come back is today. A Later has no day of its own, so its back day is
+ * what puts it here. Once that day has gone by it waits in the wrap up's
+ * cards, like any todo left from an earlier day. Not completed, not archived,
+ * not hidden.
+ */
 export const selectTodosDueToday = createSelector(
   [selectActiveTodos, selectHiddenTodayIds],
   (todos, hiddenIds): Todo[] => {
     const today = getTodayDayString();
-    return todos.filter((t) => t.due_day === today && !hiddenIds.includes(t.id));
+    return todos.filter(
+      (t) =>
+        (t.due_day === today || (!t.due_day && (t as any).resurface_at === today)) &&
+        !hiddenIds.includes(t.id),
+    );
   },
 );
 

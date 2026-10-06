@@ -14,6 +14,17 @@ describe('what another day holds', () => {
     expect(todosDueOn(todos, '2026-10-05').map((t) => t.id)).toEqual(['a']);
   });
 
+  it('has the todos put off that come back on it, which have no day of their own', () => {
+    const todos = [
+      { id: 'back', due_day: null, resurface_at: '2026-10-05' },
+      { id: 'back-later', due_day: null, resurface_at: '2026-10-06' },
+      // given a day of its own since: that day decides
+      { id: 'moved-on', due_day: '2026-10-07', resurface_at: '2026-10-05' },
+      { id: 'done', due_day: null, resurface_at: '2026-10-05', completed_at: 'x' },
+    ];
+    expect(todosDueOn(todos, '2026-10-05').map((t) => t.id)).toEqual(['back']);
+  });
+
   it('has the habits on for it: daily, or set for its weekday, started and not ended', () => {
     const habits = [
       { id: 'daily', start_date: '2026-09-01' },

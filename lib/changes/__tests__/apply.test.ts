@@ -166,6 +166,23 @@ describe('a habit schedule', () => {
   });
 });
 
+describe('a todo that was put off, given a day', () => {
+  it('is no longer put off: its day to come back is cleared, and Undo puts it back', async () => {
+    mockState.todos[0] = { ...mockState.todos[0], due_day: null, resurface_at: '2026-10-20' };
+    const c = checked({ op: 'change', type: 'todo', id: 't1', fields: { day: '2026-10-08' } });
+    const o = await applyChange(c, { source: 'thread' });
+    expect(mockState.todos[0]).toMatchObject({ due_day: '2026-10-08', resurface_at: null });
+    if (o.ok) await o.revert();
+    expect(mockState.todos[0]).toMatchObject({ due_day: null, resurface_at: '2026-10-20' });
+  });
+
+  it('writes nothing about a back day for a todo that was never put off', async () => {
+    const c = checked({ op: 'change', type: 'todo', id: 't1', fields: { day: '2026-10-08' } });
+    await applyChange(c, { source: 'thread' });
+    expect(mockState.updateTodo.mock.calls[0][1]).not.toHaveProperty('resurface_at');
+  });
+});
+
 describe('nothing the person did since is overwritten', () => {
   it('leaves the item alone when a field moved after the card was drawn', async () => {
     const c = checked({ op: 'change', type: 'todo', id: 't1', fields: { day: '2026-10-05' } });
