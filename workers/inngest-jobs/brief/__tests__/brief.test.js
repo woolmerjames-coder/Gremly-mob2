@@ -422,6 +422,33 @@ describe("yesterday's reaction", () => {
     const s = summariseThread({ seen_at: '2026-09-30T15:00:00Z', ritual_day: '2026-09-30' }, msgs);
     expect(s).toBe('they opened it; tapped "Not today"');
   });
+
+  it('leaves the weekly review out too: its taps and what was typed in it are not about the brief', () => {
+    const week = { week: true };
+    const msgs = [
+      { role: 'assistant', content: 'Morning', metadata_json: { type: 'brief-text' } },
+      { role: 'user', content: 'Not today', metadata_json: { type: 'brief-reply' } },
+      // the weekly review, in the same thread
+      {
+        role: 'system',
+        content: '',
+        metadata_json: { type: 'week-card', card: 'opening', ...week },
+      },
+      {
+        role: 'assistant',
+        content: 'Got ten minutes?',
+        metadata_json: { type: 'brief-offer', ...week },
+      },
+      { role: 'user', content: "Let's do it", metadata_json: { type: 'brief-reply', ...week } },
+      {
+        role: 'user',
+        content: 'My sister is staying on Thursday',
+        metadata_json: { type: 'brief-reply', action: 'week_typed', ...week },
+      },
+    ];
+    const s = summariseThread({ seen_at: '2026-10-04T15:00:00Z', ritual_day: '2026-10-04' }, msgs);
+    expect(s).toBe('they opened it; tapped "Not today"');
+  });
 });
 
 describe("last night's wrap up, for the morning brief", () => {

@@ -28,12 +28,14 @@ function clockTime(min) {
  * Summarise a thread's messages; exported for tests.
  *
  * The evening wrap up is in the same thread (its messages are marked wrap),
- * and so is a plan made there for the next day. Neither is a reaction to the
- * brief: a tap on Sweep now, the journal entry typed that night and tomorrow's
- * plan are left out, so none of them is read as what they did with the brief.
+ * and so is a plan made there for the next day, and so is the weekly review
+ * (its messages are marked week). None is a reaction to the brief: a tap on
+ * Sweep now, the journal entry typed that night, tomorrow's plan, and what
+ * they tapped or typed while planning their week are left out, so none of
+ * them is read as what they did with the brief.
  */
 export function summariseThread(meta, all) {
-  const messages = (all || []).filter((m) => !m.metadata_json?.wrap);
+  const messages = (all || []).filter((m) => !m.metadata_json?.wrap && !m.metadata_json?.week);
   const parts = [];
   parts.push(meta?.seen_at ? 'they opened it' : 'they did not open it');
   const taps = messages
