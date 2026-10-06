@@ -34,6 +34,7 @@ import { CARE_RULES } from './careRules';
 import { createContextFunctions, hourlyContextEvents, contextMode } from './context/functions';
 import { createBriefFunctions, handleBriefApi } from './brief';
 import { createWeekFunctions, handleWeekReadApi, handleWeekSpreadApi } from './week';
+import { REVIEW_UNREAD, reviewAheadStatus, summaryPushData } from './week/summaryPush';
 import { addDays as dayPlus, cycleOf, isDay as isRealDay } from '../shared/week.js';
 import { createNotificationFunctions } from './notifications/functions';
 import { runMinute as runNotificationsMinute } from './notifications/cron';
@@ -2210,6 +2211,16 @@ const weeklySummaryV07Worker = inngest.createFunction(
     // Step 4: the scheduled run tells them it's ready, through the notifications
     // sender (settings, quiet hours, delivery receipts). Backfills stay quiet.
     if (event.data.notify) {
+      // One push for the summary and the weekly review together: while the
+      // review of the week ahead is still to do, the push says so too
+      // (week/summaryPush.js). If that cannot be read, the push is about the
+      // summary alone.
+      const reviewAhead = await step.run('review-of-the-week-ahead', () =>
+        reviewAheadStatus(env, user_id, week_end).catch((err) => {
+          console.warn(`[WeeklySummary] could not read the review ahead: ${err?.message || err}`);
+          return REVIEW_UNREAD;
+        }),
+      );
       const subject = `weekly_summary:${week_start}`;
       const key = notificationKey({
         userId: user_id,
@@ -2227,7 +2238,7 @@ const weeklySummaryV07Worker = inngest.createFunction(
           subject_type: 'weekly_summary',
           dedupe_key: key,
           planned_for: null,
-          data: { title: 'Your week in review is ready', facts: { ready: 'their week in review' } },
+          data: summaryPushData(reviewAhead),
         },
       });
     }
