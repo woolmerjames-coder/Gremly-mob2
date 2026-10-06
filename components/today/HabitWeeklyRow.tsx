@@ -57,6 +57,11 @@ export interface HabitWeeklyRowProps {
   isBreakingHabit?: boolean;
   /** Current streak count (days or weeks depending on cadence) */
   streakDays?: number;
+  /**
+   * It is paused today: said in place of the check in status, with a quiet
+   * bar, since a paused habit is not one to check in on
+   */
+  easeLabel?: string | null;
   /** Streak unit — 'day' or 'week' (default 'day') */
   streakUnit?: 'day' | 'week';
   /** ISO date string when habit started (YYYY-MM-DD) */
@@ -119,6 +124,7 @@ export const HabitWeeklyRow = React.memo(function HabitWeeklyRow({
   streakUnit = 'day',
   startDate,
   onPressPickStartDate,
+  easeLabel,
 }: HabitWeeklyRowProps) {
   // Derive frequency label from weeklyTarget if not provided
   const displayFrequency =
@@ -132,7 +138,11 @@ export const HabitWeeklyRow = React.memo(function HabitWeeklyRow({
   // Get status label text and color
   const statusInfo = getStatusLabel(status);
   // Override status when no start_date is set
-  const displayStatus = !startDate ? { text: 'Set up needed', color: INK_SUBTLE } : statusInfo;
+  const displayStatus = !startDate
+    ? { text: 'Set up needed', color: INK_SUBTLE }
+    : easeLabel
+      ? { text: easeLabel, color: INK_SUBTLE }
+      : statusInfo;
 
   return (
     <View style={styles.row}>
@@ -140,7 +150,9 @@ export const HabitWeeklyRow = React.memo(function HabitWeeklyRow({
       <View
         style={[
           styles.accentBar,
-          { backgroundColor: !startDate ? 'rgba(0,0,0,0.1)' : getAccentColor(status) },
+          {
+            backgroundColor: !startDate || easeLabel ? 'rgba(0,0,0,0.1)' : getAccentColor(status),
+          },
         ]}
       />
 

@@ -97,6 +97,12 @@ describe('HabitWeeklyRow', () => {
       expect(screen.getByText('Up to date')).toBeTruthy();
     });
 
+    it('says a habit is paused or on a lighter version in place of its check in status', () => {
+      render(<HabitWeeklyRow {...defaultProps} status="needs_attention" easeLabel="Paused" />);
+      expect(screen.getByText('Paused')).toBeTruthy();
+      expect(screen.queryByText('Needs check-in')).toBeNull();
+    });
+
     it('renders status label "Needs check-in" for needs_attention status', () => {
       render(<HabitWeeklyRow {...defaultProps} status="needs_attention" />);
 
