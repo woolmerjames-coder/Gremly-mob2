@@ -8,7 +8,7 @@
  * thread read back on a later day still shows them.
  */
 import React from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { WeekCardMeta } from '../../lib/brief/types';
 import { getDateService } from '../../lib/date/DateService';
 import type { WeekReview } from '../../lib/week/useWeekReview';
@@ -37,6 +37,7 @@ import {
 } from '../../lib/week/review/words';
 import { dayKind, weekdayOf, type DayKind } from '../../lib/week/model';
 import { useThisWeek } from '../../lib/week/thisWeek';
+import { BoardStep } from './BoardStep';
 import { ChallengeCard } from './ChallengeCard';
 import { IntentionCard } from './IntentionCard';
 import { MilestoneCards } from './MilestoneCard';
@@ -77,11 +78,24 @@ function Opening({ at }: { at?: string }) {
   );
 }
 
-/** The week in short: the intention, and three counts. */
-function Done({ summary, recap }: { summary: WeekCardMeta['summary']; recap?: boolean }) {
+/**
+ * The week in short: the intention, and three counts. While what finishing
+ * the board wrote can still be taken back, Undo sits under it.
+ */
+function Done({
+  summary,
+  recap,
+  onUndo,
+  disabled,
+}: {
+  summary: WeekCardMeta['summary'];
+  recap?: boolean;
+  onUndo?: (() => void) | null;
+  disabled?: boolean;
+}) {
   if (!summary) return null;
   return (
-    <View testID="week-done">
+    <View testID="week-done" style={styles.doneWrap}>
       {recap ? null : (
         <Image source={CHEERING_GREMLY} style={styles.cheer} accessibilityLabel="Gremly cheering" />
       )}
@@ -99,6 +113,17 @@ function Done({ summary, recap }: { summary: WeekCardMeta['summary']; recap?: bo
           ))}
         </View>
       </View>
+      {onUndo ? (
+        <TouchableOpacity
+          style={weekStyles.link}
+          onPress={onUndo}
+          disabled={disabled}
+          accessibilityRole="button"
+          testID="week-done-undo"
+        >
+          <Text style={weekStyles.linkText}>{WEEK_COPY.boardUndo}</Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 }
@@ -113,7 +138,18 @@ export function WeekCard({ messageId, meta, review }: WeekCardProps) {
   const s = useWeekSession();
   const daysOff = useThisWeek((w) => w.daysOff);
   if (meta.card === 'opening') return <Opening at={meta.at} />;
-  if (meta.card === 'done') return <Done summary={meta.summary} recap={meta.recap} />;
+  if (meta.card === 'done') {
+    // the week just planned, in this sitting: what the board wrote can be taken back
+    const canUndo = !meta.recap && !!s.undoable.board && review.isLive(meta, messageId);
+    return (
+      <Done
+        summary={meta.summary}
+        recap={meta.recap}
+        onUndo={canUndo ? () => void review.board.undo() : null}
+        disabled={review.busy}
+      />
+    );
+  }
 
   const step = meta.card as ChatStep;
   const row = s.row;
@@ -314,6 +350,9 @@ export function WeekCard({ messageId, meta, review }: WeekCardProps) {
       );
       break;
     }
+    case 'board':
+      body = <BoardStep meta={meta} live={editable} disabled={disabled} review={review} />;
+      break;
   }
   return (
     <View>
@@ -334,6 +373,7 @@ const styles = StyleSheet.create({
   },
   cheer: { alignSelf: 'center', width: 120, height: 120, marginBottom: 6 },
   done: { gap: 12 },
+  doneWrap: { gap: 8 },
   intention: {
     fontFamily: 'PlusJakartaSans-Bold',
     fontSize: 19,
