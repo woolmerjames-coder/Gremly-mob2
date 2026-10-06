@@ -434,8 +434,8 @@ What the next batches need to know:
   `renderRead` is the one place that input is written.
 - The push for the summary and the review together, and the review offers,
   are batch 5. The summary's push is unchanged here.
-- Left on Monday to Sunday, for batch 7 with the habit weeks: the summary's
-  cadence detector (`summary_detect_cadence_calibration_mismatch` buckets
+- Left on Monday to Sunday then, and moved to the person's week in batch 7:
+  the summary's cadence detector (`summary_detect_cadence_calibration_mismatch` buckets
   habit weeks with `date_trunc('week')`), the Worlds tab's "this week" range
   (`components/worlds/WeeklySummaryCard.tsx`). The old Sweep's
   `resolveSweepBlock` went with it in batch 6.
@@ -1096,7 +1096,8 @@ migration and no prompt change.
   which fitted the demo better than a first wrap up: the words are James's
   to change. Notes' own Resurface later is not the week's Later and is
   unchanged.
-- **Nothing makes or ends a habit adaptation now.** The old Sweep's habit
+- **Nothing makes or ends a habit adaptation now** (until batch 7, below,
+  which gives pauses and lighter versions a home again). The old Sweep's habit
   step was the only writer. `habit_adaptations` is still read (streaks, the
   habit card stats, the worker). It has six rows, none running, and every
   row has an end date, so no one is left in a pause they cannot end.
@@ -1127,6 +1128,226 @@ What the next batch needs to know:
 - Deploy order is unchanged, and there is no SQL: inngest-jobs, then cortex,
   then the app. The workers of this batch can go out before the app update:
   an app without it shows nothing new.
+
+**The weekly review, batch 7 of 7 (6 Oct): habit weeks, and a habit paused
+or on a lighter version.** Habit counts follow the person's own week. A
+habit can be paused for a stretch of days or given a lighter version for
+them: from the week's board, from a card Gremly offers, and ended from the
+habit's own screen. Nothing is committed to a database by this batch except
+through the app: the one piece of SQL is for James to run (below).
+
+- **One week everywhere.** A person's week is the seven days that end on
+  their weekly day: `weekAround(today, weeklyDay)` in
+  `workers/shared/habitWeek.js` (the app's door is `lib/week/habitWeek.ts`).
+  Every count toward a weekly target is made in it: Today's list and the
+  space rows (`lib/store/selectors.ts`), the day card and the plan
+  (`lib/brief/behind.ts`, `useDayCard.ts`, `lib/plan/*`), the wrap up
+  (`lib/wrapup/habits.ts`), streaks (`lib/habits/streakUtils.ts`), weeks on
+  target (`lib/habits/weeksOnTarget.ts`), the habit screens, the Worlds
+  tab's "this week" and its habit grid (`lib/store/worldsSelectors.ts`),
+  and in the workers the brief (`brief/data.js`), the daily context
+  (`context/daily.js`), `get_day`, and the chat's item lines
+  (`cortex/entityMatch.js`). For a Sunday person that is Monday to Sunday
+  everywhere, so only Today's list on a Sunday changes for them. The rules
+  are in one place: `dayOfWeek`, `weeklyTarget`, `paceFloor`, `behindInWeek`.
+- **Their weekly day in the main store.** `useGremlyStore.weeklyDay`,
+  saved on the device, read at sign in and with every refresh, and kept in
+  step by `lib/week/thisWeek.ts`. The app sends it with every chat turn as
+  `weekly_day` (`lib/week/weeklyDayNow.ts`), so a habit's count in a space,
+  world or chapter chat is made in their week too.
+- **A pause, or a lighter version ("ease" in the code).** Stored in the
+  existing `habit_adaptations` table: mode `pause`, or `floor` for a lighter
+  version, with `period_start`, `period_end` and `floor_note`. The table
+  lets no two stretches of one habit overlap, so there is one planner,
+  `easePlan` in `shared/habitWeek.js` (remove, then shorten, then add; the
+  way back is the reverse), and one writer, the store's `easeHabit`, which
+  is all or nothing and hands back its own way back. A pause, or a lighter
+  version with the same words, joins what is already there of its own kind,
+  so one unbroken pause is always one row.
+- **Paused means leave me alone** (James). Off Today's list, not planned,
+  no check in in the brief, no check in push or reminder, never counted as
+  behind (a paused day does not count as a day gone), off the board's days
+  and the spread, not put on days by the weekly read. A streak holds: a
+  paused day never breaks a daily run, and a week with any paused day is
+  passed over unless it was met anyway. If they log it, it counts.
+- **A lighter version is a note** (James). Days and target stay, a log
+  counts in full. The brief, the daily context, `get_day` and the morning
+  check in speak of it, in their words when they gave any. It starts from
+  the habit's saved smallest version (`habits.floor_note`).
+- **On the board.** The Habits tab has two chips under each habit, "Pause
+  this week" and "Lighter version", and a field for the lighter version's
+  words (`components/week/WeekBoard.tsx`). Like every move on the board,
+  neither is saved until Done (`WeekBoardMoves.habit_ease`,
+  `BoardHabit.ease`, `BoardDiff.eases`, `easeHabitOnBoard` in
+  `lib/week/board/model.ts`; written by `saveBoard`). What was last tapped
+  is what shows. A paused habit stays in the list with no days. The stretch
+  is the days the board plans. The same chips are in Change your week. The
+  spread is told what they chose (`ownMoves.habit_ease`).
+- **On a card.** A new change kind, op `ease`, with `ease.mode` pause,
+  lighter or usual, `ease.from`, `ease.until`, `ease.note`
+  (`shared/changes/check.js` `checkEase`, app `lib/changes/ease.ts`). With
+  no days it runs from today to the end of their week, or over the days
+  being planned during the review. It starts today or later and ends within
+  four weeks. Usual ends one stretch (the one running, else the next to
+  come), from today or from a day given, which is how a pause is made to end
+  sooner; a pause given a last day inside a longer pause is read the same
+  way. A pause accepted on a card also takes the habit off the days it was
+  planned on in the stretch, and Undo puts them back. A day inside a pause
+  is turned away for `habit_days` (`day_paused`).
+- **Only an app that can apply it is offered it.** The app sends the habits
+  eased now with their week (`week.eased`, from `easedFor` in
+  `lib/week/review/state.ts`). Only then does the request get the
+  `week_ease` variant (`weekVariant` in `agent/brief.js`, tool sets
+  `brief_week_ease` and `chat_ease`), in today's thread and in Ask Gremly.
+  An older build never sees the op. A turn that answers a question of
+  Gremly's is not offered it either.
+- **Where the model is told about it.** Everything is on the change's own
+  `ease` field in the tool's schema (`easeField` in `proposeChanges.js`).
+  The tool's description is the same with and without it. A paragraph added
+  to the description cost other turns their card (below).
+- **Where a pause shows.** The habit's own screen has a banner with the
+  days and Back to usual (`src/components/habits/HabitEaseBanner.tsx`); the
+  Habits list says Paused in place of the check in status. Your week and
+  Past summaries leave a paused habit off the days of its pause.
+- **Today card words** (James): "A few minutes with Gremly to set up your
+  week."
+- **SQL for James to run, before the workers.** The summary's cadence
+  detector counted habit weeks from Monday whatever the weekly day. This
+  buckets them in the person's week (the same weeks as before when
+  `p_week_start` is a Monday). Only the two `date_trunc` lines change:
+
+  ```sql
+  CREATE OR REPLACE FUNCTION public.summary_detect_cadence_calibration_mismatch(p_owner uuid, p_week_start date, p_week_end date)
+   RETURNS jsonb
+   LANGUAGE sql
+   STABLE
+  AS $function$
+    with wk_habits as (
+      select id, title, target_per_period as tgt
+      from habits
+      where owner_id = p_owner and cadence = 'weekly'
+        and coalesce(archived,false) = false and target_per_period >= 3
+    ),
+    weekly_counts as (
+      select h.id, h.title, h.tgt,
+             (p_week_start + 7 * floor((hp.occurred_day - p_week_start) / 7.0)::int) as wk, count(*) as cnt
+      from wk_habits h
+      join habit_progress hp on hp.habit_id = h.id and hp.owner_id = p_owner
+      group by h.id, h.title, h.tgt, (p_week_start + 7 * floor((hp.occurred_day - p_week_start) / 7.0)::int)
+    ),
+    per_habit as (
+      select id, title, tgt,
+             count(*)::int as weeks_observed,
+             count(*) filter (where cnt >= tgt)::int as weeks_hit,
+             round(avg(cnt),1) as avg_per_week
+      from weekly_counts group by id, title, tgt
+    ),
+    scored as (
+      select *, case when weeks_observed > 0 then round((weeks_hit::numeric / weeks_observed),3) else 0 end as hit_rate
+      from per_habit
+    ),
+    qualifying as (
+      select * from scored where weeks_observed >= 10 and hit_rate < 0.40
+      order by hit_rate asc, weeks_observed desc
+    )
+    select jsonb_build_object(
+      'fired', (select count(*) > 0 from qualifying),
+      'fill_input', jsonb_build_object(
+        'habits', coalesce((select jsonb_agg(jsonb_build_object(
+            'title', title, 'target', tgt, 'hit_rate_pct', round(hit_rate*100)::int,
+            'weeks_observed', weeks_observed, 'avg_per_week', avg_per_week)) from qualifying), '[]'::jsonb),
+        'worst', (select jsonb_build_object('title', title, 'target', tgt,
+            'hit_rate_pct', round(hit_rate*100)::int, 'avg_per_week', avg_per_week,
+            'weeks_observed', weeks_observed) from qualifying limit 1)
+      ),
+      'evidence_snapshot', jsonb_build_object(
+        'habit_ids', coalesce((select jsonb_agg(id) from qualifying), '[]'::jsonb),
+        'min_hit_rate', (select min(hit_rate) from qualifying)
+      ),
+      'score_components', jsonb_build_object(
+        'qualifying_count', (select count(*) from qualifying),
+        'candidate_count', (select count(*) from scored),
+        'min_hit_rate', (select min(hit_rate) from qualifying)
+      )
+    );
+  $function$;
+  ```
+
+- **Verified.** tsc clean; 9,907 jest tests in 736 files. On Luna: day set
+  33 of 33, and 31 of 33 as a build that can pause sends it (`--with-ease`;
+  the two misses fail at the same rate with the week alone); week set 24 of
+  25 and 25 of 25; chat 48 of 48, 48 of 48 with the week, 47 of 48 with
+  ease; wrap 93 of 94 (the check that reads "No phone in bed" as tonight,
+  as before); smoke 10 of 10; weekly read 8 of 8; brief corpus 36 of 36;
+  evening note 39 of 40. `--with-ease` is new on the day and chat replays:
+  every scenario is sent their week with the habits eased now.
+- **Found by replay.** With a paragraph about ease added to
+  `propose_changes`'s description, a turn that answers the wrap up's
+  question said its change without putting it on the card far more often
+  (6 of 15 against 3 of 25). All of it moved to the `ease` field's own
+  description, and that turn is no longer offered ease at all. That
+  scenario (`wrap-answer-fixes-item`) still misses about one time in six
+  whenever the week's tools are on, with or without this batch: it is not
+  fixed here.
+- **Found by five independent reads and fixed.**
+  - The store never loaded the days habits are planned on: the read was made
+    at sign in and dropped, and the refresh did not make it (since June).
+    After any restart the app knew of no planned habit day, so no morning
+    check in and nothing "planned for today". `habit_plans` is now read at
+    sign in and with every refresh, and kept on the device.
+  - Pauses were not kept on the device, so a paused habit was back on Today
+    on a cold start until the refresh landed, and a failed read wiped every
+    pause. Both are kept now, and a read that fails keeps what is held
+    (`rowsOrHeld`).
+  - A card kept in the database came back with the fields of each object in
+    another order, and the app compared them as text, so every card that
+    ended or changed a running pause failed as "changed since". Compared a
+    field at a time now (`lib/changes/ease.ts`), and so is a habit's
+    schedule (`staleField` in `lib/changes/apply.ts`, the same cause, older).
+  - A pause asked for inside a longer pause split it into three rows and
+    said a last day that was not true; the board lit a chip that a tap could
+    not turn off, and threw away an edited lighter note; an Undo that failed
+    once could never succeed; a card accepted days later paused days already
+    gone; a lighter version with no words given wiped the words it had; the
+    best streak could read lower than the current one; Past summaries
+    counted a paused habit as planned and missed; the spread did not know of
+    a pause chosen or ended on the board; a pause that could not be read let
+    the brief check in on a paused habit.
+- **Known and left as they are.**
+  - An app build from before this batch, on a weekly day other than Sunday,
+    sees the workers' counts in their week while its own screens still count
+    from Monday, until it updates.
+  - That older build, asked in Ask Gremly to pause a habit, can put the
+    habit's end day on the card while saying pause. It was so before this
+    batch; a build with this batch gets `ease`.
+  - A pause made on the board that covers today does not take the habit out
+    of a day plan already made in today's thread.
+  - During the review, the habits eased that Gremly is told of are the saved
+    ones. A pause chosen on the board and not yet saved reaches him only as
+    the habit being on no day.
+  - A saved pause that holds only part of the week shows on the board as
+    closed days; it is ended from the habit's own screen.
+  - Back to usual on the habit's screen does not put back the days a pause
+    took off; Undo on a card does.
+  - Usual on a card ends one stretch. One set for later stays, and is the
+    next one the habit's screen shows.
+  - `context/daily.js` and `entityMatch.habitProgressWords` each keep a
+    target rule of their own that differs slightly from `weeklyTarget`;
+    `inngest-index.js` still sends the table's own mode names as `ADAPTED:`
+    in the daily picture.
+  - The rolling seven day dots (`useWeeklyHabitStats`) are days, not a week,
+    and are unchanged. `habit_plans.week_start` is still the Monday of the
+    planned day: it is bookkeeping, and the read begins a week earlier.
+  - More than forty habits eased at once would not all reach Gremly.
+  - Old em dashes in `app/spaces/SpaceHomeScreen.tsx` were not touched.
+
+What comes after this batch:
+
+- Deploy order: the SQL above, then inngest-jobs, then cortex, then the app.
+  The workers can go out before the app update: an older app is never sent
+  `ease`, and what it is sent keeps its shape.
+- The plan's seven batches are built. James audits batch 7 before testing
+  on device, and device feedback on batch 4 is still to come.
 
 **Step 11, focused model audit.** After chat and Sweep, a smaller audit of
 only the places that could be better, from replays and real use: a stronger
@@ -1230,6 +1451,22 @@ to 53 at about 3.2s, but its replies were sloppier), and Gemini caching.
 - Plan my day comes back after a morning review (James, 6 Oct).
 - The evening note's fallback line is neutral (James, 6 Oct), with nothing
   about things to settle.
+- A paused habit (James, 6 Oct): "leave me alone". Off Today's list, no
+  check ins or nudges, never counted as behind, off the board's days, and
+  its streak holds. If they log it anyway, it still counts.
+- A lighter version (James, 6 Oct): a smaller version that counts. They say
+  what it is in a few words, starting from the habit's saved smallest
+  version. Days and target stay, a log counts in full, and Gremly and the
+  check in speak of it.
+- Where Gremly can offer a pause or a lighter version (James, 6 Oct):
+  today's thread and Ask Gremly, and only to app builds that know the new
+  kind, so the workers can deploy first. The review's Habits tab has "Pause
+  this week" and "Lighter version".
+- One week everywhere (James, 6 Oct): Today's list counts in the person's
+  week too. For a Sunday person that is Monday to Sunday, so only Today's
+  list on a Sunday changes.
+- The Today card's words (James, 6 Oct): "A few minutes with Gremly to set
+  up your week."
 
 ## How to work here
 
