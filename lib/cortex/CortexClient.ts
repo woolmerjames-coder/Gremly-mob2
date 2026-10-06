@@ -59,7 +59,13 @@ export interface SpaceChatStreamingResult {
    * Ask Gremly: the agent answered (a lookup or a change), with its card in the
    * change model's shape and the chat's task list; nothing changes until they tap
    */
-  agent?: { card: Change[]; tasks: AgentTask[]; prompt_version?: string } | null;
+  agent?: {
+    card: Change[];
+    tasks: AgentTask[];
+    /** The button to their week goes under the reply; done when this week's review is */
+    offer?: { kind: 'week'; done: boolean };
+    prompt_version?: string;
+  } | null;
 }
 
 /**
@@ -531,6 +537,12 @@ export function callGeneralChatStreaming(
     briefQuestion?: string | null;
     /** The agent's task list kept on this chat, so asks carry across messages */
     agentTasks?: AgentTask[];
+    /**
+     * Their week, from an app build that can show the weekly review: with it
+     * Gremly knows where the review stands and can put the button to it under
+     * a reply (the agent's offer_week). The review itself is never under way here.
+     */
+    week?: WeekTurnContext | null;
   },
   callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
 ): { close: () => void } {
@@ -578,6 +590,7 @@ export function callGeneralChatStreaming(
       // this build draws the agent's card, so lookups and changes can go to it
       agentCard: true,
       agentTasks: opts.agentTasks ?? [],
+      ...(opts.week ? { week: opts.week } : {}),
       userId: opts.userId,
       currentTime: nowTimestamp(),
       timezone: getDateService().getTimezone(),
@@ -2400,6 +2413,86 @@ export interface BriefTurnRequest extends DayTurnRequest {
 }
 
 /**
+ * One question put to cortex and answered as server-sent events, asked once.
+ *
+ * Left alone, the stream library posts its request again every five seconds
+ * after a stream ends, which sends the same message a second time. Here it is
+ * told never to (pollingInterval 0). A stream that ends without its answer
+ * then says nothing more, so the worker pings while it works and silence is
+ * how a lost line shows: the call fails after quietMs with nothing heard, and
+ * when its whole time (timeoutMs) is up.
+ *
+ * read is handed each event and settles the call by giving its result;
+ * undefined leaves the call waiting.
+ */
+function askOnce<T>(
+  baseUrl: string,
+  token: string,
+  body: Record<string, unknown>,
+  opts: {
+    timeoutMs: number;
+    quietMs: number;
+    read: (data: Record<string, unknown>) => CortexClientResult<T> | undefined;
+  },
+): Promise<CortexClientResult<T>> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let quiet: ReturnType<typeof setTimeout> | null = null;
+    const es = new EventSource(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+      // asked once: a stream that ends is never posted again
+      pollingInterval: 0,
+      lineEndingCharacter: '\n',
+    });
+    const finish = (r: CortexClientResult<T>) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (quiet) clearTimeout(quiet);
+      es.close();
+      resolve(r);
+    };
+    // a stream that ends without its answer says nothing more: the silence is how it shows
+    const listen = () => {
+      if (quiet) clearTimeout(quiet);
+      quiet = setTimeout(
+        () => finish({ ok: false, error: 'the connection went quiet' }),
+        opts.quietMs,
+      );
+    };
+    timer = setTimeout(() => finish({ ok: false, error: 'timed out' }), opts.timeoutMs);
+    listen();
+    es.addEventListener('message', (event: { data?: string | null }) => {
+      if (settled) return;
+      listen();
+      let data: Record<string, unknown> | null = null;
+      try {
+        data = JSON.parse(event.data ?? '');
+      } catch {
+        return;
+      }
+      if (!data) return;
+      if (data.error === 'read_only') {
+        eventBus.emit('cortex:read_only', {});
+        finish({ ok: false, error: 'read_only' });
+        return;
+      }
+      const result = opts.read(data);
+      if (result) finish(result);
+    });
+    es.addEventListener('error', (event) =>
+      finish({
+        ok: false,
+        error: String((event as { message?: string } | null)?.message || 'stream error'),
+      }),
+    );
+  });
+}
+
+/**
  * The weekly review's read, for a review opened today
  * (workers/inngest-jobs/week). The week's row comes back with the read it
  * holds when that serves a review started today; otherwise one is made there
@@ -2414,11 +2507,16 @@ export interface BriefTurnRequest extends DayTurnRequest {
 export interface WeekReadResponse {
   /** A read was made for this call; false when the week already held one that serves */
   made: boolean;
-  /** What a review started today is, by the date rules (workers/shared/week.js reviewOn) */
+  /**
+   * What a review opened today is: by the date rules, or the review already
+   * under way in this week when there is one (workers/shared/week.js reviewWith)
+   */
   on: {
     kind: ReviewKind;
     promoted: boolean;
     fresh: boolean;
+    /** A review started on an earlier day, carried on with the read it began with */
+    resumed?: boolean;
     week_start: string;
     span_start: string;
     span_end: string;
@@ -2442,70 +2540,26 @@ export async function callWeekRead(
   if (isAiDisabled()) return { ok: false, error: 'AI disabled' };
   const token = await getSessionToken();
   if (!token) return { ok: false, error: 'not signed in' };
-  return new Promise((resolve) => {
-    let settled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const es = new EventSource(baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ type: 'week-read', date: req.date }),
-      // asked once: a stream that ends is never posted again, which would start another read
-      pollingInterval: 0,
-      lineEndingCharacter: '\n',
-    });
-    let quiet: ReturnType<typeof setTimeout> | null = null;
-    const finish = (r: CortexClientResult<WeekReadResponse>) => {
-      if (settled) return;
-      settled = true;
-      if (timer) clearTimeout(timer);
-      if (quiet) clearTimeout(quiet);
-      es.close();
-      resolve(r);
-    };
-    // a stream that ends without its answer says nothing more: the silence is how it shows
-    const listen = () => {
-      if (quiet) clearTimeout(quiet);
-      quiet = setTimeout(
-        () => finish({ ok: false, error: 'the connection went quiet' }),
-        opts.quietMs ?? 30000,
-      );
-    };
-    timer = setTimeout(() => finish({ ok: false, error: 'timed out' }), opts.timeoutMs ?? 120000);
-    listen();
-    es.addEventListener('message', (event: { data?: string | null }) => {
-      if (!settled) listen();
-      let data: Record<string, unknown> | null = null;
-      try {
-        data = JSON.parse(event.data ?? '');
-      } catch {
-        return;
-      }
-      if (!data) return;
-      if (data.error === 'read_only') {
-        eventBus.emit('cortex:read_only', {});
-        finish({ ok: false, error: 'read_only' });
-        return;
-      }
-      // pings only keep the connection open while the read is made
-      if (!data.done) return;
-      if (data.error) {
-        finish({ ok: false, error: String(data.error) });
-        return;
-      }
-      const answer = { ...data };
-      delete answer.done;
-      const got = answer as unknown as WeekReadResponse;
-      finish(
-        got.review?.read ? { ok: true, data: got } : { ok: false, error: 'no read came back' },
-      );
-    });
-    es.addEventListener('error', (event) =>
-      finish({
-        ok: false,
-        error: String((event as { message?: string } | null)?.message || 'stream error'),
-      }),
-    );
-  });
+  return askOnce<WeekReadResponse>(
+    baseUrl,
+    token,
+    { type: 'week-read', date: req.date },
+    {
+      timeoutMs: opts.timeoutMs ?? 120000,
+      quietMs: opts.quietMs ?? 30000,
+      read: (data) => {
+        // pings only keep the connection open while the read is made
+        if (!data.done) return undefined;
+        if (data.error) return { ok: false, error: String(data.error) };
+        const answer = { ...data };
+        delete answer.done;
+        const got = answer as unknown as WeekReadResponse;
+        return got.review?.read
+          ? { ok: true, data: got }
+          : { ok: false, error: 'no read came back' };
+      },
+    },
+  );
 }
 
 /**
@@ -2531,68 +2585,40 @@ export type BriefTurnResponse =
 /**
  * A message typed in today's thread (workers/cortex/agent/brief.js). Status
  * lines come through onStatus while Gremly works; the answer resolves once.
+ * The message is sent once (askOnce): when the stream ends without its answer
+ * the call fails, and it is never posted again behind the person's back.
  */
 export async function callBriefTurn(
   req: BriefTurnRequest,
-  opts: { onStatus?: (line: string) => void; timeoutMs?: number } = {},
+  opts: { onStatus?: (line: string) => void; timeoutMs?: number; quietMs?: number } = {},
 ): Promise<CortexClientResult<BriefTurnResponse>> {
   const baseUrl = readCortexUrl();
   if (!baseUrl) return { ok: false, error: '[cortex] Missing EXPO_PUBLIC_CORTEX_URL' };
   if (isAiDisabled()) return { ok: false, error: 'AI disabled' };
   const token = await getSessionToken();
   if (!token) return { ok: false, error: 'not signed in' };
-  return new Promise((resolve) => {
-    let settled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const es = new EventSource(baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ type: 'brief-turn', ...req }),
-      lineEndingCharacter: '\n',
-    });
-    const finish = (r: CortexClientResult<BriefTurnResponse>) => {
-      if (settled) return;
-      settled = true;
-      if (timer) clearTimeout(timer);
-      es.close();
-      resolve(r);
-    };
-    // the agent's budget plus the day turn behind it, with room to spare
-    timer = setTimeout(() => finish({ ok: false, error: 'timed out' }), opts.timeoutMs ?? 30000);
-    es.addEventListener('message', (event: { data?: string | null }) => {
-      let data: Record<string, unknown> | null = null;
-      try {
-        data = JSON.parse(event.data ?? '');
-      } catch {
-        return;
-      }
-      if (!data) return;
-      if (data.error === 'read_only') {
-        eventBus.emit('cortex:read_only', {});
-        finish({ ok: false, error: 'read_only' });
-        return;
-      }
-      if (typeof data.status === 'string') {
-        opts.onStatus?.(data.status);
-        return;
-      }
-      if (data.done) {
-        if (data.error) {
-          finish({ ok: false, error: String(data.error) });
-          return;
+  return askOnce<BriefTurnResponse>(
+    baseUrl,
+    token,
+    { type: 'brief-turn', ...req },
+    {
+      // the agent's budget plus the day turn behind it, with room to spare
+      timeoutMs: opts.timeoutMs ?? 30000,
+      // the worker pings every five seconds while the turn runs
+      quietMs: opts.quietMs ?? 15000,
+      read: (data) => {
+        if (typeof data.status === 'string') {
+          opts.onStatus?.(data.status);
+          return undefined;
         }
+        if (!data.done) return undefined;
+        if (data.error) return { ok: false, error: String(data.error) };
         const answer = { ...data };
         delete answer.done;
-        finish({ ok: true, data: answer as unknown as BriefTurnResponse });
-      }
-    });
-    es.addEventListener('error', (event) =>
-      finish({
-        ok: false,
-        error: String((event as { message?: string } | null)?.message || 'stream error'),
-      }),
-    );
-  });
+        return { ok: true, data: answer as unknown as BriefTurnResponse };
+      },
+    },
+  );
 }
 
 /**
