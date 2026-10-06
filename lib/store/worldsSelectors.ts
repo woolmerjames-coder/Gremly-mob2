@@ -13,6 +13,7 @@ import { createSelector } from 'reselect';
 import { useShallow } from 'zustand/react/shallow';
 import { useGremlyStore } from './useGremlyStore';
 import { getDateService } from '../date/DateService';
+import { summaryForDay } from '../weeklySummary/currentSummary';
 import { lightTokens } from '../../design/tokens';
 import { buildUpcomingDatesForWorld, type UpcomingDate } from '../worlds/upcomingDates';
 import type { GremlyState } from './useGremlyStore';
@@ -566,19 +567,15 @@ export function selectDcoWorldsSummary(state: GremlyState): DcoWorldsSummary | n
 
 export function selectWeeklySummaryCardState(
   state: GremlyState,
-  now: Date = getDateService().now(),
+  today: string = getDateService().today(),
 ): WeeklySummaryCardState {
   const weeklySummaries = (state as unknown as { weeklySummaries?: any[] }).weeklySummaries ?? [];
 
-  if (weeklySummaries.length > 0) {
-    const weekStart = startOfIsoWeek(now);
-    const weekStartIsoDate = weekStart.toISOString().slice(0, 10);
-    const currentWeek = weeklySummaries.find(
-      (s: any) => (s.week_start_date ?? '').slice(0, 10) === weekStartIsoDate,
-    );
-    if (currentWeek && !currentWeek.last_viewed_at) {
-      return { kind: 'new_unread', summary: currentWeek };
-    }
+  // the summary for the week they are in: the one whose seven days include
+  // today, whichever day their week starts on
+  const currentWeek = summaryForDay(weeklySummaries, today);
+  if (currentWeek && !currentWeek.last_viewed_at) {
+    return { kind: 'new_unread', summary: currentWeek };
   }
 
   const dcoSummary = selectDcoWorldsSummary(state);

@@ -1371,8 +1371,9 @@ export interface WeeklySummaryCleanupAction {
 export interface WeeklySummary {
   id: string;
   user_id: string;
-  week_start_date: string; // YYYY-MM-DD (Monday)
-  week_end_date: string; // YYYY-MM-DD (Sunday)
+  // The seven days that end on their weekly day: Monday to Sunday for a Sunday
+  week_start_date: string; // YYYY-MM-DD
+  week_end_date: string; // YYYY-MM-DD, their weekly day
   generated_at: string;
   content: WeeklySummaryContent;
   stats_snapshot: Record<string, unknown>;

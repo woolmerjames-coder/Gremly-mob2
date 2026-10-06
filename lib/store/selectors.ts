@@ -14,6 +14,7 @@ import { computeSweepCardMeta } from '../sweep/computeSweepCardMeta';
 import { computeWorldsForEntity } from './worldsSelectors';
 import type { NowWeeklyHabitSummary, HabitWeeklyStatus } from '../now/nowTypes';
 import { getDateService } from '../date';
+import { summaryForDay } from '../weeklySummary/currentSummary';
 import { isRelationPending } from '../minddrop/dropRelation';
 import { sweepCardAsks } from '../sweep/sweepOrder';
 import { quickSweepCards } from '../sweep/quickSweep';
@@ -2429,24 +2430,15 @@ export function useUpcomingEventNotes(days: number = 7): Note[] {
 const selectWeeklySummaries = (state: GremlyState) => state.weeklySummaries;
 const selectWeeklySummaryLoading = (state: GremlyState) => state.weeklySummaryLoading;
 
-/** Get Monday of the current week as YYYY-MM-DD */
-function getMondayDayString(): string {
-  const today = ds().today();
-  const date = ds().fromLocalDate(today);
-  if (!date) return today;
-  const dayOfWeek = date.getDay(); // 0 = Sunday
-  // Monday offset: Sunday(0) -> -6, Mon(1) -> 0, Tue(2) -> -1 ...
-  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-  return ds().addDays(today, mondayOffset);
-}
-
-/** Current week's summary (matches on week_start_date = this Monday) */
+/**
+ * The summary for the week they are in: the one whose seven days include
+ * today (lib/weeklySummary/currentSummary.ts). A summary covers the seven days
+ * that end on their weekly day, so for a Monday to Sunday week this is the
+ * summary that starts this Monday, as it always was.
+ */
 export const selectCurrentWeekSummary = createSelector(
   [selectWeeklySummaries],
-  (summaries): WeeklySummary | undefined => {
-    const monday = getMondayDayString();
-    return summaries.find((s) => s.week_start_date === monday);
-  },
+  (summaries): WeeklySummary | undefined => summaryForDay(summaries, ds().today()),
 );
 
 /** All summaries, newest first (includes current week) */
