@@ -437,8 +437,8 @@ What the next batches need to know:
 - Left on Monday to Sunday, for batch 7 with the habit weeks: the summary's
   cadence detector (`summary_detect_cadence_calibration_mismatch` buckets
   habit weeks with `date_trunc('week')`), the Worlds tab's "this week" range
-  (`components/worlds/WeeklySummaryCard.tsx`), and the old Sweep's
-  `resolveSweepBlock`, which goes in batch 6.
+  (`components/worlds/WeeklySummaryCard.tsx`). The old Sweep's
+  `resolveSweepBlock` went with it in batch 6.
 - The Worlds structure run is still Sunday at 10:00 UTC
   (`worldsWeeklyScheduler.ts`). The synthesis used to follow it an hour
   later. It now runs three hours before each person's slot, so for anyone far
@@ -787,9 +787,10 @@ database: `weekly_reviews.spread` was there already.
   the app gives up at ninety seconds and then reads the row, where a spread
   that finished late is still found.
 - **Found and left for later.** A Later given a day from a todo's own editor,
-  outside the change model, keeps its back day, and the wrap up's card
-  selector leaves a todo out while its back day is ahead (the old Remind me
-  later rule, which a test pins). Best fixed in batch 6 with the Later writer.
+  outside the change model, kept its back day (fixed in batch 6: the store
+  clears it when a day is given). The wrap up's card selector leaves a todo
+  out while its back day is ahead (the old Remind me later rule, which a
+  test pins).
   The three one line navigations (the Week button, Gremly's button, the
   `thread: 'day'` param) have no screen level test, like batch 3's wiring.
 
@@ -822,7 +823,8 @@ review beside its summary. No migration.
   buttons, so an app bundle that does not know them shows the brief exactly
   as before. Each of the three reads warns and is left out when it fails;
   the brief is still written. A brief that had no offer row of its own gets
-  the fixed sign off as one, so the facts have a row to ride on.
+  a row with no words and no buttons for the facts to ride on (batch 6;
+  batch 5 used the fixed sign off line, which the old app showed).
 - **The rules for a habit on a day of their week** are
   `workers/shared/habitWeek.js` (app door `lib/week/habitWeek.ts`): which
   habit a morning checks in on (`habitToCheckIn`: a weekly or monthly habit
@@ -951,37 +953,180 @@ review beside its summary. No migration.
   could both be sent to a day with room for one; the archive counted a todo
   twice and kept one person's weeks for the next; the review's last line
   could promise a check in for today after tonight's wrap up was done.
-- **Known and left as they are.** An old app bundle shows the fixed sign off
-  line on a morning whose brief had no offer of its own but has a check in
-  or the review to offer. Room for a habit to move counts todos due that day
+- **Known and left as they are.** An old app bundle showed the fixed sign
+  off line on a morning whose brief had no offer of its own but had a check
+  in or the review to offer (fixed in batch 6: that row has no words now).
+  Room for a habit to move counts todos due that day
   and not Laters coming back on it, as the board does. A check in tapped and
   the app closed in the same instant shows their reply with the change not
   made. A habit with days planned in their week still counts as on for today
   on its other days: the due rule does not read the week's plan. The morning
   quick sweep counts a Later back today. Today's rows do not mark a
   milestone step.
-- **Found and left for later.** After Plan my week from the morning brief,
-  Plan my day does not come back by itself when the review ends. The evening
-  note's fixed line, used when no model answers, speaks of a few things to
-  settle even on a clear day. The old Sweep week board has no way in any
-  more (`SweepFlowScreen` `weekEntry`). Keep or let go after two pushes, and
-  a Today card on the weekly day, were not built here.
+- **Found and left for later, all done in batch 6.** After Plan my week
+  from the morning brief, Plan my day did not come back by itself when the
+  review ended. The evening note's fixed line, used when no model answers,
+  spoke of a few things to settle even on a clear day. The old Sweep week
+  board had no way in any more. Keep or let go after two pushes, and a Today
+  card on the weekly day, were not built here.
 
 What the next batches need to know:
 
-- Batch 6: the wrap up's cards still read a Later by their own rules and
-  switch to `lib/changes/later.ts` there; keep or let go after two pushes
-  goes with them. `roomLeft` in `shared/habitWeek.js` gives the room of any
-  days, for the deck's day picker.
-- Batch 6 also takes four things James added on 6 Oct, all from the lists
-  above: Plan my day comes back after a morning review; the old app no
-  longer gets the extra sign off line, so the workers can deploy on their
-  own; the evening note's fixed line is neutral, with nothing about things
-  to settle; and the Today card on the weekly day, as the plan has it.
+- Batch 6 (done, below) moved the wrap up's cards to the week's Later,
+  built keep or let go after two pushes, and took the four things James
+  added on 6 Oct: Plan my day comes back after a morning review; the old app
+  no longer gets the extra sign off line, so the workers can deploy on their
+  own; the evening note's fixed line is neutral; and the Today card on the
+  weekly day.
 - Deploy order is unchanged, and there is no SQL: inngest-jobs, then cortex,
-  then the app. New workers with the old app change nothing a person sees
-  beyond the sign off line above. The new app with old workers has no check
-  in and no review offer, and nothing breaks.
+  then the app. The new app with old workers has no check in and no review
+  offer, and nothing breaks.
+
+**The weekly review, batch 6 of 7 (6 Oct): the old Sweep is retired.** The
+Sweep screen is gone and only its card deck is left, in a screen of its own.
+A todo card now offers Today, Tomorrow, Later and Pick a date, says how full
+each day already is, and puts a todo off through the week's Later. A todo put
+off twice is asked about before any day is offered. Four things James added
+on 6 Oct came with it: Plan my day comes back after the review, the old app
+no longer gets an extra line from the new workers, the evening note's fixed
+line is neutral, and Today leads with Plan your week on the weekly day. No
+migration and no prompt change.
+
+- **The card deck is `app/screens/CardDeckScreen.tsx`**, route `'Cards'`
+  with `{ cards: 'wrap' | 'quick' }` (the `'Sweep'` route is gone). It is the
+  old screen's deck path and nothing else: every card kind's save, a note
+  made into a todo, the multi split step, the hand off to the wrap up
+  (`lib/wrapup/session.ts`), close and finish are as they were, and each
+  decision is saved as it is made (`applySweepDecision`). The demo no longer
+  stands in front of the cards. Nineteen files went: `SweepFlowScreen` and
+  its four tests, the intention, hub, habits check in, events and habit card
+  steps, `SwipeHintText`, `WeekGridScheduler`, `WeekBoardOverlay`,
+  `SweepEndCard`, `SweepEndItemList`, `SweepDemoFlow`,
+  `SweepSectionTransition` and `lib/store/weekGridSelectors.ts`. About 680
+  lines of the store went with them (the habit adaptation writers, floor
+  suggestions, habit reads, `resolveSweepBlock`, `completeSweepSession`,
+  `previewSweepGauge`, the demo flag), and the `openTomorrowBrief` event.
+- **A todo card's days** are `lib/sweep/cardDays.ts`. Today, Tomorrow and a
+  picked date read with how full that day already is ("Tue · 6h"): the open
+  todos due on it and the habits planned on it in their week (`loadOn` in
+  `workers/shared/habitWeek.js`, which `roomLeft` now uses), without the
+  card's own todo, a habit that was put away, or a habit already logged that
+  day. The date picker shows the same for the day in hand, under the
+  calendar and on its Today and Tomorrow chips.
+- **Later on a card is the week's Later.** `keepTodo` in
+  `lib/changes/sweep.ts` writes `laterColumns` (`lib/changes/later.ts`): a
+  back day, no day of its own, one more push counted, and no reminder. The
+  back day is after their week ends, on the day with the fewest things
+  already coming back (`laterBackDay`, from `backDays` and `spreadReturns`),
+  and the pill names it ("Later · Wed 7"). Later is not offered until their
+  weekly day has been read, and the reminder row goes while Later is chosen,
+  since a todo put off has no day for a reminder to go by.
+- **Put off twice, a card asks first** (`asksKeepOrLetGo`: no day of its
+  own, back today or earlier, `resurface_count` of 2 or more). It reads
+  "You've put this off twice now. Keep it, or let it go?" and offers no day.
+  Keep, by its button or a right swipe, opens Today, Tomorrow and Pick a
+  date and saves nothing by itself (`keepOpens` on `SweepCardShell`); only
+  Later stays away (`laterOffered`). Let go works from the question.
+- **A Later given a day stops being a Later.** `updateTodo` in the store
+  clears `resurface_at` when a day is given and the same update does not set
+  it. This closes batch 4's note about a day given from a todo's own editor.
+- **Try it now on the unlock card opens their first wrap up** in today's
+  thread, in place of the demo. The ask for notifications that the app makes
+  by itself would land on top of it three seconds in, so it is put off for
+  that launch (`putOffOpenAsk` in `lib/notifications/ask.ts`) and comes the
+  next time the app opens. "I'll do it tonight" still asks at once.
+- **Plan my day comes back after the review.** `useWeekReview` tells the
+  thread when the review is over (`onEnded`: after Done, or after the weekly
+  day question when that is asked; after Not this week and Not now; and when
+  a yes given elsewhere could not open the review at all). The screen then
+  calls `continueBrief({ afterWeek: true })`. With `afterWeek`,
+  `planOfferToBringBack` looks behind the review's own offers for the day's
+  offer and does not count Plan my week chosen on it as an answer. Nothing
+  comes back in the evening, in the small hours before their day ends, or
+  once the wrap up has spoken. Without `afterWeek` both functions behave as
+  they did before this batch, so a turn typed while the review is opening
+  never puts the offer back under it.
+- **New workers change nothing on the old app.** When the brief has no offer
+  of its own, its week facts now ride on a row with no words and no buttons
+  (`workers/inngest-jobs/brief/index.js`), where batch 5 used the fixed sign
+  off line. The old app draws nothing for that row. Two traces remain: on
+  first play the typing dots show for about a second after the day card,
+  and when the brief also asks a question the old app adds an unseen copy
+  of the row after the answer. The context reader no longer takes a row
+  without words as what Gremly had said (`lineBefore` in
+  `workers/inngest-jobs/context/reader.js`).
+- **The evening note's fixed line**, used when no model answers, is "A look
+  back at your day, whenever you are ready, in Chat."
+  (`notifications/copy.js`).
+- **Today leads with Plan your week on the weekly day**, until the review
+  is done or they said not this week (`weekCardToday` in
+  `lib/week/review/state.ts`). It is a card where the weekly summary's
+  banner sits, in its style, and while that banner is showing it is a button
+  on the banner instead (`components/WeeklySummaryBanner.tsx`, prop
+  `planWeek`). Only Today passes the prop: the banner on Drop and the Hub is
+  as it was. The banner's summary, its X and the button are now three
+  buttons side by side, none inside another. The Week button and the card
+  follow the store's day, and the week is read again when the day turns
+  over with Today on screen.
+- **Verified.** tsc clean; 9,703 jest tests in 726 files. On Luna: day set
+  31 and 33 of 33 over two runs (the two misses then 10 of 10), week set 18
+  and 16 of 18 (the two misses then 9 of 10), wrap 94 of 94, smoke 10 of 10
+  twice, weekly read 7 of 7, chat 57 of 57 with and without the week,
+  evening note 39 of 40 (one fell to the fixed line when both models
+  failed, and it read as above).
+- **Found by two independent reads and fixed.** Later dropped a reminder
+  chosen before it, without a word; a day's load counted habits already
+  logged and habits put away; the custom reminder pill read the due day;
+  the notification ask rose over the first wrap up; a turn typed while the
+  review was opening brought Plan my day back under it; the offer came back
+  after an evening review; Plan my week tapped on a morning when the week
+  could not be read left neither button; the banner's buttons could not be
+  reached with VoiceOver; the Week button and the card kept yesterday's day
+  when the app was left open on Today overnight.
+- **Known and left as they are.** A reminder already on a todo stays when it
+  goes to Later, as on the board. On the day before their weekly day a Later
+  comes back two days on, inside next week if that week was planned early.
+  An offer already brought back once and passed by does not come back again
+  after a review opened from Today. A talk it through question never
+  answered stays the live offer after the review, so nothing comes back
+  until they next type. Undo on the Done card reopens the review with the
+  brought back offer still live above the board. After a change of their
+  day end hour, Today's day lags until the app is next brought forward. The
+  unlock card still says "Takes 2 minutes" and "Best done before bed",
+  which fitted the demo better than a first wrap up: the words are James's
+  to change. Notes' own Resurface later is not the week's Later and is
+  unchanged.
+- **Nothing makes or ends a habit adaptation now.** The old Sweep's habit
+  step was the only writer. `habit_adaptations` is still read (streaks, the
+  habit card stats, the worker). It has six rows, none running, and every
+  row has an end date, so no one is left in a pause they cannot end.
+- **Left unreferenced, for a later clean up.** `buildHabitFactSheet`,
+  `computeInputHash` and `HabitRead` in `lib/habits/habitFactSheet.ts`, and
+  `lib/habits/habitFrequencyRecommendation.ts` behind them; cortex routes
+  `habit-read` and `floor-suggest`; tables `habit_reads` and
+  `habit_floor_suggestions`; column
+  `cortex_preferences.demo_sweep_completed_at`; `useSkipBudget`,
+  `getSweepInsight`, `fetchSweepCandidatesForUser`, `applySweepAction`,
+  `todoFilters`, `useMiniSweepGate`, `TodayPillsRow`, `NowSweepBar`,
+  `SweepDrawer`, `FirstDropSpotlight`, `WRAP_COPY.weekToast`, the
+  `'sweep-habits'` help page; the skipped tests in
+  `tests/now/now.sweep.test.tsx` and `now.screen.integration.test.tsx` that
+  still speak of `navigate('Sweep')`. An install made before this batch
+  keeps a stray `demoSweepCompletedAt` key in its saved state until the
+  store next saves.
+
+What the next batch needs to know:
+
+- Batch 7 no longer has `resolveSweepBlock` on its list: it went with the
+  old Sweep. The summary's cadence detector and the Worlds tab's "this week"
+  range are still on Monday to Sunday.
+- `loadOn` in `shared/habitWeek.js` is the one place a day's load is added
+  up for the cards and for a habit's room. The week's board has its own sum
+  (`lib/week/board/model.ts`), which does not leave out a habit already
+  logged that day.
+- Deploy order is unchanged, and there is no SQL: inngest-jobs, then cortex,
+  then the app. The workers of this batch can go out before the app update:
+  an app without it shows nothing new.
 
 **Step 11, focused model audit.** After chat and Sweep, a smaller audit of
 only the places that could be better, from replays and real use: a stronger
@@ -1067,8 +1212,24 @@ to 53 at about 3.2s, but its replies were sloppier), and Gemini caching.
 - The come back note (James, 6 Oct): it goes to anyone with Reminders on,
   not only people with Notes from Gremly on, because it is about their own
   items.
-- Workers deploy on their own (James, 6 Oct): a worker change must not alter
-  what an app bundle without the matching update shows.
+- The brief's extra line on the old app (James, 6 Oct): the old app no
+  longer gets the extra "Have a good day." line, so the workers can deploy
+  on their own.
+- The card deck (James, 6 Oct): a todo card offers Today, Tomorrow, Later
+  and Pick a date. Later goes through the week's writer and shows its back
+  day on the pill. The day pills and Pick a date show how full each day
+  already is, for example "Tue · 6h". After two pushes the card asks keep or
+  let go; Keep opens Today, Tomorrow and Pick a date, and only Later goes
+  away.
+- Try it now (James, 6 Oct): it opens their first wrap up, and the demo
+  sweep is gone.
+- The Today card (James, 6 Oct): on the weekly day Plan your week is a card
+  at the top of Today in the summary banner's style. When the weekly summary
+  banner is showing on the weekly day, it is a button on that banner instead
+  of a second card.
+- Plan my day comes back after a morning review (James, 6 Oct).
+- The evening note's fallback line is neutral (James, 6 Oct), with nothing
+  about things to settle.
 
 ## How to work here
 
