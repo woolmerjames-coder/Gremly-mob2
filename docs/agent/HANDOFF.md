@@ -315,10 +315,15 @@ What the next batches need to know:
   line in batch 3, with a chat replay before and after.
 - Batch 3 wires the app: `useDayTurn`'s `wrapContext` hook becomes the hook
   for both rituals and sends `week`; the answer's `offer` draws the Week
-  button and `hold` keeps the review on its step. Gremly sometimes asks a
-  question without calling `hold`; the task list then says `needs_answer` or
-  `open`, which is what the brief already waits on (`waitingOn` in
-  `useDayTurn.ts`), so the review can wait on either.
+  button.
+- James, 6 Oct, for batch 3: after any typed message the review shows a
+  Carry on button and never moves on by itself. A `hold` only hides that
+  button until they have answered. His replay run had Gremly ask a question
+  with no `hold` and no `needs_answer`, so the review must not lean on
+  either to know it should wait: the button is what moves it on.
+- James, 6 Oct, for batch 3: build the Done step's re-keying. When they move
+  their weekly day at Done after an out of cycle review, that review counts
+  as the new week's (see the note on moving the weekly day below).
 - The settings screen (`hooks/useNotificationSettings.ts`) and
   `lib/week/thisWeek.ts` each hold the weekly day. When the setting moves to
   the Your week section, give it one home.
@@ -341,10 +346,6 @@ Found on the way and left as they were, because none is from this work:
 - The wrap replay's travel day slips now and then on its check that nothing
   is said about tonight (47 of 47, then 45 of 47, on the same code;
   `workers/cortex/wrap` is untouched here).
-- A brief turn whose date is not a real day throws in `renderDay`
-  (`weekdayName`), so the turn answers failed with no reason given.
-- `PLAN_KINDS` in `workers/shared/changes/fields.d.ts` is typed without
-  `plan_day`, which `fields.js` has.
 
 **Step 11, focused model audit.** After chat and Sweep, a smaller audit of
 only the places that could be better, from replays and real use: a stronger
