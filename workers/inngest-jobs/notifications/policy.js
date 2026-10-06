@@ -190,7 +190,8 @@ export function dedupeKey({ userId, moment, subject = '', localDate, slot = '' }
  *   pausedMoments { moment: { paused_at } }
  *   bestMinutes  best hours as minutes since midnight, most responsive first (or null)
  *   facts        { briefExpected, habits: [{id, title, usualMinutes, loggedToday}],
- *                  goodNews: [{kind, id}], nudgeReasons: [{kind, id?, weight?}] }
+ *                  goodNews: [{kind, id}],
+ *                  nudgeReasons: [{kind, id?, weight?, priority?, angles?}] }
  * @returns {{ plan: Array, skipped: Array, state: string, limit: number }}
  */
 export function planDay(input) {
@@ -282,6 +283,9 @@ export function planDay(input) {
     add('nudge', gremlyMinute(POLICY.defaultNudgeMinutes), {
       subject: reasons[0].kind,
       reason: reasons[0],
+      // A reason can ask to go ahead of the day's other notes (what came back
+      // while they were away): on a day with room for one, it is the one sent.
+      ...(Number.isFinite(reasons[0].priority) ? { priority: reasons[0].priority } : {}),
     });
   }
   return finish();
@@ -427,8 +431,9 @@ export function interruptionFor(moment, state, { timeSensitiveAllowed = true } =
 /**
  * Picks an angle. Each angle's result for this person is blended with everyone's
  * (so a new person starts sensible), a recently used angle scores lower and
- * recovers over about 15 days, and yesterday's angle for the same moment is never
- * used again today. Deterministic, so a simulation repeats exactly.
+ * recovers over about 15 days, and yesterday's angle for the same moment is not
+ * used again today, unless it is the only one today's facts can be said with.
+ * Deterministic, so a simulation repeats exactly.
  *
  * @param {object} p
  *   moment, eligible (angles whose facts exist today; default all for the moment),
@@ -444,11 +449,11 @@ export function chooseAngle({
   yesterday = null,
 }) {
   const all = ANGLES[moment] || ['plain'];
-  let pool = (eligible?.length ? all.filter((a) => eligible.includes(a)) : all).filter(
-    (a) => a !== yesterday,
-  );
-  if (!pool.length) pool = all.filter((a) => a !== yesterday);
-  if (!pool.length) pool = all;
+  const allowed = eligible?.length ? all.filter((a) => eligible.includes(a)) : [];
+  let pool = (allowed.length ? allowed : all).filter((a) => a !== yesterday);
+  // Yesterday's angle is all today's facts can be said with: it is used again
+  // rather than swapped for one the facts say nothing for.
+  if (!pool.length) pool = allowed.length ? allowed : all;
   const totalN = pool.reduce((t, a) => t + (stats[a]?.n || 0), 0) + 1;
   let best = null;
   for (const a of pool) {

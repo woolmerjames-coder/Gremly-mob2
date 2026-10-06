@@ -50,6 +50,21 @@ describe('countSweep: todos', () => {
     expect(countSweep({ todos, today, tz })).toBe(2);
   });
 
+  it('a todo put off (Later) is an evening card on the day it comes back, and not before', () => {
+    // a Later has no day of its own: its day to come back is what brings it to the cards
+    const todos = [
+      todo({ id: 'back-today', resurface_at: today, decided_at: '2026-09-20T18:00:00Z' }),
+      todo({ id: 'back-earlier', resurface_at: '2026-09-29', decided_at: '2026-09-20T18:00:00Z' }),
+      todo({ id: 'still-away', resurface_at: '2026-10-04', decided_at: '2026-09-20T18:00:00Z' }),
+    ];
+    expect(
+      eveningItems({ todos, today, tz })
+        .todos.map((t) => t.id)
+        .sort(),
+    ).toEqual(['back-earlier', 'back-today']);
+    expect(countBoth({ todos, today, tz, day: today }).evening).toBe(2);
+  });
+
   it('the evening that went wrong: 16 due today, 5 undated and one idea make 22, not 6', () => {
     const todos = [
       ...Array.from({ length: 16 }, () => todo({ due_day: today })),

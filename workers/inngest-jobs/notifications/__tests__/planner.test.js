@@ -16,6 +16,10 @@ import {
   buildDayPlan,
   planPersonDay,
   sendEvents,
+  cameBackSince,
+  cameBackWhileAway,
+  cameBackReason,
+  readCameBack,
 } from '../planner';
 
 let mockTables;
@@ -375,6 +379,169 @@ describe('planning one person', () => {
     expect(
       saved.plan.skipped.some((x) => x.moment === 'sweep' && x.reason === 'Daily limit reached'),
     ).toBe(true);
+  });
+
+  describe('what came back from Later while they were away', () => {
+    const settings = (over = {}) => ({
+      user_id: USER,
+      timezone: TZ,
+      morning_time: '08:00',
+      evening_time: '20:00',
+      morning_enabled: true,
+      evening_enabled: true,
+      checkins_enabled: true,
+      ...over,
+    });
+    const back = (id, resurface_at, name = `Todo ${id}`) => ({ id, name, resurface_at });
+    const plan = (lastOpen, todos, prefs = settings()) => {
+      mockTables.notification_preferences = [prefs];
+      mockTables.user_engagement = [{ user_id: USER, state: 'engaged' }];
+      mockTables.cortex_preferences = [{ gremly_age: 5 }];
+      mockTables.app_events = [{ occurred_at: lastOpen }];
+      mockTables.todos = todos;
+      return planPersonDay(
+        ENV,
+        { user_id: USER, timezone: TZ, local_date: '2026-10-08' },
+        { now: new Date('2026-10-08T03:30:00Z') },
+      );
+    };
+    const nudge = (out) => out.events.find((e) => e.data.moment === 'nudge');
+
+    it('is the reason for the nudge after two days away, said as something waiting', async () => {
+      // last here on Monday 5; two things came back on Tuesday and today
+      const out = await plan('2026-10-05T18:00:00Z', [
+        back('a', '2026-10-06'),
+        back('b', '2026-10-08'),
+        back('old', '2026-10-04'),
+      ]);
+      expect(out.daysAway).toBe(3);
+      expect(nudge(out).data).toMatchObject({
+        subject: 'came_back',
+        data: {
+          // what came back after Monday 5, the last day they were here
+          reason: { kind: 'came_back', weight: 3, count: 2, since: '2026-10-05' },
+          eligibleAngles: ['something_waiting'],
+        },
+      });
+      // two days away the day has room for one note, and this is the one sent
+      expect(out.state).toBe('drifting');
+      expect(out.events.map((e) => e.data.moment)).toEqual(['nudge']);
+      // only open todos with no day of their own, by the day they come back
+      const read = mockCalls.select.find((q) => q.startsWith('todos?'));
+      expect(read).toContain('completed_at=is.null&archived=eq.false&due_day=is.null');
+      expect(read).toContain('resurface_at=gte.2026-10-02&resurface_at=lte.2026-10-08');
+    });
+
+    it('is not said while they are around: Today and the brief show it', async () => {
+      const out = await plan('2026-10-07T18:00:00Z', [back('a', '2026-10-08')]);
+      expect(out.daysAway).toBe(1);
+      expect(nudge(out).data).toMatchObject({ subject: 'unfed' });
+      expect(nudge(out).data.data.eligibleAngles).toBeUndefined();
+    });
+
+    it('is not said when nothing came back since they were last here: the day is planned as before', async () => {
+      const out = await plan('2026-10-05T18:00:00Z', [back('old', '2026-10-05')]);
+      // the one note of a day two days away is the brief, as it always was
+      expect(out.events.map((e) => e.data.moment)).toEqual(['brief']);
+    });
+
+    it('is said once: what a note has said is not said again, until more comes back', async () => {
+      const said = (day) => {
+        mockTables.notification_log = (path) =>
+          path.includes('subject_id=eq.came_back') ? [{ local_date: day }] : [];
+      };
+      const todos = [back('a', '2026-10-06'), back('b', '2026-10-08')];
+      // a note on Wednesday 7 said the first; today's is about the one back since
+      said('2026-10-07');
+      const more = await plan('2026-10-05T18:00:00Z', todos);
+      expect(nudge(more).data.data.reason).toMatchObject({
+        kind: 'came_back',
+        count: 1,
+        since: '2026-10-07',
+      });
+      const read = mockCalls.select.find((q) => q.includes('subject_id=eq.came_back'));
+      expect(read).toContain('moment=eq.nudge');
+      expect(read).toContain('status=in.(sent,delivered)&is_test=eq.false');
+      // a note today has said it all: the day is planned as before
+      said('2026-10-08');
+      const none = await plan('2026-10-05T18:00:00Z', todos);
+      expect(none.events.map((e) => e.data.moment)).toEqual(['brief']);
+    });
+
+    it('is not said when the last note cannot be read, rather than said twice', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      mockTables.notification_log = (path) => {
+        if (path.includes('subject_id=eq.came_back')) throw new Error('the log is down');
+        return [];
+      };
+      const out = await plan('2026-10-05T18:00:00Z', [back('a', '2026-10-06')]);
+      expect(out.events.map((e) => e.data.moment)).toEqual(['brief']);
+      expect(warn.mock.calls.map((c) => String(c[0])).join(' ')).toMatch(/was last said/);
+      warn.mockRestore();
+    });
+
+    it('still goes only to someone who has Gremly notes switched on', async () => {
+      const out = await plan(
+        '2026-10-05T18:00:00Z',
+        [back('a', '2026-10-06')],
+        settings({ checkins_enabled: false }),
+      );
+      expect(nudge(out)).toBeUndefined();
+    });
+
+    it('plans the day as before when what came back cannot be read', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const out = await plan('2026-10-05T18:00:00Z', () => {
+        throw new Error('todos are down');
+      });
+      expect(out.events.map((e) => e.data.moment)).toEqual(['brief']);
+      expect(warn.mock.calls.map((c) => String(c[0])).join(' ')).toMatch(/what came back/);
+      warn.mockRestore();
+    });
+
+    it('counts by dates alone', () => {
+      const backs = [
+        { back_on: '2026-10-05' },
+        { back_on: '2026-10-06' },
+        { back_on: '2026-10-08' },
+      ];
+      const away = (daysAway, lastOpenDate) => cameBackWhileAway(backs, { daysAway, lastOpenDate });
+      expect(away(3, '2026-10-05').map((t) => t.back_on)).toEqual(['2026-10-06', '2026-10-08']);
+      expect(away(2, '2026-10-06').map((t) => t.back_on)).toEqual(['2026-10-08']);
+      expect(away(1, '2026-10-07')).toEqual([]);
+      // someone who has never opened the app has not been away from it
+      expect(away(0, null)).toEqual([]);
+      // what a note already said is not counted again
+      const after = (lastSaid) =>
+        cameBackWhileAway(backs, { daysAway: 3, lastOpenDate: '2026-10-05', lastSaid });
+      expect(after('2026-10-06').map((t) => t.back_on)).toEqual(['2026-10-08']);
+      expect(after('2026-10-08')).toEqual([]);
+      // a note from before they were last here says nothing about this time away
+      expect(after('2026-10-01').map((t) => t.back_on)).toEqual(['2026-10-06', '2026-10-08']);
+      expect(cameBackSince('2026-10-05', '2026-10-07')).toBe('2026-10-07');
+      expect(cameBackSince('2026-10-05', null)).toBe('2026-10-05');
+      expect(cameBackSince(null, '2026-10-07')).toBeNull();
+      expect(cameBackReason(2, '2026-10-05')).toEqual({
+        kind: 'came_back',
+        weight: 3,
+        count: 2,
+        since: '2026-10-05',
+        angles: ['something_waiting'],
+        // after good news, ahead of the brief
+        priority: 1.5,
+      });
+    });
+
+    it('reads each one with its title and the day it came back', async () => {
+      mockTables.todos = [
+        { id: 'a', name: 'Call the plumber', resurface_at: '2026-10-06' },
+        { id: 'b', name: null, title: 'Renew passport', resurface_at: '2026-10-08T00:00:00' },
+      ];
+      expect(await readCameBack(ENV, USER, '2026-10-02', '2026-10-08')).toEqual([
+        { id: 'a', title: 'Call the plumber', back_on: '2026-10-06' },
+        { id: 'b', title: 'Renew passport', back_on: '2026-10-08' },
+      ]);
+    });
   });
 
   it('does nothing without settings', async () => {

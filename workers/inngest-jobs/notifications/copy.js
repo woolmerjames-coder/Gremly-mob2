@@ -11,7 +11,7 @@
 import { PRIVATE_RULES, WRITING_RULES } from '../careRules';
 import { jsonCall } from '../context/llm';
 
-export const COPY_PROMPT_VERSION = 'notif-copy-2026-10-05a';
+export const COPY_PROMPT_VERSION = 'notif-copy-2026-10-08a';
 export const COPY_MODELS = Object.freeze({
   primary: { provider: 'google', model: 'gemini-3.8-flash' },
   fallback: { provider: 'openai', model: 'gpt-6-luna' },
@@ -46,6 +46,15 @@ const MOMENT_RULES = Object.freeze({
     'They have not opened the app for a while. Say something light and welcoming that asks nothing of them.',
 });
 
+/**
+ * What a nudge is for, when its reason is one the writer has to be told
+ * (notifications/planner.js): added to what the moment is.
+ */
+export const REASON_RULES = Object.freeze({
+  came_back:
+    'The reason is that things they put off for later have come back while they were away and are waiting for them: the facts say how many, and name up to two. Say that they are back, by name when names are given, and say nothing of how long they waited, of which day they came back, or of anything else in their day.',
+});
+
 export const VOICE_RULES = `GREMLY'S VOICE
 - Gremly is a friendly little companion who invites. Never a coach, a boss or a nag, and never tells the person what they should do.
 - Put the point in the first few words. The line must make sense on its own, because the phone may fold it into a one line summary.
@@ -74,6 +83,16 @@ export function fallbackCopy(moment, f = {}) {
         body: 'Done today? Tap to log it.',
       };
     case 'nudge':
+      // something put off earlier (Later) has come back while they were away
+      if (f.cameBack > 0) {
+        return {
+          title: '',
+          body:
+            f.cameBack === 1
+              ? 'Something you put off has come back.'
+              : 'A few things you put off have come back.',
+        };
+      }
       return { title: '', body: 'Gremly’s here if anything’s on your mind.' };
     case 'good_news':
       return { title: f.goodNewsTitle || 'Something good is ready', body: 'Tap to have a look.' };
@@ -145,13 +164,14 @@ export function factsShown(moment, facts) {
   return f;
 }
 
-export function buildPrompt({ moment, angle, facts, recentLines }) {
+export function buildPrompt({ moment, angle, facts, recentLines, reason = null }) {
   const system = {
     fixed: `You write one push notification from Gremly, a small companion creature in a personal app.\n\n${VOICE_RULES}\n\n${WRITING_RULES}\n\n${PRIVATE_RULES}\n\nReturn JSON with "title" (may be empty) and "body".`,
     varying: '',
   };
   const lines = [];
-  lines.push(`WHAT THIS IS: ${MOMENT_RULES[moment] || 'A notification from Gremly.'}`);
+  const why = reason && REASON_RULES[reason] ? ` ${REASON_RULES[reason]}` : '';
+  lines.push(`WHAT THIS IS: ${MOMENT_RULES[moment] || 'A notification from Gremly.'}${why}`);
   if (angle && ANGLE_RULES[angle]) lines.push(`ANGLE: ${ANGLE_RULES[angle]}`);
   lines.push(`FACTS:\n${JSON.stringify(factsShown(moment, facts), null, 1)}`);
   lines.push(
@@ -188,10 +208,10 @@ function withTimeout(promise, ms) {
  */
 export async function writeCopy(
   env,
-  { moment, angle, facts, recentLines = [], fallbackFacts = {} },
+  { moment, angle, facts, recentLines = [], fallbackFacts = {}, reason = null },
   call = jsonCall,
 ) {
-  const { system, user } = buildPrompt({ moment, angle, facts, recentLines });
+  const { system, user } = buildPrompt({ moment, angle, facts, recentLines, reason });
   const problems = [];
   for (const m of [COPY_MODELS.primary, COPY_MODELS.fallback]) {
     try {

@@ -101,6 +101,35 @@ describe('writeCopy', () => {
   });
 });
 
+describe('a nudge with a reason the writer has to be told', () => {
+  const facts = { weekday: 'Thursday', put_off_earlier_and_back_now: { count: 1, titles: ['x'] } };
+
+  it('adds what came back to what the moment is, as a rule with no example', () => {
+    const { user } = buildPrompt({
+      moment: 'nudge',
+      angle: 'something_waiting',
+      facts,
+      reason: 'came_back',
+    });
+    expect(user).toContain('WHAT THIS IS: There is a real reason in the facts');
+    expect(user).toContain('things they put off for later have come back while they were away');
+    expect(user).toContain('ANGLE: Say plainly what is ready for them to look at.');
+  });
+
+  it('leaves every other notification exactly as it was', () => {
+    const plain = buildPrompt({ moment: 'nudge', angle: 'gremly_state', facts });
+    expect(plain.user).not.toContain('have come back while they were away');
+    expect(buildPrompt({ moment: 'nudge', angle: 'gremly_state', facts, reason: 'unfed' })).toEqual(
+      plain,
+    );
+    const evening = { moment: 'sweep', angle: 'day_shape', facts: { weekday: 'Monday' } };
+    expect(buildPrompt({ ...evening, reason: 'came_back' }).user).toContain(
+      'have come back while they were away',
+    );
+    expect(buildPrompt(evening).user).not.toContain('have come back while they were away');
+  });
+});
+
 describe('the fixed lines', () => {
   it('pass their own checks', () => {
     for (const m of ['brief', 'sweep', 'habit_checkin', 'nudge', 'good_news', 'return_note']) {
@@ -109,6 +138,16 @@ describe('the fixed lines', () => {
       ).toBeNull();
       expect(checkCopy(fallbackCopy(m, { lastNote: true }))).toBeNull();
     }
+  });
+  it('say what came back from Later plainly, and pass the checks', () => {
+    const one = fallbackCopy('nudge', { cameBack: 1 });
+    const few = fallbackCopy('nudge', { cameBack: 4 });
+    expect(one.body).toBe('Something you put off has come back.');
+    expect(few.body).toBe('A few things you put off have come back.');
+    expect(checkCopy(one)).toBeNull();
+    expect(checkCopy(few)).toBeNull();
+    // any other nudge keeps its own line
+    expect(fallbackCopy('nudge', { cameBack: 0 }).body).toBe(fallbackCopy('nudge', {}).body);
   });
   it('call the evening one their wrap up, never Sweep', () => {
     const line = fallbackCopy('sweep', { weekday: 'Wednesday' });

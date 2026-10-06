@@ -144,6 +144,22 @@ describe('planDay', () => {
     expect(r.plan[0].interruption).toBe('passive');
   });
 
+  test('drifting: a reason that asks to go first is the one note of the day', () => {
+    // what came back from Later while they were away (planner.js cameBackReason)
+    const cameBack = { kind: 'came_back', weight: 3, priority: 1.5, angles: ['something_waiting'] };
+    const r = planDay({
+      prefs,
+      daysAway: 3,
+      facts: { ...facts, nudgeReasons: [{ kind: 'unfed', weight: 1 }, cameBack] },
+    });
+    expect(r.plan.map((c) => [c.moment, c.subject])).toEqual([['nudge', 'came_back']]);
+    expect(r.plan[0].reason).toBe(cameBack);
+    expect(r.skipped.find((s) => s.moment === 'brief').reason).toBe('Daily limit reached');
+    // an everyday reason never jumps the queue
+    const plain = planDay({ prefs, daysAway: 3, facts });
+    expect(plain.plan.map((c) => c.moment)).toEqual(['brief']);
+  });
+
   test('lapsed: only a return note, and only on ladder days', () => {
     expect(planDay({ prefs, daysAway: 5, facts }).plan.map((c) => c.moment)).toEqual([
       'return_note',
@@ -318,6 +334,24 @@ describe('angles', () => {
   });
   test('only angles whose facts exist today', () => {
     expect(chooseAngle({ moment: 'nudge', eligible: ['callback'] })).toBe('callback');
+  });
+  test('the one angle today’s facts can be said with is used again the day after', () => {
+    // what came back can only be said as something waiting, whatever was used yesterday
+    expect(
+      chooseAngle({
+        moment: 'nudge',
+        eligible: ['something_waiting'],
+        yesterday: 'something_waiting',
+      }),
+    ).toBe('something_waiting');
+    // with another the facts allow, yesterday's still rests
+    expect(
+      chooseAngle({
+        moment: 'nudge',
+        eligible: ['something_waiting', 'callback'],
+        yesterday: 'something_waiting',
+      }),
+    ).toBe('callback');
   });
   test('a recently used angle loses to an equally good rested one', () => {
     const stats = { tiny_invite: { s: 5, n: 10 }, gremly_state: { s: 5, n: 10 } };
