@@ -12,7 +12,12 @@
  * (lib/changes/week.ts), so every part of the screen sees one week.
  */
 import { create } from 'zustand';
-import type { WeekReviewRow } from '../../repo/weekReviewRepo';
+import type {
+  WeekBoardMoves,
+  WeekPlanned,
+  WeekReviewRow,
+  WeekSpread,
+} from '../../repo/weekReviewRepo';
 import type { WeekHours } from '../model';
 import { daysPlanned, draftFor, type ChatStep, type ReviewOn, type WeekDraft } from './state';
 
@@ -46,6 +51,41 @@ export interface WeekSession {
   left: boolean;
   /** Milestones whose set up can still be undone, by key */
   undoable: Record<string, true>;
+  /**
+   * Their own moves on the week's board, as they stand: the copy the board is
+   * drawn from. It is kept on the row a moment later (answers.board), so the
+   * board never waits on a save and a save never undoes a newer move.
+   */
+  moves: WeekBoardMoves;
+  /** The board's sheet is open */
+  boardOpen: boolean;
+  /** Gremly is spreading the week (the spread is being made) */
+  fitting: boolean;
+  /** The last spread asked for did not come back */
+  spreadFailed: boolean;
+  /**
+   * What the spread in hand was asked for, as this app wrote it when it asked
+   * (spreadBasis), and the same for the suggestions that came with it
+   * (reliefBasis). Null when the spread was read with the row instead of
+   * asked for in this sitting: what it says of itself stands then.
+   */
+  spreadFor: string | null;
+  reliefFor: string | null;
+  /** The question about their own days is open again, to change the answer */
+  asking: boolean;
+  /** They are keeping some of their days, and are picking which */
+  picking: boolean;
+  /** While picking: the todos freed so far, kept on the week when they finish */
+  freedDraft: string[];
+  /** The day the board's sheet opens on, when it is opened for one */
+  boardDay: string | null;
+  /** The over-full day they are changing by hand on the board */
+  relieving: string | null;
+  /**
+   * What the week's row said was planned before the board was last saved, so
+   * the board's Undo puts that back too. It lasts as long as the Undo does.
+   */
+  plannedBefore: WeekPlanned | null;
 }
 
 const EMPTY: WeekSession = {
@@ -62,6 +102,18 @@ const EMPTY: WeekSession = {
   finishedHere: false,
   left: false,
   undoable: {},
+  moves: {},
+  boardOpen: false,
+  fitting: false,
+  spreadFailed: false,
+  spreadFor: null,
+  reliefFor: null,
+  asking: false,
+  picking: false,
+  freedDraft: [],
+  boardDay: null,
+  relieving: null,
+  plannedBefore: null,
 };
 
 export const useWeekSession = create<WeekSession>(() => ({ ...EMPTY }));
@@ -89,12 +141,55 @@ export function setReview(
   const s = useWeekSession.getState();
   const hours = lastHours === undefined ? s.lastHours : lastHours;
   const sameWeek = !!row && s.row?.week_start === row.week_start && !!s.draft;
+  const sameRow = !!row && s.row?.id === row.id;
+  // the same review read again: a spread that came back since it was read is the newer one
+  const mine = sameRow ? (s.row?.spread ?? null) : null;
+  const keepMine = !!row && !!mine && (!row.spread || mine.made_at >= row.spread.made_at);
   useWeekSession.setState({
-    row,
+    row: row && keepMine ? { ...row, spread: mine } : row,
     on,
     lastHours: hours,
     // a draft in hand is kept: what they picked is not lost when the row is read again
     draft: sameWeek ? s.draft : row && on ? draftFor(row, daysPlanned(on), hours) : null,
+    // and so are their moves on the board; another review starts from what its row kept
+    moves: sameRow ? s.moves : (row?.answers.board ?? {}),
+    ...(keepMine ? {} : { spreadFor: null, reliefFor: null }),
+    ...(sameRow
+      ? {}
+      : {
+          boardOpen: false,
+          fitting: false,
+          spreadFailed: false,
+          asking: false,
+          picking: false,
+          freedDraft: [],
+          boardDay: null,
+          relieving: null,
+        }),
+  });
+}
+
+/** Their moves on the board, as they stand now. */
+export function setMoves(moves: WeekBoardMoves): void {
+  useWeekSession.setState({ moves });
+}
+
+/**
+ * Gremly's spread came back: it goes on the copy of the row in hand, with
+ * what it was asked for.
+ */
+export function spreadMade(
+  rowId: string,
+  spread: WeekSpread,
+  askedFor: { spread: string; relief: string },
+): void {
+  const s = useWeekSession.getState();
+  if (!s.row || s.row.id !== rowId) return;
+  useWeekSession.setState({
+    row: { ...s.row, spread },
+    spreadFor: askedFor.spread,
+    reliefFor: askedFor.relief,
+    spreadFailed: false,
   });
 }
 
@@ -113,7 +208,16 @@ export function rowSaved(saved: WeekReviewRow): void {
       draft = { ...draft, busy: fresh.busy };
     }
   }
-  useWeekSession.setState({ row: saved, draft });
+  // A spread that came back while this write was on its way is the newer one:
+  // the row as written was read before it was kept.
+  const mine = s.row.spread;
+  const keepMine = !!mine && (!saved.spread || mine.made_at >= saved.spread.made_at);
+  useWeekSession.setState({
+    row: { ...saved, spread: keepMine ? mine : saved.spread },
+    draft,
+    // another spread than the one asked for here says for itself what it was made for
+    ...(keepMine ? {} : { spreadFor: null, reliefFor: null }),
+  });
 }
 
 export function patchDraft(change: (d: WeekDraft) => WeekDraft): void {
@@ -148,6 +252,17 @@ export async function runUndo(key: string): Promise<boolean> {
     return { undoable };
   });
   return true;
+}
+
+/** Let an Undo go without running it: what it would put back has been overtaken. */
+export function dropUndo(key: string): void {
+  if (!reverts.has(key) && !useWeekSession.getState().undoable[key]) return;
+  reverts.delete(key);
+  useWeekSession.setState((s) => {
+    const undoable = { ...s.undoable };
+    delete undoable[key];
+    return { undoable };
+  });
 }
 
 /** Tests only. */
