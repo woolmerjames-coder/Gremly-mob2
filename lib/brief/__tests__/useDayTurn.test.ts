@@ -640,7 +640,7 @@ describe('during the evening wrap up', () => {
       step: 'habits',
       decisions: [{ title: 'Do taxes', outcome: 'kept for tomorrow' }],
     };
-    const { hook, deps } = harness(undefined, { wrapContext: () => wrap });
+    const { hook, deps } = harness(undefined, { ritualContext: () => ({ wrap }) });
     await act(async () => {
       await hook.result.current.run("what's on tomorrow?", null);
     });
@@ -673,13 +673,13 @@ describe('during the evening wrap up', () => {
       item: { id: 'vet', kind: 'todo', title: 'Vet' },
     };
     const { hook, deps, messages } = harness(undefined, {
-      wrapContext: () => ({ step: 'questions', decisions: [] }),
+      ritualContext: () => ({ wrap: { step: 'questions', decisions: [] } }),
     });
     let out: { answered: boolean; card: boolean } | null = null;
     await act(async () => {
       out = await hook.result.current.ask('Monday', { answering });
     });
-    expect(out).toEqual({ answered: true, card: true });
+    expect(out).toEqual({ answered: true, card: true, hold: null });
     expect((callBriefTurn as jest.Mock).mock.calls[0][0].wrap).toEqual({
       step: 'questions',
       decisions: [],
@@ -688,5 +688,120 @@ describe('during the evening wrap up', () => {
     // their answer is already in the thread: only his reply and the card are added
     expect(messages.slice(1).map((m) => m.role)).toEqual(['assistant', 'system']);
     expect(deps.continueBrief).not.toHaveBeenCalled();
+  });
+});
+
+describe('their week, and the weekly review', () => {
+  const week = {
+    weekly_day: 0,
+    days_off: [0, 6],
+    review: null,
+    extra_used: false,
+    under_way: { step: 'shape', first: '2026-10-05', last: '2026-10-11' },
+  };
+
+  beforeEach(() => {
+    (callBriefTurn as jest.Mock).mockReset();
+    (applyCardChanges as jest.Mock).mockReset();
+  });
+
+  it('is sent with every message once the app knows it, beside the wrap up', async () => {
+    (callBriefTurn as jest.Mock).mockResolvedValue({
+      ok: true,
+      data: { engine: 'agent', reply: 'Thursday is the full one.', card: [], tasks: [] },
+    });
+    const { hook } = harness(undefined, { ritualContext: () => ({ wrap: null, week }) });
+    await act(async () => {
+      await hook.result.current.run('which day is fullest?', null);
+    });
+    const sent = (callBriefTurn as jest.Mock).mock.calls[0][0];
+    expect(sent.week).toEqual(week);
+    expect(sent).not.toHaveProperty('wrap');
+  });
+
+  it('is left out until it has been read, so Gremly is told nothing untrue', async () => {
+    (callBriefTurn as jest.Mock).mockResolvedValue({
+      ok: true,
+      data: { engine: 'agent', reply: 'Morning.', card: [], tasks: [] },
+    });
+    const { hook } = harness(undefined, { ritualContext: () => ({ wrap: null, week: null }) });
+    await act(async () => {
+      await hook.result.current.run('morning', null);
+    });
+    expect((callBriefTurn as jest.Mock).mock.calls[0][0]).not.toHaveProperty('week');
+  });
+
+  it("hands the review the question Gremly's reply left it waiting on", async () => {
+    (callBriefTurn as jest.Mock).mockResolvedValue({
+      ok: true,
+      data: {
+        engine: 'agent',
+        reply: 'Which evening is the concert?',
+        card: [],
+        tasks: [],
+        hold: { question: 'Which evening is the concert?' },
+      },
+    });
+    const { hook, deps } = harness(undefined, { ritualContext: () => ({ week }) });
+    let out: unknown = null;
+    await act(async () => {
+      out = await hook.result.current.ask('I have a concert this week');
+    });
+    expect(out).toEqual({
+      answered: true,
+      card: false,
+      hold: 'Which evening is the concert?',
+    });
+    // the review carries on itself: the brief's own offers stay out of it
+    expect(deps.continueBrief).not.toHaveBeenCalled();
+  });
+
+  it("puts the button to their week under Gremly's reply when he offers it", async () => {
+    (callBriefTurn as jest.Mock).mockResolvedValue({
+      ok: true,
+      data: {
+        engine: 'agent',
+        reply: 'The button below opens your weekly review.',
+        card: [],
+        tasks: [],
+        offer: { kind: 'week', done: false },
+      },
+    });
+    const { hook, messages } = harness(undefined, { ritualContext: () => ({ week }) });
+    await act(async () => {
+      await hook.result.current.run('can we plan my week?', null);
+    });
+    const added = messages.slice(1);
+    expect(added.map((m) => m.role)).toEqual(['user', 'assistant', 'system']);
+    expect(added[2].metadata_json).toEqual({ type: 'week-offer', done: false, week: true });
+  });
+
+  it('tells the review which changes went through when a card is applied', async () => {
+    const card = [
+      { cid: 'c1', op: 'later', type: 'todo', id: 'old', title: 'Old idea', fields: {} },
+      { cid: 'c2', op: 'change', type: 'todo', id: 'mum', title: 'Call Mum', fields: {} },
+    ];
+    (applyCardChanges as jest.Mock).mockResolvedValue({
+      done: ['c1'],
+      failed: ['c2'],
+      plan: { add: [], remove: [], pin: [] },
+      frameChanged: false,
+      revert: async () => undefined,
+    });
+    const onApplied = jest.fn();
+    const { hook, messages } = harness(undefined, { onApplied });
+    const cardMessage = {
+      id: 'card-1',
+      role: 'system',
+      content: '',
+      metadata_json: { type: 'brief-changes', changes: [], card, status: 'open' },
+    } as unknown as SpaceChatMessage;
+    messages.push(cardMessage);
+    await act(async () => {
+      await hook.result.current.apply(cardMessage, []);
+    });
+    // only what was saved, in the change model's shape
+    expect(onApplied).toHaveBeenCalledTimes(1);
+    expect(onApplied.mock.calls[0][0]).toEqual([card[0]]);
   });
 });

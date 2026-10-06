@@ -31,7 +31,10 @@ export type BriefMessageType =
   | 'sweep-habits'
   | 'sweep-journal'
   | 'sweep-item'
-  | 'sweep-end';
+  | 'sweep-end'
+  // the weekly review in the same thread (lib/week)
+  | 'week-card'
+  | 'week-offer';
 
 /** Fields every brief message carries. */
 interface BriefMetaBase {
@@ -40,6 +43,11 @@ interface BriefMetaBase {
    * (yesterday's reaction, playback) leave these out.
    */
   wrap?: boolean;
+  /**
+   * Part of the weekly review (lib/week), not of the brief or the wrap up.
+   * Its buttons are the review's to answer.
+   */
+  week?: boolean;
   /** One run of the writer; a rewrite on a later first open gets a new id */
   brief_id?: string;
   /** Set on lines a rewrite replaced before anyone saw them; never shown */
@@ -81,7 +89,12 @@ export type OfferKind =
   | 'wrap_partial'
   | 'wrap_declined'
   | 'journal'
-  | 'wrap_close';
+  | 'wrap_close'
+  // the weekly review (lib/week)
+  | 'week_open' // Gremly offers the review: Let's do it, Not this week
+  | 'week_retry' // the read could not be made: Try again, Not now
+  | 'week_reasons' // one of the needs you cards, opened: Gremly's question and reasons to tap
+  | 'week_day'; // after a review on another day: keep their weekly day, or move it
 
 /** What tapping a button does. */
 export type OfferAction =
@@ -110,7 +123,19 @@ export type OfferAction =
   | 'journal_skip' // no journal tonight
   | 'journal_only' // after Not tonight: just the journal
   | 'plan_tomorrow' // the planner, for tomorrow
-  | 'night'; // good night: the wrap up is done
+  | 'night' // good night: the wrap up is done
+  // the weekly review (lib/week)
+  | 'week_start' // Let's do it
+  | 'week_skip' // Not this week
+  | 'week_retry' // ask for the read again
+  | 'week_stop' // leave the review for now
+  | 'week_not_quite' // Gremly's read is not quite right
+  | 'week_talk' // one of the needs you cards, opened to talk through
+  | 'week_reason' // a reason tapped under Gremly's question: sent to him as their words
+  | 'week_typed' // what they typed to Gremly while the review is under way
+  | 'week_just_plan' // take Gremly's guesses for the steps not done
+  | 'week_keep_day' // their weekly day stays
+  | 'week_move_day'; // the day of this review becomes their weekly day
 
 export interface OfferButton {
   id: string;
@@ -316,6 +341,48 @@ export interface SweepEndMeta extends BriefMetaBase {
   date: string;
 }
 
+// ── The weekly review, in the same thread (lib/week) ────────────────────────
+
+/** The review's cards, in order. opening is its mark with the time; done is the summary. */
+export type WeekCardKind =
+  | 'opening'
+  | 'challenge'
+  | 'priorities'
+  | 'shape'
+  | 'intention'
+  | 'ahead'
+  | 'needs_you'
+  | 'done';
+
+/**
+ * One of the review's cards. It says which card it is and which week it is
+ * for, and is drawn from that week's row each time it is shown
+ * (weekly_reviews, held in lib/week/review/session). What does not change is
+ * kept on the card itself, so a thread read back on a later day still shows
+ * it: the time it was opened, what a step came to, and the summary.
+ */
+export interface WeekCardMeta extends BriefMetaBase {
+  type: 'week-card';
+  card: WeekCardKind;
+  /** The first day of the week the review is for */
+  week_start: string;
+  /** opening: when it was opened, as "Sunday, 7:40 PM" */
+  at?: string;
+  /** A step's card: what they settled on it, as their message under the card */
+  settled?: string | null;
+  /** done: the week in short, as it stood when the card was made */
+  summary?: { intention: string | null; tiles: { num: string; label: string }[] };
+  /** done: shown again from the Week button (Your week), not at the end of a review */
+  recap?: boolean;
+}
+
+/** The button to their week under a reply of Gremly's (the agent's offer_week). */
+export interface WeekOfferMeta extends BriefMetaBase {
+  type: 'week-offer';
+  /** This week's review was done when the button was put, so it read Your week */
+  done: boolean;
+}
+
 export type BriefMeta =
   | BriefTextMeta
   | BriefDayCardMeta
@@ -329,7 +396,9 @@ export type BriefMeta =
   | SweepHabitsMeta
   | SweepJournalMeta
   | SweepItemMeta
-  | SweepEndMeta;
+  | SweepEndMeta
+  | WeekCardMeta
+  | WeekOfferMeta;
 
 /** Where tonight's wrap up has got to. */
 export type WrapStep =

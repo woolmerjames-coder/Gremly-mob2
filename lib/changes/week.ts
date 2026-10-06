@@ -37,6 +37,7 @@ import {
   type WeekReviewRow,
 } from '../repo/weekReviewRepo';
 import { useThisWeek, weekStartFor } from '../week/thisWeek';
+import { rowSaved, useWeekSession } from '../week/review/session';
 import { addDays, type WeekHours } from '../week/model';
 import type { Change, WeekCheckContext } from './model';
 import { putOffTodo } from './later';
@@ -141,6 +142,9 @@ function weekOf(change: Change): string {
 async function reviewFor(weekStart: string): Promise<WeekReviewRow | null> {
   const mine = useThisWeek.getState().review;
   if (mine && mine.week_start === weekStart) return mine;
+  // the review under way in today's thread, when it is of another week (next week, brought forward)
+  const underWay = useWeekSession.getState().row;
+  if (underWay && underWay.week_start === weekStart) return underWay;
   const userId = store().userId as string | null;
   return userId ? getWeekReview(userId, weekStart) : null;
 }
@@ -153,6 +157,8 @@ async function writeReview(
   const saved = await changeWeekReview(row.id, change);
   if (!saved) throw new Error("This week's review is no longer there.");
   useThisWeek.getState().setReview(saved);
+  // the review under way holds its own copy of the row: it follows too
+  rowSaved(saved);
   return saved;
 }
 

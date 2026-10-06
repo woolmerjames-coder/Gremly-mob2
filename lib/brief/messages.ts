@@ -20,6 +20,8 @@ const BRIEF_TYPES: ReadonlySet<string> = new Set<BriefMessageType>([
   'sweep-journal',
   'sweep-item',
   'sweep-end',
+  'week-card',
+  'week-offer',
 ]);
 
 /** The brief metadata on a message, or null when it is an ordinary chat message. */
@@ -85,6 +87,9 @@ export function dayPartAt(hour: number): DayPart {
 export function followsGremly(prev: SpaceChatMessage | undefined): boolean {
   if (!prev) return false;
   const meta = briefMetaOf(prev);
+  // after one of the weekly review's cards, or the button to their week, his
+  // next line is marked as his: a card can end with their own answer under it
+  if (meta?.type === 'week-card' || meta?.type === 'week-offer') return false;
   if (meta) return meta.type !== 'brief-reply' && meta.type !== 'brief-event';
   return prev.role === 'assistant';
 }
@@ -113,8 +118,9 @@ export function liveQuestion(messages: SpaceChatMessage[]): SpaceChatMessage | n
   if (!id) return null;
   const m = messages.find((x) => x.id === id) ?? null;
   const meta = briefMetaOf(m);
-  // a question asked in the evening wrap up is answered there (lib/wrapup)
-  if (meta?.type !== 'brief-offer' || meta.wrap) return null;
+  // a question asked in the evening wrap up is answered there (lib/wrapup),
+  // and one of the weekly review's by the review (lib/week)
+  if (meta?.type !== 'brief-offer' || meta.wrap || meta.week) return null;
   return meta.kind === 'question' && meta.question_id ? m : null;
 }
 

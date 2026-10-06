@@ -23,8 +23,10 @@ import {
   type BriefTurnRequest,
   type BriefTurnResponse,
   type DayTurnRequest,
+  type WeekTurnContext,
   type WrapTurnContext,
 } from '../cortex/CortexClient';
+import type { Change } from '../changes/model';
 import { patchDailyThreadMeta } from '../repo/dailyThreadRepo';
 import { rowWords } from '../changes/words';
 import { useTodayThread } from './todayThread';
@@ -71,8 +73,14 @@ export interface DayTurnDeps {
   };
   /** The brief carries on: the offer held for the question, or the plan offer */
   continueBrief: () => Promise<void>;
-  /** Tonight's wrap up, while one is under way, so Gremly knows where it is */
-  wrapContext?: () => WrapTurnContext | null;
+  /**
+   * The rituals of the thread, sent with every message so Gremly knows where
+   * things stand: tonight's wrap up while one is under way, and their week,
+   * with the weekly review when one is under way in the thread.
+   */
+  ritualContext?: () => { wrap?: WrapTurnContext | null; week?: WeekTurnContext | null };
+  /** A card's changes were applied: the weekly review keeps what was decided */
+  onApplied?: (changes: Change[]) => void | Promise<void>;
 }
 
 /** How one turn is run: for the wrap up, its message is already in the thread and it carries on itself. */
@@ -89,6 +97,8 @@ export interface TurnOptions {
 export interface TurnResult {
   answered: boolean;
   card: boolean;
+  /** The question Gremly's reply left the weekly review waiting on (the agent's hold) */
+  hold?: string | null;
 }
 
 function planMetaOf(m: SpaceChatMessage | null | undefined): BriefPlanMeta | null {
@@ -279,6 +289,7 @@ export function buildBriefTurnRequest(
   livePlan: SpaceChatMessage | null,
   threadId: string,
   wrap: WrapTurnContext | null = null,
+  week: WeekTurnContext | null = null,
 ): BriefTurnRequest {
   return {
     ...buildDayTurnRequest(text, question, date, messages, livePlan),
@@ -286,6 +297,7 @@ export function buildBriefTurnRequest(
     tasks: tasksOf(threadId),
     chat_id: threadId,
     ...(wrap ? { wrap } : {}),
+    ...(week ? { week } : {}),
   };
 }
 
@@ -381,6 +393,15 @@ export function useDayTurn(deps: DayTurnDeps) {
       setPending(null);
       setThinking(false);
       await say(reply || DAY_TURN_COPY.fallbackReply);
+      // the button to their week goes under the reply (the agent's offer_week)
+      if (data.offer?.kind === 'week') {
+        await d.appendBriefMessage('system', '', {
+          type: 'week-offer',
+          done: data.offer.done === true,
+          week: true,
+        });
+      }
+      const hold = typeof data.hold?.question === 'string' ? data.hold.question : null;
       if (d.threadId) {
         try {
           await patchDailyThreadMeta(d.threadId, { agent_tasks: tasks });
@@ -405,12 +426,12 @@ export function useDayTurn(deps: DayTurnDeps) {
         // nothing to apply and nothing asked back: the brief carries on
         await d.continueBrief();
       }
-      return { answered: true, card: card.length > 0 };
+      return { answered: true, card: card.length > 0, hold };
     },
     [say],
   );
 
-  /** One turn: the message read against the day, with tonight's wrap up when one is under way. */
+  /** One turn: the message read against the day, with the thread's rituals as they stand. */
   const turn = useCallback(
     async (text: string, question: string | null, opts: TurnOptions = {}): Promise<TurnResult> => {
       const d = depsRef.current;
@@ -421,7 +442,8 @@ export function useDayTurn(deps: DayTurnDeps) {
       setStatus(null);
       if (!opts.shown) setPending(text);
       try {
-        const live = d.wrapContext?.() ?? null;
+        const ritual = d.ritualContext?.() ?? {};
+        const live = ritual.wrap ?? null;
         const wrap = live
           ? { ...live, ...(opts.answering ? { answering: opts.answering } : {}) }
           : null;
@@ -434,6 +456,7 @@ export function useDayTurn(deps: DayTurnDeps) {
             d.plan.livePlan,
             d.threadId,
             wrap,
+            ritual.week ?? null,
           ),
           { onStatus: (line) => setStatus(line) },
         );
@@ -469,8 +492,9 @@ export function useDayTurn(deps: DayTurnDeps) {
   );
 
   /**
-   * A turn the wrap up hands Gremly (lib/wrapup useWrapUp askGremly): its
-   * message is already in the thread, and the wrap up carries on after it.
+   * A turn a ritual hands Gremly (lib/wrapup useWrapUp askGremly, lib/week
+   * useWeekReview tellGremly): its message is already in the thread, and the
+   * ritual carries on after it.
    */
   const ask = useCallback(
     (text: string, about: { answering?: TurnOptions['answering'] } = {}) =>
@@ -527,6 +551,13 @@ export function useDayTurn(deps: DayTurnDeps) {
           });
         }
         if (res.failed.length) await say(DAY_TURN_COPY.someFailed);
+        // what went through, for the ritual that is keeping track (the weekly review)
+        if (res.done.length && meta.card?.length && d.onApplied) {
+          const went = meta.card.filter((c) => res.done.includes(c.cid));
+          await Promise.resolve(d.onApplied(went)).catch((err) =>
+            console.warn('[DayTurn] the ritual could not take the applied changes:', err),
+          );
+        }
         const p = res.plan;
         if (plan && (p.add.length || p.remove.length || p.pin.length || res.frameChanged)) {
           await d.plan.reviseAfterChanges(p);

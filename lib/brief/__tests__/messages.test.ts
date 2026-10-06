@@ -68,6 +68,11 @@ describe('brief messages', () => {
     expect(followsGremly(msg('c', 'user', { type: 'brief-reply' }))).toBe(false);
     expect(followsGremly(msg('d', 'system', { type: 'brief-event' }))).toBe(false);
     expect(followsGremly(msg('e', 'user', null))).toBe(false);
+    // a card of the weekly review can end with their own answer: his next line is marked
+    expect(
+      followsGremly(msg('f', 'system', { type: 'week-card', card: 'priorities', week: true })),
+    ).toBe(false);
+    expect(followsGremly(msg('g', 'system', { type: 'week-offer', done: false }))).toBe(false);
   });
 
   it('splits the day into morning, afternoon and evening', () => {
