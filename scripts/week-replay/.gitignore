@@ -2,3 +2,5 @@
 real/
 out/
 .bundle.mjs
+.bundle-spread.mjs
+.bundle-relief.mjs
