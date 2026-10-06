@@ -10,7 +10,13 @@
 import { create } from 'zustand';
 import { getDateService } from '../date/DateService';
 import { useGremlyStore } from '../store/useGremlyStore';
-import { getWeekReview, getWeekSettings, type WeekReviewRow } from '../repo/weekReviewRepo';
+import {
+  getWeekReview,
+  getWeekSettings,
+  saveDaysOff,
+  saveWeeklyDay,
+  type WeekReviewRow,
+} from '../repo/weekReviewRepo';
 import { cycleOf, daysOffOf, weeklyDayOf } from './model';
 
 export interface ThisWeekState {
@@ -31,6 +37,15 @@ export interface ThisWeekState {
    * the review held here is let go until the week is read again.
    */
   setWeeklyDay: (weekday: number) => void;
+  /**
+   * Their choice of weekly day, from Settings (Your week): saved, then
+   * followed here, and the week it gives is read again. This is the one place
+   * the setting is changed by hand. Throws when it could not be saved, and
+   * nothing here changes then.
+   */
+  chooseWeeklyDay: (weekday: number) => Promise<void>;
+  /** Their choice of days off, from Settings: saved, then held here. Throws when it could not be saved. */
+  chooseDaysOff: (days: number[]) => Promise<void>;
 }
 
 // each read and each change of the weekly day takes a turn, so a read that was
@@ -76,5 +91,22 @@ export const useThisWeek = create<ThisWeekState>((set, get) => ({
     const weeklyDay = weeklyDayOf(weekday);
     if (weeklyDay === get().weeklyDay) return;
     set({ weeklyDay, review: null });
+  },
+
+  chooseWeeklyDay: async (weekday) => {
+    const userId = useGremlyStore.getState().userId;
+    const weeklyDay = weeklyDayOf(weekday);
+    if (!userId || weeklyDay === get().weeklyDay) return;
+    await saveWeeklyDay(userId, weeklyDay);
+    get().setWeeklyDay(weeklyDay);
+    await get().refresh();
+  },
+
+  chooseDaysOff: async (days) => {
+    const userId = useGremlyStore.getState().userId;
+    if (!userId) return;
+    const daysOff = daysOffOf(days);
+    await saveDaysOff(userId, daysOff);
+    set({ daysOff });
   },
 }));

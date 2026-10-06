@@ -6,6 +6,8 @@
  */
 let mockRow: Record<string, any> | null = null;
 let mockSettings: Record<string, any> | null = null;
+// what the database answers a write to weekly_reviews with, when it refuses it
+let mockWriteError: { code?: string; message: string } | null = null;
 const mockCalls: { table: string; op: string; values?: unknown; filters: [string, unknown][] }[] =
   [];
 
@@ -32,12 +34,23 @@ jest.mock('../../supabase/client', () => {
             call.filters.push([column, value]);
             return chain;
           },
-          maybeSingle: () => later(call.op === 'update' ? chain.write : read),
+          maybeSingle: () => later(call.op === 'select' ? read : chain.write),
+          insert: (values: Record<string, unknown>) => {
+            call.op = 'insert';
+            call.values = values;
+            chain.write = () => {
+              if (mockWriteError) return { data: null, error: mockWriteError };
+              mockRow = { id: 'r-new', answers: {}, checkins: [], ...values };
+              return { data: { ...mockRow }, error: null };
+            };
+            return chain;
+          },
           update: (values: Record<string, unknown>) => {
             call.op = 'update';
             call.values = values;
             chain.write = () => {
               if (table === 'weekly_reviews') {
+                if (mockWriteError) return { data: null, error: mockWriteError };
                 if (!mockRow) return { data: null, error: null };
                 mockRow = { ...mockRow, ...values };
                 return { data: { ...mockRow }, error: null };
@@ -59,10 +72,19 @@ jest.mock('../../supabase/client', () => {
   };
 });
 
-import { changeWeekReview, getWeekReview, getWeekSettings, saveWeeklyDay } from '../weekReviewRepo';
+import {
+  changeWeekReview,
+  createWeekReview,
+  getWeekReview,
+  getWeekSettings,
+  moveWeekReview,
+  saveDaysOff,
+  saveWeeklyDay,
+} from '../weekReviewRepo';
 
 beforeEach(() => {
   mockCalls.length = 0;
+  mockWriteError = null;
   mockRow = {
     id: 'r1',
     owner_id: 'u1',
@@ -131,6 +153,92 @@ describe("the week's review", () => {
   });
 });
 
+describe('how far a review has got', () => {
+  it('is written with its answers: started, then done with when it was finished', async () => {
+    await changeWeekReview('r1', (row) => ({
+      status: 'started',
+      answers: { ...row.answers, step: 'priorities' },
+    }));
+    expect(mockRow).toMatchObject({
+      status: 'started',
+      answers: { hours: { normal_day: 2 }, step: 'priorities' },
+    });
+    const done = await changeWeekReview('r1', (row) => ({
+      status: 'done',
+      completed_at: '2026-10-04T20:00:00Z',
+      answers: { ...row.answers, step: 'done' },
+    }));
+    expect(done).toMatchObject({ status: 'done', completed_at: '2026-10-04T20:00:00Z' });
+    expect(done?.answers).toEqual({ hours: { normal_day: 2 }, step: 'done' });
+  });
+
+  it('makes a row for a week that has none, as the person', async () => {
+    mockRow = null;
+    const made = await createWeekReview('u1', {
+      week_start: '2026-10-05',
+      span_start: '2026-10-05',
+      status: 'skipped',
+      kind: 'weekly',
+    });
+    expect(made).toMatchObject({ id: 'r-new', status: 'skipped', answers: {}, checkins: [] });
+    const insert = mockCalls.find((c) => c.op === 'insert');
+    expect(insert?.values).toEqual({
+      owner_id: 'u1',
+      week_start: '2026-10-05',
+      span_start: '2026-10-05',
+      status: 'skipped',
+      kind: 'weekly',
+    });
+  });
+
+  it('hands back the row already there when the week got one in the meantime', async () => {
+    // one person has one row a week: the database refuses a second
+    mockWriteError = { code: '23505', message: 'duplicate key' };
+    const row = await createWeekReview('u1', {
+      week_start: '2026-10-05',
+      span_start: '2026-10-05',
+      status: 'skipped',
+      kind: 'weekly',
+    });
+    expect(row).toMatchObject({ id: 'r1', status: 'started' });
+    mockWriteError = { message: 'permission denied' };
+    await expect(
+      createWeekReview('u1', {
+        week_start: '2026-10-05',
+        span_start: '2026-10-05',
+        status: 'skipped',
+        kind: 'weekly',
+      }),
+    ).rejects.toThrow('permission denied');
+  });
+
+  it('moves a review to the week their new weekly day gives', async () => {
+    const moved = await moveWeekReview('r1', {
+      week_start: '2026-10-08',
+      span_start: '2026-10-08',
+      kind: 'weekly',
+    });
+    expect(moved).toMatchObject({ id: 'r1', week_start: '2026-10-08', span_start: '2026-10-08' });
+    expect(mockCalls.at(-1)).toMatchObject({ op: 'update', filters: [['id', 'r1']] });
+  });
+
+  it('says the week is taken when it already has a review, and changes nothing', async () => {
+    mockWriteError = { code: '23505', message: 'duplicate key' };
+    expect(
+      await moveWeekReview('r1', {
+        week_start: '2026-10-08',
+        span_start: '2026-10-08',
+        kind: 'weekly',
+      }),
+    ).toBe('taken');
+    expect(mockRow).toMatchObject({ week_start: '2026-10-05' });
+    mockWriteError = { message: 'offline' };
+    await expect(
+      moveWeekReview('r1', { week_start: '2026-10-08', span_start: '2026-10-08', kind: 'weekly' }),
+    ).rejects.toThrow('offline');
+  });
+});
+
 describe("the week's settings", () => {
   it('are their weekly day and days off, null when not set', async () => {
     expect(await getWeekSettings('u1')).toEqual({ weekly_day: 3, days_off: [5, 6] });
@@ -156,5 +264,23 @@ describe("the week's settings", () => {
   it('say so when there is no settings row to keep the weekly day with', async () => {
     mockSettings = null;
     await expect(saveWeeklyDay('u1', 5)).rejects.toThrow('there are no settings to keep it with');
+  });
+});
+
+describe('their days off', () => {
+  it('are saved beside the weekly day', async () => {
+    await saveDaysOff('u1', [0, 5]);
+    expect(mockSettings).toMatchObject({ weekly_day: 3, days_off: [0, 5] });
+    expect(mockCalls.at(-1)).toMatchObject({
+      table: 'notification_preferences',
+      op: 'update',
+      values: { days_off: [0, 5] },
+      filters: [['user_id', 'u1']],
+    });
+  });
+
+  it('say so when there is no settings row to keep them with', async () => {
+    mockSettings = null;
+    await expect(saveDaysOff('u1', [0, 5])).rejects.toThrow('no settings to keep them with');
   });
 });

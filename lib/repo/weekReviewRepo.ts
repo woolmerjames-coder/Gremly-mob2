@@ -11,7 +11,7 @@
  */
 import { supabase } from '../supabase/client';
 import { nowTimestamp } from '../date/DateService';
-import type { ReviewKind, ReviewState, WeekHours } from '../week/model';
+import type { ReviewKind, ReviewState, WeekHours, WeekStep } from '../week/model';
 import type { Milestone } from '../changes/model';
 
 /**
@@ -26,6 +26,8 @@ export interface WeekRead {
   made_at: string;
   made_on: string;
   model: string;
+  /** How hard the model was asked to think: low for the midweek extra, medium otherwise (reads made before 6 Oct have none) */
+  effort?: 'low' | 'medium';
   /** The days it plans, first and last */
   first: string;
   last: string;
@@ -64,17 +66,36 @@ export interface WeekRead {
   dropped: number;
 }
 
-/** What the person settled in the review. Next week starts from the hours and busy days. */
+/**
+ * What the person settled in the review, and where the review has got to, so
+ * one left part way is picked up where it was. Next week starts from the hours
+ * and busy days.
+ */
 export interface WeekAnswers {
+  /** The step the review is on (lib/week/review); done once it is finished */
+  step?: WeekStep;
+  /** What they said to Gremly's read of the week: about right, or what he had wrong */
+  challenge?: { agreed: boolean; note?: string };
   priorities?: { text: string; item_ids: string[] }[];
   /** Hours free for their own things on each kind of day */
   hours?: WeekHours;
   /** The busy days of the week, YYYY-MM-DD */
   busy_days?: string[];
-  /** The note that holds the week's intention */
+  /** Deadlines and big moments they took off the week's list, by key (lib/week/review dateKey) */
+  dates_out?: string[];
+  /** The week's intention as they kept it, and the note that holds it */
+  intention?: string | null;
   intention_id?: string | null;
+  /** The milestones set up: the dated thing each leads up to, its goal and how many steps */
+  milestones?: { about: string; goal: string; steps: number }[];
   /** What they decided on each thing that needed them */
   needs_you?: { title: string; item_ids: string[]; decision: string }[];
+  /** What they typed to Gremly during the review, for the week's spread to weigh */
+  said?: { step: WeekStep; text: string }[];
+  /** Gremly's picks and guesses were taken for the steps they did not do (Just plan it) */
+  guessed?: boolean;
+  /** The Done step has asked whether to move their weekly day to the day of this review */
+  day_asked?: boolean;
 }
 
 /** A moment Gremly asks how a milestone is going, in that evening's wrap up. */
@@ -174,14 +195,75 @@ function inTurn<T>(rowId: string, work: () => Promise<T>): Promise<T> {
   return mine;
 }
 
+/** Their days off: the days of the week that count as days off, 0 Sunday to 6 Saturday. */
+export async function saveDaysOff(userId: string, days: number[]): Promise<void> {
+  const { data, error } = await supabase
+    .from(SETTINGS)
+    .update({ days_off: days })
+    .eq('user_id', userId)
+    .select('days_off')
+    .maybeSingle();
+  if (error) throw new Error(`Failed to save the days off: ${error.message}`);
+  if (!data)
+    throw new Error('Failed to save the days off: there are no settings to keep them with.');
+}
+
 /**
- * Change a review's answers and check ins from what they are when the change
- * is made: change is handed the row as it is now and gives back what to write.
+ * A week's row made by the app, for a week that has none yet: the week they
+ * said not this week to before Gremly made a read for it. Returns the row
+ * that is there when another was made in the meantime.
+ */
+export async function createWeekReview(
+  userId: string,
+  row: { week_start: string; span_start: string; status: ReviewState; kind: ReviewKind },
+): Promise<WeekReviewRow | null> {
+  const { data, error } = await supabase
+    .from(TABLE)
+    .insert({ owner_id: userId, ...row })
+    .select('*')
+    .maybeSingle();
+  // one person has one row a week: when it appeared since, that row stands
+  if (error?.code === '23505') return getWeekReview(userId, row.week_start);
+  if (error) throw new Error(`Failed to save the week's review: ${error.message}`);
+  return asRow(data);
+}
+
+/**
+ * Move a review to another week: the one just done on a day that then becomes
+ * their weekly day counts as the new week's. Gives back 'taken' when that week
+ * already has a review, and nothing is changed then.
+ */
+export async function moveWeekReview(
+  rowId: string,
+  to: { week_start: string; span_start: string; kind: ReviewKind },
+): Promise<WeekReviewRow | 'taken' | null> {
+  return inTurn(rowId, async () => {
+    const { data, error } = await supabase
+      .from(TABLE)
+      .update({ ...to, updated_at: nowTimestamp() })
+      .eq('id', rowId)
+      .select('*')
+      .maybeSingle();
+    if (error?.code === '23505') return 'taken' as const;
+    if (error) throw new Error(`Failed to move the week's review: ${error.message}`);
+    return asRow(data);
+  });
+}
+
+/**
+ * Change a review from what it is when the change is made: change is handed
+ * the row as it is now and gives back what to write: its answers, its check
+ * ins, and how far it has got (status, with completed_at once it is done).
  * Returns the row as written, or null when it is no longer there.
  */
 export function changeWeekReview(
   rowId: string,
-  change: (row: WeekReviewRow) => { answers?: WeekAnswers; checkins?: WeekCheckIn[] },
+  change: (row: WeekReviewRow) => {
+    answers?: WeekAnswers;
+    checkins?: WeekCheckIn[];
+    status?: ReviewState;
+    completed_at?: string | null;
+  },
 ): Promise<WeekReviewRow | null> {
   return inTurn(rowId, async () => {
     const { data: current, error: readError } = await supabase

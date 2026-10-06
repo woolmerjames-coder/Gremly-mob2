@@ -9,10 +9,17 @@ jest.mock('../../store/useGremlyStore', () => ({
 jest.mock('../../repo/weekReviewRepo', () => ({
   getWeekReview: jest.fn(),
   getWeekSettings: jest.fn(),
+  saveDaysOff: jest.fn(),
+  saveWeeklyDay: jest.fn(),
 }));
 
 import { useThisWeek, weekStartFor } from '../thisWeek';
-import { getWeekReview, getWeekSettings } from '../../repo/weekReviewRepo';
+import {
+  getWeekReview,
+  getWeekSettings,
+  saveDaysOff,
+  saveWeeklyDay,
+} from '../../repo/weekReviewRepo';
 import { getDateService } from '../../date/DateService';
 
 const row = (weekStart: string) => ({
@@ -133,5 +140,37 @@ describe('after a save', () => {
     await reading;
     expect(useThisWeek.getState().weeklyDay).toBe(3);
     expect(useThisWeek.getState().review).toBeNull();
+  });
+});
+
+describe('their own choices, from Settings', () => {
+  it('saves a new weekly day, follows it, and reads the week it gives', async () => {
+    useThisWeek.setState({ loaded: true });
+    (getWeekSettings as jest.Mock).mockResolvedValue({ weekly_day: 3, days_off: null });
+    await useThisWeek.getState().chooseWeeklyDay(3);
+    expect(saveWeeklyDay).toHaveBeenCalledWith('u1', 3);
+    expect(useThisWeek.getState().weeklyDay).toBe(3);
+    // Wednesday 7 October is now their weekly day: the week it plans starts on Thursday
+    expect(useThisWeek.getState().review?.id).toBe('r-2026-10-08');
+  });
+
+  it('saves nothing when the day is the one they have', async () => {
+    await useThisWeek.getState().chooseWeeklyDay(0);
+    expect(saveWeeklyDay).not.toHaveBeenCalled();
+  });
+
+  it('keeps the day they had when the new one could not be saved, and says so', async () => {
+    (saveWeeklyDay as jest.Mock).mockRejectedValueOnce(new Error('offline'));
+    await expect(useThisWeek.getState().chooseWeeklyDay(5)).rejects.toThrow('offline');
+    expect(useThisWeek.getState().weeklyDay).toBe(0);
+  });
+
+  it('saves their days off in order, without repeats, and holds them', async () => {
+    await useThisWeek.getState().chooseDaysOff([6, 5, 5]);
+    expect(saveDaysOff).toHaveBeenCalledWith('u1', [5, 6]);
+    expect(useThisWeek.getState().daysOff).toEqual([5, 6]);
+    (saveDaysOff as jest.Mock).mockRejectedValueOnce(new Error('offline'));
+    await expect(useThisWeek.getState().chooseDaysOff([1])).rejects.toThrow('offline');
+    expect(useThisWeek.getState().daysOff).toEqual([5, 6]);
   });
 });
