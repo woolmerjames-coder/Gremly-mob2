@@ -11,6 +11,7 @@
  * numbers; nobody's words are read.
  */
 import type { WeekTurnContext } from '../../cortex/CortexClient';
+import { easesFrom } from '../habitWeek';
 import type { Milestone } from '../../changes/model';
 import type { WeekAnswers, WeekRead, WeekReviewRow } from '../../repo/weekReviewRepo';
 import {
@@ -346,6 +347,35 @@ export interface WeekContextInput {
     later: { id: string; back_on: string }[];
     habit_days: { id: string; days: string[] }[];
   } | null;
+  /** The habits paused or on a lighter version from today on (easedFor) */
+  eased: NonNullable<WeekTurnContext['eased']>;
+}
+
+/**
+ * The habits paused or on a lighter version from a day on, for what Gremly
+ * is told about their week: each with its name and the days it runs. Only
+ * habits still here.
+ * @param rows their habit_adaptations rows
+ */
+export function easedFor(
+  habits: { id: string; name?: string | null; title?: string | null; archived?: boolean | null }[],
+  rows: Record<string, any>[],
+  today: string,
+): NonNullable<WeekTurnContext['eased']> {
+  const names = new Map(
+    habits.filter((h) => !h.archived).map((h) => [h.id, h.name || h.title || 'Habit']),
+  );
+  return easesFrom(rows, today)
+    .filter((e) => names.has(e.habit_id))
+    .slice(0, 40)
+    .map((e) => ({
+      habit_id: e.habit_id,
+      title: names.get(e.habit_id) as string,
+      mode: e.mode,
+      first: e.first,
+      last: e.last,
+      note: e.note,
+    }));
 }
 
 /**
@@ -371,6 +401,7 @@ export function weekTurnContext(p: WeekContextInput): WeekTurnContext {
     hours: shapeOf?.answers.hours ?? null,
     busy_days: shapeOf?.answers.busy_days ?? [],
     intention: p.intention,
+    eased: p.eased,
   };
   if (!live || !review || !p.on || !read) return ctx;
   const days = daysPlanned(p.on);

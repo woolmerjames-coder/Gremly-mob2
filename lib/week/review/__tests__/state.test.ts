@@ -27,6 +27,7 @@ import {
   weekButton,
   weekCardToday,
   weekTurnContext,
+  easedFor,
 } from '../state';
 import { ID, MON, SAT, SUN, THU, TUE, WED, WEEK_START, madeUpRead, madeUpRow } from './madeUpWeek';
 
@@ -293,7 +294,51 @@ describe('what Gremly is told about their week', () => {
     intention: null,
     talking: null,
     hold: null,
+    eased: [],
   };
+
+  it('says which habits are paused or on a lighter version, so Gremly can change one', () => {
+    const habits = [
+      { id: 'h1', name: 'Run' },
+      { id: 'h2', title: 'Swim' },
+      { id: 'h3', name: 'Gone', archived: true },
+    ];
+    const row = (habit_id: string, mode: string, period_start: string, period_end: string) => ({
+      habit_id,
+      mode,
+      period_start,
+      period_end,
+      floor_note: mode === 'floor' ? 'Two lengths' : null,
+    });
+    const eased = easedFor(
+      habits,
+      [
+        row('h2', 'floor', TUE, WED),
+        row('h1', 'pause', SUN, MON),
+        // over already, a habit put away, a habit not theirs, a row that eases nothing
+        row('h1', 'pause', '2026-09-01', '2026-09-07'),
+        row('h3', 'pause', SUN, MON),
+        row('h9', 'pause', SUN, MON),
+        row('h1', 'keep', THU, SAT),
+      ],
+      SUN,
+    );
+    expect(eased).toEqual([
+      { habit_id: 'h1', title: 'Run', mode: 'pause', first: SUN, last: MON, note: '' },
+      {
+        habit_id: 'h2',
+        title: 'Swim',
+        mode: 'lighter',
+        first: TUE,
+        last: WED,
+        note: 'Two lengths',
+      },
+    ]);
+    // it rides with their week whether or not a review is under way
+    expect(weekTurnContext({ ...base, eased }).eased).toEqual(eased);
+    // none eased is still sent: the list itself says this build can apply the change
+    expect(weekTurnContext(base).eased).toEqual([]);
+  });
 
   it('is their weekly day and where this week stands when no review is under way', () => {
     const ready = madeUpRow();
@@ -306,6 +351,7 @@ describe('what Gremly is told about their week', () => {
       hours: null,
       busy_days: [],
       intention: null,
+      eased: [],
     });
     expect(weekTurnContext(base).review).toBeNull();
     // the extra is used once the week's row is the extra's

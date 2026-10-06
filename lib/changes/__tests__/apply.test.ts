@@ -192,6 +192,33 @@ describe('nothing the person did since is overwritten', () => {
     expect(mockState.updateTodo).not.toHaveBeenCalled();
   });
 
+  it('is not thrown by a card that came back with its fields in another order', async () => {
+    // a habit on set days, so the card's "before" holds an object with more than one field
+    mockState.habits[0] = {
+      ...habit(),
+      cadence: 'weekly',
+      target_per_period: 2,
+      frequency: '2x/week',
+      days_active: [1, 4],
+      frequency_value: { type: 'days', days: [1, 4] },
+    };
+    const c = checked({
+      op: 'change',
+      type: 'habit',
+      id: 'h1',
+      fields: { schedule: { per: 'week', times: 3 } },
+    });
+    const was = c.before!.schedule as Record<string, unknown>;
+    expect(Object.keys(was).length).toBeGreaterThan(1);
+    // kept and read back, an object's fields are no longer in the order they were written
+    const kept = {
+      ...c,
+      before: { ...c.before, schedule: Object.fromEntries(Object.entries(was).reverse()) },
+    };
+    const o = await applyChange(kept, { source: 'chat' });
+    expect(o).toMatchObject({ ok: true });
+  });
+
   it('says so when the item is gone', async () => {
     const c = checked({ op: 'change', type: 'todo', id: 't1', fields: { time: '11:00' } });
     mockState.todos = [];

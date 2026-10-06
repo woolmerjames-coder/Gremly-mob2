@@ -252,6 +252,11 @@ function planEffectOf(c: Change, createdId: string | null, ctx: CardContext, out
     case 'log':
       if ((c.days ?? []).includes(ctx.date)) offPlan(c.id);
       return;
+    case 'ease':
+      // paused over today, it is left alone, so it leaves today's plan
+      if (c.ease?.mode === 'pause' && c.ease.first <= ctx.date && ctx.date <= c.ease.last)
+        offPlan(c.id);
+      return;
     default:
       return;
   }

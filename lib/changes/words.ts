@@ -220,6 +220,48 @@ function stepsWords(change: Change): string {
   );
 }
 
+/** "Today" and "Tomorrow" in the middle of a line. */
+const midLine = (w: string) => (w === 'Today' || w === 'Tomorrow' ? w.toLowerCase() : w);
+
+/**
+ * The days a pause or a lighter version runs: "today", "until Sun 11 Oct"
+ * when it starts today, "on Thu 8 Oct" for one day ahead, otherwise "from
+ * Mon 12 Oct to Sun 18 Oct".
+ */
+function easeSpan(change: Change, opts: Opts): string {
+  const e = change.ease!;
+  const first = midLine(formatDay(e.first, opts));
+  const last = midLine(formatDay(e.last, opts));
+  if (e.first === e.last) return first === 'today' || first === 'tomorrow' ? first : `on ${first}`;
+  if (e.first <= getDateService().today()) return `until ${last}`;
+  return `from ${first} to ${last}`;
+}
+
+/** The row for a habit's pause, lighter version or return to usual. */
+function easeRowWords(change: Change, opts: Opts): string {
+  const t = change.title;
+  const e = change.ease!;
+  if (e.mode === 'pause') return `Pause ${t} ${easeSpan(change, opts)}`;
+  if (e.mode === 'lighter') {
+    return `Lighter version of ${t} ${easeSpan(change, opts)}${e.note ? `: ${e.note}` : ''}`;
+  }
+  // usual: named for what it ends, and from when, unless that is today
+  const was: { mode: string; first: string; last: string }[] = (change.before?.eases ?? []).filter(
+    (w: { first: string; last: string }) => w.first <= e.last && w.last >= e.first,
+  );
+  const from = usualFrom(change, opts);
+  if (was.length && was.every((w) => w.mode === 'pause')) return `End the pause on ${t}${from}`;
+  if (was.length && was.every((w) => w.mode === 'lighter'))
+    return `End the lighter version of ${t}${from}`;
+  return `Back to usual for ${t}${from}`;
+}
+
+/** " from Fri 9 Oct" for a return to usual that starts on a later day; nothing when it is today. */
+function usualFrom(change: Change, opts: Opts): string {
+  const first = change.ease!.first;
+  return first > getDateService().today() ? ` from ${midLine(formatDay(first, opts))}` : '';
+}
+
 /** The row for one of the week's own changes, or null when the change is not one. */
 function weekRowWords(change: Change, opts: Opts): string | null {
   const t = change.title;
@@ -295,6 +337,8 @@ export function rowWords(change: Change, opts: Opts & { names?: NameLookup } = {
       return `Turn ${t} into a ${KIND[change.to!]}`;
     case 'plan':
       return planWords(change);
+    case 'ease':
+      return change.ease ? easeRowWords(change, opts) : t;
     default:
       return weekRowWords(change, opts) ?? t;
   }
@@ -360,6 +404,12 @@ export function buttonWords(change: Change): string {
       return 'Yes, set it up';
     case 'weekly_day':
       return 'Yes, move it';
+    case 'ease':
+      return change.ease?.mode === 'pause'
+        ? 'Yes, pause it'
+        : change.ease?.mode === 'lighter'
+          ? 'Yes, go lighter'
+          : 'Yes, back to usual';
     default:
       return 'Yes, do it';
   }
@@ -412,6 +462,11 @@ export function doneWords(change: Change, opts: { names?: NameLookup } = {}): st
       return `${t} is set up.`;
     case 'weekly_day':
       return `Your weekly review is now on ${WEEKDAY_NAMES[change.fields?.weekday]}s.`;
+    case 'ease':
+      if (change.ease?.mode === 'pause') return `${t} is paused ${easeSpan(change, fixed)}.`;
+      if (change.ease?.mode === 'lighter')
+        return `${t} is on its lighter version ${easeSpan(change, fixed)}.`;
+      return `${t} is back to usual${usualFrom(change, fixed)}.`;
     default:
       return 'Done.';
   }

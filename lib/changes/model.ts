@@ -27,5 +27,11 @@ export type {
   WeekCheckContext,
   WeekShape,
 } from '../../workers/shared/changes/check';
-export { fieldDef, OPS, TYPES, WEEK_OPS } from '../../workers/shared/changes/fields';
-export type { ChangeOp, FieldDef, ItemType, WeekOp } from '../../workers/shared/changes/fields';
+export { EASE_OPS, fieldDef, OPS, TYPES, WEEK_OPS } from '../../workers/shared/changes/fields';
+export type {
+  ChangeOp,
+  EaseOp,
+  FieldDef,
+  ItemType,
+  WeekOp,
+} from '../../workers/shared/changes/fields';

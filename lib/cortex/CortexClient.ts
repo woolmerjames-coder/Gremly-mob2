@@ -4,6 +4,7 @@
 import { env, getEnv } from '../env';
 import EventSource from 'react-native-sse';
 import { getDateService, nowTimestamp } from '../date/DateService';
+import { weeklyDayNow } from '../week/weeklyDayNow';
 import { eventBus } from '../events/EventBus';
 import { getSessionToken, getSessionTokenSync } from './getSessionToken';
 import type { HabitBuilderRequest, HabitBuilderStreamingCallbacks } from '../types';
@@ -446,6 +447,8 @@ export function callSpaceChatStreaming(
       userId: opts.userId,
       currentTime: nowTimestamp(),
       timezone: getDateService().getTimezone(),
+      // their weekly day, so a habit's count this week is made in their own week
+      weekly_day: weeklyDayNow(),
     }),
     lineEndingCharacter: '\n',
   });
@@ -594,6 +597,8 @@ export function callGeneralChatStreaming(
       userId: opts.userId,
       currentTime: nowTimestamp(),
       timezone: getDateService().getTimezone(),
+      // their weekly day, so a habit's count this week is made in their own week
+      weekly_day: weeklyDayNow(),
     }),
     lineEndingCharacter: '\n',
   });
@@ -704,6 +709,8 @@ export function callWorldChatStreaming(
       userId: opts.userId,
       currentTime: nowTimestamp(),
       timezone: getDateService().getTimezone(),
+      // their weekly day, so a habit's count this week is made in their own week
+      weekly_day: weeklyDayNow(),
     }),
     lineEndingCharacter: '\n',
   });
@@ -812,6 +819,8 @@ export function callChapterChatStreaming(
       userId: opts.userId,
       currentTime: nowTimestamp(),
       timezone: getDateService().getTimezone(),
+      // their weekly day, so a habit's count this week is made in their own week
+      weekly_day: weeklyDayNow(),
     }),
     lineEndingCharacter: '\n',
   });
@@ -2401,6 +2410,20 @@ export interface WeekTurnContext {
     /** The question Gremly's last reply left the review waiting on (the answer's hold.question) */
     hold?: string | null;
   } | null;
+  /**
+   * The habits paused or on a lighter version from today on, empty when none
+   * are. Sending the list at all tells the worker this build can apply a
+   * change to one (the change model's ease), so only then is Gremly able to
+   * offer it.
+   */
+  eased?: {
+    habit_id: string;
+    title: string;
+    mode: 'pause' | 'lighter';
+    first: string;
+    last: string;
+    note: string;
+  }[];
 }
 
 export interface BriefTurnRequest extends DayTurnRequest {
@@ -2589,6 +2612,8 @@ export async function callWeekSpread(
       placed: { id: string; day: string }[];
       later: { id: string; back_on: string }[];
       habit_days: { id: string; days: string[] }[];
+      /** a habit paused, on a lighter version or set back to usual on the board, not saved yet */
+      habit_ease?: { id: string; mode: 'pause' | 'lighter' | 'usual' }[];
     } | null;
   },
   opts: { timeoutMs?: number; quietMs?: number } = {},

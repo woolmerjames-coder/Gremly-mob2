@@ -6,7 +6,7 @@
  */
 import { useGremlyStore } from '../store/useGremlyStore';
 import { getDateService } from '../date/DateService';
-import { WEEK_OPS, type CheckContext, type ItemType } from './model';
+import { EASE_OPS, WEEK_OPS, type CheckContext, type ItemType } from './model';
 import { plannedDays, weekCheckContext } from './week';
 
 type Item = Record<string, any>;
@@ -44,6 +44,8 @@ export function snapshotOf(type: ItemType, id: string | null | undefined): Item 
  * What one change is checked against: its item, today, and the Worlds and
  * Chapters there are. One of the week's own changes is also checked against
  * the person's week, and a habit's days against the days it is planned on now.
+ * A habit's pause or lighter version is checked against their weekly day and
+ * the ones it has now.
  */
 export function contextFor(raw: {
   op?: string | null;
@@ -64,6 +66,11 @@ export function contextFor(raw: {
     if (raw.op === 'habit_days' && ctx.item) {
       ctx.item = { ...ctx.item, planned_days: plannedDays(ctx.item.id, week.first, week.last) };
     }
+  }
+  // a habit's pause or lighter version: their weekly day, and what is eased
+  // now. A habit's days are checked against it too: none goes on a paused day.
+  if (raw.op && (raw.op in EASE_OPS || raw.op === 'habit_days')) {
+    ctx.ease = { weekly_day: s.weeklyDay ?? 0, rows: s.habitAdaptations ?? [] };
   }
   return ctx;
 }
