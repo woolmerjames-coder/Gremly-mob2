@@ -23,7 +23,8 @@ import type { DayMeeting } from '../brief/dayCard';
 import type { PlanItem } from '../brief/types';
 import type { SequencedItem } from '../types';
 import { buildCandidatePool, windowFor, type Candidate } from './candidatePool';
-import { dueWords, habitsOnDay, todosDueOn } from './dayItems';
+import { habitsOnDay, todosDueOn } from './dayItems';
+import { plannedOn } from '../week/habitWeek';
 import { withFeedAnimation } from '../brief/feeding';
 import { buildDayRecord, type DayRecord, type DayThreadMeta } from '../brief/dayRecord';
 import { useTodayThread } from '../brief/todayThread';
@@ -58,6 +59,7 @@ export function poolFromStore(): Candidate[] {
     claims: brief?.claims ?? [],
     reach: brief?.reach ?? null,
     blocks: s.timeBlockPreferences,
+    plannedHabits: plannedOn((s as any).habitPlans ?? [], today),
   }).filter((c) => !skipped.has(c.id));
 }
 
@@ -113,9 +115,11 @@ export function poolForDay(day: string): Candidate[] {
     reach: null,
     blocks: s.timeBlockPreferences,
     forToday: false,
+    plannedHabits: plannedOn((s as any).habitPlans ?? [], day),
+    // the plan is for another day, so a todo due on it is due that day, not today
+    realToday: today,
   });
-  // the plan is for another day, so a todo due on it is due that day, not today
-  return pool.map((c) => (c.source === 'due' ? { ...c, why: dueWords(day, today) } : c));
+  return pool;
 }
 
 /** The todos and habits an earlier plan gave a time on this day. */

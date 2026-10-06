@@ -10,6 +10,7 @@ type TodoRow = {
   completed_at?: string | null;
   due_day?: string | null;
   resurface_at?: string | null;
+  views?: Record<string, any> | null;
 };
 type HabitRow = {
   archived?: boolean | null;
@@ -47,4 +48,24 @@ export function habitsOnDay<H extends HabitRow>(habits: H[], day: string): H[] {
 /** Why a todo due on the day is in its plan: "Due today", or "Due Monday" for another day. */
 export function dueWords(day: string, today: string): string {
   return day === today ? 'Due today' : `Due ${weekdayOf(day)}`;
+}
+
+/**
+ * The goal a todo is a step towards, when it is a step of a milestone set up
+ * in their weekly review (lib/changes/week.ts marks it); null for any other.
+ */
+export function stepGoal(t: TodoRow | null | undefined): string | null {
+  const goal = t?.views?.milestone?.goal;
+  return typeof goal === 'string' && goal.trim() ? goal.trim() : null;
+}
+
+/**
+ * Why a todo is on a day, in a few words: a step towards its goal, back from
+ * being put off (Later), or due that day.
+ */
+export function todoDayWords(t: TodoRow | null | undefined, day: string, today: string): string {
+  const goal = stepGoal(t);
+  if (goal) return `A step towards ${goal}`;
+  if (t && !t.due_day && t.resurface_at === day) return 'Back from Later';
+  return dueWords(day, today);
 }

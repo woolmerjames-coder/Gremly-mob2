@@ -2719,4 +2719,25 @@ describe("the wrap up's cards", () => {
       .sort();
     expect(ids).toEqual(['overdue', 'today']);
   });
+
+  it('a Later that comes back today is one of tonight’s cards, and one still put off is not', () => {
+    const state = makeState({
+      todos: [
+        // put off (Later): no day of its own, and the day it comes back
+        makeTodo({ id: 'back-today', due_day: null, resurface_at: '2025-12-15' }),
+        makeTodo({ id: 'back-earlier', due_day: null, resurface_at: '2025-12-12' }),
+        makeTodo({ id: 'still-away', due_day: null, resurface_at: '2025-12-19' }),
+        makeTodo({
+          id: 'back-done',
+          due_day: null,
+          resurface_at: '2025-12-15',
+          completed_at: '2025-12-15T10:00:00Z',
+        }),
+      ],
+    });
+    const ids = selectWrapUp(state as any)
+      .cards.map((c) => c.candidate.id)
+      .sort();
+    expect(ids).toEqual(['back-earlier', 'back-today']);
+  });
 });

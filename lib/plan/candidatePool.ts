@@ -8,17 +8,28 @@
  * those belong to Sweep. Done and archived items are left out too.
  *
  * Order is the fallback priority if the picker cannot be reached: claims,
- * then what is already on Today, then habits behind, then what is due, then
- * the reach.
+ * then what is already on Today, then the habits they planned for the day in
+ * their week, then habits behind, then what is due, then the reach.
+ *
+ * Their week shows in the reasons: a habit they planned for the day says so,
+ * a step of a milestone says what it is a step towards, and a todo back from
+ * being put off (Later) says it is back.
  */
 
 import type { Habit, Todo } from '../types';
 import type { TimeBlockPreferences } from '../capacity/capacityTypes';
 import { weeklyTarget } from '../brief/behind';
 import type { DcoClaim, DcoReach } from '../brief/dco';
+import { todoDayWords } from './dayItems';
+import { weekdayOf } from '../wrapup/day';
+
+/** Why a habit they planned for a day is in its plan: "Planned for today", or "Planned for Monday". */
+export function plannedWords(day: string, today: string): string {
+  return day === today ? 'Planned for today' : `Planned for ${weekdayOf(day)}`;
+}
 
 export type CandidateKind = 'todo' | 'habit' | 'reach';
-export type CandidateSource = 'claim' | 'today' | 'behind' | 'due' | 'habit' | 'reach';
+export type CandidateSource = 'claim' | 'today' | 'planned' | 'behind' | 'due' | 'habit' | 'reach';
 
 export interface Candidate {
   id: string;
@@ -55,6 +66,10 @@ export interface PoolInput {
   blocks: TimeBlockPreferences;
   /** False when planning another day (tomorrow): what is on Today now is left out */
   forToday?: boolean;
+  /** The habits they planned for this day in their week (habit_plans), by id */
+  plannedHabits?: Set<string>;
+  /** The real today, when the pool is for another day; the pool's own day when left out */
+  realToday?: string;
 }
 
 function titleOf(item: Todo | Habit): string {
@@ -72,11 +87,18 @@ export function windowFor(
   return null;
 }
 
-/** Open todos that are not past their date (undated only when already on Today). */
+/**
+ * Open todos that are not past their date. One with no day is in only when it
+ * is already on Today, or was put off (Later) and comes back on this day: a
+ * Later has no day of its own, so its day to come back is what puts it here.
+ */
 function plannableTodo(t: Todo, input: PoolInput): boolean {
   if (t.archived || t.completed_at) return false;
   if (t.due_day && t.due_day < input.today) return false;
-  if (!t.due_day && !input.placedIds.has(t.id)) return false;
+  if (!t.due_day) {
+    const backToday = (t as { resurface_at?: string | null }).resurface_at === input.today;
+    if (!backToday && !input.placedIds.has(t.id)) return false;
+  }
   return true;
 }
 
@@ -149,12 +171,21 @@ export function buildCandidatePool(input: PoolInput): Candidate[] {
     for (const t of input.todos) if (input.placedIds.has(t.id)) addTodo(t, 'On Today', 'today');
     for (const h of input.habits) if (input.placedIds.has(h.id)) addHabit(h, 'On Today', 'today');
   }
-  // 3. Habits behind this week
+  // 3. The habits they planned for this day in their week
+  if (input.plannedHabits?.size) {
+    const words = plannedWords(input.today, input.realToday ?? input.today);
+    for (const h of input.habits) {
+      if (input.plannedHabits.has(h.id)) addHabit(h, words, 'planned');
+    }
+  }
+  // 4. Habits behind this week
   for (const h of input.habits) if (behind(h)) addHabit(h, `${weekLine(h)}, behind`, 'behind');
-  // 4. Due today
-  for (const t of input.todosDueToday) addTodo(t, 'Due today', 'due');
+  // 5. Due on the day
+  for (const t of input.todosDueToday) {
+    addTodo(t, todoDayWords(t, input.today, input.realToday ?? input.today), 'due');
+  }
   for (const h of input.habitsDueToday) addHabit(h, weekLine(h), 'habit');
-  // 5. The reach: a todo joins as it is, a fact as a suggestion
+  // 6. The reach: a todo joins as it is, a fact as a suggestion
   const r = input.reach;
   if (r && r.id && !seen.has(r.id)) {
     const asTodo = r.type === 'todo' ? todoById.get(r.id) : undefined;

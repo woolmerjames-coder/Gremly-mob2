@@ -1,7 +1,7 @@
 /**
  * What a day other than today holds (lib/plan/dayItems.ts).
  */
-import { dueWords, habitsOnDay, todosDueOn } from '../dayItems';
+import { dueWords, habitsOnDay, stepGoal, todoDayWords, todosDueOn } from '../dayItems';
 
 describe('what another day holds', () => {
   it('has the open todos due on it', () => {
@@ -40,5 +40,29 @@ describe('what another day holds', () => {
   it('says a todo is due that day by its name', () => {
     expect(dueWords('2026-10-05', '2026-10-05')).toBe('Due today');
     expect(dueWords('2026-10-05', '2026-10-04')).toBe('Due Monday');
+  });
+});
+
+describe('why a todo is on a day', () => {
+  const step = {
+    due_day: '2026-10-05',
+    views: { milestone: { goal: ' Send the grant application ', date: '2026-10-20' } },
+  };
+  it('names the goal a milestone step is a step towards', () => {
+    expect(stepGoal(step)).toBe('Send the grant application');
+    expect(stepGoal({ due_day: '2026-10-05' })).toBeNull();
+    expect(stepGoal({ views: { milestone: { goal: '  ' } } })).toBeNull();
+    expect(stepGoal(null)).toBeNull();
+    expect(todoDayWords(step, '2026-10-05', '2026-10-05')).toBe(
+      'A step towards Send the grant application',
+    );
+  });
+
+  it('says a Later is back on the day it comes back, and otherwise when it is due', () => {
+    const back = { due_day: null, resurface_at: '2026-10-05' };
+    expect(todoDayWords(back, '2026-10-05', '2026-10-05')).toBe('Back from Later');
+    expect(todoDayWords(back, '2026-10-06', '2026-10-05')).toBe('Due Tuesday');
+    expect(todoDayWords({ due_day: '2026-10-05' }, '2026-10-05', '2026-10-05')).toBe('Due today');
+    expect(todoDayWords({ due_day: '2026-10-06' }, '2026-10-06', '2026-10-05')).toBe('Due Tuesday');
   });
 });

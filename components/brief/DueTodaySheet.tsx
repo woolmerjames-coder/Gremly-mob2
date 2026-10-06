@@ -22,7 +22,8 @@ import type { Habit, Todo } from '../../lib/types';
 import type { DayCardData, HabitWeek } from '../../lib/brief/useDayCard';
 import { ampm, clock } from '../../lib/brief/dayCard';
 import { BRIEF } from './briefStyles';
-import { dueWords } from '../../lib/plan/dayItems';
+import { dueWords, todoDayWords } from '../../lib/plan/dayItems';
+import { plannedWords } from '../../lib/plan/candidatePool';
 import { getDateService } from '../../lib/date/DateService';
 
 export type DueTab = 'todos' | 'habits';
@@ -81,10 +82,14 @@ export function DueTodaySheet({
   };
 
   // the sheet shows the day it was opened for: today, or the day being planned
-  const dueLabel = dueWords(data.date, getDateService().today());
+  const today = getDateService().today();
+  const dueLabel = dueWords(data.date, today);
 
   const todoRow = (t: Todo) => {
-    const meta = [minutesLabel(t.time_estimate_minutes), dueLabel].filter(Boolean).join('  ');
+    // why it is on the day: due, back from Later, or a step towards a goal of theirs
+    const meta = [minutesLabel(t.time_estimate_minutes), todoDayWords(t, data.date, today)]
+      .filter(Boolean)
+      .join('  ');
     return (
       <View key={t.id} style={styles.item} testID={`due-todo-${t.id}`}>
         <View style={styles.itemText}>
@@ -117,6 +122,11 @@ export function DueTodaySheet({
             ) : (
               <Text style={styles.meta}>Daily</Text>
             )}
+            {data.weekHabits?.has(h.id) ? (
+              <Text style={styles.meta} testID={`due-planned-${h.id}`}>
+                {plannedWords(data.date, today)}
+              </Text>
+            ) : null}
             {w?.behind ? (
               <Text
                 style={[styles.behind, calm && styles.behindCalm]}
