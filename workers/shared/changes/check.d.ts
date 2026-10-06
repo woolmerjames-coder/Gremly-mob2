@@ -57,6 +57,10 @@ export interface Change {
   plan?: PlanChange;
   /** week_shape: the busy days and hours it sets */
   shape?: WeekShape;
+  /** week_shape, intention and milestone: the first day of the week it is for */
+  week_start?: string;
+  /** week_shape: the first day its busy days were stated for; busy days before it stay as they are */
+  from?: string;
   /** milestone: what is set up */
   milestone?: Milestone;
 }
@@ -65,6 +69,8 @@ export interface WeekCheckContext {
   /** The days the week's changes act on */
   first: string;
   last: string;
+  /** The first day of the week they belong to; first when left out */
+  week_start?: string;
   hours?: WeekHours | null;
   busy_days?: string[];
   /** The week has a review, which keeps its shape and its check ins */

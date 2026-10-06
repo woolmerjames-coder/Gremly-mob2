@@ -375,10 +375,11 @@ describe('beforeValue', () => {
 
 // ── The week's own changes (the weekly review) ──────────────────────────────
 
-// Friday 2 October: the rest of this week, Friday to Sunday
+// Friday 2 October: the rest of this week, Friday to Sunday, in the week that started on Monday
 const week = {
   first: '2026-10-02',
   last: '2026-10-04',
+  week_start: '2026-09-28',
   hours: { normal_day: 2, busy_day: 1, weekend_day: 4 },
   busy_days: ['2026-10-03'],
   has_review: true,
@@ -509,10 +510,29 @@ describe("the week's own changes", () => {
           type: null,
           id: null,
           title: '',
+          // the week it is kept for, and the first day the busy days were stated for
+          week_start: '2026-09-28',
+          from: '2026-10-02',
           shape: { busy_days: ['2026-10-03', '2026-10-04'] },
           before: { busy_days: ['2026-10-03'] },
         },
       });
+    });
+
+    it('states the busy days from here on: one already gone is not part of what it was', () => {
+      const r = shape({ busy_days: [] }, { ...week, busy_days: ['2026-09-29', '2026-10-03'] });
+      expect(r.change.shape).toEqual({ busy_days: [] });
+      expect(r.change.before).toEqual({ busy_days: ['2026-10-03'] });
+      // only a day gone was busy: from here on nothing changes
+      expect(shape({ busy_days: [] }, { ...week, busy_days: ['2026-09-29'] }).reason).toBe(
+        'no_change',
+      );
+    });
+
+    it('belongs to the first day it acts on when the week does not say where it starts', () => {
+      const loose = { ...week };
+      delete loose.week_start;
+      expect(shape({ busy_days: [] }, loose).change.week_start).toBe('2026-10-02');
     });
 
     it('sets only the hours that change, in half hour steps', () => {
@@ -555,6 +575,7 @@ describe("the week's own changes", () => {
           type: 'note',
           id: 'n9',
           title: 'One thing at a time',
+          week_start: '2026-09-28',
           fields: { text: 'One thing at a time' },
           before: { text: 'Protect my mornings' },
         },
@@ -589,6 +610,7 @@ describe("the week's own changes", () => {
           type: null,
           id: null,
           title: 'Conference talk',
+          week_start: '2026-09-28',
           milestone: { goal: 'Conference talk', date: '2026-10-20', steps },
         },
       });
@@ -651,6 +673,38 @@ describe("the week's own changes", () => {
       expect(move(0).reason).toBe('no_change');
       expect(move(7).reason).toBe('bad_value:weekday');
       expect(move('Wednesday').reason).toBe('bad_value:weekday');
+    });
+  });
+
+  describe('checked a second time', () => {
+    it('reads the same from a checked change as from the one proposed', () => {
+      const cases = [
+        [{ op: 'later', type: 'todo', id: 't1', back_on: '2026-10-12' }, todo],
+        [
+          { op: 'habit_days', type: 'habit', id: 'h1', days: ['2026-10-03'] },
+          { ...habit, planned_days: ['2026-10-02'] },
+        ],
+        [{ op: 'week_shape', shape: { busy_days: [], hours: { normal_day: 1 } } }, null],
+        [{ op: 'intention', intention: 'Rest first' }, null],
+        [
+          {
+            op: 'milestone',
+            milestone: {
+              goal: 'Talk',
+              date: '2026-10-20',
+              steps: [{ title: 'Outline', by: '2026-10-06', kind: 'todo' }],
+            },
+          },
+          null,
+        ],
+        [{ op: 'weekly_day', weekday: 3 }, null],
+      ];
+      for (const [raw, item] of cases) {
+        const first = weekChange({ cid: 'c1', ...raw }, item);
+        expect(first.ok).toBe(true);
+        // the card's own row, checked again against the same week and item
+        expect(weekChange(first.change, item)).toEqual(first);
+      }
     });
   });
 

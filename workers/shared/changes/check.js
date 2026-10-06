@@ -23,6 +23,9 @@
  * weekly day. They come with what they need by name: back_on for 'later',
  * days for 'habit_days', shape for 'week_shape', intention, milestone, and
  * weekday for 'weekly_day'. With no week on the context they are dropped.
+ * What comes back says which week it is for where that matters (week_start on
+ * the shape, the intention and a milestone), and can be checked again as it
+ * is, like any other change.
  *
  * What comes back adds:
  * - title: the item's name as it reads now (or the new name for an add)
@@ -495,12 +498,13 @@ function readSteps(steps, today, date) {
  * Check one of the week's own changes (WEEK_OPS) against the person's week.
  * @param {object} raw the change as proposed
  * @param {{today?: string, item?: object|null, week?: {first: string, last: string,
- *   hours?: object|null, busy_days?: string[], has_review?: boolean,
+ *   week_start?: string, hours?: object|null, busy_days?: string[], has_review?: boolean,
  *   intention?: {id?: string|null, text: string}|null, weekly_day?: number}|null}} ctx
- *   week: the days the week's changes act on (first to last), the week's shape
- *   and intention as they stand, whether the week has a review to keep its
- *   shape and check ins on, and the weekly day. A habit's snapshot carries
- *   planned_days, the days it is planned on now.
+ *   week: the days the week's changes act on (first to last), the first day of
+ *   the week they belong to, the week's shape and intention as they stand,
+ *   whether the week has a review to keep its shape and check ins on, and the
+ *   weekly day. A habit's snapshot carries planned_days, the days it is
+ *   planned on now.
  * @returns {{ok: true, change: object} | {ok: false, reason: string}}
  */
 export function checkWeekChange(raw, ctx = {}) {
@@ -509,6 +513,8 @@ export function checkWeekChange(raw, ctx = {}) {
   const base = { cid: raw.cid || null, op: raw.op };
   const today = ctx.today || null;
   const inWeek = (d) => d >= w.first && d <= w.last;
+  // the week the shape, the intention and the check ins are kept for
+  const weekStart = normDay(w.week_start) || w.first;
   // the item a change names, as the item changes read it
   const itemFor = (type) => {
     if (raw.type !== type) return { reason: 'op_not_for_type' };
@@ -524,7 +530,8 @@ export function checkWeekChange(raw, ctx = {}) {
       const r = itemFor('todo');
       if (r.reason) return { ok: false, reason: r.reason };
       if (r.item.completed_at) return { ok: false, reason: 'already_done' };
-      const back = normDay(raw.back_on);
+      // as proposed, or as a checked change states it
+      const back = normDay(raw.back_on ?? raw.fields?.back_on);
       if (!back) return { ok: false, reason: 'bad_value:back_on' };
       // every Later comes back: on a day still to come, within four weeks
       if (today && back <= today) return { ok: false, reason: 'back_not_ahead' };
@@ -579,7 +586,8 @@ export function checkWeekChange(raw, ctx = {}) {
         const days = dayList(s.busy_days);
         if (!days) return { ok: false, reason: 'bad_days' };
         if (days.some((d) => !inWeek(d))) return { ok: false, reason: 'outside_week' };
-        const was = dayList(w.busy_days) || [];
+        // the days stated are the ones from here on: busy days already gone stay as they are
+        const was = (dayList(w.busy_days) || []).filter(inWeek);
         if (!sameList(days, was)) {
           shape.busy_days = days;
           before.busy_days = was;
@@ -605,10 +613,23 @@ export function checkWeekChange(raw, ctx = {}) {
         }
       }
       if (!Object.keys(shape).length) return { ok: false, reason: 'no_change' };
-      return { ok: true, change: { ...base, type: null, id: null, title: '', shape, before } };
+      return {
+        ok: true,
+        change: {
+          ...base,
+          type: null,
+          id: null,
+          title: '',
+          week_start: weekStart,
+          // the first day the busy days were stated for
+          from: w.first,
+          shape,
+          before,
+        },
+      };
     }
     case 'intention': {
-      const text = normText(raw.intention, WEEK_LIMITS.intention);
+      const text = normText(raw.intention ?? raw.fields?.text, WEEK_LIMITS.intention);
       if (!text) return { ok: false, reason: 'bad_value:intention' };
       const was = typeof w.intention?.text === 'string' ? w.intention.text.trim() : null;
       if (text === was) return { ok: false, reason: 'no_change' };
@@ -620,6 +641,7 @@ export function checkWeekChange(raw, ctx = {}) {
           // the week's intention when it has one already: that note is rewritten
           id: w.intention?.id || null,
           title: text,
+          week_start: weekStart,
           fields: { text },
           before: { text: was || null },
         },
@@ -644,12 +666,13 @@ export function checkWeekChange(raw, ctx = {}) {
           type: null,
           id: null,
           title: goal,
+          week_start: weekStart,
           milestone: { goal, date, steps: r.steps },
         },
       };
     }
     case 'weekly_day': {
-      const d = raw.weekday;
+      const d = raw.weekday ?? raw.fields?.weekday;
       if (!Number.isInteger(d) || d < 0 || d > 6) return { ok: false, reason: 'bad_value:weekday' };
       const was = Number.isInteger(w.weekly_day) ? w.weekly_day : null;
       if (d === was) return { ok: false, reason: 'no_change' };
