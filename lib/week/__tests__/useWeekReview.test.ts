@@ -39,7 +39,10 @@ import {
 
 const mockStore: any = { userId: 'maya', updateNote: jest.fn() };
 jest.mock('../../store/useGremlyStore', () => ({
-  useGremlyStore: { getState: () => mockStore },
+  useGremlyStore: {
+    getState: () => mockStore,
+    setState: (patch: any) => Object.assign(mockStore, patch),
+  },
 }));
 jest.mock('../../repo/weekReviewRepo', () => ({
   changeWeekReview: jest.fn(),
@@ -192,6 +195,7 @@ beforeEach(() => {
     todos: diff.place.length,
     later: diff.later.length,
     habitDays: diff.habits.reduce((n: number, h: any) => n + h.add.length + h.remove.length, 0),
+    eased: diff.eases.length,
     failed: 0,
     revert: mockBoardRevert,
   }));
@@ -1692,7 +1696,7 @@ describe('the week’s board', () => {
     expect(callWeekSpread).toHaveBeenCalledTimes(1);
     expect((callWeekSpread as jest.Mock).mock.calls[0][0]).toEqual({
       date: SUN,
-      board: { placed: [], later: [], habit_days: [] },
+      board: { placed: [], later: [], habit_days: [], habit_ease: [] },
     });
     expect(useWeekSession.getState()).toMatchObject({ fitting: false, spreadFailed: false });
     expect(useWeekSession.getState().row?.spread?.place).toEqual([{ id: ID.boiler, day: WED }]);
@@ -1809,6 +1813,7 @@ describe('the week’s board', () => {
       place: [{ id: ID.boiler, day: WED }],
       later: [{ id: ID.fair, backOn: '2026-10-13' }],
       habits: [{ id: ID.swim, add: [MON, SAT], remove: [] }],
+      eases: [],
     });
     expect(useWeekSession.getState().boardOpen).toBe(false);
     expect(rows['row-1']).toMatchObject({
@@ -1893,6 +1898,7 @@ describe('the week’s board', () => {
       todos: 1,
       later: 0,
       habitDays: 2,
+      eased: 0,
       failed: 1,
       revert: mockBoardRevert,
     });
@@ -1946,6 +1952,73 @@ describe('the week’s board', () => {
     );
     expect(useWeekSession.getState().moves.placed).toEqual({});
     expect(r().context()?.under_way?.placed).toContainEqual({ id: ID.boiler, day: THU });
+  });
+
+  it('pauses a habit for the week on the board, and writes it with the week on Done', async () => {
+    const h = await onBoard();
+    const r = () => h.hook.result.current;
+    await h.go(() => r().board.open());
+    await h.go(() => r().board.easeHabit(ID.swim, 'pause'));
+    expect(useWeekSession.getState().moves.habit_ease).toEqual({ [ID.swim]: { mode: 'pause' } });
+    // Gremly is told it is on no day now
+    expect(r().context()?.under_way?.habit_days).toEqual([{ id: ID.swim, days: [] }]);
+    // nothing is saved by the tap
+    expect(saveBoard).not.toHaveBeenCalled();
+    await h.go(() => r().board.done());
+    expect((saveBoard as jest.Mock).mock.calls[0][0]).toMatchObject({
+      habits: [],
+      eases: [{ id: ID.swim, mode: 'pause', first: MON, last: '2026-10-11', note: '' }],
+    });
+    expect(rows['row-1'].answers.planned.habit_days).toBe(0);
+    // a pause alone is still something to take back
+    expect(useWeekSession.getState().undoable).toEqual({ board: true });
+  });
+
+  it('lets a card that pauses a habit overtake what they chose for it on the board', async () => {
+    const h = await onBoard();
+    const r = () => h.hook.result.current;
+    await h.go(() => r().board.easeHabit(ID.swim, 'lighter', 'Ten lengths'));
+    await h.go(() => r().board.toggleHabit(ID.swim, WED));
+    expect(useWeekSession.getState().moves.habit_ease).toEqual({
+      [ID.swim]: { mode: 'lighter', note: 'Ten lengths' },
+    });
+    await h.go(() =>
+      r().onApplied([
+        {
+          cid: 'c1',
+          op: 'ease',
+          type: 'habit',
+          id: ID.swim,
+          title: 'Swim',
+          ease: { mode: 'pause', first: MON, last: '2026-10-11', note: '' },
+        },
+      ] as any),
+    );
+    expect(useWeekSession.getState().moves).toMatchObject({ habit_days: {}, habit_ease: {} });
+  });
+
+  it('keeps the days they chose for a habit when a card gives it a lighter version', async () => {
+    const h = await onBoard();
+    const r = () => h.hook.result.current;
+    await h.go(() => r().board.toggleHabit(ID.swim, WED));
+    await h.go(() => r().board.easeHabit(ID.swim, 'pause'));
+    await h.go(() =>
+      r().onApplied([
+        {
+          cid: 'c1',
+          op: 'ease',
+          type: 'habit',
+          id: ID.swim,
+          title: 'Swim',
+          ease: { mode: 'lighter', first: MON, last: '2026-10-11', note: 'Ten lengths' },
+        },
+      ] as any),
+    );
+    // what is saved is their latest word on easing it; its days are still theirs
+    expect(useWeekSession.getState().moves).toMatchObject({
+      habit_days: { [ID.swim]: [MON, WED, SAT] },
+      habit_ease: {},
+    });
   });
 
   it('does nothing from the board’s buttons before the review has reached it', async () => {

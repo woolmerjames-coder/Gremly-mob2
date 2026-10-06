@@ -20,6 +20,8 @@ jest.mock('lucide-react-native', () => {
     Plus: icon('plus'),
     ChevronRight: icon('chevron'),
     ChevronLeft: icon('chevron-left'),
+    Pause: icon('pause'),
+    Feather: icon('feather'),
   };
 });
 
@@ -56,7 +58,14 @@ const TODOS = [
 ];
 
 const HABITS = [
-  { id: 'swim', name: 'Swim', cadence: 'weekly', target_per_period: 2, time_estimate_minutes: 40 },
+  {
+    id: 'swim',
+    name: 'Swim',
+    cadence: 'weekly',
+    target_per_period: 2,
+    time_estimate_minutes: 40,
+    floor_note: 'Ten lengths',
+  },
 ];
 
 const SPREAD: WeekSpread = {
@@ -76,7 +85,9 @@ const SPREAD: WeekSpread = {
   notes: [{ day: WED, note: 'A lighter day.' }],
 };
 
-function madeUpBoard(over: { todos?: any[]; habits?: any[] } = {}): Board {
+function madeUpBoard(
+  over: { todos?: any[]; habits?: any[]; eases?: any[]; ease?: Record<string, any> } = {},
+): Board {
   return boardOf({
     today: TODAY,
     span: { span_start: MON, span_end: SUN },
@@ -84,11 +95,16 @@ function madeUpBoard(over: { todos?: any[]; habits?: any[] } = {}): Board {
     row: {
       read: null,
       spread: SPREAD,
-      answers: { hours: { normal_day: 2, busy_day: 1, weekend_day: 4 }, busy_days: [THU] },
+      answers: {
+        hours: { normal_day: 2, busy_day: 1, weekend_day: 4 },
+        busy_days: [THU],
+        board: over.ease ? { habit_ease: over.ease } : undefined,
+      },
     },
     todos: over.todos ?? TODOS,
     habits: over.habits ?? HABITS,
     habitPlans: [],
+    eases: over.eases ?? [],
     groups: new Map([
       ['boiler', 'Home'],
       ['present', 'Family'],
@@ -104,6 +120,7 @@ function sheet(over: Partial<WeekBoardProps> = {}) {
   const spies = {
     onMove: jest.fn(),
     onToggleHabit: jest.fn(),
+    onEaseHabit: jest.fn(),
     onDone: jest.fn(),
     onClose: jest.fn(),
     onRetry: jest.fn(),
@@ -235,7 +252,7 @@ describe('the habits', () => {
     fireEvent.press(getByTestId('week-board-tab-habits'));
     expect(
       getByText(
-        "Pick the days you'll do each one. I've started you off away from the busy days, and each morning I'll check in on that day's.",
+        "Pick the days you'll do each one. I've started you off away from the busy days, and each morning I'll check in on that day's. You can also pause one for the week, or do a lighter version of it.",
       ),
     ).toBeTruthy();
     expect(getByText('2 of 2 planned')).toBeTruthy();
@@ -250,6 +267,80 @@ describe('the habits', () => {
     expect(onToggleHabit).toHaveBeenLastCalledWith('swim', WED);
     fireEvent.press(getByTestId(`week-board-habit-swim-${MON}`));
     expect(onToggleHabit).toHaveBeenLastCalledWith('swim', MON);
+  });
+
+  it('offers to pause a habit for the week or do a lighter version, and says which was tapped', () => {
+    const { getByTestId, getByText, queryByTestId, onEaseHabit } = sheet();
+    fireEvent.press(getByTestId('week-board-tab-habits'));
+    expect(getByText('Pause this week')).toBeTruthy();
+    expect(getByText('Lighter version')).toBeTruthy();
+    expect(getByTestId('week-board-habit-swim-pause').props.accessibilityState.selected).toBe(
+      false,
+    );
+    // nothing to type until a lighter version is on
+    expect(queryByTestId('week-board-habit-swim-note')).toBeNull();
+    fireEvent.press(getByTestId('week-board-habit-swim-pause'));
+    expect(onEaseHabit).toHaveBeenLastCalledWith('swim', 'pause', undefined);
+    // a lighter version starts from the habit's own smallest version
+    fireEvent.press(getByTestId('week-board-habit-swim-lighter'));
+    expect(onEaseHabit).toHaveBeenLastCalledWith('swim', 'lighter', 'Ten lengths');
+  });
+
+  it('shows a paused habit with no days to pick, and ends the pause on a second tap', () => {
+    const { getByTestId, getByText, queryByTestId, queryByText, onEaseHabit } = sheet({
+      board: madeUpBoard({ ease: { swim: { mode: 'pause' } } }),
+    });
+    fireEvent.press(getByTestId('week-board-tab-habits'));
+    expect(getByText('Paused')).toBeTruthy();
+    expect(queryByText('2 of 2 planned')).toBeNull();
+    expect(queryByTestId(`week-board-habit-swim-${MON}`)).toBeNull();
+    expect(
+      getByText(
+        "It's off your days and I won't ask about it or count it against you. If you do it anyway, it still counts.",
+      ),
+    ).toBeTruthy();
+    expect(getByTestId('week-board-habit-swim-pause').props.accessibilityState.selected).toBe(true);
+    fireEvent.press(getByTestId('week-board-habit-swim-pause'));
+    expect(onEaseHabit).toHaveBeenLastCalledWith('swim', null, undefined);
+  });
+
+  it('takes the lighter version in their own words, and keeps its days', () => {
+    const { getByTestId, getByText, onEaseHabit } = sheet({
+      board: madeUpBoard({ ease: { swim: { mode: 'lighter', note: 'Ten lengths' } } }),
+    });
+    fireEvent.press(getByTestId('week-board-tab-habits'));
+    expect(getByText('2 of 2 planned · lighter version')).toBeTruthy();
+    expect(getByTestId(`week-board-habit-swim-${MON}`).props.accessibilityState.selected).toBe(
+      true,
+    );
+    const note = getByTestId('week-board-habit-swim-note');
+    expect(note.props.value).toBe('Ten lengths');
+    fireEvent.changeText(note, 'Twenty minutes in the pool');
+    expect(onEaseHabit).toHaveBeenLastCalledWith('swim', 'lighter', 'Twenty minutes in the pool');
+    // what is typed stays as typed, whatever the board makes of it
+    expect(getByTestId('week-board-habit-swim-note').props.value).toBe(
+      'Twenty minutes in the pool',
+    );
+    fireEvent.press(getByTestId('week-board-habit-swim-lighter'));
+    expect(onEaseHabit).toHaveBeenLastCalledWith('swim', null, undefined);
+  });
+
+  it('closes the days of a pause that holds only part of the week', () => {
+    const { getByTestId, getByText, onToggleHabit } = sheet({
+      board: madeUpBoard({
+        eases: [{ id: 'e1', habit_id: 'swim', mode: 'pause', period_start: MON, period_end: TUE }],
+      }),
+    });
+    fireEvent.press(getByTestId('week-board-tab-habits'));
+    expect(getByText('Paused on Mon and Tue')).toBeTruthy();
+    const mon = getByTestId(`week-board-habit-swim-${MON}`);
+    expect(mon.props.accessibilityState).toMatchObject({ selected: false, disabled: true });
+    fireEvent.press(mon);
+    expect(onToggleHabit).not.toHaveBeenCalled();
+    // the pause chip is for the whole week, which this one is not
+    expect(getByTestId('week-board-habit-swim-pause').props.accessibilityState.selected).toBe(
+      false,
+    );
   });
 
   it('says so when there are no habits to plan', () => {

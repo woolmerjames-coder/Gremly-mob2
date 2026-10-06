@@ -10,6 +10,7 @@ import {
   boardOf,
   boardStage,
   diffEmpty,
+  easeHabitOnBoard,
   gremlyPlaced,
   groupsOf,
   keepLoad,
@@ -231,10 +232,20 @@ describe('the board as it stands', () => {
 
   it('puts each habit on the days saved for it, else Gremly’s, and theirs over both', () => {
     const fromSpread = boardOf(input());
+    // as usual: neither paused nor on a lighter version
+    const usual = {
+      ease: null,
+      note: '',
+      smallest: '',
+      savedEase: null,
+      savedEased: false,
+      pausedDays: [],
+      easeTo: null,
+    };
     expect(fromSpread.habits).toEqual([
-      { id: 'swim', title: 'Swim', minutes: 40, days: [MON, SAT], target: 2, saved: [] },
+      { id: 'swim', title: 'Swim', minutes: 40, days: [MON, SAT], target: 2, saved: [], ...usual },
       // nothing chosen for it: on no day, aiming for every day
-      { id: 'read', title: 'Read', minutes: 30, days: [], target: 7, saved: [] },
+      { id: 'read', title: 'Read', minutes: 30, days: [], target: 7, saved: [], ...usual },
     ]);
     const plans = [
       { habit_id: 'swim', planned_date: WED },
@@ -350,14 +361,17 @@ describe('what Gremly is told of the board', () => {
         placed: { marking: FRI },
         later: { reports: '2026-10-19' },
         habit_days: { swim: [TUE] },
+        habit_ease: { read: { mode: 'lighter', note: 'Two pages' } },
         opened: true,
       }),
     ).toEqual({
       placed: [{ id: 'marking', day: FRI }],
       later: [{ id: 'reports', back_on: '2026-10-19' }],
       habit_days: [{ id: 'swim', days: [TUE] }],
+      // what they chose for a habit over these days, without its words
+      habit_ease: [{ id: 'read', mode: 'lighter' }],
     });
-    expect(ownMoves(null)).toEqual({ placed: [], later: [], habit_days: [] });
+    expect(ownMoves(null)).toEqual({ placed: [], later: [], habit_days: [], habit_ease: [] });
   });
 });
 
@@ -376,6 +390,7 @@ describe('what finishing the board writes', () => {
         { id: 'desk', backOn: '2026-10-13' },
       ],
       habits: [{ id: 'swim', add: [MON, SAT], remove: [] }],
+      eases: [],
     });
     expect(diffEmpty(d)).toBe(false);
   });
@@ -459,13 +474,209 @@ describe('their own moves', () => {
       placed: { marking: FRI, boiler: MON },
       later: { desk: '2026-10-19' },
       habit_days: { swim: [TUE], read: [MON] },
+      habit_ease: { swim: { mode: 'pause' as const }, read: { mode: 'lighter' as const } },
       opened: true,
     };
     expect(withoutMoves(moves, { todos: ['marking', 'desk'], habits: ['swim'] })).toEqual({
       placed: { boiler: MON },
       later: {},
       habit_days: { read: [MON] },
+      habit_ease: { read: { mode: 'lighter' } },
       opened: true,
+    });
+    // a lighter version saved for a habit: what they chose for it gives way, its days stay
+    expect(withoutMoves(moves, { eases: ['read'] })).toMatchObject({
+      habit_days: { swim: [TUE], read: [MON] },
+      habit_ease: { swim: { mode: 'pause' } },
+    });
+  });
+});
+
+describe('a habit paused or made lighter for the days being planned', () => {
+  const ease = (
+    id: string,
+    mode: string,
+    first: string,
+    last: string,
+    note: string | null = null,
+  ) => ({
+    id: `${id}-${first}`,
+    habit_id: id,
+    mode,
+    period_start: first,
+    period_end: last,
+    floor_note: note,
+  });
+  const swimOf = (b: ReturnType<typeof boardOf>) => b.habits.find((h) => h.id === 'swim')!;
+  const withEase = (habit_ease: Record<string, unknown>, over: Partial<BoardInput> = {}) =>
+    boardOf(input(over, { board: { habit_ease } }));
+
+  it('is as usual until they say, with the habit’s smallest version ready to start from', () => {
+    const habits = [{ ...HABITS[0], floor_note: '  Ten   lengths ' }, HABITS[1]];
+    const swim = swimOf(boardOf(input({ habits })));
+    expect(swim).toMatchObject({
+      ease: null,
+      note: '',
+      smallest: 'Ten lengths',
+      pausedDays: [],
+      easeTo: null,
+    });
+  });
+
+  it('paused, it is on none of the days, takes none of their room, and stays in the list', () => {
+    const usual = boardOf(input());
+    const b = withEase({ swim: { mode: 'pause' } });
+    const swim = swimOf(b);
+    expect(swim).toMatchObject({ ease: 'pause', days: [], target: 0 });
+    expect(swim.easeTo).toEqual({ mode: 'pause', first: MON, last: SUN, note: '' });
+    expect(b.days.find((d) => d.day === MON)!.habits.map((h) => h.id)).not.toContain('swim');
+    expect(b.totals.habits).toBe(usual.totals.habits - 80);
+    // Gremly is told it is on no day
+    expect(workingPicture(b).habit_days).toContainEqual({ id: 'swim', days: [] });
+  });
+
+  it('writes the pause, and takes it off the days saved for it', () => {
+    const plans = [{ habit_id: 'swim', planned_date: WED }];
+    const d = boardDiff(withEase({ swim: { mode: 'pause' } }, { habitPlans: plans }));
+    expect(d.eases).toEqual([{ id: 'swim', mode: 'pause', first: MON, last: SUN, note: '' }]);
+    expect(d.habits).toEqual([{ id: 'swim', add: [], remove: [WED] }]);
+    expect(diffEmpty({ place: [], later: [], habits: [], eases: d.eases })).toBe(false);
+  });
+
+  it('on a lighter version, its days and its count stay, and the words are theirs', () => {
+    const b = withEase({ swim: { mode: 'lighter', note: ' Ten  lengths ' } });
+    const swim = swimOf(b);
+    expect(swim).toMatchObject({
+      ease: 'lighter',
+      note: 'Ten lengths',
+      days: [MON, SAT],
+      target: 2,
+    });
+    expect(boardDiff(b).eases).toEqual([
+      { id: 'swim', mode: 'lighter', first: MON, last: SUN, note: 'Ten lengths' },
+    ]);
+  });
+
+  it('plans from today in a review picked up part way through the week', () => {
+    const b = boardOf(
+      input({ today: WED }, { board: { habit_ease: { swim: { mode: 'pause' } } } }),
+    );
+    expect(swimOf(b).easeTo).toMatchObject({ first: WED, last: SUN });
+  });
+
+  it('shows what is saved, and writes nothing when the board agrees with it', () => {
+    const saved = [ease('swim', 'pause', MON, SUN)];
+    const b = boardOf(input({ eases: saved }));
+    expect(swimOf(b)).toMatchObject({ ease: 'pause', days: [], easeTo: null });
+    expect(boardDiff(b).eases).toEqual([]);
+    // saying it again is no change
+    expect(swimOf(withEase({ swim: { mode: 'pause' } }, { eases: saved })).easeTo).toBeNull();
+    // and back to usual ends it
+    const ended = withEase({ swim: { mode: 'usual' } }, { eases: saved });
+    expect(swimOf(ended)).toMatchObject({ ease: null, days: [MON, SAT], target: 2 });
+    expect(boardDiff(ended).eases).toEqual([
+      { id: 'swim', mode: 'usual', first: MON, last: SUN, note: '' },
+    ]);
+    // usual with nothing saved is nothing to write
+    expect(boardDiff(withEase({ swim: { mode: 'usual' } })).eases).toEqual([]);
+  });
+
+  it('closes only the days of a pause that holds part of the week', () => {
+    const b = boardOf(input({ eases: [ease('swim', 'pause', MON, TUE)] }));
+    const swim = swimOf(b);
+    // Gremly had it on Monday: a day it is paused on is no day of its
+    expect(swim).toMatchObject({ ease: null, pausedDays: [MON, TUE], days: [SAT], target: 2 });
+    // a daily habit aims for the days left open
+    const read = boardOf(input({ eases: [ease('read', 'pause', MON, WED)] })).habits.find(
+      (h) => h.id === 'read',
+    )!;
+    expect(read.target).toBe(4);
+  });
+
+  it('is chosen and taken back with their own moves', () => {
+    const b = boardOf(input());
+    const paused = easeHabitOnBoard(b, { opened: true }, 'swim', 'pause');
+    expect(paused).toEqual({ opened: true, habit_ease: { swim: { mode: 'pause' } } });
+    const lighter = easeHabitOnBoard(b, paused, 'swim', 'lighter', ' A short   swim ');
+    expect(lighter.habit_ease).toEqual({ swim: { mode: 'lighter', note: 'A short swim' } });
+    // neither, with nothing saved for these days: there is no move left to make
+    expect(easeHabitOnBoard(b, lighter, 'swim', null).habit_ease).toEqual({});
+    expect(easeHabitOnBoard(b, {}, 'swim', null).habit_ease).toEqual({});
+    // a habit that is not on the board changes nothing
+    expect(easeHabitOnBoard(b, paused, 'smoke', 'pause')).toBe(paused);
+  });
+
+  it('shows what was last tapped, whatever is saved: every tap of a lit chip turns it off', () => {
+    // each tap as the sheet makes it: a lit chip asks for neither, an unlit one for itself
+    const tap = (b: ReturnType<typeof boardOf>, moves: any, chip: 'pause' | 'lighter') => {
+      const h = swimOf(b);
+      const want = h.ease === chip ? null : chip;
+      return easeHabitOnBoard(b, moves, 'swim', want, chip === 'lighter' ? h.smallest : '');
+    };
+    const run = (saved: any[], chips: ('pause' | 'lighter')[]) => {
+      let moves: any = {};
+      const shown: (string | null)[] = [];
+      for (const chip of chips) {
+        moves = tap(boardOf(input({ eases: saved }, { board: moves })), moves, chip);
+        shown.push(swimOf(boardOf(input({ eases: saved }, { board: moves }))).ease);
+      }
+      return { shown, moves, board: boardOf(input({ eases: saved }, { board: moves })) };
+    };
+    // a pause saved for the week: off, on, off, on
+    const paused = [ease('swim', 'pause', MON, SUN)];
+    expect(run(paused, ['pause', 'pause', 'pause', 'pause']).shown).toEqual([
+      null,
+      'pause',
+      null,
+      'pause',
+    ]);
+    // back on what is saved, nothing is left to write
+    expect(boardDiff(run(paused, ['pause', 'pause']).board).eases).toEqual([]);
+    // a lighter version saved in their words: off ends it, and on again is theirs, not the habit's own
+    const lighter = [ease('swim', 'floor', MON, SUN, 'Five lengths')];
+    const off = run(lighter, ['lighter']);
+    expect(off.shown).toEqual([null]);
+    expect(boardDiff(off.board).eases).toEqual([
+      { id: 'swim', mode: 'usual', first: MON, last: SUN, note: '' },
+    ]);
+    const again = run(lighter, ['lighter', 'lighter']);
+    expect(swimOf(again.board)).toMatchObject({ ease: 'lighter', note: 'Five lengths' });
+    expect(boardDiff(again.board).eases).toEqual([]);
+    // from a saved lighter version to a pause and back: the saved words stand
+    const round = run(lighter, ['pause', 'lighter']);
+    expect(round.shown).toEqual(['pause', 'lighter']);
+    expect(swimOf(round.board).note).toBe('Five lengths');
+    // a pause that holds part of the week: pausing the week and taking it back ends that too
+    const part = [ease('swim', 'pause', MON, TUE)];
+    const cleared = run(part, ['pause', 'pause']);
+    expect(cleared.shown).toEqual(['pause', null]);
+    expect(swimOf(cleared.board).pausedDays).toEqual([]);
+  });
+
+  it('writes nothing for a week already paused when it is said again part way through', () => {
+    const saved = [ease('swim', 'pause', MON, SUN)];
+    const b = boardOf(
+      input({ today: WED, eases: saved }, { board: { habit_ease: { swim: { mode: 'pause' } } } }),
+    );
+    expect(swimOf(b)).toMatchObject({ ease: 'pause', easeTo: null });
+    expect(boardDiff(b).eases).toEqual([]);
+  });
+
+  it('counts as their move on a week changed by hand, the days it loses with it', () => {
+    const plans = [{ habit_id: 'swim', planned_date: WED }];
+    const moves = { habit_ease: { swim: { mode: 'pause' as const } } };
+    const b = boardOf(
+      input({
+        assign: false,
+        habitPlans: plans,
+        row: { ...input({}, { board: moves }).row, spread: null },
+      }),
+    );
+    expect(onlyMoved(boardDiff(b), moves)).toEqual({
+      place: [],
+      later: [],
+      habits: [{ id: 'swim', add: [], remove: [WED] }],
+      eases: [{ id: 'swim', mode: 'pause', first: MON, last: SUN, note: '' }],
     });
   });
 });
@@ -510,6 +721,7 @@ describe('the board once the week is planned, changed by hand', () => {
       place: [{ id: 'boiler', day: WED }],
       later: [{ id: 'desk', backOn: '2026-10-12' }],
       habits: [{ id: 'swim', add: [SAT], remove: [] }],
+      eases: [],
     });
     // a difference that is not a move of theirs is left out
     expect(
@@ -518,11 +730,12 @@ describe('the board once the week is planned, changed by hand', () => {
           place: [...diff.place, { id: 'bulbs', day: FRI }],
           later: [...diff.later, { id: 'reports', backOn: '2026-10-13' }],
           habits: [...diff.habits, { id: 'read', add: [MON], remove: [] }],
+          eases: [],
         },
         moves,
       ),
     ).toEqual(onlyMoved(diff, moves));
-    expect(onlyMoved(diff, null)).toEqual({ place: [], later: [], habits: [] });
+    expect(onlyMoved(diff, null)).toEqual({ place: [], later: [], habits: [], eases: [] });
   });
 });
 

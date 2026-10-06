@@ -17,6 +17,12 @@
  * one worked out here by the same rule the spread uses (spreadReturns), so a
  * Later never goes without a day.
  *
+ * A habit can be paused for the days being planned, or given a lighter
+ * version for them (lib/week/habitWeek.ts). Paused, it is on none of the
+ * days and takes none of their room; it stays in the list so the pause can be
+ * ended where it was made. Like every other move, neither is saved until they
+ * finish.
+ *
  * Once the week is planned the same board is where it is changed by hand
  * (Your week, Change your week). There is no spread then, and a todo with no
  * day and no day to come back is left as it is (assign: false): it is shown
@@ -53,6 +59,15 @@ import {
   type DayKind,
   type WeekHours,
 } from '../model';
+import {
+  easeApplied,
+  easeNote,
+  easeOver,
+  easePlan,
+  pauseSpans,
+  pausedOn,
+  type EaseMode,
+} from '../habitWeek';
 
 type Item = Record<string, any>;
 
@@ -96,6 +111,34 @@ export interface BoardHabit {
   target: number;
   /** The days saved for it now, among the days being planned */
   saved: string[];
+  /**
+   * How it is over every day being planned, as the board has it: paused (left
+   * alone, and on none of them), on a lighter version, or as usual (null)
+   */
+  ease: 'pause' | 'lighter' | null;
+  /** What the lighter version is, in their words, when it is on one */
+  note: string;
+  /**
+   * What a lighter version chosen here starts from: the words it is saved
+   * with for these days, else the habit's own smallest version
+   */
+  smallest: string;
+  /** What is saved for it over every one of these days; null when nothing holds them all */
+  savedEase: { mode: 'pause' | 'lighter'; note: string } | null;
+  /** Something is saved for it on at least one of these days: a pause or a lighter version */
+  savedEased: boolean;
+  /** The days it is paused on, when a pause holds only some of the days being planned */
+  pausedDays: string[];
+  /** What finishing the board would write for it over these days; null when nothing */
+  easeTo: BoardEase | null;
+}
+
+/** A pause, a lighter version or the usual, over a stretch of days. */
+export interface BoardEase {
+  mode: EaseMode;
+  first: string;
+  last: string;
+  note: string;
 }
 
 export interface BoardDay {
@@ -179,6 +222,8 @@ export interface BoardInput {
   todos: Item[];
   habits: Item[];
   habitPlans: Item[];
+  /** Their habits' pauses and lighter versions as saved (habit_adaptations) */
+  eases?: Item[];
   /** The part of their life each todo belongs to, by id */
   groups?: Map<string, string>;
   /**
@@ -193,6 +238,9 @@ const dayOf = (v: unknown): string | null => {
   const s = typeof v === 'string' ? v.slice(0, 10) : '';
   return isDay(s) ? s : null;
 };
+
+/** A lighter version's few words, tidied the way they are saved. */
+const noteOf = easeNote;
 
 /**
  * The part of their life each item belongs to: the world it is linked to most
@@ -279,11 +327,26 @@ export function boardOf(p: BoardInput): Board {
 
   // ── the habits ──
   const habits: BoardHabit[] = [];
+  const stretch = { first: days[0] ?? first, last: days[days.length - 1] ?? last };
   for (const h of p.habits) {
     if (h.archived) continue;
-    const rule = habitRule(h);
+    const usual = habitRule(h);
+    // Not on the board when it has no day among these whatever is paused. One
+    // that is only paused stays, so the pause can be ended here.
+    if (!habitAllowance(usual, days)) continue;
+    // their own choice on the board stands over what is saved
+    const savedEases = (p.eases ?? []).filter((r) => r?.habit_id === h.id);
+    const chosen = mine.habit_ease?.[h.id];
+    const want: BoardEase | null = chosen
+      ? { mode: chosen.mode, ...stretch, note: noteOf(chosen.note) }
+      : null;
+    const easeTo = want && !easePlan(savedEases, want).same ? want : null;
+    const eases = easeTo ? easeApplied(savedEases, h.id, easeTo) : savedEases;
+    const over = easeOver(eases, h.id, days);
+    const savedOver = easeOver(savedEases, h.id, days);
+    const pausedDays = days.filter((d) => pausedOn(eases, h.id, d));
+    const rule = { ...usual, paused: pauseSpans(eases, h.id) };
     const allow = habitAllowance(rule, days);
-    if (!allow) continue;
     const saved = p.habitPlans
       .filter((x) => x.habit_id === h.id)
       .map((x) => dayOf(x.planned_date))
@@ -295,9 +358,17 @@ export function boardOf(p: BoardInput): Board {
       id: h.id,
       title: h.name || h.title || 'Habit',
       minutes: minutesOf(h),
-      days: [...new Set(on.filter((d) => days.includes(d)))].sort(),
+      // a day it is paused on is no day of its: nothing shows it or asks about it there
+      days: [...new Set(on.filter((d) => days.includes(d) && !pausedDays.includes(d)))].sort(),
       target: rule.cadence === 'daily' ? habitOpenDays(rule, days).length : allow,
       saved,
+      ease: over?.mode ?? null,
+      note: over?.mode === 'lighter' ? over.note : '',
+      smallest: (savedOver?.mode === 'lighter' && savedOver.note) || noteOf(h.floor_note),
+      savedEase: savedOver ? { mode: savedOver.mode, note: savedOver.note } : null,
+      savedEased: !easePlan(savedEases, { mode: 'usual', ...stretch }).same,
+      pausedDays,
+      easeTo,
     });
   }
 
@@ -489,16 +560,21 @@ export function workingPicture(board: Board): {
   };
 }
 
-/** Their own moves, as the spread is asked with them: it never moves what they placed. */
+/**
+ * Their own moves, as the spread is asked with them: it never moves what
+ * they placed, and a habit they paused here takes none of the week's room.
+ */
 export function ownMoves(moves: WeekBoardMoves | null | undefined): {
   placed: { id: string; day: string }[];
   later: { id: string; back_on: string }[];
   habit_days: { id: string; days: string[] }[];
+  habit_ease: { id: string; mode: EaseMode }[];
 } {
   return {
     placed: Object.entries(moves?.placed ?? {}).map(([id, day]) => ({ id, day })),
     later: Object.entries(moves?.later ?? {}).map(([id, back_on]) => ({ id, back_on })),
     habit_days: Object.entries(moves?.habit_days ?? {}).map(([id, days]) => ({ id, days })),
+    habit_ease: Object.entries(moves?.habit_ease ?? {}).map(([id, e]) => ({ id, mode: e.mode })),
   };
 }
 
@@ -510,6 +586,8 @@ export interface BoardDiff {
   later: { id: string; backOn: string }[];
   /** A habit's days to add and to take away */
   habits: { id: string; add: string[]; remove: string[] }[];
+  /** A habit paused, given a lighter version or set back to usual over the days being planned */
+  eases: ({ id: string } & BoardEase)[];
 }
 
 export function boardDiff(board: Board): BoardDiff {
@@ -529,12 +607,13 @@ export function boardDiff(board: Board): BoardDiff {
     const remove = h.saved.filter((d) => !h.days.includes(d));
     if (add.length || remove.length) habits.push({ id: h.id, add, remove });
   }
-  return { place, later, habits };
+  const eases = board.habits.flatMap((h) => (h.easeTo ? [{ id: h.id, ...h.easeTo }] : []));
+  return { place, later, habits, eases };
 }
 
 /** Whether finishing the board would write anything. */
 export function diffEmpty(d: BoardDiff): boolean {
-  return !d.place.length && !d.later.length && !d.habits.length;
+  return !d.place.length && !d.later.length && !d.habits.length && !d.eases.length;
 }
 
 /**
@@ -543,11 +622,16 @@ export function diffEmpty(d: BoardDiff): boolean {
  */
 export function onlyMoved(diff: BoardDiff, moves: WeekBoardMoves | null | undefined): BoardDiff {
   const todos = new Set([...Object.keys(moves?.placed ?? {}), ...Object.keys(moves?.later ?? {})]);
-  const habits = new Set(Object.keys(moves?.habit_days ?? {}));
+  // a habit they paused loses its days with the pause: that is their move too
+  const habits = new Set([
+    ...Object.keys(moves?.habit_days ?? {}),
+    ...Object.keys(moves?.habit_ease ?? {}),
+  ]);
   return {
     place: diff.place.filter((p) => todos.has(p.id)),
     later: diff.later.filter((l) => todos.has(l.id)),
     habits: diff.habits.filter((h) => habits.has(h.id)),
+    eases: diff.eases,
   };
 }
 
@@ -633,22 +717,59 @@ export function toggleHabitDay(
 }
 
 /**
+ * Pause a habit for the days being planned, give it a lighter version for
+ * them, or neither. What they ask for is what the board then shows: neither
+ * ends whatever is saved for these days, and asking again for what is
+ * already saved is no move at all.
+ * @param want what it should be over these days; null for neither
+ * @param note what the lighter version is, in their words
+ */
+export function easeHabitOnBoard(
+  board: Board,
+  moves: WeekBoardMoves | null | undefined,
+  id: string,
+  want: 'pause' | 'lighter' | null,
+  note = '',
+): WeekBoardMoves {
+  const habit = board.habits.find((h) => h.id === id);
+  if (!habit) return moves ?? {};
+  const ease = { ...(moves?.habit_ease ?? {}) };
+  const saved = habit.savedEase;
+  const words = noteOf(note);
+  delete ease[id];
+  if (want === 'pause') {
+    if (saved?.mode !== 'pause') ease[id] = { mode: 'pause' };
+  } else if (want === 'lighter') {
+    if (saved?.mode !== 'lighter' || saved.note !== words)
+      ease[id] = { mode: 'lighter', note: words };
+  } else if (habit.savedEased) ease[id] = { mode: 'usual' };
+  return { ...(moves ?? {}), habit_ease: ease };
+}
+
+/**
  * Their moves without the ones a saved change has overtaken: when a card of
- * Gremly's moved a todo or a habit's days, what is saved is their latest word.
+ * Gremly's moved a todo, or changed a habit's days or paused it, what is
+ * saved is their latest word.
  */
 export function withoutMoves(
   moves: WeekBoardMoves | null | undefined,
-  ids: { todos?: string[]; habits?: string[] },
+  /** eases: habits whose pause or lighter version was saved, their days left as they chose them */
+  ids: { todos?: string[]; habits?: string[]; eases?: string[] },
 ): WeekBoardMoves {
   const placed = { ...(moves?.placed ?? {}) };
   const later = { ...(moves?.later ?? {}) };
   const habitDays = { ...(moves?.habit_days ?? {}) };
+  const habitEase = { ...(moves?.habit_ease ?? {}) };
   for (const id of ids.todos ?? []) {
     delete placed[id];
     delete later[id];
   }
-  for (const id of ids.habits ?? []) delete habitDays[id];
-  return { ...(moves ?? {}), placed, later, habit_days: habitDays };
+  for (const id of ids.habits ?? []) {
+    delete habitDays[id];
+    delete habitEase[id];
+  }
+  for (const id of ids.eases ?? []) delete habitEase[id];
+  return { ...(moves ?? {}), placed, later, habit_days: habitDays, habit_ease: habitEase };
 }
 
 // ── Their own days, and the days they overfill ──────────────────────────────

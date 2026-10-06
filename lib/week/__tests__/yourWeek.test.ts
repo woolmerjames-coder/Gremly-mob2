@@ -170,6 +170,24 @@ describe('your week, read back', () => {
     ]);
   });
 
+  it('leaves a paused habit off the days of its pause, unless it was done all the same', () => {
+    const eases = [
+      { id: 'e1', habit_id: 'swim', mode: 'pause', period_start: MON, period_end: SUN },
+      // a lighter version changes nothing about its days
+      { id: 'e2', habit_id: 'read', mode: 'floor', period_start: MON, period_end: SUN },
+    ];
+    const w = yourWeekOf(input({ eases }));
+    // done on Monday though paused: it shows as done, and not as something planned
+    expect(dayOf(w, MON).habits).toEqual([
+      { id: 'swim', title: 'Swim', done: true, planned: false },
+    ]);
+    expect(dayOf(w, SAT).habits).toEqual([]);
+    expect(dayOf(w, SAT).planned).toBe(0);
+    expect(dayOf(w, FRI).habits).toEqual([
+      { id: 'read', title: 'Read', done: false, planned: true },
+    ]);
+  });
+
   it('lists what comes back from Later on a day, today or still ahead, with no day of its own', () => {
     const todos = [
       ...TODOS,

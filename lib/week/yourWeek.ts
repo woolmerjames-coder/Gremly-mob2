@@ -6,7 +6,8 @@
  * What was planned comes from the plan kept when the board was saved (the
  * week's row, answers.planned.days). How it went comes from the items as they
  * are now: a todo done, still open on its day, moved to another day, put off
- * or let go; a habit done on its day or not. A day also shows what is on it
+ * or let go; a habit done on its day or not. A habit paused on a day is not
+ * on it, planned or not, unless it was done all the same. A day also shows what is on it
  * now that was not in its plan (added, or moved there since), and what was
  * done on it besides.
  *
@@ -14,6 +15,7 @@
  */
 import type { WeekReviewRow } from '../repo/weekReviewRepo';
 import { addDays, isDay, spanDays } from './model';
+import { pausedOn } from './habitWeek';
 
 type Item = Record<string, any>;
 
@@ -73,6 +75,8 @@ export interface YourWeekInput {
   habits: Item[];
   habitPlans: Item[];
   habitProgress: Item[];
+  /** Their habits' pauses and lighter versions (habit_adaptations) */
+  eases?: Item[];
   /** The person's day a moment fell on (DateService dayOf) */
   dayOf: (timestamp: string) => string | null;
 }
@@ -136,10 +140,13 @@ export function yourWeekOf(p: YourWeekInput): YourWeek {
         .filter((x) => dayPart(x.occurred_day) === day && (x.count ?? 1) > 0)
         .map((x) => x.habit_id as string),
     );
-    const given = new Set([
-      ...(inPlan?.habits ?? []),
-      ...p.habitPlans.filter((x) => dayPart(x.planned_date) === day).map((x) => x.habit_id),
-    ]);
+    // paused on the day, it is left alone: the day is not its day any more
+    const given = new Set(
+      [
+        ...(inPlan?.habits ?? []),
+        ...p.habitPlans.filter((x) => dayPart(x.planned_date) === day).map((x) => x.habit_id),
+      ].filter((id) => !pausedOn(p.eases, id, day)),
+    );
     const habits: WeekHabitRow[] = [...new Set([...given, ...done])]
       .filter((id) => habitOf.has(id))
       .map((id) => ({

@@ -191,7 +191,7 @@ export const WEEK_COPY = {
   yourWeek: "Here's the week you planned.",
   planWeek: 'Plan your week',
   // under Plan your week on its card at the top of Today, on their weekly day
-  todayCardNote: 'Ten minutes with Gremly to set up the week ahead.',
+  todayCardNote: 'A few minutes with Gremly to set up your week.',
   seeWeek: 'Your week',
   planNext: 'Plan next week',
   planAgainLine:
@@ -219,8 +219,15 @@ export const WEEK_COPY = {
   closeTray: 'Close',
   nothingOnDay: 'Nothing on this day yet.',
   habitsIntro:
-    "Pick the days you'll do each one. I've started you off away from the busy days, and each morning I'll check in on that day's.",
+    "Pick the days you'll do each one. I've started you off away from the busy days, and each morning I'll check in on that day's. You can also pause one for the week, or do a lighter version of it.",
   noHabits: 'No habits to plan this week.',
+  pauseWeek: 'Pause this week',
+  lighterVersion: 'Lighter version',
+  habitPaused: 'Paused',
+  pausedNote:
+    "It's off your days and I won't ask about it or count it against you. If you do it anyway, it still counts.",
+  lighterPlaceholder: 'What counts, in a few words',
+  lighterNote: 'Its days stay as they are, and the lighter version counts in full.',
   laterIntro:
     "Nothing here is lost. Each one has a day it comes back: it shows up in that night's wrap up and on Today, and I'll nudge you if you haven't been in. Tap one to give it a day this week instead.",
   laterIntroLoose:
@@ -474,6 +481,18 @@ export function addToDay(day: string): string {
  */
 export function habitPlanned(planned: number, target: number): string {
   return `${planned} of ${target} planned`;
+}
+
+/** "2 of 3 planned · lighter version" */
+export function habitPlannedLighter(planned: number, target: number): string {
+  return `${habitPlanned(planned, target)} · lighter version`;
+}
+
+/** "Paused on Mon and Tue" for the days of a pause that holds only some of the week. */
+export function pausedOnDays(days: string[]): string {
+  const names = days.map(shortDay);
+  if (names.length <= 1) return `Paused on ${names[0] ?? ''}`.trim();
+  return `Paused on ${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }
 
 /**

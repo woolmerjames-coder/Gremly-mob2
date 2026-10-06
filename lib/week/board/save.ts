@@ -9,6 +9,8 @@
  *   when it already had a day, being moved is counted
  * - a todo put off: lib/changes/later.ts, the one writer of a Later
  * - a habit's days: the store's setHabitPlan and removeHabitPlan
+ * - a habit paused, given a lighter version or set back to usual: the store's
+ *   easeHabit, the one writer of both
  *
  * These are the person's own moves, made with their own hands on the board,
  * so nothing here goes on a card first. A write that fails is counted and
@@ -33,6 +35,8 @@ export interface BoardSaved {
   todos: number;
   later: number;
   habitDays: number;
+  /** Habits paused, given a lighter version or set back to usual */
+  eased: number;
   /** Writes that did not go through */
   failed: number;
   /** Put everything that was written back as it was */
@@ -112,6 +116,7 @@ export async function saveBoard(diff: BoardDiff): Promise<BoardSaved> {
   let todos = 0;
   let later = 0;
   let habitDays = 0;
+  let eased = 0;
   let failed = 0;
   const open = (id: string): Item | null => {
     const t = (store().todos ?? []).find((x: Item) => x.id === id) as Item | undefined;
@@ -141,6 +146,25 @@ export async function saveBoard(diff: BoardDiff): Promise<BoardSaved> {
       console.warn('[Week] a todo could not be put off:', l.id, err);
     }
   });
+  // A pause or a lighter version is written whole or not at all, and hands
+  // back its own way back; nothing to write hands back none.
+  for (const e of diff.eases) {
+    try {
+      const back = await store().easeHabit(e.id, {
+        mode: e.mode,
+        first: e.first,
+        last: e.last,
+        note: e.note,
+      });
+      if (back) {
+        undos.push(back);
+        eased += 1;
+      }
+    } catch (err) {
+      failed += 1;
+      console.warn('[Week] a habit could not be paused or made lighter:', e.id, err);
+    }
+  }
   // The store's habit writers put their own change back when a save fails and
   // do not throw, so what was saved is read back rather than assumed.
   for (const h of diff.habits) {
@@ -162,16 +186,22 @@ export async function saveBoard(diff: BoardDiff): Promise<BoardSaved> {
     }
   }
 
+  // What is still to be put back. An Undo that could not put everything back
+  // is kept for another try, and that try does only what is left: a write
+  // already put back is not made twice.
+  const pending = new Set(undos);
   return {
     todos,
     later,
     habitDays,
+    eased,
     failed,
     revert: async () => {
       let lost = 0;
-      await inLanes([...undos].reverse(), async (undo) => {
+      await inLanes([...pending].reverse(), async (undo) => {
         try {
           await undo();
+          pending.delete(undo);
         } catch (err) {
           lost += 1;
           console.warn('[Week] part of the week could not be put back:', err);

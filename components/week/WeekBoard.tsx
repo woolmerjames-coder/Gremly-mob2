@@ -2,7 +2,8 @@
  * The week's board: a full sheet over today's thread, with three tabs. Days
  * has a ring for each day's room and a panel for the day picked, where a todo
  * can be moved to any day or to Later and one from Later added. Habits has a
- * toggle for each day of each habit. Later shows everything put off with the
+ * toggle for each day of each habit, and under them the two ways to ease one
+ * for the week: pause it, or do a lighter version. Later shows everything put off with the
  * day it comes back, and a tap gives one a day this week instead.
  *
  * It only draws the board it is given (lib/week/board/model.ts) and says what
@@ -25,12 +26,14 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AlignJustify, ChevronLeft, Plus } from 'lucide-react-native';
-import type { Board, BoardDay, BoardTodo } from '../../lib/week/board/model';
+import { AlignJustify, ChevronLeft, Feather, Pause, Plus } from 'lucide-react-native';
+import type { Board, BoardDay, BoardHabit, BoardTodo } from '../../lib/week/board/model';
+import { EASE_NOTE_MAX } from '../../lib/week/habitWeek';
 import {
   DAY_NAMES,
   WEEK_COPY,
@@ -39,9 +42,11 @@ import {
   backLabel,
   dayLetter,
   habitPlanned,
+  habitPlannedLighter,
   hoursRound,
   leftLabel,
   minsLabel,
+  pausedOnDays,
   roomLine,
   shortDay,
 } from '../../lib/week/review/words';
@@ -76,6 +81,11 @@ export interface WeekBoardProps {
   onRetry?: () => void;
   onMove: (todoId: string, to: string | 'later') => void;
   onToggleHabit: (habitId: string, day: string) => void;
+  /**
+   * Pause a habit for the days being planned, give it a lighter version for
+   * them (note: what that is, in their words), or neither (null)
+   */
+  onEaseHabit: (habitId: string, want: 'pause' | 'lighter' | null, note?: string) => void;
   onDone: () => void;
   /** Leave without finishing */
   onClose: () => void;
@@ -138,6 +148,76 @@ function MoveChips({
           </TouchableOpacity>
         );
       })}
+    </View>
+  );
+}
+
+/** What the lighter version is, in their words. It keeps what is typed, and says each change. */
+function LighterNote({ habit, onWrite }: { habit: BoardHabit; onWrite: (note: string) => void }) {
+  const [text, setText] = useState(habit.note);
+  return (
+    <>
+      <TextInput
+        style={styles.easeInput}
+        value={text}
+        onChangeText={(t) => {
+          setText(t);
+          onWrite(t);
+        }}
+        placeholder={WEEK_COPY.lighterPlaceholder}
+        placeholderTextColor={WEEK.faint}
+        accessibilityLabel={`${WEEK_COPY.lighterVersion}: ${habit.title}`}
+        maxLength={EASE_NOTE_MAX}
+        returnKeyType="done"
+        testID={`week-board-habit-${habit.id}-note`}
+      />
+      <Text style={styles.easeNote}>{WEEK_COPY.lighterNote}</Text>
+    </>
+  );
+}
+
+/** The two ways to ease a habit for the days being planned: pause it, or do a lighter version. */
+function HabitEase({
+  habit,
+  onEase,
+}: {
+  habit: BoardHabit;
+  onEase: (want: 'pause' | 'lighter' | null, note?: string) => void;
+}) {
+  const paused = habit.ease === 'pause';
+  const lighter = habit.ease === 'lighter';
+  return (
+    <View style={styles.ease}>
+      <View style={styles.easeRow}>
+        <TouchableOpacity
+          style={[styles.easeChip, paused && styles.easeChipOn]}
+          onPress={() => onEase(paused ? null : 'pause')}
+          accessibilityRole="button"
+          accessibilityState={{ selected: paused }}
+          accessibilityLabel={`${WEEK_COPY.pauseWeek}: ${habit.title}`}
+          testID={`week-board-habit-${habit.id}-pause`}
+        >
+          <Pause size={14} color={paused ? WEEK.linen : WEEK.green} strokeWidth={2.2} />
+          <Text style={[styles.easeText, paused && styles.easeTextOn]}>{WEEK_COPY.pauseWeek}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.easeChip, lighter && styles.easeChipOn]}
+          // it starts from the words saved for these days, else the habit's own smallest version
+          onPress={() => (lighter ? onEase(null) : onEase('lighter', habit.smallest))}
+          accessibilityRole="button"
+          accessibilityState={{ selected: lighter }}
+          accessibilityLabel={`${WEEK_COPY.lighterVersion}: ${habit.title}`}
+          testID={`week-board-habit-${habit.id}-lighter`}
+        >
+          <Feather size={14} color={lighter ? WEEK.linen : WEEK.green} strokeWidth={2.2} />
+          <Text style={[styles.easeText, lighter && styles.easeTextOn]}>
+            {WEEK_COPY.lighterVersion}
+          </Text>
+        </TouchableOpacity>
+      </View>
+      {paused ? <Text style={styles.easeNote}>{WEEK_COPY.pausedNote}</Text> : null}
+      {/* there only while it is on a lighter version, so it starts each time from the words as they stand */}
+      {lighter ? <LighterNote habit={habit} onWrite={(note) => onEase('lighter', note)} /> : null}
     </View>
   );
 }
@@ -268,6 +348,8 @@ export function WeekBoard(p: WeekBoardProps) {
           style={styles.scroll}
           contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 24 }]}
           keyboardShouldPersistTaps="handled"
+          // the lighter version's words are typed on this sheet
+          automaticallyAdjustKeyboardInsets
         >
           {p.fitting ? (
             <View style={[weekStyles.card, styles.notice]} testID="week-board-fitting">
@@ -486,42 +568,63 @@ export function WeekBoard(p: WeekBoardProps) {
                 </Text>
               </View>
               {board.habits.map((h) => {
-                const short = h.days.length < h.target;
+                const paused = h.ease === 'pause';
+                const short = !paused && h.days.length < h.target;
                 return (
                   <View key={h.id} style={styles.habitCard} testID={`week-board-habit-${h.id}`}>
                     <View style={styles.habitHead}>
                       <View style={weekStyles.grow}>
                         <Text style={styles.habitTitle}>{h.title}</Text>
                         <Text style={[styles.habitSub, short && styles.habitSubShort]}>
-                          {habitPlanned(h.days.length, h.target)}
+                          {paused
+                            ? WEEK_COPY.habitPaused
+                            : h.ease === 'lighter'
+                              ? habitPlannedLighter(h.days.length, h.target)
+                              : habitPlanned(h.days.length, h.target)}
                         </Text>
+                        {!paused && h.pausedDays.length ? (
+                          <Text style={styles.habitSub}>{pausedOnDays(h.pausedDays)}</Text>
+                        ) : null}
                       </View>
                       <Text style={styles.habitMins}>{minsLabel(h.minutes)}</Text>
                     </View>
-                    <View style={styles.cells}>
-                      {days.map((d) => {
-                        const on = h.days.includes(d.day);
-                        return (
-                          <TouchableOpacity
-                            key={d.day}
-                            style={[
-                              styles.cell,
-                              on && styles.cellOn,
-                              !on && busyDays.has(d.day) && styles.cellBusy,
-                            ]}
-                            onPress={() => p.onToggleHabit(h.id, d.day)}
-                            accessibilityRole="button"
-                            accessibilityState={{ selected: on }}
-                            accessibilityLabel={`${h.title} on ${shortDay(d.day)}${on ? ', planned' : ''}`}
-                            testID={`week-board-habit-${h.id}-${d.day}`}
-                          >
-                            <Text style={[styles.cellText, on && styles.cellTextOn]}>
-                              {dayLetter(d.day)}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
+                    {paused ? null : (
+                      <View style={styles.cells}>
+                        {days.map((d) => {
+                          const on = h.days.includes(d.day);
+                          // a day inside a pause that holds part of the week is no day to pick
+                          const off = h.pausedDays.includes(d.day);
+                          return (
+                            <TouchableOpacity
+                              key={d.day}
+                              style={[
+                                styles.cell,
+                                on && styles.cellOn,
+                                !on && !off && busyDays.has(d.day) && styles.cellBusy,
+                                off && styles.cellOff,
+                              ]}
+                              onPress={() => p.onToggleHabit(h.id, d.day)}
+                              disabled={off}
+                              accessibilityRole="button"
+                              accessibilityState={{ selected: on, disabled: off }}
+                              accessibilityLabel={`${h.title} on ${shortDay(d.day)}${on ? ', planned' : off ? ', paused' : ''}`}
+                              testID={`week-board-habit-${h.id}-${d.day}`}
+                            >
+                              <Text
+                                style={[
+                                  styles.cellText,
+                                  on && styles.cellTextOn,
+                                  off && styles.cellTextOff,
+                                ]}
+                              >
+                                {dayLetter(d.day)}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    )}
+                    <HabitEase habit={h} onEase={(want, note) => p.onEaseHabit(h.id, want, note)} />
                   </View>
                 );
               })}
@@ -838,6 +941,38 @@ const styles = StyleSheet.create({
   cellBusy: { borderStyle: 'dashed', borderColor: WEEK.amberDeep },
   cellText: { fontFamily: 'PlusJakartaSans-Bold', fontSize: 13, color: WEEK.ink },
   cellTextOn: { color: WEEK.white },
+  cellOff: { borderColor: WEEK.off, backgroundColor: WEEK.linen2 },
+  cellTextOff: { color: WEEK.faint },
+  ease: { gap: 8 },
+  easeRow: { flexDirection: 'row', gap: 6 },
+  easeChip: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: WEEK.line,
+    backgroundColor: WEEK.white,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 8,
+  },
+  easeChipOn: { borderColor: WEEK.green, backgroundColor: WEEK.green },
+  easeText: { fontFamily: 'Inter-SemiBold', fontSize: 13, color: WEEK.green },
+  easeTextOn: { color: WEEK.linen },
+  easeNote: { fontFamily: 'Inter-Regular', fontSize: 12, lineHeight: 17, color: WEEK.muted },
+  easeInput: {
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: WEEK.line,
+    paddingHorizontal: 12,
+    fontFamily: 'Inter-Regular',
+    fontSize: 14,
+    color: WEEK.ink,
+    backgroundColor: WEEK.white,
+  },
 
   laterCard: { backgroundColor: WEEK.white, borderRadius: 18, padding: 12, gap: 8 },
   laterItem: { gap: 6 },

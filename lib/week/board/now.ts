@@ -18,7 +18,14 @@ type Item = Record<string, any>;
 
 function build(
   s: Pick<WeekSession, 'row' | 'on' | 'moves'>,
-  data: { todos: Item[]; habits: Item[]; habitPlans: Item[]; worlds: Item[]; links: Item[] },
+  data: {
+    todos: Item[];
+    habits: Item[];
+    habitPlans: Item[];
+    eases: Item[];
+    worlds: Item[];
+    links: Item[];
+  },
   daysOff: number[],
   today: string,
 ): Board | null {
@@ -31,6 +38,7 @@ function build(
     todos: data.todos ?? [],
     habits: data.habits ?? [],
     habitPlans: data.habitPlans ?? [],
+    eases: data.eases ?? [],
     groups: groupsOf(data.worlds, data.links),
   });
 }
@@ -44,6 +52,7 @@ export function currentBoard(): Board | null {
       todos: st.todos,
       habits: st.habits,
       habitPlans: st.habitPlans,
+      eases: st.habitAdaptations,
       worlds: st.worlds,
       links: st.dropWorldLinks,
     },
@@ -57,6 +66,7 @@ export function useBoard(): Board | null {
   const todos = useGremlyStore((st: any) => st.todos) as Item[];
   const habits = useGremlyStore((st: any) => st.habits) as Item[];
   const habitPlans = useGremlyStore((st: any) => st.habitPlans) as Item[];
+  const eases = useGremlyStore((st: any) => st.habitAdaptations) as Item[];
   const worlds = useGremlyStore((st: any) => st.worlds) as Item[];
   const links = useGremlyStore((st: any) => st.dropWorldLinks) as Item[];
   const row = useWeekSession((s) => s.row);
@@ -65,8 +75,14 @@ export function useBoard(): Board | null {
   const daysOff = useThisWeek((w) => w.daysOff);
   const today = getDateService().ritualDay();
   return useMemo(
-    () => build({ row, on, moves }, { todos, habits, habitPlans, worlds, links }, daysOff, today),
-    [row, on, moves, todos, habits, habitPlans, worlds, links, daysOff, today],
+    () =>
+      build(
+        { row, on, moves },
+        { todos, habits, habitPlans, eases, worlds, links },
+        daysOff,
+        today,
+      ),
+    [row, on, moves, todos, habits, habitPlans, eases, worlds, links, daysOff, today],
   );
 }
 

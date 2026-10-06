@@ -34,6 +34,8 @@ export function changeBoard(p: {
   todos: Item[];
   habits: Item[];
   habitPlans: Item[];
+  /** Their habits' pauses and lighter versions as saved */
+  eases?: Item[];
   groups?: Map<string, string>;
 }): Board {
   return boardOf({
@@ -59,6 +61,7 @@ export function changeBoard(p: {
     todos: p.todos,
     habits: p.habits,
     habitPlans: p.habitPlans,
+    eases: p.eases,
     groups: p.groups,
     assign: false,
   });

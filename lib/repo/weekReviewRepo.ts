@@ -173,11 +173,17 @@ export interface WeekRelief {
   counts?: Record<string, number>;
 }
 
-/** Their own moves on the board: a todo on a day, a todo put off, a habit's days. */
+/**
+ * Their own moves on the board: a todo on a day, a todo put off, a habit's
+ * days, and a habit paused, given a lighter version or set back to usual for
+ * the days being planned.
+ */
 export interface WeekBoardMoves {
   placed?: Record<string, string>;
   later?: Record<string, string>;
   habit_days?: Record<string, string[]>;
+  /** note: what the lighter version is, in their words */
+  habit_ease?: Record<string, { mode: 'pause' | 'lighter' | 'usual'; note?: string }>;
   /** They have opened the board at least once */
   opened?: boolean;
 }

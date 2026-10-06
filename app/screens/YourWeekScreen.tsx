@@ -32,7 +32,7 @@ import { getDateService } from '../../lib/date/DateService';
 import { getWeekReview, type WeekBoardMoves } from '../../lib/repo/weekReviewRepo';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { changeBoard, saveChange } from '../../lib/week/board/change';
-import { groupsOf, moveTodo, toggleHabitDay } from '../../lib/week/board/model';
+import { easeHabitOnBoard, groupsOf, moveTodo, toggleHabitDay } from '../../lib/week/board/model';
 import { extraUsed, reviewOn } from '../../lib/week/model';
 import { WEEK_COPY, intentionQuote, spanLabel } from '../../lib/week/review/words';
 import { useThisWeek } from '../../lib/week/thisWeek';
@@ -48,6 +48,7 @@ export default function YourWeekScreen() {
   const habits = useGremlyStore((s: any) => s.habits) as Item[];
   const habitPlans = useGremlyStore((s: any) => s.habitPlans) as Item[];
   const habitProgress = useGremlyStore((s: any) => s.habitProgress) as Item[];
+  const eases = useGremlyStore((s: any) => s.habitAdaptations) as Item[];
   const worlds = useGremlyStore((s: any) => s.worlds) as Item[];
   const links = useGremlyStore((s: any) => s.dropWorldLinks) as Item[];
   const today = getDateService().ritualDay();
@@ -82,10 +83,11 @@ export default function YourWeekScreen() {
             habits: habits ?? [],
             habitPlans: habitPlans ?? [],
             habitProgress: habitProgress ?? [],
+            eases: eases ?? [],
             dayOf: (ts) => getDateService().dayOf(ts),
           })
         : null,
-    [row, today, todos, habits, habitPlans, habitProgress],
+    [row, today, todos, habits, habitPlans, habitProgress, eases],
   );
 
   const toThread = useCallback(
@@ -148,10 +150,11 @@ export default function YourWeekScreen() {
             todos: todos ?? [],
             habits: habits ?? [],
             habitPlans: habitPlans ?? [],
+            eases: eases ?? [],
             groups,
           })
         : null,
-    [row, boardOpen, today, weekly.daysOff, moves, todos, habits, habitPlans, groups],
+    [row, boardOpen, today, weekly.daysOff, moves, todos, habits, habitPlans, eases, groups],
   );
 
   const done = async () => {
@@ -284,6 +287,9 @@ export default function YourWeekScreen() {
         }}
         onToggleHabit={(id, day) => {
           if (board) setMoves((m) => toggleHabitDay(board, m, id, day));
+        }}
+        onEaseHabit={(id, want, note) => {
+          if (board) setMoves((m) => easeHabitOnBoard(board, m, id, want, note));
         }}
         onDone={() => void done()}
         // left without finishing: nothing is saved, and the moves are let go

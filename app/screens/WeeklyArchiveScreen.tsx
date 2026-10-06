@@ -39,6 +39,8 @@ export default function WeeklyArchiveScreen() {
   const habits = useGremlyStore((s: any) => s.habits) as Item[];
   const habitPlans = useGremlyStore((s: any) => s.habitPlans) as Item[];
   const habitProgress = useGremlyStore((s: any) => s.habitProgress) as Item[];
+  // a habit paused on a day was not on it: a pause is never read back as a day missed
+  const eases = useGremlyStore((s: any) => s.habitAdaptations) as Item[];
   const reviews = usePastWeeks((s) => pastWeeksOf(s, userId));
   const reviewsFailed = usePastWeeks((s) => s.owner === userId && s.failed);
   const today = getDateService().ritualDay();
@@ -64,13 +66,14 @@ export default function WeeklyArchiveScreen() {
           habits: habits ?? [],
           habitPlans: habitPlans ?? [],
           habitProgress: habitProgress ?? [],
+          eases: eases ?? [],
           dayOf: (ts) => getDateService().dayOf(ts),
         }),
       );
       if (short) out.set(s.week_start_date, short);
     }
     return out;
-  }, [summaries, reviews, today, todos, habits, habitPlans, habitProgress]);
+  }, [summaries, reviews, today, todos, habits, habitPlans, habitProgress, eases]);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>

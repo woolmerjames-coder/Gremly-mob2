@@ -248,6 +248,7 @@ export function WeekBoardSheet({ review }: { review: WeekReview }) {
       onRetry={review.board.retry}
       onMove={review.board.move}
       onToggleHabit={review.board.toggleHabit}
+      onEaseHabit={review.board.easeHabit}
       onDone={relieving ? review.board.close : () => void review.board.done()}
       onClose={review.board.close}
     />

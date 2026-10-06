@@ -96,6 +96,13 @@ describe('saving the board', () => {
     ],
     later: [{ id: 'desk', backOn: '2026-10-13' }],
     habits: [{ id: 'swim', add: [MON, SAT], remove: [WED] }],
+    eases: [] as {
+      id: string;
+      mode: 'pause' | 'lighter' | 'usual';
+      first: string;
+      last: string;
+      note: string;
+    }[],
   });
 
   it('writes every kind of change and says how many', async () => {
@@ -150,9 +157,90 @@ describe('saving the board', () => {
   });
 
   it('writes nothing for a board that is as saved', async () => {
-    const saved = await saveBoard({ place: [], later: [], habits: [] });
-    expect(saved).toMatchObject({ todos: 0, later: 0, habitDays: 0, failed: 0 });
+    const saved = await saveBoard({ place: [], later: [], habits: [], eases: [] });
+    expect(saved).toMatchObject({ todos: 0, later: 0, habitDays: 0, eased: 0, failed: 0 });
     expect(mockStore.updateTodo).not.toHaveBeenCalled();
     await saved.revert();
+  });
+});
+
+describe('a habit paused or made lighter on the board', () => {
+  const pause = { id: 'swim', mode: 'pause' as const, first: MON, last: '2026-10-11', note: '' };
+  const lighter = {
+    id: 'read',
+    mode: 'lighter' as const,
+    first: MON,
+    last: '2026-10-11',
+    note: 'Two pages',
+  };
+  let back: jest.Mock;
+
+  beforeEach(() => {
+    back = jest.fn(async () => {});
+    mockStore.easeHabit = jest.fn(async () => back);
+  });
+
+  it('is written through the store’s one writer, with the days it loses, and counted', async () => {
+    const saved = await saveBoard({
+      place: [],
+      later: [],
+      habits: [{ id: 'swim', add: [], remove: [WED] }],
+      eases: [pause, lighter],
+    });
+    expect(mockStore.easeHabit).toHaveBeenCalledWith('swim', {
+      mode: 'pause',
+      first: MON,
+      last: '2026-10-11',
+      note: '',
+    });
+    expect(mockStore.easeHabit).toHaveBeenCalledWith('read', {
+      mode: 'lighter',
+      first: MON,
+      last: '2026-10-11',
+      note: 'Two pages',
+    });
+    expect(saved).toMatchObject({ eased: 2, habitDays: 1, failed: 0 });
+    expect(mockStore.habitPlans).toEqual([]);
+  });
+
+  it('is put back by the one Undo, with the days', async () => {
+    const saved = await saveBoard({
+      place: [],
+      later: [],
+      habits: [{ id: 'swim', add: [], remove: [WED] }],
+      eases: [pause],
+    });
+    await saved.revert();
+    expect(back).toHaveBeenCalledTimes(1);
+    expect(mockStore.habitPlans).toEqual([{ habit_id: 'swim', planned_date: WED }]);
+  });
+
+  it('on a second try puts back only what the first could not', async () => {
+    const saved = await saveBoard({
+      place: [{ id: 'boiler', day: WED }],
+      later: [],
+      habits: [],
+      eases: [pause],
+    });
+    const update = mockStore.updateTodo;
+    mockStore.updateTodo = jest.fn(async () => {
+      throw new Error('offline');
+    });
+    await expect(saved.revert()).rejects.toThrow("1 of the week's changes could not be put back.");
+    expect(back).toHaveBeenCalledTimes(1);
+    // the pause is back already: only the todo is tried again
+    mockStore.updateTodo = update;
+    await saved.revert();
+    expect(back).toHaveBeenCalledTimes(1);
+    expect(todoOf('boiler').due_day).toBeNull();
+  });
+
+  it('counts nothing when it was already that way, and a write that fails as failed', async () => {
+    mockStore.easeHabit = jest.fn(async (id: string) => {
+      if (id === 'read') throw new Error('offline');
+      return null;
+    });
+    const saved = await saveBoard({ place: [], later: [], habits: [], eases: [pause, lighter] });
+    expect(saved).toMatchObject({ eased: 0, failed: 1 });
   });
 });

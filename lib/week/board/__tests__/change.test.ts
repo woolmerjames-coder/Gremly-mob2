@@ -28,7 +28,7 @@ jest.mock('../../review/session', () => ({
 }));
 
 import { changeBoard, saveChange } from '../change';
-import { moveTodo, toggleHabitDay } from '../model';
+import { easeHabitOnBoard, moveTodo, toggleHabitDay } from '../model';
 
 const [MON, , WED, THU, FRI, SAT, SUN] = [
   '2026-10-05',
@@ -134,6 +134,7 @@ describe('saving a change to the week', () => {
       ],
       later: [],
       habits: [{ id: 'swim', add: [WED], remove: [] }],
+      eases: [],
     });
     expect(changed).toMatchObject({ todos: 2, later: 0, habitDays: 1 });
     expect(row.answers.planned).toEqual({
@@ -191,6 +192,39 @@ describe('saving a change to the week', () => {
     // and the Undo still puts the moves back
     await changed!.undo();
     expect(revert).toHaveBeenCalledTimes(1);
+  });
+
+  it('pauses a habit for the rest of the week: the pause, and the days it loses', async () => {
+    const moves = easeHabitOnBoard(board(), {}, 'swim', 'pause');
+    const paused = board(moves);
+    expect(paused.habits[0]).toMatchObject({ ease: 'pause', days: [] });
+    await saveChange(row, paused, moves);
+    expect(mockSaveBoard).toHaveBeenCalledWith({
+      place: [],
+      later: [],
+      habits: [{ id: 'swim', add: [], remove: [SAT] }],
+      // from today to the week's last day
+      eases: [{ id: 'swim', mode: 'pause', first: WED, last: SUN, note: '' }],
+    });
+    // the plan kept on the week no longer has it on Saturday
+    expect(row.answers.planned.days[SAT]).toEqual({ todos: [], habits: [] });
+  });
+
+  it('shows a habit as it is saved: paused, with its pause there to end', async () => {
+    const saved = [
+      { id: 'e1', habit_id: 'swim', mode: 'pause', period_start: MON, period_end: SUN },
+    ];
+    const b = changeBoard({
+      today: WED,
+      row,
+      daysOff: [0, 6],
+      moves: {},
+      todos: mockStore.todos,
+      habits: HABITS,
+      habitPlans: [],
+      eases: saved,
+    });
+    expect(b.habits[0]).toMatchObject({ id: 'swim', ease: 'pause', easeTo: null });
   });
 
   it('starts a plan for the days ahead on a week that kept none', async () => {

@@ -67,6 +67,7 @@ import {
   applyRelief,
   boardDiff,
   boardStage,
+  easeHabitOnBoard,
   gremlyPlaced,
   moveTodo,
   placedBy,
@@ -129,6 +130,7 @@ import {
   stepOf,
   stepsFor,
   weekTurnContext,
+  easedFor,
   type ChatStep,
   type ReviewOn,
 } from './review/state';
@@ -246,7 +248,14 @@ export function chatWeekContext(): WeekTurnContext | null {
     intention: intentionOfWeek(cycleOf(day, w.weeklyDay).week_start),
     talking: null,
     hold: null,
+    eased: easedNow(day),
   });
+}
+
+/** The habits paused or on a lighter version from a day on, as the store holds them. */
+function easedNow(day: string) {
+  const s = store();
+  return easedFor(s.habits ?? [], s.habitAdaptations ?? [], day);
 }
 
 /**
@@ -335,6 +344,11 @@ export interface WeekReview {
     /** A todo to a day, or to Later */
     move: (todoId: string, to: string | 'later') => void;
     toggleHabit: (habitId: string, day: string) => void;
+    /**
+     * Pause a habit for the days being planned, give it a lighter version
+     * (note: what that is), or neither (null)
+     */
+    easeHabit: (habitId: string, want: 'pause' | 'lighter' | null, note?: string) => void;
     /** Ask Gremly to spread the week again, after a spread that did not come back */
     retry: () => void;
     /**
@@ -1180,11 +1194,17 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
               (c.op === 'change' && !!c.fields && 'day' in c.fields)),
         )
         .map((c) => c.id as string);
+      // A habit's days, or a pause, saved: both its days and what they chose
+      // for it on the board give way. A lighter version or a return to usual
+      // says nothing of its days, so those stay as they put them.
       const habits = changes
-        .filter((c) => c.op === 'habit_days' && !!c.id)
+        .filter(
+          (c) => (c.op === 'habit_days' || (c.op === 'ease' && c.ease?.mode === 'pause')) && !!c.id,
+        )
         .map((c) => c.id as string);
-      if (todos.length || habits.length) {
-        setMoves(withoutMoves(now.moves, { todos, habits }));
+      const eases = changes.filter((c) => c.op === 'ease' && !!c.id).map((c) => c.id as string);
+      if (todos.length || habits.length || eases.length) {
+        setMoves(withoutMoves(now.moves, { todos, habits, eases }));
         keepMovesSoon();
       }
       const intention = changes.find((c) => c.op === 'intention');
@@ -1271,6 +1291,7 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
       talking: now.talking,
       hold: now.hold,
       board: board ? workingPicture(board) : null,
+      eased: easedNow(day),
     });
   }, []);
 
@@ -1652,6 +1673,12 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
         setMoves(toggleHabitDay(b, session().moves, habitId, day));
         keepMovesSoon();
       },
+      easeHabit: (habitId: string, want: 'pause' | 'lighter' | null, note?: string) => {
+        const b = onBoard() ? currentBoard() : null;
+        if (!b) return;
+        setMoves(easeHabitOnBoard(b, session().moves, habitId, want, note));
+        keepMovesSoon();
+      },
       retry: () => {
         if (onBoard() && !session().fitting) void askSpread();
       },
@@ -1775,7 +1802,7 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
           try {
             // the board's own card, found before the step moves on from it
             const shown = cardOf('board');
-            if (saved.todos + saved.later + saved.habitDays > 0) {
+            if (saved.todos + saved.later + saved.habitDays + saved.eased > 0) {
               holdUndo('board', saved.revert);
               patchSession({ plannedBefore: before });
             }

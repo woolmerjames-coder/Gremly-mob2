@@ -98,7 +98,7 @@ describe('WeeklySummaryBanner', () => {
 describe('Plan your week at the top of Today', () => {
   const planWeek = {
     label: 'Plan your week',
-    note: 'Ten minutes with Gremly to set up the week ahead.',
+    note: 'A few minutes with Gremly to set up your week.',
     onPress: jest.fn(),
   };
 
@@ -128,7 +128,7 @@ describe('Plan your week at the top of Today', () => {
     const put = render(<WeeklySummaryBanner planWeek={planWeek} />);
     expect(put.queryByText('Your week in review is ready')).toBeNull();
     expect(put.getByText('Plan your week')).toBeTruthy();
-    expect(put.getByText('Ten minutes with Gremly to set up the week ahead.')).toBeTruthy();
+    expect(put.getByText('A few minutes with Gremly to set up your week.')).toBeTruthy();
     fireEvent.press(put.getByTestId('plan-week-card'));
     expect(planWeek.onPress).toHaveBeenCalledTimes(1);
 
