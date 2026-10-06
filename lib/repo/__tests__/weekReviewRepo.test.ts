@@ -42,8 +42,10 @@ jest.mock('../../supabase/client', () => {
                 mockRow = { ...mockRow, ...values };
                 return { data: { ...mockRow }, error: null };
               }
-              mockSettings = { ...(mockSettings ?? {}), ...values };
-              return { data: null, error: null };
+              // an update matches the person's settings row, when they have one
+              if (!mockSettings) return { data: null, error: null };
+              mockSettings = { ...mockSettings, ...values };
+              return { data: { ...mockSettings }, error: null };
             };
             return chain;
           },
@@ -149,5 +151,10 @@ describe("the week's settings", () => {
       values: { weekly_day: 5 },
       filters: [['user_id', 'u1']],
     });
+  });
+
+  it('say so when there is no settings row to keep the weekly day with', async () => {
+    mockSettings = null;
+    await expect(saveWeeklyDay('u1', 5)).rejects.toThrow('there are no settings to keep it with');
   });
 });

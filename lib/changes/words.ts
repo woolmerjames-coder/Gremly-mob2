@@ -6,6 +6,7 @@
  * as well as where it goes.
  */
 import { formatDay, formatDays, formatTime } from '../chat/dayWords';
+import { getDateService } from '../date/DateService';
 import type { Change, Schedule } from './model';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -225,9 +226,10 @@ function weekRowWords(change: Change, opts: Opts): string | null {
   switch (change.op) {
     case 'later': {
       const back = formatDay(change.fields?.back_on, opts);
-      // already put off: the day it comes back moves
-      return change.before?.back_on
-        ? `Bring ${t} back on ${back}, not ${formatDay(change.before.back_on, opts)}`
+      // already put off and still to come back: the day it comes back moves
+      const was = change.before?.back_on as string | null | undefined;
+      return was && was > getDateService().today()
+        ? `Bring ${t} back on ${back}, not ${formatDay(was, opts)}`
         : `Put ${t} off until ${back}`;
     }
     case 'habit_days':

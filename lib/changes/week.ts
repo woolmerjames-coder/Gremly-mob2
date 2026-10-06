@@ -6,7 +6,9 @@
  * Each is one of WEEK_OPS (workers/shared/changes/fields.js), checked by
  * checkWeekChange before it reaches a card. Applying one is only ever the
  * person's tap, through applyChanges (lib/changes/apply.ts), and each hands
- * back its Undo, built from what was there at that moment.
+ * back its Undo, built from what was there at that moment. Nothing they did
+ * since the card was made is overwritten: a change whose "before" no longer
+ * holds is left unapplied and says so.
  *
  * Where each is kept:
  * - later: on the todo (lib/changes/later.ts)
@@ -18,13 +20,19 @@
  * - milestone: a todo for each step to do, marked with what it is a step
  *   towards, and the check ins on the week's review
  * - weekly_day: with the notification settings, where the summary reads it
+ *
+ * The shape, the intention and a milestone say which week they are for
+ * (week_start on the change), so one made in a review of next week is kept
+ * for next week, whatever week today is in.
  */
 import { useGremlyStore } from '../store/useGremlyStore';
 import { getDateService } from '../date/DateService';
 import { generateDropId } from '../minddrop/ids';
 import {
   changeWeekReview,
+  getWeekReview,
   saveWeeklyDay,
+  type WeekAnswers,
   type WeekCheckIn,
   type WeekReviewRow,
 } from '../repo/weekReviewRepo';
@@ -45,6 +53,16 @@ function store(): any {
 }
 
 const failed = (message: string): WeekOutcome => ({ ok: false, reason: 'failed', message });
+const stale = (what: string): WeekOutcome => ({
+  ok: false,
+  reason: 'stale',
+  message: `${what} changed since, so it was left as it is.`,
+});
+
+/** Thrown from inside a write to the week's review when what the card showed no longer holds. */
+class ChangedSince extends Error {}
+
+const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
 /** The note that holds the intention of the week that starts on a day, when there is one. */
 export function intentionNote(weekStart: string): Item | null {
@@ -60,6 +78,22 @@ export function intentionNote(weekStart: string): Item | null {
         String(n.target_date).slice(0, 10) <= weekEnd,
     ) ?? null
   );
+}
+
+/** An intention's words, as the note holds them. */
+function intentionText(note: Item | null): string | null {
+  const text = String(note?.body ?? note?.title ?? '').trim();
+  return text || null;
+}
+
+/**
+ * An intention's words as a card's "before" states them: Gremly is sent them
+ * on one line and cut to the length an intention has, so the note's own words
+ * are read the same way before the two are compared.
+ */
+function asStated(text: unknown): string | null {
+  if (typeof text !== 'string') return null;
+  return text.replace(/\s+/g, ' ').trim().slice(0, 200) || null;
 }
 
 /** The days a habit is planned on, between two days. */
@@ -85,12 +119,41 @@ export function weekCheckContext(): WeekCheckContext {
   return {
     first: today,
     last: addDays(weekStart, 6),
+    week_start: weekStart,
     hours: review?.answers.hours ?? null,
     busy_days: review?.answers.busy_days ?? [],
     has_review: !!review && (review.status === 'started' || review.status === 'done'),
-    intention: note ? { id: note.id, text: String(note.body ?? note.title ?? '') } : null,
+    intention: note ? { id: note.id, text: intentionText(note) ?? '' } : null,
     weekly_day: w.weeklyDay,
   };
+}
+
+/** The week a change is for: the one it names, or the week they are in. */
+function weekOf(change: Change): string {
+  return change.week_start ?? weekStartFor(useThisWeek.getState().weeklyDay);
+}
+
+/**
+ * The review of the week that starts on a day: the app's copy when it is this
+ * week's, otherwise read from the account (a review of next week, brought
+ * forward, is not the week they are in).
+ */
+async function reviewFor(weekStart: string): Promise<WeekReviewRow | null> {
+  const mine = useThisWeek.getState().review;
+  if (mine && mine.week_start === weekStart) return mine;
+  const userId = store().userId as string | null;
+  return userId ? getWeekReview(userId, weekStart) : null;
+}
+
+/** Write to a week's review and keep the app's copy in step (it keeps only this week's). */
+async function writeReview(
+  row: WeekReviewRow,
+  change: Parameters<typeof changeWeekReview>[1],
+): Promise<WeekReviewRow> {
+  const saved = await changeWeekReview(row.id, change);
+  if (!saved) throw new Error("This week's review is no longer there.");
+  useThisWeek.getState().setReview(saved);
+  return saved;
 }
 
 // ── Each change ─────────────────────────────────────────────────────────────
@@ -100,15 +163,14 @@ async function applyLater(change: Change): Promise<WeekOutcome> {
   if (!todo || todo.archived) {
     return { ok: false, reason: 'gone', message: 'That todo is no longer here.' };
   }
-  // nothing they did since is overwritten: its day or its back day moved after the card was made
+  // nothing they did since is overwritten: done, or its day or back day moved, after the card was made
   const day = todo.due_day ? String(todo.due_day).slice(0, 10) : null;
   const back = todo.resurface_at ? String(todo.resurface_at).slice(0, 10) : null;
-  if (change.before && (day !== change.before.day || back !== change.before.back_on)) {
-    return {
-      ok: false,
-      reason: 'stale',
-      message: `${change.title} changed since, so it was left as it is.`,
-    };
+  if (
+    todo.completed_at ||
+    (change.before && (day !== change.before.day || back !== change.before.back_on))
+  ) {
+    return stale(change.title);
   }
   const revert = await putOffTodo(todo, change.fields?.back_on as string);
   return { ok: true, revert };
@@ -121,61 +183,82 @@ async function applyHabitDays(change: Change): Promise<WeekOutcome> {
   }
   const want = change.days ?? [];
   const was = (change.before?.days as string[] | undefined) ?? [];
-  const planned = new Set(
-    (store().habitPlans ?? [])
-      .filter((p: Item) => p.habit_id === id)
-      .map((p: Item) => p.planned_date),
-  );
+  const planned = (): Set<string> =>
+    new Set(
+      (store().habitPlans ?? [])
+        .filter((p: Item) => p.habit_id === id)
+        .map((p: Item) => p.planned_date as string),
+    );
   // only what differs from now is written, so a day they changed by hand since is left alone
-  const add = want.filter((d) => !planned.has(d));
-  const remove = was.filter((d) => !want.includes(d) && planned.has(d));
+  const before = planned();
+  const add = want.filter((d) => !before.has(d));
+  const remove = was.filter((d) => !want.includes(d) && before.has(d));
   for (const d of remove) await store().removeHabitPlan(id, d);
   for (const d of add) await store().setHabitPlan(id, d);
-  return {
-    ok: true,
-    revert: async () => {
-      for (const d of add) await store().removeHabitPlan(id, d);
-      for (const d of remove) await store().setHabitPlan(id, d);
-    },
+  // the store's writers put their own change back when the save fails and do
+  // not throw, so what was saved is read back rather than assumed
+  const after = planned();
+  const added = add.filter((d) => after.has(d));
+  const removed = remove.filter((d) => !after.has(d));
+  const undo = async () => {
+    for (const d of added) await store().removeHabitPlan(id, d);
+    for (const d of removed) await store().setHabitPlan(id, d);
   };
-}
-
-/** Write to the week's review and keep the app's copy in step. */
-async function writeReview(
-  row: WeekReviewRow,
-  change: Parameters<typeof changeWeekReview>[1],
-): Promise<WeekReviewRow> {
-  const saved = await changeWeekReview(row.id, change);
-  if (!saved) throw new Error("This week's review is no longer there.");
-  useThisWeek.getState().setReview(saved);
-  return saved;
+  if (added.length !== add.length || removed.length !== remove.length) {
+    // a habit's days are changed whole or not at all
+    await undo();
+    return failed(`${change.title}'s days could not be saved.`);
+  }
+  return { ok: true, revert: undo };
 }
 
 async function applyShape(change: Change): Promise<WeekOutcome> {
-  const row = useThisWeek.getState().review;
-  if (!row) return failed('Your week has no review to keep that on yet.');
+  const row = await reviewFor(weekOf(change));
+  if (!row) return failed('That week has no review to keep that on yet.');
   const shape = change.shape ?? {};
-  const before = { hours: row.answers.hours, busy_days: row.answers.busy_days };
-  await writeReview(row, (now) => ({
-    answers: {
-      ...now.answers,
-      ...(shape.busy_days ? { busy_days: shape.busy_days } : {}),
-      ...(shape.hours ? { hours: { ...(now.answers.hours ?? {}), ...shape.hours } } : {}),
-    },
-  }));
+  const kinds = Object.keys(shape.hours ?? {}) as (keyof WeekHours)[];
+  // the busy days stated are the ones from here on; days already gone stay as they are
+  const from = change.from ?? '';
+  const stated = (list: string[] | undefined) => (list ?? []).filter((d) => d >= from);
+  // what was there when the write was made, for Undo
+  let was: Pick<WeekAnswers, 'hours' | 'busy_days'> = {};
+  try {
+    await writeReview(row, (now) => {
+      // nothing they answered since is overwritten
+      if (shape.busy_days && !same(stated(now.answers.busy_days), change.before?.busy_days)) {
+        throw new ChangedSince();
+      }
+      for (const kind of kinds) {
+        if (!same(now.answers.hours?.[kind], change.before?.hours?.[kind]))
+          throw new ChangedSince();
+      }
+      was = { hours: now.answers.hours, busy_days: now.answers.busy_days };
+      const gone = (now.answers.busy_days ?? []).filter((d) => d < from);
+      return {
+        answers: {
+          ...now.answers,
+          ...(shape.busy_days ? { busy_days: [...gone, ...shape.busy_days] } : {}),
+          ...(shape.hours ? { hours: { ...(now.answers.hours ?? {}), ...shape.hours } } : {}),
+        },
+      };
+    });
+  } catch (err) {
+    if (err instanceof ChangedSince) return stale('Your week');
+    throw err;
+  }
   return {
     ok: true,
     revert: async () => {
       // only what this change set goes back; anything else answered since stays
       await writeReview(row, (now) => {
         const answers = { ...now.answers };
-        if (shape.busy_days) answers.busy_days = before.busy_days ?? [];
-        if (shape.hours) {
+        if (shape.busy_days) answers.busy_days = was.busy_days ?? [];
+        if (kinds.length) {
           const hours: WeekHours = { ...(now.answers.hours ?? {}) };
-          for (const kind of Object.keys(shape.hours) as (keyof WeekHours)[]) {
-            const was = before.hours?.[kind];
-            if (was === undefined) delete hours[kind];
-            else hours[kind] = was;
+          for (const kind of kinds) {
+            const before = was.hours?.[kind];
+            if (before === undefined) delete hours[kind];
+            else hours[kind] = before;
           }
           answers.hours = hours;
         }
@@ -188,10 +271,14 @@ async function applyShape(change: Change): Promise<WeekOutcome> {
 async function applyIntention(change: Change): Promise<WeekOutcome> {
   const text = String(change.fields?.text ?? '').trim();
   if (!text) return failed('There is no intention to save.');
-  const weekStart = weekStartFor(useThisWeek.getState().weeklyDay);
+  const weekStart = weekOf(change);
   const title = text.slice(0, 80);
   // the week's intention when it has one: that note is rewritten, never a second one made
   const note = intentionNote(weekStart);
+  // nothing they wrote since is overwritten
+  if (change.before && asStated(intentionText(note)) !== asStated(change.before.text)) {
+    return stale('Your intention');
+  }
   if (note) {
     const was = { title: note.title ?? null, body: note.body ?? null };
     await store().updateNote(note.id, { title, body: text });
@@ -217,9 +304,9 @@ async function applyMilestone(change: Change): Promise<WeekOutcome> {
   const m = change.milestone;
   if (!m) return failed('There is nothing to set up.');
   const asks = m.steps.filter((s) => s.kind === 'check_in');
-  const row = useThisWeek.getState().review;
   // check ins are kept on the week's review
-  if (asks.length && !row) return failed('Your week has no review to keep the check ins on yet.');
+  const row = asks.length ? await reviewFor(weekOf(change)) : null;
+  if (asks.length && !row) return failed('That week has no review to keep the check ins on yet.');
   const todoIds: string[] = [];
   const undoTodos = async () => {
     for (const id of todoIds) await store().deleteTodo(id);
@@ -260,8 +347,14 @@ async function applyMilestone(change: Change): Promise<WeekOutcome> {
       },
     };
   } catch (err) {
-    // a milestone is set up whole or not at all
-    await undoTodos().catch(() => undefined);
+    // a milestone is set up whole or not at all: the steps already added come
+    // out again, and if that fails too it is said, since they are still there
+    await undoTodos().catch((undoErr) =>
+      console.warn(
+        '[Week] a milestone failed part way and its steps could not be taken back:',
+        undoErr,
+      ),
+    );
     throw err;
   }
 }
@@ -271,15 +364,18 @@ async function applyWeeklyDay(change: Change): Promise<WeekOutcome> {
   if (!userId) return failed('You are not signed in.');
   const to = change.fields?.weekday as number;
   const was = useThisWeek.getState().weeklyDay;
-  await saveWeeklyDay(userId, to);
-  useThisWeek.getState().setWeeklyDay(to);
-  return {
-    ok: true,
-    revert: async () => {
-      await saveWeeklyDay(userId, was);
-      useThisWeek.getState().setWeeklyDay(was);
-    },
+  // nothing they chose since is overwritten
+  if (change.before && change.before.weekday != null && change.before.weekday !== was) {
+    return stale('Your weekly day');
+  }
+  const move = async (weekday: number) => {
+    await saveWeeklyDay(userId, weekday);
+    // the week they are in follows the weekly day, so its review is read again
+    useThisWeek.getState().setWeeklyDay(weekday);
+    await useThisWeek.getState().refresh();
   };
+  await move(to);
+  return { ok: true, revert: () => move(was) };
 }
 
 /** Apply one of the week's own changes. Throws when a write fails; applyChanges reports it. */

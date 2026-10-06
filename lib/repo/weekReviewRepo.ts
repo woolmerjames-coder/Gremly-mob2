@@ -100,11 +100,16 @@ export async function getWeekSettings(
 
 /** Move the day of the week their weekly review happens on. */
 export async function saveWeeklyDay(userId: string, weekday: number): Promise<void> {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from(SETTINGS)
     .update({ weekly_day: weekday })
-    .eq('user_id', userId);
+    .eq('user_id', userId)
+    .select('weekly_day')
+    .maybeSingle();
   if (error) throw new Error(`Failed to save the weekly day: ${error.message}`);
+  // an update that matched no row saved nothing, and says so rather than passing as saved
+  if (!data)
+    throw new Error('Failed to save the weekly day: there are no settings to keep it with.');
 }
 
 const turns = new Map<string, Promise<unknown>>();

@@ -2347,6 +2347,8 @@ export interface WeekTurnContext {
     /** The days being planned, first and last */
     first: string;
     last: string;
+    /** The first day of the week they belong to: before first when the review started part way through */
+    week_start?: string;
     /** What Gremly's read opened with */
     challenge?: { headline: string; why?: string } | null;
     /** Gremly's picks for what matters most, each with the todos it covers */
@@ -2377,7 +2379,7 @@ export interface WeekTurnContext {
       stuck_because?: string;
       question?: string;
     } | null;
-    /** What Gremly's last reply left the review waiting on (the answer's hold.about) */
+    /** The question Gremly's last reply left the review waiting on (the answer's hold.question) */
     hold?: string | null;
   } | null;
 }
@@ -2406,8 +2408,8 @@ export type BriefTurnResponse =
       /** The card, in the change model's shape: nothing changes until they tap */
       card: Change[];
       tasks: AgentTask[];
-      /** The weekly review stays on its step until they answer what Gremly asked */
-      hold?: { about: string };
+      /** The weekly review stays on its step until they answer the question Gremly asked */
+      hold?: { question: string };
       /** The button to their week goes under the reply; done when this week's review is */
       offer?: { kind: 'week'; done: boolean };
       model?: string;

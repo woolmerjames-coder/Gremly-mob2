@@ -41,7 +41,12 @@ import { buttonWords, doneWords, rowWords } from '../words';
 import { laterColumns } from '../later';
 import { intentionNote, plannedDays, weekCheckContext } from '../week';
 import { useThisWeek } from '../../week/thisWeek';
-import { changeWeekReview, saveWeeklyDay } from '../../repo/weekReviewRepo';
+import {
+  changeWeekReview,
+  getWeekReview,
+  getWeekSettings,
+  saveWeeklyDay,
+} from '../../repo/weekReviewRepo';
 import { getDateService } from '../../date/DateService';
 
 // Wednesday 7 October 2026; with Sunday as the weekly day the week is Monday 5 to Sunday 11
@@ -103,6 +108,14 @@ beforeEach(() => {
       mockDb.row = { ...mockDb.row, ...change(mockDb.row) };
       return mockDb.row;
     },
+  );
+  // the account: the weekly day as saved, and the review of whichever week is asked for
+  (getWeekSettings as jest.Mock).mockImplementation(async () => ({
+    weekly_day: mockDb.weeklyDay,
+    days_off: [6, 0],
+  }));
+  (getWeekReview as jest.Mock).mockImplementation(async (_user: string, weekStart: string) =>
+    mockDb.row && mockDb.row.week_start === weekStart ? mockDb.row : null,
   );
   Object.assign(mockState, {
     userId: 'u1',
@@ -188,6 +201,7 @@ describe('the week a change is checked against', () => {
     expect(weekCheckContext()).toEqual({
       first: TODAY,
       last: SUN,
+      week_start: MON,
       hours: { normal_day: 2, busy_day: 1, weekend_day: 4 },
       busy_days: [FRI],
       has_review: true,
@@ -260,6 +274,26 @@ describe('a todo put off for later', () => {
     expect(todo('t1').resurface_at).toBeUndefined();
   });
 
+  it('leaves alone a todo they ticked off since the card was made', async () => {
+    const c = checked(raw);
+    await mockState.updateTodo('t1', { completed_at: '2026-10-07T12:30:00Z' });
+    mockState.updateTodo.mockClear();
+    expect(await applyChange(c, { source: 'thread' })).toMatchObject({
+      ok: false,
+      reason: 'stale',
+    });
+    expect(mockState.updateTodo).not.toHaveBeenCalled();
+  });
+
+  it('is simply put off again when the day it came back on has gone', () => {
+    mockState.todos = [
+      { id: 't3', name: 'Renew passport', due_day: null, resurface_at: '2026-10-01' },
+    ];
+    const c = checked({ ...raw, id: 't3' });
+    expect(c.before).toEqual({ back_on: '2026-10-01', day: null });
+    expect(rowWords(c, fixed)).toBe('Put Renew passport off until Mon 19 Oct');
+  });
+
   it('says so when the todo has gone', async () => {
     const c = checked(raw);
     mockState.todos = [];
@@ -326,6 +360,19 @@ describe("a habit's days", () => {
     expect(runDays()).toEqual([MON, THU, FRI, SAT, '2026-10-12']);
   });
 
+  it('is changed whole or not at all: a day that did not save is reported, and the rest put back', async () => {
+    const c = days([THU, FRI]);
+    // the store's writer puts its own change back when the save fails, and does not throw
+    mockState.setHabitPlan.mockImplementationOnce(async () => undefined);
+    const o = await applyChange(c, { source: 'thread' });
+    expect(o).toMatchObject({
+      ok: false,
+      reason: 'failed',
+      message: "Run's days could not be saved.",
+    });
+    expect(runDays()).toEqual([MON, TODAY, SAT, '2026-10-12']);
+  });
+
   it('says so when the habit has gone', async () => {
     const c = days([THU]);
     mockState.habits = [];
@@ -382,12 +429,82 @@ describe('the shape of the week', () => {
     expect(doneWords(none)).toBe('Your week now has no busy days.');
   });
 
-  it('is not applied when the review has gone since the card was made', async () => {
+  it('keeps a busy day that has already gone: the days stated are the ones from here on', async () => {
+    mockDb.row = review({ answers: { busy_days: [MON, FRI] } });
+    useThisWeek.setState({ review: mockDb.row });
+    const c = shape({ busy_days: [THU] });
+    expect(c).toMatchObject({ from: TODAY, week_start: MON, before: { busy_days: [FRI] } });
+    const o = await applyChange(c, { source: 'thread' });
+    expect(mockDb.row.answers.busy_days).toEqual([MON, THU]);
+    if (!o.ok) throw new Error('not applied');
+    await o.revert();
+    expect(mockDb.row.answers.busy_days).toEqual([MON, FRI]);
+  });
+
+  it('leaves alone hours or busy days they changed since the card was made', async () => {
+    const hours = shape({ hours: { normal_day: 1.5 } });
+    const busy = shape({ busy_days: [THU] });
+    mockDb.row = {
+      ...mockDb.row,
+      answers: { hours: { normal_day: 3, busy_day: 1, weekend_day: 4 }, busy_days: [SAT] },
+    };
+    for (const c of [hours, busy]) {
+      const o = await applyChange(c, { source: 'thread' });
+      expect(o).toMatchObject({
+        ok: false,
+        reason: 'stale',
+        message: 'Your week changed since, so it was left as it is.',
+      });
+    }
+    expect(mockDb.row.answers).toEqual({
+      hours: { normal_day: 3, busy_day: 1, weekend_day: 4 },
+      busy_days: [SAT],
+    });
+  });
+
+  it("reads the week's review from the account when the app is not holding it", async () => {
     const c = shape({ busy_days: [] });
     useThisWeek.setState({ review: null });
+    expect(await applyChange(c, { source: 'thread' })).toMatchObject({ ok: true });
+    expect(getWeekReview).toHaveBeenCalledWith('u1', MON);
+    expect(mockDb.row.answers.busy_days).toEqual([]);
+  });
+
+  it('is not applied when the week has no review to keep it on', async () => {
+    const c = shape({ busy_days: [] });
+    useThisWeek.setState({ review: null });
+    mockDb.row = null;
     const o = await applyChange(c, { source: 'thread' });
     expect(o).toMatchObject({ ok: false, reason: 'failed' });
     expect(changeWeekReview).not.toHaveBeenCalled();
+  });
+
+  it('is kept for the week it names, which is next week when that is the one being planned', async () => {
+    // a review of next week, brought forward: its row is not the week they are in
+    const next = review({
+      id: 'r2',
+      week_start: '2026-10-12',
+      span_start: '2026-10-12',
+      answers: {},
+    });
+    const c: Change = {
+      cid: 'c1',
+      op: 'week_shape',
+      type: null,
+      id: null,
+      title: '',
+      week_start: '2026-10-12',
+      from: '2026-10-12',
+      shape: { busy_days: ['2026-10-14'] },
+      before: { busy_days: [] },
+    };
+    const mine = mockDb.row;
+    mockDb.row = next;
+    expect(await applyChange(c, { source: 'thread' })).toMatchObject({ ok: true });
+    expect(changeWeekReview).toHaveBeenCalledWith('r2', expect.any(Function));
+    expect(mockDb.row.answers.busy_days).toEqual(['2026-10-14']);
+    // the app's copy stays this week's
+    expect(useThisWeek.getState().review).toBe(mine);
   });
 });
 
@@ -450,6 +567,87 @@ describe('the intention', () => {
       body: 'Protect my mornings',
     });
     expect(mockState.notes[1].body).toBe('Last week');
+  });
+});
+
+describe('the intention, since the card was made', () => {
+  it('leaves alone one they rewrote', async () => {
+    mockState.notes = [
+      {
+        id: 'n9',
+        title: 'Protect my mornings',
+        body: 'Protect my mornings',
+        journal_subtype: 'intention',
+        target_date: MON,
+      },
+    ];
+    const c = checked({ op: 'intention', intention: 'Rest first' });
+    await mockState.updateNote('n9', { body: 'Say no more often' });
+    mockState.updateNote.mockClear();
+    const o = await applyChange(c, { source: 'thread' });
+    expect(o).toMatchObject({
+      ok: false,
+      reason: 'stale',
+      message: 'Your intention changed since, so it was left as it is.',
+    });
+    expect(mockState.updateNote).not.toHaveBeenCalled();
+  });
+
+  it('leaves alone one they wrote where there was none', async () => {
+    const c = checked({ op: 'intention', intention: 'Rest first' });
+    mockState.notes = [
+      { id: 'n9', title: 'Mine', body: 'Mine', journal_subtype: 'intention', target_date: MON },
+    ];
+    expect(await applyChange(c, { source: 'thread' })).toMatchObject({
+      ok: false,
+      reason: 'stale',
+    });
+    expect(mockState.createNote).not.toHaveBeenCalled();
+  });
+
+  it('reads the note the way its words were stated to Gremly: on one line, cut to length', async () => {
+    const long = `Protect my mornings.\n\nNo meetings before ten.  ${'x'.repeat(300)}`;
+    mockState.notes = [
+      { id: 'n9', title: 'Protect', body: long, journal_subtype: 'intention', target_date: MON },
+    ];
+    const stated = long.replace(/\s+/g, ' ').trim().slice(0, 200);
+    const c: Change = {
+      cid: 'c1',
+      op: 'intention',
+      type: 'note',
+      id: 'n9',
+      title: 'Rest first',
+      week_start: MON,
+      fields: { text: 'Rest first' },
+      before: { text: stated },
+    };
+    expect(await applyChange(c, { source: 'thread' })).toMatchObject({ ok: true });
+    expect(mockState.notes[0].body).toBe('Rest first');
+  });
+
+  it('is dated for the week it names, which is next week when that is the one being planned', async () => {
+    const c: Change = {
+      cid: 'c1',
+      op: 'intention',
+      type: 'note',
+      id: null,
+      title: 'Rest first',
+      week_start: '2026-10-12',
+      fields: { text: 'Rest first' },
+      before: { text: null },
+    };
+    // this week's intention is another note, and is left alone
+    mockState.notes = [
+      { id: 'n9', title: 'Mine', body: 'Mine', journal_subtype: 'intention', target_date: MON },
+    ];
+    expect(await applyChange(c, { source: 'thread' })).toMatchObject({ ok: true });
+    expect(mockState.createNote).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target_date: '2026-10-12',
+        views: { week_review: true, week_start: '2026-10-12' },
+      }),
+    );
+    expect(mockState.notes[0].body).toBe('Mine');
   });
 });
 
@@ -554,6 +752,28 @@ describe('the weekly day', () => {
     await o.revert();
     expect(mockDb.weeklyDay).toBe(0);
     expect(useThisWeek.getState().weeklyDay).toBe(0);
+  });
+
+  it('the week they are in moves with it, so its review is read again', async () => {
+    const c = checked({ op: 'weekly_day', weekday: 3 });
+    const o = await applyChange(c, { source: 'thread' });
+    // with Wednesday as the weekly day the week starts Thursday 8 October: Monday's review is not its review
+    expect(getWeekReview).toHaveBeenLastCalledWith('u1', THU);
+    expect(useThisWeek.getState().review).toBeNull();
+    if (!o.ok) throw new Error('not applied');
+    await o.revert();
+    expect(getWeekReview).toHaveBeenLastCalledWith('u1', MON);
+    expect(useThisWeek.getState().review?.id).toBe('r1');
+  });
+
+  it('leaves alone a weekly day they chose since the card was made', async () => {
+    const c = checked({ op: 'weekly_day', weekday: 3 });
+    useThisWeek.setState({ weeklyDay: 5 });
+    expect(await applyChange(c, { source: 'thread' })).toMatchObject({
+      ok: false,
+      reason: 'stale',
+    });
+    expect(saveWeeklyDay).not.toHaveBeenCalled();
   });
 });
 

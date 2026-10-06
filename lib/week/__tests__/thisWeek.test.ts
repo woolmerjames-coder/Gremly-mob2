@@ -110,4 +110,28 @@ describe('after a save', () => {
     useThisWeek.getState().setWeeklyDay(12);
     expect(useThisWeek.getState().weeklyDay).toBe(0);
   });
+
+  it('lets go of the review when the weekly day moves: the week they are in has moved with it', () => {
+    useThisWeek.getState().setReview(row('2026-10-05') as never);
+    useThisWeek.getState().setWeeklyDay(0);
+    // the same day: nothing has moved
+    expect(useThisWeek.getState().review?.id).toBe('r-2026-10-05');
+    useThisWeek.getState().setWeeklyDay(3);
+    expect(useThisWeek.getState().review).toBeNull();
+  });
+
+  it('a read already on its way when the weekly day moved does not put the old one back', async () => {
+    let answer: (v: unknown) => void = () => undefined;
+    (getWeekSettings as jest.Mock).mockReturnValueOnce(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    const reading = useThisWeek.getState().refresh();
+    useThisWeek.getState().setWeeklyDay(3);
+    answer({ weekly_day: 0, days_off: null });
+    await reading;
+    expect(useThisWeek.getState().weeklyDay).toBe(3);
+    expect(useThisWeek.getState().review).toBeNull();
+  });
 });
