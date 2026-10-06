@@ -138,6 +138,106 @@ describe('writing the brief', () => {
     expect(question.content).toBe('Is the haircut Friday?');
   });
 
+  describe('their week', () => {
+    const wrote = (over = {}) => ({
+      model: 'gemini',
+      lines: [{ text: 'A clear day.', ids: [] }],
+      dropped: [],
+      offer: 'Want to plan the afternoon?',
+      offerDropped: null,
+      questionLine: null,
+      questionChoices: [],
+      catchUp: null,
+      ...over,
+    });
+    const last = () => written()[written().length - 1];
+
+    it('puts the habit check in and the review on the offer, as facts for the app', async () => {
+      gatherBrief.mockResolvedValue(
+        day({ checkIn: { id: 'h1', title: 'Strength', minutes: 45 }, reviewOffer: true }),
+      );
+      writeBrief.mockResolvedValue(wrote());
+      const res = await writeDailyBrief({}, 'user-1', { reason: 'scheduled' });
+      expect(res).toMatchObject({ checkin: 'h1', review_offer: true });
+      expect(last().content).toBe('Want to plan the afternoon?');
+      expect(last().metadata_json).toMatchObject({
+        type: 'brief-offer',
+        kind: 'plan',
+        checkin: { habit_id: 'h1', title: 'Strength' },
+        review_offer: true,
+      });
+      // the offer's own buttons are untouched: an app that does not know the week shows it as before
+      expect(last().metadata_json.buttons.map((b) => b.action)).toEqual([
+        'plan',
+        'what_can_wait',
+        'not_today',
+      ]);
+      expect(last().metadata_json.held).toBeUndefined();
+    });
+
+    it('leaves both off when there is neither', async () => {
+      gatherBrief.mockResolvedValue(day({ checkIn: null, reviewOffer: false }));
+      writeBrief.mockResolvedValue(wrote());
+      const res = await writeDailyBrief({}, 'user-1', { reason: 'scheduled' });
+      expect(res).toMatchObject({ checkin: null, review_offer: false });
+      expect(last().metadata_json.checkin).toBeUndefined();
+      expect(last().metadata_json.review_offer).toBeUndefined();
+    });
+
+    it('writes a last message for them to ride on when the brief had no offer', async () => {
+      const quiet = { candidates: 0, free: [] };
+      writeBrief.mockResolvedValue(wrote({ offer: null }));
+      // nothing to offer and nothing from their week: the lines end the brief
+      gatherBrief.mockResolvedValue(day(quiet));
+      await writeDailyBrief({}, 'user-1', { reason: 'scheduled' });
+      expect(written().map((r) => r.metadata_json.type)).toEqual(['brief-text', 'brief-day-card']);
+
+      appendMessages.mockClear();
+      gatherBrief.mockResolvedValue(day({ ...quiet, reviewOffer: true }));
+      await writeDailyBrief({}, 'user-1', { reason: 'scheduled' });
+      expect(last().content).toBe(fallbackOffer('none', 'morning'));
+      expect(last().metadata_json).toMatchObject({
+        type: 'brief-offer',
+        kind: 'none',
+        buttons: [],
+        review_offer: true,
+      });
+
+      appendMessages.mockClear();
+      gatherBrief.mockResolvedValue(day({ ...quiet, checkIn: { id: 'h1', title: 'Strength' } }));
+      await writeDailyBrief({}, 'user-1', { reason: 'scheduled' });
+      expect(last().metadata_json).toMatchObject({ kind: 'none', checkin: { habit_id: 'h1' } });
+    });
+
+    it('waits behind the question like the offer it rides on', async () => {
+      gatherBrief.mockResolvedValue(
+        day({
+          question: { id: 'q1', question: 'Is the haircut Friday?', choices: ['Yes', 'No'] },
+          checkIn: { id: 'h1', title: 'Strength' },
+        }),
+      );
+      writeBrief.mockResolvedValue(wrote({ questionLine: 'Is the haircut Friday?' }));
+      await writeDailyBrief({}, 'user-1', { reason: 'scheduled' });
+      expect(last().metadata_json).toMatchObject({ held: true, checkin: { habit_id: 'h1' } });
+    });
+
+    it('keeps a return day to its own gentle offer', async () => {
+      gatherBrief.mockResolvedValue(
+        day({
+          ret: { days_away: 4, note: 'Good to have you back.' },
+          unsorted: 2,
+          checkIn: { id: 'h1', title: 'Strength' },
+          reviewOffer: true,
+        }),
+      );
+      writeBrief.mockResolvedValue(wrote({ offer: 'A quick sweep would help.' }));
+      const res = await writeDailyBrief({}, 'user-1', { reason: 'scheduled' });
+      expect(res).toMatchObject({ offer_kind: 'return', checkin: null, review_offer: false });
+      expect(last().metadata_json.checkin).toBeUndefined();
+      expect(last().metadata_json.review_offer).toBeUndefined();
+    });
+  });
+
   it('never writes for someone in their first day', async () => {
     gatherBrief.mockResolvedValue(day({ gremlyAge: 0 }));
     expect(await writeDailyBrief({}, 'user-1')).toEqual({ skipped: 'new user' });

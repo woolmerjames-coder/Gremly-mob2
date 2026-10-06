@@ -19,6 +19,9 @@ import { dayOfWeekNumber, isBehindThisWeek, mondayOf, weeklyTarget } from './beh
 import { readThreadReaction } from './reaction';
 import { sweepCounts } from '../notifications/sweepCount';
 import { buildDayRecord } from './dayRecord';
+import { briefOffersReview, cycleOf } from '../../shared/week.js';
+import { habitToCheckIn, plannedOn } from '../../shared/habitWeek.js';
+import { weekSettings } from '../week/settings';
 
 export const PLAN_DAY_START = 8 * 60;
 export const PLAN_DAY_END = 22 * 60;
@@ -90,6 +93,18 @@ export async function todaysDco(env, userId, tz, today) {
   return { dco: built.dco, built: true };
 }
 
+/** Part of their week could not be read: said, and the brief goes on without it. */
+function weekUnread(what, err, fallback) {
+  console.warn(`[DailyBrief] could not read ${what}: ${err?.message || err}`);
+  return fallback;
+}
+
+/** The review of the week a day is in, among the rows read. */
+function reviewOfWeek(rows, today, settings) {
+  const start = cycleOf(today, settings.weekly_day).week_start;
+  return rows.find((r) => r.week_start === start) || null;
+}
+
 export async function gatherBrief(env, userId, { at = new Date() } = {}) {
   const d = db(env);
   const tz = await userTimezone(env, userId);
@@ -117,6 +132,9 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
     progress,
     sweep,
     threads,
+    habitPlans,
+    settings,
+    reviews,
   ] = await Promise.all([
     todaysDco(env, userId, tz, today),
     personIdentity(env, userId),
@@ -128,7 +146,7 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
       `notes?owner_id=eq.${userId}&archived=eq.false&external_source=is.null&swept_at=is.null&subtype=in.(idea,catchall,list,reference)&created_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -6)))}&select=id&limit=500`,
     ),
     d.select(
-      `habits?owner_id=eq.${userId}&archived=eq.false&select=id,name,title,cadence,target_per_period,days_active,subtype,start_date,end_date,time_estimate_minutes,scheduled_start_iso&limit=200`,
+      `habits?owner_id=eq.${userId}&archived=eq.false&select=id,name,title,cadence,target_per_period,days_active,subtype,start_date,end_date,time_estimate_minutes,scheduled_start_iso,quiet_until:views->>checkins_quiet_until&limit=200`,
     ),
     d.select(
       `habit_progress?owner_id=eq.${userId}&occurred_day=gte.${monday}&occurred_day=lte.${today}&select=habit_id,occurred_day&limit=2000`,
@@ -142,6 +160,20 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
         `scope_chats?user_id=eq.${userId}&chat_type=eq.daily&metadata_json->>ritual_day=eq.${ritualDay}&select=id,metadata_json&limit=1`,
       )
       .catch(() => []),
+    // Their week: the habits they planned for today, their weekly day, and the
+    // review of the week. The brief never waits on these: without them it has
+    // no check in and no offer of the review, and says why in the log.
+    d
+      .select(
+        `habit_plans?owner_id=eq.${userId}&planned_date=eq.${today}&select=habit_id,planned_date,status&limit=200`,
+      )
+      .catch((err) => weekUnread('the habits planned for today', err, [])),
+    weekSettings(env, userId).catch((err) => weekUnread('their weekly day', err, null)),
+    d
+      .select(
+        `weekly_reviews?owner_id=eq.${userId}&week_start=gte.${addDays(today, -6)}&week_start=lte.${today}&select=week_start,status&limit=7`,
+      )
+      .catch((err) => weekUnread("the week's review", err, null)),
   ]);
   const dco = dcoResult.dco;
 
@@ -169,7 +201,12 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
 
   // Todos (the app writes name; older rows may only have title)
   const open = (todos || []).map((t) => ({ ...t, title: t.name || t.title || 'Untitled' }));
-  const todosDue = open.filter((t) => t.due_day === today);
+  // due today, and the ones put off (Later) whose day to come back is today:
+  // a Later has no day of its own, so its back day is what puts it on Today
+  // (the app's selectTodosDueToday)
+  const todosDue = open.filter(
+    (t) => t.due_day === today || (!t.due_day && t.resurface_at === today),
+  );
   const overdue = open.filter(
     (t) => t.due_day && t.due_day < today && !(t.resurface_at && t.resurface_at > today),
   );
@@ -182,6 +219,7 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
   const done = new Map();
   for (const p of progress || []) done.set(p.habit_id, (done.get(p.habit_id) || 0) + 1);
   const daysGone = dayOfWeekNumber(today);
+  const plannedToday = plannedOn(habitPlans, today);
   const weekday = new Date(`${today}T12:00:00Z`).getUTCDay();
   const active = (habits || []).filter(
     (h) => (!h.start_date || h.start_date <= today) && (!h.end_date || h.end_date >= today),
@@ -202,10 +240,27 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
       daily,
       behind: isBehindThisWeek(h, n, daysGone),
       scheduledToday,
+      // on today in the week they planned
+      plannedToday: plannedToday.has(h.id),
       minutes: h.time_estimate_minutes || null,
     };
   });
-  const habitsForToday = habitView.filter((h) => h.daily || h.behind || h.scheduledToday);
+  const habitsForToday = habitView.filter(
+    (h) => h.daily || h.behind || h.scheduledToday || h.plannedToday,
+  );
+  // the one habit planned for today that the brief checks in on
+  const checkIn = habitToCheckIn({
+    today,
+    habits: active,
+    plans: habitPlans,
+    doneToday: (progress || []).filter((p) => p.occurred_day === today).map((p) => p.habit_id),
+  });
+  // the weekly review is offered on the two mornings after their weekly day,
+  // until it is done; with their week unread, it is not offered
+  const reviewOffer =
+    !!settings &&
+    Array.isArray(reviews) &&
+    briefOffersReview(today, settings.weekly_day, reviewOfWeek(reviews, today, settings));
 
   // The DCO's decisions
   const brief = dco?.brief || {};
@@ -268,6 +323,8 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
     sweepWaiting: sweep ? sweep.quick : null,
     habits: habitView,
     habitsForToday,
+    checkIn,
+    reviewOffer,
     candidates,
     planned,
     question,
