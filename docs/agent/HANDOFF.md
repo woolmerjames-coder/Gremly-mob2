@@ -795,17 +795,186 @@ database: `weekly_reviews.spread` was there already.
 
 What the next batches need to know:
 
-- Batch 5: put the morning check in and the nudge back into
-  `WEEK_COPY.habitsIntro` and `laterIntro` when they exist, and the milestone
-  check in line into the Done line. The brief's day frame and the wrap up's
-  cards still read a Later by their own rules. Past weeks in the archive can
-  be read with `yourWeekOf`, from `answers.planned.days`.
+- Batch 5 (done, below) put the morning check in and the nudge back into
+  `WEEK_COPY.habitsIntro` and `laterIntro`, and the milestone check in line
+  into the Done line.
 - Batch 6 (James, 6 Oct): when the card deck moves into its own screen, its
   day picker shows how full each day already is. `boardOf` has each day's
   room, and `keepLoad` their own load on it.
 - Deploy order is unchanged: inngest-jobs, then cortex, then the app. An app
   with this batch against workers without it gets no spread at all, so the
   workers go first.
+
+**The weekly review, batch 5 of 7 (6 Oct): the brief and wrap up hooks.**
+The week they planned now shows up through the days: the brief carries their
+intention, checks in on a habit they planned for today, and offers the review
+on the mornings after their weekly day; the wrap up asks their milestone
+check ins, lets a planned habit move to another day, and offers the review at
+its close; a note says what came back from Later while they were away; the
+weekly summary ends on Plan next week; and the archive shows each past week's
+review beside its summary. No migration.
+
+- **The brief's week facts ride on its last offer row.** The worker that
+  writes the brief (`workers/inngest-jobs/brief/data.js`, `index.js`) reads
+  today's `habit_plans`, their week settings and the recent `weekly_reviews`
+  rows, and puts two facts on the last offer's metadata: `checkin:
+{ habit_id, title }` and `review_offer: true`. No new rows and no new
+  buttons, so an app bundle that does not know them shows the brief exactly
+  as before. Each of the three reads warns and is left out when it fails;
+  the brief is still written. A brief that had no offer row of its own gets
+  the fixed sign off as one, so the facts have a row to ride on.
+- **The rules for a habit on a day of their week** are
+  `workers/shared/habitWeek.js` (app door `lib/week/habitWeek.ts`): which
+  habit a morning checks in on (`habitToCheckIn`: a weekly or monthly habit
+  they are building, planned for today, not done, not quieted; one a morning,
+  the longest first), the days left in their week, the room left on each
+  (`roomLeft`, the board's rule), and the day one can move to (`moveDayFor`:
+  the most room, it must fit, never a day already planned; `moveDaysFor`
+  gives several habits their days in turn so no day is filled twice). Skip
+  this week is kept on the habit as `views.checkins_quiet_until`, the last
+  day of their week.
+- **The app shows that row as the check in first** (`lib/brief/checkIn.ts`).
+  `shownOffer` is a display rule worked out fresh from the store: while the
+  habit is still on for today the row reads as the check in with Still on,
+  Move it to a day, Skip this week; once it is not, the row is the offer
+  again. A tap (`useBriefOffers`) marks the row, writes their reply, does the
+  change (`applyCheckIn`, which reads back what was saved), says Gremly's
+  fixed line with the habit's week under it (`HabitWeekDots`), then adds the
+  offer itself as a new row (`afterCheckInStep`, `revealed_from`). A typed
+  message under the check in is its answer in their own words: the row is
+  marked and the offer follows once that turn is done. Nothing is said of a
+  habit's week until their weekly day has been read (`loaded`), because the
+  day the store starts with is only a stand in.
+- **An offer that never arrived is still owed.** `checkInOfferOwed` finds a
+  check in that was answered with no copy of the offer after it (the app
+  closed, a save failed, or the typed message went to ordinary chat). It
+  follows after the next turn in today's thread, or once when today's thread
+  is next loaded and idle, and never once the wrap up has begun or a plan
+  has been made.
+- **Plan my week in the brief.** `briefOffersReview` (shared `week.js`) is
+  true on the one or two days after their weekly day until the review is
+  done or skipped. The app adds the button when it draws the offer, and only
+  in today's thread. Tapping it opens the review.
+- **Their intention** is on the brief's day card (`ThisWeekCard`, from
+  `lib/week/intention.ts intentionOn`) and is sent with every typed turn.
+- **What a typed turn is told** (`lib/brief/useDayTurn.ts`, kept by
+  `brief/dayTurn.js readTurnRequest`, said by `cortex/agent/brief.js`): the
+  intention; that a todo is a step towards a goal; that a habit is planned
+  for today in their week, until it is logged; and how a Later stands (back
+  today, came back on a day, put off until a day). Version
+  `brief-2026-10-08a`, a label that sorts after the last one, not a date.
+- **get_day knows their week.** A Later is one of the todos of the day it
+  comes back on. A habit says whether the day is one it is planned on and
+  which other days of their week are; their week is the one the thread sent
+  (`ctx.week`), and with none sent the planned days nearby are given without
+  being called a week. A habit planned on a day is on that day whatever days
+  its routine names. The tool's description was left as it was: with planned
+  days named there, the model called every habit planned (18 of 20 replies
+  against 1 of 20). `propose_changes` now says that moving a habit to another
+  day of this week is `habit_days`, and `shared/changes/check.js` lets a
+  `habit_days` or `busy_days` change name a day already gone when that day
+  was already planned or busy.
+- **The plan pool** (`lib/plan`): a Later back today can be planned; a habit
+  planned for today is in the pool as Planned for today; a milestone step
+  shows its goal.
+- **The wrap up's close offers their week** (`closeOffersWeek`, days 0 to 2):
+  Plan my week while the review is to do, their week once it is done. Plan my
+  week finishes the wrap up and starts the review straight in (`startNow`,
+  thread step `week_now`); there is no goodnight, the review ends the night.
+  The opening offer no longer has the button. A Plan my week on an offer from
+  before the close opens the review and leaves the wrap up where it is.
+- **Milestone check ins** (`lib/wrapup/checkIns.ts`). Open check ins dated
+  today or up to three days back are tonight's first questions, two at most.
+  The question's message carries the check in itself (`milestone_checkin`)
+  and no `question_id`, since it is not a `gremly_questions` row. The answer
+  is a journal entry with no Space (`goal_id: 'milestone:<id>'`) and the
+  check in is settled on its review (`settleCheckIn`, one read, merge, write
+  in the row's turn); skipped, it is marked so.
+- **The wrap up picks its questions up after a restart** (`questionsBack`).
+  Tonight's questions are held in memory. Reopened with one still waiting,
+  typing is its answer again and its buttons come back from its own message;
+  with none waiting the evening goes on to its close. Before this the wrap
+  up could sit at its questions with no buttons.
+- **The habits card can move a habit** planned for today to another day of
+  their week (`move_to`, saved as `moved`).
+- **The come back note** (`workers/inngest-jobs/notifications`). Away two days
+  or more with a Later come back since: the planner adds the reason
+  `came_back` to the nudge, ahead of the brief, so on a day with room for one
+  note it is the one sent. It counts only what came back after the last day
+  they opened the app and after the last such note (`readCameBackSaid`,
+  `cameBackSince`), so one time away gets one note unless more comes back.
+  The sender reads it again (`stillTrue`) and gives the writer the weekday
+  and what came back, nothing else of the day. It goes to people with Notes
+  from Gremly on (`checkins_enabled`), and the tap opens today's thread.
+  `chooseAngle` no longer falls back to an angle the facts cannot be said
+  with. Copy version `notif-copy-2026-10-08a`.
+- **The summary's push** says the review is ready too while it is still to do
+  (`week/summaryPush.js`); when the review cannot be read it is about the
+  summary alone. The summary's last card has Plan next week on their weekly
+  day, Plan your week after, Your week once done (`summaryWeekButton`), and
+  nothing for an older week.
+- **The archive** shows a past week's intention, what mattered most, and
+  Planned N, done M (`lib/week/pastWeeks.ts`, from `yourWeekOf`), read with
+  `getDoneWeekReviews` and kept per person. A todo on two days of a plan
+  counts once. A failed read is said on the screen.
+- **Words.** The habits and Later intros on the board are the prototype's
+  again, and the review's last line says what the mornings and wrap ups will
+  bring (`doneLine`): the habit check ins when habit days were planned, and
+  up to two check ins still to come, from tomorrow on.
+- **Replays (Luna unless said).** Day set 32 of 33 before and 32 of 33 after.
+  Week set, now 18 scenarios with five new ones for today's thread
+  (`week-day-*`): 13 of 13 before, 35 of 36 after over two runs. The new
+  `week-day-move-planned-habit` was 2 of 5 before `get_day`, the `habit_days`
+  rule and the check fix, and 8 of 8 after. Chat 56 of 57, and 57 of 57 with
+  the week sent. Wrap 92 of 94, both misses in the wrap up's writer, which
+  this batch did not change. Smoke 10 of 10, weekly read 7 of 7. Notes
+  (Gemini Flash): the come back note 18 of 18 (`notif-replay --nudge`), the
+  summary push 16 of 16 (`--summary`), the evening note 19 of 20, where the
+  miss was both models timing out.
+- **Unsteady scenarios, measured.** `week-ahead` passed 15 of 20, its reply
+  one sentence over; it was already unsteady in batch 4.
+  `week-worn-out`, `week-new-deadline` and the new `week-day-whats-on` each
+  pass about eight in ten whichever description `get_day` has; the misses on
+  the last are the day agent adding a Plan my day card nobody asked for.
+- **Two independent reads of the batch** (workers, the brief side, the wrap
+  up and week side, then the fixes) found the following, all fixed with
+  tests: the come back note said things were on Today when they sat in the
+  wrap up's cards, repeated daily, and could lose its one angle; `get_day`
+  called days outside their week their week and missed a habit planned off
+  its routine days; a failed read made the summary's push invite planning; a
+  typed or half finished check in could leave the brief without its offer;
+  the check in used the stand in weekly day before theirs was read; a done
+  habit was told to the agent as planned; a check in was only recognised
+  from memory, so after a restart it went to the wrong pipeline; two habits
+  could both be sent to a day with room for one; the archive counted a todo
+  twice and kept one person's weeks for the next; the review's last line
+  could promise a check in for today after tonight's wrap up was done.
+- **Known and left as they are.** An old app bundle shows the fixed sign off
+  line on a morning whose brief had no offer of its own but has a check in
+  or the review to offer. Room for a habit to move counts todos due that day
+  and not Laters coming back on it, as the board does. A check in tapped and
+  the app closed in the same instant shows their reply with the change not
+  made. A habit with days planned in their week still counts as on for today
+  on its other days: the due rule does not read the week's plan. The morning
+  quick sweep counts a Later back today. Today's rows do not mark a
+  milestone step.
+- **Found and left for later.** After Plan my week from the morning brief,
+  Plan my day does not come back by itself when the review ends. The evening
+  note's fixed line, used when no model answers, speaks of a few things to
+  settle even on a clear day. The old Sweep week board has no way in any
+  more (`SweepFlowScreen` `weekEntry`). Keep or let go after two pushes, and
+  a Today card on the weekly day, were not built here.
+
+What the next batches need to know:
+
+- Batch 6: the wrap up's cards still read a Later by their own rules and
+  switch to `lib/changes/later.ts` there; keep or let go after two pushes
+  goes with them. `roomLeft` in `shared/habitWeek.js` gives the room of any
+  days, for the deck's day picker.
+- Deploy order is unchanged, and there is no SQL: inngest-jobs, then cortex,
+  then the app. New workers with the old app change nothing a person sees
+  beyond the sign off line above. The new app with old workers has no check
+  in and no review offer, and nothing breaks.
 
 **Step 11, focused model audit.** After chat and Sweep, a smaller audit of
 only the places that could be better, from replays and real use: a stronger
