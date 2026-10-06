@@ -89,6 +89,7 @@ import { useReducedMotion } from '../../design/animations';
 import { useMascotStore } from '../../lib/store/useMascotStore';
 import {
   ensureDailyThread,
+  getDailyThread,
   markDailyThreadOnce,
   patchDailyThreadMeta,
 } from '../../lib/repo/dailyThreadRepo';
@@ -120,6 +121,7 @@ import { chatWeekContext, useWeekReview, type WeekReview } from '../../lib/week/
 import { weekButton } from '../../lib/week/review/state';
 import { WEEK_COPY } from '../../lib/week/review/words';
 import { useThisWeek } from '../../lib/week/thisWeek';
+import { WeekBoardSheet } from '../../components/week/BoardStep';
 import { WeekCard } from '../../components/week/WeekCard';
 import { WeekFooter, WeekOfferButton } from '../../components/week/WeekFooter';
 import { useRenderChanges } from '../../components/brief/ChangeCard';
@@ -385,6 +387,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       week: weekReviewRef.current?.context() ?? null,
     }),
     onApplied: (changes) => weekReviewRef.current?.onApplied(changes),
+    onUndone: () => weekReviewRef.current?.onUndone(),
   });
   const dayTurnRef = useRef(dayTurn);
   dayTurnRef.current = dayTurn;
@@ -968,7 +971,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
 
   // Daily brief in Chat: the notification and Plan with Gremly open today's
   // thread. It is made here if the brief job has not made it yet.
-  const threadRequest: 'today' | null = item ? null : (params?.thread ?? null);
+  const threadRequest: 'today' | null = !item && params?.thread === 'today' ? 'today' : null;
   const threadKey: string | null = params?.threadKey ?? null;
   const threadKeyRef = useRef<string | null>(null);
   const openTodayThread = useCallback(async () => {
@@ -1026,6 +1029,33 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     params?.step,
     params?.planDay,
   ]);
+  // An earlier day's thread, asked for by its day: the conversation a weekly
+  // review happened in, opened again from Your week. It is never made here;
+  // when that day has no thread, Chat stays where it is.
+  const dayRequest: string | null =
+    !item && params?.thread === 'day' ? (params?.day ?? null) : null;
+  useEffect(() => {
+    if (!dayRequest || !userId) return;
+    const key = threadKey ?? `day-${dayRequest}`;
+    if (threadKeyRef.current === key) return;
+    threadKeyRef.current = key;
+    navigation.setParams({ thread: undefined, threadKey: undefined, day: undefined });
+    void (async () => {
+      try {
+        const thread = await getDailyThread(userId, dayRequest);
+        if (!mountedRef.current) return;
+        if (!thread) {
+          console.warn('[DailyBrief] there is no thread for', dayRequest);
+          return;
+        }
+        clearAbout();
+        useGremlyStore.getState().setActiveGeneralChat(thread.id);
+        setActiveChat(thread);
+      } catch (err) {
+        console.warn("[DailyBrief] could not open that day's thread:", err);
+      }
+    })();
+  }, [dayRequest, threadKey, userId, navigation, clearAbout]);
 
   const handleOfferButton = useCallback((message: SpaceChatMessage, button: OfferButton) => {
     // the weekly review's own buttons are the review's to answer
@@ -1409,8 +1439,14 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     void openTodayThread();
   }, [activeChat, threadLoaded, openTodayThread]);
   const openWeekReview = useCallback(() => {
-    // today's thread, then the weekly review opens: started, picked up where
-    // it was left, or the week they planned once it is done
+    // once this week is planned, the button opens the week itself (Your week)
+    const week = useThisWeek.getState();
+    if (weekButton(getDateService().ritualDay(), week.weeklyDay, week.review).done) {
+      navigation.navigate('YourWeek');
+      return;
+    }
+    // today's thread, then the weekly review opens: started, or picked up
+    // where it was left
     if (isTodaysThread(activeChat) && threadLoaded) {
       void weekReviewRef.current?.open();
       return;
@@ -1418,7 +1454,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     pendingWeekRef.current = true;
     setSkipPlayback(true);
     void openTodayThread();
-  }, [activeChat, threadLoaded, openTodayThread]);
+  }, [activeChat, threadLoaded, openTodayThread, navigation]);
   const pressChip = useCallback(
     (key: HomeChipKey) => {
       if (key === 'plan_day') {
@@ -2251,6 +2287,9 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
           </View>
         )}
       </KeyboardAvoidingView>
+
+      {/* the week's board, the weekly review's last step: a full sheet over today's thread */}
+      {onTodaysThread ? <WeekBoardSheet review={weekReview} /> : null}
 
       {isDailyThread && planFlow.pickSession ? (
         <PlanPickSheet

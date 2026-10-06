@@ -42,8 +42,13 @@ export type TabParamList = {
         /** Chat opens about this drop ("Talk it through with Gremly") */
         talkAbout?: TalkAboutItem;
         talkKey?: string;
-        /** Daily brief in Chat: open today's thread (the notification, Plan with Gremly) */
-        thread?: 'today';
+        /**
+         * Daily brief in Chat: open today's thread (the notification, Plan
+         * with Gremly), or the thread of an earlier day (day), which Your
+         * week opens to go back to the conversation a review happened in
+         */
+        thread?: 'today' | 'day';
+        day?: string;
         /** With thread: jump to a step of the brief once it has played ('plan') */
         step?: 'plan' | 'wrap' | 'week';
         /** With step 'plan': plan tomorrow instead of today (Plan tomorrow, after Sweep) */

@@ -31,6 +31,7 @@ import HabitDetailScreen from '../app/screens/HabitDetailScreen';
 import SettingsScreen from '../app/screens/SettingsScreen';
 import RitualsSettingsScreen from '../app/screens/RitualsSettingsScreen';
 import YourWeekSettingsScreen from '../app/screens/YourWeekSettingsScreen';
+import YourWeekScreen from '../app/screens/YourWeekScreen';
 import NotificationSettingsScreen from '../app/screens/NotificationSettingsScreen';
 import NotificationLabScreen from '../app/screens/NotificationLabScreen';
 import TimeBlocksSettingsScreen from '../app/screens/TimeBlocksSettingsScreen';
@@ -109,6 +110,8 @@ export type RootStackParamList = {
   Settings: undefined;
   RitualsSettings: undefined;
   YourWeekSettings: undefined;
+  /** The week they planned, read back (the Week button on Today once it is done) */
+  YourWeek: undefined;
   NotificationSettings: undefined;
   NotificationLab: undefined;
   TimeBlocksSettings: undefined;
@@ -306,6 +309,14 @@ export default function RootNavigator() {
           <Stack.Screen
             name="YourWeekSettings"
             component={YourWeekSettingsScreen}
+            options={{
+              headerShown: false,
+              animation: 'slide_from_right',
+            }}
+          />
+          <Stack.Screen
+            name="YourWeek"
+            component={YourWeekScreen}
             options={{
               headerShown: false,
               animation: 'slide_from_right',

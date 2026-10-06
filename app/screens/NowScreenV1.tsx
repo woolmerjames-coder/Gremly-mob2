@@ -864,12 +864,15 @@ export default function NowScreenV1() {
             ? {
                 label: week.label,
                 highlighted: week.highlighted,
-                // today's thread, where the review starts, picks up, or shows the week once done
+                // Your week once it is planned; until then today's thread,
+                // where the review starts or picks up
                 onPress: () =>
-                  navigation.navigate('Tabs', {
-                    screen: 'Gremly',
-                    params: todayThreadParams('week'),
-                  }),
+                  week.done
+                    ? navigation.navigate('YourWeek')
+                    : navigation.navigate('Tabs', {
+                        screen: 'Gremly',
+                        params: todayThreadParams('week'),
+                      }),
               }
             : null
         }

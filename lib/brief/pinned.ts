@@ -128,3 +128,18 @@ export function todayThreadParams(
     threadKey: `today-${threadRequests}`,
   };
 }
+
+/**
+ * The params that open Chat on an earlier day's thread: the conversation a
+ * weekly review happened in, opened again from Your week. Chat stays where it
+ * is when that day has no thread.
+ */
+export function dayThreadParams(day: string): {
+  mode: 'chat';
+  thread: 'day';
+  day: string;
+  threadKey: string;
+} {
+  threadRequests += 1;
+  return { mode: 'chat', thread: 'day', day, threadKey: `day-${threadRequests}` };
+}
