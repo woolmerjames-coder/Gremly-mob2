@@ -56,3 +56,9 @@ export declare function moveDaysFor(p: {
   plans: Row[];
   room: Map<string, number>;
 }): Map<string, string>;
+export declare function loadOn(p: {
+  days: string[];
+  todos: Row[];
+  habits: Row[];
+  plans: Row[];
+}): Map<string, number>;

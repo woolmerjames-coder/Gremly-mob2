@@ -5,6 +5,7 @@ import {
   checkInOpen,
   daysLeft,
   habitToCheckIn,
+  loadOn,
   moveDayFor,
   moveDaysFor,
   plannedOn,
@@ -129,6 +130,26 @@ describe('the day a habit can move to', () => {
     // Saturday is a day off: four hours, less a todo with no length (30) and the walk (20)
     expect(left.get('2026-10-10')).toBe(190);
     expect(left.get('2026-10-11')).toBe(240);
+  });
+
+  it('says how full a day already is: what is due on it and what is planned on it', () => {
+    const full = loadOn({
+      days: ['2026-10-09', '2026-10-10', '2026-10-12'],
+      todos: [
+        { id: 't1', due_day: '2026-10-09', time_estimate_minutes: 90 },
+        // no length: the board's half hour
+        { id: 't2', due_day: '2026-10-09' },
+        { id: 't3', due_day: '2026-10-09', completed_at: '2026-10-08T10:00:00Z' },
+        { id: 't4', due_day: '2026-10-10', archived: true },
+      ],
+      habits: [strength, walk],
+      plans: [plan('h-strength', '2026-10-09'), plan('h-walk', '2026-10-10', 'kept')],
+    });
+    // 90 + 30 of todos and the 45 minute habit
+    expect(full.get('2026-10-09')).toBe(165);
+    // an archived todo and a plan already settled add nothing
+    expect(full.get('2026-10-10')).toBe(0);
+    expect(full.get('2026-10-12')).toBe(0);
   });
 
   it('is the day left with the most room, the sooner of two the same', () => {

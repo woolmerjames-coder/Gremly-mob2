@@ -10,6 +10,7 @@ export {
   daysLeft,
   habitShape,
   habitToCheckIn,
+  loadOn,
   moveDayFor,
   moveDaysFor,
   plannedOn,

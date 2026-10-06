@@ -122,17 +122,37 @@ export function daysLeft(today, weeklyDay) {
  * @returns {Map<string, number>}
  */
 export function roomLeft({ days, hours, daysOff, busyDays, todos, habits, plans }) {
-  const minutes = new Map((habits || []).map((h) => [h.id, minutesOf(h)]));
+  const load = loadOn({ days, todos, habits, plans });
   const out = new Map();
   for (const day of days || []) {
     const kind = dayKind(day, { daysOff, busyDays });
-    let left = Math.round((hours?.[kind] ?? 0) * 60);
+    out.set(day, Math.round((hours?.[kind] ?? 0) * 60) - load.get(day));
+  }
+  return out;
+}
+
+/**
+ * How full each of some days already is, in minutes: the open todos due on
+ * it and the habits planned on it. A todo with no length counts as the
+ * board's default.
+ * @param {object} p
+ * @param {string[]} p.days
+ * @param {object[]} p.todos open todos, each with its due_day
+ * @param {object[]} p.habits
+ * @param {object[]} p.plans habit_plans rows
+ * @returns {Map<string, number>}
+ */
+export function loadOn({ days, todos, habits, plans }) {
+  const minutes = new Map((habits || []).map((h) => [h.id, minutesOf(h)]));
+  const out = new Map();
+  for (const day of days || []) {
+    let load = 0;
     for (const t of todos || []) {
       if (t.archived || t.completed_at) continue;
-      if (dayOf(t.due_day) === day) left -= minutesOf(t);
+      if (dayOf(t.due_day) === day) load += minutesOf(t);
     }
-    for (const id of plannedOn(plans, day)) if (minutes.has(id)) left -= minutes.get(id);
-    out.set(day, left);
+    for (const id of plannedOn(plans, day)) if (minutes.has(id)) load += minutes.get(id);
+    out.set(day, load);
   }
   return out;
 }
