@@ -64,6 +64,17 @@ export declare function reviewWith(
   span_start: string;
   span_end: string;
 };
+type ReviewRowLike = { week_start?: string; status?: string | null } | null | undefined;
+export declare function briefOffersReview(
+  today: string,
+  weeklyDay: number | null | undefined,
+  row: ReviewRowLike,
+): boolean;
+export declare function closeOffersWeek(
+  today: string,
+  weeklyDay: number | null | undefined,
+  row: ReviewRowLike,
+): 'plan' | 'see' | null;
 export declare function summaryWeekOf(
   day: string,
   weeklyDay: number | null | undefined,

@@ -193,6 +193,36 @@ export function reviewWith(today, weeklyDay, row) {
 }
 
 /**
+ * Whether a morning brief offers the weekly review: on each of the days after
+ * their weekly day while it is still promoted, until it is done or they said
+ * not this week. On the weekly day itself the evening offers it.
+ * @param {{week_start?: string, status?: string}|null} row the review of the
+ *   week that day is in
+ */
+export function briefOffersReview(today, weeklyDay, row) {
+  const c = cycleOf(today, weeklyDay);
+  if (c.since < 1 || c.since > PROMOTED_AFTER) return false;
+  const mine = row && row.week_start === c.week_start ? row : null;
+  return mine?.status !== 'done' && mine?.status !== 'skipped';
+}
+
+/**
+ * What the evening wrap up's close offers about the week, from their weekly
+ * day through the two days after: 'plan' until the review is done, 'see' once
+ * it is, and nothing when they said not this week or on any other day.
+ * @param {{week_start?: string, status?: string}|null} row the review of the
+ *   week that starts after the weekly day
+ * @returns {'plan'|'see'|null}
+ */
+export function closeOffersWeek(today, weeklyDay, row) {
+  const c = cycleOf(today, weeklyDay);
+  if (c.since > PROMOTED_AFTER) return null;
+  const mine = row && row.week_start === c.week_start ? row : null;
+  if (mine?.status === 'done') return 'see';
+  return mine?.status === 'skipped' ? null : 'plan';
+}
+
+/**
  * The week a weekly summary covers: the seven days that end on their weekly
  * day, the one on or after the day given. With Sunday that is Monday to Sunday.
  * @returns {{start: string, end: string}}

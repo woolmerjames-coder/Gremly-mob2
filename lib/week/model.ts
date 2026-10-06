@@ -14,6 +14,8 @@ export {
   PROMOTED_AFTER,
   WEEK_STEPS,
   addDays,
+  briefOffersReview,
+  closeOffersWeek,
   cycleOf,
   dayKind,
   dayRoom,

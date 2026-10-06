@@ -7,6 +7,8 @@
 
 import {
   addDays,
+  briefOffersReview,
+  closeOffersWeek,
   cycleOf,
   dayKind,
   dayRoom,
@@ -164,6 +166,52 @@ describe('the week a summary covers', () => {
     expect(summaryWeekOf(WED, 3)).toEqual({ start: '2026-10-01', end: WED });
     expect(summaryWeekOf('2026-10-08', 3)).toEqual({ start: '2026-10-08', end: '2026-10-14' });
     expect(summaryWeekOf(TUE, 3)).toEqual({ start: '2026-10-01', end: WED });
+  });
+});
+
+describe('where the review is offered while it is promoted', () => {
+  // Sunday is the weekly day; the review is of the week that starts Monday 5
+  const row = (status) => ({ week_start: MON, status });
+
+  it('is offered by the morning brief on the two days after the weekly day', () => {
+    expect(briefOffersReview(SUN, 0, null)).toBe(false);
+    expect(briefOffersReview(MON, 0, null)).toBe(true);
+    expect(briefOffersReview(TUE, 0, row('ready'))).toBe(true);
+    expect(briefOffersReview(TUE, 0, row('started'))).toBe(true);
+    expect(briefOffersReview(WED, 0, null)).toBe(false);
+  });
+
+  it('stops in the morning once the review is done, or they said not this week', () => {
+    expect(briefOffersReview(MON, 0, row('done'))).toBe(false);
+    expect(briefOffersReview(MON, 0, row('skipped'))).toBe(false);
+    // a row for another week says nothing about this one
+    expect(briefOffersReview(MON, 0, { week_start: '2026-09-28', status: 'done' })).toBe(true);
+  });
+
+  it('is offered by the wrap up close on the weekly day and the two evenings after', () => {
+    for (const day of [SUN, MON, TUE]) {
+      expect(closeOffersWeek(day, 0, null)).toBe('plan');
+      expect(closeOffersWeek(day, 0, row('started'))).toBe('plan');
+    }
+    expect(closeOffersWeek(WED, 0, null)).toBeNull();
+    expect(closeOffersWeek(SAT, 0, null)).toBeNull();
+  });
+
+  it('offers their week instead once the review is done, and nothing once skipped', () => {
+    expect(closeOffersWeek(SUN, 0, row('done'))).toBe('see');
+    expect(closeOffersWeek(TUE, 0, row('done'))).toBe('see');
+    expect(closeOffersWeek(MON, 0, row('skipped'))).toBeNull();
+    expect(closeOffersWeek(WED, 0, row('done'))).toBeNull();
+  });
+
+  it('follows their own weekly day', () => {
+    // a Wednesday weekly day: the week starts Thursday 8
+    expect(closeOffersWeek(WED, 3, null)).toBe('plan');
+    expect(briefOffersReview('2026-10-08', 3, null)).toBe(true);
+    expect(briefOffersReview('2026-10-08', 3, { week_start: '2026-10-08', status: 'done' })).toBe(
+      false,
+    );
+    expect(briefOffersReview(SAT, 3, null)).toBe(false);
   });
 });
 
