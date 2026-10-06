@@ -347,6 +347,119 @@ Found on the way and left as they were, because none is from this work:
   is said about tonight (47 of 47, then 45 of 47, on the same code;
   `workers/cortex/wrap` is untouched here).
 
+**The weekly review, batch 2 of 7 (6 Oct): the weekly pipe and the read.**
+Everything weekly now runs on the person's own weekly day, and Gremly makes
+its read for the review. Nothing in the app calls the read yet; batch 3 does.
+
+- The pipe is in `workers/inngest-jobs/week/index.js`. `weekly-pipe-dispatch`
+  runs on the hour and starts `weekly-pipe` for everyone active whose weekly
+  slot (their weekly day at the hour of `weekly_time`, Sunday 6pm unless they
+  chose) is within three hours, one event per person per weekly day. The pipe
+  runs their weekly synthesis for the seven days ending on that day, waits up
+  to two hours for it, then makes their read ahead. The synthesis no longer
+  has a scheduler of its own (it left for everyone on Sunday at 11:00 UTC);
+  a first look or a catch up takes the last whole week of theirs
+  (`lastCompleteWeekEnd(tz, weeklyDay)`).
+- The read is in `week/read.js`: `gatherRead` reads what Gremly knows,
+  `renderRead` writes the input with a short id for every todo, habit and
+  dated thing and with every count worked out in code, one model call
+  (`weekRead`, Luna at medium effort, `weekReadFallback` Flash, in
+  `context/llm.js`), then `checkRead` turns the short ids back into real ones
+  and drops or puts right anything with an id it was not given, a date out of
+  place or a count over its limit. Each time is counted (`dropped`) and
+  logged with `[ALERT][WeekRead]`. A milestone names the dated thing it leads
+  up to and takes its date from that thing, and goes through
+  `checkWeekChange`, so a milestone on a card can always be set up. What is
+  kept is `WeekRead` in `lib/repo/weekReviewRepo.ts`, on `weekly_reviews.read`.
+- Which read serves a review is decided from dates and the week's row alone
+  (`readServes` and `extraUsed` in `workers/shared/week.js`, with `reviewOn`).
+  The weekly day and the two days after use the read the row holds; so does a
+  week brought forward the day before. Any other day is the one extra of the
+  week: a fresh read the first time (the row's kind becomes `extra`, which is
+  what "the extra is used" means), and that same read after it. A fresh read
+  sets `read`, `kind`, `span_start` and `prompt_versions.read`; it makes the
+  row `ready` only when it is new, ready or skipped. A week that is started
+  or done keeps its status: the review's progress is the app's to move.
+- A read is made ahead only for someone with a review whose `completed_at` is
+  in the last 28 days. Everyone else gets it on first open. So batch 3 has to
+  set `completed_at` when a review is done, or nobody is ever read ahead.
+- Making and keeping are two halves (`prepareWeekRead`, `keepWeekRead`). The
+  pipe runs them as two steps, so a save that fails is tried again without
+  paying for the read twice. Before keeping, the row is looked at again: when
+  another read that serves was kept while this one was being made, that one
+  stands.
+- The app's way in: `callWeekRead({ date })` in `lib/cortex/CortexClient.ts`,
+  cortex `type: 'week-read'` (`workers/cortex/weekRead.js`), inngest-jobs
+  `POST /api/week-read`. A read takes 30 to 75 seconds, so the answer comes
+  as server-sent events with a ping every eight seconds. The call gives up
+  after two minutes, or after thirty seconds of silence. When it fails, read
+  the week's row again (`getWeekReview`) before asking a second time: a read
+  that was nearly made may have been kept.
+- The weekly summary covers the seven days ending on their weekly day
+  (Monday to Sunday for a Sunday, as before). The dispatcher works the week
+  out with `cycleOf`, and the summary worker takes any real day as
+  `week_start`. In the app the summary for the week they are in is the one
+  whose seven days include today (`lib/weeklySummary/currentSummary.ts`),
+  used by the banner, the summary screens and the Worlds tab's card.
+- The week replay is `scripts/week-replay/` (`run.sh`, with `--repeat`,
+  `--only`, `--show`, `--effort`, `--model`, `--judge` and `--input`): seven
+  made up people, checks on structure, ids, dates and numbers, and a judge
+  model from another family for the health scenario. It exits with an error
+  when a run fails. On prompt `week-read-2026-10-06l`: 22 of 22 (the seven
+  people twice and the health scenario eight more times), about 48 seconds
+  typical and 75 at most with four running at once. The two prompts before
+  it slipped about once in eight on the health scenario, by using the word
+  in their own habit's name, and once gave an intention of thirteen words.
+  At low effort it passes too, in about 14 seconds, with a thinner read; the
+  plan chose medium on real data and that stands.
+
+What the next batches need to know:
+
+- Batch 3 calls `callWeekRead` behind the loading screen. The answer's `on`
+  is what a review started today is (`reviewOn`). When the weekly day's read
+  is used a day or two later, its `busy_days` and each habit's `days` still
+  hold the days gone: leave out those before `on.span_start`.
+- Each `coming_up` has the item it is when it is one of theirs (`item`), each
+  `needs_you` and priority has real todo ids, and each milestone is a
+  `milestone` change as it stands (`goal`, `date`, `steps`), with `about`
+  naming the dated thing. Their own titles are shown from the ids: Gremly's
+  words never name anything medical, so a card that needs a title should use
+  the item's own.
+- A weekly review left started on the second day after the weekly day and
+  opened again the day after is, by the date rules, the extra: it gets a
+  fresh read and uses the extra up. James has not ruled on this; the lean is
+  to keep the date rule and have the review start again from the challenge,
+  keeping the hours and busy days.
+- Batch 4's spread is given the read's input plus their answers:
+  `renderRead` is the one place that input is written.
+- The push for the summary and the review together, and the review offers,
+  are batch 5. The summary's push is unchanged here.
+- Left on Monday to Sunday, for batch 7 with the habit weeks: the summary's
+  cadence detector (`summary_detect_cadence_calibration_mismatch` buckets
+  habit weeks with `date_trunc('week')`), the Worlds tab's "this week" range
+  (`components/worlds/WeeklySummaryCard.tsx`), and the old Sweep's
+  `resolveSweepBlock`, which goes in batch 6.
+- The Worlds structure run is still Sunday at 10:00 UTC
+  (`worldsWeeklyScheduler.ts`). The synthesis used to follow it an hour
+  later. It now runs three hours before each person's slot, so for anyone far
+  enough east that this falls before 10:00 UTC on Sunday, or on another
+  weekly day, it reads the structure from the Sunday before. Everyone active
+  today is in London or Los Angeles on Sunday, where the order is as it was.
+
+Found on the way:
+
+- Fixed, because the code was being changed anyway: the Worlds tab's weekly
+  summary card looked for the week by the UTC date of a local Monday, which
+  is a Sunday anywhere east of UTC, so in British summer time the card for a
+  new summary never showed. It now uses the person's own day.
+- Not changed: `callBriefTurn` opens its stream without `pollingInterval: 0`,
+  so a stream that ended without its answer would be posted again every five
+  seconds until the call's own time ran out. The route always sends its
+  answer before it closes, so this needs the worker to be cut off first.
+- The wrap replay still slips now and then (92 of 94 on this code, on the
+  check that nothing is said about tonight and on a count it should say);
+  `workers/cortex/wrap` is untouched here.
+
 **Step 11, focused model audit.** After chat and Sweep, a smaller audit of
 only the places that could be better, from replays and real use: a stronger
 model for harder jobs where it earns its cost, `none` thinking on a bigger
