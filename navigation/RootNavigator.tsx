@@ -16,7 +16,7 @@ import RecentItems from '../app/(dev)/RecentItems';
 import DevTools from '../app/(dev)/DevTools';
 import SpaceDetailScreen from '../app/screens/SpaceDetailScreen';
 import CatchAllNotepad from '../app/screens/CatchAllNotepad';
-import SweepFlowScreen from '../app/screens/SweepFlowScreen';
+import CardDeckScreen from '../app/screens/CardDeckScreen';
 import OnboardingScreen from '../app/screens/OnboardingScreen';
 import TrialIntroScreen from '../app/screens/TrialIntroScreen';
 import TrialEndPaywallScreen from '../app/screens/TrialEndPaywallScreen';
@@ -89,20 +89,12 @@ export type RootStackParamList = {
     returnToKeyDates?: boolean;
   };
   Lists: undefined;
-  Sweep:
-    | {
-        /** The first run demo, from the unlock card on Drop */
-        demoMode?: boolean;
-        /**
-         * The cards on their own, opened from today's thread, each decision
-         * saved as it is made, then back. wrap: tonight's wrap up. quick: the
-         * brief's Sweep first, only the cards that need a decision.
-         */
-        cards?: 'wrap' | 'quick';
-        /** Straight to the week planner (Plan my week) */
-        week?: boolean;
-      }
-    | undefined;
+  /**
+   * The decision cards on their own, opened from today's thread, each
+   * decision saved as it is made, then back. wrap: tonight's wrap up. quick:
+   * the brief's Sweep first, only the cards that need a decision.
+   */
+  Cards: { cards: 'wrap' | 'quick' };
   ArchivedItems: { searchQuery?: string } | undefined;
   CalendarScreen: { initialDate?: string } | undefined;
   Habits: undefined;
@@ -242,8 +234,8 @@ export default function RootNavigator() {
             options={{ title: 'Lists', headerShown: true }}
           />
           <Stack.Screen
-            name="Sweep"
-            component={SweepFlowScreen}
+            name="Cards"
+            component={CardDeckScreen}
             options={{ headerShown: false, presentation: 'card', gestureEnabled: false }}
           />
           <Stack.Screen

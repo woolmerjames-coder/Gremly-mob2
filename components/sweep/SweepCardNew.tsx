@@ -10,7 +10,7 @@ import {
   FlatList,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { format, addDays, subDays, setHours, setMinutes, nextMonday, isSameDay } from 'date-fns';
+import { format, addDays, subDays, setHours, setMinutes } from 'date-fns';
 import {
   CheckSquare,
   FileText,
@@ -27,7 +27,7 @@ import { getDateService } from '../../lib/date';
 import { tomorrowLabel } from '../../lib/wrapup/day';
 import { useActiveSpaces } from '../../lib/store/selectors';
 import { SweepCardShell } from './SweepCardShell';
-import { TodoActionZone } from './TodoActionZone';
+import { TodoActionZone, type TodoAction } from './TodoActionZone';
 import { IdeaActionZone } from './IdeaActionZone';
 import { GeneralNoteActionZone } from './GeneralNoteActionZone';
 import { EventActionZone } from './EventActionZone';
@@ -35,7 +35,13 @@ import { WrongTypePicker } from './WrongTypePicker';
 import { WorldPickerSheet } from './WorldPickerSheet';
 import { SweepConversionToast } from './SweepConversionToast';
 import type { SweepCandidate, SweepCardMeta } from '../../lib/sweep/types';
-import type { WeekDay } from '../../lib/store/weekGridSelectors';
+import {
+  asksKeepOrLetGo,
+  backDayName,
+  dayWithLoad,
+  laterOffered,
+  pickedDayName,
+} from '../../lib/sweep/cardDays';
 
 /**
  * The person's day, at noon. After midnight it is still yesterday until their
@@ -78,14 +84,7 @@ type SweepCardNewProps = {
   onClear: () => void;
   onOpenEdit: () => void;
   onConvertToTodo?: () => void;
-  onConfirmQuickDate?: (option: 'tomorrow' | 'nextweek') => void;
-  onConfirmRemindLater?: (date: Date) => void;
-  onConfirmCustomDate?: (date: Date) => void;
-  onAddToSpace?: (spaceId: string) => void;
   onClose?: () => void;
-  onGoBack?: () => void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  previousDecision?: any;
   onOpenChat?: (presetHint?: string) => void;
   onShowHelp?: () => void;
   onConvertToType?: (newType: 'todo' | 'note' | 'habit' | 'delete') => void;
@@ -93,6 +92,8 @@ type SweepCardNewProps = {
   onRequestPhotoPreview?: (url: string) => void;
   onConfirmTodoAction?: (action: {
     dueDateStr?: string;
+    /** Put off for Later instead of kept for a day: the day it comes back */
+    laterDateStr?: string;
     reminderDateStr?: string;
     reminderTime?: string;
   }) => void;
@@ -111,10 +112,14 @@ type SweepCardNewProps = {
     resurfaceTiming?: 'nextweek' | '2weeks' | 'pick';
     eventReminder?: 'daybefore' | 'weekbefore' | 'custom';
   }) => void;
-  hideGremlyMenu?: boolean;
-  sweepIntent?: 'today' | 'tomorrow' | 'week';
-  weekDays?: WeekDay[];
-  onSeeMyWeek?: () => void;
+  sweepIntent?: 'today' | 'tomorrow';
+  /**
+   * How full a day already is without this card's todo, in minutes: shown on
+   * the day pills and in the date picker ("Tue · 6h"). lib/sweep/cardDays.ts.
+   */
+  dayLoad?: (day: string) => number;
+  /** The day this card's todo comes back on when put off for Later; null when Later has no day to offer */
+  laterDay?: string | null;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -127,33 +132,28 @@ export function SweepCardNew({
   onSkip,
   onClear,
   onOpenEdit,
-  onConfirmQuickDate,
-  onConfirmRemindLater,
-  onConfirmCustomDate,
   isConverted,
   isClarified,
-  previousDecision,
   onOpenChat,
   onShowHelp,
   onConvertToType,
   onConvertToTodo,
   onUpdateEventDate,
   onRequestPhotoPreview,
-  onAddToSpace,
   onConfirmTodoAction,
   onConfirmEventAction,
   onConfirmNoteAction,
-  hideGremlyMenu,
   sweepIntent = 'tomorrow',
-  weekDays,
-  onSeeMyWeek,
+  dayLoad,
+  laterDay = null,
 }: SweepCardNewProps) {
   const spaces = useActiveSpaces();
   // ── Action zone state ──
-  const [selectedAction, setSelectedAction] = useState<
-    'today' | 'tomorrow' | 'nextweek' | 'pickdate'
-  >(sweepIntent === 'today' ? 'today' : 'tomorrow');
-  const [selectedWeekDate, setSelectedWeekDate] = useState<string | null>(null);
+  const [selectedAction, setSelectedAction] = useState<TodoAction>(
+    sweepIntent === 'today' ? 'today' : 'tomorrow',
+  );
+  // a todo that has come back twice: Keep was chosen, so its days are on offer
+  const [keepOpened, setKeepOpened] = useState(false);
   const [reminderEnabled, setReminderEnabled] = useState(false);
   const [selectedReminder, setSelectedReminder] = useState<
     'daybefore' | 'morning' | 'custom' | null
@@ -200,11 +200,11 @@ export function SweepCardNew({
   const [prepTodoText, setPrepTodoText] = useState('');
   const [showWorldPicker, setShowWorldPicker] = useState(false);
 
-  // ── Reset on candidate change + restore previousDecision ──
+  // ── Reset on candidate change ──
   useEffect(() => {
     // Reset all state
     setSelectedAction(sweepIntent === 'today' ? 'today' : 'tomorrow');
-    setSelectedWeekDate(null);
+    setKeepOpened(false);
     setReminderEnabled(false);
     setSelectedReminder(null);
     setConfirmedCustomDate(null);
@@ -225,48 +225,6 @@ export function SweepCardNew({
     setShowPrepTodoInput(false);
     setPrepTodoText('');
     setShowWorldPicker(false);
-
-    // Restore from previousDecision
-    if (previousDecision?.dueDate) {
-      const tomorrow = addDays(theirDay(), 1);
-      const monday = nextMonday(theirDay());
-
-      if (isSameDay(previousDecision.dueDate, tomorrow)) {
-        setSelectedAction('tomorrow');
-      } else if (isSameDay(previousDecision.dueDate, monday)) {
-        setSelectedAction('nextweek');
-      } else {
-        setSelectedAction('pickdate');
-        setConfirmedCustomDate(previousDecision.dueDate);
-      }
-    }
-
-    // Restore note-specific state
-    if (previousDecision?.noteAction) {
-      setNoteAction(previousDecision.noteAction);
-    }
-    if (previousDecision?.resurfaceTiming) {
-      setResurfaceTiming(previousDecision.resurfaceTiming);
-    }
-    if (previousDecision?.spaceId) {
-      setSelectedSpaceId(previousDecision.spaceId);
-      const space = spaces.find((s: any) => s.id === previousDecision.spaceId);
-      if (space) setSelectedSpaceName(space.name);
-    }
-    if (previousDecision?.eventReminder) {
-      setEventReminder(previousDecision.eventReminder);
-    }
-    if (previousDecision?.reminderDateStr) {
-      setReminderEnabled(true);
-      if (
-        previousDecision.reminderTime === '08:00' &&
-        previousDecision.reminderDateStr === previousDecision.dueDateStr
-      ) {
-        setSelectedReminder('morning');
-      } else {
-        setSelectedReminder('daybefore');
-      }
-    }
 
     // Pre-fill date from candidate
     if (candidate.kind === 'todo' && candidate.raw.due_day) {
@@ -316,22 +274,12 @@ export function SweepCardNew({
     [candidate.kind, onOpenChat, onOpenEdit, onShowHelp, onConvertToType],
   );
 
-  // ── Week grid day-pick handler (week intent only) ──
-  // Tapping a day STAGES the selection only. Keep / swipe-right commits.
-  const handleSelectWeekDay = useCallback((date: string) => {
-    setSelectedWeekDate(date);
-  }, []);
-
   // ── Swipe handlers ──
   const handleSwipeRight = useCallback(() => {
     if (candidate.kind === 'todo') {
-      // Week mode: commit the staged day (or bare keep if nothing staged)
-      if (sweepIntent === 'week') {
-        const ds = getDateService();
-        const weekDue = confirmedCustomDate
-          ? ds.toLocalDate(confirmedCustomDate)
-          : selectedWeekDate;
-        onConfirmTodoAction?.(weekDue ? { dueDateStr: weekDue } : {});
+      // Put off for Later: it comes back on the day the pill named, with no reminder
+      if (selectedAction === 'later' && laterDay) {
+        onConfirmTodoAction?.({ laterDateStr: laterDay });
         return;
       }
 
@@ -342,8 +290,6 @@ export function SweepCardNew({
         dueDateStr = ds.ritualDay();
       } else if (selectedAction === 'tomorrow') {
         dueDateStr = ds.addDays(ds.ritualDay(), 1);
-      } else if (selectedAction === 'nextweek') {
-        dueDateStr = ds.toLocalDate(ds.getNextWeekday(1, theirDay()));
       } else if (selectedAction === 'pickdate' && confirmedCustomDate) {
         dueDateStr = ds.toLocalDate(confirmedCustomDate);
       }
@@ -441,8 +387,7 @@ export function SweepCardNew({
     candidate.kind,
     meta.noteCardType,
     meta.eventDate,
-    sweepIntent,
-    selectedWeekDate,
+    laterDay,
     selectedAction,
     confirmedCustomDate,
     reminderEnabled,
@@ -499,6 +444,22 @@ export function SweepCardNew({
 
   const isRemindMode = datePickerMode === 'remind';
 
+  // ── A todo's days: how full each already is, Later, and keep or let go ──
+  const isTodo = candidate.kind === 'todo';
+  const todayStr = theirDayPlus(0);
+  const tomorrowStr = theirDayPlus(1);
+  /** A day's name with how full it already is ("Tue · 6h"); the name alone off a todo card */
+  const dayWords = (name: string, day: string) =>
+    dayWithLoad(name, isTodo && dayLoad ? dayLoad(day) : null);
+  const pickedDay = confirmedCustomDate ? getDateService().toLocalDate(confirmedCustomDate) : null;
+  // come back twice: keep or let go is asked first, and Keep opens the days
+  const asking = isTodo && !keepOpened && asksKeepOrLetGo(candidate.raw, todayStr);
+  const laterLabel =
+    isTodo && laterDay && laterOffered(candidate.raw) ? `Later · ${backDayName(laterDay)}` : null;
+  // in the date picker, the day in hand with how full it is
+  const dueDateMode = isTodo && datePickerMode === 'duedate';
+  const selectedDay = getDateService().toLocalDate(selectedDate);
+
   return (
     <>
       <View style={styles.cardOverlayContainer}>
@@ -514,8 +475,8 @@ export function SweepCardNew({
           isConverted={isConverted}
           isClarified={isClarified}
           onRequestPhotoPreview={onRequestPhotoPreview}
-          hideGremlyMenu={hideGremlyMenu}
           onWorldPress={() => setShowWorldPicker(true)}
+          keepOpens={asking ? () => setKeepOpened(true) : undefined}
         >
           {candidate.kind === 'todo' && (
             <TodoActionZone
@@ -527,8 +488,11 @@ export function SweepCardNew({
               selectedReminder={selectedReminder}
               onToggleReminder={() => setReminderEnabled(!reminderEnabled)}
               onSelectReminder={setSelectedReminder}
-              confirmedCustomDate={
-                confirmedCustomDate ? format(confirmedCustomDate, 'MMM d') : null
+              confirmedCustomDate={pickedDay ? dayWords(pickedDayName(pickedDay), pickedDay) : null}
+              confirmedReminderDate={
+                confirmedReminderDate
+                  ? pickedDayName(getDateService().toLocalDate(confirmedReminderDate))
+                  : null
               }
               onRequestDatePicker={() => {
                 setDatePickerMode('duedate');
@@ -539,10 +503,13 @@ export function SweepCardNew({
                 setShowDatePicker(true);
               }}
               sweepIntent={sweepIntent}
-              weekDays={weekDays}
-              selectedWeekDate={selectedWeekDate}
-              onSelectWeekDay={handleSelectWeekDay}
-              onSeeMyWeek={onSeeMyWeek}
+              labels={{
+                today: dayWords('Today', todayStr),
+                tomorrow: dayWords(tomorrowLabel(), tomorrowStr),
+                later: laterLabel,
+                pick: 'Pick a date',
+              }}
+              asking={asking}
             />
           )}
           {candidate.kind === 'note' && meta.noteCardType === 'idea' && (
@@ -776,7 +743,9 @@ export function SweepCardNew({
                             styles.dateChipSelected,
                         ]}
                       >
-                        <Text style={styles.dateChipText}>Today</Text>
+                        <Text style={styles.dateChipText}>
+                          {dueDateMode ? dayWords('Today', todayStr) : 'Today'}
+                        </Text>
                       </Pressable>
                       <Pressable
                         onPress={() => {
@@ -791,7 +760,9 @@ export function SweepCardNew({
                             styles.dateChipSelected,
                         ]}
                       >
-                        <Text style={styles.dateChipText}>{tomorrowLabel()}</Text>
+                        <Text style={styles.dateChipText}>
+                          {dueDateMode ? dayWords(tomorrowLabel(), tomorrowStr) : tomorrowLabel()}
+                        </Text>
                       </Pressable>
                       <Pressable
                         onPress={() => {
@@ -828,6 +799,11 @@ export function SweepCardNew({
                     themeVariant="light"
                     accentColor={BRAND.colors.mossGreen}
                   />
+                  {dueDateMode ? (
+                    <Text style={styles.dateLoadText} testID="date-picker-load">
+                      {dayWords(pickedDayName(selectedDay), selectedDay)}
+                    </Text>
+                  ) : null}
                 </Box>
               )}
 
@@ -1070,6 +1046,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: BRAND.colors.charcoalInk,
+  },
+  // the day in hand with how full it already is, under the calendar
+  dateLoadText: {
+    marginTop: 8,
+    fontSize: 14,
+    fontWeight: '600',
+    color: BRAND.colors.charcoalInk,
+    textAlign: 'center',
   },
   timeToggleLabel: {
     fontSize: 16,

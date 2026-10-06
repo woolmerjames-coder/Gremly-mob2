@@ -158,7 +158,7 @@ import { applyTagQualityFilter } from '../../lib/tags/quality';
 import { extractMeaningfulTags } from '../../lib/tags/extractTags';
 import { buildHabitFields } from '../../lib/cortex/textNormalization';
 import { hashString } from '../../lib/telemetry/catchallLogger';
-import { maybeAsk } from '../../lib/notifications/ask';
+import { maybeAsk, putOffOpenAsk } from '../../lib/notifications/ask';
 import { useMindDropSubmit } from '../../hooks/useMindDropSubmit';
 import { useMascotActions } from '../../hooks/useMascotActions';
 import { useVoiceCapture, VoiceCaptureState } from '../../hooks/useVoiceCapture';
@@ -1371,8 +1371,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [showGaugeModal, setShowGaugeModal] = useState(false);
   const [showFirstFedModal, setShowFirstFedModal] = useState(false);
   const [showSweepUnlockModal, setShowSweepUnlockModal] = useState(false);
-  // set when the sweep demo opens from the unlock card; the one ask follows on return
-  const [askSweepTimeAfterDemo, setAskSweepTimeAfterDemo] = useState(false);
   const [showTrainingMeter, setShowTrainingMeter] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const gremlySpeechTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -1414,20 +1412,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       }
     };
   }, []);
-
-  // Back from the sweep demo: the one ask for notifications (end of day one)
-  useEffect(() => {
-    if (!askSweepTimeAfterDemo) return;
-    const unsubscribe = navigation.addListener('focus', () => {
-      if (askSweepTimeAfterDemo) {
-        setAskSweepTimeAfterDemo(false);
-        setTimeout(() => {
-          void maybeAsk('onboarding');
-        }, 500);
-      }
-    });
-    return unsubscribe;
-  }, [askSweepTimeAfterDemo, navigation]);
 
   // Track keyboard visibility to adjust bottom padding
   useEffect(() => {
@@ -3657,8 +3641,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         onTryNow={() => {
           setShowSweepUnlockModal(false);
           markSweepUnlockModalSeen();
-          setAskSweepTimeAfterDemo(true);
-          navigation.navigate('Sweep', { demoMode: true } as any);
+          // Their first wrap up, in today's thread. The ask for notifications
+          // would land on top of it a few seconds in (NotificationResponder
+          // asks once they are past their first day), so it is put off: it
+          // comes the next time the app opens.
+          putOffOpenAsk();
+          navigation.navigate('Tabs', {
+            screen: 'Gremly',
+            params: todayThreadParams('wrap'),
+          });
         }}
         onLater={() => {
           setShowSweepUnlockModal(false);

@@ -422,7 +422,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     patchMessageMetadata,
     canCreate,
     onPaywall: () => navigation.navigate('TrialEndPaywall', { source: 'expiry' }),
-    openCards: () => navigation.navigate('Sweep', { cards: 'wrap' }),
+    openCards: () => navigation.navigate('Cards', { cards: 'wrap' }),
     // their week at the close: the review starts in this thread (they have
     // said yes), or the week they planned opens
     planWeek: () => openWeekReviewRef.current({ startNow: true }),
@@ -444,6 +444,9 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     appendBriefMessage,
     patchMessageMetadata,
     tellGremly: (text) => dayTurnRef.current.ask(text),
+    // the review is over: the brief carries on, so Plan my day comes back
+    // when the morning's offer was passed by for the week
+    onEnded: () => void briefOffersRef.current.continueBrief({ afterWeek: true }),
   });
   weekReviewRef.current = weekReview;
   wrapResumeRef.current = () => {
@@ -1588,7 +1591,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         offer: meta?.type === 'brief-offer' ? meta : null,
       });
       // the quick sweep: only the cards that still need a decision, then back here
-      navigation.navigate('Sweep', { cards: 'quick' });
+      navigation.navigate('Cards', { cards: 'quick' });
     },
     [activeChat, navigation],
   );
