@@ -2,17 +2,23 @@
 // review.js: the two tools that tell the app something about Gremly's reply
 // in the weekly review, rather than read or change anything.
 //
-// hold keeps the review on the step it is on: the review moves on by itself
-// after a reply, and only Gremly knows when what was said has to be settled
-// first. offer_week puts the button to their week under the reply. Both are
-// the model's decision; no code reads the person's words to make it.
+// hold keeps the review waiting on the step it is on. After a reply the app
+// shows a button that carries the review on, and it never moves on by itself
+// (James, 6 Oct); only Gremly knows when what was said has to be settled
+// first, and then the button waits until they have answered. How the review's
+// part of the prompt says this is measured (brief.js weekContext): telling
+// Gremly the button comes first made it ask without holding three times in
+// ten, and telling it the button is kept back made it hold plain answers.
+//
+// offer_week puts the button to their week under the reply. Both are the
+// model's decision; no code reads the person's words to make it.
 //
 // Each hands the loop a signal (run.js), which reaches the app with the reply
 // (hold, offer on the brief turn's answer). A reply that comes with a signal
 // is the answer: no step is spent after it.
 // ============================================================================
 
-import { weekdayOf } from '../../../shared/week.js';
+import { reviewOn, weekdayOf } from '../../../shared/week.js';
 import { obj, str } from './schema.js';
 
 const HOLD = `Make the weekly review wait for their answer to a question you ask in your reply. After a reply the review carries on from the step it is on, and nothing on that step is lost, so most replies need nothing from you. Call this only when your reply ends by asking them something the step cannot be settled without: the review then waits for their answer before it carries on. Give the question your reply asks them, as you asked it. A reply that asks them nothing has no question to give, so it never comes with this, whatever the reply is about. It is between you and the app, so never speak of it in your reply. Only while a weekly review is under way.`;
@@ -41,7 +47,7 @@ export const hold = {
   render(r) {
     if (r.signal) return 'The review stays on this step until they answer.';
     return r.why === 'no_question'
-      ? 'There is no question to wait on, so the review carries on. Leave this out unless your reply asks them something.'
+      ? 'There is no question to wait on, so nothing is held. Leave this out unless your reply asks them something.'
       : 'No weekly review is under way, so there is nothing to hold. Leave this out.';
   },
 };
@@ -74,17 +80,27 @@ export const offerWeek = {
       // no review can be started today, so the reply has more to say than the
       // button: the loop hands these words back before the turn ends
       more: week.blocked === true,
-      // the day their reviews could move to: today's, unless that is their weekly day already
-      move_to: week.blocked === true && weekday !== week.weekly_day ? weekday : null,
+      // their week is planned, and out of the weekly window with the one extra
+      // still free, where the button opens also offers to plan the rest again
+      again: done && !week.extra_used && reviewOn(ctx.today, week.weekly_day).kind === 'extra',
+      // the day their reviews could move to: today's, unless that is their
+      // weekly day already. Only where the weekly day can be moved on the card,
+      // which is today's thread (the brief's week variant), not Ask Gremly.
+      move_to:
+        week.blocked === true && ctx.surface === 'brief_week' && weekday !== week.weekly_day
+          ? weekday
+          : null,
     };
   },
 
   render(r) {
     if (!r.signal)
       return 'Their week is not known here, so there is no button to put. Leave this out.';
-    const button = r.signal.offer.done
-      ? 'The button is under your reply. It reads Your week and opens the week they planned.'
-      : 'The button is under your reply. It reads Plan your week and opens the weekly review.';
+    const button = !r.signal.offer.done
+      ? 'The button is under your reply. It reads Plan your week and opens the weekly review.'
+      : r.again
+        ? 'The button is under your reply. It reads Your week and opens the week they planned, where the rest of this week can also be planned again from a fresh look, once.'
+        : 'The button is under your reply. It reads Your week and opens the week they planned.';
     if (!r.more) return button;
     const move =
       r.move_to == null

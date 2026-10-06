@@ -53,7 +53,7 @@ import { AGENT_PROMPT_VERSION, isLate } from './prompt.js';
 import { dayEndHourOf } from '../../shared/day.js';
 import { checkForCorrection } from '../context/corrections.js';
 
-export const BRIEF_AGENT_VERSION = `brief-2026-10-05f/${AGENT_PROMPT_VERSION}`;
+export const BRIEF_AGENT_VERSION = `brief-2026-10-06a/${AGENT_PROMPT_VERSION}`;
 
 // the planning day ends here when nothing earlier ends it, as in the day turn
 const DAY_END = 22 * 60;
@@ -481,15 +481,16 @@ export function reviewOf(week, today) {
 
 /**
  * Whether no review can be started today: a review started now would be the
- * week's one extra, and that is used. On the weekly day and the two days
- * after, the weekly review itself can still be done; the day before the weekly
- * day, next week can be brought forward.
+ * week's one extra, and that one is used and done. An extra left part way is
+ * not in the way, since opening the review picks it up where it was. On the
+ * weekly day and the two days after, the weekly review itself can still be
+ * done; the day before the weekly day, next week can be brought forward.
  */
 export function reviewBlocked(week, today) {
   if (!week?.extra_used) return false;
   const on = reviewOn(today, week.weekly_day);
-  if (on.kind === 'extra') return true;
-  return on.kind === 'weekly' && reviewOf(week, today)?.status === 'done';
+  if (on.kind !== 'extra' && on.kind !== 'weekly') return false;
+  return reviewOf(week, today)?.status === 'done';
 }
 
 /**
@@ -534,8 +535,10 @@ export function weekFrameOf(week, today) {
 /**
  * One line about their week, for the day: their weekly day, whether this
  * week's review is done, and whether the one extra review is still free.
+ * moveOnCard is whether the weekly day can be moved on the card where the line
+ * is read: it can in today's thread, and not in Ask Gremly.
  */
-export function weekLine(week, today) {
+export function weekLine(week, today, { moveOnCard = true } = {}) {
   const cycle = cycleOf(today, week.weekly_day);
   const day = WEEKDAY_NAMES[week.weekly_day];
   const status = reviewOf(week, today)?.status;
@@ -565,9 +568,11 @@ export function weekLine(week, today) {
   // is the weekly day itself, moved on the card
   const extra = !week.extra_used
     ? 'The one extra review a week is still free.'
-    : reviewBlocked(week, today)
-      ? 'The one extra review a week has been used, so no other review can be started today; what Gremly can offer instead is to move their weekly day, on the card.'
-      : 'The one extra review a week has been used.';
+    : !reviewBlocked(week, today)
+      ? 'The one extra review a week has been used.'
+      : moveOnCard
+        ? 'The one extra review a week has been used, so no other review can be started today; what Gremly can offer instead is to move their weekly day, on the card.'
+        : "The one extra review a week has been used, so no other review can be started today. Their weekly day can be moved from today's thread, and not from here.";
   return `THEIR WEEK: ${when} The review for ${which}, ${range}, ${state}. ${extra}`;
 }
 
@@ -641,7 +646,7 @@ export function weekContext(week) {
     L.push(
       'They can type anything at any moment of the review. Read what they wrote as a person would and answer what they mean. When it changes the week, say back briefly what you understood and put the changes that clearly follow from what they said on the card, and no others. The card is an offer they can turn down or correct, so offer what follows rather than asking whether you should, and never hold a change back to ask for a detail it can be offered without: something new they tell you about goes on the card with what they told you, and what they did not say about it is theirs to fill in. A todo with no length is counted as half an hour on the board until they give it one, so how long something takes is never a thing to ask first. Only when it is unclear what they want changed, ask one short question instead and put nothing on the card. When it is a question, answer it from what you know, and say so plainly when you do not know. When it is about how they feel, answer that first. Then let it shape the week: where it means the week should ask less of them, or more, offer that on the card, or ask one short question about what would help.',
       'The days being planned are read with get_week, which has them as the review has them now: where each todo sits on the board, what is put off, and the room each day has left. The list of their items for today, and get_day, have only what is saved.',
-      'The review carries on by itself after your reply, from the step it is on, and nothing on that step is lost, so leave its steps to it. Only when your reply ends by asking them something the step cannot be settled without, call hold with your reply, and the review waits for their answer.',
+      'The review carries on after your reply, from the step it is on, and nothing on that step is lost, so leave its steps to it. Only when your reply ends by asking them something the step cannot be settled without, call hold with your reply, and the review waits for their answer. What carries the review on is a button under the thread, which they tap when they are ready.',
       'Some of what you know is about their health, body or mind. Let it shape the week: their energy, appointments, rest and how much to ask of them. Plan health todos and habits like any others. Write about it only as discreetly as they would want on a screen someone else might glance at, and never name a condition, treatment or medication in your own words; the titles of their items stay exactly as they wrote them.',
     );
     if (u.hold) {
@@ -817,13 +822,22 @@ export async function learnFromTurn({ env, userId, body, result, deps = {} }) {
   });
 }
 
+/** A ping goes down the line this often while a turn runs. */
+const PING_EVERY_MS = 5000;
+
 /**
  * The route's answer: status lines while the turn runs, then the result, as
  * server-sent events ({ status } lines, then { done: true, ... }). The stream
  * closes with the result; learning from the turn runs after that, so it adds
  * no wait.
+ *
+ * A ping goes first and then every few seconds until the result. The app asks
+ * once and never posts a message again by itself, so the pings are how it
+ * knows the line is still open: when they stop with no result, the stream
+ * ended without its answer, and the app says so instead of waiting out its
+ * whole time (lib/cortex/CortexClient.ts callBriefTurn).
  */
-export function briefTurnResponse({ waitUntil, ...p }) {
+export function briefTurnResponse({ waitUntil, pingEvery = PING_EVERY_MS, ...p }) {
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
   const enc = new TextEncoder();
@@ -838,13 +852,17 @@ export function briefTurnResponse({ waitUntil, ...p }) {
   };
   const work = (async () => {
     let result = null;
+    await send({ ping: true });
+    const beat = setInterval(() => void send({ ping: true }), pingEvery);
     try {
-      await send({ ping: true });
       result = await runBriefTurn({ ...p, onStatus: (line) => void send({ status: line }) });
-      await send({ done: true, ...result });
     } catch (err) {
       console.error('[BriefTurn] failed', err);
-      await send({ done: true, error: 'failed' });
+    }
+    // the pings stop before the result goes, so the result is the last thing sent
+    clearInterval(beat);
+    try {
+      await send(result ? { done: true, ...result } : { done: true, error: 'failed' });
     } finally {
       open = false;
       try {

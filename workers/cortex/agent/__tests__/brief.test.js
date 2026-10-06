@@ -362,6 +362,33 @@ describe('the route', () => {
     expect(waited).toHaveLength(1);
   });
 
+  it('pings while the turn runs, and stops once the result is sent', async () => {
+    const m = scripted(reply('Morning.'));
+    // a model that takes a while to answer
+    const slow = async (...a) => {
+      await new Promise((r) => setTimeout(r, 60));
+      return m.callModel(...a);
+    };
+    const res = briefTurnResponse({
+      env: {},
+      userId: USER,
+      body: { ...BODY, text: 'morning' },
+      useAgent: true,
+      dayTurn: async () => null,
+      deps: { person: {}, ctx: fakeCtx, agent: { callModel: slow } },
+      pingEvery: 10,
+    });
+    const events = (await res.text())
+      .split('\n\n')
+      .filter(Boolean)
+      .map((e) => JSON.parse(e.replace(/^data: /, '')));
+    // the first ping, and more while the model was working
+    expect(events.filter((e) => e.ping).length).toBeGreaterThan(2);
+    // the result is the last thing sent: no ping follows it
+    expect(events.at(-1)).toMatchObject({ done: true, reply: 'Morning.' });
+    expect(events.filter((e) => e.done)).toHaveLength(1);
+  });
+
   it('learns from the message once the stream has closed', async () => {
     const m = scripted(reply('Glad you caught that.'));
     const checked = [];
@@ -795,6 +822,9 @@ describe("the person's week, when the app sends it", () => {
       expect(reviewBlocked(used(done), WED)).toBe(true);
       expect(reviewBlocked(readWeek({ ...PLAIN, review: done }), WED)).toBe(false);
     });
+    it('can midweek while the extra is still under way: opening it picks it up', () => {
+      expect(reviewBlocked(used({ ...done, status: 'started' }), WED)).toBe(false);
+    });
     it('can on the weekly day and the two days after, until the weekly review is done', () => {
       expect(reviewBlocked(used(null), MON)).toBe(false);
       expect(reviewBlocked(used(done), MON)).toBe(true);
@@ -822,7 +852,16 @@ describe("the person's week, when the app sends it", () => {
     it('says when no review can be started, and what can be offered instead', () => {
       const line = weekLine(readWeek({ ...PLAIN, review: done, extra_used: true }), WED);
       expect(line).toContain('has been used, so no other review can be started today');
-      expect(line).toContain('move their weekly day');
+      expect(line).toContain(
+        'what Gremly can offer instead is to move their weekly day, on the card',
+      );
+      // in Ask Gremly the card cannot move it, and the line says where it can be moved
+      const chat = weekLine(readWeek({ ...PLAIN, review: done, extra_used: true }), WED, {
+        moveOnCard: false,
+      });
+      expect(chat).toContain('has been used, so no other review can be started today.');
+      expect(chat).toContain("can be moved from today's thread, and not from here");
+      expect(chat).not.toContain('on the card');
       // the day before the weekly day, next week can still be brought forward
       const sat = weekLine(readWeek({ ...PLAIN, review: done, extra_used: true }), '2026-10-10');
       expect(sat).toContain('The one extra review a week has been used.');
@@ -871,6 +910,12 @@ describe("the person's week, when the app sends it", () => {
       expect(text).toContain('They can type anything at any moment of the review.');
       expect(text).toContain('read with get_week');
       expect(text).toContain('call hold with your reply');
+      // the review no longer moves on by itself: a button carries it on, and Gremly is told so
+      expect(text).toContain('The review carries on after your reply, from the step it is on');
+      expect(text).not.toContain('by itself');
+      expect(text).toContain(
+        'What carries the review on is a button under the thread, which they tap when they are ready.',
+      );
       expect(text).toContain('never name a condition, treatment or medication in your own words');
       // semantic rules only: no dashes used as punctuation
       expect(text).not.toMatch(/ — | – | - /);
@@ -917,7 +962,7 @@ describe("the person's week, when the app sends it", () => {
       );
       expect(text).toContain('THE WEEKLY REVIEW, FINISHED');
       expect(text).toContain('Settled so far in the review');
-      expect(text).not.toContain('carries on by itself');
+      expect(text).not.toContain('What carries the review on');
       expect(text).not.toContain('hold');
     });
 

@@ -742,7 +742,22 @@ describe("the week's tools", () => {
       // a surface without the variant is itself
       expect(surfaceOf('brief')).toBe(SURFACES.brief);
       expect(surfaceOf('brief', 'nothing')).toBe(SURFACES.brief);
-      expect(surfaceOf('chat', 'week')).toBe(SURFACES.chat);
+      expect(surfaceOf('chat')).toBe(SURFACES.chat);
+      expect(surfaceOf('chat', 'nothing')).toBe(SURFACES.chat);
+    });
+
+    it("Ask Gremly's week variant adds the week's button alone, with chat's own tools", () => {
+      const s = surfaceOf('chat', 'week');
+      expect(s.tools).toEqual([...SURFACES.chat.tools, 'offer_week']);
+      // no tool set of its own: propose_changes stays chat's, without the week's changes
+      expect(s.toolSet).toBeUndefined();
+      expect(s.job.startsWith(SURFACES.chat.job)).toBe(true);
+      expect(s.job).toContain('offer_week');
+      expect(s.job).not.toMatch(/ — | – | - /);
+      const names = toolDeclarations(toolsFor(s.tools, 'chat')).map((d) => d.name);
+      expect(names).toContain('offer_week');
+      expect(names).not.toContain('hold');
+      expect(names).not.toContain('get_week');
     });
 
     it('read as both providers take them, with no dashes in what the model reads', () => {
@@ -959,7 +974,7 @@ describe("the week's tools", () => {
     it('hold with no question waits on nothing, and says so', async () => {
       const r = await runTool(weekCtx(fakeDb(), { under_way: { step: 'shape' } }), 'hold', {});
       expect(r.result).toEqual({ signal: null, why: 'no_question' });
-      expect(r.text).toContain('There is no question to wait on, so the review carries on.');
+      expect(r.text).toContain('There is no question to wait on, so nothing is held.');
     });
 
     it("offer_week puts the week's button, and says what it will read", async () => {
@@ -969,6 +984,17 @@ describe("the week's tools", () => {
         more: false,
       });
       expect(planned.text).toContain('It reads Your week');
+      // Friday, out of their weekly window, with the one extra still free
+      expect(planned.result.again).toBe(true);
+      expect(planned.text).toContain('the rest of this week can also be planned again');
+      // on their weekly day and the two days after, the week they planned is all it opens
+      const inWindow = await runTool(
+        { ...weekCtx(fakeDb()), today: '2026-09-28' },
+        'offer_week',
+        {},
+      );
+      expect(inWindow.result.again).toBe(false);
+      expect(inWindow.text).not.toContain('planned again');
       const not = await runTool(weekCtx(fakeDb(), { review: null }), 'offer_week', {});
       expect(not.result.signal).toEqual({ offer: { kind: 'week', done: false } });
       expect(not.text).toContain('It reads Plan your week');
@@ -981,10 +1007,23 @@ describe("the week's tools", () => {
         'offer_week',
         {},
       );
-      expect(r.result).toMatchObject({ more: true, move_to: 5 });
+      expect(r.result).toMatchObject({ more: true, move_to: 5, again: false });
       expect(r.text).toContain('It reads Your week');
+      expect(r.text).not.toContain('planned again');
       expect(r.text).toContain('It cannot start another review today');
       expect(r.text).toContain('put the move of their weekly day to Friday on the card');
+    });
+
+    it('offer_week offers no move of the weekly day from Ask Gremly, where the card cannot make it', async () => {
+      const r = await runTool(
+        { ...weekCtx(fakeDb(), { blocked: true, extra_used: true }), surface: 'chat' },
+        'offer_week',
+        {},
+      );
+      expect(r.result).toMatchObject({ more: true, move_to: null });
+      expect(r.text).toContain('It cannot start another review today');
+      expect(r.text).toContain('say so plainly with when the next one is');
+      expect(r.text).not.toContain('move of their weekly day');
     });
 
     it('offer_week does not suggest moving the weekly day to the day it is already on', async () => {
