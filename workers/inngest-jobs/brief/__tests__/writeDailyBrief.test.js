@@ -184,7 +184,7 @@ describe('writing the brief', () => {
       expect(last().metadata_json.review_offer).toBeUndefined();
     });
 
-    it('writes a last message for them to ride on when the brief had no offer', async () => {
+    it('rides on a message with no words when the brief had no offer, so an older app shows nothing more', async () => {
       const quiet = { candidates: 0, free: [] };
       writeBrief.mockResolvedValue(wrote({ offer: null }));
       // nothing to offer and nothing from their week: the lines end the brief
@@ -195,7 +195,9 @@ describe('writing the brief', () => {
       appendMessages.mockClear();
       gatherBrief.mockResolvedValue(day({ ...quiet, reviewOffer: true }));
       await writeDailyBrief({}, 'user-1', { reason: 'scheduled' });
-      expect(last().content).toBe(fallbackOffer('none', 'morning'));
+      // No words and no buttons: an app build that does not know the facts
+      // draws nothing for it, so there is no extra sign off line there.
+      expect(last().content).toBe('');
       expect(last().metadata_json).toMatchObject({
         type: 'brief-offer',
         kind: 'none',
@@ -206,7 +208,16 @@ describe('writing the brief', () => {
       appendMessages.mockClear();
       gatherBrief.mockResolvedValue(day({ ...quiet, checkIn: { id: 'h1', title: 'Strength' } }));
       await writeDailyBrief({}, 'user-1', { reason: 'scheduled' });
+      expect(last().content).toBe('');
       expect(last().metadata_json).toMatchObject({ kind: 'none', checkin: { habit_id: 'h1' } });
+
+      // the writer's own sign off, when it gave one, is still the message they ride on
+      appendMessages.mockClear();
+      writeBrief.mockResolvedValue(wrote({ offer: 'Enjoy the quiet one.' }));
+      gatherBrief.mockResolvedValue(day({ ...quiet, reviewOffer: true }));
+      await writeDailyBrief({}, 'user-1', { reason: 'scheduled' });
+      expect(last().content).toBe('Enjoy the quiet one.');
+      expect(last().metadata_json).toMatchObject({ kind: 'none', review_offer: true });
     });
 
     it('waits behind the question like the offer it rides on', async () => {

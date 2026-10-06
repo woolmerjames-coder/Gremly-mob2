@@ -168,17 +168,17 @@ export async function writeDailyBrief(env, userId, { reason = 'scheduled', at = 
   const checkIn = !g.ret && g.checkIn ? { habit_id: g.checkIn.id, title: g.checkIn.title } : null;
   const reviewOffer = !g.ret && g.reviewOffer === true;
   // With no offer the last message is only a sign-off; when the writer gave
-  // none, the lines end the brief on their own, unless their week needs a
-  // message to ride on.
+  // none, the lines end the brief on their own. When their week still needs
+  // a message to ride on, it rides on one with no words and no buttons: an
+  // app build that does not know the facts draws nothing for it, so the
+  // brief reads the same there with the facts or without them, and this
+  // worker can be deployed on its own.
   const offerText =
-    out.offer ||
-    (offer.kind === 'none' && !writerError && !checkIn && !reviewOffer
-      ? null
-      : fallbackOffer(offer.kind, g.part));
-  if (offerText)
+    out.offer || (offer.kind === 'none' && !writerError ? null : fallbackOffer(offer.kind, g.part));
+  if (offerText || checkIn || reviewOffer)
     rows.push({
       role: 'assistant',
-      content: offerText,
+      content: offerText || '',
       metadata_json: {
         type: 'brief-offer',
         kind: offer.kind,

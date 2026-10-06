@@ -5,7 +5,7 @@
 // record made after midnight and before their day ended belongs to the day
 // before the clock's date, and its line says so.
 
-import { readerRequest, readerToday, validDate } from '../context/reader.js';
+import { lineBefore, readerRequest, readerToday, validDate } from '../context/reader.js';
 
 const TZ = 'America/Los_Angeles';
 const PERSON = { first_name: 'Alex', pronouns: null, identity: {} };
@@ -58,5 +58,24 @@ describe('a date the model gives', () => {
     expect(validDate('2026-10-08T10:00:00Z')).toBe('2026-10-08');
     expect(validDate('next Friday')).toBeNull();
     expect(validDate(null)).toBeNull();
+  });
+});
+
+describe('what Gremly had said before a chat message', () => {
+  const rows = [
+    { created_at: '2026-10-08T15:00:00Z', content: 'Morning. Two things on today.' },
+    // the brief's last row on a morning with no offer of its own: no words, only the week's facts
+    { created_at: '2026-10-08T15:00:02Z', content: '' },
+    { created_at: '2026-10-08T18:00:00Z', content: 'Done. I moved it to Friday.' },
+  ];
+
+  it('is the last line with words, so a row without any does not hide it', () => {
+    expect(lineBefore(rows, '2026-10-08T16:00:00Z').content).toBe('Morning. Two things on today.');
+    expect(lineBefore(rows, '2026-10-08T19:00:00Z').content).toBe('Done. I moved it to Friday.');
+  });
+
+  it('is nothing when Gremly had not spoken yet', () => {
+    expect(lineBefore(rows, '2026-10-08T14:00:00Z')).toBeNull();
+    expect(lineBefore([], '2026-10-08T14:00:00Z')).toBeNull();
   });
 });

@@ -199,6 +199,21 @@ export async function loadRecords(env, userId, sinceIso, untilIso) {
   return { created, completed, notes, habits, milestones, chats, calendar, overrides, answers };
 }
 
+/**
+ * The last thing Gremly said before an instant, from one chat's rows in time
+ * order. A row with no words is not a line: the brief's last row can be one,
+ * carrying only its buttons or the week's facts (brief/index.js), and what
+ * Gremly said is then the line before it.
+ */
+export function lineBefore(list, at) {
+  let last = null;
+  for (const a of list) {
+    if (a.created_at >= at) break;
+    if (a.content && a.content.trim()) last = a;
+  }
+  return last;
+}
+
 /** The Gremly line right before each user chat message, as context only. */
 async function priorGremlyLines(env, chatRows) {
   if (!chatRows.length) return new Map();
@@ -219,12 +234,7 @@ async function priorGremlyLines(env, chatRows) {
   }
   const prior = new Map();
   for (const m of chatRows) {
-    const list = out.get(m.chat_id) || [];
-    let last = null;
-    for (const a of list) {
-      if (a.created_at < m.created_at) last = a;
-      else break;
-    }
+    const last = lineBefore(out.get(m.chat_id) || [], m.created_at);
     if (last) prior.set(m.id, last.content);
   }
   return prior;
