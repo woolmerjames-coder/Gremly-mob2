@@ -93,6 +93,18 @@ describe('helpers', () => {
     expect(inQuietHours(12 * 60, '21:30', '07:30')).toBe(false);
     expect(inQuietHours(13 * 60, '12:00', '14:00')).toBe(true);
   });
+  test('what came back goes by Reminders, not by Notes from Gremly', () => {
+    const off = { ...prefs, checkins_enabled: false };
+    expect(momentEnabled('nudge', off, 'came_back')).toBe(true);
+    expect(momentEnabled('nudge', off, 'unfed')).toBe(false);
+    expect(momentEnabled('nudge', { ...prefs, reminders_enabled: false }, 'came_back')).toBe(false);
+    // Reminders are on until they say no; Notes from Gremly are off until they say yes
+    expect(momentEnabled('nudge', {}, 'came_back')).toBe(true);
+    expect(momentEnabled('nudge', {}, 'unfed')).toBe(false);
+    // a reminder, and any other moment, is as before whatever its subject
+    expect(momentEnabled('reminder', { reminders_enabled: false }, 'came_back')).toBe(false);
+    expect(momentEnabled('brief', {}, 'came_back')).toBe(true);
+  });
   test('check ins need their opt in', () => {
     expect(momentEnabled('nudge', { ...prefs, checkins_enabled: false })).toBe(false);
     expect(momentEnabled('nudge', {})).toBe(false);
@@ -158,6 +170,23 @@ describe('planDay', () => {
     // an everyday reason never jumps the queue
     const plain = planDay({ prefs, daysAway: 3, facts });
     expect(plain.plan.map((c) => c.moment)).toEqual(['brief']);
+  });
+
+  test('the nudge takes the weightiest reason whose own setting is on', () => {
+    const cameBack = { kind: 'came_back', weight: 3, priority: 1.5, angles: ['something_waiting'] };
+    // a day with nothing else to send, so the nudge is not crowded out
+    const only = { nudgeReasons: [cameBack, { kind: 'unfed', weight: 1 }] };
+    const bare = { ...prefs, morning_enabled: false, evening_enabled: false };
+    const day = (p) => planDay({ prefs: p, daysAway: 0, facts: only });
+    const nudgeOf = (p) => day(p).plan.find((c) => c.moment === 'nudge');
+    // Notes from Gremly off: what came back still goes, by Reminders
+    expect(nudgeOf({ ...bare, checkins_enabled: false }).subject).toBe('came_back');
+    // Reminders off, Notes on: the everyday reason is the one left
+    expect(nudgeOf({ ...bare, reminders_enabled: false }).subject).toBe('unfed');
+    // both off: no nudge, and it is recorded as switched off
+    const none = day({ ...bare, checkins_enabled: false, reminders_enabled: false });
+    expect(none.plan.find((c) => c.moment === 'nudge')).toBeUndefined();
+    expect(none.skipped).toContainEqual({ moment: 'nudge', reason: 'Switched off in Settings' });
   });
 
   test('lapsed: only a return note, and only on ladder days', () => {

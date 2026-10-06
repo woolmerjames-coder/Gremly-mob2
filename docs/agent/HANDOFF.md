@@ -904,8 +904,10 @@ review beside its summary. No migration.
   they opened the app and after the last such note (`readCameBackSaid`,
   `cameBackSince`), so one time away gets one note unless more comes back.
   The sender reads it again (`stillTrue`) and gives the writer the weekday
-  and what came back, nothing else of the day. It goes to people with Notes
-  from Gremly on (`checkins_enabled`), and the tap opens today's thread.
+  and what came back, nothing else of the day. It goes to anyone with
+  Reminders on (`reminders_enabled`, `policy.js prefFor`), whatever Notes
+  from Gremly is set to, because it is about their own items (James, 6 Oct).
+  The tap opens today's thread.
   `chooseAngle` no longer falls back to an angle the facts cannot be said
   with. Copy version `notif-copy-2026-10-08a`.
 - **The summary's push** says the review is ready too while it is still to do
@@ -971,6 +973,11 @@ What the next batches need to know:
   switch to `lib/changes/later.ts` there; keep or let go after two pushes
   goes with them. `roomLeft` in `shared/habitWeek.js` gives the room of any
   days, for the deck's day picker.
+- Batch 6 also takes four things James added on 6 Oct, all from the lists
+  above: Plan my day comes back after a morning review; the old app no
+  longer gets the extra sign off line, so the workers can deploy on their
+  own; the evening note's fixed line is neutral, with nothing about things
+  to settle; and the Today card on the weekly day, as the plan has it.
 - Deploy order is unchanged, and there is no SQL: inngest-jobs, then cortex,
   then the app. New workers with the old app change nothing a person sees
   beyond the sign off line above. The new app with old workers has no check
@@ -1057,6 +1064,11 @@ to 53 at about 3.2s, but its replies were sloppier), and Gemini caching.
   one gets a card of suggested moves, picked by the model in one call beside
   the spread and checked by code, and their own todos move only if they
   accept. For batch 6, the card deck's day picker shows how full each day is.
+- The come back note (James, 6 Oct): it goes to anyone with Reminders on,
+  not only people with Notes from Gremly on, because it is about their own
+  items.
+- Workers deploy on their own (James, 6 Oct): a worker change must not alter
+  what an app bundle without the matching update shows.
 
 ## How to work here
 

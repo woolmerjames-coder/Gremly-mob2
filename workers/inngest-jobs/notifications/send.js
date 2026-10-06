@@ -371,6 +371,7 @@ export async function decide(env, job, { at = new Date(), heldSoFar = 0 } = {}) 
       : { action: 'drop', reason: 'No phone can receive notifications' }
     : decideAtSend({
         moment: job.moment,
+        subject: job.subject || null,
         nowMinutes: person.nowMinutes,
         prefs: person.prefs,
         healthyDevices: person.devices.length,

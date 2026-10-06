@@ -153,12 +153,25 @@ export function inQuietHours(m, start = POLICY.quietDefault.start, end = POLICY.
   return s > e ? m >= s || m < e : m >= s && m < e;
 }
 
-export function momentEnabled(moment, prefs) {
+/**
+ * The setting that switches a notification on or off. Each moment has its
+ * own. A nudge that says what came back from Later is about their own items,
+ * so it goes by Reminders, as a reminder does, and not by Notes from Gremly
+ * (James, 6 Oct). The subject of a nudge is its reason.
+ */
+export function prefFor(moment, subject = null) {
+  if (moment === 'nudge' && subject === 'came_back') return MOMENTS.reminder.pref;
+  return MOMENTS[moment]?.pref ?? null;
+}
+
+export function momentEnabled(moment, prefs, subject = null) {
   const def = MOMENTS[moment];
   if (!def) return false;
   if (!prefs) return false;
-  const v = prefs[def.pref];
-  return v === undefined ? moment !== 'nudge' && moment !== 'return_note' : !!v;
+  const pref = prefFor(moment, subject);
+  const v = prefs[pref];
+  // Notes from Gremly are off until they say yes; every other setting is on until they say no
+  return v === undefined ? pref !== MOMENTS.nudge.pref : !!v;
 }
 
 /** A clock time for reasons people read: 7:12pm, 9:00am. */
@@ -213,7 +226,7 @@ export function planDay(input) {
   const candidates = [];
 
   const add = (moment, atMinutes, extra = {}) => {
-    if (!momentEnabled(moment, prefs)) {
+    if (!momentEnabled(moment, prefs, extra.subject)) {
       skipped.push({ moment, reason: 'Switched off in Settings' });
       return;
     }
@@ -279,13 +292,17 @@ export function planDay(input) {
     add('good_news', gremlyMinute(18 * 60), { subject: `${g.kind}:${g.id ?? ''}` });
   }
   const reasons = [...(facts.nudgeReasons || [])].sort((a, b) => (b.weight ?? 1) - (a.weight ?? 1));
-  if (reasons.length) {
+  // The weightiest reason whose own setting is on: what came back goes by
+  // Reminders, the everyday reasons by Notes from Gremly. With none on, the
+  // weightiest is offered and is skipped as switched off.
+  const reason = reasons.find((r) => momentEnabled('nudge', prefs, r.kind)) || reasons[0];
+  if (reason) {
     add('nudge', gremlyMinute(POLICY.defaultNudgeMinutes), {
-      subject: reasons[0].kind,
-      reason: reasons[0],
+      subject: reason.kind,
+      reason,
       // A reason can ask to go ahead of the day's other notes (what came back
       // while they were away): on a day with room for one, it is the one sent.
-      ...(Number.isFinite(reasons[0].priority) ? { priority: reasons[0].priority } : {}),
+      ...(Number.isFinite(reason.priority) ? { priority: reason.priority } : {}),
     });
   }
   return finish();
@@ -365,7 +382,7 @@ export function spaceOut(list, quietStart, quietEnd) {
  * The last check before sending, with live facts.
  * @returns {{action: 'send'} | {action: 'hold', minutes: number, reason: string} | {action: 'drop', reason: string}}
  *
- * ctx: moment, nowMinutes (local), prefs, pausedUntilLabel (string when paused),
+ * ctx: moment, subject (a nudge's reason), nowMinutes (local), prefs, pausedUntilLabel (string when paused),
  *      healthyDevices, stillTrue ({ok, reason}), minutesSinceOpen (or null),
  *      heldSoFar (minutes already held), meetingEndsInMinutes (or null)
  */
@@ -374,7 +391,8 @@ export function decideAtSend(ctx) {
   const def = MOMENTS[moment];
   if (!def) return { action: 'drop', reason: `Unknown moment ${moment}` };
   if (healthyDevices <= 0) return { action: 'drop', reason: 'No phone can receive notifications' };
-  if (!momentEnabled(moment, prefs)) return { action: 'drop', reason: 'Switched off in Settings' };
+  if (!momentEnabled(moment, prefs, ctx.subject))
+    return { action: 'drop', reason: 'Switched off in Settings' };
   if (moment !== 'reminder' && ctx.pausedUntilLabel) {
     return { action: 'drop', reason: `Paused until ${ctx.pausedUntilLabel}` };
   }

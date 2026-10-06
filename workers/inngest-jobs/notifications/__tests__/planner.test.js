@@ -480,13 +480,23 @@ describe('planning one person', () => {
       warn.mockRestore();
     });
 
-    it('still goes only to someone who has Gremly notes switched on', async () => {
+    it('goes to anyone with reminders on, whatever Notes from Gremly is set to', async () => {
+      // it is about their own items, so it goes by Reminders
       const out = await plan(
         '2026-10-05T18:00:00Z',
         [back('a', '2026-10-06')],
         settings({ checkins_enabled: false }),
       );
-      expect(nudge(out)).toBeUndefined();
+      expect(nudge(out).data).toMatchObject({ subject: 'came_back' });
+      expect(out.events.map((e) => e.data.moment)).toEqual(['nudge']);
+      // reminders switched off: it is not sent, and the day is planned as before
+      const off = await plan(
+        '2026-10-05T18:00:00Z',
+        [back('a', '2026-10-06')],
+        settings({ checkins_enabled: false, reminders_enabled: false }),
+      );
+      expect(nudge(off)).toBeUndefined();
+      expect(off.events.map((e) => e.data.moment)).toEqual(['brief']);
     });
 
     it('plans the day as before when what came back cannot be read', async () => {

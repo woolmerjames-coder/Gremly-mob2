@@ -512,6 +512,26 @@ describe('decide', () => {
       );
     });
 
+    it('goes by Reminders at the moment of sending too', async () => {
+      const todos = (path) =>
+        path.includes('resurface_at=gte.')
+          ? [{ id: 'a', name: 'Call the plumber', resurface_at: '2026-09-29' }]
+          : [];
+      // Notes from Gremly off, reminders on: sent
+      away();
+      mockTables.notification_preferences = [prefs({ checkins_enabled: false })];
+      mockTables.todos = todos;
+      expect((await decide(ON, nudge, { at: AT })).action).toBe('send');
+      // reminders switched off since it was planned: dropped
+      mockTables.notification_preferences = [
+        prefs({ checkins_enabled: true, reminders_enabled: false }),
+      ];
+      expect(await decide(ON, nudge, { at: AT })).toMatchObject({
+        action: 'drop',
+        reason: 'Switched off in Settings',
+      });
+    });
+
     it('counts only what came back after the last note that said so', async () => {
       away();
       mockTables.todos = (path) =>
