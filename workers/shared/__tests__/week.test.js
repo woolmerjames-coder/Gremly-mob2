@@ -18,6 +18,7 @@ import {
   normHours,
   readServes,
   reviewOn,
+  reviewWith,
   spanDays,
   summaryWeekOf,
   weekdayOf,
@@ -188,6 +189,57 @@ describe('the read a review opens with', () => {
     expect(extraUsed({ kind: 'extra' })).toBe(true);
     expect(extraUsed({ kind: 'weekly' })).toBe(false);
     expect(extraUsed(null)).toBe(false);
+  });
+});
+
+describe('a review opened again', () => {
+  const read = { challenge: { headline: 'A full week' } };
+  // the week Sunday's review plans, Monday to Sunday
+  const week = reviewOn(SUN, 0).week_start;
+
+  it('carries on a review started in its window, with its read, and leaves the extra free', () => {
+    const row = { week_start: week, status: 'started', kind: 'weekly', read };
+    const on = reviewWith(WED, 0, row);
+    // by the date Wednesday is the extra; the review under way stays the weekly one
+    expect(reviewOn(WED, 0).kind).toBe('extra');
+    expect(on).toMatchObject({ kind: 'weekly', fresh: false, resumed: true, week_start: week });
+    // it plans from the day it is opened again
+    expect(on.span_start).toBe(WED);
+    expect(on.span_end).toBe('2026-10-11');
+    expect(readServes(on, row)).toBe(true);
+    expect(extraUsed(row)).toBe(false);
+  });
+
+  it('carries on a week brought forward the same way', () => {
+    const row = { week_start: week, status: 'started', kind: 'brought_forward', read };
+    expect(reviewWith(WED, 0, row)).toMatchObject({ kind: 'brought_forward', resumed: true });
+  });
+
+  it('is what the date says when nothing is under way', () => {
+    for (const status of ['ready', 'done', 'skipped']) {
+      const row = { week_start: week, status, kind: 'weekly', read };
+      expect(reviewWith(WED, 0, row)).toEqual(reviewOn(WED, 0));
+    }
+    expect(reviewWith(WED, 0, null)).toEqual(reviewOn(WED, 0));
+    // the extra itself, under way, is still the extra
+    const extra = { week_start: week, status: 'started', kind: 'extra', read };
+    expect(reviewWith(WED, 0, extra)).toEqual(reviewOn(WED, 0));
+    // a row of another week is not this review's
+    const other = { week_start: '2026-09-28', status: 'started', kind: 'weekly', read };
+    expect(reviewWith(WED, 0, other)).toEqual(reviewOn(WED, 0));
+  });
+
+  it('is what the date says inside the window, started or not', () => {
+    const row = { week_start: week, status: 'started', kind: 'weekly', read };
+    expect(reviewWith(SUN, 0, row)).toEqual(reviewOn(SUN, 0));
+    expect(reviewWith(TUE, 0, row)).toEqual(reviewOn(TUE, 0));
+  });
+
+  it('takes a fresh read under its own kind when the one it began with is gone', () => {
+    const row = { week_start: week, status: 'started', kind: 'weekly', read: null };
+    const on = reviewWith(WED, 0, row);
+    expect(on.kind).toBe('weekly');
+    expect(readServes(on, row)).toBe(false);
   });
 });
 

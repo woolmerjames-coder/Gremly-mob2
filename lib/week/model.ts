@@ -25,6 +25,7 @@ export {
   normHours,
   readServes,
   reviewOn,
+  reviewWith,
   spanDays,
   summaryWeekOf,
   weekdayOf,

@@ -24,7 +24,15 @@ export const LATER_MAX_DAYS = 28;
 /** The weekly pipe starts this many hours before their weekly slot: the synthesis, then the read. */
 export const PIPE_LEAD_HOURS = 3;
 
-/** The read is made ahead only for someone who finished a review within this many days. */
+/**
+ * Whether the read is made ahead only for someone who finished a review in the
+ * last READ_AHEAD_DAYS days. Off: it is made ahead for everyone the pipe runs
+ * for (James, 6 Oct: at this size that is a few cents a week). The rule stays
+ * in the pipe behind this, so it can come back when the numbers call for it.
+ */
+export const READ_AHEAD_NEEDS_REVIEW = false;
+
+/** How far back a finished review counts, for the rule above and for the read's own look back. */
 export const READ_AHEAD_DAYS = 28;
 
 /** The read looks this many days ahead for what is dated. */
@@ -154,6 +162,34 @@ export function reviewOn(today, weeklyDay) {
     span_start: today,
     span_end: c.week_end,
   };
+}
+
+/**
+ * The review an opening today is, given the week's row: what the date says
+ * (reviewOn), except that a review already under way is carried on. One
+ * started in its own window and opened again on a later day of the same week
+ * is still that review, with the read it began with: it is not begun again as
+ * the week's one extra, and it does not use the extra up. It plans from today,
+ * since the days before are gone.
+ * @param {string} today
+ * @param {number} weeklyDay
+ * @param {{week_start?: string, status?: string, kind?: string}|null} row the
+ *   row of the week reviewOn gives for today
+ * @returns {{kind: 'weekly'|'extra'|'brought_forward', promoted: boolean, fresh: boolean,
+ *   resumed?: boolean, week_start: string, span_start: string, span_end: string}}
+ */
+export function reviewWith(today, weeklyDay, row) {
+  const on = reviewOn(today, weeklyDay);
+  if (
+    on.kind === 'extra' &&
+    row?.status === 'started' &&
+    row.week_start === on.week_start &&
+    REVIEW_KINDS.includes(row.kind) &&
+    row.kind !== 'extra'
+  ) {
+    return { ...on, kind: row.kind, fresh: false, resumed: true };
+  }
+  return on;
 }
 
 /**

@@ -20,6 +20,7 @@ export declare const DEFAULT_DAYS_OFF: number[];
 export declare const PROMOTED_AFTER: number;
 export declare const LATER_MAX_DAYS: number;
 export declare const PIPE_LEAD_HOURS: number;
+export declare const READ_AHEAD_NEEDS_REVIEW: boolean;
 export declare const READ_AHEAD_DAYS: number;
 export declare const LOOK_AHEAD_DAYS: number;
 export declare const DEFAULT_MINUTES: number;
@@ -46,6 +47,19 @@ export declare function reviewOn(
   kind: ReviewKind;
   promoted: boolean;
   fresh: boolean;
+  week_start: string;
+  span_start: string;
+  span_end: string;
+};
+export declare function reviewWith(
+  today: string,
+  weeklyDay: number | null | undefined,
+  row: { week_start?: string; status?: string | null; kind?: string | null } | null | undefined,
+): {
+  kind: ReviewKind;
+  promoted: boolean;
+  fresh: boolean;
+  resumed?: boolean;
   week_start: string;
   span_start: string;
   span_end: string;
