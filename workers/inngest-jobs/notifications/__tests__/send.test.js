@@ -468,6 +468,101 @@ describe('decide', () => {
     });
   });
 
+  describe('a habit paused today', () => {
+    const checkin = {
+      user_id: USER,
+      moment: 'habit_checkin',
+      subject: 'h1',
+      dedupe_key: 'k',
+      planned_for: '2026-10-01T16:55:00Z',
+    };
+    // its own reminder, queued for 18:00 London (17:00 UTC)
+    const reminder = {
+      user_id: USER,
+      moment: 'reminder',
+      subject: 'habit:h1:r1',
+      dedupe_key: 'k',
+      planned_for: '2026-10-01T17:00:00Z',
+    };
+    const stretch = (mode, period_start, period_end) => ({
+      id: `${mode}-${period_start}`,
+      habit_id: 'h1',
+      mode,
+      period_start,
+      period_end,
+      floor_note: null,
+    });
+    const pausedRead = () => mockCalls.select.filter((p) => p.startsWith('habit_adaptations'));
+
+    beforeEach(() => {
+      mockTables.habits = [{ id: 'h1', archived: false }];
+      mockTables.reminder_schedule = [
+        {
+          status: 'active',
+          entity_type: 'habit',
+          entity_id: 'h1',
+          next_fire_at: reminder.planned_for,
+          rule: { id: 'r1', frequency: 'daily', time: '18:00' },
+        },
+      ];
+    });
+
+    it('gets no check in', async () => {
+      mockTables.habit_adaptations = [stretch('pause', '2026-09-29', '2026-10-05')];
+      expect(await decide(ON, checkin, { at: AT })).toMatchObject({
+        action: 'drop',
+        reason: 'The habit is paused',
+      });
+      // read for that habit and their day, when the notification wakes
+      expect(pausedRead()).toEqual([
+        'habit_adaptations?owner_id=eq.u1&habit_id=eq.h1&period_start=lte.2026-10-01&period_end=gte.2026-10-01&select=id,habit_id,mode,period_start,period_end,floor_note&limit=200',
+      ]);
+    });
+
+    it('gets no reminder of its own', async () => {
+      mockTables.habit_adaptations = [stretch('pause', '2026-10-01', '2026-10-01')];
+      expect(await decide(ON, reminder, { at: AT })).toMatchObject({
+        action: 'drop',
+        reason: 'The habit is paused',
+      });
+      expect(pausedRead()).toHaveLength(1);
+    });
+
+    it('is checked in on and reminded as usual once the pause is over, or before it begins', async () => {
+      mockTables.habit_adaptations = [
+        stretch('pause', '2026-09-20', '2026-09-30'),
+        stretch('pause', '2026-10-02', '2026-10-09'),
+      ];
+      expect((await decide(ON, checkin, { at: AT })).action).toBe('send');
+      expect((await decide(ON, reminder, { at: AT })).action).toBe('send');
+    });
+
+    it('is checked in on and reminded as usual on a lighter version, or with none', async () => {
+      mockTables.habit_adaptations = [stretch('floor', '2026-09-29', '2026-10-05')];
+      expect((await decide(ON, checkin, { at: AT })).action).toBe('send');
+      expect((await decide(ON, reminder, { at: AT })).action).toBe('send');
+      mockTables.habit_adaptations = [];
+      expect((await decide(ON, checkin, { at: AT })).action).toBe('send');
+      expect((await decide(ON, reminder, { at: AT })).action).toBe('send');
+    });
+
+    it('does not ask about a pause for a reminder of anything else', async () => {
+      mockTables.reminder_schedule = [
+        {
+          status: 'active',
+          entity_type: 'todo',
+          entity_id: 't1',
+          next_fire_at: reminder.planned_for,
+          rule: { id: 'r1', frequency: 'daily', time: '18:00' },
+        },
+      ];
+      mockTables.habit_adaptations = [stretch('pause', '2026-09-29', '2026-10-05')];
+      const todo = { ...reminder, subject: 'todo:t1:r1' };
+      expect((await decide(ON, todo, { at: AT })).action).toBe('send');
+      expect(pausedRead()).toEqual([]);
+    });
+  });
+
   describe('a nudge that says what came back from Later', () => {
     const nudge = {
       ...job,

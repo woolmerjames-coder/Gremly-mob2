@@ -246,6 +246,28 @@ describe('learning', () => {
     ).toBeNull();
   });
 
+  it('does not check in on a habit on a day it is paused', () => {
+    const h = { id: 'h1', scheduled_start_iso: '2026-02-11T18:45:00Z', cadence: 'daily' };
+    const stretch = (mode, period_start, period_end, habit_id = 'h1') => ({
+      habit_id,
+      mode,
+      period_start,
+      period_end,
+    });
+    const on = (eases, localDate = '2026-10-01') =>
+      habitCheckinMinutes(h, { tz: 'UTC', localDate, eases });
+    const pause = [stretch('pause', '2026-10-01', '2026-10-03')];
+    expect(on(pause)).toBeNull();
+    expect(on(pause, '2026-10-03')).toBeNull();
+    // the day before it begins and the day after it ends
+    expect(on(pause, '2026-09-30')).toBe(18 * 60 + 45);
+    expect(on(pause, '2026-10-04')).toBe(18 * 60 + 45);
+    // a lighter version, another habit's pause, or none at all
+    expect(on([stretch('floor', '2026-10-01', '2026-10-03')])).toBe(18 * 60 + 45);
+    expect(on([stretch('pause', '2026-10-01', '2026-10-03', 'h2')])).toBe(18 * 60 + 45);
+    expect(on([])).toBe(18 * 60 + 45);
+  });
+
   it('marks outcomes, moves streaks and scores angles', () => {
     const logs = [
       {
@@ -551,6 +573,72 @@ describe('planning one person', () => {
         { id: 'a', title: 'Call the plumber', back_on: '2026-10-06' },
         { id: 'b', title: 'Renew passport', back_on: '2026-10-08' },
       ]);
+    });
+  });
+
+  describe('a habit paused today', () => {
+    // two habits with a set time and no reminder of their own, due every day
+    const habits = [
+      { id: 'h1', name: 'Run', cadence: 'daily', scheduled_start_iso: '2026-02-11T12:00:00Z' },
+      { id: 'h2', name: 'Read', cadence: 'daily', scheduled_start_iso: '2026-02-11T15:30:00Z' },
+    ];
+    const plan = (habit_adaptations) => {
+      mockTables.notification_preferences = [
+        {
+          user_id: USER,
+          timezone: TZ,
+          morning_time: '08:00',
+          evening_time: '20:00',
+          morning_enabled: false,
+          evening_enabled: false,
+          checkins_enabled: false,
+        },
+      ];
+      mockTables.user_engagement = [{ user_id: USER, state: 'engaged' }];
+      mockTables.cortex_preferences = [{ gremly_age: 5 }];
+      mockTables.app_events = [{ occurred_at: '2026-10-07T18:00:00Z' }];
+      mockTables.habits = habits;
+      mockTables.habit_adaptations = habit_adaptations;
+      return planPersonDay(
+        ENV,
+        { user_id: USER, timezone: TZ, local_date: '2026-10-08' },
+        { now: new Date('2026-10-08T03:30:00Z') },
+      );
+    };
+    const checkins = (out) =>
+      out.events.filter((e) => e.data.moment === 'habit_checkin').map((e) => e.data.subject);
+    const pause = (period_start, period_end) => ({
+      id: `pause-${period_start}`,
+      habit_id: 'h1',
+      mode: 'pause',
+      period_start,
+      period_end,
+      floor_note: null,
+    });
+
+    it('is not planned a check in, and the others are planned as usual', async () => {
+      expect(checkins(await plan([]))).toEqual(['h1', 'h2']);
+      expect(checkins(await plan([pause('2026-10-06', '2026-10-10')]))).toEqual(['h2']);
+      // read beside the rest of the day, for the stretches that cover it
+      expect(mockCalls.select.filter((p) => p.startsWith('habit_adaptations')).at(-1)).toBe(
+        'habit_adaptations?owner_id=eq.u1&period_start=lte.2026-10-08&period_end=gte.2026-10-08&select=id,habit_id,mode,period_start,period_end,floor_note&limit=200',
+      );
+    });
+
+    it('is planned one again from the day after the pause ends', async () => {
+      expect(checkins(await plan([pause('2026-10-01', '2026-10-07')]))).toEqual(['h1', 'h2']);
+    });
+
+    it('is planned as usual when the pauses cannot be read: the sender checks again', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const out = await plan(() => {
+        throw new Error('habit_adaptations is down');
+      });
+      expect(checkins(out)).toEqual(['h1', 'h2']);
+      expect(warn.mock.calls.map((c) => String(c[0])).join(' ')).toMatch(
+        /habit_adaptations is down/,
+      );
+      warn.mockRestore();
     });
   });
 

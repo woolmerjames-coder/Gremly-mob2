@@ -15,12 +15,12 @@ import {
 } from '../../shared/calendar.js';
 import { dayEndHourFrom, personDay } from '../../shared/day.js';
 import { buildDcoV4, writeDco } from '../context/daily';
-import { dayOfWeekNumber, isBehindThisWeek, mondayOf, weeklyTarget } from './behind';
+import { isBehindThisWeek, weeklyTarget } from './behind';
 import { readThreadReaction } from './reaction';
 import { sweepCounts } from '../notifications/sweepCount';
 import { buildDayRecord } from './dayRecord';
-import { briefOffersReview, cycleOf } from '../../shared/week.js';
-import { habitToCheckIn, plannedOn } from '../../shared/habitWeek.js';
+import { briefOffersReview, cycleOf, weeklyDayOf } from '../../shared/week.js';
+import { easeOn, habitToCheckIn, pausedOn, plannedOn, weekAround } from '../../shared/habitWeek.js';
 import { weekSettings } from '../week/settings';
 
 export const PLAN_DAY_START = 8 * 60;
@@ -118,7 +118,10 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
   const today = ritualDay;
   const dayStart = localStartIso(tz, today);
   const dayEnd = localStartIso(tz, addDays(today, 1));
-  const monday = mondayOf(today);
+  // Their week ends on their weekly day, which is read below with everything
+  // else. So habit progress is read from the earliest day a week holding today
+  // can begin, and counted from the first day of theirs once that is known.
+  const earliestWeekStart = addDays(today, -6);
 
   const [
     dcoResult,
@@ -135,6 +138,7 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
     habitPlans,
     settings,
     reviews,
+    easesRead,
   ] = await Promise.all([
     todaysDco(env, userId, tz, today),
     personIdentity(env, userId),
@@ -149,7 +153,7 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
       `habits?owner_id=eq.${userId}&archived=eq.false&select=id,name,title,cadence,target_per_period,days_active,subtype,start_date,end_date,time_estimate_minutes,scheduled_start_iso,quiet_until:views->>checkins_quiet_until&limit=200`,
     ),
     d.select(
-      `habit_progress?owner_id=eq.${userId}&occurred_day=gte.${monday}&occurred_day=lte.${today}&select=habit_id,occurred_day&limit=2000`,
+      `habit_progress?owner_id=eq.${userId}&occurred_day=gte.${earliestWeekStart}&occurred_day=lte.${today}&select=habit_id,occurred_day&limit=2000`,
     ),
     // Sweep's counts by the app's own rules (the evening Sweep and the
     // morning's quick sweep); null when they cannot be counted
@@ -174,7 +178,17 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
         `weekly_reviews?owner_id=eq.${userId}&week_start=gte.${addDays(today, -6)}&week_start=lte.${today}&select=week_start,status&limit=7`,
       )
       .catch((err) => weekUnread("the week's review", err, null)),
+    // The stretches a habit is paused for or on a lighter version, any that
+    // reach into a week holding today. Unread, no habit counts as either, and
+    // the brief checks in on none: it cannot tell which they asked to be left
+    // alone about.
+    d
+      .select(
+        `habit_adaptations?owner_id=eq.${userId}&period_end=gte.${earliestWeekStart}&select=id,habit_id,mode,period_start,period_end,floor_note&limit=200`,
+      )
+      .catch((err) => weekUnread('their paused and lighter habits', err, null)),
   ]);
+  const eases = easesRead || [];
   const dco = dcoResult.dco;
 
   // Today's timed calendar entries, in local minutes. Cancelled ones are left out.
@@ -215,10 +229,15 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
   );
   const unsorted = unsortedTodos.length + (notes || []).length;
 
-  // Habits this week
+  // Habits this week: their own week, the seven days that end on their weekly
+  // day (Sunday when their week could not be read)
+  const weeklyDay = weeklyDayOf(settings?.weekly_day);
+  const weekFirst = weekAround(today, weeklyDay).first;
   const done = new Map();
-  for (const p of progress || []) done.set(p.habit_id, (done.get(p.habit_id) || 0) + 1);
-  const daysGone = dayOfWeekNumber(today);
+  for (const p of progress || []) {
+    if (p.occurred_day < weekFirst) continue;
+    done.set(p.habit_id, (done.get(p.habit_id) || 0) + 1);
+  }
   const plannedToday = plannedOn(habitPlans, today);
   const weekday = new Date(`${today}T12:00:00Z`).getUTCDay();
   const active = (habits || []).filter(
@@ -232,29 +251,39 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
       Array.isArray(h.days_active) && h.days_active.length
         ? h.days_active.includes(weekday)
         : false;
+    const ease = easeOn(eases, h.id, today);
     return {
       id: h.id,
       title: h.name || h.title || 'Habit',
       done: n,
       target,
       daily,
-      behind: isBehindThisWeek(h, n, daysGone),
+      behind: isBehindThisWeek(h, n, { today, weeklyDay, eases }),
       scheduledToday,
       // on today in the week they planned
       plannedToday: plannedToday.has(h.id),
       minutes: h.time_estimate_minutes || null,
+      // what they said a lighter version of it is, while one runs today: empty
+      // when they gave it no words, null when there is none
+      lighter: ease?.mode === 'lighter' ? ease.note : null,
     };
   });
+  // a habit paused today is left alone: it is not one of the habits for today
   const habitsForToday = habitView.filter(
-    (h) => h.daily || h.behind || h.scheduledToday || h.plannedToday,
+    (h) =>
+      !pausedOn(eases, h.id, today) && (h.daily || h.behind || h.scheduledToday || h.plannedToday),
   );
-  // the one habit planned for today that the brief checks in on
-  const checkIn = habitToCheckIn({
-    today,
-    habits: active,
-    plans: habitPlans,
-    doneToday: (progress || []).filter((p) => p.occurred_day === today).map((p) => p.habit_id),
-  });
+  // the one habit planned for today that the brief checks in on; none when
+  // their pauses could not be read
+  const checkIn = easesRead
+    ? habitToCheckIn({
+        today,
+        habits: active,
+        plans: habitPlans,
+        doneToday: (progress || []).filter((p) => p.occurred_day === today).map((p) => p.habit_id),
+        eases,
+      })
+    : null;
   // the weekly review is offered on the two mornings after their weekly day,
   // until it is done; with their week unread, it is not offered
   const reviewOffer =
@@ -285,12 +314,15 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
   // A plan already locked in for today (Plan tomorrow, the evening before)
   const planned = [
     ...open.map((t) => ({ type: 'todo', id: t.id, title: t.title, iso: t.scheduled_start_iso })),
-    ...(habits || []).map((h) => ({
-      type: 'habit',
-      id: h.id,
-      title: h.name || h.title || 'Habit',
-      iso: h.scheduled_start_iso,
-    })),
+    // a habit paused today is left alone, whatever time an earlier plan gave it
+    ...(habits || [])
+      .filter((h) => !pausedOn(eases, h.id, today))
+      .map((h) => ({
+        type: 'habit',
+        id: h.id,
+        title: h.name || h.title || 'Habit',
+        iso: h.scheduled_start_iso,
+      })),
   ]
     .filter((x) => x.iso && x.iso >= dayStart && x.iso < dayEnd)
     .map((x) => ({ type: x.type, id: x.id, title: x.title, start: minutesIn(tz, x.iso) }))

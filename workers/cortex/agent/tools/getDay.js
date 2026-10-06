@@ -17,14 +17,20 @@
 // The tool's description says nothing of planned days: the lines it returns
 // say it where it is so. Named in the description, the model called every
 // habit planned, a daily one included (day replay, 6 October).
+//
+// A count toward a weekly target is made in their own week, the seven days
+// that end on their weekly day (ctx.week, Sunday when the thread sent none).
+// A habit paused on a day does not fall on it, and one on a lighter version
+// says so (the thread's week, eased: workers/shared/habitWeek.js).
 // ============================================================================
 
 import { calendarSelects, meetingsFrom } from '../../../shared/calendar.js';
 import { scheduleOf, scheduleLabel } from '../../../shared/changes/check.js';
 import { buildDayRecord } from '../../../inngest-jobs/brief/dayRecord.js';
-import { isDay } from '../../../shared/week.js';
+import { isDay, weeklyDayOf } from '../../../shared/week.js';
+import { easeOn, rowOfEase, weekAround } from '../../../shared/habitWeek.js';
 import { day, obj } from './schema.js';
-import { addDays, clock, dayWords, mondayOf, trim, weekdayOf } from './words.js';
+import { addDays, clock, dayWords, trim, weekdayOf } from './words.js';
 
 const DESCRIPTION = `Read one day of the person's life, or several days in a row: timed calendar entries and all day ones, the todos planned for each day with their ids, the habits that fall on it and where each stands, and for today also the todos past their day and the travel and set times Gremly knows about. Use it for questions about a day or a stretch of days, before suggesting how to fit something in, and before proposing changes to a day. Read every day a question covers in one call, by giving the last day as to, up to a week. Today when no date is given.`;
 
@@ -39,9 +45,17 @@ const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 /**
  * Whether a habit falls on a day, and where it stands. A habit kept to set
  * weekdays falls on those, and on any other day it is planned on in their
- * week (plannedHere). Pure, for tests.
+ * week (plannedHere). A week's count is made in their own week (weeklyDay).
+ * Paused on the day, it does not fall on it; on a lighter version, the row
+ * says what that is (ease: what easeOn gives for the day). Pure, for tests.
  */
-export function habitOnDay(h, date, logged, plannedHere = false) {
+export function habitOnDay(h, date, logged, plannedHere = false, weeklyDay = 0, ease = null) {
+  if (ease?.mode === 'pause') return null;
+  const on = habitStanding(h, date, logged, plannedHere, weeklyDay);
+  return on && ease?.mode === 'lighter' ? { ...on, lighter: ease.note || '' } : on;
+}
+
+function habitStanding(h, date, logged, plannedHere, weeklyDay) {
   if (h.start_date && String(h.start_date).slice(0, 10) > date) return null;
   if (h.end_date && String(h.end_date).slice(0, 10) < date) return null;
   const s = scheduleOf(h);
@@ -57,7 +71,7 @@ export function habitOnDay(h, date, logged, plannedHere = false) {
       done: s.times > 1 ? count >= s.times : doneThatDay,
     };
   }
-  const start = s.per === 'week' ? mondayOf(date) : `${date.slice(0, 8)}01`;
+  const start = s.per === 'week' ? weekAround(date, weeklyDay).first : `${date.slice(0, 8)}01`;
   const sofar = logged.filter((d) => d >= start && d <= date).length;
   return {
     schedule: scheduleLabel(s),
@@ -85,13 +99,15 @@ export function daysToRead(input, today) {
  * run longer than that from one of its days (on their weekly day it runs to
  * the next one).
  */
-function habitSelects(d, u, first, last, bounds) {
+function habitSelects(d, u, first, last, bounds, weeklyDay) {
   const reachFrom = addDays(first, -PLAN_REACH);
   const reachTo = addDays(last, PLAN_REACH);
   const plansFrom = bounds && bounds.first < reachFrom ? bounds.first : reachFrom;
   const plansTo = bounds && bounds.last > reachTo ? bounds.last : reachTo;
   const monthStart = `${first.slice(0, 8)}01`;
-  const since = mondayOf(first) < monthStart ? mondayOf(first) : monthStart;
+  // the check ins of the week and of the month the first day is in
+  const weekStart = weekAround(first, weeklyDay).first;
+  const since = weekStart < monthStart ? weekStart : monthStart;
   return [
     d.select(
       `habits?owner_id=eq.${u}&archived=eq.false&select=id,name,title,frequency,cadence,target_per_period,days_active,start_date,end_date&limit=200`,
@@ -161,6 +177,7 @@ export const getDay = {
       days[0],
       days[days.length - 1],
       weekBounds(ctx.week),
+      weeklyDayOf(ctx.week?.weekly_day),
     );
     const read = await Promise.all(days.map((date) => readDay(ctx, date, shared)));
     return days.length === 1 ? read[0] : { days: read };
@@ -236,10 +253,20 @@ async function readDay(ctx, date, shared) {
     plansBy.set(p.habit_id, [...(plansBy.get(p.habit_id) || []), planned]);
   }
   const bounds = weekBounds(ctx.week);
+  const weeklyDay = weeklyDayOf(ctx.week?.weekly_day);
+  // the habits paused or on a lighter version, as the thread sent them
+  const eases = (ctx.week?.eased || []).map(rowOfEase);
   const habitRows = [];
   for (const h of habits || []) {
     const planned = plannedAround(plansBy.get(h.id), date, bounds);
-    const on = habitOnDay(h, date, logsBy.get(h.id) || [], !!planned?.on);
+    const on = habitOnDay(
+      h,
+      date,
+      logsBy.get(h.id) || [],
+      !!planned?.on,
+      weeklyDay,
+      easeOn(eases, h.id, date),
+    );
     if (on) {
       habitRows.push({ id: h.id, title: h.name || h.title || 'Untitled', ...on, planned });
     }
@@ -275,6 +302,14 @@ function plannedWords(planned, today) {
   const where = planned.week ? ' in their week' : '';
   if (planned.on) return `, planned for this day${where}${others ? ` (also on ${others})` : ''}`;
   return `, planned${where} on ${others}, not on this day`;
+}
+
+/** A habit's lighter version on the day, in words; nothing when it is on none. */
+function lighterWords(lighter) {
+  if (lighter == null) return '';
+  return lighter
+    ? `, lighter version for now: “${trim(lighter, 120)}”`
+    : ', on a lighter version for now';
 }
 
 /** One day, in words, with the ids the tools take. */
@@ -320,7 +355,7 @@ function renderDay(r, ctx) {
       `Habits: ${r.habits
         .map(
           (h) =>
-            `${trim(h.title, 50)} (id ${h.id}) ${h.schedule}, ${h.done ? 'done that day' : 'not done that day'}${h.progress ? `, ${h.progress}${h.met ? ', already met' : ''}` : ''}${plannedWords(h.planned, ctx.today)}`,
+            `${trim(h.title, 50)} (id ${h.id}) ${h.schedule}, ${h.done ? 'done that day' : 'not done that day'}${h.progress ? `, ${h.progress}${h.met ? ', already met' : ''}` : ''}${plannedWords(h.planned, ctx.today)}${lighterWords(h.lighter)}`,
         )
         .join('; ')}`,
     );

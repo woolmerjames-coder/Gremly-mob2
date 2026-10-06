@@ -5,7 +5,7 @@
  * shape of the day, the ID check, yesterday's reaction and when a brief is due.
  */
 import { decideOffer, planLabel, questionButtons } from '../offer';
-import { dayOfWeekNumber, isBehindThisWeek, mondayOf, weeklyTarget } from '../behind';
+import { isBehindThisWeek, weeklyTarget } from '../behind';
 import {
   clashesOf,
   dayPartAt,
@@ -103,18 +103,68 @@ describe('offer rule', () => {
   });
 });
 
-describe('behind this week (worker copy of the app rule)', () => {
-  it('matches the app', () => {
-    expect(mondayOf('2026-09-30')).toBe('2026-09-28');
-    expect(mondayOf('2026-10-04')).toBe('2026-09-28');
-    expect(dayOfWeekNumber('2026-09-30')).toBe(3);
-    const h = (t) => ({ cadence: 'weekly', target_per_period: t, subtype: 'start_habit' });
-    expect(isBehindThisWeek(h(3), 0, 3)).toBe(true);
-    expect(isBehindThisWeek(h(2), 0, 3)).toBe(false);
+describe('behind this week (the rule the app and the workers share, in their own week)', () => {
+  const h = (t) => ({
+    id: 'h1',
+    cadence: 'weekly',
+    target_per_period: t,
+    subtype: 'start_habit',
+  });
+  const stretch = (mode, period_start, period_end, over = {}) => ({
+    id: `${mode}-${period_start}`,
+    habit_id: 'h1',
+    mode,
+    period_start,
+    period_end,
+    floor_note: null,
+    ...over,
+  });
+
+  it('counts a Sunday person from Monday, as it always has', () => {
+    // Wednesday 30 September 2026 is day three of a Monday to Sunday week
+    const week = { today: '2026-09-30', weeklyDay: 0 };
+    expect(isBehindThisWeek(h(3), 0, week)).toBe(true);
+    expect(isBehindThisWeek(h(2), 0, week)).toBe(false);
+    expect(isBehindThisWeek(h(3), 1, week)).toBe(false);
+    // Sunday 4 October is its last day: all seven are gone
+    expect(isBehindThisWeek(h(3), 2, { today: '2026-10-04', weeklyDay: 0 })).toBe(true);
+    expect(isBehindThisWeek(h(3), 3, { today: '2026-10-04', weeklyDay: 0 })).toBe(false);
+    expect(isBehindThisWeek({ ...h(3), archived: true }, 0, week)).toBe(false);
     expect(weeklyTarget({ cadence: 'daily' })).toBeNull();
     expect(
       weeklyTarget({ cadence: 'weekly', subtype: 'break_habit', target_per_period: 3 }),
     ).toBeNull();
+  });
+
+  it('counts a Wednesday person from Thursday', () => {
+    // Thursday 1 October 2026 is day one of their week: nothing can be behind yet
+    expect(isBehindThisWeek(h(3), 0, { today: '2026-10-01', weeklyDay: 3 })).toBe(false);
+    // Saturday 3 October is day three of theirs, and day six of a Sunday person's
+    const saturday = { today: '2026-10-03', weeklyDay: 3 };
+    expect(isBehindThisWeek(h(3), 0, saturday)).toBe(true);
+    expect(isBehindThisWeek(h(3), 1, saturday)).toBe(false);
+    expect(isBehindThisWeek(h(3), 1, { today: '2026-10-03', weeklyDay: 0 })).toBe(true);
+    // Wednesday 7 October is the last day of their week
+    expect(isBehindThisWeek(h(3), 2, { today: '2026-10-07', weeklyDay: 3 })).toBe(true);
+    expect(isBehindThisWeek(h(3), 3, { today: '2026-10-07', weeklyDay: 3 })).toBe(false);
+  });
+
+  it('is never behind on a day the habit is paused, and a paused day does not count as gone', () => {
+    const today = '2026-09-30';
+    const pausedToday = [stretch('pause', '2026-09-29', '2026-10-02')];
+    expect(isBehindThisWeek(h(3), 0, { today, weeklyDay: 0, eases: pausedToday })).toBe(false);
+    // paused on Monday and Tuesday and back today: one day gone, so nothing is due yet
+    const pausedBefore = [stretch('pause', '2026-09-28', '2026-09-29')];
+    expect(isBehindThisWeek(h(3), 0, { today, weeklyDay: 0, eases: pausedBefore })).toBe(false);
+    // a pause of another habit, or one that starts next week, says nothing about today
+    const elsewhere = [
+      stretch('pause', '2026-09-28', '2026-10-04', { habit_id: 'h2' }),
+      stretch('pause', '2026-10-05', '2026-10-11'),
+    ];
+    expect(isBehindThisWeek(h(3), 0, { today, weeklyDay: 0, eases: elsewhere })).toBe(true);
+    // a lighter version changes no counts
+    const lighter = [stretch('floor', '2026-09-28', '2026-10-04', { floor_note: 'Ten minutes' })];
+    expect(isBehindThisWeek(h(3), 0, { today, weeklyDay: 0, eases: lighter })).toBe(true);
   });
 });
 
@@ -353,6 +403,66 @@ describe("the writer's ID check", () => {
     expect(t2).toContain("LAST NIGHT'S WRAP UP: they finished it.");
     expect(t2).toContain('They already said yes to a plan for today');
     expect(t2).not.toMatch(/locked/i);
+  });
+
+  it('says a habit is on a lighter version for now, in their own words when they gave any', () => {
+    const habit = (id, over = {}) => ({
+      id,
+      title: `Habit ${id}`,
+      done: 1,
+      target: 3,
+      behind: false,
+      lighter: null,
+      ...over,
+    });
+    const g = {
+      today: '2026-09-30',
+      now: 465,
+      part: 'morning',
+      ret: null,
+      meetings: [],
+      allDay: [],
+      clashes: [],
+      busy: [],
+      free: [{ from: 480, to: 1320 }],
+      dayShape: null,
+      todosDue: [],
+      habitsForToday: [
+        habit('a'),
+        habit('b', { lighter: '  Ten minutes   is enough ' }),
+        habit('c', { lighter: '', behind: true }),
+        habit('d', { target: null, lighter: 'x'.repeat(150) }),
+        // a snapshot made before lighter versions were known says nothing of one
+        { id: 'e', title: 'Habit e', done: 0, target: null },
+      ],
+      claims: [],
+      reach: null,
+      anchors: [],
+      overdue: 0,
+      unsorted: 0,
+      reaction: null,
+      question: null,
+    };
+    const offer = decideOffer({
+      returnDay: false,
+      overdue: 0,
+      unsorted: 0,
+      candidates: 5,
+      freeWindows: g.free,
+      now: g.now,
+    });
+    const { text } = renderBriefInput(g, offer);
+    expect(text).toContain(
+      [
+        'HABITS FOR TODAY (ref | habit | this week):',
+        'h1 | Habit a | 1 of 3 this week',
+        'h2 | Habit b | 1 of 3 this week, lighter version for now: “Ten minutes is enough”',
+        'h3 | Habit c | 1 of 3 this week, behind for the week, on a lighter version for now',
+        `h4 | Habit d | daily, lighter version for now: “${'x'.repeat(120)}…”`,
+        'h5 | Habit e | daily',
+        "THE DCO'S CLAIMS ON TODAY",
+      ].join('\n'),
+    );
   });
 });
 

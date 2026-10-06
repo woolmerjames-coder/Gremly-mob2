@@ -15,6 +15,7 @@
 // ============================================================================
 
 import { DAY_KINDS, dayKind, dayRoom, minutesOf, spanDays } from '../../../shared/week.js';
+import { pausedOn, rowOfEase } from '../../../shared/habitWeek.js';
 import { obj } from './schema.js';
 import { dayWords, trim } from './words.js';
 
@@ -46,7 +47,8 @@ export function hoursWords(minutes) {
  * @param {object[]} p.todos open todos with a day in the week or put off for later
  * @param {object[]} p.habits the person's habits
  * @param {{habit_id: string, planned_date: string}[]} p.plans the habit days saved
- * @param {object} p.week ctx.week: hours, busy_days, days_off, under_way
+ * @param {object} p.week ctx.week: hours, busy_days, days_off, under_way, and eased (the
+ *   habits paused or on a lighter version, when the app sent them)
  */
 export function boardOf({ days, today, todos, habits, plans, week }) {
   const u = week.under_way || null;
@@ -80,11 +82,13 @@ export function boardOf({ days, today, todos, habits, plans, week }) {
   }
   for (const [id, list] of working) habitDays.set(id, list);
   const habitById = new Map(habits.map((h) => [h.id, h]));
+  // a habit is on no day it is paused on, whatever was planned for it before the pause
+  const eases = (week.eased || []).map(rowOfEase);
 
   const board = days.map((day) => {
     const onDay = todos.filter((t) => dayOf.get(t.id) === day);
     const planned = [...habitDays.entries()]
-      .filter(([id, list]) => habitById.has(id) && list.includes(day))
+      .filter(([id, list]) => habitById.has(id) && list.includes(day) && !pausedOn(eases, id, day))
       .map(([id]) => habitById.get(id));
     const placed = [...onDay, ...planned].reduce((sum, x) => sum + minutesOf(x), 0);
     const kind = dayKind(day, { daysOff: week.days_off, busyDays: week.busy_days });

@@ -210,6 +210,29 @@ function lightFive() {
   };
 }
 
+// Tom again, with his running paused for the whole week being planned (he
+// asked to be left alone about it): the read is told so in the habit's own
+// line, and plans no run on any of the days.
+function lightFivePaused() {
+  const tom = lightFive();
+  const stretch = { first: WEEK.first, last: WEEK.last };
+  return {
+    id: 'light-five-paused',
+    about: 'The same five todos with running paused for the week: no run goes on a day',
+    g: {
+      ...tom.g,
+      habits: tom.g.habits.map((h) => ({
+        ...h,
+        paused: [stretch],
+        eased: [{ mode: 'pause', ...stretch, note: '' }],
+      })),
+    },
+    expect: (read) => [
+      check('No habit day is planned for the paused run', !read.habit_days.length, JSON.stringify(read.habit_days)),
+    ],
+  };
+}
+
 // ── No calendar ─────────────────────────────────────────────────────────────
 // Maya teaches at a primary school. No calendar is connected, and she did a
 // review last week, so the hours she set then are where the guess starts.
@@ -583,6 +606,7 @@ function healthWorld() {
 export const SCENARIOS = [
   heavyBacklog(),
   lightFive(),
+  lightFivePaused(),
   noCalendarScenario(),
   fullCalendar(),
   backAfterAMonth(),

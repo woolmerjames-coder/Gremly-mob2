@@ -16,6 +16,7 @@
 import { db } from '../context/db';
 import { addDays, nextFireAt, zonedTimeToUtc, localDateOf, localMinutesOf } from './reminderTimes';
 import { planDay, dedupeKey, outcomeOf, nextStreak, bestMinutes, clock } from './policy';
+import { pausedOn } from '../../shared/habitWeek.js';
 
 export const SEND_EVENT = 'notifications/send.due';
 export const PLAN_EVENT = 'notifications/plan.day';
@@ -229,11 +230,13 @@ const daysBetween = (a, b) =>
 /**
  * When to check in on a habit today: an hour after the time they set for it,
  * on a day it is due, unless it already has its own reminder. Habit logs carry
- * no time of day, so the set time is the only honest signal. Null for no check in.
+ * no time of day, so the set time is the only honest signal. A habit paused
+ * today is left alone (eases: their habit_adaptations rows). Null for no check in.
  */
-export function habitCheckinMinutes(habit, { tz, localDate }) {
+export function habitCheckinMinutes(habit, { tz, localDate, eases }) {
   if (!habit?.scheduled_start_iso) return null;
   if (Array.isArray(habit.reminders_json) && habit.reminders_json.length) return null;
+  if (pausedOn(eases, habit.id, localDate)) return null;
   const weekday = new Date(`${localDate}T12:00:00Z`).getUTCDay();
   const due =
     habit.cadence === 'daily' ||
@@ -350,42 +353,61 @@ async function loadDay(env, userId, tz, localDate, now) {
   const d = db(env);
   const since28 = new Date(now.getTime() - 28 * DAY_MS).toISOString();
   const since3 = new Date(now.getTime() - 3 * DAY_MS).toISOString();
-  const [prefsRows, engRows, cortexRows, opens, habits, progress, logs, sweeps, backs, backsSaid] =
-    await Promise.all([
-      d.select(`notification_preferences?user_id=eq.${userId}&select=*`),
-      d.select(`user_engagement?user_id=eq.${userId}&select=*`),
-      d.select(`cortex_preferences?owner_id=eq.${userId}&select=gremly_age,day_boundary_hour`),
-      d.select(
-        `app_events?user_id=eq.${userId}&kind=eq.app_open&occurred_at=gte.${encodeURIComponent(since28)}&select=occurred_at&order=occurred_at.desc&limit=500`,
-      ),
-      d.select(
-        `habits?owner_id=eq.${userId}&archived=eq.false&completed_at=is.null&select=id,name,title,cadence,days_active,scheduled_start_iso,reminders_json&limit=50`,
-      ),
-      d.select(
-        `habit_progress?owner_id=eq.${userId}&occurred_at=gte.${encodeURIComponent(since28)}&select=habit_id,occurred_at,occurred_day&limit=2000`,
-      ),
-      d.select(
-        `notification_log?user_id=eq.${userId}&status=in.(sent,delivered)&outcome=is.null&is_test=eq.false&sent_at=gte.${encodeURIComponent(since3)}&select=id,moment,subject_id,angle,sent_at,opened_at&limit=100`,
-      ),
-      d.select(
-        `events?owner_id=eq.${userId}&kind=eq.sweep_completed&created_at=gte.${encodeURIComponent(since3)}&select=created_at&limit=50`,
-      ),
-      // todos put off (Later) that came back in the last few days and are still open
-      readCameBack(env, userId, addDays(localDate, -COME_BACK_LOOK_DAYS), localDate).catch(
-        (err) => {
-          console.warn(`[Notifications] could not read what came back: ${err?.message || err}`);
-          return [];
-        },
-      ),
-      // and the last day a note said so. Not known, nothing is said today
-      // rather than the same things twice.
-      readCameBackSaid(env, userId).catch((err) => {
-        console.warn(
-          `[Notifications] could not read when what came back was last said: ${err?.message || err}`,
-        );
-        return localDate;
+  const [
+    prefsRows,
+    engRows,
+    cortexRows,
+    opens,
+    habits,
+    progress,
+    logs,
+    sweeps,
+    backs,
+    backsSaid,
+    eases,
+  ] = await Promise.all([
+    d.select(`notification_preferences?user_id=eq.${userId}&select=*`),
+    d.select(`user_engagement?user_id=eq.${userId}&select=*`),
+    d.select(`cortex_preferences?owner_id=eq.${userId}&select=gremly_age,day_boundary_hour`),
+    d.select(
+      `app_events?user_id=eq.${userId}&kind=eq.app_open&occurred_at=gte.${encodeURIComponent(since28)}&select=occurred_at&order=occurred_at.desc&limit=500`,
+    ),
+    d.select(
+      `habits?owner_id=eq.${userId}&archived=eq.false&completed_at=is.null&select=id,name,title,cadence,days_active,scheduled_start_iso,reminders_json&limit=50`,
+    ),
+    d.select(
+      `habit_progress?owner_id=eq.${userId}&occurred_at=gte.${encodeURIComponent(since28)}&select=habit_id,occurred_at,occurred_day&limit=2000`,
+    ),
+    d.select(
+      `notification_log?user_id=eq.${userId}&status=in.(sent,delivered)&outcome=is.null&is_test=eq.false&sent_at=gte.${encodeURIComponent(since3)}&select=id,moment,subject_id,angle,sent_at,opened_at&limit=100`,
+    ),
+    d.select(
+      `events?owner_id=eq.${userId}&kind=eq.sweep_completed&created_at=gte.${encodeURIComponent(since3)}&select=created_at&limit=50`,
+    ),
+    // todos put off (Later) that came back in the last few days and are still open
+    readCameBack(env, userId, addDays(localDate, -COME_BACK_LOOK_DAYS), localDate).catch((err) => {
+      console.warn(`[Notifications] could not read what came back: ${err?.message || err}`);
+      return [];
+    }),
+    // and the last day a note said so. Not known, nothing is said today
+    // rather than the same things twice.
+    readCameBackSaid(env, userId).catch((err) => {
+      console.warn(
+        `[Notifications] could not read when what came back was last said: ${err?.message || err}`,
+      );
+      return localDate;
+    }),
+    // the stretches a habit is paused for that cover today. Not known, a
+    // check in is planned as usual, and the sender reads the pause again.
+    d
+      .select(
+        `habit_adaptations?owner_id=eq.${userId}&period_start=lte.${localDate}&period_end=gte.${localDate}&select=id,habit_id,mode,period_start,period_end,floor_note&limit=200`,
+      )
+      .catch((err) => {
+        console.warn(`[Notifications] could not read their paused habits: ${err?.message || err}`);
+        return [];
       }),
-    ]);
+  ]);
   const lastEvent =
     (
       await d.select(
@@ -406,6 +428,7 @@ async function loadDay(env, userId, tz, localDate, now) {
     sweeps: sweeps || [],
     backs: backs || [],
     backsSaid: backsSaid || null,
+    eases: eases || [],
     lastOpen,
   };
 }
@@ -536,7 +559,7 @@ export async function planPersonDay(
       id: h.id,
       title: h.name || h.title || null,
       // planDay checks in an hour after usualMinutes, so it gets the set time
-      usualMinutes: habitCheckinMinutes(h, { tz, localDate }),
+      usualMinutes: habitCheckinMinutes(h, { tz, localDate, eases: x.eases }),
       loggedToday: (byHabit.get(h.id) || []).some((l) => l.occurred_day === localDate),
     })),
     goodNews: [],

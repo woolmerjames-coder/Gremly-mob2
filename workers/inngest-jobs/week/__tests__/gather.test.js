@@ -91,6 +91,15 @@ function fakeDb(over = {}) {
       { habit_id: 'h1', occurred_day: '2026-09-15' },
     ],
     habit_plans: [{ habit_id: 'h1', planned_date: '2026-10-07' }],
+    habit_adaptations: [
+      {
+        id: 'e1',
+        habit_id: 'h1',
+        mode: 'pause',
+        period_start: '2026-10-05',
+        period_end: '2026-10-06',
+      },
+    ],
     calendar_events: [
       {
         id: 'q1',
@@ -254,6 +263,9 @@ describe('what the read gathers', () => {
       last_week: 1,
       before: 1,
       planned: ['2026-10-07'],
+      // paused on Monday and Tuesday of the days being planned
+      paused: [{ first: '2026-10-05', last: '2026-10-06' }],
+      eased: [{ mode: 'pause', first: '2026-10-05', last: '2026-10-06', note: '' }],
     });
     expect(g.calendar.connected).toBe(true);
     expect(g.calendar.days).toHaveLength(7);
@@ -351,6 +363,10 @@ describe('what the read gathers', () => {
     );
     expect(asked('habit_plans?')[0]).toContain(
       'planned_date=gte.2026-10-05&planned_date=lte.2026-10-11',
+    );
+    // a pause or a lighter version that touches any day from today to the last one planned
+    expect(asked('habit_adaptations?')[0]).toContain(
+      'period_end=gte.2026-10-04&period_start=lte.2026-10-11',
     );
     // what was done in the last seven days, from the start of that day where they are
     expect(

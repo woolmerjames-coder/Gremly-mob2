@@ -21,12 +21,6 @@ export function daysBetween(a, b) {
   return Math.round((utcNoon(b) - utcNoon(a)) / 864e5);
 }
 
-/** The Monday of the week a day is in. */
-export function mondayOf(day) {
-  const dow = utcNoon(day).getUTCDay();
-  return addDays(day, -((dow + 6) % 7));
-}
-
 export function weekdayOf(day) {
   return utcNoon(day).getUTCDay();
 }

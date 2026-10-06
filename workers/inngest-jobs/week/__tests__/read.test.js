@@ -302,6 +302,41 @@ describe('what the read is given', () => {
     ).toBe(1);
   });
 
+  it('reads a pause and a lighter version still to run, and nothing from one that is over', () => {
+    const eases = [
+      { habit_id: 'h', mode: 'pause', period_start: '2026-10-05', period_end: '2026-10-07' },
+      {
+        habit_id: 'h',
+        mode: 'floor',
+        period_start: '2026-10-08',
+        period_end: '2026-10-11',
+        floor_note: 'Ten lengths',
+      },
+      { habit_id: 'h', mode: 'pause', period_start: '2026-09-20', period_end: '2026-09-27' },
+      { habit_id: 'other', mode: 'pause', period_start: '2026-10-05', period_end: '2026-10-11' },
+    ];
+    const h = shapeHabit(
+      { id: 'h', cadence: 'weekly', target_per_period: 3 },
+      { eases, today: TODAY },
+    );
+    // every pause of its is a stretch no day goes on; what is told is what still runs
+    expect(h.paused).toEqual([
+      { first: '2026-10-05', last: '2026-10-07' },
+      { first: '2026-09-20', last: '2026-09-27' },
+    ]);
+    expect(h.eased).toEqual([
+      { mode: 'pause', first: '2026-10-05', last: '2026-10-07', note: '' },
+      { mode: 'lighter', first: '2026-10-08', last: '2026-10-11', note: 'Ten lengths' },
+    ]);
+    // three days are paused, so four are left for it
+    expect(habitAllowance(h, DAYS)).toBe(3);
+    expect(habitAllowance({ ...h, target: 5 }, DAYS)).toBe(4);
+    expect(habitSentence(h, TODAY)).toBe(
+      'aiming for 3 a week, done 0 times last week and 0 times in the three weeks before. Paused from 2026-10-05 to 2026-10-07: they asked to be left alone about it on those days, so it goes on none of them. On a lighter version from 2026-10-08 to 2026-10-11, “Ten lengths”: its days and its count are as usual, and the smaller version counts in full.',
+    );
+    expect(shapeHabit({ id: 'd' }, { today: TODAY })).toMatchObject({ paused: [], eased: [] });
+  });
+
   it('lets a habit go on no more days than they aim for', () => {
     expect(habitAllowance(habit('a', { target: 3 }), DAYS)).toBe(3);
     // fewer days left than the target
@@ -772,6 +807,25 @@ describe('what comes back', () => {
       'habit_day:day_outside',
       'habit_days:twice',
     ]);
+  });
+
+  it('never plans a habit on a day it is paused', () => {
+    const g = gathered();
+    g.habits = g.habits.map((h) =>
+      h.id === 'habit-run' ? { ...h, paused: [{ first: '2026-10-05', last: '2026-10-06' }] } : h,
+    );
+    const { read, dropped } = check(
+      reply({
+        habit_days: [
+          { habit_id: 'h1', days: ['2026-10-05', '2026-10-07', '2026-10-09'], reason: '' },
+        ],
+      }),
+      g,
+    );
+    expect(read.habit_days).toEqual([
+      { habit_id: 'habit-run', days: ['2026-10-07', '2026-10-09'], reason: '' },
+    ]);
+    expect(dropped.map((d) => `${d.what}:${d.why}`)).toEqual(['habit_day:not_a_day_for_it']);
   });
 
   it('takes the dashes out of what Gremly wrote', () => {

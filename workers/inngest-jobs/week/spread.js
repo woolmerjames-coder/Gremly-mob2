@@ -31,6 +31,7 @@ import { weekdayName } from '../context/db';
 import { jsonCall, modelFor } from '../context/llm';
 import { noDashes } from '../brief/writer';
 import { habitAllowance, renderRead, theirDays, todosToList } from './read';
+import { EASE_MODES } from '../../shared/habitWeek.js';
 import { DAY_KINDS, dayKind, isDay, minutesOf, spanDays } from '../../shared/week.js';
 import {
   backDays,
@@ -69,8 +70,9 @@ function trim(text, n) {
 /**
  * Their own moves on the board, as the app sent them: none of it is saved
  * until they finish, so it rides with the request. Anything that is not an id
- * with a real day is left out.
- * @returns {{placed: Map<string, string>, later: Map<string, string>, habit_days: Map<string, string[]>}}
+ * with a real day is left out. habit_ease is what they chose for a habit over
+ * the days being planned: pause, lighter, or usual (which ends what is saved).
+ * @returns {{placed: Map<string, string>, later: Map<string, string>, habit_days: Map<string, string[]>, habit_ease: Map<string, string>}}
  */
 export function readBoard(board) {
   const b = board && typeof board === 'object' ? board : {};
@@ -86,7 +88,11 @@ export function readBoard(board) {
   for (const h of asList(b.habit_days).slice(0, 80)) {
     if (UUID.test(h?.id)) habitDays.set(h.id, [...new Set(asList(h.days).filter(isDay))].sort());
   }
-  return { placed, later, habit_days: habitDays };
+  const habitEase = new Map();
+  for (const h of asList(b.habit_ease).slice(0, 80)) {
+    if (UUID.test(h?.id) && EASE_MODES.includes(h.mode)) habitEase.set(h.id, h.mode);
+  }
+  return { placed, later, habit_days: habitDays, habit_ease: habitEase };
 }
 
 /**
@@ -163,14 +169,30 @@ export function spreadFrame(g, row, board) {
   const suggested = new Map(asList(read.habit_days).map((h) => [h?.habit_id, asList(h?.days)]));
   const habits = [];
   const unset = [];
-  for (const h of g.habits || []) {
+  const openOn = new Map();
+  for (const habit of g.habits || []) {
+    // What they chose for it on the board stands over what is saved, as it
+    // does on the board: paused there, it is paused on every one of the days;
+    // set to anything else there, a pause saved for these days no longer holds.
+    const chosen = mine.habit_ease.get(habit.id);
+    const h = !chosen
+      ? habit
+      : {
+          ...habit,
+          paused: chosen === 'pause' ? [{ first: days[0], last: days[days.length - 1] }] : [],
+        };
+    // none for a habit paused over every one of the days (weekBoard.js habitOpenDays)
     const allow = habitAllowance(h, days);
     if (!allow) continue;
+    // a day inside a pause is no day of its, whoever chose it and whenever
+    const open = (d) =>
+      days.includes(d) && !asList(h.paused).some((p) => p.first <= d && d <= p.last);
     const one = { id: h.id, title: h.title, minutes: minutesOf(h), days: [], allow };
     habits.push(one);
-    const saved = asList(h.planned).filter((d) => days.includes(d));
+    openOn.set(h.id, open);
+    const saved = asList(h.planned).filter(open);
     if (mine.habit_days.has(h.id)) {
-      one.days = mine.habit_days.get(h.id).filter((d) => days.includes(d));
+      one.days = mine.habit_days.get(h.id).filter(open);
     } else if (saved.length) one.days = [...new Set(saved)].sort();
     else {
       unset.push(one);
@@ -183,7 +205,7 @@ export function spreadFrame(g, row, board) {
     for (const d of new Set(asList(suggested.get(one.id)))) {
       if (picked.length >= one.allow) break;
       const x = on.get(d);
-      if (!x || x.minutes - x.fixed - x.habits < one.minutes) continue;
+      if (!x || !openOn.get(one.id)(d) || x.minutes - x.fixed - x.habits < one.minutes) continue;
       x.habits += one.minutes;
       picked.push(d);
     }

@@ -6652,7 +6652,7 @@ async function gatherTodayFacts(userId, timezone, env) {
 
   queries.push(
     fetch(
-      `${env.SUPABASE_URL}/rest/v1/habit_adaptations?owner_id=eq.${userId}&period_end=gte.${targetDate}&select=id,habit_id,mode,period_start,period_end,floor_note&limit=100`,
+      `${env.SUPABASE_URL}/rest/v1/habit_adaptations?owner_id=eq.${userId}&period_start=lte.${targetDate}&period_end=gte.${targetDate}&select=id,habit_id,mode,period_start,period_end,floor_note&limit=100`,
       { headers },
     )
       .then((r) => r.json())

@@ -33,6 +33,7 @@ import { reportProblem } from './alert';
 import { COME_BACK_LOOK_DAYS, readCameBack, reminderStillFiresAt } from './planner';
 import { addDays } from './reminderTimes';
 import { isDay } from '../../shared/week.js';
+import { pausedOn } from '../../shared/habitWeek.js';
 import { sweepCounts } from './sweepCount';
 
 /** iOS action button sets, matching the categories the app registers. */
@@ -169,6 +170,18 @@ export function touchedTonight(sweep, tz, dayEndHour) {
   return minutes >= EVENING_START_HOUR * 60 || minutes < dayEndHour * 60;
 }
 
+/**
+ * Whether a habit is paused on their day. A paused habit is left alone, so
+ * nothing about it is sent. Read fresh, like the habit itself: a pause made
+ * after the day was planned or the reminder was queued still holds.
+ */
+async function habitPausedToday(d, uid, habitId, ritualDay) {
+  const rows = await d.select(
+    `habit_adaptations?owner_id=eq.${uid}&habit_id=eq.${habitId}&period_start=lte.${ritualDay}&period_end=gte.${ritualDay}&select=id,habit_id,mode,period_start,period_end,floor_note&limit=200`,
+  );
+  return pausedOn(rows, habitId, ritualDay);
+}
+
 /** Is the reason for this notification still true? Returns { ok, reason, facts }. */
 export async function stillTrue(env, person, job, at = new Date()) {
   const d = db(env);
@@ -226,6 +239,8 @@ export async function stillTrue(env, person, job, at = new Date()) {
       const [habit] =
         (await d.select(`habits?id=eq.${job.subject}&owner_id=eq.${uid}&select=id,archived`)) || [];
       if (!habit || habit.archived) return { ok: false, reason: 'The habit is no longer active' };
+      if (await habitPausedToday(d, uid, job.subject, ritualDay))
+        return { ok: false, reason: 'The habit is paused' };
       const logged = await d.select(
         `habit_progress?owner_id=eq.${uid}&habit_id=eq.${job.subject}&occurred_day=eq.${ritualDay}&select=id&limit=1`,
       );
@@ -250,8 +265,10 @@ export async function stillTrue(env, person, job, at = new Date()) {
       ) {
         return { ok: false, reason: 'The reminder moved to another time' };
       }
-      // a habit already logged today needs no reminder
+      // a habit paused today is left alone, and one already logged today needs no reminder
       if (type === 'habit') {
+        if (await habitPausedToday(d, uid, id, ritualDay))
+          return { ok: false, reason: 'The habit is paused' };
         const logged = await d.select(
           `habit_progress?owner_id=eq.${uid}&habit_id=eq.${id}&occurred_day=eq.${ritualDay}&select=id&limit=1`,
         );

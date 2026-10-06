@@ -5,7 +5,7 @@
  */
 
 import { clashesOf, dayPartAt, isCancelledEntry, shapeOfDay } from '../../workers/inngest-jobs/brief/data.js';
-import { dayOfWeekNumber, isBehindThisWeek } from '../../workers/inngest-jobs/brief/behind.js';
+import { isBehindThisWeek } from '../../workers/inngest-jobs/brief/behind.js';
 import { decideOffer } from '../../workers/inngest-jobs/brief/offer.js';
 import { buildDayRecord } from '../../workers/inngest-jobs/brief/dayRecord.js';
 import { summariseWrap } from '../../workers/inngest-jobs/brief/reaction.js';
@@ -41,7 +41,8 @@ export function buildSnapshot(s) {
     : null;
   const day = buildDayRecord({ today: s.today, frame, meetings, anchors: s.anchors || [] });
   const { busy, free } = shapeOfDay(day.busy, 8 * 60, day.planEnd);
-  const daysGone = dayOfWeekNumber(s.today);
+  // every scenario is someone whose weekly day is Sunday: a Monday to Sunday week
+  const week = { today: s.today, weeklyDay: 0 };
   const habits = (s.habits || []).map((h, i) => {
     const row = h.breaking
       ? { subtype: 'break_habit', cadence: 'daily' }
@@ -54,9 +55,11 @@ export function buildSnapshot(s) {
       done: h.done || 0,
       target: h.target || null,
       daily: !!h.daily && !h.breaking,
-      behind: isBehindThisWeek(row, h.done || 0, daysGone),
+      behind: isBehindThisWeek(row, h.done || 0, week),
       scheduledToday: false,
       minutes: h.minutes || null,
+      // on a lighter version today: what they said it is, or '' when they did not say
+      ...(h.lighter !== undefined ? { lighter: h.lighter } : {}),
     };
   });
   const habitsForToday = habits.filter((h) => h.daily || h.behind || h.scheduledToday);

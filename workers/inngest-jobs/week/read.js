@@ -39,6 +39,7 @@ import {
   weekdayOf,
 } from '../../shared/week.js';
 import { gremlyPut, habitAllowance, habitOpenDays } from '../../shared/weekBoard.js';
+import { easesFrom, pauseSpans } from '../../shared/habitWeek.js';
 import { checkWeekChange, normDay, normMinutes } from '../../shared/changes/check.js';
 import { STEP_KINDS, WEEK_LIMITS, NAME_LIMIT } from '../../shared/changes/fields.js';
 
@@ -131,10 +132,13 @@ export function theirDays(g) {
 
 /**
  * A habit as the read sees it: what they aim for, how the last four weeks
- * went (days it was logged, last week and the three weeks before), and the
- * days it is already planned on.
+ * went (days it was logged, last week and the three weeks before), the days
+ * it is already planned on, and any pause or lighter version still to run.
+ * paused is what the board's rules read (weekBoard.js habitOpenDays): a day
+ * inside a pause is no day to put it on.
  */
-export function shapeHabit(h, { progress = [], plans = [], today }) {
+export function shapeHabit(h, { progress = [], plans = [], eases = [], today }) {
+  const mine = eases.filter((e) => e?.habit_id === h.id);
   const cadence = ['weekly', 'monthly'].includes(h.cadence) ? h.cadence : 'daily';
   const logged = new Set(progress.filter((p) => p.habit_id === h.id).map((p) => p.occurred_day));
   const weekAgo = addDays(today, -6);
@@ -168,6 +172,13 @@ export function shapeHabit(h, { progress = [], plans = [], today }) {
       .filter((p) => p.habit_id === h.id && isDay(p.planned_date))
       .map((p) => p.planned_date)
       .sort(),
+    paused: pauseSpans(mine, h.id),
+    eased: easesFrom(mine, today).map((e) => ({
+      mode: e.mode,
+      first: e.first,
+      last: e.last,
+      note: e.note,
+    })),
   };
 }
 
@@ -325,6 +336,7 @@ export async function gatherRead(env, userId, p) {
     habitRows,
     progress,
     plans,
+    eases,
     notes,
     quick,
     range,
@@ -356,6 +368,10 @@ export async function gatherRead(env, userId, p) {
     ),
     d.select(
       `habit_plans?${mine}&planned_date=gte.${first}&planned_date=lte.${last}&select=habit_id,planned_date&limit=500`,
+    ),
+    // a habit paused or on a lighter version on any day from today to the last one planned
+    d.select(
+      `habit_adaptations?${mine}&period_end=gte.${today}&period_start=lte.${last}&select=id,habit_id,mode,period_start,period_end,floor_note&limit=200`,
     ),
     // dated things Gremly holds, from today to six weeks out; a journal note is not a plan
     d.select(
@@ -418,7 +434,14 @@ export async function gatherRead(env, userId, p) {
       .sort((a, b) => String(b.completed_at).localeCompare(String(a.completed_at)))
       .map((t) => ({ title: t.name || t.title || 'Untitled' })),
     habits: (habitRows || [])
-      .map((h) => shapeHabit(h, { progress: progress || [], plans: plans || [], today }))
+      .map((h) =>
+        shapeHabit(h, {
+          progress: progress || [],
+          plans: plans || [],
+          eases: eases || [],
+          today,
+        }),
+      )
       .filter((h) => !h.end_date || h.end_date >= today),
     dated: datedThings({ notes, quick, allDayAhead, chapters, today, horizon }),
     calendar: { connected: (tokens || []).length > 0, days: calendarDays },
@@ -506,7 +529,18 @@ export function habitSentence(h, today) {
   else if (h.start_date && h.start_date >= addDays(today, -27))
     start = ` They started it on ${h.start_date}.`;
   const planned = h.planned?.length ? ` Already planned on ${h.planned.join(', ')}.` : '';
-  return `${aim}${each}${went}${start}${planned}`;
+  return `${aim}${each}${went}${start}${planned}${easedWords(h)}`;
+}
+
+/** A habit's pause or lighter version still to run, in words: the days, and what each asks. */
+function easedWords(h) {
+  return (h.eased || [])
+    .map((e) =>
+      e.mode === 'pause'
+        ? ` Paused from ${e.first} to ${e.last}: they asked to be left alone about it on those days, so it goes on none of them.`
+        : ` On a lighter version from ${e.first} to ${e.last}${e.note ? `, “${e.note}”` : ''}: its days and its count are as usual, and the smaller version counts in full.`,
+    )
+    .join('');
 }
 
 const dayWords = (day, today) => `${day} ${weekdayName(day)}, ${relativeDay(day, today)}`;

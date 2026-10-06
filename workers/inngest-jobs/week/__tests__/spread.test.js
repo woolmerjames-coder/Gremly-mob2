@@ -187,6 +187,43 @@ describe('what the spread is made from', () => {
     expect(off.frame.habits[0].days).toEqual([]);
   });
 
+  it('keeps a habit off the days it is paused, whoever chose them, and off the week when all of it is', () => {
+    const part = gathered();
+    part.habits[0].paused = [{ first: MON, last: TUE }];
+    // Gremly's Monday is inside the pause
+    expect(made(part).frame.habits[0].days).toEqual([WED, SAT]);
+    part.habits[0].planned = [TUE, FRI];
+    expect(made(part).frame.habits[0].days).toEqual([FRI]);
+    const mine = made(part, review(), { habit_days: [{ id: RUN, days: [MON, THU] }] });
+    expect(mine.frame.habits[0].days).toEqual([THU]);
+    // paused over every day being planned: it is no part of the week, and takes none of its room
+    const whole = gathered();
+    whole.habits[0].paused = [{ first: MON, last: SUN }];
+    const { frame } = made(whole);
+    expect(frame.habits.map((h) => h.id)).toEqual([READ]);
+    expect(frame.room.every((d) => d.habits === 0)).toBe(true);
+  });
+
+  it('takes what they chose for a habit on the board over what is saved, as the board does', () => {
+    // paused on the board, not saved yet: it is on no day and takes no room
+    const paused = made(gathered(), review(), { habit_ease: [{ id: RUN, mode: 'pause' }] });
+    expect(paused.frame.habits.map((h) => h.id)).toEqual([READ]);
+    expect(paused.frame.room.every((d) => d.habits === 0)).toBe(true);
+    // a saved pause ended on the board, and a day chosen for it: the day is theirs, and counted
+    const saved = gathered();
+    saved.habits[0].paused = [{ first: MON, last: SUN }];
+    const ended = made(saved, review(), {
+      habit_ease: [{ id: RUN, mode: 'usual' }],
+      habit_days: [{ id: RUN, days: [TUE] }],
+    });
+    expect(ended.frame.habits[0]).toMatchObject({ id: RUN, days: [TUE] });
+    expect(ended.frame.room.find((d) => d.day === TUE).habits).toBe(40);
+    // anything that is not one of the three is left out
+    expect(
+      made(saved, review(), { habit_ease: [{ id: RUN, mode: 'gone' }] }).frame.habits[0].id,
+    ).toBe(READ);
+  });
+
   it('never puts a habit on more days than they aim for from Gremly’s suggestion', () => {
     const row = review({
       read: { habit_days: [{ habit_id: RUN, days: [MON, TUE, WED, THU, FRI] }] },

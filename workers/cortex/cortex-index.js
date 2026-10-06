@@ -217,6 +217,7 @@ import { HABIT_BUILDER_PROMPT } from './habitBuilderPrompt.js';
 import { writeWrapWords, WRAP_WORDS_VERSION } from './wrap/words.js';
 import { clock } from './agent/tools/words.js';
 import { minutesIn } from '../shared/calendar.js';
+import { weeklyDayOf } from '../shared/week.js';
 import { executeTavilySearch, formatSearchBrief } from './webSearch.js';
 import { aiContext, installAiUsageLogging, setAiUsage } from '../shared/aiUsage.js';
 import { briefNoCardSection, briefQuestionSection } from './briefTurn.js';
@@ -11873,6 +11874,9 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               recent: body.recentEntity,
               mode: triage.mode,
               todayIso: todayIsoIn(userTimezone),
+              // their week, when the app sends it (with their week, or alone as weekly_day):
+              // a habit's count this week is made in it
+              weeklyDay: weeklyDayOf(body?.week?.weekly_day ?? body?.weekly_day),
             });
 
             const spaceChatMessages = [
@@ -12810,6 +12814,9 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               mode: triage.mode,
               todayIso: todayIsoIn(userTimezone),
               detailText: itemDetailText(anchorDetail, todayIsoIn(userTimezone)),
+              // their week, when the app sends it (with their week, or alone as weekly_day):
+              // a habit's count this week is made in it
+              weeklyDay: weeklyDayOf(body?.week?.weekly_day ?? body?.weekly_day),
             });
             // today's thread: the reply to the brief's question (a card's own
             // instructions come first when one is shown)
@@ -14953,6 +14960,9 @@ function runScopedChatStream(
         recent: body.recentEntity,
         mode: triage.mode,
         todayIso: todayIsoIn(userTimezone),
+        // their week, when the app sends it (with their week, or alone as weekly_day):
+        // a habit's count this week is made in it
+        weeklyDay: weeklyDayOf(body?.week?.weekly_day ?? body?.weekly_day),
       });
       const chatMessages = [
         { role: 'system', content: genConfig.systemPrompt },
