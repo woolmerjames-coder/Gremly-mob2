@@ -12,6 +12,57 @@
 import { supabase } from '../supabase/client';
 import { nowTimestamp } from '../date/DateService';
 import type { ReviewKind, ReviewState, WeekHours } from '../week/model';
+import type { Milestone } from '../changes/model';
+
+/**
+ * The weekly read: what Gremly prepared for the review's opening
+ * (workers/inngest-jobs/week/read.js). Every id is a real one and every date a
+ * real day, checked there. busy_days and each habit's days are among the days
+ * first to last; the review that opens on a later day leaves out those gone.
+ */
+export interface WeekRead {
+  /** The prompt version it was made with, when, on which of their days, and by which model */
+  version: string;
+  made_at: string;
+  made_on: string;
+  model: string;
+  /** The days it plans, first and last */
+  first: string;
+  last: string;
+  /**
+   * Worked out in code over every open todo: how many, their hours, how many
+   * were added over three months ago, how many have moved ten times or more,
+   * how many have a day or date gone by, how many fall on the days planned,
+   * and how many the read was shown
+   */
+  figures: {
+    open: number;
+    hours: number;
+    old: number;
+    moved: number;
+    gone: number;
+    dated: number;
+    listed: number;
+  };
+  /** The one thing most likely to make the week go wrong */
+  challenge: { headline: string; why: string };
+  evidence: { figure: string; label: string }[];
+  coming_off: string;
+  /** item is the dated thing the moment is, when it is one of theirs */
+  coming_up: { when: string; what: string; item: { type: string; id: string } | null }[];
+  /** Up to five, at most three of them Gremly's picks; item_ids are todos */
+  priority_options: { text: string; why: string; gremly_pick: boolean; item_ids: string[] }[];
+  intention_drafts: string[];
+  /** Hours for their own things on each kind of day, in half hours; null when none could be used */
+  free_hours_guess: (WeekHours & { reason: string }) | null;
+  busy_days: string[];
+  /** Each ready to go on a card as a milestone change; about is the dated thing it leads up to */
+  milestones: (Milestone & { about: { type: string; id: string; title: string } })[];
+  needs_you: { item_ids: string[]; title: string; stuck_because: string; question: string }[];
+  habit_days: { habit_id: string; days: string[]; reason: string }[];
+  /** How many times the check had to drop or put right something the model returned */
+  dropped: number;
+}
 
 /** What the person settled in the review. Next week starts from the hours and busy days. */
 export interface WeekAnswers {
@@ -47,7 +98,7 @@ export interface WeekReviewRow {
   span_start: string;
   status: ReviewState;
   kind: ReviewKind;
-  read: Record<string, unknown> | null;
+  read: WeekRead | null;
   answers: WeekAnswers;
   spread: Record<string, unknown> | null;
   checkins: WeekCheckIn[];

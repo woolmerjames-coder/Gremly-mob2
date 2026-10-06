@@ -8,6 +8,8 @@ import { eventBus } from '../events/EventBus';
 import { getSessionToken, getSessionTokenSync } from './getSessionToken';
 import type { HabitBuilderRequest, HabitBuilderStreamingCallbacks } from '../types';
 import type { Change } from '../changes/model';
+import type { WeekReviewRow } from '../repo/weekReviewRepo';
+import type { ReviewKind } from '../week/model';
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
@@ -2395,6 +2397,115 @@ export interface BriefTurnRequest extends DayTurnRequest {
   wrap?: WrapTurnContext;
   /** Their week, from an app build that can show the weekly review */
   week?: WeekTurnContext;
+}
+
+/**
+ * The weekly review's read, for a review opened today
+ * (workers/inngest-jobs/week). The week's row comes back with the read it
+ * holds when that serves a review started today; otherwise one is made there
+ * and then, which takes most of a minute, so this is called behind the
+ * review's loading screen. The answer comes as server-sent events, with a ping
+ * every few seconds while the read is made, so the phone keeps waiting. A read
+ * that was being made when the call failed may still have been finished and
+ * kept on the week's row (the worker carries on for a short while after the
+ * phone stops listening): read the row again (getWeekReview) before asking a
+ * second time.
+ */
+export interface WeekReadResponse {
+  /** A read was made for this call; false when the week already held one that serves */
+  made: boolean;
+  /** What a review started today is, by the date rules (workers/shared/week.js reviewOn) */
+  on: {
+    kind: ReviewKind;
+    promoted: boolean;
+    fresh: boolean;
+    week_start: string;
+    span_start: string;
+    span_end: string;
+  };
+  /** The week's row, with its read */
+  review: WeekReviewRow;
+}
+
+/**
+ * @param req date is the person's day in the app (DateService today)
+ * @param opts timeoutMs is how long to wait for a read being made (two minutes
+ *   unless given); quietMs is how long the line may stay silent before the
+ *   call counts as lost (pings come every eight seconds)
+ */
+export async function callWeekRead(
+  req: { date: string },
+  opts: { timeoutMs?: number; quietMs?: number } = {},
+): Promise<CortexClientResult<WeekReadResponse>> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return { ok: false, error: '[cortex] Missing EXPO_PUBLIC_CORTEX_URL' };
+  if (isAiDisabled()) return { ok: false, error: 'AI disabled' };
+  const token = await getSessionToken();
+  if (!token) return { ok: false, error: 'not signed in' };
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const es = new EventSource(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ type: 'week-read', date: req.date }),
+      // asked once: a stream that ends is never posted again, which would start another read
+      pollingInterval: 0,
+      lineEndingCharacter: '\n',
+    });
+    let quiet: ReturnType<typeof setTimeout> | null = null;
+    const finish = (r: CortexClientResult<WeekReadResponse>) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (quiet) clearTimeout(quiet);
+      es.close();
+      resolve(r);
+    };
+    // a stream that ends without its answer says nothing more: the silence is how it shows
+    const listen = () => {
+      if (quiet) clearTimeout(quiet);
+      quiet = setTimeout(
+        () => finish({ ok: false, error: 'the connection went quiet' }),
+        opts.quietMs ?? 30000,
+      );
+    };
+    timer = setTimeout(() => finish({ ok: false, error: 'timed out' }), opts.timeoutMs ?? 120000);
+    listen();
+    es.addEventListener('message', (event: { data?: string | null }) => {
+      if (!settled) listen();
+      let data: Record<string, unknown> | null = null;
+      try {
+        data = JSON.parse(event.data ?? '');
+      } catch {
+        return;
+      }
+      if (!data) return;
+      if (data.error === 'read_only') {
+        eventBus.emit('cortex:read_only', {});
+        finish({ ok: false, error: 'read_only' });
+        return;
+      }
+      // pings only keep the connection open while the read is made
+      if (!data.done) return;
+      if (data.error) {
+        finish({ ok: false, error: String(data.error) });
+        return;
+      }
+      const answer = { ...data };
+      delete answer.done;
+      const got = answer as unknown as WeekReadResponse;
+      finish(
+        got.review?.read ? { ok: true, data: got } : { ok: false, error: 'no read came back' },
+      );
+    });
+    es.addEventListener('error', (event) =>
+      finish({
+        ok: false,
+        error: String((event as { message?: string } | null)?.message || 'stream error'),
+      }),
+    );
+  });
 }
 
 /**
