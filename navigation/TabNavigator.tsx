@@ -18,6 +18,7 @@ import {
 } from '../components/home/gremlyButtonFill';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
 import type { TalkAboutItem } from '../lib/chat/talkAboutOpeners';
+import type { ThreadStep } from '../lib/brief/pinned';
 import { lightTokens } from '../design/tokens';
 
 // Tab bar icon images (v1.20 brand refresh)
@@ -49,8 +50,8 @@ export type TabParamList = {
          */
         thread?: 'today' | 'day';
         day?: string;
-        /** With thread: jump to a step of the brief once it has played ('plan') */
-        step?: 'plan' | 'wrap' | 'week';
+        /** With thread: what today's thread goes on to once it is open (lib/brief/pinned.ts) */
+        step?: ThreadStep;
         /** With step 'plan': plan tomorrow instead of today (Plan tomorrow, after Sweep) */
         planDay?: 'tomorrow';
         /** Changes on every request, so the same thread can be asked for twice */
