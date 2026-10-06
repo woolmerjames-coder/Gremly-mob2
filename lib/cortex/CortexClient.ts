@@ -8,7 +8,7 @@ import { eventBus } from '../events/EventBus';
 import { getSessionToken, getSessionTokenSync } from './getSessionToken';
 import type { HabitBuilderRequest, HabitBuilderStreamingCallbacks } from '../types';
 import type { Change } from '../changes/model';
-import type { WeekReviewRow } from '../repo/weekReviewRepo';
+import type { WeekReviewRow, WeekSpread } from '../repo/weekReviewRepo';
 import type { ReviewKind } from '../week/model';
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
@@ -2557,6 +2557,60 @@ export async function callWeekRead(
         return got.review?.read
           ? { ok: true, data: got }
           : { ok: false, error: 'no read came back' };
+      },
+    },
+  );
+}
+
+/**
+ * The spread for the review under way (cortex week-spread, inngest-jobs
+ * week/spread.js): which of their todos Gremly puts on which day, made from
+ * the answers the week's row holds now. It takes about twenty seconds and is
+ * kept on the row, so when the call fails the row may still have it.
+ */
+export interface WeekSpreadResponse {
+  on: WeekReadResponse['on'];
+  spread: WeekSpread;
+}
+
+/**
+ * @param req date is the person's day in the app; board is their own moves on
+ *   the board, which are not saved until they finish and which a spread never
+ *   moves
+ */
+export async function callWeekSpread(
+  req: {
+    date: string;
+    board?: {
+      placed: { id: string; day: string }[];
+      later: { id: string; back_on: string }[];
+      habit_days: { id: string; days: string[] }[];
+    } | null;
+  },
+  opts: { timeoutMs?: number; quietMs?: number } = {},
+): Promise<CortexClientResult<WeekSpreadResponse>> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return { ok: false, error: '[cortex] Missing EXPO_PUBLIC_CORTEX_URL' };
+  if (isAiDisabled()) return { ok: false, error: 'AI disabled' };
+  const token = await getSessionToken();
+  if (!token) return { ok: false, error: 'not signed in' };
+  return askOnce<WeekSpreadResponse>(
+    baseUrl,
+    token,
+    { type: 'week-spread', date: req.date, board: req.board ?? null },
+    {
+      timeoutMs: opts.timeoutMs ?? 90000,
+      quietMs: opts.quietMs ?? 30000,
+      read: (data) => {
+        // pings only keep the connection open while the spread is made
+        if (!data.done) return undefined;
+        if (data.error) return { ok: false, error: String(data.error) };
+        const answer = { ...data };
+        delete answer.done;
+        const got = answer as unknown as WeekSpreadResponse;
+        return Array.isArray(got.spread?.place)
+          ? { ok: true, data: got }
+          : { ok: false, error: 'no spread came back' };
       },
     },
   );

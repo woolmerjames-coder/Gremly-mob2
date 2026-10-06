@@ -94,8 +94,116 @@ export interface WeekAnswers {
   said?: { step: WeekStep; text: string }[];
   /** Gremly's picks and guesses were taken for the steps they did not do (Just plan it) */
   guessed?: boolean;
+  /**
+   * How many times a change to their items was saved during the review (a
+   * card of Gremly's applied or taken back, the steps towards something set
+   * up or undone). The spread is made from their items, so it is part of
+   * what a spread was made for (workers/shared/weekBoard.js spreadBasis).
+   */
+  touched?: number;
   /** The Done step has asked whether to move their weekly day to the day of this review */
   day_asked?: boolean;
+  /**
+   * Their own moves on the week's board, which stand over Gremly's spread.
+   * Nothing on the board is saved until they finish, so this is where a board
+   * left part way is kept.
+   */
+  board?: WeekBoardMoves;
+  /**
+   * What they said of the days they gave their todos themselves: keep them
+   * (which is also what happens when they are never asked), keep some, or
+   * hand them all to Gremly to rearrange (workers/shared/weekBoard.js released)
+   */
+  keep?: 'all' | 'some' | 'none';
+  /** With keep 'some': the todos they freed for Gremly to place again */
+  freed?: string[];
+  /**
+   * Their over-full days that have been dealt with, and how: a suggestion of
+   * Gremly's taken (moved), changed by hand on the board, or left as it is
+   */
+  relieved?: Record<string, 'moved' | 'changed' | 'left'>;
+  /**
+   * What saving the board came to, for the week in short, and the plan itself
+   * (days): the todos and the habits on each day, by id, so the week can be
+   * read back as what was planned against what got done (lib/week/yourWeek.ts)
+   */
+  planned?: WeekPlanned;
+}
+
+export interface WeekPlanned {
+  /** Todos on a day, todos put off, and habit sessions with a day */
+  todos: number;
+  later: number;
+  habit_days: number;
+  days?: Record<string, { todos: string[]; habits: string[] }>;
+  /**
+   * Where Gremly's spread put each todo it placed, todo id to day. A todo
+   * still on that day when this week is planned again is Gremly's to place
+   * again; any other day a todo is on is theirs.
+   */
+  gremly?: Record<string, string>;
+}
+
+/**
+ * Gremly's suggestions for their over-full days (workers/inngest-jobs/week/
+ * relief.js storedRelief): for each day that holds more of their own todos
+ * than it has room for, which could leave it and where to. Nothing moves
+ * unless they take a suggestion. Made beside the spread and kept inside it.
+ */
+export interface WeekRelief {
+  version: string;
+  /** The answers it was made for (workers/shared/weekBoard.js reliefBasis) */
+  basis: string;
+  /** The call failed: the days are named, with no moves */
+  failed?: boolean;
+  model?: string | null;
+  days: {
+    day: string;
+    /** How far over its room the day is, in minutes */
+    over: number;
+    /** How many moves Gremly offered for it, before the checks: none means he would leave it */
+    asked?: number;
+    /** to: the day it could move to; null when it goes to Later, back on back_on */
+    moves: { id: string; to: string | null; back_on: string | null }[];
+    /** How far over it would still be with every move taken */
+    still: number;
+    note: string;
+  }[];
+  counts?: Record<string, number>;
+}
+
+/** Their own moves on the board: a todo on a day, a todo put off, a habit's days. */
+export interface WeekBoardMoves {
+  placed?: Record<string, string>;
+  later?: Record<string, string>;
+  habit_days?: Record<string, string[]>;
+  /** They have opened the board at least once */
+  opened?: boolean;
+}
+
+/**
+ * Gremly's spread of a week (workers/inngest-jobs/week/spread.js storedSpread):
+ * the todos it placed on days and the ones it put off, each with the day it
+ * comes back, the days each habit is on, and a short note for a day. Checked
+ * by code before it is kept: every id is theirs, no day is over its room.
+ */
+export interface WeekSpread {
+  version: string;
+  made_at: string;
+  made_on: string;
+  model: string | null;
+  effort?: string;
+  /** The days it planned */
+  first: string;
+  last: string;
+  /** The answers it was made for (workers/shared/weekBoard.js spreadBasis) */
+  basis: string;
+  place: { id: string; day: string }[];
+  later: { id: string; back_on: string }[];
+  habit_days: { id: string; days: string[] }[];
+  notes: { day: string; note: string }[];
+  counts?: Record<string, number>;
+  relief?: WeekRelief | null;
 }
 
 /** A moment Gremly asks how a milestone is going, in that evening's wrap up. */
@@ -121,7 +229,7 @@ export interface WeekReviewRow {
   kind: ReviewKind;
   read: WeekRead | null;
   answers: WeekAnswers;
-  spread: Record<string, unknown> | null;
+  spread: WeekSpread | null;
   checkins: WeekCheckIn[];
   prompt_versions: Record<string, string>;
   created_at: string;

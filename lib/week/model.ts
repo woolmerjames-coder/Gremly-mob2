@@ -38,3 +38,20 @@ export type {
   WeekHours,
   WeekStep,
 } from '../../workers/shared/week';
+// the week board's rules, shared with the worker that spreads a week
+export {
+  FALLBACK_HOURS,
+  KEEP_ASK_FROM,
+  backDays,
+  busyFor,
+  gremlyPut,
+  habitAllowance,
+  habitOpenDays,
+  hoursFor,
+  released,
+  reliefBasis,
+  returnsCap,
+  spreadBasis,
+  spreadReturns,
+  todoSpot,
+} from '../../workers/shared/weekBoard';

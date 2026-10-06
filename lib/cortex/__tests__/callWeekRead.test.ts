@@ -1,7 +1,8 @@
 /**
  * callWeekRead (lib/cortex/CortexClient.ts): the weekly review's read, asked
  * of cortex as server-sent events. Pings keep the phone waiting while a read
- * is made; the answer settles the call once.
+ * is made; the answer settles the call once. callWeekSpread asks for the
+ * week's spread the same way.
  */
 
 type Listener = (event: { data?: string | null; message?: string }) => void;
@@ -61,7 +62,7 @@ jest.mock('../../events/EventBus', () => ({
   eventBus: { emit: (...args: unknown[]) => mockEmit(...args) },
 }));
 
-import { callWeekRead } from '../CortexClient';
+import { callWeekRead, callWeekSpread } from '../CortexClient';
 
 const REVIEW = {
   id: 'row-1',
@@ -180,6 +181,87 @@ describe('callWeekRead', () => {
     mockToken = 'token-abc';
     mockDisabled = 'true';
     expect(await callWeekRead({ date: '2026-10-04' })).toEqual({ ok: false, error: 'AI disabled' });
+    expect(MockEventSource.last).toBeNull();
+  });
+});
+
+describe('callWeekSpread', () => {
+  const SPREAD = {
+    version: 'week-spread-test',
+    made_at: '2026-10-04T19:45:00.000Z',
+    made_on: '2026-10-04',
+    first: '2026-10-05',
+    last: '2026-10-11',
+    basis: 'basis',
+    place: [{ id: 'todo-1', day: '2026-10-05' }],
+    later: [],
+    habit_days: [],
+    notes: [],
+  };
+  const BOARD = {
+    placed: [{ id: 'todo-2', day: '2026-10-07' }],
+    later: [],
+    habit_days: [{ id: 'habit-1', days: ['2026-10-05'] }],
+  };
+
+  async function spread(board?: typeof BOARD, opts?: { timeoutMs?: number; quietMs?: number }) {
+    MockEventSource.last = null;
+    const pending = callWeekSpread({ date: '2026-10-04', board }, opts);
+    await Promise.resolve();
+    await Promise.resolve();
+    return { pending, es: MockEventSource.last as unknown as MockEventSource };
+  }
+
+  it('asks cortex once for the week’s spread, with their own moves on the board', async () => {
+    const { pending, es } = await spread(BOARD);
+    expect(es.options.headers).toMatchObject({ Authorization: 'Bearer token-abc' });
+    expect((es.options as { pollingInterval?: number }).pollingInterval).toBe(0);
+    expect(JSON.parse(es.options.body as string)).toEqual({
+      type: 'week-spread',
+      date: '2026-10-04',
+      board: BOARD,
+    });
+    es.say({ ping: true });
+    es.say({ done: true, on: ON, spread: SPREAD });
+    expect(await pending).toEqual({ ok: true, data: { on: ON, spread: SPREAD } });
+    expect(es.closed).toBe(true);
+  });
+
+  it('sends no board when they have moved nothing', async () => {
+    const { pending, es } = await spread();
+    expect(JSON.parse(es.options.body as string).board).toBeNull();
+    es.say({ done: true, on: ON, spread: SPREAD });
+    await pending;
+  });
+
+  it('says what went wrong, and that an answer with no spread is no answer', async () => {
+    let c = await spread();
+    c.es.say({ done: true, error: 'there is no review with a read to spread' });
+    expect(await c.pending).toEqual({
+      ok: false,
+      error: 'there is no review with a read to spread',
+    });
+
+    c = await spread();
+    c.es.say({ done: true, on: ON, spread: null });
+    expect(await c.pending).toEqual({ ok: false, error: 'no spread came back' });
+  });
+
+  it('counts a line that goes quiet as lost, and asks nobody when signed out', async () => {
+    jest.useFakeTimers();
+    const { pending, es } = await spread(BOARD, { timeoutMs: 60000, quietMs: 1000 });
+    jest.advanceTimersByTime(800);
+    es.say({ ping: true });
+    expect(es.closed).toBe(false);
+    jest.advanceTimersByTime(1001);
+    expect(await pending).toEqual({ ok: false, error: 'the connection went quiet' });
+    jest.useRealTimers();
+    mockToken = null;
+    MockEventSource.last = null;
+    expect(await callWeekSpread({ date: '2026-10-04' })).toEqual({
+      ok: false,
+      error: 'not signed in',
+    });
     expect(MockEventSource.last).toBeNull();
   });
 });
