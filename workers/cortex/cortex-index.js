@@ -3373,6 +3373,7 @@ const cortexHandler = {
         'day-turn',
         'brief-turn',
         'week-read',
+        'week-spread',
         'notification-test',
       ]);
       const AUTH_REQUIRED_LANES = new Set([
@@ -7758,6 +7759,43 @@ ${assistantMessage.substring(0, 2000)}
               }),
             }).catch((err) => {
               console.error('[WeekRead] could not reach inngest-jobs', err?.message || err);
+              return null;
+            }),
+          waitUntil: (p) => ctx.waitUntil(p),
+        });
+      }
+
+      // =========================
+      // === THE WEEKLY REVIEW'S SPREAD ===
+      // Once they have answered the review, Gremly spreads their todos across
+      // the days being planned (inngest-jobs week/spread.js, about twenty
+      // seconds). Their own moves on the board are not saved until they finish,
+      // so they ride with the request and nothing they placed is moved. The
+      // answer goes back the way the read's does, with pings while it is made.
+      // =========================
+      if (type === 'week-spread') {
+        const access = await checkUserAccess(authenticatedUserId, env);
+        if (!access.hasAccess) return denyAccessSSEResponse(access.reason);
+        if (!env.INNGEST_WORKER_URL || !env.INNGEST_ADMIN_KEY)
+          return j({ error: 'not configured' }, 503);
+        return weekReadResponse({
+          what: "the week's spread",
+          answer: (data) => ({ on: data.on, spread: data.spread }),
+          ask: () =>
+            fetchInngestWorker(env, '/api/week-spread', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-admin-key': env.INNGEST_ADMIN_KEY,
+              },
+              body: JSON.stringify({
+                user_id: authenticatedUserId,
+                date: typeof body.date === 'string' ? body.date.slice(0, 10) : null,
+                // ids and days only; inngest-jobs reads it again and leaves out anything else
+                board: body.board && typeof body.board === 'object' ? body.board : null,
+              }),
+            }).catch((err) => {
+              console.error('[WeekSpread] could not reach inngest-jobs', err?.message || err);
               return null;
             }),
           waitUntil: (p) => ctx.waitUntil(p),

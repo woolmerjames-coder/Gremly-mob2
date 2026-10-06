@@ -33,7 +33,7 @@ import { aiContext, installAiUsageLogging } from '../shared/aiUsage';
 import { CARE_RULES } from './careRules';
 import { createContextFunctions, hourlyContextEvents, contextMode } from './context/functions';
 import { createBriefFunctions, handleBriefApi } from './brief';
-import { createWeekFunctions, handleWeekReadApi } from './week';
+import { createWeekFunctions, handleWeekReadApi, handleWeekSpreadApi } from './week';
 import { addDays as dayPlus, cycleOf, isDay as isRealDay } from '../shared/week.js';
 import { createNotificationFunctions } from './notifications/functions';
 import { runMinute as runNotificationsMinute } from './notifications/cron';
@@ -11358,6 +11358,10 @@ const appHandler = {
     // week has none that serves it, through cortex
     if (url.pathname === '/api/week-read' && request.method === 'POST') {
       return handleWeekReadApi(request, env, corsResponse, ctx);
+    }
+    // and its spread: which todos go on which day, once they have answered
+    if (url.pathname === '/api/week-spread' && request.method === 'POST') {
+      return handleWeekSpreadApi(request, env, corsResponse, ctx);
     }
 
     if (url.pathname === '/api/force-generate-dco' && request.method === 'POST') {

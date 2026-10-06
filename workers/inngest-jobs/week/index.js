@@ -38,6 +38,8 @@ import {
   weeklyDayOf,
 } from '../../shared/week.js';
 import { gatherRead, runWeekRead, storedRead } from './read';
+import { runWeekSpread, spreadFrame, storedSpread } from './spread';
+import { runWeekRelief, storedRelief } from './relief';
 import { DEFAULT_TIMEZONE, slotHour, weekSettings } from './settings';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -264,6 +266,78 @@ export async function ensureWeekRead(env, userId, p = {}) {
   return { made: kept.made, on: r.on, review: kept.review };
 }
 
+/**
+ * The spread for the review under way: which of their todos go on which day,
+ * made from their answers as the week's row has them now and kept on the row
+ * (spread). The app asks for it once they have set the week's shape, and
+ * again when their priorities, hours or busy days change.
+ *
+ * Their own moves on the board are not saved until they finish, so they come
+ * with the request (board) and nothing they placed is moved. Only spread and
+ * its prompt version are written here: the answers and the review's progress
+ * are the app's.
+ *
+ * @param {object} env
+ * @param {string} userId
+ * @param {{today?: string, board?: object, at?: Date, deps?: {run?: Function, gather?: Function}}} [p]
+ * @returns {Promise<{on: object, spread: object}>}
+ */
+export async function ensureWeekSpread(env, userId, p = {}) {
+  const at = p.at || new Date();
+  const d = db(env);
+  const [tz, settings] = await Promise.all([userTimezone(env, userId), weekSettings(env, userId)]);
+  const mine = await personToday(env, userId, tz, at);
+  const today = isDay(p.today) && Math.abs(daysBetween(mine, p.today)) <= 1 ? p.today : mine;
+  const row = await rowOf(d, userId, reviewOn(today, settings.weekly_day).week_start);
+  const on = reviewWith(today, settings.weekly_day, row);
+  if (!row || !row.read || typeof row.read !== 'object') {
+    throw new Error('there is no review with a read to spread');
+  }
+  const g = await (p.deps?.gather || gatherRead)(env, userId, {
+    today,
+    first: on.span_start,
+    last: on.span_end,
+    week_start: on.week_start,
+    tz,
+    days_off: settings.days_off,
+    at,
+  });
+  // Beside the spread, and from the same frame: what could leave each day
+  // that already holds more of their own than it has room for. When that call
+  // fails the spread still stands, and those days are named with no moves.
+  const frame = (p.deps?.frame || spreadFrame)(g, row, p.board);
+  const [out, relief] = await Promise.all([
+    (p.deps?.run || runWeekSpread)(env, g, row, { board: p.board }),
+    (p.deps?.relief || runWeekRelief)(env, g, frame).catch((err) => {
+      console.warn(
+        `[ALERT][WeekRelief] no moves could be suggested for ${userId}: ${err?.message || err}`,
+      );
+      return null;
+    }),
+  ]);
+  for (const [name, made] of [
+    ['WeekSpread', out],
+    ['WeekRelief', relief],
+  ]) {
+    if (!made?.dropped?.length) continue;
+    const what = [...new Set(made.dropped.map((x) => `${x.what}: ${x.why}`))].join('; ');
+    console.warn(`[ALERT][${name}] dropped ${made.dropped.length} for ${userId}: ${what}`);
+  }
+  const spread = { ...storedSpread(g, out, at), relief: storedRelief(g, frame, relief) };
+  const saved = await d.update(`weekly_reviews?id=eq.${row.id}&owner_id=eq.${userId}`, {
+    spread,
+    prompt_versions: {
+      ...(row.prompt_versions && typeof row.prompt_versions === 'object'
+        ? row.prompt_versions
+        : {}),
+      spread: spread.version,
+      relief: spread.relief.version,
+    },
+  });
+  if (!saved?.[0]) throw new Error('the spread was made but its week could not be saved');
+  return { on, spread };
+}
+
 export function createWeekFunctions(inngest, { synthesis }) {
   const dispatch = inngest.createFunction(
     { id: 'weekly-pipe-dispatch', name: 'Weekly pipe: start the pipes due now' },
@@ -366,6 +440,27 @@ export async function handleWeekReadApi(request, env, corsResponse, ctx) {
     return corsResponse({ made: r.made, on: r.on, review: r.review });
   } catch (e) {
     console.error('[WeekRead] API error:', e);
+    return corsResponse({ error: String(e?.message || e).slice(0, 300) }, 500);
+  }
+}
+
+/**
+ * POST /api/week-spread { user_id, date, board } (admin key checked
+ * upstream). A spread takes about twenty seconds, so like the read its work is
+ * handed to the worker's own lifetime: one that gets finished is kept on the
+ * week's row whether or not the phone is still waiting.
+ */
+export async function handleWeekSpreadApi(request, env, corsResponse, ctx) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const userId = typeof body.user_id === 'string' ? body.user_id : null;
+    if (!userId || !UUID.test(userId)) return corsResponse({ error: 'user_id is required' }, 400);
+    const work = ensureWeekSpread(env, userId, { today: body.date, board: body.board });
+    ctx?.waitUntil?.(work.catch(() => undefined));
+    const r = await work;
+    return corsResponse({ on: r.on, spread: r.spread });
+  } catch (e) {
+    console.error('[WeekSpread] API error:', e);
     return corsResponse({ error: String(e?.message || e).slice(0, 300) }, 500);
   }
 }

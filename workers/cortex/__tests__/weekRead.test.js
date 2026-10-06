@@ -32,6 +32,37 @@ const ON = {
   span_end: '2026-10-11',
 };
 
+describe('the week-spread answer', () => {
+  it('goes the same way, with its own answer and its own words when it fails', async () => {
+    const spread = { version: 'week-spread-test', place: [], later: [] };
+    const answer = (data) => ({ on: data.on, spread: data.spread });
+    const got = await events(
+      weekReadResponse({
+        what: "the week's spread",
+        answer,
+        ask: async () => json({ on: ON, spread, extra: 'left out' }),
+      }),
+    );
+    expect(got[0]).toEqual({ ping: true });
+    expect(got[got.length - 1]).toEqual({ done: true, on: ON, spread });
+    const lost = await events(
+      weekReadResponse({ what: "the week's spread", answer, ask: async () => null }),
+    );
+    expect(lost[lost.length - 1]).toEqual({
+      done: true,
+      error: "could not reach the week's spread",
+    });
+    const failed = await events(
+      weekReadResponse({
+        what: "the week's spread",
+        answer,
+        ask: async () => new Response('not json', { status: 502 }),
+      }),
+    );
+    expect(failed[failed.length - 1]).toEqual({ done: true, error: "the week's spread failed" });
+  });
+});
+
 describe('the week-read answer', () => {
   it('pings at once, then hands back the read', async () => {
     const waited = [];

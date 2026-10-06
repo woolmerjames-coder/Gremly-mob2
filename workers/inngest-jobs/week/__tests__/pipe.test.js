@@ -7,7 +7,9 @@
 
 import {
   ensureWeekRead,
+  ensureWeekSpread,
   handleWeekReadApi,
+  handleWeekSpreadApi,
   keepWeekRead,
   pipeDueDay,
   pipesDue,
@@ -620,6 +622,170 @@ describe('the read for a review', () => {
     const r = await ensureWeekRead({}, USER, { at: SUNDAY_3PM, deps });
     expect(r.review.read.dropped).toBe(2);
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('dropped 2 from the read'));
+  });
+});
+
+describe('the spread for a review', () => {
+  const row = {
+    id: 'row-1',
+    week_start: '2026-10-05',
+    kind: 'weekly',
+    status: 'started',
+    read: READ,
+    answers: { hours: { normal_day: 2 } },
+    prompt_versions: { read: 'week-read-test' },
+  };
+  const spreadDeps = () => ({
+    gather: jest.fn(async (_env, _userId, p) => ({
+      today: p.today,
+      first: p.first,
+      last: p.last,
+      todos: [],
+    })),
+    run: jest.fn(async () => ({
+      place: [{ id: 'todo-1', day: '2026-10-06' }],
+      later: [{ id: 'todo-2', back_on: '2026-10-13' }],
+      notes: [],
+      dropped: [],
+      counts: { placed: 1, later: 1 },
+      frame: { days: ['2026-10-05'], basis: 'the basis', habits: [{ id: 'h1', days: [] }] },
+      model: 'gpt-6-luna',
+      prompt_version: 'week-spread-test',
+      effort: 'low',
+    })),
+    // the frame both are made from, and the suggestions for their over-full days
+    frame: jest.fn(() => ({
+      days: ['2026-10-05', '2026-10-06'],
+      relief_basis: 'the relief basis',
+      fixed: new Map([['todo-7', '2026-10-06']]),
+      room: [
+        { day: '2026-10-05', fixed: 0, over: 0 },
+        { day: '2026-10-06', fixed: 160, over: 40 },
+      ],
+    })),
+    relief: jest.fn(async () => ({
+      days: [
+        {
+          day: '2026-10-06',
+          over: 40,
+          moves: [{ id: 'todo-7', to: '2026-10-05', back_on: null }],
+          still: 0,
+          note: '',
+        },
+      ],
+      dropped: [],
+      counts: { over_full: 1, moves: 1 },
+      model: 'gpt-6-luna',
+      prompt_version: 'week-relief-test',
+    })),
+  });
+
+  it('is made from the review under way and kept on its row, with nothing else written', async () => {
+    const d = fakeDb({ row });
+    db.mockReturnValue(d);
+    const deps = spreadDeps();
+    const board = { placed: [{ id: 'todo-9', day: '2026-10-07' }] };
+    const r = await ensureWeekSpread({}, USER, {
+      today: '2026-10-04',
+      at: SUNDAY_3PM,
+      board,
+      deps,
+    });
+    expect(deps.gather.mock.calls[0][2]).toMatchObject({
+      today: '2026-10-04',
+      first: '2026-10-05',
+      last: '2026-10-11',
+      week_start: '2026-10-05',
+    });
+    // the review's row and their own moves on the board go to the spread
+    expect(deps.run.mock.calls[0][2]).toBe(row);
+    expect(deps.run.mock.calls[0][3]).toEqual({ board });
+    expect(r.on).toMatchObject({ kind: 'weekly', week_start: '2026-10-05' });
+    expect(r.spread).toMatchObject({
+      version: 'week-spread-test',
+      basis: 'the basis',
+      place: [{ id: 'todo-1', day: '2026-10-06' }],
+      later: [{ id: 'todo-2', back_on: '2026-10-13' }],
+    });
+    expect(d.update).toHaveBeenCalledTimes(1);
+    const [path, patch] = d.update.mock.calls[0];
+    expect(path).toBe(`weekly_reviews?id=eq.row-1&owner_id=eq.${USER}`);
+    // the answers and how far the review has got are the app's: only the spread is written
+    expect(Object.keys(patch).sort()).toEqual(['prompt_versions', 'spread']);
+    expect(patch.prompt_versions).toEqual({
+      read: 'week-read-test',
+      spread: 'week-spread-test',
+      relief: 'week-relief-test',
+    });
+    // the suggestions for their over-full days are made beside it, from the same frame, and kept with it
+    expect(deps.frame).toHaveBeenCalledWith(expect.anything(), row, board);
+    expect(deps.relief.mock.calls[0][2]).toBe(deps.frame.mock.results[0].value);
+    expect(r.spread.relief).toMatchObject({
+      version: 'week-relief-test',
+      model: 'gpt-6-luna',
+      days: [{ day: '2026-10-06', over: 40, moves: [{ id: 'todo-7', to: '2026-10-05' }] }],
+    });
+    expect(r.spread.relief.failed).toBeUndefined();
+    expect(r.spread.relief.basis).toBe('the relief basis');
+  });
+
+  it('keeps the spread when no moves could be suggested, and names the over-full days with none', async () => {
+    const d = fakeDb({ row });
+    db.mockReturnValue(d);
+    const deps = spreadDeps();
+    deps.relief.mockRejectedValue(new Error('the model did not answer'));
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const r = await ensureWeekSpread({}, USER, { today: '2026-10-04', at: SUNDAY_3PM, deps });
+    expect(r.spread.place).toEqual([{ id: 'todo-1', day: '2026-10-06' }]);
+    expect(r.spread.relief).toMatchObject({
+      failed: true,
+      days: [{ day: '2026-10-06', over: 40, moves: [], still: 40, note: '' }],
+    });
+    expect(d.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('says so when there is no review with a read to spread', async () => {
+    for (const none of [null, { ...row, read: null }]) {
+      db.mockReturnValue(fakeDb({ row: none }));
+      const deps = spreadDeps();
+      await expect(
+        ensureWeekSpread({}, USER, { today: '2026-10-04', at: SUNDAY_3PM, deps }),
+      ).rejects.toThrow('there is no review with a read to spread');
+      expect(deps.run).not.toHaveBeenCalled();
+    }
+  });
+
+  it('carries on a review begun in its window: the rest of the week, from today', async () => {
+    db.mockReturnValue(fakeDb({ row }));
+    const deps = spreadDeps();
+    // Wednesday 7 October: by the date alone this would be the extra
+    const r = await ensureWeekSpread({}, USER, {
+      at: new Date('2026-10-07T19:00:00Z'),
+      deps,
+    });
+    expect(r.on).toMatchObject({ kind: 'weekly', resumed: true });
+    expect(deps.gather.mock.calls[0][2]).toMatchObject({
+      first: '2026-10-07',
+      last: '2026-10-11',
+    });
+  });
+
+  it('answers the route, and says what went wrong', async () => {
+    const corsResponse = (body, status = 200) => ({ body, status });
+    const bad = await handleWeekSpreadApi(
+      { json: async () => ({ user_id: 'nobody' }) },
+      {},
+      corsResponse,
+    );
+    expect(bad).toEqual({ body: { error: 'user_id is required' }, status: 400 });
+    db.mockReturnValue(fakeDb({ row: null }));
+    const none = await handleWeekSpreadApi(
+      { json: async () => ({ user_id: USER, date: '2026-10-04' }) },
+      {},
+      corsResponse,
+    );
+    expect(none.status).toBe(500);
+    expect(none.body.error).toContain('there is no review with a read to spread');
   });
 });
 
