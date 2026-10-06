@@ -24,6 +24,7 @@ import {
   shapeTodo,
   storedRead,
   todosToList,
+  theirDays,
 } from '../read';
 import { jsonCall } from '../../context/llm';
 
@@ -259,7 +260,10 @@ describe('what the read is given', () => {
       // a date that does not exist is no date
       deadline: null,
       back_on: '2026-10-20',
+      timed: false,
     });
+    // a time of day makes it an appointment
+    expect(shapeTodo({ id: 'y', due_day: '2026-10-06', due_time: '10:00' }).timed).toBe(true);
   });
 
   it('counts the days a habit was logged, last week and the three weeks before', () => {
@@ -840,5 +844,50 @@ describe('the call', () => {
     expect(jsonCall.mock.calls[0][1].effort).toBe('low');
     expect(jsonCall.mock.calls[0][1].thinking).toBe('low');
     expect(storedRead(g, out).effort).toBe('low');
+  });
+});
+
+describe('the days they chose themselves', () => {
+  const todos = [
+    todo('a', { due_day: '2026-10-07' }),
+    todo('b', { due_day: '2026-10-08' }),
+    // a day that has gone by, a day in a week further out, and no day
+    todo('c', { due_day: '2026-10-01' }),
+    todo('d', { due_day: '2026-10-14' }),
+    todo('e'),
+  ];
+
+  it('are every todo on a day being planned', () => {
+    expect([...theirDays(gathered({ todos }))]).toEqual(['a', 'b']);
+  });
+
+  it('leave out a day that Gremly’s last spread of this same week gave, unless it has moved since', () => {
+    const g = gathered({
+      todos,
+      last_review: {
+        week_start: DAYS[0],
+        reviewed: true,
+        put: { a: '2026-10-07', b: '2026-10-06' },
+      },
+    });
+    expect([...theirDays(g)]).toEqual(['b']);
+  });
+
+  it('are marked on the list the read is given, and only those', () => {
+    const text = renderRead(gathered({ todos })).text;
+    expect(text).toContain('| day 2026-10-07, which they chose');
+    expect(text).toContain('| day 2026-10-08, which they chose');
+    expect(text).toContain('| day 2026-10-01\n');
+    expect(text).toContain('| day 2026-10-14\n');
+    // the spread says which are still theirs, once they may have freed some
+    const some = renderRead(gathered({ todos }), { theirs: new Set(['b']) }).text;
+    expect(some).toContain('| day 2026-10-07\n');
+    expect(some).toContain('| day 2026-10-08, which they chose');
+  });
+
+  it('are theirs to decide, which the read is told', () => {
+    expect(readSystem({ first_name: 'Robin' }).fixed).toContain(
+      'Some todos are on a day they chose themselves. Those days are their own decisions and are not yours to change: take them as given when you weigh how much the week already holds.',
+    );
   });
 });

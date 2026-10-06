@@ -239,6 +239,7 @@ describe('what the read gathers', () => {
       due_day: null,
       deadline: null,
       back_on: null,
+      timed: false,
     });
     // newest first
     expect(g.done).toEqual([{ title: 'Mark the tests' }, { title: 'Send the letters' }]);
@@ -325,6 +326,8 @@ describe('what the read gathers', () => {
       // one of the two todos it covered is done; an id that is not one is not looked up
       priorities: [{ text: 'Reports', of: 2, done: 1 }],
       hours: { normal_day: 2, busy_day: 0.5, weekend_day: 4 },
+      // it planned another week, so nothing it placed is on the days being planned now
+      put: null,
     });
   });
 

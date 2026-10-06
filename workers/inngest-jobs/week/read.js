@@ -38,10 +38,11 @@ import {
   spanDays,
   weekdayOf,
 } from '../../shared/week.js';
+import { gremlyPut, habitAllowance, habitOpenDays } from '../../shared/weekBoard.js';
 import { checkWeekChange, normDay, normMinutes } from '../../shared/changes/check.js';
 import { STEP_KINDS, WEEK_LIMITS, NAME_LIMIT } from '../../shared/changes/fields.js';
 
-export const WEEK_READ_VERSION = 'week-read-2026-10-06l';
+export const WEEK_READ_VERSION = 'week-read-2026-10-07a';
 
 /** The most open todos the read lists; the figures still count every one. */
 export const TODO_LIST_MAX = 120;
@@ -107,7 +108,25 @@ export function shapeTodo(t) {
     due_day: isDay(t.due_day) ? t.due_day : null,
     deadline: isDay(t.target_date) ? t.target_date : null,
     back_on: isDay(t.resurface_at) ? t.resurface_at : null,
+    // it has a time of day: an appointment, which no review rearranges
+    timed: typeof t.due_time === 'string' && t.due_time !== '',
   };
+}
+
+/**
+ * The todos on a day they chose themselves, among the days being planned:
+ * every one with a day there, except where the day is the one Gremly's last
+ * spread of this same week gave it (workers/shared/weekBoard.js gremlyPut).
+ * @returns {Set<string>} their ids
+ */
+export function theirDays(g) {
+  const days = spanDays(g.first, g.last).filter((d) => d >= g.today);
+  const answers = { planned: { gremly: g.last_review?.put || null } };
+  return new Set(
+    (g.todos || [])
+      .filter((t) => t.due_day && days.includes(t.due_day) && !gremlyPut(t, answers))
+      .map((t) => t.id),
+  );
 }
 
 /**
@@ -152,24 +171,9 @@ export function shapeHabit(h, { progress = [], plans = [], today }) {
   };
 }
 
-/** The days among those planned that a habit runs on at all. */
-function habitDays(h, days) {
-  const live = days.filter(
-    (d) => (!h.start_date || h.start_date <= d) && (!h.end_date || h.end_date >= d),
-  );
-  if (h.cadence !== 'daily' || !h.days_active?.length) return live;
-  return live.filter((d) => h.days_active.includes(weekdayOf(d)));
-}
-
-/**
- * How many of the days being planned a habit can be put on: never more than
- * they aim for, and none for a habit they are breaking.
- */
-export function habitAllowance(h, days) {
-  if (!h || h.breaking) return 0;
-  const open = habitDays(h, days).length;
-  return h.cadence === 'daily' ? open : Math.min(h.target || 1, open);
-}
+// How many of the days being planned a habit can be put on is the board's rule
+// (workers/shared/weekBoard.js habitAllowance), shared with the app's board.
+export { habitAllowance };
 
 /** Minutes booked on a day, with meetings that overlap counted once. */
 export function bookedMinutes(meetings) {
@@ -286,6 +290,14 @@ async function lastReviewOf(d, userId, row, weekStart) {
         return { text: x.text, of: mine.length, done: mine.filter((id) => isDone.get(id)).length };
       }),
     hours: answers.hours && typeof answers.hours === 'object' ? answers.hours : null,
+    // this same week planned before: where Gremly's spread put each todo then
+    put:
+      row &&
+      from === weekStart &&
+      answers.planned?.gremly &&
+      typeof answers.planned.gremly === 'object'
+        ? answers.planned.gremly
+        : null,
   };
 }
 
@@ -329,7 +341,7 @@ export async function gatherRead(env, userId, p) {
     ),
     selectAll(
       d,
-      `todos?${mine}&completed_at=is.null&archived=eq.false&select=id,name,title,due_day,target_date,time_estimate_minutes,created_at,sweep_reschedule_count,resurface_at`,
+      `todos?${mine}&completed_at=is.null&archived=eq.false&select=id,name,title,due_day,due_time,target_date,time_estimate_minutes,created_at,sweep_reschedule_count,resurface_at`,
     ),
     selectAll(
       d,
@@ -585,9 +597,16 @@ function weekGoneLines(g) {
  * @returns {{text: string, figures: object, listed: number,
  *   refs: {todos: Map<string, string>, habits: Map<string, object>, dated: Map<string, object>}}}
  */
-export function renderRead(g) {
+/**
+ * @param {object} g what was gathered
+ * @param {{theirs?: Set<string>}} [o] theirs: the todos whose day is one they
+ *   chose and are keeping; worked out from g when not given (theirDays). The
+ *   spread gives its own, since by then they may have freed some.
+ */
+export function renderRead(g, o = {}) {
   const today = g.today;
   const days = spanDays(g.first, g.last);
+  const theirs = o.theirs || theirDays(g);
   const refs = { todos: new Map(), habits: new Map(), dated: new Map() };
 
   const figures = figuresOf(g.todos, today, days);
@@ -698,7 +717,7 @@ export function renderRead(g) {
   if (!listed.length) L.push('(none)');
   for (const t of listed) {
     const dates = [
-      t.due_day ? `day ${t.due_day}` : '',
+      t.due_day ? `day ${t.due_day}${theirs.has(t.id) ? ', which they chose' : ''}` : '',
       t.deadline ? `due by ${t.deadline}` : '',
       t.back_on ? `put off until ${t.back_on}` : '',
     ].filter(Boolean);
@@ -735,6 +754,7 @@ Needs you holds up to four things that are blocking them, chosen from what has b
 Habit days suggests which of the days being planned each habit they are actually trying to keep should go on, spread so it fits the week and builds back from where they are rather than their full target, and never on more days than they aim for. Leave out habits that look abandoned for months unless something in the data says they want them back.
 
 Rules:
+Some todos are on a day they chose themselves. Those days are their own decisions and are not yours to change: take them as given when you weigh how much the week already holds.
 Use only facts in the data. Never invent meetings, people or dates. Never speak of the data or of what you were given: write as someone who knows them.
 Some of what you know is about their health, body or mind. Let it shape the week: their energy, appointments, rest and how much to ask of them. Plan health todos and habits like any others. Write about it only as discreetly as they would want on a screen someone else might glance at. In your own words never name a condition, a treatment or therapy of any kind, a medication, a medical test or a medical speciality, even when one of their own items names it: speak of that item only in general terms, by when it is and what it asks of their week. This holds for every line you write, about what they did last week and their habits as much as about what is ahead. Read your words once more as a stranger glancing at the screen would: that stranger should not be able to tell what this person's health involves.
 The days being planned may be the rest of this week rather than a whole week. Plan only those days, and judge how much fits by how many are left.
@@ -1029,7 +1049,7 @@ export function checkRead(output, g, r) {
       drop('habit_days', 'twice');
       continue;
     }
-    const open = habitDays(habit, days);
+    const open = habitOpenDays(habit, days);
     let on = dayList(h?.days, 'habit_day');
     if (on.some((d) => !open.includes(d))) {
       drop('habit_day', 'not_a_day_for_it');
