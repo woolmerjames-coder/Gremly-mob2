@@ -170,3 +170,68 @@ describe('BriefMessage: the evening wrap up', () => {
     expect(r.toJSON()).toBeNull();
   });
 });
+
+describe("the weekly review's messages", () => {
+  it("hands the review's cards and the button to their week to the screen that owns the review", () => {
+    const card = msg('k1', 'system', '', {
+      type: 'week-card',
+      card: 'priorities',
+      week_start: '2026-10-05',
+      week: true,
+    });
+    const renderWeek = jest.fn(() => <Text>the priorities card</Text>);
+    const r = render(<BriefMessage message={card} renderWeek={renderWeek} />);
+    expect(r.getByText('the priorities card')).toBeTruthy();
+    expect(renderWeek).toHaveBeenCalledWith(
+      card,
+      expect.objectContaining({ type: 'week-card', card: 'priorities' }),
+    );
+
+    const offer = msg('k2', 'system', '', { type: 'week-offer', done: false, week: true });
+    const again = render(
+      <BriefMessage message={offer} renderWeek={() => <Text>Plan your week</Text>} />,
+    );
+    expect(again.getByText('Plan your week')).toBeTruthy();
+  });
+
+  it('draws nothing for a card with nothing to show, or one a newer copy replaced', () => {
+    const card = msg('k3', 'system', '', {
+      type: 'week-card',
+      card: 'shape',
+      week_start: '2026-10-05',
+      week: true,
+    });
+    expect(render(<BriefMessage message={card} renderWeek={() => null} />).toJSON()).toBeNull();
+    expect(render(<BriefMessage message={card} />).toJSON()).toBeNull();
+    const old = msg('k4', 'system', '', {
+      type: 'week-card',
+      card: 'shape',
+      week_start: '2026-10-05',
+      week: true,
+      superseded: true,
+    });
+    const r = render(<BriefMessage message={old} renderWeek={() => <Text>shape</Text>} />);
+    expect(r.toJSON()).toBeNull();
+  });
+
+  it("draws the review's own offer with its buttons, like any other offer", () => {
+    const offer = msg('k5', 'assistant', 'Got ten minutes?', {
+      type: 'brief-offer',
+      kind: 'week_open',
+      week: true,
+      buttons: [
+        { id: 'week_start', label: "Let's do it", action: 'week_start', primary: true },
+        { id: 'week_skip', label: 'Not this week', action: 'week_skip' },
+      ],
+    });
+    const onOfferButton = jest.fn();
+    const r = render(
+      <BriefMessage message={offer} liveOfferId="k5" onOfferButton={onOfferButton} />,
+    );
+    fireEvent.press(r.getByText("Let's do it"));
+    expect(onOfferButton).toHaveBeenCalledWith(
+      offer,
+      expect.objectContaining({ action: 'week_start' }),
+    );
+  });
+});

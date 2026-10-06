@@ -35,6 +35,8 @@ export type BriefMessageProps = {
   renderChanges?: (message: SpaceChatMessage, meta: BriefChangesMeta) => React.ReactNode;
   /** The evening wrap up's cards (lib/wrapup), drawn by the screen that owns the wrap up */
   renderWrap?: (message: SpaceChatMessage, meta: BriefMeta) => React.ReactNode;
+  /** The weekly review's cards and the button to their week (lib/week), drawn by the screen that owns the review */
+  renderWeek?: (message: SpaceChatMessage, meta: BriefMeta) => React.ReactNode;
   /** Buttons left out of a live offer for now (Write a few lines, while the box already saves to the journal) */
   hiddenActions?: OfferAction[];
 };
@@ -49,6 +51,7 @@ function BriefMessageInner({
   renderPlan,
   renderChanges,
   renderWrap,
+  renderWeek,
   hiddenActions,
 }: BriefMessageProps) {
   const meta = briefMetaOf(message);
@@ -106,6 +109,11 @@ function BriefMessageInner({
     case 'sweep-item':
     case 'sweep-end': {
       const drawn = renderWrap?.(message, meta);
+      return drawn ? <View style={styles.card}>{drawn}</View> : null;
+    }
+    case 'week-card':
+    case 'week-offer': {
+      const drawn = renderWeek?.(message, meta);
       return drawn ? <View style={styles.card}>{drawn}</View> : null;
     }
     default:
