@@ -19,6 +19,9 @@ export declare const DEFAULT_WEEKLY_DAY: number;
 export declare const DEFAULT_DAYS_OFF: number[];
 export declare const PROMOTED_AFTER: number;
 export declare const LATER_MAX_DAYS: number;
+export declare const PIPE_LEAD_HOURS: number;
+export declare const READ_AHEAD_DAYS: number;
+export declare const LOOK_AHEAD_DAYS: number;
 export declare const DEFAULT_MINUTES: number;
 export declare const HOURS_MAX: number;
 export declare const DAY_KINDS: DayKind[];
@@ -47,6 +50,15 @@ export declare function reviewOn(
   span_start: string;
   span_end: string;
 };
+export declare function summaryWeekOf(
+  day: string,
+  weeklyDay: number | null | undefined,
+): { start: string; end: string };
+export declare function readServes(
+  review: { kind: ReviewKind },
+  row: { kind?: string | null; read?: object | null } | null | undefined,
+): boolean;
+export declare function extraUsed(row: { kind?: string | null } | null | undefined): boolean;
 export declare function spanDays(first: string, last: string): string[];
 export declare function dayKind(
   day: string,

@@ -12,11 +12,14 @@ import {
   dayRoom,
   daysBetween,
   daysOffOf,
+  extraUsed,
   isDay,
   minutesOf,
   normHours,
+  readServes,
   reviewOn,
   spanDays,
+  summaryWeekOf,
   weekdayOf,
   weeklyDayOf,
 } from '../week.js';
@@ -142,6 +145,49 @@ describe('what a review plans, by the day it starts', () => {
     expect(reviewOn(FRI, 3)).toMatchObject({ kind: 'weekly', span_start: FRI });
     expect(reviewOn(SUN, 3)).toMatchObject({ kind: 'extra', week_start: '2026-10-01' });
     expect(reviewOn(TUE, 3)).toMatchObject({ kind: 'brought_forward', week_start: '2026-10-08' });
+  });
+});
+
+describe('the week a summary covers', () => {
+  it('is Monday to Sunday for a Sunday weekly day, on every day of it', () => {
+    for (const day of ['2026-10-05', WED, SAT, '2026-10-11']) {
+      expect(summaryWeekOf(day, 0)).toEqual({ start: '2026-10-05', end: '2026-10-11' });
+    }
+    // the Sunday before closes the week before
+    expect(summaryWeekOf(SUN, 0)).toEqual({ start: '2026-09-28', end: SUN });
+    expect(summaryWeekOf(SUN, null)).toEqual({ start: '2026-09-28', end: SUN });
+  });
+
+  it('ends on their own weekly day when it is not Sunday', () => {
+    // a Wednesday weekly day: Thursday to Wednesday
+    expect(summaryWeekOf(WED, 3)).toEqual({ start: '2026-10-01', end: WED });
+    expect(summaryWeekOf('2026-10-08', 3)).toEqual({ start: '2026-10-08', end: '2026-10-14' });
+    expect(summaryWeekOf(TUE, 3)).toEqual({ start: '2026-10-01', end: WED });
+  });
+});
+
+describe('the read a review opens with', () => {
+  const read = { challenge: { headline: 'A full week' } };
+
+  it('is the one the row holds for the weekly review and for a week brought forward', () => {
+    const weekly = reviewOn(SUN, 0);
+    expect(readServes(weekly, { kind: 'weekly', read })).toBe(true);
+    // a week brought forward the day before keeps its read on the weekly day
+    expect(readServes(weekly, { kind: 'brought_forward', read })).toBe(true);
+    expect(readServes(reviewOn(SAT, 0), { kind: 'brought_forward', read })).toBe(true);
+    expect(readServes(weekly, { kind: 'weekly', read: null })).toBe(false);
+    expect(readServes(weekly, null)).toBe(false);
+  });
+
+  it('is a fresh one for the extra review, once a week', () => {
+    const extra = reviewOn(WED, 0);
+    expect(extra.kind).toBe('extra');
+    expect(readServes(extra, { kind: 'weekly', read })).toBe(false);
+    expect(readServes(extra, { kind: 'brought_forward', read })).toBe(false);
+    expect(readServes(extra, { kind: 'extra', read })).toBe(true);
+    expect(extraUsed({ kind: 'extra' })).toBe(true);
+    expect(extraUsed({ kind: 'weekly' })).toBe(false);
+    expect(extraUsed(null)).toBe(false);
   });
 });
 

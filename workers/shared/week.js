@@ -21,6 +21,15 @@ export const PROMOTED_AFTER = 2;
 /** A Later comes back within this many days. */
 export const LATER_MAX_DAYS = 28;
 
+/** The weekly pipe starts this many hours before their weekly slot: the synthesis, then the read. */
+export const PIPE_LEAD_HOURS = 3;
+
+/** The read is made ahead only for someone who finished a review within this many days. */
+export const READ_AHEAD_DAYS = 28;
+
+/** The read looks this many days ahead for what is dated. */
+export const LOOK_AHEAD_DAYS = 42;
+
 /** A todo with no length counts as this many minutes when a day's room is worked out. */
 export const DEFAULT_MINUTES = 30;
 
@@ -145,6 +154,34 @@ export function reviewOn(today, weeklyDay) {
     span_start: today,
     span_end: c.week_end,
   };
+}
+
+/**
+ * The week a weekly summary covers: the seven days that end on their weekly
+ * day, the one on or after the day given. With Sunday that is Monday to Sunday.
+ * @returns {{start: string, end: string}}
+ */
+export function summaryWeekOf(day, weeklyDay) {
+  const c = cycleOf(day, weeklyDay);
+  const end = c.since === 0 ? day : c.next;
+  return { start: addDays(end, -6), end };
+}
+
+/**
+ * Whether the read a week's row holds serves a review started today
+ * (reviewOn): any read serves the weekly review and a week brought forward;
+ * the one extra review of a week is served only by the read made for it.
+ * @param {{kind: string}} review what reviewOn gave for today
+ * @param {{kind?: string, read?: object|null}|null} row the week's row
+ */
+export function readServes(review, row) {
+  if (!row || !row.read || typeof row.read !== 'object') return false;
+  return review?.kind !== 'extra' || row.kind === 'extra';
+}
+
+/** The one extra review of a week is used once the week's row is the extra's. */
+export function extraUsed(row) {
+  return row?.kind === 'extra';
 }
 
 /** Every day from first to last, at most two weeks of them. */
