@@ -1,4 +1,10 @@
-import React from 'react';
+/**
+ * Past weeks: each week's summary, and beside it the weekly review of that
+ * week when they did one: its intention, what mattered most, and what was
+ * planned against what got done (lib/week/pastWeeks.ts). A row opens the
+ * week's summary.
+ */
+import React, { useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -9,10 +15,62 @@ import { lightTokens } from '../../design/tokens';
 import { usePastSummaries } from '../../lib/store/selectors';
 import type { WeeklySummary } from '../../lib/types';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
+import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { getDateService } from '../../lib/date/DateService';
+import { useThisWeek } from '../../lib/week/thisWeek';
+import {
+  pastWeeksOf,
+  plannedLine,
+  usePastWeeks,
+  weekInShort,
+  type WeekInShort,
+} from '../../lib/week/pastWeeks';
+import { yourWeekOf } from '../../lib/week/yourWeek';
+import { dayName } from '../../lib/week/review/words';
+
+type Item = Record<string, any>;
 
 export default function WeeklyArchiveScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const summaries = usePastSummaries();
+  const weeklyDay = useThisWeek((w) => w.weeklyDay);
+  const userId = useGremlyStore((s: any) => s.userId) as string | null;
+  const todos = useGremlyStore((s: any) => s.todos) as Item[];
+  const habits = useGremlyStore((s: any) => s.habits) as Item[];
+  const habitPlans = useGremlyStore((s: any) => s.habitPlans) as Item[];
+  const habitProgress = useGremlyStore((s: any) => s.habitProgress) as Item[];
+  const reviews = usePastWeeks((s) => pastWeeksOf(s, userId));
+  const reviewsFailed = usePastWeeks((s) => s.owner === userId && s.failed);
+  const today = getDateService().ritualDay();
+
+  // the reviews of the weeks listed, read when the list is known
+  const first = summaries.length ? summaries[summaries.length - 1].week_start_date : null;
+  const last = summaries.length ? summaries[0].week_start_date : null;
+  useEffect(() => {
+    if (userId && first && last) void usePastWeeks.getState().load(first, last);
+  }, [userId, first, last]);
+
+  // each week they planned, in short, by the first day of the week
+  const inShort = useMemo(() => {
+    const out = new Map<string, WeekInShort>();
+    for (const s of summaries) {
+      const row = reviews[s.week_start_date];
+      if (!row) continue;
+      const short = weekInShort(
+        yourWeekOf({
+          today,
+          row,
+          todos: todos ?? [],
+          habits: habits ?? [],
+          habitPlans: habitPlans ?? [],
+          habitProgress: habitProgress ?? [],
+          dayOf: (ts) => getDateService().dayOf(ts),
+        }),
+      );
+      if (short) out.set(s.week_start_date, short);
+    }
+    return out;
+  }, [summaries, reviews, today, todos, habits, habitPlans, habitProgress]);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -36,15 +94,24 @@ export default function WeeklyArchiveScreen() {
           <CalendarDays size={22} color={lightTokens.colors.warmGrey} strokeWidth={1.8} />
           <Text style={styles.emptyTitle}>No weekly summaries yet</Text>
           <Text style={styles.emptyHint}>
-            Your first summary will appear here on Sunday evening.
+            {`Your first summary will appear here on ${dayName(weeklyDay)}.`}
           </Text>
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.scrollContent}>
+          {reviewsFailed ? (
+            <Text style={styles.failedLine} testID="archive-reviews-failed">
+              {
+                "Your weekly reviews for these weeks couldn't be loaded, so only the summaries are here."
+              }
+            </Text>
+          ) : null}
           <View style={styles.listCard}>
             {summaries.map((summary, idx) => {
               const preview = getSummaryPreview(summary);
               const isLast = idx === summaries.length - 1;
+              const week = inShort.get(summary.week_start_date) ?? null;
+              const counts = week ? plannedLine(week) : null;
 
               return (
                 <TouchableOpacity
@@ -73,6 +140,22 @@ export default function WeeklyArchiveScreen() {
                       <Text style={styles.preview} numberOfLines={1} ellipsizeMode="tail">
                         {preview}
                       </Text>
+                    ) : null}
+
+                    {week ? (
+                      <View style={styles.week} testID={`archive-week-${summary.week_start_date}`}>
+                        {week.intention ? (
+                          <Text style={styles.intention} numberOfLines={2}>
+                            {`“${week.intention}”`}
+                          </Text>
+                        ) : null}
+                        {week.priorities.length ? (
+                          <Text style={styles.weekLine} numberOfLines={2}>
+                            {`Mattered most: ${week.priorities.join(', ')}`}
+                          </Text>
+                        ) : null}
+                        {counts ? <Text style={styles.weekLine}>{counts}</Text> : null}
+                      </View>
                     ) : null}
                   </View>
 
@@ -212,6 +295,35 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     fontSize: 12.5,
     color: '#8A948B',
+  },
+  // the reviews could not be read: said, above the summaries that could
+  failedLine: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12.5,
+    lineHeight: 17,
+    color: '#8A948B',
+    marginBottom: 10,
+    paddingHorizontal: 4,
+  },
+  // the week's review, beside its summary
+  week: {
+    marginTop: 8,
+    paddingLeft: 10,
+    borderLeftWidth: 2,
+    borderLeftColor: 'rgba(44, 74, 56, 0.18)',
+    gap: 3,
+  },
+  intention: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#2C4A38',
+  },
+  weekLine: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12.5,
+    lineHeight: 17,
+    color: '#6B756D',
   },
   rowChevron: {
     marginLeft: 8,
