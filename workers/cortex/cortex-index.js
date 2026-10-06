@@ -171,6 +171,7 @@ import { buildTodayActivity } from './context/todayActivity.js';
 import { getAgeGuidance } from './context/gremlyAge.js';
 import { triageMessage, generateLoadingMessage, callMini } from './triage';
 import { briefTurnResponse } from './agent/brief.js';
+import { weekReadResponse } from './weekRead.js';
 import { AGENT_LANES, agentChatFor, prefetchForChat, runChatTurn } from './agent/chat.js';
 import {
   geminiGenerate,
@@ -3367,6 +3368,7 @@ const cortexHandler = {
         'plan-pick',
         'day-turn',
         'brief-turn',
+        'week-read',
         'notification-test',
       ]);
       const AUTH_REQUIRED_LANES = new Set([
@@ -7719,6 +7721,41 @@ ${assistantMessage.substring(0, 2000)}
             const res = await askDayTurn(env, authenticatedUserId, b);
             return res && res.ok ? res.json().catch(() => null) : null;
           },
+          waitUntil: (p) => ctx.waitUntil(p),
+        });
+      }
+
+      // =========================
+      // === WEEKLY REVIEW: THE READ ===
+      // The app opens the weekly review: inngest-jobs hands back the read the
+      // week's row holds when it serves a review started today, and makes one
+      // there and then when it does not (most of a minute, behind the app's
+      // loading screen). Which review today gives is worked out there, from
+      // dates and the row alone. The answer goes back as server-sent events,
+      // with pings while the read is made (weekRead.js).
+      // =========================
+      if (type === 'week-read') {
+        const access = await checkUserAccess(authenticatedUserId, env);
+        if (!access.hasAccess) return denyAccessSSEResponse(access.reason);
+        if (!env.INNGEST_WORKER_URL || !env.INNGEST_ADMIN_KEY)
+          return j({ error: 'not configured' }, 503);
+        return weekReadResponse({
+          ask: () =>
+            fetchInngestWorker(env, '/api/week-read', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-admin-key': env.INNGEST_ADMIN_KEY,
+              },
+              body: JSON.stringify({
+                user_id: authenticatedUserId,
+                // the app's day; inngest-jobs takes it when it is a real day near the person's own
+                date: typeof body.date === 'string' ? body.date.slice(0, 10) : null,
+              }),
+            }).catch((err) => {
+              console.error('[WeekRead] could not reach inngest-jobs', err?.message || err);
+              return null;
+            }),
           waitUntil: (p) => ctx.waitUntil(p),
         });
       }
