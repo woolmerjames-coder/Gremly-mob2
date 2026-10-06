@@ -81,6 +81,8 @@ export function readTurnRequest(body) {
       due_time: parseHHMM(x.due_time) !== null ? toHHMM(parseHHMM(x.due_time)) : null,
       minutes: num(x.minutes, 5, 480),
       note: trim(x.note, 60),
+      // a step of a milestone set up in their weekly review: the goal it is towards
+      towards: trim(x.towards, 120) || null,
     });
   }
   const rec = body.record && typeof body.record === 'object' ? body.record : {};
@@ -138,6 +140,8 @@ export function readTurnRequest(body) {
     now,
     text: trim(body.text, 800),
     question: trim(body.question, 300) || null,
+    // the intention of the week today is in, in their words
+    intention: trim(body.intention, 200) || null,
     history: (Array.isArray(body.history) ? body.history : [])
       .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && m.content)
       .slice(-12)

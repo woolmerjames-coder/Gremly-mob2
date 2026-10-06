@@ -557,10 +557,15 @@ export function checkWeekChange(raw, ctx = {}) {
     case 'habit_days': {
       const r = itemFor('habit');
       if (r.reason) return { ok: false, reason: r.reason };
-      const days = dayList(raw.days);
-      if (!days) return { ok: false, reason: 'bad_days' };
+      const stated = dayList(raw.days);
+      if (!stated) return { ok: false, reason: 'bad_days' };
+      // A day already gone that the habit was planned on stays as it is, so
+      // naming it changes nothing and it is no part of the change. Any other
+      // day outside the days these changes act on is turned away.
+      const planned = dayList(r.item.planned_days) || [];
+      const days = stated.filter((d) => !(d < w.first && planned.includes(d)));
       if (days.some((d) => !inWeek(d))) return { ok: false, reason: 'outside_week' };
-      const was = (dayList(r.item.planned_days) || []).filter(inWeek);
+      const was = planned.filter(inWeek);
       if (sameList(days, was)) return { ok: false, reason: 'no_change' };
       return {
         ok: true,
@@ -583,11 +588,14 @@ export function checkWeekChange(raw, ctx = {}) {
       const shape = {};
       const before = {};
       if (s.busy_days != null) {
-        const days = dayList(s.busy_days);
-        if (!days) return { ok: false, reason: 'bad_days' };
+        const stated = dayList(s.busy_days);
+        if (!stated) return { ok: false, reason: 'bad_days' };
+        // the days stated are the ones from here on: a busy day already gone
+        // stays as it is, so naming it changes nothing
+        const busy = dayList(w.busy_days) || [];
+        const days = stated.filter((d) => !(d < w.first && busy.includes(d)));
         if (days.some((d) => !inWeek(d))) return { ok: false, reason: 'outside_week' };
-        // the days stated are the ones from here on: busy days already gone stay as they are
-        const was = (dayList(w.busy_days) || []).filter(inWeek);
+        const was = busy.filter(inWeek);
         if (!sameList(days, was)) {
           shape.busy_days = days;
           before.busy_days = was;

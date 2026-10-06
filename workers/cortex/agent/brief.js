@@ -53,7 +53,7 @@ import { AGENT_PROMPT_VERSION, isLate } from './prompt.js';
 import { dayEndHourOf } from '../../shared/day.js';
 import { checkForCorrection } from '../context/corrections.js';
 
-export const BRIEF_AGENT_VERSION = `brief-2026-10-06a/${AGENT_PROMPT_VERSION}`;
+export const BRIEF_AGENT_VERSION = `brief-2026-10-08a/${AGENT_PROMPT_VERSION}`;
 
 // the planning day ends here when nothing earlier ends it, as in the day turn
 const DAY_END = 22 * 60;
@@ -86,10 +86,16 @@ function clockOf(t) {
   return clockTime(h * 60 + m);
 }
 
+/** What an item's last column says: where it stands today, and the goal it is a step towards. */
+function noteOf(x) {
+  return [x.note, x.towards ? `a step towards "${x.towards}"` : ''].filter(Boolean).join(', ');
+}
+
 /**
  * The day in words, with the ids the tools take. dayEndHour, the hour their day
  * ends, marks the small hours as the end of their day. week, when the thread
- * sent it, adds the one line about their week.
+ * sent it, adds the one line about their week. Their intention for the week
+ * today is in follows, when they set one.
  */
 export function renderDay(req, dayEndHour = null, week = null) {
   const L = [];
@@ -137,12 +143,17 @@ export function renderDay(req, dayEndHour = null, week = null) {
       req.items
         .map(
           (x) =>
-            `${x.id} | ${x.kind} | ${x.title} | ${x.due_day || 'no day'} | ${clockOf(x.due_time)} | ${x.minutes ? `${x.minutes} min` : '-'} | ${x.note || '-'}`,
+            `${x.id} | ${x.kind} | ${x.title} | ${x.due_day || 'no day'} | ${clockOf(x.due_time)} | ${x.minutes ? `${x.minutes} min` : '-'} | ${noteOf(x) || '-'}`,
         )
         .join('\n') || '(none)'
     }`,
   );
   if (week) L.push(weekLine(week, req.date));
+  if (req.intention) {
+    L.push(
+      `THEIR INTENTION FOR THIS WEEK (their own words, from their weekly review): "${req.intention}"`,
+    );
+  }
   L.push(`GREMLY'S OPEN QUESTION: ${req.question ? `"${req.question}"` : 'none'}`);
   return L.join('\n\n');
 }

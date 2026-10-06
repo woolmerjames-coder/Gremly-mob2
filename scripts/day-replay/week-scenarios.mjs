@@ -11,6 +11,9 @@
  * A scenario is one of scenarios.mjs's, plus:
  *   week            the app's week block, with item ids as the scenario names them
  *   plans           habit days saved: [[habit id, 'YYYY-MM-DD']]
+ *   intention       the intention of the week the day is in, as the day request sends it
+ *   an item may carry towards, the goal a milestone step is a step towards,
+ *   and a habit per_week, how many times a week it is for (daily without it)
  *   an item may carry back_on, the day it comes back when it is put off
  * and expect may carry:
  *   structureOnly   skip every check on the reply's wording
@@ -89,6 +92,47 @@ const base = {
   meetings: [],
   record: { travel: null, blocks: [] },
   plan: null,
+};
+
+// An ordinary Thursday, with what their week put on it: a habit they planned
+// for today, a step of a milestone, and a todo back from being put off. The
+// notes are the ones the app sends (lib/brief/useDayTurn.ts DAY_NOTES).
+const thursday = {
+  today: THU,
+  at: '08:30',
+  items: [
+    { id: 'strength', kind: 'habit', title: 'Strength', minutes: 45, per_week: 3, note: 'planned for today in their week' },
+    { id: 'stretch', kind: 'habit', title: 'Stretch', minutes: 10, note: 'habit today' },
+    {
+      id: 'letter',
+      kind: 'todo',
+      title: 'Draft the cover letter',
+      due_day: THU,
+      minutes: 30,
+      note: 'due today',
+      towards: 'Send the grant application',
+    },
+    { id: 'plumber', kind: 'todo', title: 'Call the plumber', minutes: 15, note: 'put off earlier, back today', back_on: THU },
+    { id: 'garage', kind: 'todo', title: 'Clear out the garage', due_day: SAT, minutes: 120, note: 'upcoming' },
+    { id: 'pensions', kind: 'todo', title: 'Look at pensions', minutes: 30, note: `put off until ${addDay(THU, 12)}`, back_on: addDay(THU, 12) },
+  ],
+  plans: [
+    ['strength', MON],
+    ['strength', THU],
+  ],
+  intention: 'Send the grant, and keep moving',
+  meetings: [['10:00', '10:30', 'Team huddle']],
+  record: { travel: null, blocks: [] },
+  plan: null,
+  week: {
+    weekly_day: 0,
+    days_off: [6, 0],
+    review: { week_start: MON, span_start: MON, status: 'done', kind: 'weekly' },
+    extra_used: false,
+    hours: { normal_day: 2, busy_day: 1, weekend_day: 4 },
+    busy_days: [],
+    intention: { id: null, text: 'Send the grant, and keep moving' },
+  },
 };
 
 export const WEEK_SCENARIOS = [
@@ -341,6 +385,71 @@ export const WEEK_SCENARIOS = [
       maxChanges: 1,
     },
   },
+  // ── An ordinary day, with what their week put on it (the day request's facts) ──
+  {
+    ...thursday,
+    id: 'week-day-whats-on',
+    title: 'An ordinary day: what is on, with their week in it',
+    look: 'Gremly covers what they planned for today in their week: strength, the cover letter as a step towards the grant, and the plumber, which is back from being put off. Nothing is proposed.',
+    text: "What's on for me today?",
+    expect: { aboutDay: true, maxChanges: 0, mentions: ['strength', 'cover letter', 'plumber'] },
+  },
+  {
+    ...thursday,
+    id: 'week-day-move-planned-habit',
+    title: 'An ordinary day: the habit planned for today moves',
+    look: 'Strength comes off Thursday and goes on Saturday, on the card. The days from today on are the ones the card states.',
+    text: "I can't face strength today. Can it go on Saturday instead?",
+    expect: {
+      aboutDay: true,
+      structureOnly: true,
+      changes: [{ kinds: ['habit_days'], id: 'strength' }],
+      maxChanges: 1,
+      check: (changes) => {
+        const days = changes.find((c) => c.kind === 'habit_days')?.days || [];
+        return [
+          { name: 'Strength is on Saturday', ok: days.includes(SAT), detail: days.join(', ') },
+          { name: 'Strength is off Thursday', ok: !days.includes(THU), detail: days.join(', ') },
+        ];
+      },
+    },
+  },
+  {
+    ...thursday,
+    id: 'week-day-step-towards',
+    title: 'An ordinary day: why a milestone step is on today',
+    look: 'Gremly says the cover letter is a step towards sending the grant application. Nothing is proposed.',
+    text: 'Why is the cover letter on today?',
+    expect: { aboutDay: true, maxChanges: 0, mentions: ['grant'] },
+  },
+  {
+    ...thursday,
+    id: 'week-day-intention',
+    title: 'An ordinary day: they ask what the week was about',
+    look: 'Gremly gives their intention back in their own words. Nothing is proposed.',
+    text: 'Remind me what I said this week was about?',
+    expect: { aboutDay: true, maxChanges: 0, mentions: ['keep moving'] },
+  },
+  {
+    ...thursday,
+    id: 'week-day-intention-left-alone',
+    title: 'An ordinary day: a plain change, with an intention set',
+    look: 'The plumber moves to tomorrow on the card. The reply is about that, and does not recite their intention.',
+    text: 'Move the plumber to tomorrow',
+    expect: {
+      aboutDay: true,
+      changes: [{ kinds: ['move_day'], id: 'plumber', day: FRI }],
+      maxChanges: 1,
+      check: (_changes, out) => [
+        {
+          name: 'Reply does not recite the intention',
+          ok: !String(out.reply || '').toLowerCase().includes('keep moving'),
+          detail: out.reply || '',
+          level: 'warn',
+        },
+      ],
+    },
+  },
 ];
 
 /**
@@ -358,6 +467,13 @@ export function plainWeek(today) {
     busy_days: [],
     intention: null,
   };
+}
+
+/** A day some days after another. */
+function addDay(day, n) {
+  const d = new Date(`${day}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
 }
 
 /** The Monday that starts the week a day's review plans, with Sunday as the weekly day. */

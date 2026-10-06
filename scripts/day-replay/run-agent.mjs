@@ -180,8 +180,9 @@ function dbFor(s, to) {
       name: x.title,
       title: x.title,
       frequency: 'daily',
-      cadence: 'daily',
-      target_per_period: 1,
+      // daily unless the scenario says how many times a week
+      cadence: x.per_week ? 'weekly' : 'daily',
+      target_per_period: x.per_week || 1,
       days_active: null,
       time_estimate_minutes: x.minutes || null,
       archived: false,
@@ -212,6 +213,11 @@ function dbFor(s, to) {
       if (table === 'todos' && query.includes('resurface_at=gt.')) {
         const day = /resurface_at=gt\.([0-9-]+)/.exec(query)[1];
         return todos.filter((r) => r.resurface_at && r.resurface_at > day);
+      }
+      // put off until a day: no day of its own, and that is the day it comes back (get_day)
+      if (table === 'todos' && query.includes('resurface_at=eq.')) {
+        const day = /resurface_at=eq\.([0-9-]+)/.exec(query)[1];
+        return todos.filter((r) => !r.due_day && r.resurface_at === day);
       }
       if (table === 'todos' && query.includes('due_day=eq.')) {
         const day = /due_day=eq\.([0-9-]+)/.exec(query)[1];

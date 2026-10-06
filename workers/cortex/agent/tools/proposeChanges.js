@@ -251,7 +251,7 @@ Calendar meetings live in their calendar and cannot be changed here, and nothing
 const WEEK_DESCRIPTION = `${DAY_DESCRIPTION}
 Their week changes too, with these operations. The days they act on, the week's free hours and busy days and its intention are in what you know about their week:
 - later puts a todo off for now: it leaves its day and comes back to them on back_on, a day still to come and within four weeks. Choose a day when there is likely to be room or before it matters, and bring several back on different days.
-- habit_days sets the days a habit is planned on in the week. Give every day it should be on as days, because the list takes the place of the days it was on; an empty list takes it off the week.
+- habit_days sets the days a habit is planned on in the week. Give every day it should be on as days, because the list takes the place of the days it was on; an empty list takes it off the week. Moving a habit to another day of this week, or off one of its days, is habit_days: it changes where the habit sits in this week and leaves how often it repeats as it is. A habit's schedule changes only when they say the routine itself is different from now on.
 - week_shape sets which days of the week are busy and the hours they have free for their own things. busy_days is every busy day, in place of the ones before. hours is in half hours, for a normal day, a busy day and a day off, and only the ones that change.
 - intention sets their intention for the week: one short line in the first person, in their words when they gave them.
 - milestone sets up something big with a date more than a week away: what it is for, its date, and two to four steps in order, each with the day to finish it by, and whether it is a todo for them to do or a check_in, a moment Gremly asks how it is going. Only for something that has a date.
@@ -585,7 +585,10 @@ export function weekCheckOf(week) {
 
 /**
  * The days each habit named by a habit_days change is planned on now: the
- * review's working days when it has them, otherwise the days saved.
+ * review's working days when it has them, otherwise the days saved. The saved
+ * days are read from the start of the week Gremly is shown, so a day already
+ * gone that he names beside the new ones is known to be planned and is left
+ * as it is (checkWeekChange).
  */
 async function plannedDays(ctx, raws) {
   const ids = [
@@ -598,7 +601,7 @@ async function plannedDays(ctx, raws) {
   for (const id of ids) if (working.has(id)) out.set(id, working.get(id));
   if (toRead.length) {
     const rows = await ctx.db.select(
-      `habit_plans?owner_id=eq.${ctx.userId}&habit_id=in.(${toRead.join(',')})&planned_date=gte.${ctx.week.first}&planned_date=lte.${ctx.week.last}&select=habit_id,planned_date&limit=200`,
+      `habit_plans?owner_id=eq.${ctx.userId}&habit_id=in.(${toRead.join(',')})&planned_date=gte.${ctx.week.view_first || ctx.week.first}&planned_date=lte.${ctx.week.last}&select=habit_id,planned_date&limit=200`,
     );
     for (const id of toRead) out.set(id, []);
     for (const r of rows || []) {

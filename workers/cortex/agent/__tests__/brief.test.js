@@ -130,6 +130,55 @@ describe('the day the agent knows', () => {
     expect(text).not.toContain('yes busy one');
   });
 
+  it('says what they planned for today in their week, and what came back from Later', () => {
+    const planned = readTurnRequest({
+      ...BODY,
+      intention: 'Ship the submissions,\n  and keep my body in it',
+      items: [
+        {
+          id: PUSHUPS,
+          kind: 'habit',
+          title: 'Pushups',
+          minutes: 10,
+          note: 'planned for today in their week',
+        },
+        { id: MUM, kind: 'todo', title: 'Call Mum', note: 'put off earlier, back today' },
+        {
+          id: 'step-1',
+          kind: 'todo',
+          title: 'Draft the cover letter',
+          due_day: '2026-10-02',
+          minutes: 30,
+          note: 'due today',
+          towards: 'Send the grant application',
+        },
+      ],
+    });
+    const text = renderDay(planned);
+    expect(text).toContain(
+      `${PUSHUPS} | habit | Pushups | no day | - | 10 min | planned for today in their week`,
+    );
+    expect(text).toContain(
+      `${MUM} | todo | Call Mum | no day | - | - | put off earlier, back today`,
+    );
+    expect(text).toContain(
+      'step-1 | todo | Draft the cover letter | 2026-10-02 | - | 30 min | due today, a step towards "Send the grant application"',
+    );
+    expect(text).toContain(
+      'THEIR INTENTION FOR THIS WEEK (their own words, from their weekly review): "Ship the submissions, and keep my body in it"',
+    );
+    // the intention comes with the day, before Gremly's open question
+    expect(text.indexOf('THEIR INTENTION')).toBeLessThan(text.indexOf("GREMLY'S OPEN QUESTION"));
+  });
+
+  it('says nothing of an intention or a goal when the app sent none', () => {
+    const text = renderDay(req);
+    expect(text).not.toContain('THEIR INTENTION');
+    expect(text).not.toContain('a step towards');
+    expect(readTurnRequest({ ...BODY, intention: '   ' }).intention).toBeNull();
+    expect(readTurnRequest({ ...BODY, intention: 'x'.repeat(400) }).intention.length).toBe(201);
+  });
+
   it('marks the small hours as the end of their day', () => {
     const late = readTurnRequest({ ...BODY, now: 46 });
     expect(renderDay(late, 3)).toContain(

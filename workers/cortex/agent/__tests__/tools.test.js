@@ -13,7 +13,7 @@ import {
   toolDeclarations,
   toolsFor,
 } from '../tools/index.js';
-import { daysToRead, habitOnDay } from '../tools/getDay.js';
+import { daysToRead, habitOnDay, plannedAround, weekBounds } from '../tools/getDay.js';
 import { boardOf, hoursWords } from '../tools/getWeek.js';
 import {
   fieldListWords,
@@ -276,6 +276,128 @@ describe('get_day', () => {
     expect(r.text).toContain(`Todos for the day: Call Mum (id ${TODO}) at 12:00pm, 15 min`);
     expect(r.text).toContain('Past their day: Tax form (id old, was Tue 29 Sep)');
     expect(r.text).toContain(`Habits: Run (id ${HABIT}) daily, not done that day`);
+  });
+
+  it("counts a todo put off until a day among that day's todos", async () => {
+    const db = fakeDb({
+      [`todos?owner_id=eq.${USER}&completed_at=is.null&archived=eq.false&due_day=eq.`]: [
+        { id: TODO, name: 'Call Mum', due_time: null, time_estimate_minutes: 15 },
+      ],
+      [`todos?owner_id=eq.${USER}&completed_at=is.null&archived=eq.false&due_day=is.null&resurface_at=eq.`]:
+        [{ id: 'back', name: 'Call the plumber', time_estimate_minutes: 10 }],
+      'habits?': [],
+      habit_progress: [],
+    });
+    const r = await runTool(ctxWith(db), 'get_day', {});
+    expect(r.text).toContain(
+      `Todos for the day: Call Mum (id ${TODO}), 15 min; Call the plumber (id back), 10 min, put off earlier and back on this day`,
+    );
+    expect(db.asked.find((q) => typeof q === 'string' && q.includes('resurface_at=eq.'))).toContain(
+      `due_day=is.null&resurface_at=eq.${TODAY}`,
+    );
+  });
+
+  it('says where a day stands among the days a habit is planned on', () => {
+    // with no week known: the planned days within a week either side, not called a week
+    expect(plannedAround([], TODAY)).toBeNull();
+    expect(plannedAround(['2026-09-20'], TODAY)).toBeNull();
+    expect(plannedAround(['2026-10-05', TODAY, TODAY], TODAY)).toEqual({
+      on: true,
+      others: ['2026-10-05'],
+      week: false,
+    });
+    expect(plannedAround(['2026-10-05', '2026-09-30'], TODAY)).toEqual({
+      on: false,
+      others: ['2026-09-30', '2026-10-05'],
+      week: false,
+    });
+    // inside their week: that week's days and no further, so a day of last
+    // week or next is never named as one of this week's
+    const week = weekBounds({ first: '2026-09-30', view_first: '2026-09-28', last: '2026-10-04' });
+    expect(week).toEqual({ first: '2026-09-28', last: '2026-10-04' });
+    expect(plannedAround(['2026-09-26', '2026-09-28', TODAY, '2026-10-05'], TODAY, week)).toEqual({
+      on: true,
+      others: ['2026-09-28'],
+      week: true,
+    });
+    expect(plannedAround(['2026-09-26', '2026-10-05'], TODAY, week)).toBeNull();
+    // a day outside their week says only whether it is planned itself
+    expect(plannedAround([TODAY, '2026-10-06'], '2026-10-06', week)).toEqual({
+      on: true,
+      others: [],
+      week: false,
+    });
+    expect(plannedAround([TODAY], '2026-10-06', week)).toBeNull();
+    // no week sent, or one with no days
+    expect(weekBounds(null)).toBeNull();
+    expect(weekBounds({ first: '2026-09-28' })).toBeNull();
+  });
+
+  it('counts a habit planned on a day as on that day, whatever days its routine names', () => {
+    const monThu = { cadence: 'weekly', target_per_period: 2, days_active: [1, 4] };
+    // a Friday: not one of its days, until it is planned there
+    expect(habitOnDay(monThu, TODAY, [])).toBeNull();
+    expect(habitOnDay(monThu, TODAY, [], true)).toEqual({ schedule: 'on Mon, Thu', done: false });
+    // still nothing before it starts
+    expect(habitOnDay({ ...monThu, start_date: '2026-10-05' }, TODAY, [], true)).toBeNull();
+  });
+
+  it('gives the habits of a day with the days they are planned on in their week', async () => {
+    const db = fakeDb({
+      'habits?': [
+        { id: HABIT, name: 'Strength', cadence: 'weekly', target_per_period: 3 },
+        { id: 'h-read', name: 'Read', cadence: 'weekly', target_per_period: 2 },
+        { id: 'h-walk', name: 'Walk', cadence: 'daily', target_per_period: 1 },
+      ],
+      habit_progress: [],
+      habit_plans: [
+        { habit_id: HABIT, planned_date: TODAY },
+        { habit_id: HABIT, planned_date: '2026-10-04' },
+        { habit_id: 'h-read', planned_date: '2026-10-03' },
+      ],
+    });
+    // their week, Monday 28 September to Sunday 4 October, as the thread sends it
+    const inWeek = { ...ctxWith(db), week: { first: '2026-09-28', last: '2026-10-04' } };
+    const r = await runTool(inWeek, 'get_day', {});
+    expect(r.text).toContain(
+      `Strength (id ${HABIT}) 3x/week, not done that day, 0 of 3 this week, planned for this day in their week (also on Sun 4 Oct)`,
+    );
+    expect(r.text).toContain(
+      'Read (id h-read) 2x/week, not done that day, 0 of 2 this week, planned in their week on Sat 3 Oct (tomorrow), not on this day',
+    );
+    // with no week sent the same days are given, and not called a week
+    const bare = await runTool(ctxWith(db), 'get_day', {});
+    expect(bare.text).toContain(`0 of 3 this week, planned for this day (also on Sun 4 Oct)`);
+    expect(bare.text).toContain('planned on Sat 3 Oct (tomorrow), not on this day');
+    expect(bare.text).not.toContain('in their week');
+    // a habit with no days planned says nothing of the week
+    expect(r.text).toContain('Walk (id h-walk) daily, not done that day');
+    expect(r.text).not.toContain('Walk (id h-walk) daily, not done that day,');
+    const plans = db.asked.find((q) => typeof q === 'string' && q.startsWith('habit_plans'));
+    expect(plans).toContain('planned_date=gte.2026-09-26&planned_date=lte.2026-10-08');
+    // On their weekly day the week runs from today to the next one, eight
+    // days: the read reaches its last day, further than a week from today.
+    const long = fakeDb({ 'habits?': [], habit_progress: [], habit_plans: [] });
+    await runTool({ ...ctxWith(long), week: { first: TODAY, last: '2026-10-09' } }, 'get_day', {});
+    expect(long.asked.find((q) => typeof q === 'string' && q.startsWith('habit_plans'))).toContain(
+      'planned_date=gte.2026-09-26&planned_date=lte.2026-10-09',
+    );
+  });
+
+  it('still answers the day when the planned days cannot be read', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const db = fakeDb({
+      'habits?': [{ id: HABIT, name: 'Run', cadence: 'daily', target_per_period: 1 }],
+      habit_progress: [],
+      habit_plans: () => {
+        throw new Error('down');
+      },
+    });
+    const r = await runTool(ctxWith(db), 'get_day', {});
+    expect(r.ok).toBe(true);
+    expect(r.text).toContain(`Habits: Run (id ${HABIT}) daily, not done that day`);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it('reads another day without what belongs only to today', async () => {

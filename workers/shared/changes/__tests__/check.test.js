@@ -490,6 +490,17 @@ describe("the week's own changes", () => {
       expect(days(['2026-10-02']).reason).toBe('no_change');
     });
 
+    it('leaves a day already gone as it is when it is named beside the new ones', () => {
+      // planned on 30 September, before the days being planned: naming it changes nothing
+      expect(days(['2026-09-30', '2026-10-03']).change).toMatchObject({
+        days: ['2026-10-03'],
+        before: { days: ['2026-10-02'] },
+      });
+      expect(days(['2026-09-30', '2026-10-02']).reason).toBe('no_change');
+      // a day gone that it was never planned on is still turned away
+      expect(days(['2026-09-29', '2026-10-03']).reason).toBe('outside_week');
+    });
+
     it('is only for a habit of theirs', () => {
       expect(weekChange({ op: 'habit_days', type: 'todo', id: 't1', days: [] }, todo).reason).toBe(
         'op_not_for_type',
@@ -552,6 +563,13 @@ describe("the week's own changes", () => {
         'no_change',
       );
       expect(shape({ busy_days: ['2026-10-09'] }).reason).toBe('outside_week');
+      // a busy day already gone, named beside the new ones, stays as it is
+      const gone = { ...week, busy_days: ['2026-09-29', '2026-10-03'] };
+      expect(shape({ busy_days: ['2026-09-29', '2026-10-04'] }, gone).change).toMatchObject({
+        shape: { busy_days: ['2026-10-04'] },
+        before: { busy_days: ['2026-10-03'] },
+      });
+      expect(shape({ busy_days: ['2026-09-28', '2026-10-04'] }, gone).reason).toBe('outside_week');
       expect(shape({ busy_days: ['Thursday'] }).reason).toBe('bad_days');
       expect(shape({ hours: { normal_day: 30 } }).reason).toBe('bad_value:hours');
       expect(shape({ hours: 3 }).reason).toBe('bad_value:hours');
