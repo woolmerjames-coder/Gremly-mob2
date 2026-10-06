@@ -7,7 +7,7 @@ const mockState: any = {};
 jest.mock('../../store/useGremlyStore', () => ({
   useGremlyStore: {
     getState: () => mockState,
-    setState: (fn: (s: any) => any) => Object.assign(mockState, fn(mockState)),
+    setState: (to: any) => Object.assign(mockState, typeof to === 'function' ? to(mockState) : to),
   },
 }));
 jest.mock('../../repo/linkingRepo', () => ({

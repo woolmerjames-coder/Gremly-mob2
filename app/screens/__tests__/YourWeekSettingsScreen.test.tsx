@@ -20,7 +20,11 @@ jest.mock('lucide-react-native', () => {
 });
 const mockState: { userId: string | null } = { userId: 'maya' };
 jest.mock('../../../lib/store/useGremlyStore', () => ({
-  useGremlyStore: { getState: () => mockState },
+  useGremlyStore: {
+    getState: () => mockState,
+    // the copy of their weekly day the habit counts read
+    setState: (patch: any) => Object.assign(mockState, patch),
+  },
 }));
 jest.mock('../../../lib/repo/weekReviewRepo', () => ({
   getWeekReview: jest.fn(),

@@ -52,6 +52,16 @@ export interface ThisWeekState {
 // already on its way when the weekly day moved cannot put the old one back
 let turn = 0;
 
+/**
+ * The habit counts read their weekly day from the main store, where it is
+ * saved on the device so the counts are right from a cold start (a habit's
+ * week is the seven days that end on it). Every time it is read or changed
+ * here, that copy follows.
+ */
+function keepHabitWeek(weeklyDay: number): void {
+  if (useGremlyStore.getState().weeklyDay !== weeklyDay) useGremlyStore.setState({ weeklyDay });
+}
+
 /** The first day of the week the person is in, for a weekly day. */
 export function weekStartFor(weeklyDay: number): string {
   return cycleOf(getDateService().ritualDay(), weeklyDay).week_start;
@@ -75,6 +85,7 @@ export const useThisWeek = create<ThisWeekState>((set, get) => ({
       // a slower read must not replace a newer one, or a weekly day moved since
       if (mine !== turn || weekStartFor(weeklyDay) !== weekStart) return;
       set({ weeklyDay, daysOff: daysOffOf(settings.days_off), review, loaded: true });
+      keepHabitWeek(weeklyDay);
     } catch (err) {
       console.warn('[Week] could not read the week:', err);
     }
@@ -89,6 +100,7 @@ export const useThisWeek = create<ThisWeekState>((set, get) => ({
   setWeeklyDay: (weekday) => {
     turn += 1;
     const weeklyDay = weeklyDayOf(weekday);
+    keepHabitWeek(weeklyDay);
     if (weeklyDay === get().weeklyDay) return;
     set({ weeklyDay, review: null });
   },

@@ -64,6 +64,9 @@ import { eventBus } from '../events';
 import { parseHabitFrequency } from '../sweep/habitHelpers';
 import { getDateService } from '../date';
 import { DEFAULT_DAY_END_HOUR, nowTimestamp } from '../date/DateService';
+import { DEFAULT_WEEKLY_DAY, weeklyDayOf } from '../../workers/shared/week';
+import { setWeeklyDayNow } from '../week/weeklyDayNow';
+import { easePlan, type EaseMode } from '../../workers/shared/habitWeek';
 import celebrationController from '../../app/features/celebration/CelebrationController';
 import {
   calendarClient,
@@ -122,6 +125,51 @@ let eventBusUnsubscribe: (() => void) | null = null;
 // Prevents concurrent fetchCalendarEventsForRange calls from interleaving
 // their set() calls, which causes duplicate events.
 let calendarFetchInFlight: Promise<void> | null = null;
+
+/**
+ * The days their habits are planned on, for the weeks around now. week_start
+ * is the Monday of the planned day. Their own week can begin up to six days
+ * back, in the Monday week before this one, so the read begins there.
+ */
+function readHabitPlans(userId: string) {
+  const ds = getDateService();
+  return supabase
+    .from('habit_plans')
+    .select('*')
+    .eq('owner_id', userId)
+    .gte('week_start', ds.startOfWeekMonday(ds.addDays(ds.today(), -6)));
+}
+
+/**
+ * The rows a read came back with, or the ones already held when it failed. A
+ * read that fails must not be taken for "there are none": that would put a
+ * paused habit back on Today and lose the days a week was planned on.
+ */
+function rowsOrHeld<T>(
+  res: { data?: unknown; error?: unknown } | null | undefined,
+  held: T[],
+): T[] {
+  if (!res || res.error) {
+    if (res?.error) console.warn('[GremlyStore] a read failed, keeping what is held:', res.error);
+    return held;
+  }
+  return (Array.isArray(res.data) ? res.data : []) as T[];
+}
+
+/**
+ * The habit days as read, with any still being saved kept beside them: a
+ * day set a moment ago is in the store under a temporary id until its write
+ * comes back, and a read that began before it would otherwise drop it.
+ */
+function habitPlansWith(read: HabitPlanRow[], held: HabitPlanRow[]): HabitPlanRow[] {
+  const has = new Set(read.map((p) => `${p.habit_id} ${String(p.planned_date).slice(0, 10)}`));
+  const saving = held.filter(
+    (p) =>
+      String(p.id).startsWith('temp-') &&
+      !has.has(`${p.habit_id} ${String(p.planned_date).slice(0, 10)}`),
+  );
+  return saving.length ? [...read, ...saving] : read;
+}
 
 function mapDbRowToProviderCalendarEvent(row: DbSyncedCalendarEvent): CalendarEvent | null {
   if (!row.external_id || !row.start_at || !row.end_at) return null;
@@ -578,6 +626,13 @@ export interface GremlyState {
   gremlyAge: number;
   gremlyAgeLastIncrementedAt: string | null;
   dayBoundaryHour: number;
+  /**
+   * Their weekly day, 0 Sunday to 6 Saturday, as the habit counts need it:
+   * a habit's week is the seven days that end on it. Kept here, and saved on
+   * the device, so the counts are right from a cold start. It is read and
+   * changed in lib/week/thisWeek, which keeps this copy in step.
+   */
+  weeklyDay: number;
   onboardingCompletedAt: string | null;
   accountCreatedAt: string | null;
   firstDropCompletedAt: string | null;
@@ -772,10 +827,22 @@ export interface GremlyState {
   restoreHabit: (id: string) => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
-  // HABIT ADAPTATIONS (read only: the old Sweep made and ended them, and it is gone)
+  // HABIT ADAPTATIONS (a pause, or a lighter version, for a stretch of days)
   // ═══════════════════════════════════════════════════════════════════
   /** Returns the adaptation covering dateIso for this habit, or null. */
   getActiveAdaptation: (habitId: string, dateIso: string) => HabitAdaptationRow | null;
+  /**
+   * Give a habit a pause, a lighter version or its usual self over a stretch
+   * of days (workers/shared/habitWeek.js easePlan: what is already there
+   * gives way). All or nothing: when a step fails, what was done is taken
+   * back and it throws. Returns what puts everything back as it was, or null
+   * when it already was that way. Made from the week's board and from a
+   * change card (lib/changes/ease.ts).
+   */
+  easeHabit: (
+    habitId: string,
+    to: { mode: EaseMode; first: string; last: string; note?: string | null },
+  ) => Promise<(() => Promise<void>) | null>;
 
   // ═══════════════════════════════════════════════════════════════════
   // HABIT PLAN MUTATIONS
@@ -1202,6 +1269,7 @@ const initialState = {
   gremlyAge: 0,
   gremlyAgeLastIncrementedAt: null as string | null,
   dayBoundaryHour: DEFAULT_DAY_END_HOUR,
+  weeklyDay: DEFAULT_WEEKLY_DAY as number,
   onboardingCompletedAt: null as string | null,
   accountCreatedAt: null as string | null,
   firstDropCompletedAt: null as string | null,
@@ -1455,11 +1523,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase.from('tags').select('*').eq('owner_id', userId),
               supabase.from('habit_progress').select('*').eq('owner_id', userId),
               supabase.from('habit_adaptations').select('*').eq('owner_id', userId),
-              supabase
-                .from('habit_plans')
-                .select('*')
-                .eq('owner_id', userId)
-                .gte('week_start', getDateService().startOfWeekMonday(getDateService().today())),
+              readHabitPlans(userId),
               fetchAllPaginated<HabitTargetHistoryRow>(() =>
                 supabase.from('habit_target_history').select('*').eq('owner_id', userId),
               ),
@@ -1485,10 +1549,10 @@ export const useGremlyStore = create<GremlyState>()(
                 .select('*', { count: 'exact', head: true })
                 .eq('owner_id', userId)
                 .eq('kind', 'sweep_completed'),
-              // Notification preferences for timezone
+              // Notification preferences for timezone, and their weekly day
               supabase
                 .from('notification_preferences')
-                .select('timezone')
+                .select('timezone,weekly_day')
                 .eq('user_id', userId)
                 .maybeSingle(),
               supabase
@@ -1688,7 +1752,14 @@ export const useGremlyStore = create<GremlyState>()(
               spaces: spacesRes.data ?? [],
               tags: tagsRes.data ?? [],
               habitProgress: progressRes.data ?? [],
-              habitAdaptations: ((adaptationsRes as any).data ?? []) as HabitAdaptationRow[],
+              habitAdaptations: rowsOrHeld<HabitAdaptationRow>(
+                adaptationsRes,
+                get().habitAdaptations,
+              ),
+              habitPlans: habitPlansWith(
+                rowsOrHeld<HabitPlanRow>(habitPlansRes, get().habitPlans),
+                get().habitPlans,
+              ),
               habitTargetHistory: (habitTargetHistoryRes ?? []) as HabitTargetHistoryRow[],
               spaceChats: chatsRes.data ?? [],
               milestones: milestonesRes.data ?? [],
@@ -1714,6 +1785,10 @@ export const useGremlyStore = create<GremlyState>()(
               gremlyAgeLastIncrementedAt:
                 (cortexPrefs?.gremly_age_last_incremented_at as string) ?? null,
               dayBoundaryHour,
+              // their weekly day, or the one already held when the read came back without one
+              weeklyDay: notificationPrefsRes.data
+                ? weeklyDayOf((notificationPrefsRes.data as { weekly_day?: number }).weekly_day)
+                : get().weeklyDay,
               onboardingCompletedAt: effectiveOnboardingCompleted,
               accountCreatedAt: (cortexPrefs?.created_at as string) ?? null,
               firstDropCompletedAt: (cortexPrefs?.first_drop_completed_at as string) ?? null,
@@ -1943,6 +2018,7 @@ export const useGremlyStore = create<GremlyState>()(
             gremlyAge: 0,
             gremlyAgeLastIncrementedAt: null,
             dayBoundaryHour: DEFAULT_DAY_END_HOUR,
+            weeklyDay: DEFAULT_WEEKLY_DAY,
             accountCreatedAt: null,
             todayRitualDay: null,
             todayDropsCount: 0,
@@ -3996,7 +4072,7 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         // ═══════════════════════════════════════════════════════════════════
-        // HABIT ADAPTATIONS (read only)
+        // HABIT ADAPTATIONS (a pause, or a lighter version, for a stretch of days)
         // ═══════════════════════════════════════════════════════════════════
 
         getActiveAdaptation: (habitId, dateIso) => {
@@ -4006,6 +4082,105 @@ export const useGremlyStore = create<GremlyState>()(
               (a) => a.habit_id === habitId && a.period_start <= day && a.period_end >= day,
             ) ?? null
           );
+        },
+
+        easeHabit: async (habitId, to) => {
+          const userId = get().userId;
+          if (!userId) throw new Error('Not signed in.');
+          const plan = easePlan(
+            get().habitAdaptations.filter((a) => a.habit_id === habitId),
+            to,
+          );
+          if (plan.same) return null;
+          const failed = (what: string, error: { message?: string } | null) =>
+            new Error(`Could not ${what} the habit's pause or lighter version: ${error?.message}`);
+          // What takes each step back, in the order the steps were made. A
+          // step taken back is let go, so a way back that failed part way can
+          // be tried again and only does what is still left to do.
+          const undo: (() => Promise<void>)[] = [];
+          const back = async () => {
+            while (undo.length) {
+              await undo[undo.length - 1]();
+              undo.pop();
+            }
+          };
+          try {
+            // The table lets no two stretches of one habit overlap, so the
+            // order matters: what goes, then what gets shorter, then what is new.
+            for (const gone of plan.remove as HabitAdaptationRow[]) {
+              const { error } = await supabase.from('habit_adaptations').delete().eq('id', gone.id);
+              if (error) throw failed('remove', error);
+              set((s) => ({
+                habitAdaptations: s.habitAdaptations.filter((a) => a.id !== gone.id),
+              }));
+              undo.push(async () => {
+                const { data, error: e } = await supabase
+                  .from('habit_adaptations')
+                  .insert({
+                    id: gone.id,
+                    habit_id: gone.habit_id,
+                    owner_id: userId,
+                    mode: gone.mode,
+                    period_start: gone.period_start,
+                    period_end: gone.period_end,
+                    floor_note: gone.floor_note ?? null,
+                    source_ref: gone.source_ref ?? null,
+                    source_event_id: gone.source_event_id ?? null,
+                    created_at: gone.created_at,
+                  })
+                  .select()
+                  .single();
+                if (e) throw failed('put back', e);
+                set((s) => ({
+                  habitAdaptations: [...s.habitAdaptations, data as HabitAdaptationRow],
+                }));
+              });
+            }
+            for (const cut of plan.shorten) {
+              const was = cut.row as HabitAdaptationRow;
+              const days = async (period_start: string, period_end: string, what: string) => {
+                const { error } = await supabase
+                  .from('habit_adaptations')
+                  .update({ period_start, period_end })
+                  .eq('id', was.id);
+                if (error) throw failed(what, error);
+                set((s) => ({
+                  habitAdaptations: s.habitAdaptations.map((a) =>
+                    a.id === was.id ? { ...a, period_start, period_end } : a,
+                  ),
+                }));
+              };
+              await days(cut.period_start, cut.period_end, 'shorten');
+              undo.push(() => days(was.period_start, was.period_end, 'put back'));
+            }
+            for (const fresh of plan.add) {
+              const { data, error } = await supabase
+                .from('habit_adaptations')
+                .insert({ habit_id: habitId, owner_id: userId, ...fresh })
+                .select()
+                .single();
+              if (error || !data) throw failed('save', error);
+              const row = data as HabitAdaptationRow;
+              set((s) => ({ habitAdaptations: [...s.habitAdaptations, row] }));
+              undo.push(async () => {
+                const { error: e } = await supabase
+                  .from('habit_adaptations')
+                  .delete()
+                  .eq('id', row.id);
+                if (e) throw failed('take back', e);
+                set((s) => ({
+                  habitAdaptations: s.habitAdaptations.filter((a) => a.id !== row.id),
+                }));
+              });
+            }
+          } catch (err) {
+            // all or nothing: what was done before the step that failed is taken back
+            await back().catch((e) =>
+              console.warn('[GremlyStore] easeHabit could not take back a step:', e),
+            );
+            throw err;
+          }
+          return back;
         },
 
         // ═══════════════════════════════════════════════════════════════════
@@ -5740,6 +5915,8 @@ export const useGremlyStore = create<GremlyState>()(
               cortexPrefsRes,
               adaptationsRes,
               habitTargetHistoryRes,
+              habitPlansRes,
+              weeklyDayRes,
             ] = await Promise.all([
               fetchAllPaginated<Todo>(() =>
                 supabase
@@ -5797,6 +5974,15 @@ export const useGremlyStore = create<GremlyState>()(
               fetchAllPaginated<HabitTargetHistoryRow>(() =>
                 supabase.from('habit_target_history').select('*').eq('owner_id', userId),
               ),
+              // The days their habits are planned on, and their weekly day: a
+              // returning user is shown the cached store and refreshed from
+              // here, so what Today counts by has to come with this read.
+              readHabitPlans(userId),
+              supabase
+                .from('notification_preferences')
+                .select('weekly_day')
+                .eq('user_id', userId)
+                .maybeSingle(),
             ]);
 
             // Check cortex_preferences error — skip prefs reconciliation but continue entity updates
@@ -5846,7 +6032,18 @@ export const useGremlyStore = create<GremlyState>()(
               spaces: spacesRes.data ?? [],
               tags: tagsRes.data ?? [],
               habitProgress: progressRes.data ?? [],
-              habitAdaptations: ((adaptationsRes as any).data ?? []) as HabitAdaptationRow[],
+              habitAdaptations: rowsOrHeld<HabitAdaptationRow>(
+                adaptationsRes,
+                get().habitAdaptations,
+              ),
+              habitPlans: habitPlansWith(
+                rowsOrHeld<HabitPlanRow>(habitPlansRes, get().habitPlans),
+                get().habitPlans,
+              ),
+              // their weekly day, or the one already held when the read came back without one
+              weeklyDay: weeklyDayRes.data
+                ? weeklyDayOf((weeklyDayRes.data as { weekly_day?: number }).weekly_day)
+                : get().weeklyDay,
               habitTargetHistory: (habitTargetHistoryRes ?? []) as HabitTargetHistoryRow[],
               spaceChats: chatsRes.data ?? [],
               milestones: milestonesRes.data ?? [],
@@ -10435,6 +10632,12 @@ export const useGremlyStore = create<GremlyState>()(
           gremlyAge: state.gremlyAge,
           gremlyAgeLastIncrementedAt: state.gremlyAgeLastIncrementedAt,
           dayBoundaryHour: state.dayBoundaryHour,
+          weeklyDay: state.weeklyDay,
+          // What Today counts and hides by, kept so a cold start shows them
+          // before the refresh lands: a paused habit stays off Today, and the
+          // days their week was planned on are known.
+          habitAdaptations: state.habitAdaptations,
+          habitPlans: state.habitPlans.filter((p) => !String(p.id).startsWith('temp-')),
           accountCreatedAt: state.accountCreatedAt,
           firstTodayVisitCompletedAt: state.firstTodayVisitCompletedAt,
           todayRitualDay: state.todayRitualDay,
@@ -10486,6 +10689,8 @@ export const useGremlyStore = create<GremlyState>()(
           getDateService().setDayBoundaryHour(
             persistedState.dayBoundaryHour ?? currentState.dayBoundaryHour,
           );
+          // and their week is theirs from the first call to a worker
+          setWeeklyDayNow(persistedState.weeklyDay ?? currentState.weeklyDay);
 
           // Day-aware hydration: keep cached gauge values on same-day
           // re-opens, only reset on day boundaries (Soul Document v8)
@@ -10576,6 +10781,17 @@ function followDayBoundary() {
   });
 }
 followDayBoundary();
+
+/**
+ * Their weekly day is sent with every chat turn (lib/cortex), from a copy the
+ * calls can read without the store. It follows the store's value the same way.
+ */
+function followWeeklyDay() {
+  useGremlyStore.subscribe((state, prev) => {
+    if (state.weeklyDay !== prev.weeklyDay) setWeeklyDayNow(state.weeklyDay);
+  });
+}
+followWeeklyDay();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SELECTORS

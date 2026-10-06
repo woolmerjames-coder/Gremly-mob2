@@ -4,7 +4,11 @@
  */
 const mockState: any = { userId: 'u1' };
 jest.mock('../../store/useGremlyStore', () => ({
-  useGremlyStore: { getState: () => mockState },
+  useGremlyStore: {
+    getState: () => mockState,
+    // the copy of their weekly day the habit counts read
+    setState: (patch: any) => Object.assign(mockState, patch),
+  },
 }));
 jest.mock('../../repo/weekReviewRepo', () => ({
   getWeekReview: jest.fn(),
@@ -33,6 +37,7 @@ beforeEach(() => {
   // Wednesday 7 October 2026, midday
   jest.useFakeTimers().setSystemTime(new Date(2026, 9, 7, 12, 0, 0));
   mockState.userId = 'u1';
+  mockState.weeklyDay = 0;
   useThisWeek.setState({ weeklyDay: 0, daysOff: [0, 6], review: null, loaded: false });
   (getWeekSettings as jest.Mock).mockResolvedValue({ weekly_day: null, days_off: null });
   (getWeekReview as jest.Mock).mockImplementation(async (_user: string, weekStart: string) =>
@@ -116,6 +121,21 @@ describe('after a save', () => {
     expect(useThisWeek.getState().weeklyDay).toBe(3);
     useThisWeek.getState().setWeeklyDay(12);
     expect(useThisWeek.getState().weeklyDay).toBe(0);
+  });
+
+  it('keeps the main store’s copy in step, which the habit counts read', async () => {
+    // moved here
+    useThisWeek.getState().setWeeklyDay(3);
+    expect(mockState.weeklyDay).toBe(3);
+    // and read from their settings
+    (getWeekSettings as jest.Mock).mockResolvedValue({ weekly_day: 5, days_off: null });
+    await useThisWeek.getState().refresh();
+    expect(useThisWeek.getState().weeklyDay).toBe(5);
+    expect(mockState.weeklyDay).toBe(5);
+    // a copy left behind by another screen is put right by the next read
+    mockState.weeklyDay = 1;
+    await useThisWeek.getState().refresh();
+    expect(mockState.weeklyDay).toBe(5);
   });
 
   it('lets go of the review when the weekly day moves: the week they are in has moved with it', () => {
