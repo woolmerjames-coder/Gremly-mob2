@@ -9,6 +9,7 @@
  *   scripts/chat-replay/run.sh                          every scenario on Luna, three times
  *   scripts/chat-replay/run.sh --only vet-friday --models gemini,openai --repeat 1
  *   scripts/chat-replay/run.sh --with-week              every scenario sent their week (the weekly review)
+ *   scripts/chat-replay/run.sh --with-ease              and the habits eased now, as a build that can pause a habit sends them
  *
  * Keys come from the environment (OPENAI_API_KEY, GEMINI_TEST_API_KEY).
  * Output goes to scripts/chat-replay/out/ (gitignored).
@@ -38,9 +39,21 @@ const thinking = flag('--thinking');
 const repeat = Math.max(1, Number(flag('--repeat') || 3));
 // --with-week: every scenario is sent their week, as an app build that can show
 // the weekly review sends it, so the week's line and button are there for all
-const withWeek = args.includes('--with-week');
+// --with-ease: and the habits eased now (none, unless the scenario says), which
+// is what turns on pausing a habit or giving it a lighter version
+const withEase = args.includes('--with-ease');
+const withWeek = withEase || args.includes('--with-week');
 /** Their week for a scenario: its own, or the usual one when every scenario gets one. */
-const theirWeekOf = (s) => s.theirWeek || (withWeek ? THEIR_WEEK : null);
+const theirWeekOf = (s) => {
+  const week = s.theirWeek || (withWeek ? THEIR_WEEK : null);
+  // a scenario that says a build is too old to know of pauses keeps its week as it is
+  return week && withEase && !week.eased && !s.noEase ? { ...week, eased: [] } : week;
+};
+/** Their week with the scenario's short habit ids as the uuids real items have. */
+const theirWeekFor = (s, to) => {
+  const week = theirWeekOf(s);
+  return week?.eased ? { ...week, eased: week.eased.map((e) => ({ ...e, habit_id: to.get(e.habit_id) || e.habit_id })) } : week;
+};
 const USER = '0b7c6f0e-1d2a-4c3b-9e8f-112233445566';
 const TZ = 'America/Los_Angeles';
 // Real conversations, built from someone's own data, go in fixtures/*.json (never
@@ -247,7 +260,7 @@ async function runOne(s, modelKey) {
         // --old-clock leaves it out: the clock words as they were before 5 October
         ...(args.includes('--old-clock') ? {} : { dayEndHour: 3 }),
       },
-      week: theirWeekOf(s),
+      week: theirWeekFor(s, to),
       deps: {
         now: () => Date.parse(s.nowIso || NOW_ISO),
         ctx: { env, userId: USER, timezone: TZ, cache: new Map(), db: dbFor(s, to) },
@@ -305,7 +318,7 @@ const done = await pool(jobs, 4, async ({ s, m }) => {
   );
   if (r.out) {
     console.log(`      reply: ${r.out.reply}`);
-    console.log(`      card: ${JSON.stringify(r.rows.map((c) => ({ op: c.op, type: c.type, id: c.id, title: c.title, fields: c.fields })))}  tools: ${(r.out.tools || []).join(', ') || 'none'}${r.out.offer ? `  offer: ${r.out.offer.done ? 'Your week' : 'Plan your week'}` : ''}`);
+    console.log(`      card: ${JSON.stringify(r.rows.map((c) => ({ op: c.op, type: c.type, id: c.id, title: c.title, fields: c.fields, ...(c.ease ? { ease: c.ease } : {}) })))}  tools: ${(r.out.tools || []).join(', ') || 'none'}${r.out.offer ? `  offer: ${r.out.offer.done ? 'Your week' : 'Plan your week'}` : ''}`);
   }
   return { id: s.id, kind: s.kind, ...r };
 });

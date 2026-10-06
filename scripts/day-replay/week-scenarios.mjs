@@ -169,7 +169,7 @@ export const WEEK_SCENARIOS = [
     ...base,
     id: 'week-worn-out',
     title: 'In the review: they are worn out',
-    look: 'Gremly answers how they feel first. It either shapes the week around that (fewer free hours, things put off, a habit on fewer days, an intention) or holds the review to ask what would help; nothing is cancelled or marked done.',
+    look: 'Gremly answers how they feel first. It either shapes the week around that (fewer free hours, things put off, a habit on fewer days, paused or made lighter, an intention) or holds the review to ask what would help; nothing is cancelled or marked done.',
     text: "Honestly I'm exhausted. Last week completely wiped me out",
     week: review('shape'),
     expect: {
@@ -180,8 +180,8 @@ export const WEEK_SCENARIOS = [
         const shape = changes.find((c) => c.kind === 'week_shape');
         const before = { normal_day: 2, busy_day: 1, weekend_day: 4 };
         const raised = Object.entries(shape?.hours || {}).filter(([k, v]) => v > before[k]);
-        // fewer free hours, busy days, things put off, a habit on fewer days, or a gentler intention
-        const eased = changes.some((c) => ['later', 'week_shape', 'habit_days', 'intention'].includes(c.kind));
+        // fewer free hours, busy days, things put off, a habit on fewer days, paused or made lighter, or a gentler intention
+        const eased = changes.some((c) => ['later', 'week_shape', 'habit_days', 'intention', 'ease'].includes(c.kind));
         return [
           { name: 'No free hours are raised', ok: !raised.length, detail: JSON.stringify(shape?.hours) },
           {
@@ -448,6 +448,120 @@ export const WEEK_SCENARIOS = [
           level: 'warn',
         },
       ],
+    },
+  },
+  // A habit paused, given a lighter version or set back to usual (the change
+  // model's ease). It is offered only to an app build that sends the habits
+  // eased now with their week (week.eased), so the first of these is a build
+  // that does not.
+  {
+    ...thursday,
+    id: 'ease-old-build',
+    noEase: true,
+    title: 'A pause asked of a build that cannot make one',
+    look: 'No pause goes on the card, since this build could not apply it. Strength may come off its days this week, or Gremly says what he can do; nothing is stopped for good.',
+    text: 'Work is flat out. Can we pause strength until next week?',
+    expect: { aboutDay: true, forbid: ['ease', 'cancel'], maxChanges: 1 },
+  },
+  {
+    ...thursday,
+    id: 'ease-pause-week',
+    title: 'A habit paused for the rest of the week',
+    look: 'One row pauses Strength from today to Sunday. The habit itself is not stopped, and nothing else changes.',
+    text: 'Work is flat out. Can we pause strength until next week?',
+    week: { ...thursday.week, eased: [] },
+    expect: {
+      aboutDay: true,
+      structureOnly: true,
+      changes: [{ kinds: ['ease'], id: 'strength', mode: 'pause', day: THU, until: NEXT_SUN }],
+      forbid: ['cancel', 'skip_habit'],
+      maxChanges: 1,
+    },
+  },
+  {
+    ...thursday,
+    id: 'ease-lighter-words',
+    title: 'A lighter version, in their words',
+    look: 'One row gives Strength a lighter version to the end of the week, with what they said it is. Its days stay.',
+    text: 'For the rest of this week can strength just be ten minutes of bodyweight at home?',
+    week: { ...thursday.week, eased: [] },
+    expect: {
+      aboutDay: true,
+      structureOnly: true,
+      changes: [{ kinds: ['ease'], id: 'strength', mode: 'lighter', until: NEXT_SUN }],
+      forbid: ['cancel', 'skip_habit', 'habit_days'],
+      maxChanges: 1,
+      check: (changes) => {
+        const note = String(changes.find((c) => c.kind === 'ease')?.note || '').toLowerCase();
+        return [{ name: 'The lighter version is in their words', ok: note.includes('bodyweight'), detail: note }];
+      },
+    },
+  },
+  {
+    ...thursday,
+    id: 'ease-back-to-usual',
+    title: 'A pause ended',
+    look: 'One row sets Stretch back to usual. Nothing is asked first: the pause is in what Gremly knows.',
+    text: "I'm ready to start stretching again",
+    items: thursday.items.map((x) => (x.id === 'stretch' ? { ...x, note: 'paused for now' } : x)),
+    week: {
+      ...thursday.week,
+      eased: [{ habit_id: 'stretch', title: 'Stretch', mode: 'pause', first: MON, last: addDay(NEXT_SUN, 7), note: '' }],
+    },
+    expect: {
+      aboutDay: true,
+      structureOnly: true,
+      changes: [{ kinds: ['ease'], id: 'stretch', mode: 'usual' }],
+      forbid: ['cancel'],
+      maxChanges: 1,
+    },
+  },
+  {
+    ...thursday,
+    id: 'ease-paused-left-alone',
+    title: 'A paused habit is left alone',
+    look: 'Gremly says what is on today without putting the paused Stretch on it or nudging them about it. Nothing is changed; an offer to plan the day is fine.',
+    text: "What's on today?",
+    items: thursday.items.map((x) => (x.id === 'stretch' ? { ...x, note: 'paused for now' } : x)),
+    week: {
+      ...thursday.week,
+      eased: [{ habit_id: 'stretch', title: 'Stretch', mode: 'pause', first: MON, last: NEXT_SUN, note: '' }],
+    },
+    expect: {
+      aboutDay: true,
+      maxChanges: 1,
+      forbid: ['ease', 'skip_habit', 'habit_days', 'cancel', 'complete'],
+      // saying Stretch is paused is true and fine; what it must not be is on the card
+      mentions: ['strength'],
+    },
+  },
+  {
+    ...thursday,
+    id: 'ease-skip-is-still-skip',
+    title: 'Leaving a habit out for today alone is still a skip',
+    look: 'Strength is skipped for today or moved to another day. It is not paused, and not stopped.',
+    text: 'Not doing strength today',
+    week: { ...thursday.week, eased: [] },
+    expect: { aboutDay: true, forbid: ['cancel', 'ease'], maxChanges: 1 },
+  },
+  {
+    ...base,
+    id: 'ease-review-week-off',
+    title: 'In the review: a habit left alone for the week being planned',
+    look: 'Run is paused for the days being planned, or taken off them. It is not stopped for good, and nothing else changes.',
+    text: 'I want a week off running. Leave it out of next week completely',
+    week: { ...review('board'), eased: [] },
+    expect: {
+      aboutDay: true,
+      structureOnly: true,
+      forbid: ['cancel'],
+      maxChanges: 1,
+      check: (changes) => {
+        const c = changes.find((x) => x.id === 'run');
+        const paused = c?.kind === 'ease' && c.mode === 'pause' && c.day >= MON && c.until <= NEXT_SUN;
+        const off = c?.kind === 'habit_days' && !(c.days || []).length;
+        return [{ name: 'Run is paused for those days, or on none of them', ok: paused || off, detail: JSON.stringify(c || null) }];
+      },
     },
   },
 ];

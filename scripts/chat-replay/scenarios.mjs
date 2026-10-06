@@ -289,3 +289,69 @@ SCENARIOS.push(
     expect: { rows: 0, offer: 'may' },
   },
 );
+
+// A habit paused, given a lighter version or set back to usual (the change
+// model's ease). Ask Gremly offers it only to an app build that sends the
+// habits eased now with their week (theirWeek.eased), so the first of these is
+// a build that does not. Saturday 3 October 2026; Sunday is their weekly day.
+const RUN = { id: 'run', kind: 'habit', title: 'Run 3 Times A Week' };
+SCENARIOS.push(
+  {
+    id: 'ease-old-build',
+    kind: 'A habit eased',
+    noEase: true,
+    text: 'Work is flat out. Pause my running until the end of next week',
+    items: [RUN],
+    theirWeek: THEIR_WEEK,
+    // no pause can be made from this build, so none goes on the card
+    expect: { maxRows: 1, row: (c) => c.op !== 'ease' && c.op !== 'archive' },
+  },
+  {
+    id: 'ease-pause',
+    kind: 'A habit eased',
+    text: 'Work is flat out. Pause my running until the end of next week',
+    items: [RUN],
+    theirWeek: { ...THEIR_WEEK, eased: [] },
+    expect: {
+      rows: 1,
+      row: (c) => c.op === 'ease' && c.id === 'run' && c.ease?.mode === 'pause' && c.ease.last === '2026-10-11',
+    },
+  },
+  {
+    id: 'ease-lighter',
+    kind: 'A habit eased',
+    text: 'For this next week can my run just be a twenty minute walk instead?',
+    items: [RUN],
+    theirWeek: { ...THEIR_WEEK, eased: [] },
+    expect: {
+      rows: 1,
+      row: (c) => c.op === 'ease' && c.id === 'run' && c.ease?.mode === 'lighter' && /walk/i.test(c.ease.note || ''),
+    },
+  },
+  {
+    id: 'ease-usual',
+    kind: 'A habit eased',
+    text: "I'm back from my trip, so I can start running again",
+    items: [RUN],
+    theirWeek: {
+      ...THEIR_WEEK,
+      eased: [{ habit_id: 'run', title: 'Run 3 Times A Week', mode: 'pause', first: '2026-09-28', last: '2026-10-11', note: '' }],
+    },
+    expect: { rows: 1, row: (c) => c.op === 'ease' && c.id === 'run' && c.ease?.mode === 'usual' },
+  },
+  {
+    id: 'ease-sooner',
+    kind: 'A habit eased',
+    text: 'Actually I only need the running pause until Wednesday',
+    items: [RUN],
+    theirWeek: {
+      ...THEIR_WEEK,
+      eased: [{ habit_id: 'run', title: 'Run 3 Times A Week', mode: 'pause', first: '2026-09-28', last: '2026-10-18', note: '' }],
+    },
+    // a pause is made to end sooner by going back to usual from the day after: Thursday 8 October
+    expect: {
+      rows: 1,
+      row: (c) => c.op === 'ease' && c.id === 'run' && c.ease?.mode === 'usual' && c.ease.first === '2026-10-08' && c.ease.last === '2026-10-18',
+    },
+  },
+);

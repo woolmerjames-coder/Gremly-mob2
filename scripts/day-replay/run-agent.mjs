@@ -8,6 +8,7 @@
  *   scripts/day-replay/run-agent.sh --repeat 3              each scenario three times
  *   scripts/day-replay/run-agent.sh --set week              only the weekly review's scenarios
  *   scripts/day-replay/run-agent.sh --set day --with-week   the day's scenarios with the week's tools on
+ *   scripts/day-replay/run-agent.sh --with-ease             every scenario as an app build that can pause a habit sends it
  *
  * The weekly review's scenarios (week-scenarios.mjs) run with the day's: the
  * request carries the person's week, as an app build that knows it sends it,
@@ -15,6 +16,9 @@
  * reply's words. --with-week gives every scenario that has no week of its own
  * a plain one (this week's review done, nothing under way), to show the day's
  * scenarios pass with the week's tools and changes on as well as without.
+ * --with-ease goes one further: every scenario is sent a week with the habits
+ * eased now (none, unless the scenario says), which is what turns on pausing a
+ * habit or giving it a lighter version (the change model's ease).
  *
  * Keys come from .audit-keys.local (scripts/chat-audit/keys.mjs). Nothing
  * touches a database: the person's items in each scenario stand in for it.
@@ -85,10 +89,12 @@ const USER = '0b7c6f0e-1d2a-4c3b-9e8f-112233445566';
 
 // which scenarios: the day's, the weekly review's, or both
 const set = flag('--set') || 'all';
-const withWeek = args.includes('--with-week');
-const ALL = [...(set === 'week' ? [] : SCENARIOS), ...(set === 'day' ? [] : WEEK_SCENARIOS)].map((s) =>
-  withWeek && !s.week ? { ...s, week: plainWeek(s.today) } : s,
-);
+const withEase = args.includes('--with-ease');
+const withWeek = withEase || args.includes('--with-week');
+const ALL = [...(set === 'week' ? [] : SCENARIOS), ...(set === 'day' ? [] : WEEK_SCENARIOS)]
+  .map((s) => (withWeek && !s.week ? { ...s, week: plainWeek(s.today) } : s))
+  // a scenario that says a build is too old to know of pauses keeps its week as it is
+  .map((s) => (withEase && s.week && !s.week.eased && !s.noEase ? { ...s, week: { ...s.week, eased: [] } } : s));
 const scenarios = only ? ALL.filter((s) => only.split(',').includes(s.id)) : ALL;
 
 /** Each scenario's short ids as the uuids real items have, and back. */
@@ -105,6 +111,7 @@ function weekWithUuids(week, id) {
   return {
     ...week,
     ...(week.intention?.id ? { intention: { ...week.intention, id: id(week.intention.id) } } : {}),
+    ...(week.eased ? { eased: week.eased.map((e) => ({ ...e, habit_id: id(e.habit_id) })) } : {}),
     ...(u
       ? {
           under_way: {
@@ -296,6 +303,9 @@ export function asDayChange(c, back) {
       return { kind: 'cancel', id, title: c.title };
     case 'skip_today':
       return { kind: 'skip_habit', id, title: c.title };
+    // a habit paused, given a lighter version or set back to usual: day is its first day
+    case 'ease':
+      return { kind: 'ease', id, title: c.title, mode: c.ease?.mode, day: c.ease?.first, until: c.ease?.last, note: c.ease?.note || '' };
     default:
       return { kind: c.op, id, title: c.title };
   }

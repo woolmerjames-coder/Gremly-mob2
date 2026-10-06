@@ -42,12 +42,14 @@ export function checkTurn(s, out) {
         (!want.days || sameDays(c.days, want.days)) &&
         (!want.busy || want.busy.every((d) => (c.busy_days || []).includes(d))) &&
         (want.weekday === undefined || c.weekday === want.weekday) &&
+        (!want.mode || c.mode === want.mode) &&
+        (!want.until || c.until === want.until) &&
         (want.travel === undefined || c.travel === want.travel) &&
         (!want.title || String(c.title || '').toLowerCase().includes(want.title)),
     );
     add(
       'fail',
-      `Card has ${want.kinds.join('/')}${want.id ? ` ${want.id}` : ''}${want.day ? ` on ${want.day}` : ''}${want.dayBy ? ` by ${want.dayBy}` : ''}${want.dayAfter ? ` after ${want.dayAfter}` : ''}${want.days ? ` on ${want.days.join(', ')}` : ''}${want.busy ? ` busy ${want.busy.join(', ')}` : ''}${want.weekday !== undefined ? ` weekday ${want.weekday}` : ''}${want.at ? ` at ${want.at}` : ''}${want.title ? ` "${want.title}"` : ''}`,
+      `Card has ${want.kinds.join('/')}${want.id ? ` ${want.id}` : ''}${want.day ? ` on ${want.day}` : ''}${want.dayBy ? ` by ${want.dayBy}` : ''}${want.dayAfter ? ` after ${want.dayAfter}` : ''}${want.days ? ` on ${want.days.join(', ')}` : ''}${want.busy ? ` busy ${want.busy.join(', ')}` : ''}${want.weekday !== undefined ? ` weekday ${want.weekday}` : ''}${want.mode ? ` ${want.mode}` : ''}${want.until ? ` until ${want.until}` : ''}${want.at ? ` at ${want.at}` : ''}${want.title ? ` "${want.title}"` : ''}`,
       hit,
       desc,
     );
