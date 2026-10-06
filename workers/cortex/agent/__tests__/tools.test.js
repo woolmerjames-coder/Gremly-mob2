@@ -574,6 +574,16 @@ describe("propose_changes in today's thread", () => {
   });
 });
 
+describe('a todo read for a change', () => {
+  it('comes with the day it comes back on, so a later change knows what it was', async () => {
+    const db = fakeDb({ 'todos?': [], 'worlds?': [], 'chapters?': [] });
+    await runTool(ctxWith(db), 'get_item', { type: 'todo', id: TODO });
+    const read = db.asked.find((p) => typeof p === 'string' && p.startsWith('todos?'));
+    expect(read).toMatch(/select=[^&]*\bresurface_at\b/);
+    expect(read).toMatch(/select=[^&]*\bdue_day\b/);
+  });
+});
+
 describe('running a tool', () => {
   it('never throws: a failure is plain words for the model, and an unknown tool says so', async () => {
     const broken = { ...fakeDb(), rpc: async () => Promise.reject(new Error('down')) };
@@ -789,6 +799,27 @@ describe("the week's tools", () => {
       expect(b.later).toEqual([{ id: TODO3, title: 'Clear the garage', back_on: '2026-10-12' }]);
     });
 
+    it('keeps a todo with a day on its day, even when it also has a day it came back on', () => {
+      // the wrap up's own Later writes the day and the back day together
+      const sent = {
+        id: TODO3,
+        name: 'Clear the garage',
+        due_day: '2026-10-03',
+        resurface_at: '2026-10-03',
+      };
+      const b = boardOf({
+        days: ['2026-10-02', '2026-10-03'],
+        today: TODAY,
+        todos: [sent],
+        habits: [],
+        plans: [],
+        week: week(),
+      });
+      expect(b.days[1].todos.map((t) => t.title)).toEqual(['Clear the garage']);
+      expect(b.days[1].room.placed).toBe(30);
+      expect(b.later).toEqual([]);
+    });
+
     it("lays the review's working board over what is saved", () => {
       const b = boardOf({
         days: ['2026-10-02', '2026-10-03'],
@@ -875,6 +906,23 @@ describe("the week's tools", () => {
       expect(r.text).toContain('Put off for later: nothing');
     });
 
+    it('reads the todos a long board names in batches, never in one request too long to send', async () => {
+      const db = weekDb();
+      const many = Array.from({ length: 200 }, (_, i) => ({
+        id: `77777777-7777-4777-8777-${String(i).padStart(12, '0')}`,
+        day: TODAY,
+      }));
+      const r = await runTool(
+        weekCtx(db, { under_way: { step: 'board', placed: many, later: [] } }),
+        'get_week',
+        {},
+      );
+      expect(r.ok).toBe(true);
+      const reads = db.asked.filter((p) => typeof p === 'string' && p.includes('id=in.('));
+      expect(reads).toHaveLength(3);
+      for (const read of reads) expect(read.length).toBeLessThan(4000);
+    });
+
     it('works out no room when the week has no hours yet, and says so', async () => {
       const r = await runTool(weekCtx(weekDb(), { hours: null }), 'get_week', {});
       expect(r.text).toContain(
@@ -890,17 +938,25 @@ describe("the week's tools", () => {
   });
 
   describe('hold and offer_week', () => {
-    it('hold keeps the review waiting only while one is under way', async () => {
+    it('hold keeps the review waiting on a question, only while one is under way', async () => {
       const on = await runTool(weekCtx(fakeDb(), { under_way: { step: 'shape' } }), 'hold', {
-        about: '  how many   hours ',
+        question: '  How many   hours do you have? ',
       });
-      expect(on.result).toEqual({ signal: { hold: { about: 'how many hours' } } });
+      expect(on.result).toEqual({ signal: { hold: { question: 'How many hours do you have?' } } });
       expect(on.text).toBe('The review stays on this step until they answer.');
       for (const under of [null, { step: 'done' }]) {
-        const off = await runTool(weekCtx(fakeDb(), { under_way: under }), 'hold', { about: 'x' });
+        const off = await runTool(weekCtx(fakeDb(), { under_way: under }), 'hold', {
+          question: 'Which day?',
+        });
         expect(off.result.signal).toBeNull();
         expect(off.text).toContain('nothing to hold');
       }
+    });
+
+    it('hold with no question waits on nothing, and says so', async () => {
+      const r = await runTool(weekCtx(fakeDb(), { under_way: { step: 'shape' } }), 'hold', {});
+      expect(r.result).toEqual({ signal: null, why: 'no_question' });
+      expect(r.text).toContain('There is no question to wait on, so the review carries on.');
     });
 
     it("offer_week puts the week's button, and says what it will read", async () => {
@@ -922,9 +978,32 @@ describe("the week's tools", () => {
         'offer_week',
         {},
       );
-      expect(r.result).toMatchObject({ more: true, weekday: 5 });
+      expect(r.result).toMatchObject({ more: true, move_to: 5 });
+      expect(r.text).toContain('It reads Your week');
       expect(r.text).toContain('It cannot start another review today');
       expect(r.text).toContain('put the move of their weekly day to Friday on the card');
+    });
+
+    it('offer_week does not suggest moving the weekly day to the day it is already on', async () => {
+      // Friday is their weekly day, and no review can be started today
+      const r = await runTool(
+        weekCtx(fakeDb(), { blocked: true, extra_used: true, weekly_day: 5 }),
+        'offer_week',
+        {},
+      );
+      expect(r.result).toMatchObject({ more: true, move_to: null });
+      expect(r.text).toContain('It cannot start another review today');
+      expect(r.text).not.toContain('move of their weekly day');
+    });
+
+    it('offer_week reads Plan your week while a review is under way, whatever its row says', async () => {
+      const r = await runTool(
+        weekCtx(fakeDb(), { under_way: { step: 'board' } }),
+        'offer_week',
+        {},
+      );
+      expect(r.result.signal.offer.done).toBe(false);
+      expect(r.text).toContain('It reads Plan your week');
     });
   });
 
@@ -1026,6 +1105,26 @@ describe("the week's tools", () => {
       expect(r.text).toContain('- c4 intention: “One thing at a time”');
       expect(r.text).toContain('- c5 milestone “Conference talk” for Tue 20 Oct: 2 steps');
       expect(r.text).toContain('- c6 weekly_day: Wednesday');
+    });
+
+    it('knows when a todo is already put off, and until when', async () => {
+      const put = fakeDb({
+        'todos?': [
+          { id: TODO, name: 'Dentist', due_day: null, resurface_at: '2026-10-12', archived: false },
+        ],
+        drop_world_links: [],
+        drop_chapter_links: [],
+        'worlds?': [],
+        'chapters?': [],
+      });
+      const moved = await runTool(weekCtx(put), 'propose_changes', {
+        changes: [{ op: 'later', type: 'todo', id: TODO, back_on: '2026-10-19' }],
+      });
+      expect(moved.result.changes[0].before).toEqual({ back_on: '2026-10-12', day: null });
+      const same = await runTool(weekCtx(put), 'propose_changes', {
+        changes: [{ op: 'later', type: 'todo', id: TODO, back_on: '2026-10-12' }],
+      });
+      expect(same.result.dropped).toEqual([{ cid: 'c1', reason: 'no_change' }]);
     });
 
     it("reads a habit's days from the review while one is under way, not from what is saved", async () => {

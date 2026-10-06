@@ -547,18 +547,23 @@ describe("the brief's week variant", () => {
   });
 
   it('a reply written with a hold is the answer: the review waits, and no step is spent', async () => {
-    const m = scripted(withText('How many hours do you have?', ['hold', { about: 'their hours' }]));
-    const t = tools({ hold: signal({ hold: { about: 'their hours' } }) });
+    const m = scripted(
+      withText('How many hours do you have?', [
+        'hold',
+        { question: 'How many hours do you have?' },
+      ]),
+    );
+    const t = tools({ hold: signal({ hold: { question: 'How many hours do you have?' } }) });
     const r = await run(m, t);
     expect(r).toMatchObject({
       ok: true,
       reply: 'How many hours do you have?',
       stopped: 'answer',
-      hold: { about: 'their hours' },
+      hold: { question: 'How many hours do you have?' },
       offer: null,
     });
     expect(m.seen).toHaveLength(1);
-    expect(t.ran).toEqual([['hold', { about: 'their hours' }]]);
+    expect(t.ran).toEqual([['hold', { question: 'How many hours do you have?' }]]);
   });
 
   it("a reply written with the week's button and a card arrives in one step", async () => {
@@ -605,7 +610,10 @@ describe("the brief's week variant", () => {
   });
 
   it('takes another step when a signal did not take, and tells the app nothing', async () => {
-    const m = scripted(withText('Which day?', ['hold', { about: 'the day' }]), reply('Which day?'));
+    const m = scripted(
+      withText('Which day?', ['hold', { question: 'Which day?' }]),
+      reply('Which day?'),
+    );
     const t = tools({ hold: signal(null) });
     const r = await run(m, t);
     expect(m.seen).toHaveLength(2);
@@ -613,15 +621,15 @@ describe("the brief's week variant", () => {
   });
 
   it('a signal with no reply yet is not an answer: the model is asked again', async () => {
-    const m = scripted(ask(['hold', { about: 'the day' }]), reply('Which day works?'));
-    const t = tools({ hold: signal({ hold: { about: 'the day' } }) });
+    const m = scripted(ask(['hold', { question: 'Which day?' }]), reply('Which day works?'));
+    const t = tools({ hold: signal({ hold: { question: 'Which day?' } }) });
     const r = await run(m, t);
     expect(m.seen).toHaveLength(2);
-    expect(r).toMatchObject({ reply: 'Which day works?', hold: { about: 'the day' } });
+    expect(r).toMatchObject({ reply: 'Which day works?', hold: { question: 'Which day?' } });
   });
 
   it('does not offer the signals on a surface without the variant', async () => {
-    const m = scripted(withText('ok', ['hold', { about: 'x' }]), reply('ok'));
+    const m = scripted(withText('ok', ['hold', { question: 'x?' }]), reply('ok'));
     const t = tools();
     const r = await runAgent({
       surface: 'brief',

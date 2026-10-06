@@ -72,6 +72,7 @@ function review(step, under = {}, over = {}) {
       step,
       first: MON,
       last: NEXT_SUN,
+      week_start: MON,
       challenge: CHALLENGE,
       picks: PICKS,
       settled: [],
@@ -124,7 +125,7 @@ export const WEEK_SCENARIOS = [
     ...base,
     id: 'week-worn-out',
     title: 'In the review: they are worn out',
-    look: 'Gremly answers how they feel first. It either asks of them less (fewer free hours, things put off) or holds the review to ask; nothing is cancelled or marked done.',
+    look: 'Gremly answers how they feel first. It either shapes the week around that (fewer free hours, things put off, a habit on fewer days, an intention) or holds the review to ask what would help; nothing is cancelled or marked done.',
     text: "Honestly I'm exhausted. Last week completely wiped me out",
     week: review('shape'),
     expect: {
@@ -135,11 +136,12 @@ export const WEEK_SCENARIOS = [
         const shape = changes.find((c) => c.kind === 'week_shape');
         const before = { normal_day: 2, busy_day: 1, weekend_day: 4 };
         const raised = Object.entries(shape?.hours || {}).filter(([k, v]) => v > before[k]);
-        const eased = changes.some((c) => c.kind === 'later' || (c.kind === 'week_shape' && (c.hours || c.busy_days)));
+        // fewer free hours, busy days, things put off, a habit on fewer days, or a gentler intention
+        const eased = changes.some((c) => ['later', 'week_shape', 'habit_days', 'intention'].includes(c.kind));
         return [
           { name: 'No free hours are raised', ok: !raised.length, detail: JSON.stringify(shape?.hours) },
           {
-            name: 'Asks less of the week, or holds the review to ask',
+            name: 'Shapes the week around it, or holds the review to ask',
             ok: eased || out.hold,
             detail: `hold ${out.hold}; ${changes.map((c) => c.kind).join(', ') || 'no changes'}`,
           },
@@ -242,7 +244,7 @@ export const WEEK_SCENARIOS = [
     text: 'Put a run on Monday and one on Friday',
     week: review(
       'board',
-      { first: WED, last: NEXT_SUN, habit_days: [{ id: 'run', days: [] }] },
+      { first: WED, last: NEXT_SUN, week_start: MON, habit_days: [{ id: 'run', days: [] }] },
       { review: { week_start: MON, span_start: WED, status: 'started', kind: 'extra' } },
     ),
     expect: {

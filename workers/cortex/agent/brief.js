@@ -40,7 +40,6 @@ import {
   REVIEW_KINDS,
   REVIEW_STATES,
   WEEK_STEPS,
-  addDays,
   cycleOf,
   daysBetween,
   daysOffOf,
@@ -343,10 +342,16 @@ const SETTLED = {
   later: 'a todo put off for later',
 };
 
+/** An id as the app sends one: a string in the shape of an id, and nothing else. */
+const isIdLike = (v) => typeof v === 'string' && UUID_LIKE.test(v);
+const SETTLED_KINDS = Object.keys(SETTLED);
+// lists are cut to length before they are read, so a huge one costs nothing
 const ids = (list, max) =>
-  (Array.isArray(list) ? list : []).filter((id) => UUID_LIKE.test(String(id || ''))).slice(0, max);
+  (Array.isArray(list) ? list.slice(0, max * 4) : []).filter(isIdLike).slice(0, max);
 const dayList = (list, max) =>
-  [...new Set((Array.isArray(list) ? list : []).filter(isDay))].sort().slice(0, max);
+  [...new Set((Array.isArray(list) ? list.slice(0, max * 4) : []).filter(isDay))]
+    .sort()
+    .slice(0, max);
 
 /** The week's free hours as the thread sent them, or null when none are set. */
 function readHours(raw) {
@@ -365,9 +370,11 @@ function readHours(raw) {
  * this week's review as its row has it, whether the one extra review of the
  * week is used, the week's free hours, busy days and intention as they stand,
  * and, while a review is under way, where it is and what has been settled.
- * Null when the app sent none: an app build that does not know the week.
+ * Null when the app sent none: an app build that does not know the week. With
+ * today, a review whose days have all gone, or are further off than the week
+ * after next, is not one under way.
  */
-export function readWeek(raw) {
+export function readWeek(raw, today = null) {
   if (!raw || typeof raw !== 'object' || !Number.isInteger(raw.weekly_day)) return null;
   if (raw.weekly_day < 0 || raw.weekly_day > 6) return null;
   const str = (v, n) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, n) : '');
@@ -384,7 +391,7 @@ export function readWeek(raw) {
   const i = raw.intention;
   const intention =
     i && typeof i === 'object' && str(i.text, 200)
-      ? { id: UUID_LIKE.test(String(i.id || '')) ? i.id : null, text: str(i.text, 200) }
+      ? { id: isIdLike(i.id) ? i.id : null, text: str(i.text, 200) }
       : null;
   return {
     weekly_day: raw.weekly_day,
@@ -394,53 +401,57 @@ export function readWeek(raw) {
     hours: readHours(raw.hours),
     busy_days: dayList(raw.busy_days, 14),
     intention,
-    under_way: readUnderWay(raw.under_way, str),
+    under_way: readUnderWay(raw.under_way, str, today),
   };
 }
 
 /** A review under way, as the thread sent it; null when none is. */
-function readUnderWay(u, str) {
+function readUnderWay(u, str, today) {
   if (!u || typeof u !== 'object' || !WEEK_STEPS.includes(u.step)) return null;
   if (!isDay(u.first) || !isDay(u.last) || u.last < u.first) return null;
-  const list = (v) => (Array.isArray(v) ? v : []);
+  // a review plans a week or the rest of one, around now
+  if (daysBetween(u.first, u.last) > 13) return null;
+  if (today && (u.last < today || daysBetween(today, u.first) > 14)) return null;
+  const list = (v, max) => (Array.isArray(v) ? v.slice(0, max) : []);
   const c = u.challenge;
   const a = u.about;
   return {
     step: u.step,
-    // the days being planned
+    // the days being planned, and the first day of the week they belong to
     first: u.first,
     last: u.last,
+    week_start: isDay(u.week_start) && u.week_start <= u.first ? u.week_start : u.first,
     challenge:
       c && typeof c === 'object' && str(c.headline, 200)
         ? { headline: str(c.headline, 200), why: str(c.why, 400) }
         : null,
-    picks: list(u.picks)
+    picks: list(u.picks, 10)
       .map((p) => ({ text: str(p?.text, 120), item_ids: ids(p?.item_ids, 8) }))
       .filter((p) => p.text)
       .slice(0, 5),
-    settled: list(u.settled)
+    settled: list(u.settled, 120)
       .map((s) => ({
         kind: s?.kind,
-        id: UUID_LIKE.test(String(s?.id || '')) ? s.id : null,
+        id: isIdLike(s?.id) ? s.id : null,
         item_ids: ids(s?.item_ids, 8),
         type: ['todo', 'habit', 'note'].includes(s?.type) ? s.type : null,
         title: str(s?.title, 100),
         outcome: str(s?.outcome, 100),
         was: str(s?.was, 100),
       }))
-      .filter((s) => SETTLED[s.kind] && (s.title || s.outcome))
+      .filter((s) => SETTLED_KINDS.includes(s.kind) && (s.title || s.outcome))
       .slice(0, 60),
     // the board's working picture, none of it saved until they finish
-    habit_days: list(u.habit_days)
-      .filter((h) => UUID_LIKE.test(String(h?.id || '')))
+    habit_days: list(u.habit_days, 80)
+      .filter((h) => isIdLike(h?.id))
       .map((h) => ({ id: h.id, days: dayList(h.days, 14) }))
       .slice(0, 40),
-    placed: list(u.placed)
-      .filter((p) => UUID_LIKE.test(String(p?.id || '')) && isDay(p.day))
+    placed: list(u.placed, 400)
+      .filter((p) => isIdLike(p?.id) && isDay(p.day))
       .map((p) => ({ id: p.id, day: p.day }))
       .slice(0, 200),
-    later: list(u.later)
-      .filter((p) => UUID_LIKE.test(String(p?.id || '')) && isDay(p.back_on))
+    later: list(u.later, 400)
+      .filter((p) => isIdLike(p?.id) && isDay(p.back_on))
       .map((p) => ({ id: p.id, back_on: p.back_on }))
       .slice(0, 200),
     // the one they opened to talk through, on a needs you card
@@ -453,9 +464,19 @@ function readUnderWay(u, str) {
             question: str(a.question, 300),
           }
         : null,
-    // what Gremly's last reply left the review waiting on
-    hold: str(u.hold, 200),
+    // the question Gremly's last reply left the review waiting on
+    hold: str(u.hold, 300),
   };
+}
+
+/**
+ * This week's review, as the app sent it: the row for the week of the cycle
+ * today is in. A row for any other week is not this week's, whatever it says,
+ * so one kept from before their weekly day moved is left out.
+ */
+export function reviewOf(week, today) {
+  const r = week?.review;
+  return r && r.week_start === cycleOf(today, week.weekly_day).week_start ? r : null;
 }
 
 /**
@@ -468,41 +489,45 @@ export function reviewBlocked(week, today) {
   if (!week?.extra_used) return false;
   const on = reviewOn(today, week.weekly_day);
   if (on.kind === 'extra') return true;
-  return on.kind === 'weekly' && week.review?.status === 'done';
+  return on.kind === 'weekly' && reviewOf(week, today)?.status === 'done';
 }
 
 /**
  * The person's week for the tools (ctx.week), worked out from what the thread
  * sent and today's date alone: the days the week's changes act on (the days
  * being planned while a review is under way, otherwise from today to the end
- * of this week), the days get_week shows, and the week's shape and intention
- * as they stand.
+ * of this week), the days get_week shows (every day the changes can act on,
+ * and the days of this week already gone), the week those changes belong to,
+ * and the week's shape and intention as they stand.
  */
 export function weekFrameOf(week, today) {
   if (!week) return null;
   const cycle = cycleOf(today, week.weekly_day);
+  // a finished review is no longer under way: the tools read what is saved
   const u = week.under_way && week.under_way.step !== 'done' ? week.under_way : null;
-  const started = !!week.review && ['started', 'done'].includes(week.review.status);
-  // on the weekly day, until the new week has a review, their week is still the one ending today
-  const ending = cycle.since === 0 && !started && !u;
+  const review = reviewOf(week, today);
+  const started = !!review && ['started', 'done'].includes(review.status);
   return {
     weekly_day: week.weekly_day,
     days_off: week.days_off,
-    review: week.review,
+    review,
     extra_used: week.extra_used,
     // no review can be started today: the one extra of the week is used
     blocked: reviewBlocked(week, today),
     next_review: cycle.since === 0 && !started ? today : cycle.next,
     first: u ? u.first : today,
     last: u ? u.last : cycle.week_end,
-    view_first: u ? u.first : ending ? addDays(today, -6) : cycle.week_start,
-    view_last: u ? u.last : ending ? today : cycle.week_end,
+    // on the weekly day the week starts tomorrow, and today is shown with it
+    view_first: u ? u.first : today < cycle.week_start ? today : cycle.week_start,
+    view_last: u ? u.last : cycle.week_end,
+    // the week the shape, the intention and the check ins are kept for
+    week_start: u ? u.week_start : cycle.week_start,
     hours: week.hours,
     busy_days: week.busy_days,
     intention: week.intention,
     // the week's shape and its check ins are kept on its review
     has_review: started || !!u,
-    under_way: week.under_way,
+    under_way: u,
   };
 }
 
@@ -513,9 +538,9 @@ export function weekFrameOf(week, today) {
 export function weekLine(week, today) {
   const cycle = cycleOf(today, week.weekly_day);
   const day = WEEKDAY_NAMES[week.weekly_day];
-  const status = week.review?.status;
-  const under = week.under_way && week.under_way.step !== 'done';
-  const state = under
+  const status = reviewOf(week, today)?.status;
+  const u = week.under_way && week.under_way.step !== 'done' ? week.under_way : null;
+  const state = u
     ? 'is under way in this thread'
     : status === 'done'
       ? 'is done'
@@ -524,9 +549,14 @@ export function weekLine(week, today) {
         : status === 'skipped'
           ? 'was skipped'
           : 'has not been done';
-  // on the weekly day the review is for the week that starts tomorrow
-  const which = cycle.since === 0 ? 'the week ahead' : 'this week';
-  const range = `${dayName(cycle.week_start)} to ${dayName(cycle.week_end)}`;
+  // on the weekly day the review is for the week that starts tomorrow; one
+  // under way says its own days, which are next week's when it is brought forward
+  const starts = u ? u.first : cycle.week_start;
+  const ahead = starts > today && (cycle.since === 0 || starts > cycle.week_end);
+  const which = ahead ? 'the week ahead' : 'this week';
+  const range = u
+    ? `${dayName(u.first)} to ${dayName(u.last)}`
+    : `${dayName(cycle.week_start)} to ${dayName(cycle.week_end)}`;
   const when =
     cycle.since === 0
       ? `Today is their weekly day, ${day}, when they plan their week with Gremly in a weekly review.`
@@ -609,14 +639,14 @@ export function weekContext(week) {
   }
   if (!done) {
     L.push(
-      'They can type anything at any moment of the review. Read what they wrote as a person would and answer what they mean. When it changes the week, say back briefly what you understood and put the changes that clearly follow from what they said on the card, and no others. The card is an offer they can turn down or correct, so offer what follows rather than asking whether you should, and never hold a change back to ask for a detail it can be offered without: something new they tell you about goes on the card with what they told you, and what they did not say about it is theirs to fill in. A todo with no length is counted as half an hour on the board until they give it one, so how long something takes is never a thing to ask first. Only when it is unclear what they want changed, ask one short question instead and put nothing on the card. When it is a question, answer it from what you know, and say so plainly when you do not know. When it is about how they feel, answer that first, then let it shape the week where it should.',
+      'They can type anything at any moment of the review. Read what they wrote as a person would and answer what they mean. When it changes the week, say back briefly what you understood and put the changes that clearly follow from what they said on the card, and no others. The card is an offer they can turn down or correct, so offer what follows rather than asking whether you should, and never hold a change back to ask for a detail it can be offered without: something new they tell you about goes on the card with what they told you, and what they did not say about it is theirs to fill in. A todo with no length is counted as half an hour on the board until they give it one, so how long something takes is never a thing to ask first. Only when it is unclear what they want changed, ask one short question instead and put nothing on the card. When it is a question, answer it from what you know, and say so plainly when you do not know. When it is about how they feel, answer that first. Then let it shape the week: where it means the week should ask less of them, or more, offer that on the card, or ask one short question about what would help.',
       'The days being planned are read with get_week, which has them as the review has them now: where each todo sits on the board, what is put off, and the room each day has left. The list of their items for today, and get_day, have only what is saved.',
       'The review carries on by itself after your reply, from the step it is on, and nothing on that step is lost, so leave its steps to it. Only when your reply ends by asking them something the step cannot be settled without, call hold with your reply, and the review waits for their answer.',
       'Some of what you know is about their health, body or mind. Let it shape the week: their energy, appointments, rest and how much to ask of them. Plan health todos and habits like any others. Write about it only as discreetly as they would want on a screen someone else might glance at, and never name a condition, treatment or medication in your own words; the titles of their items stay exactly as they wrote them.',
     );
     if (u.hold) {
       L.push(
-        `The review is waiting on this step for their answer about: ${u.hold}. When their message settles it, let the review carry on; when it does not, hold again.`,
+        `The review is waiting on this step for their answer to what Gremly asked: "${u.hold}" When their message settles it, let the review carry on; when it does not, hold again.`,
       );
     }
     if (u.about) {
@@ -686,8 +716,9 @@ export async function runBriefTurn({ env, userId, body, useAgent, dayTurn, onSta
   if (!req.date || !req.text) return { engine: 'agent', error: 'nothing to read' };
   const timezone = typeof body?.timezone === 'string' && body.timezone ? body.timezone : 'UTC';
   const day = dayFrameOf(req);
-  // their week, when this app build sends it: the week's tools and changes come with it
-  const week = readWeek(body?.week);
+  // their week, when this app build sends it: the week's tools and changes come
+  // with it. A date that is not a real day has no week to work out.
+  const week = isDay(req.date) ? readWeek(body?.week, req.date) : null;
   const weekFrame = weekFrameOf(week, req.date);
   const ctx = deps.ctx
     ? { ...deps.ctx, today: req.date, day, week: weekFrame }

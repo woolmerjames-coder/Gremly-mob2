@@ -22,6 +22,9 @@ const DESCRIPTION = `Read the person's week as their week board has it: each day
 
 const KIND_WORDS = { normal_day: 'normal day', busy_day: 'busy day', weekend_day: 'day off' };
 
+/** The most todo ids one read names. */
+const IDS_PER_READ = 80;
+
 const titleOf = (r) => r?.name || r?.title || 'Untitled';
 
 /** Hours as the board says them: "2 hr", "1 hr 30 min", "30 min", "none". */
@@ -52,9 +55,10 @@ export function boardOf({ days, today, todos, habits, plans, week }) {
   const dayOf = new Map();
   const backOf = new Map();
   for (const t of todos) {
+    // a todo with a day is on that day; one with no day and a day to come back on is put off
     const back = t.resurface_at ? String(t.resurface_at).slice(0, 10) : null;
-    if (back && back > today) backOf.set(t.id, back);
-    else if (t.due_day) dayOf.set(t.id, String(t.due_day).slice(0, 10));
+    if (t.due_day) dayOf.set(t.id, String(t.due_day).slice(0, 10));
+    else if (back && back > today) backOf.set(t.id, back);
   }
   for (const p of u?.placed || []) {
     if (!byId.has(p.id)) continue;
@@ -121,6 +125,11 @@ export const getWeek = {
         [...(week.under_way?.placed || []), ...(week.under_way?.later || [])].map((x) => x.id),
       ),
     ];
+    // read in batches, so the list of ids never makes a request too long to send
+    const batches = [];
+    for (let i = 0; i < named.length; i += IDS_PER_READ) {
+      batches.push(named.slice(i, i + IDS_PER_READ));
+    }
     const [onDays, putOff, byName, habits, plans] = await Promise.all([
       d.select(
         `${open}&due_day=gte.${first}&due_day=lte.${last}&select=${cols}&order=due_day.asc&limit=300`,
@@ -128,9 +137,11 @@ export const getWeek = {
       d.select(
         `${open}&resurface_at=gt.${ctx.today}&select=${cols}&order=resurface_at.asc&limit=200`,
       ),
-      named.length
-        ? d.select(`${open}&id=in.(${named.join(',')})&select=${cols}&limit=300`)
-        : Promise.resolve([]),
+      Promise.all(
+        batches.map((batch) =>
+          d.select(`${open}&id=in.(${batch.join(',')})&select=${cols}&limit=${IDS_PER_READ}`),
+        ),
+      ).then((rows) => rows.flatMap((r) => r || [])),
       d.select(
         `habits?owner_id=eq.${u}&archived=eq.false&select=id,name,title,time_estimate_minutes&limit=200`,
       ),
@@ -147,7 +158,7 @@ export const getWeek = {
       known: true,
       first,
       last,
-      working: !!(week.under_way && week.under_way.step !== 'done'),
+      working: !!week.under_way,
       hours: week.hours || null,
       ...boardOf({ days, today: ctx.today, todos, habits: habits || [], plans: plans || [], week }),
     };

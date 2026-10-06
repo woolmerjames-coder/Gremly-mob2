@@ -15,33 +15,38 @@
 import { weekdayOf } from '../../../shared/week.js';
 import { obj, str } from './schema.js';
 
-const HOLD = `Make the weekly review wait for their answer to a question you ask in your reply. After a reply the review carries on from the step it is on, and nothing on that step is lost, so most replies need nothing from you. Call this only when your reply ends by asking them something the step cannot be settled without: the review then waits for their answer before it carries on. Say in a few plain words what you asked. Never call it with a reply that asks them nothing, whatever the reply is about. It is between you and the app, so never speak of it in your reply. Only while a weekly review is under way.`;
+const HOLD = `Make the weekly review wait for their answer to a question you ask in your reply. After a reply the review carries on from the step it is on, and nothing on that step is lost, so most replies need nothing from you. Call this only when your reply ends by asking them something the step cannot be settled without: the review then waits for their answer before it carries on. Give the question your reply asks them, as you asked it. A reply that asks them nothing has no question to give, so it never comes with this, whatever the reply is about. It is between you and the app, so never speak of it in your reply. Only while a weekly review is under way.`;
 
 export const hold = {
   name: 'hold',
   // tells the app about the reply; the loop does not spend a step after it
   signal: true,
   description: HOLD,
-  parameters: obj({ about: str('in a few plain words, what you asked them') }, ['about']),
+  parameters: obj({ question: str('the question your reply asks them, as you asked it') }, [
+    'question',
+  ]),
 
   async run(ctx, input = {}) {
     const under = ctx.week?.under_way;
     if (!under || under.step === 'done') return { signal: null, why: 'no_review' };
-    const about = String(input.about || '')
+    const question = String(input.question || '')
       .replace(/\s+/g, ' ')
       .trim()
-      .slice(0, 200);
-    return { signal: { hold: { about } } };
+      .slice(0, 300);
+    // nothing asked, nothing to wait for
+    if (!question) return { signal: null, why: 'no_question' };
+    return { signal: { hold: { question } } };
   },
 
   render(r) {
-    return r.signal
-      ? 'The review stays on this step until they answer.'
+    if (r.signal) return 'The review stays on this step until they answer.';
+    return r.why === 'no_question'
+      ? 'There is no question to wait on, so the review carries on. Leave this out unless your reply asks them something.'
       : 'No weekly review is under way, so there is nothing to hold. Leave this out.';
   },
 };
 
-const OFFER = `Put the button to their week under your reply. It opens the weekly review so they can plan their week, or the week they planned once this week's review is done. Call it with your reply when they ask to plan their week, to do their weekly review, or to see the week they planned, on any day. It is for opening the review or the week, so a change to either, such as moving the weekly day, needs no button. What you know about their week says whether this week's review is done and whether the one extra review of the week is still free. In your reply say only what the button opens, never how it works.`;
+const OFFER = `Put the button to their week under your reply. It opens the weekly review so they can plan their week, or the week they planned once this week's review is done. Call it with your reply when they ask to plan their week, to do their weekly review, or to see the week they planned, on any day. It is for opening the review or the week: a change to either goes on the card and needs no button. What you know about their week says whether this week's review is done and whether the one extra review of the week is still free. In your reply say only what the button opens, never how it works.`;
 
 const WEEKDAY_NAMES = [
   'Sunday',
@@ -63,23 +68,28 @@ export const offerWeek = {
     const week = ctx.week;
     if (!week) return { signal: null, why: 'no_week' };
     const done = week.review?.status === 'done' && !week.under_way;
+    const weekday = weekdayOf(ctx.today);
     return {
       signal: { offer: { kind: 'week', done } },
       // no review can be started today, so the reply has more to say than the
       // button: the loop hands these words back before the turn ends
       more: week.blocked === true,
-      weekday: weekdayOf(ctx.today),
+      // the day their reviews could move to: today's, unless that is their weekly day already
+      move_to: week.blocked === true && weekday !== week.weekly_day ? weekday : null,
     };
   },
 
   render(r) {
     if (!r.signal)
       return 'Their week is not known here, so there is no button to put. Leave this out.';
-    if (r.more) {
-      return `The button is under your reply. It reads Your week and opens the week they planned. It cannot start another review today, because the one extra review of the week is used. When a review is what they asked for, say so plainly with when the next one is, and put the move of their weekly day to ${WEEKDAY_NAMES[r.weekday]} on the card with propose_changes, as an offer they can turn down.`;
-    }
-    return r.signal.offer.done
+    const button = r.signal.offer.done
       ? 'The button is under your reply. It reads Your week and opens the week they planned.'
       : 'The button is under your reply. It reads Plan your week and opens the weekly review.';
+    if (!r.more) return button;
+    const move =
+      r.move_to == null
+        ? ''
+        : ` and put the move of their weekly day to ${WEEKDAY_NAMES[r.move_to]} on the card with propose_changes, as an offer they can turn down`;
+    return `${button} It cannot start another review today, because the one extra review of the week is used. When a review is what they asked for, say so plainly with when the next one is${move}.`;
   },
 };

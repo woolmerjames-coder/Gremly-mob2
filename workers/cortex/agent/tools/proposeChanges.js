@@ -574,6 +574,7 @@ export function weekCheckOf(week) {
   return {
     first: week.first,
     last: week.last,
+    week_start: week.week_start,
     hours: week.hours || null,
     busy_days: week.busy_days || [],
     has_review: !!week.has_review,

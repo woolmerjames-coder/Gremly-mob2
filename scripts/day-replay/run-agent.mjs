@@ -394,7 +394,7 @@ const done = await pool(jobs, 4, async ({ s, m }) => {
   );
   if (r.out) {
     console.log(`      reply: ${r.out.reply}`);
-    console.log(`      card: ${JSON.stringify(r.changes)}  tools: ${(r.out.tools || []).join(', ') || 'none'}  tasks: ${JSON.stringify(r.out.tasks)}${r.out.hold ? `  hold: ${r.out.hold.about}` : ''}${r.out.offer ? '  offer: week' : ''}`);
+    console.log(`      card: ${JSON.stringify(r.changes)}  tools: ${(r.out.tools || []).join(', ') || 'none'}  tasks: ${JSON.stringify(r.out.tasks)}${r.out.hold ? `  hold: ${r.out.hold.question}` : ''}${r.out.offer ? '  offer: week' : ''}`);
   }
   return { id: s.id, ...r };
 });

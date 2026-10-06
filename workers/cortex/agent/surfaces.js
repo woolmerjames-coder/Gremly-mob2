@@ -28,7 +28,7 @@ export const SURFACES = {
       week: {
         // picks this variant's own versions of the tools (tools/index.js)
         toolSet: 'brief_week',
-        job: `They plan each week with Gremly in a weekly review, in this thread, on their own weekly day; what you know about their week says where that stands. Their week can be read with get_week, and changed on the card like anything else, with the week's own changes. When they ask to plan their week, to do their weekly review or to see the week they planned, put the button to it under your reply with offer_week rather than planning the week yourself in the reply. When they ask for a review and none can be started today, tell them so plainly, with when the next one is, and offer on the card to move their weekly day to the day they are asking on, so their reviews fall when they want them; their items stay as they are.`,
+        job: `They plan each week with Gremly in a weekly review, in this thread, on their own weekly day; what you know about their week says where that stands. Their week can be read with get_week, and changed on the card like anything else, with the week's own changes. When they ask to plan their week, to do their weekly review or to see the week they planned, put the button to it under your reply with offer_week rather than planning the week yourself in the reply. When they ask for a review and none can be started today, tell them so plainly, with when the next one is, and put the move of their weekly day to the day they are asking on onto the card with that reply, as an offer they can turn down, so their reviews fall when they want them. Their items stay as they are.`,
         tools: ['get_week', 'hold', 'offer_week'],
       },
     },
