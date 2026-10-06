@@ -198,6 +198,24 @@ describe('the day the agent knows', () => {
 });
 
 describe('a turn', () => {
+  it('has nothing to read when the date is not a real day, and asks nobody', async () => {
+    const dayTurn = jest.fn();
+    const agent = jest.fn();
+    for (const date of ['2026-13-01', '2026-02-30', '2026-10-2', 'today', null]) {
+      const r = await runBriefTurn({
+        env: {},
+        userId: USER,
+        body: { ...BODY, date, week: { weekly_day: 0 } },
+        useAgent: true,
+        dayTurn,
+        deps: { person: {}, ctx: {}, dayEndHour: 3, agent: { ask: agent } },
+      });
+      expect(r).toEqual({ engine: 'agent', error: 'nothing to read' });
+    }
+    expect(dayTurn).not.toHaveBeenCalled();
+    expect(agent).not.toHaveBeenCalled();
+  });
+
   it('is the day turn when the agent is switched off', async () => {
     const dayTurn = jest.fn(async () => ({ about_day: true, changes: [], reply: 'Sure.' }));
     const r = await runBriefTurn({ env: {}, userId: USER, body: BODY, useAgent: false, dayTurn });

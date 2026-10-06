@@ -10,6 +10,7 @@
 import { calendarSelects, meetingsFrom } from '../../../shared/calendar.js';
 import { scheduleOf, scheduleLabel } from '../../../shared/changes/check.js';
 import { buildDayRecord } from '../../../inngest-jobs/brief/dayRecord.js';
+import { isDay } from '../../../shared/week.js';
 import { day, obj } from './schema.js';
 import { addDays, clock, dayWords, mondayOf, trim, weekdayOf } from './words.js';
 
@@ -46,8 +47,6 @@ export function habitOnDay(h, date, logged) {
     met: sofar >= s.times,
   };
 }
-
-const isDay = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
 
 /** The days one call reads: date, or date through to, at most a week. Pure, for tests. */
 export function daysToRead(input, today) {

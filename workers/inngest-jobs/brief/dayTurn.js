@@ -24,6 +24,7 @@ import { addDays, personIdentity, weekdayName } from '../context/db';
 import { clockTime, noDashes, stripRefs } from './writer';
 import { parseHHMM, toHHMM } from './planPick';
 import { dayEndHourOf, inSmallHours } from '../../shared/day.js';
+import { isDay } from '../../shared/week.js';
 
 export const DAY_TURN_PROMPT_VERSION = 'day-turn-2026-10-05a';
 const DAY_END = 22 * 60;
@@ -52,13 +53,16 @@ function trim(text, n) {
   return s.length > n ? `${s.slice(0, n)}…` : s;
 }
 
-const isDay = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
 const num = (v, lo, hi) =>
   v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v))
     ? Math.min(hi, Math.max(lo, Math.round(Number(v))))
     : null;
 
-/** The app's request, checked, with a ref for every item and set time. */
+/**
+ * The app's request, checked, with a ref for every item and set time. A date
+ * is taken only when it is a real day, so nothing after this works out a
+ * weekday from one that is not.
+ */
 export function readTurnRequest(body) {
   const date = isDay(body.date) ? body.date : null;
   const now = num(body.now, 0, 24 * 60) ?? 0;

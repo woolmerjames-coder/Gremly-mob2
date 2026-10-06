@@ -716,9 +716,8 @@ export async function runBriefTurn({ env, userId, body, useAgent, dayTurn, onSta
   if (!req.date || !req.text) return { engine: 'agent', error: 'nothing to read' };
   const timezone = typeof body?.timezone === 'string' && body.timezone ? body.timezone : 'UTC';
   const day = dayFrameOf(req);
-  // their week, when this app build sends it: the week's tools and changes come
-  // with it. A date that is not a real day has no week to work out.
-  const week = isDay(req.date) ? readWeek(body?.week, req.date) : null;
+  // their week, when this app build sends it: the week's tools and changes come with it
+  const week = readWeek(body?.week, req.date);
   const weekFrame = weekFrameOf(week, req.date);
   const ctx = deps.ctx
     ? { ...deps.ctx, today: req.date, day, week: weekFrame }

@@ -610,6 +610,9 @@ describe('get_day over several days', () => {
     ]);
     expect(daysToRead({ date: '2026-10-05', to: '2026-10-30' }, TODAY)).toHaveLength(7);
     expect(daysToRead({ date: '2026-10-05', to: '2026-10-01' }, TODAY)).toEqual(['2026-10-05']);
+    // a day that does not exist is no day: today is read, and nothing is counted from it
+    expect(daysToRead({ date: '2026-02-30' }, TODAY)).toEqual([TODAY]);
+    expect(daysToRead({ date: '2026-10-05', to: '2026-13-01' }, TODAY)).toEqual(['2026-10-05']);
   });
 
   it('answers a week in one call, reading habits once', async () => {
