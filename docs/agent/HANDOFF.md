@@ -606,6 +606,207 @@ What the next batches need to know:
   serious (a second chat screen emptied the review in hand). All are fixed
   here with tests. The same read is worth doing on batch 4.
 
+**The weekly review, batch 4 of 7 (6 and 7 Oct): the board, the spread, their
+own days, Your week, and Later on Today.** The review now ends on the week's
+board. Gremly spreads their open todos across the days, they move what they
+like, and Done saves the week as one change with one Undo. Nothing new in the
+database: `weekly_reviews.spread` was there already.
+
+- **The spread** is `workers/inngest-jobs/week/spread.js`, beside the read
+  and given the read's own input plus their answers: `spreadFrame` and
+  `renderSpread` (pure), one model call (`weekSpread`, Luna at low effort),
+  then `checkSpread` (pure). The app asks with `callWeekSpread`, cortex
+  passes it on (`type: 'week-spread'`, with pings), and `ensureWeekSpread`
+  writes only `spread` and `prompt_versions` on the review's row. The model
+  places todos; habits are put on their days by code. It names a day for a
+  Later only when the day matters, and code spreads the rest through the next
+  four weeks (`spreadReturns`), so a Later never goes without a day.
+- **The rules both sides share** are `workers/shared/weekBoard.js`: where a
+  todo is against the days being planned (`todoSpot`), whose a day is
+  (`gremlyPut`, `released`), the days a Later can come back on, the hours and
+  busy days, and what a spread was made from (`spreadBasis`). A spread whose
+  basis is no longer the review's is asked for again, a moment after the
+  answers change. The basis is everything settled on a card that the spread
+  is given: the day, the days planned, hours, busy days, priorities, what
+  they said of their own days, their intention, what they told Gremly about
+  his read, what they decided about each stuck thing, and a count the app
+  raises whenever a change to their items is saved during the review
+  (`answers.touched`: a card applied or undone, milestone steps set up or
+  taken back). What they type along the way reaches the next spread that is
+  made and does not ask for one. Ahead of the board the ask waits six
+  seconds, so a run of changes is one call; on the board it waits a second
+  and a half.
+- **What the spread in hand was made for** is what this app asked for when it
+  asked in this sitting (`session.spreadFor`, `reliefFor`), and what the
+  spread says of itself only when it was read with its row
+  (`lib/week/board/now.ts spreadState`). So an app and a worker that word the
+  basis differently can never leave a spread looking out of date for good.
+  While a spread for these answers is on its way the board's card says
+  Gremly is fitting the week, and the sheet's Done is off (`boardReady`); a
+  spread that failed leaves the board theirs to finish by hand.
+- **Their own days (James, 6 Oct).** A day they gave a todo themselves is
+  theirs: the spread plans around it and Gremly never moves it. A todo on a
+  day is theirs unless it is exactly where Gremly's last spread of this same
+  week put it, which is kept at Done as `answers.planned.gremly`. James
+  wrote "since their last review (decided_at)"; no clock is compared, because
+  `decided_at` is the database's time and a review's finish is the phone's,
+  and because it would hand over a day they set before their last review. He
+  agreed to this reading.
+- **The question about them.** With six or more (`KEEP_ASK_FROM`) the board
+  step asks once: Keep my days, Keep some, Rearrange it all, with each day's
+  load against its hours shown first and over-full days in red. Fewer than
+  six, Just plan it, or no answer keeps them (Just plan it writes no answer,
+  so nothing in the thread says they chose). Keep some lists them by day
+  with a pin each (`answers.keep`, `answers.freed`). Rearrange hands them to
+  the spread, except a todo with a time of day (`due_time`), which nothing
+  frees. A freed todo is then one of the todos to spread like any other: on a
+  day when the model places it, and waiting in Later with a day to come back
+  when the model leaves it out. The first build put a left out one back on
+  its day, ahead of what the model had placed there, which pushed the model's
+  own picks off the day; the prompt has always said that what is left out
+  waits in Later, so the check now does what the prompt says. On the board
+  it stays on its saved day until a spread names it, and nothing is saved
+  until Done. A freed todo the read's list does not reach (more than 120 open
+  todos) is not released, since the model could not place it. Answering the
+  question again starts their own days afresh: what was moved off them since
+  goes back to where it is saved.
+- **Over-full days.** Each day their kept todos overfill gets a card, one at
+  a time, after the question: take Gremly's moves, change the day by hand on
+  the board, or leave it (`answers.relieved`). James ruled that the model
+  picks the moves, not code: one call for all the over-full days,
+  `workers/inngest-jobs/week/relief.js` (`weekRelief`, Luna at low effort),
+  made in the same request as the spread from the same frame and kept inside
+  it as `spread.relief`. `checkRelief` holds every move to their own untimed
+  todos on an over-full day, a day with room, and any hard date. When the
+  call fails the spread still stands, the day stays red and its card says no
+  moves could be worked out. Taken moves become their own moves on the board,
+  unsaved until Done. The suggestions in hand stay on the cards until the
+  last over-full day is answered (`reliefBasis` leaves those answers out);
+  then the week is spread again around what they moved. Each day keeps how
+  many moves the model offered (`asked`), so the card tells a day Gremly
+  would leave as it is from one whose moves did not hold up. A day is over
+  only when it holds kept todos of theirs: habits alone leave nothing to
+  move, and a habit day Gremly only suggested is put on a day only where
+  there is room beside what is theirs. Opened to change one day by hand, the
+  sheet is titled for that day and its Done only closes it; the day counts
+  as dealt with only when something was moved.
+- **Hard dates in the spread's check.** A todo with a hard date on the days
+  being planned is always on a day up to that date: the latest one with room
+  when the model missed it, the date itself when none has. It is the last
+  thing a full day gives up, and then goes to a day up to its date, after or
+  before, or stays where it was over the room. A hard date already gone by
+  holds a todo to nothing. A back day never passes a hard date still ahead
+  while an earlier day is open (`spreadReturns` takes `by`).
+- **The read** marks each todo on a day they chose ("which they chose") and
+  is told those days are theirs to decide (`theirDays`, read version
+  `2026-10-07a`).
+- **The board in the app** is `lib/week/board`: `model.ts` works out the
+  board from what is saved, the spread over it and their own moves over both
+  (`boardOf`), what Done has to write (`boardDiff`), where the step stands
+  (`boardStage`) and the suggestions as the board stands (`reliefFor`).
+  `now.ts` feeds it from the store and the review in hand, `save.ts` writes
+  it. Their moves live in the session and are kept on the row a moment later
+  (`answers.board`), so a board left part way comes back. The cards are
+  `components/week`: `BoardStep` (the step's one card in the thread, which
+  stands for the question, then each over-full day, then the board),
+  `KeepCards`, `BoardCard` and the sheet `WeekBoard`.
+- **Saving** is whole or nothing (`saveBoard`): when any write fails,
+  everything written is put back and the thread says so. One Undo sits under
+  the Done card for as long as the app stays open. Undo writes the row
+  first, then puts the items back, and marks the week planned again if not
+  all of it could be put back. The Undo is let go when the week is planned
+  again, finished again, or changed from Your week, since it would put back
+  an older week over the newer one. Done also keeps the plan on the week,
+  `answers.planned`: the counts for the week in short, `days` (each day's
+  todo and habit ids) and `gremly`, which a change from Your week keeps.
+- **Your week** (`app/screens/YourWeekScreen.tsx`, route `YourWeek`) is where
+  the Week button and Gremly's button go once the week is done. It reads the
+  plan back against how it went (`lib/week/yourWeek.ts`): each planned todo
+  is done, open, moved, in Later or let go, and each day says how much of its
+  plan is done. A Later that comes back on a day from today on shows on that
+  day, as back from Later. A week planned once and being planned again says
+  so, with a way back to the thread. Change your week opens the same board with no spread and only
+  writes their own moves (`lib/week/board/change.ts`), with Undo. Open the
+  conversation goes to the thread of the day the review was finished
+  (`dayThreadParams`, and a `thread: 'day'` param on the chat screen). Plan
+  the rest of it again, and Plan next week the day before their weekly day,
+  go to today's thread, which makes the offer as in batch 3. There was no
+  mockup for this screen, the question or the over-full cards, so they are
+  built from the review's own cards.
+- **Later on Today.** A todo with no day whose back day is today is on Today
+  (`selectTodosDueToday`) and in tomorrow's plan when its back day is
+  tomorrow (`todosDueOn`). After its back day it waits in the wrap up's
+  cards, like any todo left from an earlier day.
+- **A day given through the change model clears a back day**
+  (`lib/changes/patch.ts`): a todo given a day is no longer put off.
+- **Two things differ from the prototype, both on purpose.** The board's
+  sheet has a back arrow, because Done alone left no way to the thread on a
+  phone without a back button. The habits and Later intros leave out the
+  morning check in and the nudge, which are batch 5.
+- **Replays (Luna).** Weekly read at medium: 7 of 7 before the change to
+  its input and 7 of 7 after. Spread at low: 7 of 7, about 17 seconds
+  typical and 22 slowest; 7 of 7 again with every scenario told to rearrange
+  (`spread.sh --keep none`), where 11 of the 13 todos handed over went on a
+  day, 10 of them the day they were on, and 2 to Later. Relief at low, a new
+  replay with four made up people (`scripts/week-replay/relief.sh`): 6 of 8
+  on the first prompt, where a todo that gets ready for a trip was moved to
+  the day the trip starts; 12 of 12 once the prompt said never to move such
+  a todo to that day or past it. More runs of its health scenario then
+  showed Gremly's line naming a treatment in 2 of 14. One sentence was added
+  to the health rule and to the line's field (prompt `2026-10-07b`): 20 of 20
+  on the health scenario and 12 of 12 on the set, about 12 seconds typical.
+  The spread's health scenario, run eight more times, was 8 of 8.
+- **The agent's replays are not all green, on the committed code too.** No
+  agent, wrap up or chat code changed in this batch (the trees are the same
+  file for file). On 7 Oct the day set gave 29 and 31 of 33 here and 32 of
+  33 on the batch 3 commit in the same hour. Repeated on that commit:
+  flying-at-three failed 2 of 6, fill-the-day 2 of 6, left-out-stays-out,
+  wrap-answer-fixes-item and week-ahead 1 of 6 each. The wrap replay gave
+  92 of 94, and the one moment that failed (travel-day:habits) fails on the
+  batch 3 commit as well. Chat: 56 of 57 (hulu-and-sister, which was already
+  unsteady) and, with the week sent, 54 of 57 then 57 of 57. The week set
+  was 13 of 13 and the smoke 10 of 10. Batch 3's runs were 33 of 33 and 47
+  of 47, so something has moved on the model's side since. One for the
+  focused model audit.
+- **An independent read of the batch** (three reviewers: workers, app logic,
+  screens) found the following, all fixed with tests: a todo with a time
+  could be freed when Gremly had placed it; hard dates could be put off or
+  placed past their date by the room check; the left out rule above; a
+  spread made before the intention, a decision or a card never saw them; the
+  kept plan lost `gremly` on a change from Your week; the board could be
+  finished on a spread made for other answers; Undo could leave a week
+  marked planned with nothing on it; and a number of lines that said more
+  than was true (Gremly counting their own placements as his, a busy day
+  "kept light" on a board he had not spread, "a week" under a part week's
+  habit count).
+- **Known and left as they are.** A Later whose back day falls inside the
+  days being planned is not counted as that day's load: a back day is a day
+  to decide, not a day to do. Today's room is the whole day whatever the
+  hour the review happens. Open the conversation does nothing visible when
+  that day has no thread. The model calls have no time limit on the worker;
+  the app gives up at ninety seconds and then reads the row, where a spread
+  that finished late is still found.
+- **Found and left for later.** A Later given a day from a todo's own editor,
+  outside the change model, keeps its back day, and the wrap up's card
+  selector leaves a todo out while its back day is ahead (the old Remind me
+  later rule, which a test pins). Best fixed in batch 6 with the Later writer.
+  The three one line navigations (the Week button, Gremly's button, the
+  `thread: 'day'` param) have no screen level test, like batch 3's wiring.
+
+What the next batches need to know:
+
+- Batch 5: put the morning check in and the nudge back into
+  `WEEK_COPY.habitsIntro` and `laterIntro` when they exist, and the milestone
+  check in line into the Done line. The brief's day frame and the wrap up's
+  cards still read a Later by their own rules. Past weeks in the archive can
+  be read with `yourWeekOf`, from `answers.planned.days`.
+- Batch 6 (James, 6 Oct): when the card deck moves into its own screen, its
+  day picker shows how full each day already is. `boardOf` has each day's
+  room, and `keepLoad` their own load on it.
+- Deploy order is unchanged: inngest-jobs, then cortex, then the app. An app
+  with this batch against workers without it gets no spread at all, so the
+  workers go first.
+
 **Step 11, focused model audit.** After chat and Sweep, a smaller audit of
 only the places that could be better, from replays and real use: a stronger
 model for harder jobs where it earns its cost, `none` thinking on a bigger
@@ -680,6 +881,13 @@ to 53 at about 3.2s, but its replies were sloppier), and Gemini caching.
   window and reopened later resumes where it was with the same read, and does
   not use the extra. An out of cycle review counts as the new week's when
   they move their weekly day at Done.
+- Their own days in the weekly review (James, 6 Oct): days they gave their
+  todos are kept and the spread plans around them. With many, the board asks
+  once (Keep my days, Keep some, Rearrange it all), showing each day's load
+  first. Keeping them never means keeping an over-full day in silence: each
+  one gets a card of suggested moves, picked by the model in one call beside
+  the spread and checked by code, and their own todos move only if they
+  accept. For batch 6, the card deck's day picker shows how full each day is.
 
 ## How to work here
 
