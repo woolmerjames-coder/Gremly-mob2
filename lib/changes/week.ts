@@ -39,6 +39,7 @@ import {
 import { useThisWeek, weekStartFor } from '../week/thisWeek';
 import { rowSaved, useWeekSession } from '../week/review/session';
 import { addDays, type WeekHours } from '../week/model';
+import { intentionText } from '../week/intention';
 import type { Change, WeekCheckContext } from './model';
 import { putOffTodo } from './later';
 
@@ -79,12 +80,6 @@ export function intentionNote(weekStart: string): Item | null {
         String(n.target_date).slice(0, 10) <= weekEnd,
     ) ?? null
   );
-}
-
-/** An intention's words, as the note holds them. */
-function intentionText(note: Item | null): string | null {
-  const text = String(note?.body ?? note?.title ?? '').trim();
-  return text || null;
 }
 
 /**

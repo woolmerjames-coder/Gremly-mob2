@@ -99,6 +99,9 @@ export function briefReadyLine(
 
 let threadRequests = 0;
 
+/** What today's thread goes on to once it is open. */
+export type ThreadStep = 'plan' | 'wrap' | 'week' | 'week_now';
+
 /**
  * The params that open Chat on today's thread from anywhere:
  * navigate('Tabs', { screen: 'Gremly', params: todayThreadParams() }).
@@ -108,14 +111,16 @@ export function todayThreadParams(
   /**
    * plan: the planner. wrap: the evening wrap up, started or picked up where
    * it was left. week: the weekly review, the same way, or the week they
-   * planned once it is done
+   * planned once it is done. week_now: the weekly review when they have
+   * already said yes (Plan next week on the weekly summary), so it goes
+   * straight in with no opening to answer
    */
-  step?: 'plan' | 'wrap' | 'week',
+  step?: ThreadStep,
   planDay?: 'tomorrow',
 ): {
   mode: 'chat';
   thread: 'today';
-  step?: 'plan' | 'wrap' | 'week';
+  step?: ThreadStep;
   planDay?: 'tomorrow';
   threadKey: string;
 } {

@@ -21,6 +21,7 @@ import { isReturnDay, readDco } from './dco';
 import { buildDayRecord, type DayRecord, type DayThreadMeta } from './dayRecord';
 import { useTodayThread } from './todayThread';
 import { habitsOnDay, todosDueOn } from '../plan/dayItems';
+import { plannedOn } from '../week/habitWeek';
 import {
   habitsLine,
   isCancelledMeeting,
@@ -57,6 +58,8 @@ export interface DayCardData {
   planned: DayPlanned[];
   todosDue: Todo[];
   habitsToday: Habit[];
+  /** The habits they planned for this day in their week (habit_plans), by id */
+  weekHabits?: Set<string>;
   habitWeeks: HabitWeek[];
   behind: Habit[];
   /** The quick sweep's cards: what still needs a decision */
@@ -155,6 +158,7 @@ export function useDayCard(date: string): DayCardData {
   const todos = useGremlyStore((s) => s.todos);
   const habits = useGremlyStore((s) => s.habits);
   const progress = useGremlyStore((s) => s.habitProgress);
+  const habitPlans = useGremlyStore((s) => s.habitPlans);
   const dco = useGremlyStore((s) => s.dco);
   // the merged calendar reads the store imperatively; these keep it current
   const syncedToday = useGremlyStore((s) => s.calendarEvents[date]);
@@ -170,6 +174,8 @@ export function useDayCard(date: string): DayCardData {
     () => (isToday ? habitsDueToday : habitsOnDay(habits, date)),
     [isToday, habitsDueToday, habits, date],
   );
+
+  const weekHabits = useMemo(() => plannedOn(habitPlans ?? [], date), [habitPlans, date]);
 
   const cancelledKey = useMemo(() => readDco(dco).cancelledCalendarIds.join(','), [dco]);
   const meetings = useMemo<DayMeeting[]>(
@@ -233,6 +239,7 @@ export function useDayCard(date: string): DayCardData {
     planned,
     todosDue,
     habitsToday,
+    weekHabits,
     habitWeeks,
     behind,
     sweepWaiting: quickSweep.length,

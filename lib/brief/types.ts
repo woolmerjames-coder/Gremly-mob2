@@ -60,6 +60,12 @@ export interface BriefTextMeta extends BriefMetaBase {
   part: DayPart;
   /** Ids of the meetings, todos, habits or facts this line mentions */
   ids?: string[];
+  /**
+   * Gremly's reply to the habit check in: the habit's week is drawn under it,
+   * a dot for each day (components/brief/HabitWeekDots). The days are worked
+   * out from the store each time, for the week `day` is in.
+   */
+  habit_week?: { habit_id: string; day: string };
 }
 
 /** The day card. Only the date is stored; it draws from the store every time. */
@@ -115,7 +121,12 @@ export type OfferAction =
   // the evening wrap up (lib/wrapup); 'sweep' opens the cards there too
   | 'sweep_skip' // move it all to tomorrow: one of the weekly skips
   | 'not_tonight' // no wrap up tonight; the journal stays one tap away
-  | 'plan_week' // the week planner
+  | 'plan_week' // the weekly review, started in the thread
+  | 'see_week' // the week they planned (Your week)
+  // the morning check in on a habit planned for today (lib/brief/checkIn.ts)
+  | 'habit_keep' // Still on
+  | 'habit_move' // Move it to the day with the most room (value: the day)
+  | 'habit_skip' // Skip this week: off today, and no more check ins this week
   | 'sweep_leave' // leave the cards that are left for the morning
   | 'journal_write' // the next typed message is tonight's journal entry
   | 'journal_page' // open the full journal page for tonight's entry
@@ -171,6 +182,24 @@ export interface BriefOfferMeta extends BriefMetaBase {
   kept_ids?: string[];
   /** A quiet line under the buttons */
   hint?: string;
+  /**
+   * The brief's last message carries their week as facts (the worker's
+   * brief/index.js), and the app shows them (lib/brief/checkIn.ts shownOffer).
+   * checkin: a habit they planned for today. While it is still on, this
+   * message is shown as the check in, with its own buttons; once it is
+   * answered (asked), the offer itself follows as a new message.
+   */
+  checkin?: { habit_id: string; title: string; asked?: boolean };
+  /** The weekly review is still to do: Plan my week is shown beside the offer's buttons */
+  review_offer?: boolean;
+  /**
+   * The evening wrap up's question is a milestone's check in from their
+   * weekly review, not one of Gremly's own (lib/wrapup/checkIns.ts): the
+   * review that keeps it and what its journal entry needs. It has no
+   * question_id, since it is not a gremly_questions row. Kept on the message,
+   * so the answer is settled the same after the app has been closed.
+   */
+  milestone_checkin?: { row_id: string; id: string; goal: string; goal_date: string };
 }
 
 export type PlanStatus = 'proposal' | 'replaced' | 'dismissed' | 'locked';
@@ -296,6 +325,12 @@ export interface SweepHabitRow {
   kind: 'build' | 'break';
   /** Daily, 4 days running */
   note?: string;
+  /**
+   * For a habit they planned for today in their week: the day left in the
+   * week it can move to when today did not happen (the brief's rule,
+   * workers/shared/habitWeek.js). Left out when no day can take it.
+   */
+  move_to?: string;
 }
 
 /** Habits still open today, checked in on one card. */
@@ -309,6 +344,8 @@ export interface SweepHabitsMeta extends BriefMetaBase {
   /** After saving: the habits logged, and what each break habit got */
   done?: string[];
   held?: Record<string, 'held' | 'not'>;
+  /** After saving: the habits moved to another day of their week, by id, with the day */
+  moved?: Record<string, string>;
   /** Asked before the evening, so the card's words do not say tonight */
   early?: boolean;
 }

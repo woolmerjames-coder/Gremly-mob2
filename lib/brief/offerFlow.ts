@@ -76,6 +76,49 @@ export function gremlyStep(text: string, part: DayPart, briefId?: string): Brief
   };
 }
 
+/**
+ * Gremly's reply to the habit check in. With week, the habit's week is drawn
+ * under it: a dot for each day of the week that day is in.
+ */
+export function checkInReplyStep(
+  text: string,
+  part: DayPart,
+  briefId: string | undefined,
+  week: { habit_id: string; day: string } | null,
+): BriefStep {
+  return {
+    role: 'assistant',
+    content: text,
+    meta: {
+      type: 'brief-text',
+      part,
+      ids: [],
+      brief_id: briefId,
+      ...(week ? { habit_week: week } : {}),
+    },
+  };
+}
+
+/**
+ * The brief's own offer, once the habit check in that rode on it is settled:
+ * the same words and buttons, as a new message, with the check in gone.
+ */
+export function afterCheckInStep(row: {
+  id: string;
+  content: string;
+  meta: BriefOfferMeta;
+}): BriefStep {
+  const rest: Partial<BriefOfferMeta> = { ...row.meta };
+  delete rest.held;
+  delete rest.chosen;
+  delete rest.type;
+  delete rest.checkin;
+  return offerStep(row.content, {
+    ...(rest as Omit<BriefOfferMeta, 'type'>),
+    revealed_from: row.id,
+  });
+}
+
 export function eventStep(text: string, icon: BriefEventMeta['icon'], briefId?: string): BriefStep {
   return { role: 'system', content: text, meta: { type: 'brief-event', icon, brief_id: briefId } };
 }
@@ -123,6 +166,8 @@ export function backToPlanStep(
   delete rest.chosen;
   delete rest.type;
   delete rest.revealed_from;
+  // the plan offer comes back as itself: a check in that rode on it is over
+  delete rest.checkin;
   const buttons = offer.meta.buttons.map((b) =>
     b.action === 'plan' ? { ...b, label: planLabel(nowMinutes) } : b,
   );

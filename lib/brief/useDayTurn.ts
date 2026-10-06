@@ -35,6 +35,9 @@ import { selectHabitsDueToday } from '../store/selectors';
 import { getDateService } from '../date/DateService';
 import { briefMetaOf, dayPartAt, visibleThreadMessages } from './messages';
 import { localDateOf, minutesOfDay } from './time';
+import { plannedOn } from '../week/habitWeek';
+import { briefWeekFacts, shownOffer, type BriefWeekFacts } from './checkIn';
+import { intentionOn } from '../week/intention';
 import {
   applyCardChanges,
   applyDayChanges,
@@ -132,7 +135,67 @@ export function inversePlanChange(p: PlanChange, plan: BriefPlanMeta | null): Pl
   };
 }
 
-const NOTE_ORDER = ['in the plan', 'due today', 'past its day', 'upcoming', 'no day'];
+/** What the notes on their items say, in the order the items are sent: the most relevant first. */
+export const DAY_NOTES = {
+  inPlan: 'in the plan',
+  dueToday: 'due today',
+  // a Later whose day to come back is today: it is on Today (selectTodosDueToday)
+  backToday: 'put off earlier, back today',
+  pastDay: 'past its day',
+  // a Later that came back on an earlier day and still has no day
+  backEarlier: 'put off earlier, came back',
+  upcoming: 'upcoming',
+  noDay: 'no day',
+  // a Later still to come back, with its day
+  putOff: 'put off until',
+  habitPlanned: 'planned for today in their week',
+  habitToday: 'habit today',
+  habit: 'habit',
+} as const;
+
+const TODO_NOTE_ORDER: string[] = [
+  DAY_NOTES.inPlan,
+  DAY_NOTES.dueToday,
+  DAY_NOTES.backToday,
+  DAY_NOTES.pastDay,
+  DAY_NOTES.backEarlier,
+  DAY_NOTES.upcoming,
+  DAY_NOTES.noDay,
+  DAY_NOTES.putOff,
+];
+
+const HABIT_NOTE_ORDER: string[] = [
+  DAY_NOTES.inPlan,
+  DAY_NOTES.habitPlanned,
+  DAY_NOTES.habitToday,
+  DAY_NOTES.habit,
+];
+
+const dayPart = (v: unknown): string | null =>
+  typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0, 10) : null;
+
+/**
+ * Where a todo stands on a day, for the note Gremly reads: null leaves it out
+ * (a day far ahead, or no day and not new). A Later has no day of its own, so
+ * its day to come back says where it stands: back today, back since an
+ * earlier day, or still put off until a day in the next two weeks.
+ */
+export function todoStanding(
+  t: { due_day?: string | null; resurface_at?: string | null; created_at?: string | null },
+  p: { date: string; soon: string; recent: string; inPlan: boolean },
+): { state: string; note: string } | null {
+  const due = dayPart(t.due_day);
+  const back = due ? null : dayPart(t.resurface_at);
+  const as = (state: string, note: string = state) => ({ state, note });
+  if (p.inPlan) return as(DAY_NOTES.inPlan);
+  if (due === p.date) return as(DAY_NOTES.dueToday);
+  if (back === p.date) return as(DAY_NOTES.backToday);
+  if (due && due < p.date) return as(DAY_NOTES.pastDay);
+  if (back && back < p.date) return as(DAY_NOTES.backEarlier, `${DAY_NOTES.backEarlier} ${back}`);
+  if (due) return due <= p.soon ? as(DAY_NOTES.upcoming) : null;
+  if (back) return back <= p.soon ? as(DAY_NOTES.putOff, `${DAY_NOTES.putOff} ${back}`) : null;
+  return t.created_at && (localDateOf(t.created_at) ?? '') >= p.recent ? as(DAY_NOTES.noDay) : null;
+}
 
 /**
  * What one card came to, in words, for Gremly's history: what they accepted,
@@ -160,14 +223,29 @@ export function cardOutcomeWords(meta: BriefChangesMeta): string | null {
   return `(${parts.join(' ')})`;
 }
 
-/** One message as Gremly's history has it: what was said, and what each card came to. */
+/** Whether a message carries their week (a habit check in, or the review's offer) for the app to show. */
+function carriesWeek(m: SpaceChatMessage): boolean {
+  const meta = briefMetaOf(m);
+  return meta?.type === 'brief-offer' && (!!meta.checkin || !!meta.review_offer);
+}
+
+/**
+ * One message as Gremly's history has it: what was said, and what each card
+ * came to. An offer is in his history as the person saw it: as the habit
+ * check in when it was shown as one (lib/brief/checkIn.ts shownOffer).
+ */
 function historyEntryOf(
   m: SpaceChatMessage,
+  facts: BriefWeekFacts | null,
 ): { role: 'user' | 'assistant'; content: string } | null {
   const meta = briefMetaOf(m);
   if (meta?.type === 'brief-changes') {
     const words = cardOutcomeWords(meta as BriefChangesMeta);
     return words ? { role: 'user', content: words } : null;
+  }
+  if (meta?.type === 'brief-offer' && carriesWeek(m)) {
+    const content = shownOffer(m.content ?? '', meta, facts).content;
+    return content ? { role: 'assistant', content } : null;
   }
   if ((m.role === 'user' || m.role === 'assistant') && m.content) {
     return { role: m.role, content: m.content };
@@ -194,18 +272,10 @@ export function buildDayTurnRequest(
     .filter((t) => !t.archived && !t.completed_at)
     .map((t) => {
       const due = t.due_day ?? null;
-      const note = inPlan.has(t.id)
-        ? 'in the plan'
-        : due === date
-          ? 'due today'
-          : due && due < date
-            ? 'past its day'
-            : due && due <= soon
-              ? 'upcoming'
-              : !due && t.created_at && (localDateOf(t.created_at) ?? '') >= recent
-                ? 'no day'
-                : null;
-      return note
+      const stands = todoStanding(t as any, { date, soon, recent, inPlan: inPlan.has(t.id) });
+      // a step of a milestone set up in their weekly review says what it is towards
+      const goal = (t as { views?: { milestone?: { goal?: unknown } } }).views?.milestone?.goal;
+      return stands
         ? {
             id: t.id,
             kind: 'todo' as const,
@@ -213,15 +283,28 @@ export function buildDayTurnRequest(
             due_day: due,
             due_time: (t as { due_time?: string | null }).due_time ?? null,
             minutes: t.time_estimate_minutes ?? null,
-            note,
+            note: stands.note,
+            ...(typeof goal === 'string' && goal.trim() ? { towards: goal.trim() } : {}),
+            state: stands.state,
           }
         : null;
     })
     .filter((x): x is NonNullable<typeof x> => !!x)
-    .sort((a, b) => NOTE_ORDER.indexOf(a.note) - NOTE_ORDER.indexOf(b.note))
-    .slice(0, 60);
+    .sort((a, b) => TODO_NOTE_ORDER.indexOf(a.state) - TODO_NOTE_ORDER.indexOf(b.state))
+    .slice(0, 60)
+    .map(({ state: _state, ...item }) => item);
 
   const todayHabits = new Set(selectHabitsDueToday(s as any).map((h: { id: string }) => h.id));
+  // the habits they planned for this day in their week, until they are done:
+  // one logged today is no longer on for it, as on Today
+  const doneThatDay = new Set(
+    ((s as any).habitProgress ?? [])
+      .filter((x: { occurred_day?: string }) => x.occurred_day === date)
+      .map((x: { habit_id: string }) => x.habit_id),
+  );
+  const plannedHabits = new Set(
+    [...plannedOn((s as any).habitPlans ?? [], date)].filter((id) => !doneThatDay.has(id)),
+  );
   const habits = s.habits
     .filter((h) => !h.archived)
     .map((h) => ({
@@ -231,13 +314,24 @@ export function buildDayTurnRequest(
       due_day: null,
       due_time: null,
       minutes: h.time_estimate_minutes ?? null,
-      note: inPlan.has(h.id) ? 'in the plan' : todayHabits.has(h.id) ? 'habit today' : 'habit',
+      note: inPlan.has(h.id)
+        ? DAY_NOTES.inPlan
+        : plannedHabits.has(h.id)
+          ? DAY_NOTES.habitPlanned
+          : todayHabits.has(h.id)
+            ? DAY_NOTES.habitToday
+            : DAY_NOTES.habit,
     }))
+    // what is on for today first, so it is never what the limit leaves out
+    .sort((a, b) => HABIT_NOTE_ORDER.indexOf(a.note) - HABIT_NOTE_ORDER.indexOf(b.note))
     .slice(0, 20);
 
   const rec = dayRecordFromStore(date);
-  const history = visibleThreadMessages(messages)
-    .map(historyEntryOf)
+  const visible = visibleThreadMessages(messages);
+  // their week as the app holds it now, read only when a message in the thread carries it
+  const facts = visible.some(carriesWeek) ? briefWeekFacts(date) : null;
+  const history = visible
+    .map((m) => historyEntryOf(m, facts))
     .filter((h): h is { role: 'user' | 'assistant'; content: string } => !!h)
     .slice(-12);
 
@@ -248,6 +342,8 @@ export function buildDayTurnRequest(
     date,
     now: minutesOfDay(),
     items: [...todos, ...habits],
+    // the intention of the week this day is in, when they set one
+    intention: intentionOn((s as any).notes ?? [], date)?.text ?? null,
     meetings: meetingsFromStore(date).map((m) => ({ title: m.title, start: m.start, end: m.end })),
     record: {
       travel: rec.travel,

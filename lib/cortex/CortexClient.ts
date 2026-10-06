@@ -2262,7 +2262,11 @@ export interface DayTurnRequest {
     due_time: string | null;
     minutes: number | null;
     note: string;
+    /** A step of a milestone set up in their weekly review: the goal it is towards */
+    towards?: string | null;
   }[];
+  /** The intention of the week this day is in, in their words */
+  intention?: string | null;
   meetings: { title: string; start: number; end: number }[];
   record: {
     travel: { label: string | null; departs: number | null } | null;

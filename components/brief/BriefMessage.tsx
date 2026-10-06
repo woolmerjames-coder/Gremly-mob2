@@ -15,10 +15,12 @@ import type {
   BriefChangesMeta,
   BriefDayCardMeta,
   BriefMeta,
+  BriefOfferMeta,
   BriefPlanMeta,
   OfferAction,
   OfferButton,
 } from '../../lib/brief/types';
+import type { OfferView } from '../../lib/brief/checkIn';
 import type { SpaceChatMessage } from '../../lib/types';
 
 export type BriefMessageProps = {
@@ -39,6 +41,14 @@ export type BriefMessageProps = {
   renderWeek?: (message: SpaceChatMessage, meta: BriefMeta) => React.ReactNode;
   /** Buttons left out of a live offer for now (Write a few lines, while the box already saves to the journal) */
   hiddenActions?: OfferAction[];
+  /**
+   * How an offer is shown with their week as the app holds it now: as the
+   * habit check in riding on it, or with Plan my week beside its buttons
+   * (lib/brief/checkIn.ts shownOffer). The offer as written when left out.
+   */
+  showOffer?: (message: SpaceChatMessage, meta: BriefOfferMeta) => OfferView;
+  /** A habit's week, under Gremly's reply to the check in */
+  renderHabitWeek?: (week: { habit_id: string; day: string }) => React.ReactNode;
 };
 
 function BriefMessageInner({
@@ -53,6 +63,8 @@ function BriefMessageInner({
   renderWrap,
   renderWeek,
   hiddenActions,
+  showOffer,
+  renderHabitWeek,
 }: BriefMessageProps) {
   const meta = briefMetaOf(message);
   if (!meta || meta.superseded) return null;
@@ -66,6 +78,7 @@ function BriefMessageInner({
             hideMark={followsGremly(prev)}
             testID={`brief-text-${message.id}`}
           />
+          {meta.habit_week ? (renderHabitWeek?.(meta.habit_week) ?? null) : null}
         </View>
       );
     case 'brief-reply':
@@ -76,18 +89,26 @@ function BriefMessageInner({
       );
     case 'brief-offer': {
       const live = liveOfferId === message.id && !meta.chosen;
+      const view: OfferView = showOffer?.(message, meta) ?? {
+        content: message.content,
+        buttons: meta.buttons,
+        hint: meta.hint,
+        checkIn: false,
+      };
+      const shown =
+        view.content === message.content ? message : { ...message, content: view.content };
       return (
         <View style={styles.message} testID={`brief-offer-${message.id}`}>
-          {message.content ? <ChatBubble message={message} hideMark={followsGremly(prev)} /> : null}
+          {view.content ? <ChatBubble message={shown} hideMark={followsGremly(prev)} /> : null}
           {live ? (
             <BriefOfferChips
               buttons={
                 hiddenActions?.length
-                  ? meta.buttons.filter((b) => !hiddenActions.includes(b.action))
-                  : meta.buttons
+                  ? view.buttons.filter((b) => !hiddenActions.includes(b.action))
+                  : view.buttons
               }
               disabled={!interactive}
-              hint={meta.hint}
+              hint={view.hint}
               onPress={(b) => onOfferButton?.(message, b)}
             />
           ) : null}

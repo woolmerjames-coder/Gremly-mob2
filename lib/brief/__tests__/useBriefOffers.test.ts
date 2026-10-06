@@ -1,8 +1,9 @@
 import { renderHook, act } from '@testing-library/react-native';
-import { useBriefOffers } from '../useBriefOffers';
+import { checkInOfferOwed, useBriefOffers } from '../useBriefOffers';
 import { answerQuestion, markQuestionAsked } from '../../story/storyApi';
 import { creditFirstReply } from '../feeding';
 import { BRIEF_COPY } from '../offerFlow';
+import { applyCheckIn, briefWeekFacts } from '../checkIn';
 import type { SpaceChatMessage } from '../../types';
 
 jest.mock('../../story/storyApi', () => ({
@@ -13,6 +14,12 @@ jest.mock('../feeding', () => ({
   creditFirstReply: jest.fn(),
 }));
 jest.mock('../dcoRefresh', () => ({ scheduleDcoRefresh: jest.fn() }));
+// their week as the app holds it: no check in is on unless a test says so
+jest.mock('../checkIn', () => ({
+  ...jest.requireActual('../checkIn'),
+  applyCheckIn: jest.fn(),
+  briefWeekFacts: jest.fn(() => ({ checkIn: () => null, reviewOffer: false })),
+}));
 
 function msg(id: string, role: string, meta: Record<string, unknown>, content = id) {
   return { id, chat_id: 't1', role, content, metadata_json: meta } as unknown as SpaceChatMessage;
@@ -333,5 +340,285 @@ describe('a reply typed under the question, and the brief carrying on', () => {
       await b.hook.result.current.continueBrief();
     });
     expect(b.added).toHaveLength(0);
+  });
+});
+
+describe('their week on the brief’s offer', () => {
+  const said = (id: string, content: string) => msg(id, 'user', null as any, content);
+  const BUTTONS = [
+    { id: 'plan', label: 'Plan my day', action: 'plan', primary: true },
+    { id: 'not_today', label: 'Not today', action: 'not_today' },
+  ];
+  // the brief's last message, with a habit they planned for today riding on it
+  const RIDING = msg(
+    'offer',
+    'assistant',
+    {
+      type: 'brief-offer',
+      kind: 'plan',
+      brief_id: 'b1',
+      plan_from: 540,
+      buttons: BUTTONS,
+      checkin: { habit_id: 'h1', title: 'Strength' },
+      review_offer: true,
+    },
+    'Want me to fit a few things into the clear time today?',
+  );
+  const KEEP = { id: 'habit_keep', label: 'Still on', action: 'habit_keep', primary: true };
+  const MOVE = {
+    id: 'habit_move',
+    label: 'Move it to Saturday',
+    action: 'habit_move',
+    value: '2026-10-10',
+  };
+  const SKIP = { id: 'habit_skip', label: 'Skip this week', action: 'habit_skip' };
+  const stillOn = () =>
+    (briefWeekFacts as jest.Mock).mockReturnValue({
+      checkIn: () => ({ title: 'Strength', moveTo: '2026-10-10' }),
+      reviewOffer: false,
+    });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (creditFirstReply as jest.Mock).mockResolvedValue(false);
+    (briefWeekFacts as jest.Mock).mockReturnValue({ checkIn: () => null, reviewOffer: false });
+    (applyCheckIn as jest.Mock).mockResolvedValue({ text: 'Nice.', week: true });
+    (markQuestionAsked as jest.Mock).mockResolvedValue(undefined);
+  });
+
+  it('answers the check in: their reply, Gremly with the habit’s week, then the offer itself', async () => {
+    (applyCheckIn as jest.Mock).mockResolvedValue({
+      text: 'Done. Strength is on Saturday now.',
+      week: true,
+    });
+    const { hook, added, patched } = setup([RIDING], { date: '2026-10-08' });
+    await act(async () => {
+      await hook.result.current.handleOfferButton(RIDING, MOVE as any);
+    });
+    expect(applyCheckIn).toHaveBeenCalledWith('h1', 'habit_move', '2026-10-10');
+    // the message keeps the check in's words from here on
+    expect(patched[0]).toMatchObject({
+      id: 'offer',
+      patch: {
+        chosen: { id: 'habit_move' },
+        checkin: { habit_id: 'h1', title: 'Strength', asked: true },
+      },
+    });
+    expect(added.map((a) => [a.role, a.content])).toEqual([
+      ['user', 'Move it to Saturday'],
+      ['assistant', 'Done. Strength is on Saturday now.'],
+      ['assistant', 'Want me to fit a few things into the clear time today?'],
+    ]);
+    expect(added[1].meta).toMatchObject({
+      type: 'brief-text',
+      brief_id: 'b1',
+      habit_week: { habit_id: 'h1', day: '2026-10-08' },
+    });
+    // the brief's own offer follows, as a new message with the check in gone
+    expect(added[2].meta).toMatchObject({
+      type: 'brief-offer',
+      kind: 'plan',
+      plan_from: 540,
+      revealed_from: 'offer',
+      review_offer: true,
+    });
+    expect(added[2].meta.checkin).toBeUndefined();
+    expect(added[2].meta.chosen).toBeUndefined();
+    expect(added[2].meta.buttons).toEqual(BUTTONS);
+  });
+
+  it('answers Still on and Skip this week the same way', async () => {
+    for (const button of [KEEP, SKIP]) {
+      (applyCheckIn as jest.Mock).mockClear();
+      const { hook, added } = setup([RIDING], { date: '2026-10-08' });
+      await act(async () => {
+        await hook.result.current.handleOfferButton(RIDING, button as any);
+      });
+      expect(applyCheckIn).toHaveBeenCalledWith('h1', button.action, null);
+      expect(added.map((a) => a.meta.type)).toEqual(['brief-reply', 'brief-text', 'brief-offer']);
+    }
+  });
+
+  it('still shows the offer when the check in could not be done, and says so', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    (applyCheckIn as jest.Mock).mockRejectedValue(new Error('offline'));
+    const { hook, added } = setup([RIDING], { date: '2026-10-08' });
+    await act(async () => {
+      await hook.result.current.handleOfferButton(RIDING, SKIP as any);
+    });
+    expect(added[1].content).toBe("I couldn't save that just now, so it's still on for today.");
+    expect(added[1].meta.habit_week).toBeUndefined();
+    expect(added[2].meta).toMatchObject({ type: 'brief-offer', revealed_from: 'offer' });
+    warn.mockRestore();
+  });
+
+  it('hands Plan my week to the screen after their reply', async () => {
+    const onPlanWeek = jest.fn();
+    const { hook, added, patched } = setup([RIDING], { date: '2026-10-08', onPlanWeek });
+    const button = { id: 'plan_week', label: 'Plan my week', action: 'plan_week' };
+    await act(async () => {
+      await hook.result.current.handleOfferButton(RIDING, button as any);
+    });
+    expect(patched[0]).toMatchObject({ id: 'offer', patch: { chosen: { id: 'plan_week' } } });
+    expect(added.map((a) => [a.role, a.content])).toEqual([['user', 'Plan my week']]);
+    expect(onPlanWeek).toHaveBeenCalledTimes(1);
+  });
+
+  it('takes a message typed under the check in as their answer to it', async () => {
+    stillOn();
+    const { hook, patched } = setup([RIDING], { date: '2026-10-08' });
+    await act(async () => {
+      // no question is waiting, so nothing is handed back for the chat
+      expect(await hook.result.current.takeTypedReply('can it go on Sunday instead?')).toBeNull();
+    });
+    expect(patched).toEqual([
+      {
+        id: 'offer',
+        patch: {
+          chosen: { id: 'typed', at: expect.any(String) },
+          checkin: { habit_id: 'h1', title: 'Strength', asked: true },
+        },
+      },
+    ]);
+  });
+
+  it('leaves the offer alone when a message is typed and no check in is on', async () => {
+    const { hook, patched } = setup([RIDING], { date: '2026-10-08' });
+    await act(async () => {
+      await hook.result.current.takeTypedReply('move the deck to Friday');
+    });
+    expect(patched).toEqual([]);
+  });
+
+  it('shows the offer itself once the turn after a typed answer is done, and only once', async () => {
+    const typed = msg(
+      'offer',
+      'assistant',
+      {
+        ...(RIDING.metadata_json as any),
+        chosen: { id: 'typed', at: 'now' },
+        checkin: { habit_id: 'h1', title: 'Strength', asked: true },
+      },
+      RIDING.content,
+    );
+    const thread = [typed, said('u1', 'can it go on Sunday instead?')];
+    const { hook, added } = setup(thread, { date: '2026-10-08' });
+    await act(async () => {
+      await hook.result.current.continueBrief();
+    });
+    expect(added).toHaveLength(1);
+    expect(added[0].content).toBe('Want me to fit a few things into the clear time today?');
+    expect(added[0].meta).toMatchObject({ type: 'brief-offer', revealed_from: 'offer' });
+    expect(added[0].meta.checkin).toBeUndefined();
+
+    const again = setup(
+      [...thread, msg('shown', 'assistant', added[0].meta, added[0].content), said('u2', 'ok')],
+      { date: '2026-10-08' },
+    );
+    await act(async () => {
+      await again.hook.result.current.continueBrief();
+    });
+    // the offer has been shown: passed by, it comes back as the plan offer does, not as a copy again
+    expect(again.added.map((a) => a.meta.revealed_from)).toEqual([undefined]);
+    expect(again.added[0].meta.brought_back_from).toBe('shown');
+  });
+
+  it('still owes the offer when a tap on the check in never got as far as showing it', async () => {
+    // tapped, then the app closed before the brief's own offer was saved
+    const tapped = msg(
+      'offer',
+      'assistant',
+      {
+        ...(RIDING.metadata_json as any),
+        chosen: { id: 'habit_skip', at: 'now' },
+        checkin: { habit_id: 'h1', title: 'Strength', asked: true },
+      },
+      RIDING.content,
+    );
+    const thread = [tapped, said('u1', 'Skip this week')];
+    const { hook, added } = setup(thread, { date: '2026-10-08' });
+    expect(hook.result.current.owesOffer()).toBe(true);
+    await act(async () => {
+      await hook.result.current.continueBrief();
+    });
+    expect(added).toHaveLength(1);
+    expect(added[0].meta).toMatchObject({ type: 'brief-offer', revealed_from: 'offer' });
+    expect(added[0].meta.checkin).toBeUndefined();
+    // asked for twice at once, it is still shown once
+    const twice = setup(thread, { date: '2026-10-08' });
+    await act(async () => {
+      await Promise.all([
+        twice.hook.result.current.continueBrief(),
+        twice.hook.result.current.continueBrief(),
+      ]);
+    });
+    expect(twice.added).toHaveLength(1);
+    // shown, it is owed no longer
+    const shown = msg('shown', 'assistant', added[0].meta, added[0].content);
+    expect(checkInOfferOwed([...thread, shown])).toBeNull();
+  });
+
+  it('owes nothing for a check in not answered, or once the wrap up has begun', () => {
+    expect(checkInOfferOwed([RIDING])).toBeNull();
+    const typed = msg(
+      'offer',
+      'assistant',
+      {
+        ...(RIDING.metadata_json as any),
+        chosen: { id: 'typed', at: 'now' },
+        checkin: { habit_id: 'h1', title: 'Strength', asked: true },
+      },
+      RIDING.content,
+    );
+    expect(checkInOfferOwed([typed])?.message.id).toBe('offer');
+    // the weekly review in between does not use the day's offer up
+    const week = msg('w1', 'assistant', {
+      type: 'brief-offer',
+      kind: 'plan',
+      buttons: [],
+      week: true,
+    });
+    expect(checkInOfferOwed([typed, week])?.message.id).toBe('offer');
+    // the evening's wrap up does, from its first line: the morning's offer is past
+    const wrap = msg('e1', 'assistant', { type: 'brief-text', wrap: true });
+    expect(checkInOfferOwed([typed, wrap])).toBeNull();
+    // and so does a plan made since
+    const plan = msg('p1', 'system', { type: 'brief-plan', date: '2026-10-08', items: [] });
+    expect(checkInOfferOwed([typed, plan])).toBeNull();
+  });
+
+  it('shows the check in again after the question when the held offer carries it', async () => {
+    const held = msg(
+      'held-offer',
+      'assistant',
+      { ...(RIDING.metadata_json as any), held: true },
+      RIDING.content,
+    );
+    const { hook, added } = setup([QUESTION, held], { date: '2026-10-08' });
+    await act(async () => {
+      await hook.result.current.handleOfferButton(
+        QUESTION,
+        (QUESTION.metadata_json as any).buttons[2],
+      );
+    });
+    const shown = added[added.length - 1];
+    expect(shown.meta).toMatchObject({
+      type: 'brief-offer',
+      revealed_from: 'held-offer',
+      checkin: { habit_id: 'h1', title: 'Strength' },
+    });
+    expect(shown.meta.held).toBeUndefined();
+  });
+
+  it('brings the plan offer back as itself, never as the check in', async () => {
+    // the habit was done before they got to the check in, and they typed past the offer
+    const thread = [RIDING, said('u1', 'Move the deck to today')];
+    const { hook, added } = setup(thread, { date: '2026-10-08' });
+    await act(async () => {
+      await hook.result.current.continueBrief();
+    });
+    expect(added).toHaveLength(1);
+    expect(added[0].meta).toMatchObject({ kind: 'plan', brought_back_from: 'offer' });
+    expect(added[0].meta.checkin).toBeUndefined();
   });
 });
