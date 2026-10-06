@@ -11,8 +11,9 @@
  *   the work spreads over each person's own hour and no longer leaves in one
  *   fan out on Sunday at 11:00 UTC.
  * - weekly-pipe (one person): their weekly synthesis for the seven days ending
- *   on their weekly day, then their read, made ahead only when they have
- *   finished a review in the last four weeks.
+ *   on their weekly day, then their read, made ahead for everyone the pipe
+ *   runs for (the rule that kept it to people who had finished a review in the
+ *   last four weeks is still here, switched off: READ_AHEAD_NEEDS_REVIEW).
  * - POST /api/week-read (from cortex, for the app): the read for a review
  *   opened today, made there and then when the week's row holds none that
  *   serves it.
@@ -27,10 +28,12 @@ import { dayEndHourOf, personDay } from '../../shared/day.js';
 import {
   PIPE_LEAD_HOURS,
   READ_AHEAD_DAYS,
+  READ_AHEAD_NEEDS_REVIEW,
   daysBetween,
   isDay,
   readServes,
   reviewOn,
+  reviewWith,
   weekdayOf,
   weeklyDayOf,
 } from '../../shared/week.js';
@@ -101,6 +104,15 @@ const rowOf = async (d, userId, weekStart) =>
   )?.[0] || null;
 
 /**
+ * How hard the model is asked to think for a read: low for the one extra
+ * review of a week, medium for every other.
+ * @param {{kind: string}} on what the review is (reviewWith)
+ */
+export function readEffort(on) {
+  return on?.kind === 'extra' ? 'low' : 'medium';
+}
+
+/**
  * The first half: work out which review a day gives and make its read, when
  * the week's row holds none that serves it. Nothing is written here, so a
  * read that has been paid for can be handed on and kept in a step of its own.
@@ -110,14 +122,26 @@ const rowOf = async (d, userId, weekStart) =>
  *   before, whose read stays through the weekly day.
  * - Any other day is the one extra review of the week: a fresh read the first
  *   time, and that same read after it.
- * - ahead (the pipe): a read is only made for someone who finished a review in
- *   the last four weeks, so nothing is spent on people who do not use it.
+ * - A review already under way is carried on with the read it began with,
+ *   whatever day it is opened again (reviewWith): it is not the extra.
+ * - ahead (the pipe): the read is made for everyone the pipe runs for. With
+ *   READ_AHEAD_NEEDS_REVIEW on, only for someone who finished a review in the
+ *   last four weeks. It is only ever the weekly review's own read: when the
+ *   day is no longer in their weekly window (they moved their weekly day
+ *   while the pipe waited), or they have said not this week, none is made.
+ *
+ * The read ahead, a first open in the weekly window and a week brought forward
+ * are made at medium effort. The midweek extra is made at low: they are
+ * waiting behind the loading screen, and it comes back in a quarter of the
+ * time (readEffort).
  *
  * @param {object} env
  * @param {string} userId
- * @param {{today?: string, ahead?: boolean, at?: Date, deps?: {run?: Function, gather?: Function}}} [p]
+ * @param {{today?: string, ahead?: boolean, needsReview?: boolean, at?: Date, deps?: {run?: Function, gather?: Function}}} [p]
  *   today is the app's day, or the weekly day the pipe is for; it is taken
- *   when it is within a day of the person's day as worked out here
+ *   when it is within a day of the person's day as worked out here.
+ *   needsReview turns the four week rule on or off for one call (it is
+ *   READ_AHEAD_NEEDS_REVIEW when not given)
  * @returns {Promise<{on: object, review: object|null, read: object|null, skipped?: string}>}
  *   review is the row when its read serves; read is a new read still to be kept
  */
@@ -127,11 +151,19 @@ export async function prepareWeekRead(env, userId, p = {}) {
   const [tz, settings] = await Promise.all([userTimezone(env, userId), weekSettings(env, userId)]);
   const mine = await personToday(env, userId, tz, at);
   const today = isDay(p.today) && Math.abs(daysBetween(mine, p.today)) <= 1 ? p.today : mine;
-  const on = reviewOn(today, settings.weekly_day);
-  const row = await rowOf(d, userId, on.week_start);
+  const row = await rowOf(d, userId, reviewOn(today, settings.weekly_day).week_start);
+  const on = reviewWith(today, settings.weekly_day, row);
   if (readServes(on, row)) return { on, review: row, read: null };
 
   if (p.ahead) {
+    // made ahead for the weekly review alone: never the week's one extra, and
+    // never over their own word that this week is not for planning
+    if (on.kind !== 'weekly')
+      return { on, review: null, read: null, skipped: 'the day is not in their weekly window' };
+    if (row?.status === 'skipped')
+      return { on, review: null, read: null, skipped: 'they said not this week' };
+  }
+  if (p.ahead && (p.needsReview ?? READ_AHEAD_NEEDS_REVIEW)) {
     const since = localStartIso(tz, addDays(today, -READ_AHEAD_DAYS));
     const finished = await d.select(
       `weekly_reviews?owner_id=eq.${userId}&status=eq.done&completed_at=gte.${encodeURIComponent(since)}&select=id&limit=1`,
@@ -149,7 +181,7 @@ export async function prepareWeekRead(env, userId, p = {}) {
     days_off: settings.days_off,
     at,
   });
-  const out = await (p.deps?.run || runWeekRead)(env, g);
+  const out = await (p.deps?.run || runWeekRead)(env, g, { effort: readEffort(on) });
   if (out.dropped.length) {
     const what = [...new Set(out.dropped.map((x) => `${x.what}: ${x.why}`))].join('; ');
     console.warn(

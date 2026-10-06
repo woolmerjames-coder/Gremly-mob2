@@ -12,6 +12,7 @@ import {
   pipeDueDay,
   pipesDue,
   prepareWeekRead,
+  readEffort,
 } from '../index';
 import { slotHour, weekSettings } from '../settings';
 import { lastCompleteWeekEnd } from '../../context/functions';
@@ -353,13 +354,32 @@ describe('the read for a review', () => {
     }
   });
 
-  it('is only made ahead for someone who finished a review in the last four weeks', async () => {
+  it('is made ahead for everyone the pipe runs for, whether or not they have done a review', async () => {
+    const quiet = fakeDb({ finished: [] });
+    db.mockReturnValue(quiet);
+    const deps = made();
+    const r = await ensureWeekRead({}, USER, {
+      today: '2026-10-04',
+      ahead: true,
+      at: SUNDAY_3PM,
+      deps,
+    });
+    expect(r.made).toBe(true);
+    expect(deps.run).toHaveBeenCalledTimes(1);
+    // nobody's past reviews are looked up to decide it
+    expect(
+      quiet.calls.some(([op, path]) => op === 'select' && path.includes('status=eq.done')),
+    ).toBe(false);
+  });
+
+  it('can be kept to people who finished a review in the last four weeks (the rule, switched off)', async () => {
     const quiet = fakeDb({ finished: [] });
     db.mockReturnValue(quiet);
     let deps = made();
     let r = await ensureWeekRead({}, USER, {
       today: '2026-10-04',
       ahead: true,
+      needsReview: true,
       at: SUNDAY_3PM,
       deps,
     });
@@ -373,9 +393,91 @@ describe('the read for a review', () => {
 
     db.mockReturnValue(fakeDb({ finished: [{ id: 'row-0' }] }));
     deps = made();
-    r = await ensureWeekRead({}, USER, { today: '2026-10-04', ahead: true, at: SUNDAY_3PM, deps });
+    r = await ensureWeekRead({}, USER, {
+      today: '2026-10-04',
+      ahead: true,
+      needsReview: true,
+      at: SUNDAY_3PM,
+      deps,
+    });
     expect(r.made).toBe(true);
     expect(deps.run).toHaveBeenCalledTimes(1);
+  });
+
+  it('carries on a review started in its window on a later day, with its read and the extra unused', async () => {
+    const row = {
+      id: 'row-1',
+      week_start: '2026-10-05',
+      kind: 'weekly',
+      status: 'started',
+      read: READ,
+    };
+    const d = fakeDb({ row });
+    db.mockReturnValue(d);
+    const deps = made();
+    // Wednesday 7 October in Los Angeles: by the date, the day of the extra
+    const r = await ensureWeekRead({}, USER, { at: new Date('2026-10-07T19:00:00Z'), deps });
+    expect(r).toMatchObject({ made: false, review: row });
+    expect(r.on).toMatchObject({
+      kind: 'weekly',
+      resumed: true,
+      week_start: '2026-10-05',
+      span_start: '2026-10-07',
+      span_end: '2026-10-11',
+    });
+    expect(deps.run).not.toHaveBeenCalled();
+    // nothing about the week's row is changed: it is not the extra's
+    expect(d.update).not.toHaveBeenCalled();
+    expect(d.insert).not.toHaveBeenCalled();
+  });
+
+  it('gives a review under way that has lost its read a new one, still not the extra', async () => {
+    const row = {
+      id: 'row-1',
+      week_start: '2026-10-05',
+      kind: 'weekly',
+      status: 'started',
+      read: null,
+    };
+    const d = fakeDb({ row });
+    db.mockReturnValue(d);
+    const deps = made();
+    const r = await ensureWeekRead({}, USER, { at: new Date('2026-10-07T19:00:00Z'), deps });
+    expect(r.made).toBe(true);
+    expect(d.update.mock.calls[0][1]).toMatchObject({ kind: 'weekly', span_start: '2026-10-07' });
+    expect(d.update.mock.calls[0][1]).not.toHaveProperty('status');
+    expect(deps.run.mock.calls[0][2]).toEqual({ effort: 'medium' });
+  });
+
+  it('thinks at medium effort, and at low only for the midweek extra', async () => {
+    expect(readEffort({ kind: 'weekly' })).toBe('medium');
+    expect(readEffort({ kind: 'brought_forward' })).toBe('medium');
+    expect(readEffort({ kind: 'extra' })).toBe('low');
+    const effortOn = async (p) => {
+      db.mockReturnValue(fakeDb());
+      const deps = made();
+      const r = await ensureWeekRead({}, USER, { ...p, deps });
+      return [r.on.kind, deps.run.mock.calls[0][2]];
+    };
+    // the read ahead on their weekly day, and a first open in the window
+    expect(await effortOn({ today: '2026-10-04', ahead: true, at: SUNDAY_3PM })).toEqual([
+      'weekly',
+      { effort: 'medium' },
+    ]);
+    expect(await effortOn({ at: new Date('2026-10-06T16:00:00Z') })).toEqual([
+      'weekly',
+      { effort: 'medium' },
+    ]);
+    // Saturday 10 October: next week, brought forward
+    expect(await effortOn({ at: new Date('2026-10-10T19:00:00Z') })).toEqual([
+      'brought_forward',
+      { effort: 'medium' },
+    ]);
+    // Wednesday 7 October: the extra, behind the loading screen
+    expect(await effortOn({ at: new Date('2026-10-07T19:00:00Z') })).toEqual([
+      'extra',
+      { effort: 'low' },
+    ]);
   });
 
   it('is not made ahead twice, nor over a week brought forward', async () => {
@@ -392,6 +494,55 @@ describe('the read for a review', () => {
       expect(r).toMatchObject({ made: false, review: row });
       expect(deps.run).not.toHaveBeenCalled();
     }
+  });
+
+  it('is not made ahead over their word that this week is not for planning', async () => {
+    const row = { id: 'row-1', week_start: '2026-10-05', kind: 'weekly', status: 'skipped' };
+    const d = fakeDb({ row });
+    db.mockReturnValue(d);
+    const deps = made();
+    const r = await ensureWeekRead({}, USER, {
+      today: '2026-10-04',
+      ahead: true,
+      at: SUNDAY_3PM,
+      deps,
+    });
+    expect(r).toMatchObject({ made: false, skipped: 'they said not this week' });
+    expect(deps.run).not.toHaveBeenCalled();
+    expect(d.update).not.toHaveBeenCalled();
+
+    // opened by them afterwards, the read is made and the week is ready again
+    const again = made();
+    const opened = await ensureWeekRead({}, USER, {
+      today: '2026-10-04',
+      at: SUNDAY_3PM,
+      deps: again,
+    });
+    expect(opened.made).toBe(true);
+    expect(d.update.mock.calls[0][1]).toMatchObject({ status: 'ready' });
+  });
+
+  it('is not made ahead once the day is outside their weekly window, so it never takes the extra', async () => {
+    // they moved their weekly day to Thursday while the pipe for Sunday waited
+    const done = {
+      id: 'row-1',
+      week_start: '2026-10-02',
+      kind: 'weekly',
+      status: 'done',
+      read: READ,
+    };
+    const d = fakeDb({ prefs: { weekly_day: 4 }, row: done });
+    db.mockReturnValue(d);
+    const deps = made();
+    const r = await ensureWeekRead({}, USER, {
+      today: '2026-10-04',
+      ahead: true,
+      at: SUNDAY_3PM,
+      deps,
+    });
+    expect(r).toMatchObject({ made: false, skipped: 'the day is not in their weekly window' });
+    expect(deps.run).not.toHaveBeenCalled();
+    expect(d.update).not.toHaveBeenCalled();
   });
 
   it('lets its own read go when another was kept while it was being made', async () => {

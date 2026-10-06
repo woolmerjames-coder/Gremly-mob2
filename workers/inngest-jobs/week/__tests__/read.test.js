@@ -825,6 +825,7 @@ describe('the call', () => {
       made_at: '2026-10-04T14:10:00.000Z',
       made_on: TODAY,
       model: 'gpt-6-luna',
+      effort: 'medium',
       first: '2026-10-05',
       last: '2026-10-11',
       figures: out.figures,
@@ -833,8 +834,11 @@ describe('the call', () => {
     expect(kept.challenge.headline).toBe('The report needs a start');
   });
 
-  it('takes another effort when the replay asks for one', async () => {
-    await runWeekRead({}, gathered(), { effort: 'low' });
+  it('takes low effort for the midweek extra, and the read says which it was made at', async () => {
+    const g = gathered();
+    const out = await runWeekRead({}, g, { effort: 'low' });
     expect(jsonCall.mock.calls[0][1].effort).toBe('low');
+    expect(jsonCall.mock.calls[0][1].thinking).toBe('low');
+    expect(storedRead(g, out).effort).toBe('low');
   });
 });

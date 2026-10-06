@@ -1076,6 +1076,7 @@ export async function runWeekRead(env, g, { effort = 'medium' } = {}) {
     input: r.text,
     figures: { ...r.figures, listed: r.listed },
     prompt_version: WEEK_READ_VERSION,
+    effort,
   };
 }
 
@@ -1086,6 +1087,8 @@ export function storedRead(g, out, at = new Date()) {
     made_at: at.toISOString(),
     made_on: g.today,
     model: out.model,
+    // how hard the model was asked to think: medium, or low for the midweek extra
+    effort: out.effort,
     first: g.first,
     last: g.last,
     figures: out.figures,
