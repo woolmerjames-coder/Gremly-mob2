@@ -21,6 +21,9 @@
 import { reviewOn, weekdayOf } from '../../../shared/week.js';
 import { obj, str } from './schema.js';
 
+// the tool sets where the weekly day can be moved on the card: today's thread with their week (tools/index.js)
+const MOVES_WEEKLY_DAY = ['brief_week', 'brief_week_ease'];
+
 const HOLD = `Make the weekly review wait for their answer to a question you ask in your reply. After a reply the review carries on from the step it is on, and nothing on that step is lost, so most replies need nothing from you. Call this only when your reply ends by asking them something the step cannot be settled without: the review then waits for their answer before it carries on. Give the question your reply asks them, as you asked it. A reply that asks them nothing has no question to give, so it never comes with this, whatever the reply is about. It is between you and the app, so never speak of it in your reply. Only while a weekly review is under way.`;
 
 export const hold = {
@@ -85,9 +88,11 @@ export const offerWeek = {
       again: done && !week.extra_used && reviewOn(ctx.today, week.weekly_day).kind === 'extra',
       // the day their reviews could move to: today's, unless that is their
       // weekly day already. Only where the weekly day can be moved on the card,
-      // which is today's thread (the brief's week variant), not Ask Gremly.
+      // which is today's thread (the brief's week variants), not Ask Gremly.
       move_to:
-        week.blocked === true && ctx.surface === 'brief_week' && weekday !== week.weekly_day
+        week.blocked === true &&
+        MOVES_WEEKLY_DAY.includes(ctx.surface) &&
+        weekday !== week.weekly_day
           ? weekday
           : null,
     };

@@ -18,7 +18,7 @@ import { localDateOf, minutesIn } from '../../shared/calendar.js';
 import { runAgent } from './run.js';
 import { runTool, toolContext } from './tools/index.js';
 import { AGENT_PROMPT_VERSION } from './prompt.js';
-import { readWeek, weekFrameOf, weekLine } from './brief.js';
+import { readWeek, weekFrameOf, weekLine, weekVariant } from './brief.js';
 
 export const CHAT_AGENT_VERSION = `chat-2026-10-06a/${AGENT_PROMPT_VERSION}`;
 
@@ -186,7 +186,7 @@ export async function runChatTurn({
       : await foundForMessage({ ...ctx, surface: 'chat' }, last.content).catch(() => '');
   const r = await runAgent({
     surface: 'chat',
-    variant: theirWeek ? 'week' : undefined,
+    variant: weekVariant(theirWeek),
     persona: chatAgentPersona(),
     context: chatContext({
       ...preload,

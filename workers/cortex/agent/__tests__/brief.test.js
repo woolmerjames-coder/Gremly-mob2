@@ -13,6 +13,7 @@ import {
   dayContext,
   dayFrameOf,
   dayMeaning,
+  easedWords,
   learnFromTurn,
   readWeek,
   readWrap,
@@ -23,6 +24,7 @@ import {
   weekContext,
   weekFrameOf,
   weekLine,
+  weekVariant,
   wrapContext,
 } from '../brief.js';
 import { readTurnRequest } from '../../../inngest-jobs/brief/dayTurn.js';
@@ -702,7 +704,82 @@ describe("the person's week, when the app sends it", () => {
         busy_days: ['2026-10-08'],
         intention: { id: MUM, text: 'Rest first' },
         under_way: null,
+        // this build did not say which habits are eased: that change is never offered to it
+        eased: null,
       });
+    });
+
+    it('reads the habits paused or on a lighter version, from a build that sends them', () => {
+      const eased = [
+        { habit_id: MUM, title: ' Run ', mode: 'pause', first: MON, last: NEXT_SUN },
+        {
+          habit_id: MUM,
+          title: 'Swim',
+          mode: 'lighter',
+          first: MON,
+          last: NEXT_SUN,
+          note: 'Two  lengths',
+        },
+        // not ones it can read: no id, no such mode, days the wrong way round, over already
+        { habit_id: 'h1', title: 'A', mode: 'pause', first: MON, last: NEXT_SUN },
+        { habit_id: MUM, title: 'B', mode: 'rest', first: MON, last: NEXT_SUN },
+        { habit_id: MUM, title: 'C', mode: 'pause', first: NEXT_SUN, last: MON },
+        { habit_id: MUM, title: 'D', mode: 'pause', first: '2026-09-01', last: '2026-09-07' },
+      ];
+      const w = readWeek({ ...PLAIN, eased }, MON);
+      expect(w.eased).toEqual([
+        { habit_id: MUM, title: 'Run', mode: 'pause', first: MON, last: NEXT_SUN, note: '' },
+        {
+          habit_id: MUM,
+          title: 'Swim',
+          mode: 'lighter',
+          first: MON,
+          last: NEXT_SUN,
+          note: 'Two lengths',
+        },
+      ]);
+      // none eased is still a build that can apply the change
+      expect(readWeek({ ...PLAIN, eased: [] }, MON).eased).toEqual([]);
+      expect(weekVariant(readWeek({ ...PLAIN, eased: [] }, MON))).toBe('week_ease');
+      expect(weekVariant(readWeek(PLAIN, MON))).toBe('week');
+      expect(weekVariant(null)).toBeUndefined();
+      // a turn that answers a question of Gremly's is not offered it: its one job is that answer
+      expect(weekVariant(readWeek({ ...PLAIN, eased: [] }, MON), { answering: true })).toBe('week');
+      // the tools are handed the same list
+      expect(weekFrameOf(w, MON).eased).toEqual(w.eased);
+      expect(weekFrameOf(readWeek(PLAIN, MON), MON).eased).toBeNull();
+    });
+
+    it('says which habits are eased in what Gremly knows about their week, with their ids', () => {
+      const w = readWeek(
+        {
+          ...PLAIN,
+          eased: [
+            { habit_id: MUM, title: 'Run', mode: 'pause', first: MON, last: NEXT_SUN },
+            {
+              habit_id: MUM,
+              title: 'Swim',
+              mode: 'lighter',
+              first: MON,
+              last: MON,
+              note: 'Two lengths',
+            },
+            { habit_id: MUM, title: 'Walk', mode: 'lighter', first: MON, last: MON },
+          ],
+        },
+        MON,
+      );
+      const line = weekLine(w, MON);
+      expect(line).toContain(
+        'HABITS EASED FOR NOW (habit id | habit | how | first day | last day)',
+      );
+      expect(line).toContain(`${MUM} | Run | paused | ${MON} | ${NEXT_SUN}`);
+      expect(line).toContain(`${MUM} | Swim | lighter version: “Two lengths” | ${MON} | ${MON}`);
+      expect(line).toContain(`${MUM} | Walk | lighter version | ${MON} | ${MON}`);
+      expect(line).not.toMatch(/ — | – | - /);
+      // nothing is said when none are eased, or by a build that does not send them
+      expect(easedWords(readWeek({ ...PLAIN, eased: [] }, MON))).toBe('');
+      expect(weekLine(readWeek(PLAIN, MON), MON)).not.toContain('EASED');
     });
 
     it('drops what it cannot read: a review with no week, an id that is not one', () => {

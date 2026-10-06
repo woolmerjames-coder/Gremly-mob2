@@ -16,7 +16,16 @@
 // Gremly can only put the button to it under a reply. A request without the
 // week gets the surface exactly as it is without the variant, instructions and
 // tools both, so an app build that cannot show the review is never offered it.
+//
+// Each week variant has a twin, week_ease, for an app build that also said
+// which habits are paused or on a lighter version: the same job and tools,
+// with propose_changes able to pause a habit, give it a lighter version or
+// set it back to usual (tools/index.js). A build that cannot apply that
+// change never gets the twin, so it is never shown a card it cannot apply.
 // ============================================================================
+
+const BRIEF_WEEK_JOB = `They plan each week with Gremly in a weekly review, in this thread, on their own weekly day; what you know about their week says where that stands. Their week can be read with get_week, and changed on the card like anything else, with the week's own changes. When they ask to plan their week, to do their weekly review or to see the week they planned, put the button to it under your reply with offer_week rather than planning the week yourself in the reply. When they ask for a review and none can be started today, tell them so plainly, with when the next one is, and put the move of their weekly day to the day they are asking on onto the card with that reply, as an offer they can turn down, so their reviews fall when they want them. Their items stay as they are.`;
+const CHAT_WEEK_JOB = `They plan each week with Gremly in a weekly review, which happens in today's thread, on their own weekly day; what you know about their week says where that stands. When they ask to plan their week, to do their weekly review or to see the week they planned, put the button to it under your reply with offer_week rather than planning the week yourself in the reply. When they ask for a review and none can be started today, tell them so plainly, with when the next one is.`;
 
 export const SURFACES = {
   brief: {
@@ -30,7 +39,12 @@ export const SURFACES = {
       week: {
         // picks this variant's own versions of the tools (tools/index.js)
         toolSet: 'brief_week',
-        job: `They plan each week with Gremly in a weekly review, in this thread, on their own weekly day; what you know about their week says where that stands. Their week can be read with get_week, and changed on the card like anything else, with the week's own changes. When they ask to plan their week, to do their weekly review or to see the week they planned, put the button to it under your reply with offer_week rather than planning the week yourself in the reply. When they ask for a review and none can be started today, tell them so plainly, with when the next one is, and put the move of their weekly day to the day they are asking on onto the card with that reply, as an offer they can turn down, so their reviews fall when they want them. Their items stay as they are.`,
+        job: BRIEF_WEEK_JOB,
+        tools: ['get_week', 'hold', 'offer_week'],
+      },
+      week_ease: {
+        toolSet: 'brief_week_ease',
+        job: BRIEF_WEEK_JOB,
         tools: ['get_week', 'hold', 'offer_week'],
       },
     },
@@ -43,7 +57,12 @@ export const SURFACES = {
     maxMs: 20000,
     variants: {
       week: {
-        job: `They plan each week with Gremly in a weekly review, which happens in today's thread, on their own weekly day; what you know about their week says where that stands. When they ask to plan their week, to do their weekly review or to see the week they planned, put the button to it under your reply with offer_week rather than planning the week yourself in the reply. When they ask for a review and none can be started today, tell them so plainly, with when the next one is.`,
+        job: CHAT_WEEK_JOB,
+        tools: ['offer_week'],
+      },
+      week_ease: {
+        toolSet: 'chat_ease',
+        job: CHAT_WEEK_JOB,
         tools: ['offer_week'],
       },
     },

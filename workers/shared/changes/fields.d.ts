@@ -45,6 +45,9 @@ export type WeekOp =
   | 'milestone'
   | 'weekly_day';
 export declare const WEEK_OPS: Record<WeekOp, string>;
+/** A habit paused, given a lighter version, or set back to usual, for a stretch of days */
+export type EaseOp = 'ease';
+export declare const EASE_OPS: Record<EaseOp, string>;
 export declare const STEP_KINDS: Array<'todo' | 'check_in'>;
 export declare const WEEK_LIMITS: { intention: number; goal: number; steps: number };
 export declare const NAME_LIMIT: number;

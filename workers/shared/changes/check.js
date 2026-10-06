@@ -45,12 +45,23 @@ import {
   OPS,
   PLAN_KINDS,
   WEEK_OPS,
+  EASE_OPS,
   STEP_KINDS,
   WEEK_LIMITS,
   NAME_LIMIT,
   fieldDef,
 } from './fields.js';
-import { DAY_KINDS, LATER_MAX_DAYS, daysBetween, normHours } from '../week.js';
+import { DAY_KINDS, LATER_MAX_DAYS, addDays, daysBetween, normHours } from '../week.js';
+import {
+  EASE_MAX_DAYS,
+  EASE_MODES,
+  easeNote,
+  easeOn,
+  easePlan,
+  easesFrom,
+  pausedOn,
+  weekAround,
+} from '../habitWeek.js';
 
 // ── Values ──────────────────────────────────────────────────────────────────
 
@@ -384,6 +395,7 @@ function readPlan(plan) {
 export function checkChange(raw, ctx = {}) {
   if (!raw || typeof raw !== 'object') return { ok: false, reason: 'unknown_op' };
   if (WEEK_OP_NAMES.includes(raw.op)) return checkWeekChange(raw, ctx);
+  if (raw.op in EASE_OPS) return checkEase(raw, ctx);
   if (!(raw.op in OPS)) return { ok: false, reason: 'unknown_op' };
   const base = { cid: raw.cid || null, op: raw.op };
 
@@ -567,6 +579,11 @@ export function checkWeekChange(raw, ctx = {}) {
       if (days.some((d) => !inWeek(d))) return { ok: false, reason: 'outside_week' };
       const was = planned.filter(inWeek);
       if (sameList(days, was)) return { ok: false, reason: 'no_change' };
+      // A day it is paused on is no day to put it on: nothing would show it
+      // or ask about it there. Known only when their pauses came with the turn.
+      const id = r.item.id || raw.id;
+      if (days.some((d) => !was.includes(d) && pausedOn(ctx.ease?.rows, id, d)))
+        return { ok: false, reason: 'day_paused' };
       return {
         ok: true,
         change: {
@@ -699,6 +716,127 @@ export function checkWeekChange(raw, ctx = {}) {
     default:
       return { ok: false, reason: 'unknown_op' };
   }
+}
+
+// ── A habit eased for a stretch of days ─────────────────────────────────────
+
+/** A pause or lighter version as a checked change states it. */
+const easeFacts = (e) => ({ mode: e.mode, first: e.first, last: e.last, note: e.note });
+
+/**
+ * Check a habit's pause, lighter version or return to usual.
+ *
+ * A pause or a lighter version starts today or later and ends within four
+ * weeks of today. With no first day it starts today; with no last day it runs
+ * to the end of the week its first day is in. During the weekly review both
+ * are the days being planned instead (ctx.ease.span). A lighter version is
+ * said in a few words: theirs when they gave them, otherwise the ones it
+ * already has on its first day, otherwise the smallest version saved on the
+ * habit, otherwise none. One that is already so is no change; but a last day
+ * stated for one that runs past it is read as when it should end, and comes
+ * back as usual from the day after.
+ *
+ * Usual ends one stretch: from today, or from the day given, to the last day
+ * of the pause or lighter version that holds then, or of the next one to come
+ * when none does. A last day given is used as it is. The days before its
+ * first day stay as they were, so usual from a later day is how a pause is
+ * made to end sooner.
+ *
+ * @param {object} raw the change as proposed: ease {mode, from?, until?, note?}; a
+ *   checked change states it as ease {mode, first, last, note}
+ * @param {{today?: string, item?: object|null, ease?: {weekly_day?: number, rows?: object[], span?: {first: string, last: string}|null}|null}} ctx
+ *   ease: their weekly day and their habit_adaptations rows. Without it the
+ *   change is not one this place can make.
+ * @returns {{ok: true, change: object} | {ok: false, reason: string}}
+ */
+export function checkEase(raw, ctx = {}) {
+  const today = normDay(ctx.today);
+  if (!ctx.ease || !today) return { ok: false, reason: 'unknown_op' };
+  if (raw.type && raw.type !== 'habit') return { ok: false, reason: 'op_not_for_type' };
+  const item = ctx.item;
+  if (!item || (raw.id && item.id && item.id !== raw.id)) return { ok: false, reason: 'no_item' };
+  if (item.archived === true) return { ok: false, reason: 'archived' };
+  if (item.subtype === 'break_habit') return { ok: false, reason: 'ease_breaking' };
+  const e = raw.ease;
+  if (!e || typeof e !== 'object' || !EASE_MODES.includes(e.mode))
+    return { ok: false, reason: 'bad_ease' };
+  const id = item.id || raw.id;
+  const rows = (ctx.ease.rows || []).filter((r) => r?.habit_id === id);
+  const base = {
+    cid: raw.cid || null,
+    op: raw.op,
+    type: 'habit',
+    id,
+    title: itemTitle('habit', item),
+  };
+  // what it is under from today on, which the app holds the card against
+  const before = { eases: easesFrom(rows, today).map(easeFacts) };
+
+  // as proposed (from, until), or as a checked change states it (first, last)
+  const given = (v) => v !== undefined && v !== null && v !== '';
+  const from = e.from ?? e.first;
+  const until = e.until ?? e.last;
+  // the days a weekly review is planning, when one is under way and they are still ahead
+  const span = ctx.ease.span && normDay(ctx.ease.span.last) >= today ? ctx.ease.span : null;
+  const spanFirst = span && normDay(span.first) > today ? normDay(span.first) : today;
+
+  if (e.mode === 'usual') {
+    const first = given(from) ? normDay(from) : today;
+    if (!first) return { ok: false, reason: 'bad_value:from' };
+    if (first < today) return { ok: false, reason: 'ease_past' };
+    let last = given(until) ? normDay(until) : null;
+    if (given(until) && !last) return { ok: false, reason: 'bad_value:until' };
+    // the one that holds on its first day, or the next to come
+    if (!last) last = easesFrom(rows, first)[0]?.last ?? null;
+    if (!last) return { ok: false, reason: 'no_change' };
+    if (last < first) return { ok: false, reason: 'ease_ends_first' };
+    if (easePlan(rows, { mode: 'usual', first, last }).same)
+      return { ok: false, reason: 'no_change' };
+    return {
+      ok: true,
+      change: { ...base, ease: { mode: 'usual', first, last, note: '' }, before },
+    };
+  }
+
+  const first = given(from) ? normDay(from) : spanFirst;
+  if (!first) return { ok: false, reason: 'bad_value:from' };
+  if (first < today) return { ok: false, reason: 'ease_past' };
+  let last;
+  if (given(until)) last = normDay(until);
+  else {
+    // the end of their week, or of the days being planned; never past the furthest it may run
+    const end = span && first <= normDay(span.last) ? normDay(span.last) : null;
+    const furthest = addDays(today, EASE_MAX_DAYS);
+    last = end || weekAround(first, ctx.ease.weekly_day ?? 0).last;
+    if (last > furthest && first <= furthest) last = furthest;
+  }
+  if (!last) return { ok: false, reason: 'bad_value:until' };
+  if (last < first) return { ok: false, reason: 'ease_ends_first' };
+  if (daysBetween(today, last) > EASE_MAX_DAYS) return { ok: false, reason: 'ease_too_far' };
+  let note = '';
+  if (e.mode === 'lighter') {
+    const now = easeOn(rows, id, first);
+    note =
+      easeNote(e.note) || (now?.mode === 'lighter' ? now.note : '') || easeNote(item.floor_note);
+  }
+  if (easePlan(rows, { mode: e.mode, first, last, note }).same) {
+    // It already is that way on every one of those days. A last day stated
+    // for one that runs past it says when it should end: it is back to usual
+    // from the day after, which is the change that makes it so.
+    const now = easeOn(rows, id, last);
+    if (given(until) && now && now.last > last) {
+      return {
+        ok: true,
+        change: {
+          ...base,
+          ease: { mode: 'usual', first: addDays(last, 1), last: now.last, note: '' },
+          before,
+        },
+      };
+    }
+    return { ok: false, reason: 'ease_already' };
+  }
+  return { ok: true, change: { ...base, ease: { mode: e.mode, first, last, note }, before } };
 }
 
 /** The week's changes a card holds one of: a second is a conflict. */

@@ -15,7 +15,7 @@ import {
   scheduleLabel,
   scheduleOf,
 } from '../check';
-import { GROUPS, OPS, TYPES, WEEK_OPS } from '../fields';
+import { EASE_OPS, GROUPS, OPS, TYPES, WEEK_OPS } from '../fields';
 
 const TODAY = '2026-10-02';
 const todo = {
@@ -482,6 +482,36 @@ describe("the week's own changes", () => {
       expect(days([], habit).reason).toBe('no_change');
     });
 
+    it('turns away a day the habit is paused on, when their pauses came with the turn', () => {
+      const paused = {
+        weekly_day: 0,
+        rows: [
+          { habit_id: 'h1', mode: 'pause', period_start: '2026-10-03', period_end: '2026-10-03' },
+        ],
+      };
+      const eased = (list, item = planned) =>
+        checkChange(
+          { op: 'habit_days', type: 'habit', id: 'h1', days: list },
+          { ...weekCtx(item), ease: paused },
+        );
+      expect(eased(['2026-10-03', '2026-10-04']).reason).toBe('day_paused');
+      expect(eased(['2026-10-04']).ok).toBe(true);
+      // a day it was already on stays, paused or not: only a new one is turned away
+      const onIt = { ...habit, planned_days: ['2026-10-03'] };
+      expect(eased(['2026-10-03', '2026-10-04'], onIt).ok).toBe(true);
+      // another habit's pause is nothing to this one, and without their pauses nothing is known
+      expect(
+        checkChange(
+          { op: 'habit_days', type: 'habit', id: 'h1', days: ['2026-10-03'] },
+          {
+            ...weekCtx(habit),
+            ease: { weekly_day: 0, rows: [{ ...paused.rows[0], habit_id: 'h2' }] },
+          },
+        ).ok,
+      ).toBe(true);
+      expect(days(['2026-10-03', '2026-10-04']).ok).toBe(true);
+    });
+
     it('keeps to the days being planned', () => {
       expect(days(['2026-10-05']).reason).toBe('outside_week');
       expect(days(['2026-10-01']).reason).toBe('outside_week');
@@ -769,5 +799,246 @@ describe("the week's own changes", () => {
       const two = { ...one, milestone: { ...one.milestone, goal: 'Trip' } };
       expect(checkCard([one, two], () => weekCtx()).changes).toHaveLength(2);
     });
+  });
+});
+
+describe('a habit paused, given a lighter version, or set back to usual', () => {
+  // Friday 2 October 2026; their weekly day is Sunday, so their week ends on the 4th
+  const run = { id: 'h1', name: 'Run', cadence: 'weekly', target_per_period: 3 };
+  const row = (mode, period_start, period_end, floor_note = null) => ({
+    id: `${mode}-${period_start}`,
+    habit_id: 'h1',
+    mode,
+    period_start,
+    period_end,
+    floor_note,
+  });
+  const ease = (e, item = run, rows = [], more = {}) =>
+    checkChange(
+      { op: 'ease', type: 'habit', id: item?.id, ease: e },
+      { today: TODAY, item, ease: { weekly_day: 0, rows }, ...more },
+    );
+
+  it('is its own kind, kept out of the lists every surface offers', () => {
+    expect(Object.keys(EASE_OPS)).toEqual(['ease']);
+    expect('ease' in OPS).toBe(false);
+    expect('ease' in WEEK_OPS).toBe(false);
+    // a place that did not say what is eased now cannot make one
+    expect(
+      checkChange({ op: 'ease', type: 'habit', id: 'h1', ease: { mode: 'pause' } }, ctx(run)),
+    ).toEqual({ ok: false, reason: 'unknown_op' });
+  });
+
+  it('pauses from today to the end of their week when no days are given', () => {
+    expect(ease({ mode: 'pause' })).toEqual({
+      ok: true,
+      change: {
+        cid: null,
+        op: 'ease',
+        type: 'habit',
+        id: 'h1',
+        title: 'Run',
+        ease: { mode: 'pause', first: '2026-10-02', last: '2026-10-04', note: '' },
+        before: { eases: [] },
+      },
+    });
+    // their own week: for a Wednesday person it ends on the 7th
+    const wed = checkChange(
+      { op: 'ease', type: 'habit', id: 'h1', ease: { mode: 'pause' } },
+      { today: TODAY, item: run, ease: { weekly_day: 3, rows: [] } },
+    );
+    expect(wed.change.ease).toMatchObject({ first: '2026-10-02', last: '2026-10-07' });
+  });
+
+  it('takes the days they name, and ends a later start at the end of that week', () => {
+    expect(ease({ mode: 'pause', from: '2026-10-05', until: '2026-10-16' }).change.ease).toEqual({
+      mode: 'pause',
+      first: '2026-10-05',
+      last: '2026-10-16',
+      note: '',
+    });
+    expect(ease({ mode: 'pause', from: '2026-10-05' }).change.ease).toMatchObject({
+      first: '2026-10-05',
+      last: '2026-10-11',
+    });
+  });
+
+  it('keeps a stretch to today or later, in order, and within four weeks', () => {
+    expect(ease({ mode: 'pause', from: '2026-10-01' }).reason).toBe('ease_past');
+    expect(ease({ mode: 'pause', from: '2026-10-06', until: '2026-10-05' }).reason).toBe(
+      'ease_ends_first',
+    );
+    expect(ease({ mode: 'pause', until: '2026-10-30' }).ok).toBe(true);
+    expect(ease({ mode: 'pause', until: '2026-10-31' }).reason).toBe('ease_too_far');
+    expect(ease({ mode: 'pause', from: 'Monday' }).reason).toBe('bad_value:from');
+    expect(ease({ mode: 'pause', until: 'the 9th' }).reason).toBe('bad_value:until');
+    expect(ease({ mode: 'rest' }).reason).toBe('bad_ease');
+    expect(ease(undefined).reason).toBe('bad_ease');
+  });
+
+  it('says a lighter version in their words, or the smallest version saved on the habit', () => {
+    expect(ease({ mode: 'lighter', note: '  10 minute   walk ' }).change.ease.note).toBe(
+      '10 minute walk',
+    );
+    const saved = { ...run, floor_note: 'One lap' };
+    expect(ease({ mode: 'lighter' }, saved).change.ease.note).toBe('One lap');
+    expect(ease({ mode: 'lighter', note: 'Walk' }, saved).change.ease.note).toBe('Walk');
+    // none given and none saved: a lighter version all the same
+    expect(ease({ mode: 'lighter' }).change.ease).toMatchObject({ mode: 'lighter', note: '' });
+    // a pause carries no words
+    expect(ease({ mode: 'pause', note: 'Resting' }).change.ease.note).toBe('');
+  });
+
+  it('is only for a habit of theirs that they are building', () => {
+    expect(ease({ mode: 'pause' }, null).reason).toBe('no_item');
+    expect(ease({ mode: 'pause' }, { ...run, archived: true }).reason).toBe('archived');
+    expect(ease({ mode: 'pause' }, { ...run, subtype: 'break_habit' }).reason).toBe(
+      'ease_breaking',
+    );
+    expect(
+      checkChange(
+        { op: 'ease', type: 'todo', id: 't1', ease: { mode: 'pause' } },
+        { today: TODAY, item: todo, ease: { weekly_day: 0, rows: [] } },
+      ).reason,
+    ).toBe('op_not_for_type');
+  });
+
+  it('states what is running now, and drops a change that is already so', () => {
+    const paused = [row('pause', '2026-10-02', '2026-10-04')];
+    expect(ease({ mode: 'pause' }, run, paused).reason).toBe('ease_already');
+    // a pause with no days given, inside a longer one, changes nothing
+    const long = [row('pause', '2026-09-28', '2026-10-18')];
+    expect(ease({ mode: 'pause' }, run, long).reason).toBe('ease_already');
+    expect(ease({ mode: 'pause', until: '2026-10-18' }, run, long).reason).toBe('ease_already');
+    // but a last day stated for one that runs past it is when it should end:
+    // back to usual from the day after
+    expect(ease({ mode: 'pause', until: '2026-10-07' }, run, long).change).toMatchObject({
+      ease: { mode: 'usual', first: '2026-10-08', last: '2026-10-18', note: '' },
+      before: { eases: [{ mode: 'pause', first: '2026-09-28', last: '2026-10-18', note: '' }] },
+    });
+    const lighter = ease({ mode: 'lighter', note: 'Walk' }, run, paused);
+    expect(lighter.change.before).toEqual({
+      eases: [{ mode: 'pause', first: '2026-10-02', last: '2026-10-04', note: '' }],
+    });
+    // another habit's rows are not this one's
+    const other = [{ ...paused[0], habit_id: 'h2' }];
+    expect(ease({ mode: 'pause' }, run, other).change.before).toEqual({ eases: [] });
+  });
+
+  it('usual ends the one that is running, from today, and is nothing when nothing is', () => {
+    expect(ease({ mode: 'usual' }).reason).toBe('no_change');
+    const rows = [
+      row('pause', '2026-09-28', '2026-10-06'),
+      row('floor', '2026-10-12', '2026-10-18', 'Walk'),
+      // over already
+      row('pause', '2026-09-01', '2026-09-07'),
+    ];
+    // the pause that holds today; the lighter version set for later is left as it is
+    expect(ease({ mode: 'usual' }, run, rows).change).toMatchObject({
+      ease: { mode: 'usual', first: '2026-10-02', last: '2026-10-06', note: '' },
+      before: {
+        eases: [
+          { mode: 'pause', first: '2026-09-28', last: '2026-10-06', note: '' },
+          { mode: 'lighter', first: '2026-10-12', last: '2026-10-18', note: 'Walk' },
+        ],
+      },
+    });
+    // nothing holds today: the next one to come is the one it ends
+    expect(ease({ mode: 'usual' }, run, rows.slice(1)).change.ease).toEqual({
+      mode: 'usual',
+      first: '2026-10-02',
+      last: '2026-10-18',
+      note: '',
+    });
+  });
+
+  it('usual from a later day makes a pause end sooner, and a last day given is kept', () => {
+    const rows = [
+      row('pause', '2026-09-28', '2026-10-18'),
+      row('floor', '2026-10-20', '2026-10-25', 'Walk'),
+    ];
+    expect(ease({ mode: 'usual', from: '2026-10-09' }, run, rows).change.ease).toEqual({
+      mode: 'usual',
+      first: '2026-10-09',
+      last: '2026-10-18',
+      note: '',
+    });
+    // through both, when they say until when
+    expect(
+      ease({ mode: 'usual', from: '2026-10-09', until: '2026-10-25' }, run, rows).change.ease,
+    ).toMatchObject({ first: '2026-10-09', last: '2026-10-25' });
+    expect(ease({ mode: 'usual', from: '2026-09-30' }, run, rows).reason).toBe('ease_past');
+    expect(ease({ mode: 'usual', from: 'soon' }, run, rows).reason).toBe('bad_value:from');
+    // days with nothing on them are already as usual
+    expect(ease({ mode: 'usual', from: '2026-10-26', until: '2026-10-28' }, run, rows).reason).toBe(
+      'no_change',
+    );
+  });
+
+  it('keeps the words a lighter version already has when none are given', () => {
+    const saved = { ...run, floor_note: 'One lap' };
+    const rows = [row('floor', '2026-10-01', '2026-10-03', 'Ten minute walk')];
+    // made longer with no words said: theirs stay, over the habit's saved smallest version
+    expect(ease({ mode: 'lighter', until: '2026-10-08' }, saved, rows).change.ease).toMatchObject({
+      note: 'Ten minute walk',
+      last: '2026-10-08',
+    });
+    expect(ease({ mode: 'lighter', until: '2026-10-03' }, saved, rows).reason).toBe('ease_already');
+  });
+
+  it('runs a stretch with no days given over the days a weekly review is planning', () => {
+    const planning = (e, span, rows = []) =>
+      checkChange(
+        { op: 'ease', type: 'habit', id: 'h1', ease: e },
+        { today: TODAY, item: run, ease: { weekly_day: 0, rows, span } },
+      );
+    const next = { first: '2026-10-05', last: '2026-10-11' };
+    expect(planning({ mode: 'pause' }, next).change.ease).toMatchObject({
+      first: '2026-10-05',
+      last: '2026-10-11',
+    });
+    // a review picked up part way through plans from today
+    expect(
+      planning({ mode: 'pause' }, { first: '2026-09-28', last: '2026-10-04' }).change.ease,
+    ).toMatchObject({ first: TODAY, last: '2026-10-04' });
+    // days given are kept, and a week already gone is no week to plan
+    expect(planning({ mode: 'pause', from: TODAY, until: TODAY }, next).change.ease).toMatchObject({
+      first: TODAY,
+      last: TODAY,
+    });
+    expect(
+      planning({ mode: 'pause' }, { first: '2026-09-21', last: '2026-09-27' }).change.ease,
+    ).toMatchObject({ first: TODAY, last: '2026-10-04' });
+  });
+
+  it('never runs a stretch with no last day given past the furthest it may', () => {
+    // from 29 October their week ends on 1 November, past four weeks from 2 October
+    expect(ease({ mode: 'pause', from: '2026-10-29' }).change.ease).toMatchObject({
+      first: '2026-10-29',
+      last: '2026-10-30',
+    });
+    expect(ease({ mode: 'pause', from: '2026-10-31' }).reason).toBe('ease_too_far');
+  });
+
+  it('reads a checked change the same way, so the app can check it again', () => {
+    const first = ease({ mode: 'lighter', from: '2026-10-05', until: '2026-10-09', note: 'Walk' });
+    const again = checkChange(first.change, {
+      today: TODAY,
+      item: run,
+      ease: { weekly_day: 0, rows: [] },
+    });
+    expect(again).toEqual(first);
+  });
+
+  it('says one thing about a habit on a card', () => {
+    const { changes, dropped } = checkCard(
+      [
+        { op: 'ease', type: 'habit', id: 'h1', ease: { mode: 'pause' } },
+        { op: 'skip_today', type: 'habit', id: 'h1' },
+      ],
+      () => ({ today: TODAY, item: run, ease: { weekly_day: 0, rows: [] } }),
+    );
+    expect(changes.map((c) => c.op)).toEqual(['ease']);
+    expect(dropped).toEqual([{ cid: 'c2', reason: 'conflict' }]);
   });
 });

@@ -384,6 +384,11 @@ function readHours(raw) {
  * Null when the app sent none: an app build that does not know the week. With
  * today, a review whose days have all gone, or are further off than the week
  * after next, is not one under way.
+ *
+ * eased is the habits paused or on a lighter version now or soon, from an app
+ * build that can apply such a change: a list, empty when there are none. An
+ * app build that cannot leaves it out, and it is null here, so the change is
+ * never offered to it (surfaces.js, the ease variants).
  */
 export function readWeek(raw, today = null) {
   if (!raw || typeof raw !== 'object' || !Number.isInteger(raw.weekly_day)) return null;
@@ -413,7 +418,48 @@ export function readWeek(raw, today = null) {
     busy_days: dayList(raw.busy_days, 14),
     intention,
     under_way: readUnderWay(raw.under_way, str, today),
+    eased: readEased(raw.eased, str, today),
   };
+}
+
+/** The habits paused or on a lighter version, as the app sent them; null when it sent none at all. */
+function readEased(list, str, today) {
+  if (!Array.isArray(list)) return null;
+  return list
+    .slice(0, 120)
+    .map((e) => ({
+      habit_id: isIdLike(e?.habit_id) ? e.habit_id : null,
+      title: str(e?.title, 100) || 'Habit',
+      mode: e?.mode === 'pause' ? 'pause' : e?.mode === 'lighter' ? 'lighter' : null,
+      first: isDay(e?.first) ? e.first : null,
+      last: isDay(e?.last) ? e.last : null,
+      note: str(e?.note, 200),
+    }))
+    .filter(
+      (e) =>
+        e.habit_id &&
+        e.mode &&
+        e.first &&
+        e.last &&
+        e.last >= e.first &&
+        !(today && e.last < today),
+    )
+    .slice(0, 40);
+}
+
+/**
+ * The habits eased now or soon, for what Gremly knows about their week: one
+ * line each, with the id a change to it needs. Nothing when none are.
+ */
+export function easedWords(week) {
+  const list = week?.eased || [];
+  if (!list.length) return '';
+  const rows = list.map((e) => {
+    const what =
+      e.mode === 'pause' ? 'paused' : e.note ? `lighter version: “${e.note}”` : 'lighter version';
+    return `${e.habit_id} | ${e.title} | ${what} | ${e.first} | ${e.last}`;
+  });
+  return `\nHABITS EASED FOR NOW (habit id | habit | how | first day | last day). A paused habit is left alone on those days: it is not on their day and nothing is asked of them about it. One on a lighter version stays on, and the smaller version counts in full.\n${rows.join('\n')}`;
 }
 
 /** A review under way, as the thread sent it; null when none is. */
@@ -540,7 +586,24 @@ export function weekFrameOf(week, today) {
     // the week's shape and its check ins are kept on its review
     has_review: started || !!u,
     under_way: u,
+    // the habits paused or on a lighter version; null from an app build that cannot apply one
+    eased: week.eased ?? null,
   };
+}
+
+/**
+ * The variant of a surface a request with their week gets (surfaces.js): the
+ * week's, and with it a habit's pause or lighter version when the app build
+ * said what is eased now.
+ */
+export function weekVariant(week, { answering = false } = {}) {
+  if (!week) return undefined;
+  // A turn that answers a question of Gremly's has one job: take the answer
+  // in, and offer the change to the item it was about. A habit's pause is no
+  // part of that, and with it offered such a turn more often said its change
+  // without putting it on the card (the day replay under --with-ease, 6
+  // October: 8 of 24 against 5 of 37), so it is left off there.
+  return Array.isArray(week.eased) && !answering ? 'week_ease' : 'week';
 }
 
 /**
@@ -584,7 +647,7 @@ export function weekLine(week, today, { moveOnCard = true } = {}) {
       : moveOnCard
         ? 'The one extra review a week has been used, so no other review can be started today; what Gremly can offer instead is to move their weekly day, on the card.'
         : "The one extra review a week has been used, so no other review can be started today. Their weekly day can be moved from today's thread, and not from here.";
-  return `THEIR WEEK: ${when} The review for ${which}, ${range}, ${state}. ${extra}`;
+  return `THEIR WEEK: ${when} The review for ${which}, ${range}, ${state}. ${extra}${easedWords(week)}`;
 }
 
 /** Where the weekly review has got to, in words (workers/shared/week.js WEEK_STEPS). */
@@ -745,11 +808,12 @@ export async function runBriefTurn({ env, userId, body, useAgent, dayTurn, onSta
     deps.dayEndHour ?? dayEndHourOf(env, userId),
   ]);
 
+  const wrap = readWrap(body?.wrap);
   const r = await runAgent({
     surface: 'brief',
-    variant: week ? 'week' : undefined,
+    variant: weekVariant(week, { answering: !!wrap?.answering }),
     persona: briefPersona(person),
-    context: dayContext(req, dco, readWrap(body?.wrap), dayEndHour, week),
+    context: dayContext(req, dco, wrap, dayEndHour, week),
     cacheKey: cacheKeyFor(userId),
     history: req.history,
     message: req.text,

@@ -25,7 +25,13 @@ import { getItem } from './getItem.js';
 import { getDay } from './getDay.js';
 import { recall } from './recall.js';
 import { webSearch } from './webSearch.js';
-import { proposeChanges, proposeDayChanges, proposeWeekChanges } from './proposeChanges.js';
+import {
+  proposeChanges,
+  proposeDayChanges,
+  proposeEaseChanges,
+  proposeWeekChanges,
+  proposeWeekEaseChanges,
+} from './proposeChanges.js';
 import { getWeek } from './getWeek.js';
 import { hold, offerWeek } from './review.js';
 
@@ -39,10 +45,14 @@ const BY_NAME = new Map([...TOOLS, ...WEEK_TOOLS].map((t) => [t.name, t]));
 
 // A surface's own version of a tool, under the same name: on today's thread
 // propose_changes can also change the plan on screen and today's set times,
-// and the week's own changes when the thread sent the person's week.
+// and the week's own changes when the thread sent the person's week. For an
+// app build that said which habits are paused or on a lighter version, it can
+// change that too, on today's thread and in chat.
 const FOR_SURFACE = {
   brief: { propose_changes: proposeDayChanges },
   brief_week: { propose_changes: proposeWeekChanges },
+  brief_week_ease: { propose_changes: proposeWeekEaseChanges },
+  chat_ease: { propose_changes: proposeEaseChanges },
 };
 
 function toolNamed(name, surface) {

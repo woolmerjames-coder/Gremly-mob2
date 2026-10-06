@@ -66,6 +66,19 @@ export const WEEK_OPS = {
   weekly_day: 'move the day of the week their weekly review happens on',
 };
 
+/**
+ * A habit eased for a stretch of days: paused, given a lighter version, or
+ * set back to usual (workers/shared/habitWeek.js has the rules). Kept apart
+ * from OPS for the same reason as the week's operations: every surface's tool
+ * list is built from OPS, and this one is offered only to an app build that
+ * can apply it. Such a build says so by sending what is eased now with its
+ * week (the request's week.eased), on today's thread and in chat alike. The
+ * check is checkEase in check.js; the app applies it in lib/changes/ease.ts.
+ */
+export const EASE_OPS = {
+  ease: 'pause a habit for a stretch of days, give it a lighter version for one, or set it back to usual',
+};
+
 /** What a milestone's step is: a todo to do, or a check in Gremly holds in an evening wrap up. */
 export const STEP_KINDS = ['todo', 'check_in'];
 

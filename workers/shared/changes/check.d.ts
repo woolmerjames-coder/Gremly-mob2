@@ -1,5 +1,5 @@
 // Types for check.js, for the app's TypeScript.
-import type { ChangeOp, ItemType, WeekOp } from './fields';
+import type { ChangeOp, EaseOp, ItemType, WeekOp } from './fields';
 import type { WeekHours } from '../week';
 
 export interface Schedule {
@@ -45,7 +45,7 @@ export interface Milestone {
 /** One checked change, as the card shows it and the app applies it. */
 export interface Change {
   cid: string;
-  op: ChangeOp | WeekOp;
+  op: ChangeOp | WeekOp | EaseOp;
   type: ItemType | null;
   id: string | null;
   /** The item's name as it reads now, or the new name for an add */
@@ -63,6 +63,16 @@ export interface Change {
   from?: string;
   /** milestone: what is set up */
   milestone?: Milestone;
+  /** ease: the pause, lighter version or return to usual, and the days it runs */
+  ease?: EaseChange;
+}
+/** A habit's pause, lighter version or return to usual, over a stretch of days. */
+export interface EaseChange {
+  mode: 'pause' | 'lighter' | 'usual';
+  first: string;
+  last: string;
+  /** What the lighter version is, in a few words; empty when none was given */
+  note: string;
 }
 /** The person's week, for the week's own changes (checkWeekChange). */
 export interface WeekCheckContext {
@@ -86,6 +96,13 @@ export interface CheckContext {
   chapters?: string[];
   groups?: Array<'main' | 'asked'>;
   week?: WeekCheckContext | null;
+  /** For ease: their weekly day and their habit_adaptations rows */
+  ease?: {
+    weekly_day?: number;
+    rows?: Record<string, any>[];
+    /** The days a weekly review under way is planning: a stretch with no days given is these */
+    span?: { first: string; last: string } | null;
+  } | null;
 }
 export declare function normDay(v: unknown): string | undefined;
 export declare function normTime(v: unknown): string | undefined;
@@ -103,6 +120,10 @@ export declare function beforeValue(
   field: string,
 ): any;
 export declare function checkChange(
+  raw: Record<string, any>,
+  ctx?: CheckContext,
+): { ok: true; change: Change } | { ok: false; reason: string };
+export declare function checkEase(
   raw: Record<string, any>,
   ctx?: CheckContext,
 ): { ok: true; change: Change } | { ok: false; reason: string };

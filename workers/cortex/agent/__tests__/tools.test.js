@@ -16,8 +16,10 @@ import {
 import { daysToRead, habitOnDay, plannedAround, weekBounds } from '../tools/getDay.js';
 import { boardOf, hoursWords } from '../tools/getWeek.js';
 import {
+  easeCheckOf,
   fieldListWords,
   readPlanRow,
+  toEaseChange,
   toModelChange,
   toWeekChange,
   weekCheckOf,
@@ -960,6 +962,35 @@ describe("the week's tools", () => {
       expect(b.later).toEqual([]);
     });
 
+    it('leaves a habit off a day it is paused on, whatever was planned for it', () => {
+      const days = ['2026-10-02', '2026-10-03'];
+      const plans = days.map((d) => ({ habit_id: HABIT, planned_date: d }));
+      const eased = [
+        { habit_id: HABIT, title: 'Run', mode: 'pause', first: '2026-10-03', last: '2026-10-09' },
+      ];
+      const b = boardOf({
+        days,
+        today: TODAY,
+        todos: [],
+        habits: rows.habits,
+        plans,
+        week: week({ eased }),
+      });
+      expect(b.days[0].habits.map((h) => h.id)).toEqual([HABIT]);
+      expect(b.days[1].habits).toEqual([]);
+      expect(b.days[1].room.placed).toBe(0);
+      // a lighter version stays on its days
+      const lighter = boardOf({
+        days,
+        today: TODAY,
+        todos: [],
+        habits: rows.habits,
+        plans,
+        week: week({ eased: [{ ...eased[0], mode: 'lighter' }] }),
+      });
+      expect(lighter.days[1].habits.map((h) => h.id)).toEqual([HABIT]);
+    });
+
     it("lays the review's working board over what is saved", () => {
       const b = boardOf({
         days: ['2026-10-02', '2026-10-03'],
@@ -1354,6 +1385,322 @@ describe("the week's tools", () => {
         expect(r.result.changes).toEqual([]);
         expect(r.result.dropped).toEqual([{ cid: 'c1', reason: 'unknown_op' }]);
       }
+    });
+  });
+});
+
+describe('a habit paused, given a lighter version, or set back to usual', () => {
+  // Friday 2 October 2026; their weekly day is Sunday, so their week ends on the 4th
+  const eased = (list = []) => ({
+    weekly_day: 0,
+    first: TODAY,
+    last: '2026-10-04',
+    view_first: '2026-09-28',
+    view_last: '2026-10-04',
+    hours: null,
+    busy_days: [],
+    intention: null,
+    has_review: false,
+    under_way: null,
+    eased: list,
+  });
+  const db = (habit = {}) =>
+    fakeDb({
+      'habits?': [
+        {
+          id: HABIT,
+          name: 'Run',
+          cadence: 'weekly',
+          target_per_period: 3,
+          archived: false,
+          ...habit,
+        },
+      ],
+      habit_progress: [],
+      'habit_plans?': [],
+      drop_world_links: [],
+      drop_chapter_links: [],
+      'worlds?': [],
+      'chapters?': [],
+    });
+  const chatCtx = (d, list) => ({ ...ctxWith(d), surface: 'chat_ease', week: eased(list) });
+
+  describe('the declarations', () => {
+    it('are a twin of each week variant, for a build that said what is eased now', () => {
+      const brief = surfaceOf('brief', 'week_ease');
+      expect(brief.toolSet).toBe('brief_week_ease');
+      expect(brief.tools).toEqual(surfaceOf('brief', 'week').tools);
+      expect(brief.job).toBe(surfaceOf('brief', 'week').job);
+      const chat = surfaceOf('chat', 'week_ease');
+      expect(chat.toolSet).toBe('chat_ease');
+      expect(chat.tools).toEqual(surfaceOf('chat', 'week').tools);
+      expect(chat.job).toBe(surfaceOf('chat', 'week').job);
+    });
+
+    it('offer ease only on those twins, and say what it is with no dashes', () => {
+      const opsOf = (tools, set) =>
+        toolDeclarations(toolsFor(tools, set)).find((d) => d.name === 'propose_changes');
+      for (const [name, variant, set] of [
+        ['brief', 'week_ease', 'brief_week_ease'],
+        ['chat', 'week_ease', 'chat_ease'],
+      ]) {
+        const d = opsOf(surfaceOf(name, variant).tools, set);
+        const change = d.parameters.properties.changes.items.properties;
+        expect(change.op.enum).toContain('ease');
+        expect(change.ease.properties.mode.enum).toEqual(['pause', 'lighter', 'usual']);
+        expect(change.ease.required).toEqual(['mode']);
+        // what it is is said on the change's own field, with no dashes
+        expect(change.ease.description).toContain('paused for a stretch of days');
+        expect(change.ease.description).not.toMatch(/ — | – | - /);
+        // and the tool says of itself only what it says without it
+        const plain = opsOf(surfaceOf(name, 'week').tools, name === 'chat' ? 'chat' : 'brief_week');
+        expect(d.description).toBe(plain.description);
+      }
+      // every other tool set is as it was: a build that cannot apply it is never offered it
+      for (const [tools, set] of [
+        [SURFACES.chat.tools, 'chat'],
+        [surfaceOf('chat', 'week').tools, 'chat'],
+        [SURFACES.brief.tools, 'brief'],
+        [surfaceOf('brief', 'week').tools, 'brief_week'],
+      ]) {
+        const d = opsOf(tools, set);
+        const change = d.parameters.properties.changes.items.properties;
+        expect(change.op.enum).not.toContain('ease');
+        expect(change.ease).toBeUndefined();
+      }
+      // in chat it is set apart from skipping today and archiving; in today's thread from the week's days too
+      const fieldOf = (d) => d.parameters.properties.changes.items.properties.ease.description;
+      const chat = fieldOf(opsOf(surfaceOf('chat', 'week_ease').tools, 'chat_ease'));
+      expect(chat).toContain('skip_today');
+      expect(chat).not.toContain('habit_days');
+      const brief = fieldOf(opsOf(surfaceOf('brief', 'week_ease').tools, 'brief_week_ease'));
+      expect(brief).toContain('moving its days inside this week is habit_days');
+    });
+
+    it('still move the weekly day on the card in today’s thread', async () => {
+      const blocked = { ...eased(), blocked: true, extra_used: true, review: null };
+      const r = await runTool(
+        { ...ctxWith(fakeDb()), surface: 'brief_week_ease', week: blocked },
+        'offer_week',
+        {},
+      );
+      // Friday, with a Sunday weekly day
+      expect(r.result.move_to).toBe(5);
+      const chat = await runTool(
+        { ...ctxWith(fakeDb()), surface: 'chat_ease', week: blocked },
+        'offer_week',
+        {},
+      );
+      expect(chat.result.move_to).toBeNull();
+    });
+  });
+
+  it('turns the tool shape into the change model, naming the kind of item itself', () => {
+    expect(toEaseChange({ op: 'ease', id: HABIT, ease: { mode: 'pause' } }, 0)).toEqual({
+      cid: 'c1',
+      op: 'ease',
+      type: 'habit',
+      id: HABIT,
+      ease: { mode: 'pause' },
+    });
+  });
+
+  it('gives the checks their weekly day and what is eased now, as rows', () => {
+    const list = [
+      {
+        habit_id: HABIT,
+        title: 'Run',
+        mode: 'lighter',
+        first: TODAY,
+        last: '2026-10-04',
+        note: 'Walk',
+      },
+    ];
+    expect(easeCheckOf(eased(list))).toEqual({
+      weekly_day: 0,
+      rows: [
+        {
+          id: null,
+          habit_id: HABIT,
+          mode: 'floor',
+          period_start: TODAY,
+          period_end: '2026-10-04',
+          floor_note: 'Walk',
+        },
+      ],
+      span: null,
+    });
+    // in the weekly review, the days being planned are what a stretch with no days runs over
+    const planning = { ...eased(), under_way: { first: '2026-10-05', last: '2026-10-11' } };
+    expect(easeCheckOf(planning).span).toEqual({ first: '2026-10-05', last: '2026-10-11' });
+    // a build that did not say what is eased cannot be given the change
+    expect(easeCheckOf({ ...eased(), eased: null })).toBeNull();
+    expect(easeCheckOf(null)).toBeNull();
+  });
+
+  it('puts a pause on the card to the end of their week, and says it in words', async () => {
+    const r = await runTool(chatCtx(db(), []), 'propose_changes', {
+      changes: [{ op: 'ease', type: 'habit', id: HABIT, ease: { mode: 'pause' } }],
+    });
+    expect(r.ok).toBe(true);
+    expect(r.result.dropped).toEqual([]);
+    expect(r.result.changes).toEqual([
+      {
+        cid: 'c1',
+        op: 'ease',
+        type: 'habit',
+        id: HABIT,
+        title: 'Run',
+        ease: { mode: 'pause', first: TODAY, last: '2026-10-04', note: '' },
+        before: { eases: [] },
+      },
+    ]);
+    expect(r.text).toContain('c1 ease habit “Run”: paused Fri 2 Oct (today) to Sun 4 Oct');
+  });
+
+  it('says a lighter version with their words, or the smallest version saved on the habit', async () => {
+    const said = await runTool(chatCtx(db(), []), 'propose_changes', {
+      changes: [
+        {
+          op: 'ease',
+          type: 'habit',
+          id: HABIT,
+          ease: { mode: 'lighter', until: '2026-10-09', note: 'A walk round the block' },
+        },
+      ],
+    });
+    expect(said.result.changes[0].ease).toEqual({
+      mode: 'lighter',
+      first: TODAY,
+      last: '2026-10-09',
+      note: 'A walk round the block',
+    });
+    expect(said.text).toContain(
+      'lighter version Fri 2 Oct (today) to Fri 9 Oct, “A walk round the block”',
+    );
+    const saved = await runTool(chatCtx(db({ floor_note: 'One lap' }), []), 'propose_changes', {
+      changes: [{ op: 'ease', type: 'habit', id: HABIT, ease: { mode: 'lighter' } }],
+    });
+    expect(saved.result.changes[0].ease.note).toBe('One lap');
+  });
+
+  it('ends what is running with usual, and drops what is already so with the reason', async () => {
+    const running = [
+      { habit_id: HABIT, title: 'Run', mode: 'pause', first: TODAY, last: '2026-10-04', note: '' },
+    ];
+    const usual = await runTool(chatCtx(db(), running), 'propose_changes', {
+      changes: [{ op: 'ease', type: 'habit', id: HABIT, ease: { mode: 'usual' } }],
+    });
+    expect(usual.result.changes[0]).toMatchObject({
+      ease: { mode: 'usual', first: TODAY, last: '2026-10-04' },
+      before: { eases: [{ mode: 'pause', first: TODAY, last: '2026-10-04', note: '' }] },
+    });
+    expect(usual.text).toContain(
+      'back to usual from Fri 2 Oct (today), ending what runs to Sun 4 Oct',
+    );
+    const same = await runTool(chatCtx(db(), running), 'propose_changes', {
+      changes: [{ op: 'ease', type: 'habit', id: HABIT, ease: { mode: 'pause' } }],
+    });
+    expect(same.result.changes).toEqual([]);
+    expect(same.text).toContain('it is already that way on every one of those days');
+    const far = await runTool(chatCtx(db(), []), 'propose_changes', {
+      changes: [
+        { op: 'ease', type: 'habit', id: HABIT, ease: { mode: 'pause', until: '2026-12-01' } },
+      ],
+    });
+    expect(far.text).toContain('ends within four weeks of today');
+    const breaking = await runTool(chatCtx(db({ subtype: 'break_habit' }), []), 'propose_changes', {
+      changes: [{ op: 'ease', type: 'habit', id: HABIT, ease: { mode: 'pause' } }],
+    });
+    expect(breaking.text).toContain('a habit they are breaking is not paused or made lighter');
+  });
+
+  it('is not a change the other tool sets can make, even when asked for by name', async () => {
+    for (const surface of ['chat', 'brief', 'brief_week']) {
+      const r = await runTool({ ...ctxWith(db()), surface, week: eased([]) }, 'propose_changes', {
+        changes: [{ op: 'ease', type: 'habit', id: HABIT, ease: { mode: 'pause' } }],
+      });
+      expect(r.result.changes).toEqual([]);
+      expect(r.result.dropped).toEqual([{ cid: 'c1', reason: 'unknown_op' }]);
+    }
+  });
+
+  it('a pause from today covers the habit in today’s plan, so the card needs one row', async () => {
+    const day = {
+      now: 600,
+      plan: { items: [{ id: HABIT, kind: 'habit', title: 'Run', start: 700 }] },
+      blocks: [],
+      items: new Map([[HABIT, { id: HABIT, kind: 'habit', title: 'Run', minutes: 30 }]]),
+    };
+    const r = await runTool(
+      { ...ctxWith(db()), surface: 'brief_week_ease', week: eased([]), day },
+      'propose_changes',
+      {
+        changes: [
+          { op: 'ease', type: 'habit', id: HABIT, ease: { mode: 'pause' } },
+          { op: 'plan', plan: { kind: 'plan_remove', id: HABIT } },
+        ],
+      },
+    );
+    expect(r.result.changes.map((c) => c.op)).toEqual(['ease']);
+    expect(r.result.dropped).toEqual([{ cid: 'c2', reason: 'covered' }]);
+  });
+
+  describe('get_day', () => {
+    const run = { id: HABIT, name: 'Run', cadence: 'weekly', target_per_period: 3 };
+
+    it('counts a week in their own week', () => {
+      // Friday 2 October. Sunday person: Monday 28 to Sunday 4. Wednesday person: Thursday 1 to Wednesday 7
+      const logged = ['2026-09-28', '2026-09-30', '2026-10-01'];
+      expect(habitOnDay(run, TODAY, logged)).toMatchObject({
+        progress: '3 of 3 this week',
+        met: true,
+      });
+      expect(habitOnDay(run, TODAY, logged, false, 3)).toMatchObject({
+        progress: '1 of 3 this week',
+        met: false,
+      });
+    });
+
+    it('leaves a paused habit off the day, and says a lighter version', () => {
+      const pause = { mode: 'pause', first: TODAY, last: '2026-10-04', note: '' };
+      expect(habitOnDay(run, TODAY, [], false, 0, pause)).toBeNull();
+      const lighter = { mode: 'lighter', first: TODAY, last: '2026-10-04', note: 'Walk' };
+      expect(habitOnDay(run, TODAY, [], false, 0, lighter)).toMatchObject({
+        progress: '0 of 3 this week',
+        lighter: 'Walk',
+      });
+      expect(habitOnDay(run, TODAY, [], false, 0, null).lighter).toBeUndefined();
+    });
+
+    it('reads them from what the thread sent', async () => {
+      const d = fakeDb({
+        'habits?': [run, { id: NOTE, name: 'Swim', cadence: 'daily' }],
+        habit_progress: [],
+        'habit_plans?': [],
+      });
+      const list = [
+        {
+          habit_id: HABIT,
+          title: 'Run',
+          mode: 'lighter',
+          first: TODAY,
+          last: '2026-10-04',
+          note: 'Walk',
+        },
+        {
+          habit_id: NOTE,
+          title: 'Swim',
+          mode: 'pause',
+          first: TODAY,
+          last: '2026-10-04',
+          note: '',
+        },
+      ];
+      const r = await runTool(chatCtx(d, list), 'get_day', {});
+      expect(r.text).toContain('Run');
+      expect(r.text).toContain(', lighter version for now: “Walk”');
+      expect(r.text).not.toContain('Swim');
     });
   });
 });

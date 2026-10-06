@@ -10,6 +10,7 @@
 // ============================================================================
 
 import {
+  EASE_OPS,
   OPS,
   TYPES as FIELD_TYPES,
   GROUPS,
@@ -19,6 +20,7 @@ import {
 } from '../../../shared/changes/fields.js';
 import { checkCard, normTime } from '../../../shared/changes/check.js';
 import { DAY_KINDS } from '../../../shared/week.js';
+import { EASE_MODES, rowOfEase } from '../../../shared/habitWeek.js';
 import { loadItem, worldsAndChapters, isId } from './items.js';
 import { arr, bool, day, int, num, obj, str, strEnum, time } from './schema.js';
 import { trackTasks } from '../tasks.js';
@@ -30,6 +32,10 @@ const AGENT_OPS = Object.keys(OPS).filter((op) => op !== 'plan');
 // the week's own changes, only where the thread sent the person's week
 // (proposeWeekChanges)
 const WEEK_OP_NAMES = Object.keys(WEEK_OPS);
+// a habit paused, given a lighter version or set back to usual: only for an
+// app build that can apply it, which says so by sending what is eased now
+// (proposeEaseChanges, proposeWeekEaseChanges)
+const EASE_OP_NAMES = Object.keys(EASE_OPS);
 
 /** The field list in words, for the tool's description, from fields.js. */
 export function fieldListWords() {
@@ -206,8 +212,44 @@ const MILESTONE = obj(
   'for milestone: something big more than a week away, and the steps towards it',
 );
 
-function changeSchema({ plan, week }) {
-  const ops = [...AGENT_OPS, ...(plan ? ['plan'] : []), ...(week ? WEEK_OP_NAMES : [])];
+/**
+ * A habit eased for a stretch of days. Everything the model is told about it
+ * is here, on the change's own field, and nothing is added to what the tool
+ * says of itself: a longer description cost other turns their card (the day
+ * set under --with-ease, 6 October). Where the week's own changes are offered
+ * too (week), it is set apart from habit_days, which moves a habit's days
+ * inside the week.
+ */
+function easeField(week) {
+  const apart = week
+    ? 'Leaving a habit out for today alone is skip_today, moving its days inside this week is habit_days, and stopping it for good is archive.'
+    : 'Leaving a habit out for today alone is skip_today, and stopping it for good is archive.';
+  return obj(
+    {
+      mode: strEnum(
+        EASE_MODES,
+        'pause to leave the habit alone for those days; lighter for a smaller version that still counts; usual to end a pause or a lighter version, from today or from the day given as from',
+      ),
+      from: day(
+        'the first day; left out, it is today, or in the weekly review the first day being planned',
+      ),
+      until: day(
+        'the last day; left out, it is the end of their week, or in the weekly review the last day being planned',
+      ),
+      note: str('for lighter, what the smaller version is, in a few of their words'),
+    },
+    ['mode'],
+    `for ease: a habit they are building paused for a stretch of days, or given a lighter version for those days, with the habit itself left as it is. A paused habit is left alone on those days: it is off their day, nothing asks them about it, and it is never counted against them. ${apart}`,
+  );
+}
+
+function changeSchema({ plan, week, ease }) {
+  const ops = [
+    ...AGENT_OPS,
+    ...(plan ? ['plan'] : []),
+    ...(week ? WEEK_OP_NAMES : []),
+    ...(ease ? EASE_OP_NAMES : []),
+  ];
   const props = {
     op: strEnum(ops, 'what the change does'),
     type: strEnum(
@@ -237,6 +279,7 @@ function changeSchema({ plan, week }) {
     props.milestone = MILESTONE;
     props.weekday = int('for weekly_day, the day of the week, 0 Sunday to 6 Saturday');
   }
+  if (ease) props.ease = easeField(week);
   return obj(props, plan ? ['op'] : ['op', 'type']);
 }
 
@@ -306,10 +349,21 @@ const HINTS = {
   bad_step:
     'each step needs a title, the day to finish it by as YYYY-MM-DD, and whether it is a todo or a check_in',
   step_outside: 'each step is finished between today and the date the milestone is for',
+  day_paused:
+    'the habit is paused on one of those days. Choose days it is not paused on; or offer to end the pause first, with op ease and ease.mode usual, and set its days once they have accepted that',
+  ease_already:
+    'it is already that way on every one of those days. To make a pause or a lighter version end sooner, give the last day it should run as ease.until, or use ease.mode usual with ease.from the first day it should be back to usual',
+  bad_ease: 'ease needs ease.mode: pause, lighter or usual',
+  ease_past: 'a pause or a lighter version starts today or later',
+  ease_ends_first: 'its last day is on or after its first day',
+  ease_too_far: 'a pause or a lighter version ends within four weeks of today',
+  ease_breaking: 'a habit they are breaking is not paused or made lighter',
 };
 
 // what a week change's own value has to be, when it could not be read
 const WEEK_VALUES = {
+  from: 'ease.from is a day, YYYY-MM-DD',
+  until: 'ease.until is a day, YYYY-MM-DD',
   back_on: 'back_on is a day, YYYY-MM-DD',
   hours: 'hours are in half hours, from none up to sixteen',
   intention: 'the intention is one short line',
@@ -456,6 +510,14 @@ export function toWeekChange(c, i) {
   return out;
 }
 
+/** A habit's pause, lighter version or return to usual, in the change model's own shape. */
+export function toEaseChange(c, i) {
+  const out = { cid: `c${i + 1}`, op: c.op, type: c.type || 'habit' };
+  if (c.id) out.id = c.id;
+  out.ease = c.ease;
+  return out;
+}
+
 /** The tool's change, in the change model's own shape. */
 export function toModelChange(c, i) {
   const out = { cid: `c${i + 1}`, op: c?.op, type: c?.type };
@@ -557,11 +619,44 @@ function weekWords(c, ctx) {
   }
 }
 
+/** A habit's pause, lighter version or return to usual on the card, in words for the model. */
+function easeChangeWords(c, ctx) {
+  const e = c.ease;
+  const title = `ease habit “${trim(c.title, 60)}”`;
+  // the pause or lighter version it ends runs to its last day
+  if (e.mode === 'usual')
+    return `${title}: back to usual from ${dayWords(e.first, ctx.today)}, ending what runs to ${dayWords(e.last, ctx.today)}`;
+  const span =
+    e.first === e.last
+      ? dayWords(e.first, ctx.today)
+      : `${dayWords(e.first, ctx.today)} to ${dayWords(e.last, ctx.today)}`;
+  if (e.mode === 'pause') return `${title}: paused ${span}`;
+  return `${title}: lighter version ${span}${e.note ? `, “${trim(e.note, 120)}”` : ''}`;
+}
+
 /** Whether an item row already settles where the item sits in today's plan. */
-function coversPlan(c) {
+function coversPlan(c, today) {
   if (c.op === 'plan' || !c.id) return false;
   if (['done', 'archive', 'skip_today', 'log', 'convert', 'later'].includes(c.op)) return true;
+  // paused from today, it is off today
+  if (c.op === 'ease') return c.ease?.mode === 'pause' && c.ease.first === today;
   return c.op === 'change' && ('time' in (c.fields || {}) || 'day' in (c.fields || {}));
+}
+
+/**
+ * What a habit's ease is checked against (checkEase): their weekly day, and
+ * what is eased now as the thread sent it (ctx.week.eased), as rows. Null
+ * when the thread did not say what is eased, so the change cannot be made.
+ */
+export function easeCheckOf(week) {
+  if (!week || !Array.isArray(week.eased)) return null;
+  const u = week.under_way;
+  return {
+    weekly_day: week.weekly_day,
+    rows: week.eased.map(rowOfEase),
+    // in the weekly review a stretch with no days given is the days being planned
+    span: u?.first && u?.last ? { first: u.first, last: u.last } : null,
+  };
 }
 
 /**
@@ -615,12 +710,16 @@ async function plannedDays(ctx, raws) {
  * propose_changes, with the plan on screen and today's set times when plan is
  * true, and the week's own changes when week is true.
  */
-function makeProposeChanges({ plan, week = false }) {
+function makeProposeChanges({ plan, week = false, ease = false }) {
+  const about = week ? WEEK_DESCRIPTION : plan ? DAY_DESCRIPTION : DESCRIPTION;
   return {
     name: 'propose_changes',
-    description: week ? WEEK_DESCRIPTION : plan ? DAY_DESCRIPTION : DESCRIPTION,
+    description: about,
     parameters: obj(
-      { changes: arr(changeSchema({ plan, week }), 'the changes, one per item'), ...WITH_CARD },
+      {
+        changes: arr(changeSchema({ plan, week, ease }), 'the changes, one per item'),
+        ...WITH_CARD,
+      },
       ['changes'],
     ),
 
@@ -631,6 +730,11 @@ function makeProposeChanges({ plan, week = false }) {
       const raws = given.map((c, i) => {
         if (WEEK_OP_NAMES.includes(c?.op)) {
           if (week) return toWeekChange(c, i);
+          early.push({ cid: `c${i + 1}`, reason: 'unknown_op' });
+          return null;
+        }
+        if (EASE_OP_NAMES.includes(c?.op)) {
+          if (ease) return toEaseChange(c, i);
           early.push({ cid: `c${i + 1}`, reason: 'unknown_op' });
           return null;
         }
@@ -666,16 +770,18 @@ function makeProposeChanges({ plan, week = false }) {
         if (item) item.planned_days = days;
       }
       const weekCheck = week ? weekCheckOf(ctx.week) : null;
+      const easeCheck = ease ? easeCheckOf(ctx.week) : null;
       const { changes, dropped } = checkCard(kept, (raw) => ({
         today: ctx.today,
         item: raw.id && raw.op !== 'plan' ? (loaded.get(`${raw.type}:${raw.id}`) ?? null) : null,
         worlds: lw.worlds.map((w) => w.id),
         chapters: lw.chapters.map((c) => c.id),
         week: weekCheck,
+        ease: easeCheck,
       }));
       // one row per item: a change that already moves an item in or out of
-      // today's plan (a new time or day, done, skipped, stopped) covers it
-      const covering = new Set(changes.filter(coversPlan).map((c) => c.id));
+      // today's plan (a new time or day, done, skipped, stopped, paused) covers it
+      const covering = new Set(changes.filter((c) => coversPlan(c, ctx.today)).map((c) => c.id));
       const covered = changes.filter(
         (c) => c.op === 'plan' && c.plan?.kind?.startsWith('plan_') && covering.has(c.id),
       );
@@ -703,6 +809,10 @@ function makeProposeChanges({ plan, week = false }) {
           }
           if (WEEK_OP_NAMES.includes(c.op)) {
             lines.push(`- ${c.cid} ${weekWords(c, ctx)}`);
+            continue;
+          }
+          if (EASE_OP_NAMES.includes(c.op)) {
+            lines.push(`- ${c.cid} ${easeChangeWords(c, ctx)}`);
             continue;
           }
           const what = [
@@ -738,3 +848,9 @@ export const proposeDayChanges = makeProposeChanges({ plan: true });
 
 /** Today's thread when it sent the person's week: the week's own changes too. */
 export const proposeWeekChanges = makeProposeChanges({ plan: true, week: true });
+
+/** Chat, for an app build that says what is eased now: a habit's pause or lighter version too. */
+export const proposeEaseChanges = makeProposeChanges({ plan: false, ease: true });
+
+/** Today's thread with their week, for such a build: the week's changes and a habit's ease. */
+export const proposeWeekEaseChanges = makeProposeChanges({ plan: true, week: true, ease: true });
