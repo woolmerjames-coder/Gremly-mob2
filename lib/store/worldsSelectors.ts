@@ -8,12 +8,12 @@
 
 import { useMemo } from 'react';
 import { startOfISOWeek } from 'date-fns';
-import { startOfIsoWeek } from '../date/isoWeek';
 import { createSelector } from 'reselect';
 import { useShallow } from 'zustand/react/shallow';
 import { useGremlyStore } from './useGremlyStore';
 import { getDateService } from '../date/DateService';
 import { summaryForDay } from '../weeklySummary/currentSummary';
+import { weekAround } from '../week/habitWeek';
 import { lightTokens } from '../../design/tokens';
 import { buildUpcomingDatesForWorld, type UpcomingDate } from '../worlds/upcomingDates';
 import type { GremlyState } from './useGremlyStore';
@@ -414,8 +414,10 @@ export function selectWorldsSummary(
   state: GremlyState,
   now: Date = getDateService().now(),
 ): WorldsSummary {
-  const weekStart = startOfIsoWeek(now);
-  const weekStartIso = weekStart.toISOString();
+  // Their own week: the seven days that end on their weekly day, from the
+  // moment its first day starts
+  const ds = getDateService();
+  const weekStartIso = ds.startOfDayUtc(weekAround(ds.dayOf(now), state.weeklyDay).first);
 
   // Drop clause — always present
   const dropsThisWeek = [
@@ -531,10 +533,11 @@ export function selectWorldsSummary(
   };
 }
 
-// Memoized variant: createSelector caches on the six state slices so that
-// selectWorldsSummary only runs (and returns a new object) when one of the
-// input arrays actually changes reference. This gives useShallow a stable
-// summary reference to compare against, preventing the getSnapshot loop.
+// Memoized variant: createSelector caches on the six state slices and their
+// weekly day so that selectWorldsSummary only runs (and returns a new object)
+// when one of the input arrays actually changes reference, or their week
+// does. This gives useShallow a stable summary reference to compare against,
+// preventing the getSnapshot loop.
 const _selectWorldsSummaryMemo = createSelector(
   (s: GremlyState) => s.todos,
   (s: GremlyState) => s.habits,
@@ -542,7 +545,8 @@ const _selectWorldsSummaryMemo = createSelector(
   (s: GremlyState) => s.dropWorldLinks,
   (s: GremlyState) => s.worlds,
   (s: GremlyState) => s.chapters,
-  (_todos, _habits, _notes, _dropWorldLinks, _worlds, _chapters): WorldsSummary =>
+  (s: GremlyState) => s.weeklyDay,
+  (_todos, _habits, _notes, _dropWorldLinks, _worlds, _chapters, _weeklyDay): WorldsSummary =>
     selectWorldsSummary(
       {
         todos: _todos,
@@ -551,6 +555,7 @@ const _selectWorldsSummaryMemo = createSelector(
         dropWorldLinks: _dropWorldLinks,
         worlds: _worlds,
         chapters: _chapters,
+        weeklyDay: _weeklyDay,
       } as GremlyState,
       getDateService().now(),
     ),
@@ -1316,26 +1321,26 @@ export interface HabitWeekGrid {
   hitCount: number;
 }
 
-// Pure compute function — takes plain arrays, not store state.
-function computeHabitWeekGrid(
+// Pure compute function — takes plain arrays, not store state. The weeks are
+// their own: each is the seven days that end on their weekly day.
+export function computeHabitWeekGrid(
   habitProgress: GremlyState['habitProgress'],
   habitId: string,
   weeksBack: number,
+  weeklyDay: number = 0,
+  today: string = getDateService().today(),
 ): HabitWeekGrid {
-  const now = getDateService().dayNow();
-  const currentWeekStart = startOfIsoWeek(now);
+  const ds = getDateService();
+  const thisWeek = weekAround(today, weeklyDay);
 
   // Build one boolean per week, from (weeksBack-1) weeks ago to current week
   const weeks = Array.from({ length: weeksBack }, (_, i) => {
     const weekOffset = weeksBack - 1 - i; // i=0 → oldest week
-    const ms = weekOffset * 7 * 24 * 60 * 60 * 1000;
-    const weekStart = new Date(currentWeekStart.getTime() - ms);
-    const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
-    const wStartStr = weekStart.toISOString().slice(0, 10);
-    const wEndStr = weekEnd.toISOString().slice(0, 10);
+    const first = ds.addDays(thisWeek.first, -7 * weekOffset);
+    const last = ds.addDays(thisWeek.last, -7 * weekOffset);
 
     return habitProgress.some(
-      (p) => p.habit_id === habitId && p.occurred_day >= wStartStr && p.occurred_day < wEndStr,
+      (p) => p.habit_id === habitId && p.occurred_day >= first && p.occurred_day <= last,
     );
   });
 
@@ -1348,18 +1353,20 @@ export function selectHabitWeekGrid(
   habitId: string,
   weeksBack: number = 13,
 ): HabitWeekGrid {
-  return computeHabitWeekGrid(state.habitProgress, habitId, weeksBack);
+  return computeHabitWeekGrid(state.habitProgress, habitId, weeksBack, state.weeklyDay);
 }
 
 export const useHabitWeekGrid = (habitId: string, weeksBack: number = 13): HabitWeekGrid => {
   // Subscribe to reference-stable raw arrays — only change when the store
   // actually mutates them, so Object.is equality never fires spuriously.
   const habitProgress = useGremlyStore((s) => s.habitProgress);
+  const weeklyDay = useGremlyStore((s) => s.weeklyDay);
+  const today = getDateService().today();
   // useMemo returns the same object reference until deps change,
   // preventing the fresh-array infinite re-render loop.
   return useMemo(
-    () => computeHabitWeekGrid(habitProgress, habitId, weeksBack),
-    [habitProgress, habitId, weeksBack],
+    () => computeHabitWeekGrid(habitProgress, habitId, weeksBack, weeklyDay, today),
+    [habitProgress, habitId, weeksBack, weeklyDay, today],
   );
 };
 

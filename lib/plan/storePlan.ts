@@ -15,16 +15,15 @@ import { useGremlyStore } from '../store/useGremlyStore';
 import { selectHabitsDueToday, selectTodosDueToday } from '../store/selectors';
 import { getDateService, nowTimestamp } from '../date/DateService';
 import { getTimeBlockBoundaries } from '../capacity/capacityHelpers';
-import { dayOfWeekNumber } from '../brief/behind';
 import { readDco } from '../brief/dco';
-import { doneSinceMonday, meetingsForDay } from '../brief/useDayCard';
+import { doneInWeek, meetingsForDay } from '../brief/useDayCard';
 import { localDateOf, localMinutesToIso } from '../brief/time';
 import type { DayMeeting } from '../brief/dayCard';
 import type { PlanItem } from '../brief/types';
 import type { SequencedItem } from '../types';
 import { buildCandidatePool, windowFor, type Candidate } from './candidatePool';
 import { habitsOnDay, todosDueOn } from './dayItems';
-import { plannedOn } from '../week/habitWeek';
+import { plannedOn, weekAround } from '../week/habitWeek';
 import { withFeedAnimation } from '../brief/feeding';
 import { buildDayRecord, type DayRecord, type DayThreadMeta } from '../brief/dayRecord';
 import { useTodayThread } from '../brief/todayThread';
@@ -34,7 +33,8 @@ export function poolFromStore(): Candidate[] {
   const ds = getDateService();
   // the person's day: it ends at their day end, not at midnight
   const today = ds.ritualDay();
-  const monday = ds.startOfWeekMonday(today);
+  // their own week: the seven days that end on their weekly day
+  const weekFirst = weekAround(today, s.weeklyDay).first;
   const progress = (s.habitProgress ?? []) as {
     habit_id: string;
     occurred_day: string;
@@ -52,10 +52,10 @@ export function poolFromStore(): Candidate[] {
     habitsDueToday: selectHabitsDueToday(s as any),
     todos: s.todos,
     habits: s.habits,
-    doneThisWeek: doneSinceMonday(progress, monday, today),
+    doneThisWeek: doneInWeek(progress, weekFirst, today),
     doneToday: new Set(progress.filter((p) => p.occurred_day === today).map((p) => p.habit_id)),
     placedIds: placedOn(today),
-    daysGone: dayOfWeekNumber(today, monday),
+    week: { weeklyDay: s.weeklyDay, eases: s.habitAdaptations },
     claims: brief?.claims ?? [],
     reach: brief?.reach ?? null,
     blocks: s.timeBlockPreferences,
@@ -93,24 +93,25 @@ export function poolForDay(day: string): Candidate[] {
   const today = ds.ritualDay();
   if (day === today) return poolFromStore();
   const s = useGremlyStore.getState();
-  const monday = ds.startOfWeekMonday(day);
+  // the week that day is in, which is their own
+  const weekFirst = weekAround(day, s.weeklyDay).first;
   const progress = (s.habitProgress ?? []) as {
     habit_id: string;
     occurred_day: string;
     count?: number;
   }[];
   const todosDue = todosDueOn(s.todos, day);
-  const habitsOn = habitsOnDay(s.habits, day);
+  const habitsOn = habitsOnDay(s.habits, day, s.habitAdaptations);
   const pool = buildCandidatePool({
     today: day,
     todosDueToday: todosDue,
     habitsDueToday: habitsOn,
     todos: s.todos,
     habits: s.habits,
-    doneThisWeek: monday <= today ? doneSinceMonday(progress, monday, today) : new Map(),
+    doneThisWeek: weekFirst <= today ? doneInWeek(progress, weekFirst, today) : new Map(),
     doneToday: new Set(),
     placedIds: new Set(),
-    daysGone: dayOfWeekNumber(day, monday),
+    week: { weeklyDay: s.weeklyDay, eases: s.habitAdaptations },
     claims: [],
     reach: null,
     blocks: s.timeBlockPreferences,

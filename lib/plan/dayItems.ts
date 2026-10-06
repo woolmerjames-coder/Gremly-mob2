@@ -3,6 +3,8 @@
  * due on it and the habits on for it. Planning tomorrow and the sheet it adds
  * from read the same, so the plan and the sheet never disagree. Pure.
  */
+import type { HabitAdaptationRow } from '../store/useGremlyStore';
+import { pausedOn } from '../week/habitWeek';
 import { weekdayOf } from '../wrapup/day';
 
 type TodoRow = {
@@ -13,6 +15,7 @@ type TodoRow = {
   views?: Record<string, any> | null;
 };
 type HabitRow = {
+  id: string;
   archived?: boolean | null;
   start_date?: string | null;
   end_date?: string | null;
@@ -34,12 +37,21 @@ export function todosDueOn<T extends TodoRow>(todos: T[], day: string): T[] {
   );
 }
 
-/** Habits on for the day: started by then, not ended, and daily or set for its weekday. */
-export function habitsOnDay<H extends HabitRow>(habits: H[], day: string): H[] {
+/**
+ * Habits on for the day: started by then, not ended, and daily or set for its
+ * weekday. One paused on the day (eases: their habit_adaptations rows) is
+ * left out.
+ */
+export function habitsOnDay<H extends HabitRow>(
+  habits: H[],
+  day: string,
+  eases?: HabitAdaptationRow[] | null,
+): H[] {
   const weekday = new Date(`${day}T12:00:00Z`).getUTCDay();
   return habits.filter((h) => {
     if (h.archived || !h.start_date || h.start_date > day) return false;
     if (h.end_date && h.end_date < day) return false;
+    if (pausedOn(eases, h.id, day)) return false;
     if ((h.cadence ?? 'daily') === 'daily') return true;
     return Array.isArray(h.days_active) && h.days_active.some((d) => d === weekday);
   });

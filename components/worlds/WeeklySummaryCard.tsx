@@ -1,9 +1,11 @@
 import { View, Pressable, Platform, StyleSheet } from 'react-native';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
+import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useWeeklySummaryCardState } from '../../lib/store/worldsSelectors';
 import { getDateService } from '../../lib/date';
+import { weekAround } from '../../lib/week/habitWeek';
 
 interface WeeklySummaryCardProps {
   onPressNew?: () => void;
@@ -13,6 +15,8 @@ interface WeeklySummaryCardProps {
 
 export function WeeklySummaryCard({ onPressNew, onPressPastSummaries }: WeeklySummaryCardProps) {
   const state = useWeeklySummaryCardState();
+  // Their weekly day: "this week" is the seven days that end on it
+  const weeklyDay = useGremlyStore((s) => s.weeklyDay);
 
   if (state.kind === 'new_unread') {
     const summary = state.summary;
@@ -34,7 +38,7 @@ export function WeeklySummaryCard({ onPressNew, onPressPastSummaries }: WeeklySu
   }
 
   if (state.kind === 'authored') {
-    const rangeText = formatCurrentWeekRange();
+    const rangeText = formatCurrentWeekRange(weeklyDay);
     return (
       <View style={styles.cardSoft}>
         <View style={styles.topRow}>
@@ -53,7 +57,7 @@ export function WeeklySummaryCard({ onPressNew, onPressPastSummaries }: WeeklySu
   }
 
   if (state.kind === 'in_progress') {
-    const rangeText = formatCurrentWeekRange();
+    const rangeText = formatCurrentWeekRange(weeklyDay);
     const s = state.summary;
     const clauses = [
       s.dropClause,
@@ -88,18 +92,19 @@ function formatWeekRange(weekStartDate: string): string {
   const start = new Date(weekStartDate);
   const end = new Date(start);
   end.setDate(end.getDate() + 6);
-  return `${format(start, 'MMM d')}-${format(end, 'd')}`;
+  return rangeWords(start, end);
 }
 
-function formatCurrentWeekRange(): string {
-  const now = getDateService().dayNow();
-  const day = now.getDay() || 7;
-  const start = new Date(now);
-  start.setDate(start.getDate() - (day - 1));
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 6);
-  return `${format(start, 'MMM d')}-${format(end, 'd')}`;
+/** "Oct 5 to 11", or "Sep 28 to Oct 4" when the week runs over the end of a month. */
+function rangeWords(start: Date, end: Date): string {
+  const last = start.getMonth() === end.getMonth() ? format(end, 'd') : format(end, 'MMM d');
+  return `${format(start, 'MMM d')} to ${last}`;
+}
+
+function formatCurrentWeekRange(weeklyDay: number): string {
+  // Their own week: the seven days that end on their weekly day
+  const week = weekAround(getDateService().today(), weeklyDay);
+  return rangeWords(parseISO(week.first), parseISO(week.last));
 }
 
 const styles = StyleSheet.create({

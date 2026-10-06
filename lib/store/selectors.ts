@@ -18,6 +18,8 @@ import { summaryForDay } from '../weeklySummary/currentSummary';
 import { isRelationPending } from '../minddrop/dropRelation';
 import { sweepCardAsks } from '../sweep/sweepOrder';
 import { quickSweepCards } from '../sweep/quickSweep';
+import { dayOfWeek, pausedOn, weekAround } from '../week/habitWeek';
+import { spanDays } from '../week/model';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // DATE HELPERS
@@ -25,15 +27,6 @@ import { quickSweepCards } from '../sweep/quickSweep';
 
 // Get DateService singleton - use this for all date operations
 const ds = () => getDateService();
-
-/** Get start of current week (Sunday) as YYYY-MM-DD */
-function getWeekStartDayString(): string {
-  const today = ds().today();
-  const date = ds().fromLocalDate(today);
-  if (!date) return today;
-  const dayOfWeek = date.getDay(); // 0 = Sunday
-  return ds().addDays(today, -dayOfWeek);
-}
 
 /** Get day of week (0-6, Sunday = 0) from YYYY-MM-DD string */
 function getDayOfWeek(dayString: string): number {
@@ -68,6 +61,11 @@ const selectIsLoading = (state: GremlyState) => state.isLoading;
 const selectIsInitialized = (state: GremlyState) => state.isInitialized;
 const selectSpaceSuggestions = (state: GremlyState) => state.spaceSuggestions;
 const selectHiddenTodayIds = (state: GremlyState) => state.hiddenTodayIds;
+const selectHabitAdaptations = (state: GremlyState) => state.habitAdaptations;
+// Their weekly day: their week is the seven days that end on it
+const selectWeeklyDay = (state: GremlyState) => state.weeklyDay;
+// Today as an input, so what is counted by the day is counted again when the day turns over
+const selectToday = () => ds().today();
 
 // Morning Brief capacity gate selectors
 const selectBriefSelectedIds = (state: GremlyState) => state.briefSelectedIds;
@@ -97,11 +95,11 @@ export const selectBriefSelectionsForDate = (date: string) =>
 // HABIT COMPLETION TRACKING
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/** Map of habitId -> completion count this week */
+/** Map of habitId -> completion count this week (their own week, see weekAround) */
 export const selectCompletionsThisWeek = createSelector(
-  [selectHabitProgress],
-  (progress): Map<string, number> => {
-    const weekStart = getWeekStartDayString();
+  [selectHabitProgress, selectWeeklyDay, selectToday],
+  (progress, weeklyDay, today): Map<string, number> => {
+    const weekStart = weekAround(today, weeklyDay).first;
     const map = new Map<string, number>();
 
     for (const row of progress) {
@@ -115,7 +113,8 @@ export const selectCompletionsThisWeek = createSelector(
 
 /** Map of habitId -> completion count this month */
 export const selectCompletionsThisMonth = createSelector(
-  [selectHabitProgress],
+  // today is an input so the count turns over with the day, not only with a new log
+  [selectHabitProgress, selectToday],
   (progress): Map<string, number> => {
     const now = ds().dayNow();
     const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
@@ -130,11 +129,11 @@ export const selectCompletionsThisMonth = createSelector(
   },
 );
 
-/** Map of habitId -> Set of occurred_day strings this week */
+/** Map of habitId -> Set of occurred_day strings this week (their own week, see weekAround) */
 export const selectCompletionDaysThisWeek = createSelector(
-  [selectHabitProgress],
-  (progress): Map<string, Set<string>> => {
-    const weekStart = getWeekStartDayString();
+  [selectHabitProgress, selectWeeklyDay, selectToday],
+  (progress, weeklyDay, today): Map<string, Set<string>> => {
+    const weekStart = weekAround(today, weeklyDay).first;
     const map = new Map<string, Set<string>>();
 
     for (const row of progress) {
@@ -167,9 +166,9 @@ export const selectHabitLastCompletionDate = createSelector(
 
 /** Check if habit was completed today */
 export const selectHabitCompletedToday = createSelector(
-  [selectHabitProgress],
-  (progress): Set<string> => {
-    const today = ds().today();
+  // today is an input so yesterday's logs stop counting when the day turns
+  [selectHabitProgress, selectToday],
+  (progress, today): Set<string> => {
     const set = new Set<string>();
 
     for (const row of progress) {
@@ -377,6 +376,7 @@ export const selectUrgentFrequencyHabits = createSelector(
  * - Scheduled habits: specific days_active array defines when it shows
  * - Flexible habits: show as available anytime they haven't hit weekly/monthly target
  * - No "overdue" shame - just "available to log"
+ * - Paused habits: left alone on the days they are paused
  *
  * Requirements:
  * - Must have start_date set (habits without start_date should only appear in Sweep)
@@ -388,12 +388,16 @@ function isHabitDueToday(
   completionsThisWeek: number,
   completionsThisMonth: number,
   completedToday: boolean,
+  pausedToday: boolean,
 ): boolean {
   // Already completed today - not "due" anymore (but may show in completed section)
   if (completedToday) return false;
 
   // Archived habits don't show
   if (habit.archived) return false;
+
+  // Paused today: they asked to be left alone, so it is off Today's list
+  if (pausedToday) return false;
 
   // Must have a start_date to appear on Today page
   // Habits without start_date should only appear in Sweep to prompt user to set one
@@ -464,8 +468,18 @@ export const selectHabitsDueToday = createSelector(
     selectCompletionsThisMonth,
     selectHabitCompletedToday,
     selectHiddenTodayIds,
+    selectHabitAdaptations,
+    selectToday,
   ],
-  (habits, weeklyCompletions, monthlyCompletions, completedTodaySet, hiddenIds): Habit[] => {
+  (
+    habits,
+    weeklyCompletions,
+    monthlyCompletions,
+    completedTodaySet,
+    hiddenIds,
+    adaptations,
+    today,
+  ): Habit[] => {
     return habits.filter((habit) => {
       if (hiddenIds.includes(habit.id)) return false;
       return isHabitDueToday(
@@ -473,6 +487,7 @@ export const selectHabitsDueToday = createSelector(
         weeklyCompletions.get(habit.id) ?? 0,
         monthlyCompletions.get(habit.id) ?? 0,
         completedTodaySet.has(habit.id),
+        pausedOn(adaptations, habit.id, today),
       );
     });
   },
@@ -1328,12 +1343,16 @@ export const selectHubHabits = createSelector([selectHabits], (habits) =>
  * Compute habit weekly status for NowWeeklyHabitSummary
  * Logic from nowSelectors.ts getHabitWeeklyStatus
  */
-function computeHabitWeeklyStatus(habit: Habit, completionsThisWeek: number): HabitWeeklyStatus {
+function computeHabitWeeklyStatus(
+  habit: Habit,
+  completionsThisWeek: number,
+  today: string,
+  weeklyDay: number,
+): HabitWeeklyStatus {
   const cadence = habit.cadence ?? 'daily';
   const target = habit.target_per_period ?? (cadence === 'daily' ? 7 : 1);
-  const today = ds().dayNow();
-  const dayOfWeek = today.getDay(); // 0 = Sunday
-  const daysRemaining = 7 - dayOfWeek; // days left including today
+  // days left in their week including today: 7 on its first day, 1 on their weekly day
+  const daysRemaining = 8 - dayOfWeek(today, weeklyDay);
 
   // Weekly target for status calculation
   const weeklyTarget = cadence === 'daily' ? 7 : cadence === 'weekly' ? target : 0;
@@ -1361,8 +1380,8 @@ function computeHabitWeeklyStatus(habit: Habit, completionsThisWeek: number): Ha
 
 /** Weekly habit summaries for NowHeader Habits card */
 export const selectWeeklyHabitSummaries = createSelector(
-  [selectHubHabits, selectCompletionsThisWeek],
-  (habits, completionsMap): NowWeeklyHabitSummary[] => {
+  [selectHubHabits, selectCompletionsThisWeek, selectWeeklyDay, selectToday],
+  (habits, completionsMap, weeklyDay, today): NowWeeklyHabitSummary[] => {
     return habits.map((habit) => {
       const completionsThisWeek = completionsMap.get(habit.id) ?? 0;
       const cadence = habit.cadence ?? 'daily';
@@ -1374,7 +1393,7 @@ export const selectWeeklyHabitSummaries = createSelector(
         name: habit.name || 'Untitled Habit',
         targetPerWeek,
         completionsThisWeek,
-        status: computeHabitWeeklyStatus(habit, completionsThisWeek),
+        status: computeHabitWeeklyStatus(habit, completionsThisWeek, today, weeklyDay),
       };
     });
   },
@@ -1382,12 +1401,14 @@ export const selectWeeklyHabitSummaries = createSelector(
 
 /** Count of habits that are "up to date" (checked in within their cadence window) */
 export const selectHabitsUpToDateCount = createSelector(
-  [selectHubHabits],
-  (habits): { upToDate: number; total: number } => {
+  [selectHubHabits, selectHabitAdaptations, selectToday],
+  (habits, eases, today): { upToDate: number; total: number } => {
     const yesterday = getDaysAgoDayString(1);
     const sevenDaysAgo = getDaysAgoDayString(7);
 
     const upToDate = habits.filter((habit) => {
+      // paused today, it is left alone: there is nothing to be behind on
+      if (pausedOn(eases, habit.id, today)) return true;
       const lastCheckedIn = ds().dayOf(habit.last_checked_in_at);
       const cadence = habit.cadence ?? 'daily';
 
@@ -2071,18 +2092,10 @@ export type TimelineDay = {
   items: TimelineItem[];
 };
 
-/** Get current week's date range (Sunday to Saturday) */
-function getWeekDateRange(): string[] {
-  const now = ds().dayNow();
-  const dayOfWeek = now.getDay(); // 0 = Sunday
-  const weekStart = new Date(now);
-  weekStart.setDate(now.getDate() - dayOfWeek);
-
-  return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekStart);
-    d.setDate(weekStart.getDate() + i);
-    return ds().toLocalDate(d);
-  });
+/** The days of their current week: the seven that end on their weekly day */
+function getWeekDateRange(today: string, weeklyDay: number): string[] {
+  const week = weekAround(today, weeklyDay);
+  return spanDays(week.first, week.last);
 }
 
 /** Timeline for a specific space - groups items by day for the current week */
@@ -2092,12 +2105,14 @@ export const selectSpaceTimeline = createSelector(
     selectTodos,
     selectNotes,
     selectHabitProgress,
+    selectWeeklyDay,
+    selectToday,
     (_state: GremlyState, spaceId: string | null | undefined) => spaceId,
   ],
-  (habits, todos, notes, habitProgress, spaceId): TimelineDay[] => {
+  (habits, todos, notes, habitProgress, weeklyDay, today, spaceId): TimelineDay[] => {
     if (!spaceId) return [];
 
-    const weekDays = getWeekDateRange();
+    const weekDays = getWeekDateRange(today, weeklyDay);
     const dayMap = new Map<string, TimelineItem[]>();
     for (const iso of weekDays) dayMap.set(iso, []);
 

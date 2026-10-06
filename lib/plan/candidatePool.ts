@@ -5,7 +5,8 @@
  * Sweep dates it today), habits on for today or behind this week, items
  * already on Today (an earlier plan gave them a time), the DCO's claims on today, and the
  * DCO's reach item. Never in: anything past its date and unsorted drops;
- * those belong to Sweep. Done and archived items are left out too.
+ * those belong to Sweep. Done and archived items are left out too, and so is
+ * a habit paused on the day.
  *
  * Order is the fallback priority if the picker cannot be reached: claims,
  * then what is already on Today, then the habits they planned for the day in
@@ -17,8 +18,10 @@
  */
 
 import type { Habit, Todo } from '../types';
+import type { HabitAdaptationRow } from '../store/useGremlyStore';
 import type { TimeBlockPreferences } from '../capacity/capacityTypes';
 import { weeklyTarget } from '../brief/behind';
+import { behindInWeek, pausedOn } from '../week/habitWeek';
 import type { DcoClaim, DcoReach } from '../brief/dco';
 import { todoDayWords } from './dayItems';
 import { weekdayOf } from '../wrapup/day';
@@ -53,14 +56,17 @@ export interface PoolInput {
   /** Every active todo and habit, for claims, what is on Today and behind */
   todos: Todo[];
   habits: Habit[];
-  /** Completions this week (Monday on), by habit id */
+  /** Completions in their week so far, by habit id */
   doneThisWeek: Map<string, number>;
   /** Habits already done today */
   doneToday: Set<string>;
   /** Todos and habits an earlier plan already gave a time on this day */
   placedIds: Set<string>;
-  /** 1 on Monday to 7 on Sunday */
-  daysGone: number;
+  /**
+   * Their week, which the pool's day is counted in: the weekly day it ends on,
+   * and their habit_adaptations rows for the days a habit is paused
+   */
+  week: { weeklyDay: number; eases?: HabitAdaptationRow[] };
   claims: DcoClaim[];
   reach: DcoReach | null;
   blocks: TimeBlockPreferences;
@@ -108,6 +114,8 @@ function plannableHabit(h: Habit, input: PoolInput): boolean {
   if (input.doneToday.has(h.id)) return false;
   if (h.start_date && h.start_date > input.today) return false;
   if (h.end_date && h.end_date < input.today) return false;
+  // paused on the day: left alone, so it is not planned
+  if (pausedOn(input.week.eases, h.id, input.today)) return false;
   return true;
 }
 
@@ -149,11 +157,14 @@ export function buildCandidatePool(input: PoolInput): Candidate[] {
     const target = weeklyTarget(h);
     return target ? `${input.doneThisWeek.get(h.id) ?? 0} of ${target} this week` : 'On for today';
   };
-  const behind = (h: Habit) => {
-    const target = weeklyTarget(h);
-    if (!target) return false;
-    return (input.doneThisWeek.get(h.id) ?? 0) < Math.floor((target * input.daysGone) / 7);
-  };
+  const behind = (h: Habit) =>
+    behindInWeek({
+      habit: h,
+      done: input.doneThisWeek.get(h.id) ?? 0,
+      today: input.today,
+      weeklyDay: input.week.weeklyDay,
+      eases: input.week.eases,
+    });
 
   // 1. The DCO's claims on today
   for (const c of input.claims) {

@@ -54,6 +54,8 @@ import { lightTokens, darkTokens } from '../../design/tokens';
 import { startOfWeek, formatISO, addDays, format, parseISO } from 'date-fns';
 import { getDateService } from '../../lib/date';
 import { dateService, nowTimestamp } from '../../lib/date/DateService';
+import { weekAround } from '../../lib/week/habitWeek';
+import { spanDays } from '../../lib/week/model';
 
 // Components
 import { SpaceBanner } from '../../components/spaces/SpaceBanner';
@@ -359,6 +361,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // Timeline from store - needed for weekly habit progress computation
   const timelineDays = useSpaceTimelineFromStore(spaceId);
+  // Their weekly day: habits are counted in their own week, which ends on it
+  const weeklyDay = useGremlyStore((s) => s.weeklyDay);
 
   // Combined items array - used for mood calculations (lastItemTs)
   const items = useMemo(
@@ -368,9 +372,10 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // Compute weekly habit progress from store items + timeline data
   const weekly = useMemo(() => {
-    const start = startOfWeek(getDateService().dayNow());
-    const weekDates = Array.from({ length: 7 }, (_v, i) => addDays(start, i));
-    const weekISO = dateService.toLocalDate(start);
+    // Their own week: the seven days that end on their weekly day
+    const week = weekAround(dateService.today(), weeklyDay);
+    const weekDates = spanDays(week.first, week.last);
+    const weekISO = week.first;
 
     // Helper: Calculate weekly target from habit frequency
     const calculateWeeklyTarget = (habit: any): number => {
@@ -413,8 +418,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     }> = [];
 
     for (const h of storeHabits as any[]) {
-      const flags = weekDates.map((d) => {
-        const iso = dateService.toLocalDate(d);
+      const flags = weekDates.map((iso) => {
         const day = (timelineDays || []).find((x: any) => x.dateISO === iso);
         const match = (day?.items || []).find((it: any) => it.type === 'habit' && it.id === h.id);
         return !!match?.done;
@@ -440,7 +444,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     }
 
     return { weekStartISO: weekISO, habits: out };
-  }, [storeHabits, timelineDays]);
+  }, [storeHabits, timelineDays, weeklyDay]);
 
   // Chats - now from Zustand store
   const chats = useSpaceChats(spaceId);

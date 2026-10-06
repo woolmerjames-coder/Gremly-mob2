@@ -23,6 +23,7 @@ import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import { dateService } from '../../../lib/date/DateService';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
+import { weekRowDays } from '../../../lib/habits/weeksOnTarget';
 import { WeeklyDotsRow } from './WeeklyDotsRow';
 import { StreakRing } from './StreakRing';
 import { MilestoneBar } from './MilestoneBar';
@@ -221,6 +222,8 @@ export function BreakHabitDetail({
 
   // ── Week navigation ──
   const [weekOffset, setWeekOffset] = useState(0);
+  // Their weekly day: the row of days is their own week, which ends on it
+  const weeklyDay = useGremlyStore((s) => s.weeklyDay);
 
   const handleMonthChange = useCallback((newMonth: number, newYear: number) => {
     setCalMonth(newMonth);
@@ -231,21 +234,12 @@ export function BreakHabitDetail({
   const weekData = useMemo(() => {
     const completedSet = new Set(completedDates);
 
-    // Compute Monday-based week start for the given offset
-    const anchor = new Date(today);
-    const dayOfWeek = anchor.getDay();
-    const mondayDiff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-    const weekStart = new Date(anchor);
-    weekStart.setDate(anchor.getDate() + mondayDiff + weekOffset * 7);
+    // Their own week (the seven days that end on their weekly day), moved
+    // a week at a time by the given offset
+    const dayDates = weekRowDays(todayISO, weeklyDay, weekOffset);
+    const days = dayDates.map((iso) => new Date(`${iso}T12:00:00`));
+    const weekStart = days[0];
 
-    const days: Date[] = [];
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(weekStart);
-      d.setDate(weekStart.getDate() + i);
-      days.push(d);
-    }
-
-    const dayDates = days.map(toLocalISO);
     const dayLabels = days.map(dayLetter);
     const todayIdx = dayDates.indexOf(todayISO);
     const todayIndex = todayIdx >= 0 ? todayIdx : weekOffset < 0 ? 7 : -1;
@@ -272,7 +266,7 @@ export function BreakHabitDetail({
       weeklyCompleted,
       weekStartDate: weekStart,
     };
-  }, [today, todayISO, completedDates, habit.cadence, habit.target_per_period, weekOffset]);
+  }, [todayISO, weeklyDay, completedDates, habit.cadence, habit.target_per_period, weekOffset]);
 
   // Week header label
   const weekLabel = useMemo(() => {

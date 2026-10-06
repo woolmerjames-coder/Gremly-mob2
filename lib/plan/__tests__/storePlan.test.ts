@@ -5,7 +5,9 @@ import type { PlanItem } from '../../brief/types';
 
 const mockState: any = {};
 jest.mock('../../store/useGremlyStore', () => ({
-  useGremlyStore: { getState: () => mockState },
+  // a new object each read, as the store's state is after any update, so the
+  // memoised selectors the pool reads are run again for each test
+  useGremlyStore: { getState: () => ({ ...mockState }) },
 }));
 jest.mock('../../brief/feeding', () => ({
   withFeedAnimation: (credit: () => Promise<unknown>) => credit(),
@@ -134,5 +136,77 @@ describe('planning another day', () => {
     const pool = poolForDay(next);
     expect(pool.map((c) => c.id)).toEqual(['a']);
     expect(pool[0].why).toMatch(/^Due (Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)$/);
+  });
+});
+
+describe('their own week in the pool', () => {
+  const TODAY = '2026-09-30'; // a Wednesday
+  const strength = {
+    id: 'strength',
+    name: 'Strength',
+    subtype: 'start_habit',
+    cadence: 'weekly',
+    target_per_period: 3,
+    start_date: '2026-09-01',
+  };
+  const log = (occurred_day: string) => ({ habit_id: 'strength', occurred_day, count: 1 });
+  const lines = (day: string) => poolForDay(day).map((c) => [c.id, c.source, c.why]);
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(`${TODAY}T12:00:00Z`));
+    Object.assign(mockState, {
+      habits: [strength],
+      // the Thursday before, and Monday
+      habitProgress: [log('2026-09-24'), log('2026-09-28')],
+      habitAdaptations: [],
+      habitPlans: [],
+      hiddenTodayIds: [],
+      dco: null,
+      weeklyDay: 0,
+    });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('counts a Sunday person from Monday', () => {
+    // one done since Monday, and Wednesday is day 3: on pace
+    expect(lines(TODAY)).toEqual([['strength', 'habit', '1 of 3 this week']]);
+  });
+
+  it('counts a Wednesday person from Thursday', () => {
+    mockState.weeklyDay = 3;
+    // two done since Thursday, and Wednesday is the last day of their week: behind
+    expect(lines(TODAY)).toEqual([['strength', 'behind', '2 of 3 this week, behind']]);
+  });
+
+  it('starts a plan for tomorrow in the week tomorrow is in', () => {
+    mockState.habitProgress = [log('2026-09-24')];
+    mockState.weeklyDay = 3;
+    // Thursday is the first day of their next week, which has not begun: nothing is behind
+    expect(lines('2026-10-01')).toEqual([]);
+    // for a Sunday person Thursday is day 4 of the week they are in: 0 of 3 is behind
+    mockState.weeklyDay = 0;
+    expect(lines('2026-10-01')).toEqual([['strength', 'behind', '0 of 3 this week, behind']]);
+  });
+
+  it('leaves a paused habit out of today and of another day it is paused on', () => {
+    mockState.habits = [strength, { id: 'walk', name: 'Walk', start_date: '2026-09-01' }];
+    // nothing done since Monday: strength is behind on both days, and paused on the first
+    mockState.habitProgress = [log('2026-09-24')];
+    mockState.habitAdaptations = [
+      { id: 'p1', habit_id: 'strength', mode: 'pause', period_start: TODAY, period_end: TODAY },
+      {
+        id: 'p2',
+        habit_id: 'walk',
+        mode: 'pause',
+        period_start: '2026-10-01',
+        period_end: '2026-10-01',
+      },
+    ];
+    expect(lines(TODAY).map((c) => c[0])).toEqual(['walk']);
+    expect(lines('2026-10-01').map((c) => c[0])).toEqual(['strength']);
   });
 });

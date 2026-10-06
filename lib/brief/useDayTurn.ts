@@ -35,7 +35,7 @@ import { selectHabitsDueToday } from '../store/selectors';
 import { getDateService } from '../date/DateService';
 import { briefMetaOf, dayPartAt, visibleThreadMessages } from './messages';
 import { localDateOf, minutesOfDay } from './time';
-import { plannedOn } from '../week/habitWeek';
+import { pausedOn, plannedOn } from '../week/habitWeek';
 import { briefWeekFacts, shownOffer, type BriefWeekFacts } from './checkIn';
 import { intentionOn } from '../week/intention';
 import {
@@ -151,6 +151,8 @@ export const DAY_NOTES = {
   habitPlanned: 'planned for today in their week',
   habitToday: 'habit today',
   habit: 'habit',
+  // left alone for a stretch that holds today: not on today, whatever was planned for it
+  habitPaused: 'paused for now',
 } as const;
 
 const TODO_NOTE_ORDER: string[] = [
@@ -169,6 +171,7 @@ const HABIT_NOTE_ORDER: string[] = [
   DAY_NOTES.habitPlanned,
   DAY_NOTES.habitToday,
   DAY_NOTES.habit,
+  DAY_NOTES.habitPaused,
 ];
 
 const dayPart = (v: unknown): string | null =>
@@ -305,6 +308,7 @@ export function buildDayTurnRequest(
   const plannedHabits = new Set(
     [...plannedOn((s as any).habitPlans ?? [], date)].filter((id) => !doneThatDay.has(id)),
   );
+  const eases = (s as any).habitAdaptations ?? [];
   const habits = s.habits
     .filter((h) => !h.archived)
     .map((h) => ({
@@ -316,11 +320,13 @@ export function buildDayTurnRequest(
       minutes: h.time_estimate_minutes ?? null,
       note: inPlan.has(h.id)
         ? DAY_NOTES.inPlan
-        : plannedHabits.has(h.id)
-          ? DAY_NOTES.habitPlanned
-          : todayHabits.has(h.id)
-            ? DAY_NOTES.habitToday
-            : DAY_NOTES.habit,
+        : pausedOn(eases, h.id, date)
+          ? DAY_NOTES.habitPaused
+          : plannedHabits.has(h.id)
+            ? DAY_NOTES.habitPlanned
+            : todayHabits.has(h.id)
+              ? DAY_NOTES.habitToday
+              : DAY_NOTES.habit,
     }))
     // what is on for today first, so it is never what the limit leaves out
     .sort((a, b) => HABIT_NOTE_ORDER.indexOf(a.note) - HABIT_NOTE_ORDER.indexOf(b.note))

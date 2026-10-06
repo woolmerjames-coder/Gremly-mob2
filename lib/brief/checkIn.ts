@@ -29,6 +29,7 @@ import {
   QUIET_FIELD,
   checkInOpen,
   daysLeft,
+  easeOn,
   moveDayFor,
   moveDaysFor,
   plannedOn,
@@ -42,10 +43,19 @@ import type { BriefOfferMeta, OfferButton } from './types';
 type Item = Record<string, any>;
 
 export const CHECKIN_COPY = {
-  ask: (title: string, moveTo: string | null) =>
-    moveTo
-      ? `You planned ${title} for today. Still on? If not, ${weekdayWord(moveTo)} has room.`
-      : `You planned ${title} for today. Still on?`,
+  /** lighter: the habit is on a lighter version today; its words, or '' when it has none */
+  ask: (title: string, moveTo: string | null, lighter: string | null = null) => {
+    const counts =
+      lighter === null
+        ? ''
+        : lighter
+          ? // their words sit inside the sentence, so no full stop of ours follows one of theirs
+            ` “${lighter}” counts as the lighter version.`
+          : ' The lighter version counts.';
+    return moveTo
+      ? `You planned ${title} for today. Still on?${counts} If not, ${weekdayWord(moveTo)} has room.`
+      : `You planned ${title} for today. Still on?${counts}`;
+  },
   keep: 'Still on',
   move: (day: string) => `Move it to ${weekdayWord(day)}`,
   skip: 'Skip this week',
@@ -70,9 +80,13 @@ function weekdayWord(day: string): string {
 export interface BriefWeekFacts {
   /**
    * The check in still on for a habit, with the day it can move to, or null
-   * when it is no longer on: done, off today, quieted, or another day's thread.
+   * when it is no longer on: done, off today, quieted, paused, or another
+   * day's thread. lighter is what its lighter version is when it is on one
+   * today ('' when it was given no words), and null otherwise.
    */
-  checkIn: (habitId: string) => { title: string; moveTo: string | null } | null;
+  checkIn: (
+    habitId: string,
+  ) => { title: string; moveTo: string | null; lighter: string | null } | null;
   /**
    * The days several habits still on for today can move to, each given its
    * day in turn so no day is filled twice (the evening's habits card).
@@ -90,6 +104,8 @@ export interface WeekFactsInput {
   habits: Item[];
   habitPlans: Item[];
   habitProgress: Item[];
+  /** Their pauses and lighter versions (habit_adaptations rows) */
+  eases: Item[];
   todos: Item[];
   weeklyDay: number;
   daysOff: number[];
@@ -116,7 +132,9 @@ export function weekFactsFrom(p: WeekFactsInput): BriefWeekFacts {
   const known = live && p.loaded;
   const open = (habitId: string) => {
     const habit = known ? p.habits.find((h) => h.id === habitId) : null;
-    return habit && checkInOpen(habit, { today: p.today, planned, doneToday }) ? habit : null;
+    return habit && checkInOpen(habit, { today: p.today, planned, doneToday, eases: p.eases })
+      ? habit
+      : null;
   };
   const room = () =>
     roomLeft({
@@ -132,9 +150,11 @@ export function weekFactsFrom(p: WeekFactsInput): BriefWeekFacts {
     checkIn: (habitId) => {
       const habit = open(habitId);
       if (!habit) return null;
+      const ease = easeOn(p.eases, habit.id, p.today);
       return {
         title: (habit.name || habit.title || 'Habit') as string,
-        moveTo: moveDayFor({ habit, days, plans: p.habitPlans, room: room() }),
+        moveTo: moveDayFor({ habit, days, plans: p.habitPlans, room: room(), eases: p.eases }),
+        lighter: ease?.mode === 'lighter' ? ease.note : null,
       };
     },
     moveDays: (habitIds) =>
@@ -143,6 +163,7 @@ export function weekFactsFrom(p: WeekFactsInput): BriefWeekFacts {
         days,
         plans: p.habitPlans,
         room: room(),
+        eases: p.eases,
       }),
     reviewOffer: live && p.loaded && briefOffersReview(p.today, p.weeklyDay, p.review),
   };
@@ -157,6 +178,7 @@ function inputFromStores(date: string, today: string): WeekFactsInput {
     habits: s.habits ?? [],
     habitPlans: s.habitPlans ?? [],
     habitProgress: s.habitProgress ?? [],
+    eases: s.habitAdaptations ?? [],
     todos: s.todos ?? [],
     weeklyDay: w.weeklyDay,
     daysOff: w.daysOff,
@@ -181,6 +203,7 @@ export function useBriefWeekFacts(date: string | null): BriefWeekFacts | null {
   const habits = useGremlyStore((s: any) => s.habits) as Item[];
   const habitPlans = useGremlyStore((s: any) => s.habitPlans) as Item[];
   const habitProgress = useGremlyStore((s: any) => s.habitProgress) as Item[];
+  const eases = useGremlyStore((s: any) => s.habitAdaptations) as Item[];
   const todos = useGremlyStore((s: any) => s.todos) as Item[];
   const weeklyDay = useThisWeek((w) => w.weeklyDay);
   const daysOff = useThisWeek((w) => w.daysOff);
@@ -196,6 +219,7 @@ export function useBriefWeekFacts(date: string | null): BriefWeekFacts | null {
             habits: habits ?? [],
             habitPlans: habitPlans ?? [],
             habitProgress: habitProgress ?? [],
+            eases: eases ?? [],
             todos: todos ?? [],
             weeklyDay,
             daysOff,
@@ -203,7 +227,19 @@ export function useBriefWeekFacts(date: string | null): BriefWeekFacts | null {
             loaded,
           })
         : null,
-    [date, today, habits, habitPlans, habitProgress, todos, weeklyDay, daysOff, review, loaded],
+    [
+      date,
+      today,
+      habits,
+      habitPlans,
+      habitProgress,
+      eases,
+      todos,
+      weeklyDay,
+      daysOff,
+      review,
+      loaded,
+    ],
   );
 }
 
@@ -220,11 +256,13 @@ export interface OfferView {
 export function checkInWaiting(
   meta: BriefOfferMeta,
   facts: BriefWeekFacts | null,
-): { habit_id: string; title: string; moveTo: string | null } | null {
+): { habit_id: string; title: string; moveTo: string | null; lighter: string | null } | null {
   const c = meta.checkin;
   if (!c || c.asked || meta.chosen || !facts) return null;
   const on = facts.checkIn(c.habit_id);
-  return on ? { habit_id: c.habit_id, title: on.title, moveTo: on.moveTo } : null;
+  return on
+    ? { habit_id: c.habit_id, title: on.title, moveTo: on.moveTo, lighter: on.lighter }
+    : null;
 }
 
 /**
@@ -248,7 +286,7 @@ export function shownOffer(
   const waiting = checkInWaiting(meta, facts);
   if (waiting) {
     return {
-      content: CHECKIN_COPY.ask(waiting.title, waiting.moveTo),
+      content: CHECKIN_COPY.ask(waiting.title, waiting.moveTo, waiting.lighter),
       buttons: [
         { id: 'habit_keep', label: CHECKIN_COPY.keep, action: 'habit_keep', primary: true },
         ...(waiting.moveTo

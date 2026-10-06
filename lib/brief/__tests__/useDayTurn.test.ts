@@ -291,6 +291,36 @@ describe('the day turn, when it answers', () => {
       expect(habits.map((x) => x.id)).toEqual(['strength', 'run', 'read']);
     });
 
+    it('says a habit is paused for now, whatever was planned for it, and lists it last', () => {
+      mockExtra.moreHabits = [
+        { id: 'read', name: 'Read' },
+        { id: 'strength', name: 'Strength' },
+      ];
+      mockExtra.habitPlans = [
+        { habit_id: 'strength', planned_date: '2026-10-02', status: 'planned' },
+      ];
+      mockExtra.habitAdaptations = [
+        {
+          habit_id: 'strength',
+          mode: 'pause',
+          period_start: '2026-10-01',
+          period_end: '2026-10-04',
+        },
+        // a lighter version is still on, and a pause that is over is nothing
+        { habit_id: 'run', mode: 'floor', period_start: '2026-10-01', period_end: '2026-10-04' },
+        { habit_id: 'read', mode: 'pause', period_start: '2026-09-20', period_end: '2026-10-01' },
+      ];
+      expect(notes()).toMatchObject({
+        strength: 'paused for now',
+        run: 'habit today',
+        read: 'habit',
+      });
+      const habits = buildDayTurnRequest('hi', null, '2026-10-02', [], null).items.filter(
+        (x) => x.kind === 'habit',
+      );
+      expect(habits.map((x) => x.id)).toEqual(['run', 'read', 'strength']);
+    });
+
     it('no longer calls a habit planned for today once it is logged', () => {
       mockExtra.moreHabits = [{ id: 'strength', name: 'Strength' }];
       mockExtra.habitPlans = [

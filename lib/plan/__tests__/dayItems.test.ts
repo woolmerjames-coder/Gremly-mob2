@@ -37,6 +37,34 @@ describe('what another day holds', () => {
     expect(habitsOnDay(habits, '2026-10-05').map((h) => h.id)).toEqual(['daily', 'mondays']);
   });
 
+  it('leaves out a habit paused on it', () => {
+    const habits = [
+      { id: 'daily', start_date: '2026-09-01' },
+      { id: 'mondays', start_date: '2026-09-01', cadence: 'weekly', days_active: [1] },
+    ];
+    const ease = (habit_id: string, mode: 'pause' | 'floor', last: string) => ({
+      id: `${mode}-${habit_id}`,
+      owner_id: 'u',
+      habit_id,
+      mode,
+      period_start: '2026-10-01',
+      period_end: last,
+      created_at: '2026-10-01T08:00:00Z',
+      updated_at: '2026-10-01T08:00:00Z',
+    });
+    // 5 October 2026 is a Monday
+    const paused = [ease('daily', 'pause', '2026-10-05')];
+    expect(habitsOnDay(habits, '2026-10-05', paused).map((h) => h.id)).toEqual(['mondays']);
+    // the day after the pause ends it is on again
+    expect(habitsOnDay(habits, '2026-10-06', paused).map((h) => h.id)).toEqual(['daily']);
+    // a lighter version changes nothing about when it is on
+    const lighter = [ease('daily', 'floor', '2026-10-05')];
+    expect(habitsOnDay(habits, '2026-10-05', lighter).map((h) => h.id)).toEqual([
+      'daily',
+      'mondays',
+    ]);
+  });
+
   it('says a todo is due that day by its name', () => {
     expect(dueWords('2026-10-05', '2026-10-05')).toBe('Due today');
     expect(dueWords('2026-10-05', '2026-10-04')).toBe('Due Monday');

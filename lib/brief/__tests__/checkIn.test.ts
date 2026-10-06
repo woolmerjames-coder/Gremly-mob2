@@ -50,6 +50,7 @@ function input(over: Partial<WeekFactsInput> = {}): WeekFactsInput {
     habits: [strength],
     habitPlans: [plan('h1', TODAY), plan('h1', '2026-10-05')],
     habitProgress: [{ habit_id: 'h1', occurred_day: '2026-10-05' }],
+    eases: [],
     todos: [],
     weeklyDay: 0,
     daysOff: [6, 0],
@@ -78,7 +79,56 @@ describe('the day as the app holds it', () => {
     expect(weekFactsFrom(input()).checkIn('h1')).toEqual({
       title: 'Strength',
       moveTo: '2026-10-10',
+      lighter: null,
     });
+  });
+
+  it('leaves a paused habit alone, and never moves one onto a day it is paused on', () => {
+    const ease = (mode: string, period_start: string, period_end: string, floor_note = '') => ({
+      id: `${mode}-${period_start}`,
+      habit_id: 'h1',
+      mode,
+      period_start,
+      period_end,
+      floor_note,
+    });
+    // paused today: no check in at all
+    const paused = input({ eases: [ease('pause', TODAY, '2026-10-11')] });
+    expect(weekFactsFrom(paused).checkIn('h1')).toBeNull();
+    // paused on Saturday, the day it would have moved to: Sunday is next
+    const later = input({ eases: [ease('pause', '2026-10-10', '2026-10-10')] });
+    expect(weekFactsFrom(later).checkIn('h1')?.moveTo).toBe('2026-10-11');
+    // another habit's pause changes nothing
+    const other = input({ eases: [{ ...ease('pause', TODAY, '2026-10-11'), habit_id: 'h9' }] });
+    expect(weekFactsFrom(other).checkIn('h1')?.moveTo).toBe('2026-10-10');
+  });
+
+  it('says what the lighter version is while the habit is on one', () => {
+    const lighter = (floor_note: string | null) => ({
+      id: 'l1',
+      habit_id: 'h1',
+      mode: 'floor',
+      period_start: '2026-10-05',
+      period_end: '2026-10-11',
+      floor_note,
+    });
+    const withWords = weekFactsFrom(input({ eases: [lighter('Two sets, 15 minutes')] }));
+    expect(withWords.checkIn('h1')).toMatchObject({ lighter: 'Two sets, 15 minutes' });
+    expect(
+      shownOffer(
+        'Want to plan the afternoon?',
+        offer({ checkin: { habit_id: 'h1', title: 'Strength' } }),
+        withWords,
+      ).content,
+    ).toBe(
+      'You planned Strength for today. Still on? “Two sets, 15 minutes” counts as the lighter version. If not, Saturday has room.',
+    );
+    const noWords = weekFactsFrom(input({ eases: [lighter(null)] }));
+    expect(noWords.checkIn('h1')).toMatchObject({ lighter: '' });
+    expect(CHECKIN_COPY.ask('Strength', null, '')).toBe(
+      'You planned Strength for today. Still on? The lighter version counts.',
+    );
+    expect(CHECKIN_COPY.ask('Strength', null)).toBe('You planned Strength for today. Still on?');
   });
 
   it('reads the room from the review of the week they are in', () => {
@@ -104,6 +154,7 @@ describe('the day as the app holds it', () => {
     expect(weekFactsFrom(input({ todos })).checkIn('h1')).toEqual({
       title: 'Strength',
       moveTo: null,
+      lighter: null,
     });
   });
 
@@ -125,7 +176,7 @@ describe('the day as the app holds it', () => {
     expect(unread.checkIn('h1')).toBeNull();
     expect(unread.moveDays(['h1']).size).toBe(0);
     const read = weekFactsFrom(input({ weeklyDay: 4 }));
-    expect(read.checkIn('h1')).toEqual({ title: 'Strength', moveTo: null });
+    expect(read.checkIn('h1')).toEqual({ title: 'Strength', moveTo: null, lighter: null });
   });
 
   it('gives several habits their days to move to in turn, so none lands on a day another filled', () => {
@@ -172,7 +223,8 @@ describe('the day as the app holds it', () => {
 
 describe('how an offer is shown', () => {
   const on: BriefWeekFacts = {
-    checkIn: (id) => (id === 'h1' ? { title: 'Strength', moveTo: '2026-10-10' } : null),
+    checkIn: (id) =>
+      id === 'h1' ? { title: 'Strength', moveTo: '2026-10-10', lighter: null } : null,
     moveDays: () => new Map(),
     reviewOffer: false,
   };
@@ -203,12 +255,13 @@ describe('how an offer is shown', () => {
       habit_id: 'h1',
       title: 'Strength',
       moveTo: '2026-10-10',
+      lighter: null,
     });
   });
 
   it('leaves Move out when no day left can take it', () => {
     const nowhere: BriefWeekFacts = {
-      checkIn: () => ({ title: 'Strength', moveTo: null }),
+      checkIn: () => ({ title: 'Strength', moveTo: null, lighter: null }),
       moveDays: () => new Map(),
       reviewOffer: false,
     };

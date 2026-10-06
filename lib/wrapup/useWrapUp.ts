@@ -754,7 +754,10 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
 
   const toHabits = useCallback(async () => {
     const { st, now } = readNow();
-    const { rows, already } = habitsToCheckIn(st.habits, st.habitProgress ?? [], now.day);
+    const { rows, already } = habitsToCheckIn(st.habits, st.habitProgress ?? [], now.day, {
+      weeklyDay: st.weeklyDay,
+      eases: st.habitAdaptations,
+    });
     if (!rows.length) return toJournal();
     setStep('habits');
     // A habit they planned for today in their week can move to another day of
