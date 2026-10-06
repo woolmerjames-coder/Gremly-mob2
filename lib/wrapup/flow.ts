@@ -100,14 +100,17 @@ function card(meta: BriefMeta): WrapMsg {
 
 // ── the offer ────────────────────────────────────────────────────────────────
 
-/** The offer's buttons. Moving it all on is there while a weekly skip is left. */
+/**
+ * The offer's buttons. Moving it all on is there while a weekly skip is left.
+ * Planning the week is not here: the weekly review is offered at the close,
+ * once the evening's own work is done (closeButtons).
+ */
 export function offerButtons(d: WrapDay, skipsLeft: number): OfferButton[] {
   return [
     { id: 'sweep', label: WRAP_COPY.sweepNow, action: 'sweep', primary: true },
     ...(skipsLeft > 0
       ? [{ id: 'sweep_skip', label: moveAllButton(d), action: 'sweep_skip' as const }]
       : []),
-    { id: 'plan_week', label: WRAP_COPY.planWeek, action: 'plan_week' },
     { id: 'not_tonight', label: partWords(d.early).notNow, action: 'not_tonight' },
   ];
 }
@@ -298,8 +301,35 @@ export function moodAskMsgs(
 
 // ── Gremly's questions ───────────────────────────────────────────────────────
 
+/**
+ * What a question's message carries so its answer can be settled: the
+ * question's id, or for a milestone's check in the check in itself, which is
+ * not one of Gremly's questions and has no id among them.
+ */
+export function questionFacts(q: WrapQuestion): Partial<BriefOfferMeta> {
+  if (!q.checkin) return { question_id: q.id };
+  const c = q.checkin;
+  return {
+    milestone_checkin: { row_id: c.row_id, id: c.id, goal: c.goal, goal_date: c.goal_date },
+  };
+}
+
 export function questionMsg(q: WrapQuestion): WrapMsg {
-  return offer(q.question, 'question', questionButtons(q.choices), { question_id: q.id });
+  return offer(q.question, 'question', questionButtons(q.choices), questionFacts(q));
+}
+
+/**
+ * A question's buttons once more, from its own message: for when tonight's
+ * questions are no longer held in memory (the app was closed part way) and
+ * one of them is still waiting for its answer.
+ */
+export function questionAgainMsg(
+  asked: Pick<BriefOfferMeta, 'buttons' | 'question_id' | 'milestone_checkin'>,
+): WrapMsg {
+  return offer('', 'question', asked.buttons, {
+    ...(asked.question_id ? { question_id: asked.question_id } : {}),
+    ...(asked.milestone_checkin ? { milestone_checkin: asked.milestone_checkin } : {}),
+  });
 }
 
 export function questionsStartMsgs(
@@ -326,14 +356,37 @@ export function answeredMsgs(
 
 // ── the close ────────────────────────────────────────────────────────────────
 
-/** Goodnight first, the one the close leads to; planning tomorrow is there for whoever wants it. */
-export function closeButtons(d: WrapDay, canPlan: boolean): OfferButton[] {
+/**
+ * What the close offers about their week (workers/shared/week.js
+ * closeOffersWeek): the weekly review from their weekly day through the two
+ * days after, until it is done, and the week they planned once it is.
+ */
+export type CloseWeek = 'plan' | 'see' | null;
+
+/**
+ * Goodnight first, the one the close leads to; planning tomorrow is there for
+ * whoever wants it, and their week on the evenings it is put forward.
+ */
+export function closeButtons(d: WrapDay, canPlan: boolean, week: CloseWeek = null): OfferButton[] {
   return [
     { id: 'night', label: partWords(d.early).bye, action: 'night', primary: true },
     ...(canPlan
       ? [{ id: 'plan_tomorrow', label: planTomorrowButton(d), action: 'plan_tomorrow' as const }]
       : []),
+    ...(week === 'plan'
+      ? [{ id: 'plan_week', label: WRAP_COPY.planWeek, action: 'plan_week' as const }]
+      : []),
+    ...(week === 'see'
+      ? [{ id: 'see_week', label: WRAP_COPY.seeWeek, action: 'see_week' as const }]
+      : []),
   ];
+}
+
+/** The close's offer: its buttons, and a quiet line when the week is still to plan. */
+function closeOffer(content: string, d: WrapDay, canPlan: boolean, week: CloseWeek): WrapMsg {
+  return offer(content, 'wrap_close', closeButtons(d, canPlan, week), {
+    ...(week === 'plan' ? { hint: WRAP_COPY.weekHint } : {}),
+  });
 }
 
 export function closeMsgs(p: {
@@ -342,21 +395,24 @@ export function closeMsgs(p: {
   /** Every todo planned for tomorrow, by title */
   todos: string[];
   canPlan: boolean;
+  /** Their week, on the evenings the close offers it */
+  week?: CloseWeek;
   /** Gremly's own words for the close, when they came */
   gremly?: string | null;
 }): WrapMsg[] {
   return [
-    offer(
-      p.gremly || closeLine(p.day, p.meetings, p.todos),
-      'wrap_close',
-      closeButtons(p.day, p.canPlan),
-    ),
+    closeOffer(p.gremly || closeLine(p.day, p.meetings, p.todos), p.day, p.canPlan, p.week ?? null),
   ];
 }
 
-/** Good night, with no words above it: after tomorrow's plan is set or left. */
-export function nightOnlyMsgs(d: WrapDay): WrapMsg[] {
-  return [offer('', 'wrap_close', closeButtons(d, false))];
+/** Good night, with no words above it: after tomorrow's plan is set or left. Their week is still offered. */
+export function nightOnlyMsgs(d: WrapDay, week: CloseWeek = null): WrapMsg[] {
+  return [closeOffer('', d, false, week)];
+}
+
+/** Plan my week, at the close: their tap, and Gremly turning to the week. The review follows in the thread. */
+export function toWeekMsgs(button: OfferButton): WrapMsg[] {
+  return [tapped(button), say(WRAP_COPY.toWeek)];
 }
 
 export function nightMsgs(
@@ -424,6 +480,8 @@ export function buttonsAgain(
     journalDone: boolean;
     question: WrapQuestion | null;
     canPlan: boolean;
+    /** Their week, on the evenings the close offers it */
+    week?: CloseWeek;
   },
 ): WrapMsg[] {
   switch (step) {
@@ -435,14 +493,10 @@ export function buttonsAgain(
       return p.journalDone ? [] : [offer('', 'journal', journalButtons(p.day.early))];
     case 'questions':
       return p.question
-        ? [
-            offer('', 'question', questionButtons(p.question.choices), {
-              question_id: p.question.id,
-            }),
-          ]
+        ? [offer('', 'question', questionButtons(p.question.choices), questionFacts(p.question))]
         : [];
     case 'close':
-      return [offer('', 'wrap_close', closeButtons(p.day, p.canPlan))];
+      return [closeOffer('', p.day, p.canPlan, p.week ?? null)];
     case 'declined':
       return p.journalDone
         ? []

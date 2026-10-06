@@ -11,6 +11,7 @@
  */
 import { supabase } from '../supabase/client';
 import { nowTimestamp } from '../date/DateService';
+import { addDays } from '../week/model';
 import type { ReviewKind, ReviewState, WeekHours, WeekStep } from '../week/model';
 import type { Milestone } from '../changes/model';
 
@@ -264,6 +265,35 @@ export async function getWeekReview(
   return asRow(data);
 }
 
+/**
+ * The finished reviews of the weeks that start from one day to another, for
+ * the weekly archive: each with its answers, which hold the intention, what
+ * mattered most and the plan the week was saved with.
+ */
+export async function getDoneWeekReviews(
+  userId: string,
+  from: string,
+  to: string,
+): Promise<Pick<WeekReviewRow, 'id' | 'week_start' | 'status' | 'answers'>[]> {
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select('id,week_start,status,answers')
+    .eq('owner_id', userId)
+    .eq('status', 'done')
+    .gte('week_start', from)
+    .lte('week_start', to)
+    .limit(120);
+  if (error) throw new Error(`Failed to read the weeks' reviews: ${error.message}`);
+  return ((data ?? []) as Partial<WeekReviewRow>[])
+    .filter((r) => typeof r.id === 'string' && typeof r.week_start === 'string')
+    .map((r) => ({
+      id: r.id as string,
+      week_start: r.week_start as string,
+      status: 'done' as const,
+      answers: (r.answers ?? {}) as WeekAnswers,
+    }));
+}
+
 /** Their weekly day and days off, as weekdays (0 Sunday to 6 Saturday), or null when not set. */
 export async function getWeekSettings(
   userId: string,
@@ -391,4 +421,63 @@ export function changeWeekReview(
     if (error) throw new Error(`Failed to save the week's review: ${error.message}`);
     return asRow(data);
   });
+}
+
+/** A check in with the review that keeps it. */
+export interface DueCheckIn extends WeekCheckIn {
+  /** The id of the weekly_reviews row it is kept on */
+  row_id: string;
+}
+
+/** How far back a review that still holds a check in to come can have been made. */
+const CHECKIN_REVIEWS_BACK_DAYS = 180;
+
+/**
+ * The open check ins whose day falls from one day to another, the earliest
+ * first. A check in is kept on the review it was set up in, and its day can
+ * be weeks after that week, so every review that holds any is read.
+ */
+export async function getDueCheckIns(
+  userId: string,
+  from: string,
+  to: string,
+): Promise<DueCheckIn[]> {
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select('id,week_start,checkins')
+    .eq('owner_id', userId)
+    .gte('week_start', addDays(from, -CHECKIN_REVIEWS_BACK_DAYS))
+    .neq('checkins', '[]')
+    .limit(60);
+  if (error) throw new Error(`Failed to read the check ins: ${error.message}`);
+  const out: DueCheckIn[] = [];
+  for (const r of (data ?? []) as { id: string; checkins?: unknown }[]) {
+    for (const c of Array.isArray(r.checkins) ? (r.checkins as WeekCheckIn[]) : []) {
+      if (!c || typeof c.id !== 'string' || c.status !== 'open') continue;
+      if (typeof c.date !== 'string' || c.date < from || c.date > to) continue;
+      out.push({ ...c, row_id: r.id });
+    }
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+}
+
+/**
+ * Settle a check in on the review that keeps it: done once it is answered,
+ * skipped when they pass on it. Returns the row as written, or null when the
+ * review or the check in is no longer there.
+ */
+export async function settleCheckIn(
+  rowId: string,
+  checkInId: string,
+  status: 'done' | 'skipped',
+): Promise<WeekReviewRow | null> {
+  let found = false;
+  const saved = await changeWeekReview(rowId, (row) => ({
+    checkins: row.checkins.map((c) => {
+      if (c.id !== checkInId) return c;
+      found = true;
+      return { ...c, status };
+    }),
+  }));
+  return found ? saved : null;
 }

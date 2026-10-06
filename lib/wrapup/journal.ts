@@ -228,20 +228,31 @@ export async function saveJournal(p: {
  * Save a check in on a goal, written from the goal's Space. It is a journal
  * entry of its own, kept with its goal and its Space, and is not the day's
  * page: the Space counts and lists a goal's check ins by these marks.
+ *
+ * A milestone's check in from their weekly review (lib/wrapup/checkIns.ts) is
+ * saved the same way. A milestone is something they named, with a date, and
+ * belongs to no Space, so it has none; what it is a check in of is kept
+ * beside the goal (milestone).
  */
 export async function saveCheckIn(p: {
   text: string;
   moods: Mood[];
-  goal: { goal_id: string; goal_name: string; space_id: string };
+  goal: { goal_id: string; goal_name: string; space_id?: string | null };
   /** The journal page it was written on, kept beside the words */
   page?: JournalLayout;
+  /** For a milestone's check in: the date the milestone is for, and which check in this was */
+  milestone?: { date: string; checkin_id: string };
 }): Promise<JournalSaved> {
   const text = p.text.trim();
   const moods = knownMoods(p.moods);
   if (!text && !moods.length) return { ok: false, message: 'Nothing to save.' };
   const title = `Check-in: ${p.goal.goal_name}`;
   const tags = [p.goal.goal_name.toLowerCase()];
-  const checkIn = { goal_id: p.goal.goal_id, goal_name: p.goal.goal_name };
+  const checkIn = {
+    goal_id: p.goal.goal_id,
+    goal_name: p.goal.goal_name,
+    ...(p.milestone ? { milestone: p.milestone } : {}),
+  };
   try {
     const created = await store().createNote({
       subtype: 'journal',
@@ -250,7 +261,7 @@ export async function saveCheckIn(p: {
       mood: moods.length ? moods : null,
       origin: 'goal_checkin',
       canonicalType: 'log',
-      space_id: p.goal.space_id,
+      ...(p.goal.space_id ? { space_id: p.goal.space_id } : {}),
       tags: [...tags],
       views: p.page ? { goal_checkin: checkIn, [LAYOUT_KEY]: p.page } : { goal_checkin: checkIn },
     });

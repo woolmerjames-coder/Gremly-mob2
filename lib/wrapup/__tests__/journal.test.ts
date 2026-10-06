@@ -424,6 +424,32 @@ describe('a check in on a goal', () => {
     });
   });
 
+  it('saves a milestone’s check in the same way, with no Space and what it is a check in of', async () => {
+    const res = await saveCheckIn({
+      text: 'Half done, on track.',
+      moods: [],
+      goal: { goal_id: 'milestone:c1', goal_name: 'Send the grant application' },
+      milestone: { date: '2026-10-20', checkin_id: 'c1' },
+    });
+    expect(res.ok).toBe(true);
+    expect(createNote).toHaveBeenCalledWith({
+      subtype: 'journal',
+      title: 'Check-in: Send the grant application',
+      body: 'Half done, on track.',
+      mood: null,
+      origin: 'goal_checkin',
+      canonicalType: 'log',
+      tags: ['send the grant application'],
+      views: {
+        goal_checkin: {
+          goal_id: 'milestone:c1',
+          goal_name: 'Send the grant application',
+          milestone: { date: '2026-10-20', checkin_id: 'c1' },
+        },
+      },
+    });
+  });
+
   it('is not the day’s page', async () => {
     await saveCheckIn({ text: 'Eleven miles today.', moods: [], goal });
     expect(journalFor(mockNotes as never, DAY)).toBeNull();

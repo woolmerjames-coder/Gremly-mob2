@@ -244,3 +244,13 @@ test("in the evening the words are the evening's", () => {
   expect(evening.bye).toBe('Night, Gremly');
   expect(words.partWords(undefined)).toBe(evening);
 });
+
+test('the line before check ins counts them, and what follows them', () => {
+  expect(words.checkInIntro(1, 0)).toBe("One check in, then you're done.");
+  expect(words.checkInIntro(2, 0)).toBe("Two check ins, then you're done.");
+  expect(words.checkInIntro(1, 1)).toBe("A check in first, then one thing I'd like to get right.");
+  expect(words.checkInIntro(1, 2)).toBe("A check in first, then two things I'd like to get right.");
+  expect(words.checkInIntro(2, 1)).toBe(
+    "Two check ins first, then one thing I'd like to get right.",
+  );
+});

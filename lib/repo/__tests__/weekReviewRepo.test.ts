@@ -6,6 +6,9 @@
  */
 let mockRow: Record<string, any> | null = null;
 let mockSettings: Record<string, any> | null = null;
+// the rows a read of several reviews answers with, and the error it fails with
+let mockRows: Record<string, any>[] = [];
+let mockReadError: { message: string } | null = null;
 // what the database answers a write to weekly_reviews with, when it refuses it
 let mockWriteError: { code?: string; message: string } | null = null;
 const mockCalls: { table: string; op: string; values?: unknown; filters: [string, unknown][] }[] =
@@ -34,6 +37,20 @@ jest.mock('../../supabase/client', () => {
             call.filters.push([column, value]);
             return chain;
           },
+          gte: (column: string, value: unknown) => {
+            call.filters.push([`${column}>=`, value]);
+            return chain;
+          },
+          lte: (column: string, value: unknown) => {
+            call.filters.push([`${column}<=`, value]);
+            return chain;
+          },
+          neq: (column: string, value: unknown) => {
+            call.filters.push([`${column}!=`, value]);
+            return chain;
+          },
+          // a read of several rows: every review that holds a check in
+          limit: () => later(() => ({ data: mockRows, error: mockReadError })),
           maybeSingle: () => later(call.op === 'select' ? read : chain.write),
           insert: (values: Record<string, unknown>) => {
             call.op = 'insert';
@@ -75,11 +92,14 @@ jest.mock('../../supabase/client', () => {
 import {
   changeWeekReview,
   createWeekReview,
+  getDoneWeekReviews,
+  getDueCheckIns,
   getWeekReview,
   getWeekSettings,
   moveWeekReview,
   saveDaysOff,
   saveWeeklyDay,
+  settleCheckIn,
 } from '../weekReviewRepo';
 
 beforeEach(() => {
@@ -282,5 +302,130 @@ describe('their days off', () => {
   it('say so when there is no settings row to keep them with', async () => {
     mockSettings = null;
     await expect(saveDaysOff('u1', [0, 5])).rejects.toThrow('no settings to keep them with');
+  });
+});
+
+describe("a milestone's check ins, across the reviews that keep them", () => {
+  const check = (id: string, date: string, status = 'open') => ({
+    id,
+    goal: 'Send the grant application',
+    goal_date: '2026-10-20',
+    date,
+    title: 'See how the draft is coming along',
+    status,
+  });
+  beforeEach(() => {
+    mockReadError = null;
+    mockRows = [
+      {
+        id: 'row-old',
+        week_start: '2026-09-21',
+        checkins: [check('late', '2026-10-06'), check('ahead', '2026-10-15')],
+      },
+      {
+        id: 'row-now',
+        week_start: '2026-10-05',
+        checkins: [check('today', '2026-10-08'), check('done', '2026-10-08', 'done')],
+      },
+      { id: 'row-odd', week_start: '2026-10-05', checkins: null },
+    ];
+  });
+
+  it('are the open ones whose day falls between two days, the earliest first', async () => {
+    const due = await getDueCheckIns('user-1', '2026-10-05', '2026-10-08');
+    expect(due.map((c) => [c.id, c.row_id])).toEqual([
+      ['late', 'row-old'],
+      ['today', 'row-now'],
+    ]);
+    const read = mockCalls[mockCalls.length - 1];
+    expect(read.table).toBe('weekly_reviews');
+    expect(read.filters).toEqual([
+      ['owner_id', 'user-1'],
+      // a check in's day can be weeks after the week it was set up in
+      ['week_start>=', '2026-04-08'],
+      ['checkins!=', '[]'],
+    ]);
+  });
+
+  it('are none when nothing is due, and say so when they cannot be read', async () => {
+    expect(await getDueCheckIns('user-1', '2026-10-09', '2026-10-10')).toEqual([]);
+    mockReadError = { message: 'offline' };
+    await expect(getDueCheckIns('user-1', '2026-10-05', '2026-10-08')).rejects.toThrow(
+      'Failed to read the check ins: offline',
+    );
+  });
+
+  it('are settled on the review that keeps them, leaving its other check ins alone', async () => {
+    mockRow = {
+      id: 'row-now',
+      owner_id: 'user-1',
+      week_start: '2026-10-05',
+      answers: {},
+      checkins: [check('today', '2026-10-08'), check('other', '2026-10-10')],
+    };
+    const saved = await settleCheckIn('row-now', 'today', 'done');
+    expect(saved?.checkins.map((c) => [c.id, c.status])).toEqual([
+      ['today', 'done'],
+      ['other', 'open'],
+    ]);
+    const skipped = await settleCheckIn('row-now', 'other', 'skipped');
+    expect(skipped?.checkins.map((c) => c.status)).toEqual(['done', 'skipped']);
+  });
+
+  it('settle nothing when the check in or its review is no longer there', async () => {
+    mockRow = {
+      id: 'row-now',
+      owner_id: 'user-1',
+      week_start: '2026-10-05',
+      answers: {},
+      checkins: [check('today', '2026-10-08')],
+    };
+    expect(await settleCheckIn('row-now', 'gone', 'done')).toBeNull();
+    mockRow = null;
+    expect(await settleCheckIn('row-now', 'today', 'done')).toBeNull();
+  });
+});
+
+describe('the finished reviews of past weeks', () => {
+  beforeEach(() => {
+    mockReadError = null;
+    mockRows = [
+      {
+        id: 'row-a',
+        week_start: '2026-09-28',
+        status: 'done',
+        answers: { intention: 'Fewer things, finished.' },
+      },
+      { id: 'row-b', week_start: '2026-10-05', status: 'done', answers: null },
+      // a row with no week is not one the archive can place
+      { id: 'row-odd', status: 'done', answers: {} },
+    ];
+  });
+
+  it('are the done ones of the weeks that start between two days, each with its answers', async () => {
+    expect(await getDoneWeekReviews('user-1', '2026-09-28', '2026-10-05')).toEqual([
+      {
+        id: 'row-a',
+        week_start: '2026-09-28',
+        status: 'done',
+        answers: { intention: 'Fewer things, finished.' },
+      },
+      { id: 'row-b', week_start: '2026-10-05', status: 'done', answers: {} },
+    ]);
+    const read = mockCalls[mockCalls.length - 1];
+    expect(read.table).toBe('weekly_reviews');
+    expect(read.filters).toEqual([
+      ['owner_id', 'user-1'],
+      ['status', 'done'],
+      ['week_start>=', '2026-09-28'],
+      ['week_start<=', '2026-10-05'],
+    ]);
+  });
+
+  it('say so when they cannot be read', async () => {
+    mockReadError = { message: 'offline' };
+    await expect(getDoneWeekReviews('user-1', '2026-09-28', '2026-10-05')).rejects.toThrow(
+      "Failed to read the weeks' reviews: offline",
+    );
   });
 });

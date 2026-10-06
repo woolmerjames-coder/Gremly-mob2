@@ -127,7 +127,70 @@ describe('the habits card', () => {
     fireEvent.press(r.getByTestId('wrap-habit-h3-held'));
     expect(r.getByText('Save check in')).toBeTruthy();
     fireEvent.press(r.getByTestId('wrap-habits-save'));
-    expect(onSave).toHaveBeenCalledWith(['h1'], { h3: 'held' });
+    expect(onSave).toHaveBeenCalledWith(['h1'], { h3: 'held' }, {});
+  });
+
+  describe('a habit they planned for today in their week', () => {
+    // Saturday 3 October is the day left in their week with the most room
+    const planned = {
+      ...meta,
+      habits: [
+        {
+          id: 'h1',
+          title: 'Strength',
+          kind: 'build' as const,
+          note: '1 of 3 this week',
+          move_to: '2026-10-03',
+        },
+        { id: 'h2', title: 'Stretch', kind: 'build' as const, note: 'Daily' },
+      ],
+    };
+
+    it('can move to another day of the week instead of being ticked', () => {
+      const onSave = jest.fn();
+      const r = render(<WrapHabitsCard meta={planned} onSave={onSave} />);
+      expect(r.getByText('Move to Sat')).toBeTruthy();
+      // only the habit the card was given a day for
+      expect(r.queryByTestId('wrap-habit-h2-move')).toBeNull();
+      expect(r.getByTestId('wrap-habit-h1-sub').props.children).toBe('1 of 3 this week');
+      fireEvent.press(r.getByTestId('wrap-habit-h1-move'));
+      expect(r.getByTestId('wrap-habit-h1-sub').props.children).toBe('Moves to Saturday');
+      // moving it counts as something to save
+      expect(r.getByText('Save check in')).toBeTruthy();
+      fireEvent.press(r.getByTestId('wrap-habits-save'));
+      expect(onSave).toHaveBeenCalledWith([], {}, { h1: '2026-10-03' });
+    });
+
+    it('is done today or moved, never both', () => {
+      const onSave = jest.fn();
+      const r = render(<WrapHabitsCard meta={planned} onSave={onSave} />);
+      fireEvent.press(r.getByTestId('wrap-habit-h1-move'));
+      fireEvent.press(r.getByTestId('wrap-habit-h1'));
+      fireEvent.press(r.getByTestId('wrap-habits-save'));
+      expect(onSave).toHaveBeenLastCalledWith(['h1'], {}, {});
+      // and the other way: moving it unticks it
+      fireEvent.press(r.getByTestId('wrap-habit-h1-move'));
+      fireEvent.press(r.getByTestId('wrap-habits-save'));
+      expect(onSave).toHaveBeenLastCalledWith([], {}, { h1: '2026-10-03' });
+      // tapped again, it is left as it was
+      fireEvent.press(r.getByTestId('wrap-habit-h1-move'));
+      fireEvent.press(r.getByTestId('wrap-habits-save'));
+      expect(onSave).toHaveBeenLastCalledWith([], {}, {});
+    });
+
+    it('shows where it moved once the card is saved', () => {
+      const saved = {
+        ...planned,
+        status: 'saved' as const,
+        done: [],
+        held: {},
+        moved: { h1: '2026-10-03' },
+      };
+      const r = render(<WrapHabitsCard meta={saved} />);
+      expect(r.getByText('Moved to Saturday')).toBeTruthy();
+      expect(r.queryByTestId('wrap-habit-h1-move')).toBeNull();
+      expect(r.getByText('Not today')).toBeTruthy();
+    });
   });
 
   it('shows what was saved, with no buttons', () => {
