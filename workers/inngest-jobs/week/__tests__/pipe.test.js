@@ -449,10 +449,10 @@ describe('the read for a review', () => {
     expect(deps.run.mock.calls[0][2]).toEqual({ effort: 'medium' });
   });
 
-  it('thinks at medium effort, and at low only for the midweek extra', async () => {
+  it('thinks at medium effort for every review, the midweek extra too', async () => {
     expect(readEffort({ kind: 'weekly' })).toBe('medium');
     expect(readEffort({ kind: 'brought_forward' })).toBe('medium');
-    expect(readEffort({ kind: 'extra' })).toBe('low');
+    expect(readEffort({ kind: 'extra' })).toBe('medium');
     const effortOn = async (p) => {
       db.mockReturnValue(fakeDb());
       const deps = made();
@@ -476,7 +476,7 @@ describe('the read for a review', () => {
     // Wednesday 7 October: the extra, behind the loading screen
     expect(await effortOn({ at: new Date('2026-10-07T19:00:00Z') })).toEqual([
       'extra',
-      { effort: 'low' },
+      { effort: 'medium' },
     ]);
   });
 

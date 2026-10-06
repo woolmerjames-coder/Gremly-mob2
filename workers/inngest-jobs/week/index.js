@@ -104,12 +104,16 @@ const rowOf = async (d, userId, weekStart) =>
   )?.[0] || null;
 
 /**
- * How hard the model is asked to think for a read: low for the one extra
- * review of a week, medium for every other.
- * @param {{kind: string}} on what the review is (reviewWith)
+ * How hard the model is asked to think for a read: medium, whatever the
+ * review is. The midweek extra was tried at low, where it comes back in a
+ * quarter of the time behind the loading screen, and the read was thinner:
+ * 6 of 7 on the week replay and 5 of 8 on the health scenario, against 22 of
+ * 22 at medium. James chose medium for it too (6 Oct). This stays the one
+ * place the effort is decided, by what the review is.
+ * @param {{kind: string}} _on what the review is (reviewWith)
  */
-export function readEffort(on) {
-  return on?.kind === 'extra' ? 'low' : 'medium';
+export function readEffort(_on) {
+  return 'medium';
 }
 
 /**
@@ -130,10 +134,7 @@ export function readEffort(on) {
  *   day is no longer in their weekly window (they moved their weekly day
  *   while the pipe waited), or they have said not this week, none is made.
  *
- * The read ahead, a first open in the weekly window and a week brought forward
- * are made at medium effort. The midweek extra is made at low: they are
- * waiting behind the loading screen, and it comes back in a quarter of the
- * time (readEffort).
+ * Every read is made at medium effort, the midweek extra too (readEffort).
  *
  * @param {object} env
  * @param {string} userId

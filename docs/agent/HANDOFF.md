@@ -551,7 +551,7 @@ batch 4; until then the review goes from what needs them straight to Done.
   (`READ_AHEAD_NEEDS_REVIEW = false` in `workers/shared/week.js`; the four
   week rule is still in `prepareWeekRead` behind it). None is made when the
   day is out of their weekly window or they have said not this week.
-  `readEffort` is low for the midweek extra and medium for everything else.
+  `readEffort` is medium for every review, the midweek extra too.
 - The stream. `askOnce` in `lib/cortex/CortexClient.ts` posts once
   (`pollingInterval: 0`) for the read and for the brief turn, and gives up
   after a stretch of silence (the brief turn after 15 seconds, or 30 in all).
@@ -578,11 +578,11 @@ Replays on this batch (Luna, low thinking unless said):
 - Wrap 91 and 93 of 94 (`workers/cortex/wrap` is untouched). The miss that
   repeats is the check for words about tonight reading "bed" in the made up
   habit's own name.
-- The weekly read at low effort, which the midweek extra now uses: 6 of 7 on
-  the whole set and 5 of 8 on the health scenario, against 22 of 22 at
-  medium. It used a word from their own habit's name, and once gave a todo
-  again as a milestone step. James asked for low; it is in the hand over for
-  him to rule on, and `readEffort` is the one place to change.
+- The weekly read at low effort, tried for the midweek extra: 6 of 7 on the
+  whole set and 5 of 8 on the health scenario, against 22 of 22 at medium.
+  It used a word from their own habit's name, and once gave a todo again as a
+  milestone step. James ruled medium for the extra too (6 Oct), and
+  `readEffort` is the one place the effort is decided.
 
 What the next batches need to know:
 
@@ -675,8 +675,8 @@ to 53 at about 3.2s, but its replies were sloppier), and Gemini caching.
 - The weekly review (James, 6 Oct): after a typed message the review shows
   Carry on and never moves on by itself, and a `hold` only hides that button
   until they have answered. The read ahead is for everyone the pipe runs for,
-  with the four week rule kept in the code, switched off. The midweek extra's
-  read is at low effort and the read ahead at medium. A review started in its
+  with the four week rule kept in the code, switched off. Every read is at
+  medium effort, the midweek extra's too. A review started in its
   window and reopened later resumes where it was with the same read, and does
   not use the extra. An out of cycle review counts as the new week's when
   they move their weekly day at Done.
