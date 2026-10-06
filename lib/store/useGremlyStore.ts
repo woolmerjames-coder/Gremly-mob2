@@ -44,7 +44,6 @@ import { calculateTrainingReadiness } from '../training/trainingReadiness';
 import {
   getTierForAge,
   getDropValue,
-  calculateSweepContribution,
   FED_THRESHOLD,
   FED_DAYS_PER_AGE_UP,
   GAUGE_WEIGHTS,
@@ -65,8 +64,6 @@ import { eventBus } from '../events';
 import { parseHabitFrequency } from '../sweep/habitHelpers';
 import { getDateService } from '../date';
 import { DEFAULT_DAY_END_HOUR, nowTimestamp } from '../date/DateService';
-import { buildHabitFactSheet, computeInputHash, type HabitRead } from '../habits/habitFactSheet';
-import type { HabitCardStats } from '../habits/habitCardStats';
 import celebrationController from '../../app/features/celebration/CelebrationController';
 import {
   calendarClient,
@@ -125,11 +122,6 @@ let eventBusUnsubscribe: (() => void) | null = null;
 // Prevents concurrent fetchCalendarEventsForRange calls from interleaving
 // their set() calls, which causes duplicate events.
 let calendarFetchInFlight: Promise<void> | null = null;
-
-function rangesOverlap(aStart: string, aEnd: string, bStart: string, bEnd: string): boolean {
-  // Inclusive range overlap for YYYY-MM-DD strings.
-  return aStart <= bEnd && bStart <= aEnd;
-}
 
 function mapDbRowToProviderCalendarEvent(row: DbSyncedCalendarEvent): CalendarEvent | null {
   if (!row.external_id || !row.start_at || !row.end_at) return null;
@@ -478,23 +470,6 @@ export interface HabitTargetHistoryRow {
   effective_from: string;
 }
 
-// ── Habit reads (unified AI read; supersedes floor suggestions in Card C) ──
-export interface HabitReadEntry {
-  read: HabitRead | null; // null = generated but empty (ineligible/validation)
-  input_hash: string;
-  dismissed: boolean;
-}
-
-export interface FloorSuggestion {
-  habit_id: string;
-  week_start: string;
-  detected: boolean;
-  disruption: { label: string; start: string; end: string } | null;
-  lead_line: string | null;
-  ideas: string[];
-  confidence: number;
-}
-
 // @deprecated — PendingDrop is no longer used at runtime. Tests should migrate to QueuedDrop from dropQueue.ts.
 export type PendingDrop = Record<string, any>;
 
@@ -518,12 +493,6 @@ export interface GremlyState {
   habitPlans: HabitPlanRow[];
   /** Historical target changes per habit keyed by effective_from date. */
   habitTargetHistory: HabitTargetHistoryRow[];
-  /** Floor suggestions from AI, keyed by `${habit_id}:${week_start}`. */
-  habitFloorSuggestions: Record<string, FloorSuggestion>;
-  /** True while ensureFloorSuggestions is running. */
-  floorSuggestRunning: boolean;
-  habitReads: Record<string, HabitReadEntry>;
-  habitReadsRunning: boolean;
   spaceChats: SpaceChat[];
   spaceChatMessages: SpaceChatMessage[];
   generalChats: SpaceChat[];
@@ -612,7 +581,6 @@ export interface GremlyState {
   onboardingCompletedAt: string | null;
   accountCreatedAt: string | null;
   firstDropCompletedAt: string | null;
-  demoSweepCompletedAt: string | null;
   firstTodayVisitCompletedAt: string | null;
   todayRitualDay: string | null;
   todayDropsCount: number;
@@ -723,7 +691,6 @@ export interface GremlyState {
   setOnboardingCompletedAt: (timestamp: string) => Promise<void>;
   markOnboardingComplete: () => Promise<void>;
   markFirstDropComplete: () => Promise<void>;
-  markDemoSweepComplete: () => Promise<void>;
   markFirstTodayVisitComplete: () => Promise<void>;
   refreshRitualProgress: () => Promise<void>;
   /** Fetch last 7 days of feeding status from Supabase */
@@ -752,7 +719,6 @@ export interface GremlyState {
   ) => Promise<{ newValue: number; justFed: boolean }>;
   /** Check if user just hit 7 cumulative fed days since challenge start; if so, complete the challenge. */
   checkChallengeCompletionOnFedFlip: () => Promise<void>;
-  completeSweepSession: (cardsProcessed: number, didJournal: boolean) => Promise<void>;
   completeMorningBrief: () => Promise<void>;
   /** Saying yes to a plan feeds 5% an item, up to three items a day */
   creditPlanItems: (count: number) => Promise<void>;
@@ -762,11 +728,6 @@ export interface GremlyState {
   resetDailyGauge: () => void;
   /** Instantly preview a drop's gauge contribution locally. No RPC. Server reconciles later. */
   previewGaugeDrop: () => { justCrossedFed: boolean };
-  /** Optimistically preview sweep gauge contribution. Returns projected value and fed status. */
-  previewSweepGauge: (
-    totalCards: number,
-    didJournal: boolean,
-  ) => { justCrossedFed: boolean; projectedValue: number };
 
   // ═══════════════════════════════════════════════════════════════════
   // INITIALIZATION
@@ -811,31 +772,8 @@ export interface GremlyState {
   restoreHabit: (id: string) => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
-  // HABIT ADAPTATION MUTATIONS
+  // HABIT ADAPTATIONS (read only: the old Sweep made and ended them, and it is gone)
   // ═══════════════════════════════════════════════════════════════════
-  /**
-   * Create an adaptation window for a habit.
-   * Returns { ok: true, row } on success, or { ok: false, reason: 'overlap' | 'unknown' } on conflict.
-   */
-  setHabitAdaptation: (
-    habitId: string,
-    patch: {
-      mode: 'keep' | 'floor' | 'pause';
-      period_start: string;
-      period_end: string;
-      floor_note?: string | null;
-      source_ref?: string | null;
-    },
-  ) => Promise<
-    { ok: true; row: HabitAdaptationRow } | { ok: false; reason: 'overlap' | 'unknown' }
-  >;
-  updateHabitAdaptation: (
-    id: string,
-    patch: Partial<
-      Pick<HabitAdaptationRow, 'mode' | 'period_start' | 'period_end' | 'floor_note' | 'source_ref'>
-    >,
-  ) => Promise<{ ok: true } | { ok: false; reason: 'overlap' | 'unknown' }>;
-  clearHabitAdaptation: (id: string) => Promise<void>;
   /** Returns the adaptation covering dateIso for this habit, or null. */
   getActiveAdaptation: (habitId: string, dateIso: string) => HabitAdaptationRow | null;
 
@@ -846,31 +784,6 @@ export interface GremlyState {
   setHabitPlan: (habitId: string, plannedDate: string, weekStart?: string) => Promise<void>;
   /** Remove a planned day (re-tap to deselect). */
   removeHabitPlan: (habitId: string, plannedDate: string) => Promise<void>;
-
-  // ═══════════════════════════════════════════════════════════════════
-  // FLOOR SUGGESTIONS
-  // ═══════════════════════════════════════════════════════════════════
-  /**
-   * Loads cached floor suggestions for weekStart from Supabase, then fires the
-   * worker for any non-daily build habits that have no cached row. Idempotent;
-   * concurrent calls while running are no-ops.
-   */
-  ensureFloorSuggestions: (habits: Habit[], weekStart: string) => Promise<void>;
-  /** One batched habit-read call for the sweep. Caller passes precomputed cards. */
-  ensureHabitReads: (habits: Habit[], cards: HabitCardStats[], weekStart: string) => Promise<void>;
-  /** Returns the HabitReadEntry for a habit+week, or null. */
-  getHabitRead: (habitId: string, weekStart: string) => HabitReadEntry | null;
-  /** Resolve the canonical sweep week block from reactive currentDate. */
-  resolveSweepBlock: () => {
-    weekStart: string;
-    weekEnd: string;
-    summaryId: string | null;
-    summaryGenerated: boolean;
-  };
-  /** Persistently dismiss a read for this week. */
-  dismissHabitRead: (habitId: string, weekStart: string) => Promise<void>;
-  /** Returns the FloorSuggestion for a habit+week, or null. */
-  getFloorSuggestion: (habitId: string, weekStart: string) => FloorSuggestion | null;
 
   // ═══════════════════════════════════════════════════════════════════
   // HABIT INSIGHT CACHE
@@ -1242,10 +1155,6 @@ const initialState = {
   habitAdaptations: [] as HabitAdaptationRow[],
   habitPlans: [] as HabitPlanRow[],
   habitTargetHistory: [] as HabitTargetHistoryRow[],
-  habitFloorSuggestions: {} as Record<string, FloorSuggestion>,
-  floorSuggestRunning: false,
-  habitReads: {} as Record<string, HabitReadEntry>,
-  habitReadsRunning: false,
   habitInsightCache: {} as Record<string, import('../habits/habitInsight').HabitInsightResult>,
   spaceChats: [] as SpaceChat[],
   spaceChatMessages: [] as SpaceChatMessage[],
@@ -1296,7 +1205,6 @@ const initialState = {
   onboardingCompletedAt: null as string | null,
   accountCreatedAt: null as string | null,
   firstDropCompletedAt: null as string | null,
-  demoSweepCompletedAt: null as string | null,
   firstTodayVisitCompletedAt: null as string | null,
   todayRitualDay: null as string | null,
   todayDropsCount: 0,
@@ -1567,7 +1475,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase
                 .from('cortex_preferences')
                 .select(
-                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, demo_sweep_completed_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, graduated_at, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, has_seen_readonly_intro, gremly_color, is_tester, trial_started_at, challenge_started_at, challenge_completed_at',
+                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, graduated_at, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, has_seen_readonly_intro, gremly_color, is_tester, trial_started_at, challenge_started_at, challenge_completed_at',
                 )
                 .eq('owner_id', userId)
                 .maybeSingle(),
@@ -1809,7 +1717,6 @@ export const useGremlyStore = create<GremlyState>()(
               onboardingCompletedAt: effectiveOnboardingCompleted,
               accountCreatedAt: (cortexPrefs?.created_at as string) ?? null,
               firstDropCompletedAt: (cortexPrefs?.first_drop_completed_at as string) ?? null,
-              demoSweepCompletedAt: (cortexPrefs?.demo_sweep_completed_at as string) ?? null,
               firstTodayVisitCompletedAt:
                 (cortexPrefs?.first_today_visit_completed_at as string) ?? null,
               todayRitualDay: ritualDay,
@@ -2037,7 +1944,6 @@ export const useGremlyStore = create<GremlyState>()(
             gremlyAgeLastIncrementedAt: null,
             dayBoundaryHour: DEFAULT_DAY_END_HOUR,
             accountCreatedAt: null,
-            demoSweepCompletedAt: null,
             todayRitualDay: null,
             todayDropsCount: 0,
             todaySweepsCount: 0,
@@ -2465,36 +2371,6 @@ export const useGremlyStore = create<GremlyState>()(
           console.log('[GremlyStore] First drop marked complete');
         },
 
-        markDemoSweepComplete: async () => {
-          const userId = get().userId;
-          if (!userId) return;
-
-          const now = nowTimestamp();
-
-          // Set local state first — don't block UX on DB write
-          set({ demoSweepCompletedAt: now });
-          console.log('[GremlyStore] Demo sweep marked complete');
-
-          // Best-effort persist to Supabase
-          try {
-            const { error } = await supabase
-              .from('cortex_preferences')
-              .upsert(
-                { owner_id: userId, demo_sweep_completed_at: now, updated_at: now },
-                { onConflict: 'owner_id' },
-              );
-
-            if (error) {
-              console.warn(
-                '[GremlyStore] markDemoSweepComplete DB write failed (non-blocking):',
-                error.message,
-              );
-            }
-          } catch (e) {
-            console.warn('[GremlyStore] markDemoSweepComplete DB exception (non-blocking):', e);
-          }
-        },
-
         markFirstTodayVisitComplete: async () => {
           const userId = get().userId;
           if (!userId) return;
@@ -2623,7 +2499,7 @@ export const useGremlyStore = create<GremlyState>()(
             }
 
             // Fed celebration: only fire if the UI hasn't already shown one
-            // (CatchAllNotepad and SweepFlowScreen fire from optimistic preview)
+            // (CatchAllNotepad fires from optimistic preview)
             if (justFed && !get().todayFedCelebrationShownAt) {
               set({ todayFedCelebrationShownAt: nowTimestamp() });
               celebrationController.showFedCelebration(newFedDaysCount);
@@ -2654,16 +2530,6 @@ export const useGremlyStore = create<GremlyState>()(
               set({ pendingGaugePreviews: currentPendingOnError - 1 });
             }
             return { newValue: get().feedingGaugeValue, justFed: false };
-          }
-        },
-
-        completeSweepSession: async (cardsProcessed: number, didJournal: boolean) => {
-          const baseSweepValue = calculateSweepContribution(cardsProcessed, false);
-          if (baseSweepValue > 0) {
-            await get().addGaugeContribution('sweep', baseSweepValue);
-          }
-          if (didJournal) {
-            await get().addGaugeContribution('journal', GAUGE_WEIGHTS.JOURNAL_BONUS);
           }
         },
 
@@ -2762,37 +2628,6 @@ export const useGremlyStore = create<GremlyState>()(
           }
 
           return { justCrossedFed };
-        },
-
-        previewSweepGauge: (totalCards: number, didJournal: boolean) => {
-          const { feedingGaugeValue, isFedToday } = get();
-
-          if (totalCards <= 0) return { justCrossedFed: false, projectedValue: feedingGaugeValue };
-
-          // Calculate what completeSweepSession will add (mirrors its logic exactly)
-          const baseSweep = calculateSweepContribution(totalCards, false);
-          const journalBonus = didJournal ? GAUGE_WEIGHTS.JOURNAL_BONUS : 0;
-          const totalContribution = baseSweep + journalBonus;
-          const optimisticValue = feedingGaugeValue + totalContribution;
-          const justCrossedFed = !isFedToday && optimisticValue >= FED_THRESHOLD;
-
-          set({
-            feedingGaugeValue: optimisticValue,
-          });
-
-          if (__DEV__) {
-            console.log('[GremlyStore] Optimistic sweep gauge preview', {
-              totalCards,
-              didJournal,
-              baseSweep,
-              journalBonus,
-              previousGauge: feedingGaugeValue,
-              newGauge: optimisticValue,
-              justCrossedFed,
-            });
-          }
-
-          return { justCrossedFed, projectedValue: optimisticValue };
         },
 
         refreshRitualProgress: async () => {
@@ -3301,9 +3136,18 @@ export const useGremlyStore = create<GremlyState>()(
           return todoWithType;
         },
 
-        updateTodo: async (id: string, updates: Partial<Todo>) => {
+        updateTodo: async (id: string, given: Partial<Todo>) => {
           const prevTodo = get().todos.find((t) => t.id === id);
           const now = nowTimestamp();
+          // A todo given a day is no longer put off: its back day goes with
+          // the write, whoever gave it the day (its own editor, a card, the
+          // board). A write that names the back day itself is left as it is.
+          const sets = given as Record<string, unknown>;
+          const leavesLater =
+            !!sets.due_day &&
+            !('resurface_at' in sets) &&
+            !!(prevTodo as Record<string, unknown> | undefined)?.resurface_at;
+          const updates = (leavesLater ? { ...given, resurface_at: null } : given) as Partial<Todo>;
 
           // 1. OPTIMISTIC UPDATE
           set((state) => ({
@@ -4152,155 +3996,8 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         // ═══════════════════════════════════════════════════════════════════
-        // HABIT ADAPTATION MUTATIONS
+        // HABIT ADAPTATIONS (read only)
         // ═══════════════════════════════════════════════════════════════════
-
-        setHabitAdaptation: async (habitId, patch) => {
-          const userId = get().userId;
-          if (!userId) throw new Error('Not authenticated');
-
-          const hasOverlap = get().habitAdaptations.some(
-            (a) =>
-              a.habit_id === habitId &&
-              rangesOverlap(patch.period_start, patch.period_end, a.period_start, a.period_end),
-          );
-          if (hasOverlap) {
-            return { ok: false, reason: 'overlap' as const };
-          }
-
-          const now = nowTimestamp();
-          const tempId = `temp_adapt_${getDateService().now().getTime()}_${Math.random().toString(36).slice(2)}`;
-          const optimisticRow: HabitAdaptationRow = {
-            id: tempId,
-            owner_id: userId,
-            habit_id: habitId,
-            mode: patch.mode,
-            period_start: patch.period_start,
-            period_end: patch.period_end,
-            floor_note: patch.floor_note ?? null,
-            source_ref: patch.source_ref ?? null,
-            source_event_id: null,
-            created_at: now,
-            updated_at: now,
-          };
-
-          // 1. OPTIMISTIC INSERT
-          set((state) => ({
-            habitAdaptations: [...state.habitAdaptations, optimisticRow],
-          }));
-
-          // 2. PERSIST
-          const { data, error } = await supabase
-            .from('habit_adaptations')
-            .insert({
-              habit_id: habitId,
-              owner_id: userId,
-              mode: patch.mode,
-              period_start: patch.period_start,
-              period_end: patch.period_end,
-              floor_note: patch.floor_note ?? null,
-              source_ref: patch.source_ref ?? null,
-            })
-            .select()
-            .single();
-
-          if (error) {
-            // Roll back optimistic insert
-            set((state) => ({
-              habitAdaptations: state.habitAdaptations.filter((a) => a.id !== tempId),
-            }));
-            // Detect exclusion / overlap violation
-            if (
-              error.code === '23P01' ||
-              error.code === '23505' ||
-              error.message?.includes('overlap') ||
-              error.message?.includes('exclusion')
-            ) {
-              return { ok: false, reason: 'overlap' as const };
-            }
-            console.error('[GremlyStore] setHabitAdaptation failed:', error);
-            return { ok: false, reason: 'unknown' as const };
-          }
-
-          // Replace temp row with real row from DB
-          set((state) => ({
-            habitAdaptations: state.habitAdaptations.map((a) =>
-              a.id === tempId ? (data as HabitAdaptationRow) : a,
-            ),
-          }));
-          return { ok: true, row: data as HabitAdaptationRow };
-        },
-
-        updateHabitAdaptation: async (id, patch) => {
-          const prev = get().habitAdaptations.find((a) => a.id === id);
-          if (!prev) {
-            return { ok: false, reason: 'unknown' as const };
-          }
-
-          const nextStart = patch.period_start ?? prev.period_start;
-          const nextEnd = patch.period_end ?? prev.period_end;
-          const hasOverlap = get().habitAdaptations.some(
-            (a) =>
-              a.habit_id === prev.habit_id &&
-              a.id !== id &&
-              rangesOverlap(nextStart, nextEnd, a.period_start, a.period_end),
-          );
-          if (hasOverlap) {
-            return { ok: false, reason: 'overlap' as const };
-          }
-
-          // 1. OPTIMISTIC
-          set((state) => ({
-            habitAdaptations: state.habitAdaptations.map((a) =>
-              a.id === id ? { ...a, ...patch } : a,
-            ),
-          }));
-
-          // 2. PERSIST
-          const { error } = await supabase.from('habit_adaptations').update(patch).eq('id', id);
-
-          if (error) {
-            console.error('[GremlyStore] updateHabitAdaptation failed:', error);
-            if (prev) {
-              set((state) => ({
-                habitAdaptations: state.habitAdaptations.map((a) => (a.id === id ? prev : a)),
-              }));
-            }
-            if (
-              error.code === '23P01' ||
-              error.code === '23505' ||
-              error.message?.includes('overlap') ||
-              error.message?.includes('exclusion')
-            ) {
-              return { ok: false, reason: 'overlap' as const };
-            }
-            return { ok: false, reason: 'unknown' as const };
-          }
-
-          return { ok: true as const };
-        },
-
-        clearHabitAdaptation: async (id) => {
-          const prev = get().habitAdaptations.find((a) => a.id === id);
-
-          // 1. OPTIMISTIC REMOVE
-          set((state) => ({
-            habitAdaptations: state.habitAdaptations.filter((a) => a.id !== id),
-          }));
-
-          // 2. PERSIST
-          const { error } = await supabase.from('habit_adaptations').delete().eq('id', id);
-
-          if (error) {
-            console.error('[GremlyStore] clearHabitAdaptation failed:', error);
-            if (prev) {
-              set((state) => ({
-                habitAdaptations: [...state.habitAdaptations, prev],
-              }));
-            }
-            throw error;
-          }
-        },
 
         getActiveAdaptation: (habitId, dateIso) => {
           const day = dateIso.slice(0, 10); // normalise to YYYY-MM-DD
@@ -4378,372 +4075,6 @@ export const useGremlyStore = create<GremlyState>()(
             console.error('[GremlyStore] removeHabitPlan failed:', error);
             set({ habitPlans: prev });
           }
-        },
-
-        // ═══════════════════════════════════════════════════════════════════
-        // FLOOR SUGGESTIONS
-        // ═══════════════════════════════════════════════════════════════════
-
-        ensureHabitReads: async (habits, cards, weekStart) => {
-          if (get().habitReadsRunning) return;
-          set({ habitReadsRunning: true });
-          try {
-            const userId = get().userId;
-            if (!userId) return;
-            const ds = getDateService();
-            const today = ds.today();
-            const signalStart = ds.addDays(today, -3);
-            const signalEnd = ds.addDays(today, 13);
-            const planWindow = { start: weekStart, end: ds.addDays(weekStart, 6) };
-
-            // ── Signals: sourced directly from the DB (same queries as the corpus
-            // harness reference). DB columns are the contract for this payload. ──
-            const [{ data: noteRows }, { data: calRows }] = await Promise.all([
-              supabase
-                .from('notes')
-                .select('id, title, body, target_date, end_date')
-                .eq('owner_id', userId)
-                .eq('subtype', 'event')
-                .eq('archived', false)
-                .not('target_date', 'is', null)
-                .lte('target_date', signalEnd),
-              supabase
-                .from('synced_calendar_events')
-                .select('id, provider, external_id, title, start_at, end_at, is_all_day')
-                .eq('owner_id', userId)
-                .eq('archived', false)
-                .lte('start_at', `${signalEnd}T23:59:59`)
-                .gte('end_at', `${signalStart}T00:00:00`),
-            ]);
-            const eventNotes = (noteRows ?? [])
-              .filter((n) => (n.end_date ?? n.target_date) >= signalStart)
-              .map((n) => ({
-                ref: `note:${n.id}`,
-                title: n.title ?? '',
-                body: n.body ?? null,
-                start: n.target_date,
-                end: n.end_date ?? n.target_date,
-              }));
-            const events = (calRows ?? []).map((e) => ({
-              ref: `cal:${e.provider}-${e.external_id}`,
-              title: e.title ?? '',
-              start: String(e.start_at).slice(0, 10),
-              end: String(e.end_at ?? e.start_at).slice(0, 10),
-              all_day: e.is_all_day === true,
-            }));
-            const eventRefs = events.map((e) => e.ref);
-            const noteRefs = eventNotes.map((n) => n.ref);
-            console.log(
-              '[HabitReads] signals',
-              events.length,
-              eventNotes.length,
-              eventNotes.slice(0, 3).map((n) => n.title),
-            );
-
-            // ── Fact sheets + per-habit input hash ──
-            const habitProgress = get().habitProgress;
-            const habitAdaptations = get().habitAdaptations;
-            const habitTargetHistory = get().habitTargetHistory;
-            const activeHabits = habits.filter((h) => !h.archived);
-            const sheetsById = new Map<
-              string,
-              { sheet: ReturnType<typeof buildHabitFactSheet>; hash: string }
-            >();
-            for (const h of activeHabits) {
-              const card = cards.find((c) => c.id === h.id);
-              if (!card) continue;
-              const sheet = buildHabitFactSheet(
-                h,
-                card,
-                habitProgress,
-                habitAdaptations,
-                get().habitPlans,
-                habitTargetHistory,
-              );
-              sheetsById.set(h.id, {
-                sheet,
-                hash: computeInputHash(sheet, events, eventNotes),
-              });
-            }
-
-            // ── Cache: load rows for this week, decide what needs a run ──
-            const { data: rows } = await supabase
-              .from('habit_reads')
-              .select('habit_id, input_hash, payload, dismissed')
-              .eq('owner_id', userId)
-              .eq('week_start', weekStart);
-            const rowByHabit = new Map((rows ?? []).map((r) => [r.habit_id, r]));
-
-            const hydrated: Record<string, HabitReadEntry> = { ...get().habitReads };
-            const toRun: string[] = [];
-            for (const [habitId, { hash }] of sheetsById) {
-              const row = rowByHabit.get(habitId);
-              if (row && row.input_hash === hash) {
-                const payload = row.payload as Record<string, unknown> | null;
-                hydrated[`${habitId}:${weekStart}`] = {
-                  read:
-                    payload && !(payload as any).empty ? (payload as unknown as HabitRead) : null,
-                  input_hash: row.input_hash,
-                  dismissed: row.dismissed === true,
-                };
-              } else {
-                toRun.push(habitId);
-              }
-            }
-            set({ habitReads: hydrated });
-            if (toRun.length === 0) return;
-
-            // ── One batched call for everything stale or missing ──
-            const cortexUrl = (process.env.EXPO_PUBLIC_CORTEX_URL ?? '') as string;
-            const token = await getSessionToken();
-            const tz = get().userTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
-            // 90s: sonnet-tier background call can take 30-60s for large decks;
-            // fail-soft — deck renders code fallback while the AI catches up.
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 90000);
-            let data: { reads?: Record<string, HabitRead>; meta?: { model?: string } };
-            try {
-              const res = await fetch(cortexUrl, {
-                method: 'POST',
-                signal: controller.signal,
-                headers: {
-                  'Content-Type': 'application/json',
-                  Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify({
-                  type: 'habit-read',
-                  todayISO: today,
-                  timezone: tz,
-                  planWindow,
-                  weekStart,
-                  inputHashes: Object.fromEntries(
-                    toRun.map((id) => [id, sheetsById.get(id)!.hash]),
-                  ),
-                  factSheets: toRun.map((id) => sheetsById.get(id)!.sheet),
-                  events,
-                  eventNotes,
-                }),
-              });
-              if (!res.ok) throw new Error(`habit-read HTTP ${res.status}`);
-              data = await res.json();
-            } finally {
-              clearTimeout(timeoutId);
-            }
-
-            const reads = data.reads ?? {};
-            const updated: Record<string, HabitReadEntry> = { ...get().habitReads };
-            for (const habitId of toRun) {
-              const read = reads[habitId] ?? null;
-              const { hash } = sheetsById.get(habitId)!;
-              updated[`${habitId}:${weekStart}`] = {
-                read,
-                input_hash: hash,
-                dismissed: false, // fresh data resets dismissal
-              };
-              // Worker persists to habit_reads; client only updates local state.
-            }
-            set({ habitReads: updated });
-          } catch (err) {
-            // Fail soft: code fallback renders; never block the deck.
-            const isAbort = (err as Error).name === 'AbortError';
-            console.warn(
-              '[HabitReads] ensureHabitReads error:',
-              (err as Error).name,
-              isAbort ? 'timed out after 90s' : (err as Error).message,
-            );
-          } finally {
-            set({ habitReadsRunning: false });
-          }
-        },
-
-        getHabitRead: (habitId, weekStart) => {
-          return get().habitReads[`${habitId}:${weekStart}`] ?? null;
-        },
-
-        resolveSweepBlock: () => {
-          const weekStart = getDateService().startOfWeekMonday(get().currentDate);
-          const weekEnd = getDateService().addDays(weekStart, 6);
-          const summary = get().weeklySummaries.find((s) => s.week_start_date === weekStart);
-          return {
-            weekStart,
-            weekEnd,
-            summaryId: summary?.id ?? null,
-            summaryGenerated: !!summary,
-          };
-        },
-
-        dismissHabitRead: async (habitId, weekStart) => {
-          const userId = get().userId;
-          if (!userId) return;
-          const key = `${habitId}:${weekStart}`;
-          const entry = get().habitReads[key];
-          if (entry) {
-            set({ habitReads: { ...get().habitReads, [key]: { ...entry, dismissed: true } } });
-          }
-          const { error } = await supabase
-            .from('habit_reads')
-            .update({ dismissed: true, updated_at: nowTimestamp() })
-            .eq('owner_id', userId)
-            .eq('habit_id', habitId)
-            .eq('week_start', weekStart);
-          if (error) console.warn('[HabitReads] dismiss write failed:', error.message);
-        },
-
-        ensureFloorSuggestions: async (habits, weekStart) => {
-          if (get().floorSuggestRunning) return;
-          set({ floorSuggestRunning: true });
-          try {
-            const userId = get().userId;
-            if (!userId) return;
-
-            // 1. Load cache from DB for this week_start
-            const { data: cachedRows } = await supabase
-              .from('habit_floor_suggestions')
-              .select('habit_id, week_start, payload')
-              .eq('owner_id', userId)
-              .eq('week_start', weekStart);
-
-            const hydrated: Record<string, FloorSuggestion> = { ...get().habitFloorSuggestions };
-            const cachedHabitIds = new Set<string>();
-            for (const row of cachedRows ?? []) {
-              const key = `${row.habit_id}:${row.week_start}`;
-              hydrated[key] = row.payload as FloorSuggestion;
-              cachedHabitIds.add(row.habit_id);
-            }
-            set({ habitFloorSuggestions: hydrated });
-
-            // 2. Determine which habits need a run
-            const toRun = habits.filter(
-              (h) =>
-                !h.archived &&
-                h.cadence !== 'daily' &&
-                h.subtype !== 'break_habit' &&
-                !cachedHabitIds.has(h.id),
-            );
-            if (toRun.length === 0) return;
-
-            // 3. Ensure calendar events are loaded for the window
-            const windowEnd = getDateService().addDays(weekStart, 6);
-            await get().fetchCalendarEventsForRange(weekStart, windowEnd);
-
-            // 3a. Collect synced calendar events overlapping the window
-            const allCalEvents = get().calendarEvents;
-            const windowEvents = Object.entries(allCalEvents)
-              .filter(([date]) => date >= weekStart && date <= windowEnd)
-              .flatMap(([, evts]) => evts)
-              .map((e) => ({
-                title: e.title ?? '',
-                location: (e as any).location ?? null,
-                start_at: e.startAt,
-                end_at: e.endAt,
-                is_all_day: (e as any).isAllDay ?? false,
-              }));
-
-            // 3b. Collect event-notes (primary disruption signal) overlapping the window
-            const allNotes = get().notes;
-            const eventNotes = allNotes
-              .filter((n) => {
-                if (n.subtype !== 'event' || n.archived) return false;
-                const noteStart = n.target_date ?? (n as any).date ?? null;
-                const noteEnd = n.end_date ?? noteStart;
-                if (!noteStart) return false;
-                // Overlap: noteStart <= windowEnd AND noteEnd >= weekStart
-                return noteStart <= windowEnd && noteEnd >= weekStart;
-              })
-              .map((n) => ({
-                title: n.title ?? '',
-                body: n.body ?? null,
-                start: n.target_date ?? (n as any).date ?? null,
-                end: n.end_date ?? n.target_date ?? (n as any).date ?? null,
-                location: (n as any).location ?? null,
-              }));
-
-            // 4. Get Cortex URL + auth token
-            const cortexUrl = (process.env.EXPO_PUBLIC_CORTEX_URL ?? '') as string;
-            const token = await getSessionToken();
-            const tz = get().userTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
-            const todayISO = getDateService().today();
-
-            // 5. Parallel calls
-            const results = await Promise.allSettled(
-              toRun.map(async (h) => {
-                const res = await fetch(cortexUrl, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
-                  },
-                  body: JSON.stringify({
-                    type: 'floor-suggest',
-                    habit: {
-                      id: h.id,
-                      name: h.name,
-                      cadence: h.cadence,
-                      target_per_period: h.target_per_period,
-                      subtype: h.subtype,
-                      floor_note: h.floor_note ?? null,
-                    },
-                    planWindow: { start: weekStart, end: windowEnd },
-                    events: windowEvents,
-                    eventNotes,
-                    todayISO,
-                    timezone: tz,
-                  }),
-                });
-                if (!res.ok) throw new Error(`floor-suggest HTTP ${res.status}`);
-                const data = await res.json();
-                return { habit: h, data };
-              }),
-            );
-
-            let failCount = 0;
-            const updatedSuggestions: Record<string, FloorSuggestion> = {
-              ...get().habitFloorSuggestions,
-            };
-
-            for (const result of results) {
-              if (result.status === 'rejected') {
-                failCount++;
-                continue;
-              }
-              const { habit: h, data } = result.value;
-              const suggestion: FloorSuggestion = {
-                habit_id: h.id,
-                week_start: weekStart,
-                detected: data.detected === true,
-                disruption: data.disruption ?? null,
-                lead_line: data.lead_line ?? null,
-                ideas: Array.isArray(data.ideas) ? data.ideas : [],
-                confidence: typeof data.confidence === 'number' ? data.confidence : 0,
-              };
-              const key = `${h.id}:${weekStart}`;
-              updatedSuggestions[key] = suggestion;
-
-              // Cache in DB (fire-and-forget, don't block UI)
-              supabase
-                .from('habit_floor_suggestions')
-                .upsert(
-                  { habit_id: h.id, owner_id: userId, week_start: weekStart, payload: suggestion },
-                  { onConflict: 'habit_id,week_start' },
-                )
-                .then(({ error }) => {
-                  if (error) console.warn('[FloorSuggest] Cache write failed:', error.message);
-                });
-            }
-
-            set({ habitFloorSuggestions: updatedSuggestions });
-            if (failCount > 0) {
-              console.warn(`[FloorSuggest] ${failCount} request(s) failed (not cached)`);
-            }
-          } catch (err) {
-            console.error('[FloorSuggest] ensureFloorSuggestions error:', (err as Error).message);
-          } finally {
-            set({ floorSuggestRunning: false });
-          }
-        },
-
-        getFloorSuggestion: (habitId, weekStart) => {
-          return get().habitFloorSuggestions[`${habitId}:${weekStart}`] ?? null;
         },
 
         createNote: async (note: Partial<Note> & { photoUris?: string[] }) => {
@@ -6458,7 +5789,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase
                 .from('cortex_preferences')
                 .select(
-                  'gremly_age, gremly_age_last_incremented_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, graduated_at, last_sweep_completed_at, sweep_streak, mini_sweep_last_completed_at, day_boundary_hour, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, has_seen_readonly_intro, gremly_color, is_tester, trial_started_at, challenge_started_at, challenge_completed_at, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, demo_sweep_completed_at, created_at',
+                  'gremly_age, gremly_age_last_incremented_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, graduated_at, last_sweep_completed_at, sweep_streak, mini_sweep_last_completed_at, day_boundary_hour, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, has_seen_readonly_intro, gremly_color, is_tester, trial_started_at, challenge_started_at, challenge_completed_at, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, created_at',
                 )
                 .eq('owner_id', userId)
                 .maybeSingle(),
@@ -6574,8 +5905,6 @@ export const useGremlyStore = create<GremlyState>()(
                   (cp.first_drop_completed_at as string) ?? get().firstDropCompletedAt,
                 firstTodayVisitCompletedAt:
                   (cp.first_today_visit_completed_at as string) ?? get().firstTodayVisitCompletedAt,
-                demoSweepCompletedAt:
-                  (cp.demo_sweep_completed_at as string) ?? get().demoSweepCompletedAt,
                 accountCreatedAt: (cp.created_at as string) ?? get().accountCreatedAt,
               });
 
@@ -11107,7 +10436,6 @@ export const useGremlyStore = create<GremlyState>()(
           gremlyAgeLastIncrementedAt: state.gremlyAgeLastIncrementedAt,
           dayBoundaryHour: state.dayBoundaryHour,
           accountCreatedAt: state.accountCreatedAt,
-          demoSweepCompletedAt: state.demoSweepCompletedAt,
           firstTodayVisitCompletedAt: state.firstTodayVisitCompletedAt,
           todayRitualDay: state.todayRitualDay,
           todayDropsCount: state.todayDropsCount,

@@ -122,50 +122,6 @@ export interface SweepCandidateHabit extends SweepCandidateBase {
 
 export type SweepCandidate = SweepCandidateTodo | SweepCandidateNote | SweepCandidateHabit;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Sweep Summary
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Individual item detail for the sweep summary screen.
- */
-export interface SweepSummaryItem {
-  id: string;
-  name: string;
-  /** What happened to this item */
-  outcome:
-    | 'scheduled'
-    | 'saved'
-    | 'kept'
-    | 'cleared'
-    | 'archived'
-    | 'logged'
-    | 'skipped'
-    | 'remind'
-    | 'removed';
-  /** For scheduled items, the date it was scheduled to */
-  scheduledDate?: string;
-}
-
-/**
- * Summary of actions taken during a Sweep session.
- * Note: 'skipped' was removed from counts - we no longer track skipped items in the summary.
- */
-export interface SweepSummary {
-  kept: number;
-  cleared: number;
-  /** Detailed breakdown by item type for the expandable summary */
-  items?: {
-    todos: SweepSummaryItem[];
-    thoughts: SweepSummaryItem[]; // notes/logs
-    habits: SweepSummaryItem[];
-  };
-  /** Whether Gremly aged up during this sweep session */
-  didAgeUp?: boolean;
-  /** Gremly's final age after this sweep session */
-  finalAge?: number;
-}
-
 /**
  * Computed display metadata for a Sweep card.
  * Pre-computed from SweepCandidate + Space data for rendering.

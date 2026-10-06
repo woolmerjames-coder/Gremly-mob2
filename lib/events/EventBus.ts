@@ -113,8 +113,6 @@ export type EventMap = {
     /** the item the yes changed, opened by tapping the toast (null when it was removed) */
     target: { id: string; type: 'todo' | 'habit' | 'note' } | null;
   };
-  // Tomorrow Brief navigation event
-  openTomorrowBrief: Record<string, never>;
   // Open Gremly modal to gauge page (from fed toast tap)
   openGremlyModal: Record<string, never>;
   // Training speech bubble (emitted by store, consumed by CatchAllNotepad)
