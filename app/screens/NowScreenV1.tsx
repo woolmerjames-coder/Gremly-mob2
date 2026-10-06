@@ -85,6 +85,8 @@ import type { Habit, Todo, Space, Note } from '../../lib/types';
 import { eventBus } from '../../lib/events';
 import { useBriefUnread } from '../../lib/brief/todayThread';
 import { briefReadyLine, todayThreadParams } from '../../lib/brief/pinned';
+import { useThisWeek } from '../../lib/week/thisWeek';
+import { weekButton } from '../../lib/week/review/state';
 import { isReturnDay, readDco } from '../../lib/brief/dco';
 import { BriefReadyBubble } from '../../components/brief/BriefReadyBubble';
 import { useEveningTeaser } from '../../lib/wrapup/useEveningTeaser';
@@ -324,6 +326,24 @@ export default function NowScreenV1() {
   // In the evening the same bubble says the wrap up is waiting, and the
   // header button starts it (the floating Sweep pill is gone)
   const wrapTeaser = useEveningTeaser();
+  // The Week button (the weekly review): their weekly day and this week's
+  // review are read each time Today comes on screen, and the button waits for
+  // them, so it never shows a day or a state that is not theirs
+  const weekly = useThisWeek();
+  const weekUserId = useGremlyStore((s) => s.userId);
+  useEffect(() => {
+    if (!weekUserId) return;
+    const read = () => void useThisWeek.getState().refresh();
+    read();
+    return navigation.addListener('focus', read);
+  }, [navigation, weekUserId]);
+  const week = useMemo(
+    () =>
+      weekly.loaded
+        ? weekButton(getDateService().ritualDay(), weekly.weeklyDay, weekly.review)
+        : null,
+    [weekly.loaded, weekly.weeklyDay, weekly.review],
+  );
   const wrapBubble = !briefUnread && wrapTeaser.nudge;
   const briefReady = useMemo(
     () =>
@@ -839,6 +859,20 @@ export default function NowScreenV1() {
         onNotesPress={handleNotesPress}
         onMascotPress={() => setShowHelp(true)}
         onSettingsPress={() => navigation.navigate('Settings')}
+        week={
+          week
+            ? {
+                label: week.label,
+                highlighted: week.highlighted,
+                // today's thread, where the review starts, picks up, or shows the week once done
+                onPress: () =>
+                  navigation.navigate('Tabs', {
+                    screen: 'Gremly',
+                    params: todayThreadParams('week'),
+                  }),
+              }
+            : null
+        }
       />
       <FirstTodayVisitBubble
         visible={showFirstVisitBubble}

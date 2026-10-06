@@ -82,6 +82,12 @@ interface NowHeaderProps {
   onMascotPress?: () => void;
   /** Opens Settings (account, notifications, sign out) */
   onSettingsPress?: () => void;
+  /**
+   * The Week button (the weekly review): Plan your week, highlighted from
+   * their weekly day through the two days after until the review is done, and
+   * Your week once it is (lib/week/review/state.ts weekButton).
+   */
+  week?: { label: string; highlighted: boolean; onPress: () => void } | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -132,6 +138,7 @@ export function NowHeader({
   onNotesPress,
   onMascotPress,
   onSettingsPress,
+  week,
 }: NowHeaderProps) {
   const styles = useStyles();
   const { resetInactivity } = useMascotMode();
@@ -220,6 +227,21 @@ export function NowHeader({
           {/* Partial divider under date - brand accent */}
           <View style={styles.headerDivider} />
         </View>
+        {week ? (
+          <TouchableOpacity
+            onPress={week.onPress}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel={week.label}
+            hitSlop={6}
+            style={[styles.weekButton, week.highlighted && styles.weekButtonOn]}
+            testID="now-header-week"
+          >
+            <Text style={[styles.weekButtonText, week.highlighted && styles.weekButtonTextOn]}>
+              {week.label}
+            </Text>
+          </TouchableOpacity>
+        ) : null}
         {onSettingsPress ? (
           <TouchableOpacity
             onPress={onSettingsPress}
@@ -333,6 +355,26 @@ const useStyles = makeStyles((t) => ({
   greetingColumn: {
     flex: 1,
     justifyContent: 'flex-start',
+  },
+  // The Week button: a quiet pill, filled while the weekly review is put forward
+  weekButton: {
+    marginTop: 10,
+    marginLeft: t.spacing[2],
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: '#E7EFE8',
+  },
+  weekButtonOn: {
+    backgroundColor: MOSS_GREEN,
+  },
+  weekButtonText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: MOSS_GREEN,
+  },
+  weekButtonTextOn: {
+    color: LINEN_CREAM,
   },
   settingsButton: {
     width: 36,
