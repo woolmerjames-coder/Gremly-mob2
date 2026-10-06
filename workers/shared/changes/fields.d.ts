@@ -53,7 +53,7 @@ export declare const GROUPS: Record<FieldGroup, string>;
 export declare const OPS: Record<ChangeOp, string>;
 export declare const TYPES: Record<ItemType, { ops: ChangeOp[]; fields: Record<string, FieldDef> }>;
 export declare const PLAN_KINDS: Array<
-  'add_block' | 'remove_block' | 'plan_add' | 'plan_remove' | 'plan_move'
+  'add_block' | 'remove_block' | 'plan_add' | 'plan_remove' | 'plan_move' | 'plan_day'
 >;
 export declare function fieldsOf(type: string): Record<string, FieldDef> | null;
 export declare function fieldDef(type: string, field: string): FieldDef | null;
