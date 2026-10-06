@@ -3,7 +3,7 @@
  * where people change it. The top row says whether this phone can receive
  * notifications, with a fix when it can't. Changes save straight away.
  */
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -25,6 +25,7 @@ import { BRAND } from '../../design/brand';
 import { getDateService, nowTimestamp } from '../../lib/date/DateService';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { maybeAsk } from '../../lib/notifications/ask';
+import { useThisWeek } from '../../lib/week/thisWeek';
 import {
   useNotificationSettings,
   type NotificationSettings,
@@ -35,7 +36,6 @@ const c = BRAND.colors;
 const FOREST = '#1A3328';
 const OFF = '#4B6A50';
 const WASH = '#EAF2E8';
-const DAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 /** "08:00:00" or "08:00" as a Date today, for the time pickers. */
@@ -155,6 +155,13 @@ function TimeChip({
 
 export default function NotificationSettingsScreen() {
   const navigation = useNavigation<any>();
+  // their weekly day, from its one home: read when the screen opens, and
+  // followed when they change it under Your week and come back
+  const weeklyDay = useThisWeek((w) => w.weeklyDay);
+  const weekLoaded = useThisWeek((w) => w.loaded);
+  useEffect(() => {
+    void useThisWeek.getState().refresh();
+  }, []);
   const isTester = useGremlyStore((s) => s.isTester);
   const { settings: s, health, save, repair } = useNotificationSettings();
   const words = healthWords(health, s?.paused_until ?? null);
@@ -268,25 +275,24 @@ export default function NotificationSettingsScreen() {
                 value={s.weekly_enabled}
                 onChange={(v) => set({ weekly_enabled: v, good_news_enabled: v })}
               >
-                <View style={styles.days}>
-                  {DAYS.map((d, i) => (
-                    <Pressable
-                      key={i}
-                      style={[styles.day, s.weekly_day === i && styles.dayOn]}
-                      onPress={() => set({ weekly_day: i })}
-                      accessibilityLabel={DAY_NAMES[i]}
-                    >
-                      <Text style={[styles.dayText, s.weekly_day === i && styles.dayTextOn]}>
-                        {d}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
                 <TimeChip
                   value={s.weekly_time}
                   fallback="18:00"
                   onPick={(t) => set({ weekly_time: t })}
                 />
+                {/* the day is their weekly day, which lives in Settings under Your week */}
+                {weekLoaded ? (
+                  <Pressable
+                    onPress={() => navigation.navigate('YourWeekSettings')}
+                    accessibilityRole="button"
+                    hitSlop={6}
+                    testID="weekly-day-link"
+                  >
+                    <Text style={styles.weeklyDay}>
+                      {`On ${DAY_NAMES[weeklyDay]}s, your weekly day. Change`}
+                    </Text>
+                  </Pressable>
+                ) : null}
               </Row>
             </View>
 
@@ -420,18 +426,7 @@ const styles = StyleSheet.create({
   rowSub: { fontFamily: 'Inter-Regular', fontSize: 12.5, color: '#6A6F76', marginTop: 2 },
   extra: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 8 },
   extraOff: { opacity: 0.45 },
-  days: { flexDirection: 'row', gap: 4 },
-  day: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: WASH,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dayOn: { backgroundColor: c.mossGreen },
-  dayText: { fontFamily: 'PlusJakartaSans-SemiBold', fontSize: 12, color: c.mossGreen },
-  dayTextOn: { color: '#FFFFFF' },
+  weeklyDay: { fontFamily: 'Inter-Medium', fontSize: 12.5, color: c.mossGreen },
   quiet: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   to: { fontFamily: 'Inter-Regular', fontSize: 13, color: OFF },
   lab: {
