@@ -13,6 +13,8 @@
  */
 
 import { db, userTimezone, localDate, addDays } from './db';
+import { cycleOf } from '../../shared/week.js';
+import { weekSettings } from '../week/settings';
 import { planWindows, readWindow, readCursor, advanceCursor } from './reader';
 import { applyCorrection } from './corrections';
 import { reconcileAnchors } from './anchors';
@@ -45,13 +47,20 @@ export function contextMode(env, userId) {
   return live.includes(userId) ? 'on' : m;
 }
 
-/** The Sunday that ends the last complete Monday to Sunday week, in local time. */
-export function lastCompleteWeekEnd(tz) {
-  const today = localDate(tz);
-  const dow = new Date(`${today}T12:00:00Z`).getUTCDay(); // 0 Sunday
-  return dow === 0 ? today : addDays(today, -dow);
+/**
+ * The day that ends the last whole week of theirs, in local time: today on
+ * their weekly day, otherwise the weekly day before it. With Sunday that is
+ * the Sunday that ends the last complete Monday to Sunday week.
+ */
+export function lastCompleteWeekEnd(tz, weeklyDay, at = new Date()) {
+  return cycleOf(localDate(tz, at), weeklyDay).start;
 }
 
+/**
+ * The context pipeline's functions, and the weekly synthesis by name: the
+ * weekly pipe (week/index.js) runs it for each person on their weekly day.
+ * @returns {{functions: object[], weekly: object}}
+ */
 export function createContextFunctions(inngest) {
   // ── Ledger: read new records ─────────────────────────────────────────────
   const ledgerRead = inngest.createFunction(
@@ -339,7 +348,10 @@ export function createContextFunctions(inngest) {
     kind: 'weekly',
     prepare: async (env, userId, data) => {
       const tz = await userTimezone(env, userId);
-      const periodEnd = data.period_end || lastCompleteWeekEnd(tz);
+      // the pipe names the weekly day it runs for; a first look or a catch up
+      // takes the last whole week of theirs
+      const periodEnd =
+        data.period_end || lastCompleteWeekEnd(tz, (await weekSettings(env, userId)).weekly_day);
       const p = await weeklyRequestParams(env, userId, periodEnd);
       return {
         ...p,
@@ -404,28 +416,9 @@ export function createContextFunctions(inngest) {
     },
   );
 
-  // ── Weekly scheduler: Sundays after the Worlds structure run ─────────────
-  const weeklyScheduler = inngest.createFunction(
-    { id: 'context-weekly-scheduler', name: 'Context: weekly synthesis scheduler' },
-    { cron: '0 11 * * 0' },
-    async ({ step, env }) => {
-      const mode = contextMode(env);
-      if (mode === 'off') return { skipped: 'pipeline off' };
-      const users = await step.run('active', () =>
-        db(env).rpc('get_active_people', { active_days: 30 }),
-      );
-      if (!users.length) return { scheduled: 0 };
-      await step.sendEvent(
-        'fan-out',
-        users.map((u) => ({
-          id: `weekly-synthesis-${u.user_id}-${localDate(u.timezone || 'America/Los_Angeles')}`,
-          name: 'app/synthesis.weekly',
-          data: { user_id: u.user_id, shadow: contextMode(env, u.user_id) !== 'on' },
-        })),
-      );
-      return { scheduled: users.length, mode };
-    },
-  );
+  // The weekly synthesis no longer has a scheduler of its own: each person's
+  // weekly pipe runs it on their weekly day, three hours before their weekly
+  // slot (week/index.js). It used to leave for everyone on Sunday at 11:00 UTC.
 
   // ── Catch-up: rebuild one person from their whole history ────────────────
   const catchUpUser = inngest.createFunction(
@@ -491,17 +484,19 @@ export function createContextFunctions(inngest) {
     },
   );
 
-  return [
-    ledgerRead,
-    correctionApply,
-    dcoV4,
+  return {
+    functions: [
+      ledgerRead,
+      correctionApply,
+      dcoV4,
+      weekly,
+      story,
+      storyScheduler,
+      catchUpUser,
+      catchUp,
+    ],
     weekly,
-    weeklyScheduler,
-    story,
-    storyScheduler,
-    catchUpUser,
-    catchUp,
-  ];
+  };
 }
 
 /**

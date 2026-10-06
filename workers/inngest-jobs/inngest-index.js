@@ -33,6 +33,8 @@ import { aiContext, installAiUsageLogging } from '../shared/aiUsage';
 import { CARE_RULES } from './careRules';
 import { createContextFunctions, hourlyContextEvents, contextMode } from './context/functions';
 import { createBriefFunctions, handleBriefApi } from './brief';
+import { createWeekFunctions, handleWeekReadApi } from './week';
+import { addDays as dayPlus, cycleOf, isDay as isRealDay } from '../shared/week.js';
 import { createNotificationFunctions } from './notifications/functions';
 import { runMinute as runNotificationsMinute } from './notifications/cron';
 import { dedupeKey as notificationKey } from './notifications/policy';
@@ -1706,13 +1708,10 @@ const backfillAnalystForWeek = inngest.createFunction(
   async ({ event, step, env }) => {
     const { user_id: userId, week_start, timezone = 'UTC' } = event.data;
     if (!userId) throw new Error('user_id is required');
-    if (!week_start) throw new Error('week_start is required (yyyy-mm-dd, must be a Monday)');
-
-    const start = new Date(week_start + 'T00:00:00Z');
-    if (start.getUTCDay() !== 1) {
-      throw new Error(`week_start ${week_start} is not a Monday (UTC day ${start.getUTCDay()})`);
-    }
-    const week_end = formatDateOnly(new Date(+start + 6 * 86400000));
+    // A week is the seven days from week_start. A person's own week ends on
+    // their weekly day, so it can start on any day: Monday for a Sunday.
+    if (!isRealDay(week_start)) throw new Error('week_start is required (a real day, yyyy-mm-dd)');
+    const week_end = dayPlus(week_start, 6);
 
     // Step 1: fetch historical snapshot anchored to the target week's Sunday.
     // opts.targetDate overrides "today" in fetchUserSnapshot's date math, so the
@@ -1754,13 +1753,10 @@ const runShadowSummaryForWeek = inngest.createFunction(
   async ({ event, step, env }) => {
     const { user_id, week_start, timezone = 'UTC' } = event.data;
     if (!user_id) throw new Error('user_id is required');
-    if (!week_start) throw new Error('week_start is required (yyyy-mm-dd, must be a Monday)');
-
-    const start = new Date(week_start + 'T00:00:00Z');
-    if (start.getUTCDay() !== 1) {
-      throw new Error(`week_start ${week_start} is not a Monday (UTC day ${start.getUTCDay()})`);
-    }
-    const week_end = formatDateOnly(new Date(+start + 6 * 86400000));
+    // A week is the seven days from week_start. A person's own week ends on
+    // their weekly day, so it can start on any day: Monday for a Sunday.
+    if (!isRealDay(week_start)) throw new Error('week_start is required (a real day, yyyy-mm-dd)');
+    const week_end = dayPlus(week_start, 6);
 
     const authHeaders = {
       apikey: env.SUPABASE_SERVICE_KEY,
@@ -1884,13 +1880,10 @@ const weeklySummaryV07Worker = inngest.createFunction(
   async ({ event, step, env }) => {
     const { user_id, week_start, timezone = 'UTC' } = event.data;
     if (!user_id) throw new Error('user_id is required');
-    if (!week_start) throw new Error('week_start is required (yyyy-mm-dd, must be a Monday)');
-
-    const start = new Date(week_start + 'T00:00:00Z');
-    if (start.getUTCDay() !== 1) {
-      throw new Error(`week_start ${week_start} is not a Monday (UTC day ${start.getUTCDay()})`);
-    }
-    const week_end = formatDateOnly(new Date(+start + 6 * 86400000));
+    // A week is the seven days from week_start. A person's own week ends on
+    // their weekly day, so it can start on any day: Monday for a Sunday.
+    if (!isRealDay(week_start)) throw new Error('week_start is required (a real day, yyyy-mm-dd)');
+    const week_end = dayPlus(week_start, 6);
 
     const authHeaders = {
       apikey: env.SUPABASE_SERVICE_KEY,
@@ -2566,7 +2559,13 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
       // Anyone active in the last 30 days gets a weekly summary, whatever their tier.
       // The challenge no longer affects access.
       const accessMap = {};
-      for (const p of accessPrefs) accessMap[p.user_id] = true;
+      // where they are when their settings do not say: the same place the
+      // weekly pipe works from, so the pipe always comes before the summary
+      const activeTz = {};
+      for (const p of accessPrefs) {
+        accessMap[p.user_id] = true;
+        activeTz[p.user_id] = p.timezone;
+      }
 
       const total = prefs.length;
       let droppedNoAccess = 0;
@@ -2581,7 +2580,7 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
         })
         .map((p) => ({
           user_id: p.user_id,
-          timezone: p.timezone || 'UTC',
+          timezone: p.timezone || activeTz[p.user_id] || 'UTC',
           weekly_time: p.weekly_time,
           weekly_day: p.weekly_day ?? 0, // 0 = Sunday
         }));
@@ -2639,13 +2638,12 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
           const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: u.timezone }).format(
             new Date(),
           );
-          // The last complete Monday to Sunday week: this week on a Sunday,
-          // otherwise the week before, so a summary never covers days still to come.
-          const today = new Date(todayStr + 'T00:00:00Z');
-          const dayOfWeek = today.getUTCDay();
-          const monday = new Date(today);
-          monday.setUTCDate(today.getUTCDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1 + 7));
-          weekKeys[u.user_id] = formatDateOnly(monday);
+          // Their own week: the seven days ending on their weekly day, the one
+          // today or the last one before it. With Sunday that is Monday to
+          // Sunday, as it always was. People reach here on their weekly day,
+          // and if this runs again after their midnight it still gives the
+          // week that ended, never one that has only begun.
+          weekKeys[u.user_id] = dayPlus(cycleOf(todayStr, u.weekly_day).start, -6);
         } catch {
           weekKeys[u.user_id] = 'unknown';
         }
@@ -11184,6 +11182,9 @@ const detectChallengeCompletion = inngest.createFunction(
 );
 
 // Inngest serve handler
+// the weekly synthesis is run by each person's weekly pipe, on their weekly day
+const contextFunctions = createContextFunctions(inngest);
+
 const inngestHandler = serve({
   client: inngest,
   functions: [
@@ -11222,7 +11223,8 @@ const inngestHandler = serve({
     createWorldsWeeklyScheduler(inngest),
     createDropAssignmentBackfill(inngest),
     createBackfillPriorityKind(inngest),
-    ...createContextFunctions(inngest),
+    ...contextFunctions.functions,
+    ...createWeekFunctions(inngest, { synthesis: contextFunctions.weekly }),
     ...createBriefFunctions(inngest),
     ...createNotificationFunctions(inngest),
   ],
@@ -11350,6 +11352,12 @@ const appHandler = {
 
     if (url.pathname === '/api/day-turn' && request.method === 'POST') {
       return handleDayTurnApi(request, env, corsResponse);
+    }
+
+    // The weekly review: the read for a review opened today, made now when the
+    // week has none that serves it, through cortex
+    if (url.pathname === '/api/week-read' && request.method === 'POST') {
+      return handleWeekReadApi(request, env, corsResponse, ctx);
     }
 
     if (url.pathname === '/api/force-generate-dco' && request.method === 'POST') {
