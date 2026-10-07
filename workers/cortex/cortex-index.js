@@ -3401,7 +3401,12 @@ const cortexHandler = {
           return unauthorizedResponse();
         }
       }
-      setAiUsage({ userId: authenticatedUserId || body.userId || body.user_id || null });
+      // Open routes (drop classification and enrichment, filing) need no session,
+      // but the app sends one on them too. A valid one names the person in the
+      // usage log only, so cost per person counts drops. Nothing else reads it.
+      const usageUserId =
+        authenticatedUserId || (needsAuth ? null : await extractAuthenticatedUserId(request, env));
+      setAiUsage({ userId: usageUserId || body.userId || body.user_id || null });
 
       // =========================
       // Timezone resolution (single source of truth per request)

@@ -360,6 +360,41 @@ async function record({
   );
 }
 
+/**
+ * A call that threw or was cut off by its timeout never answered, but it still
+ * happened: it is logged as failed, with no tokens and no price, so failures
+ * show beside the calls that worked.
+ */
+async function recordFailure({ provider, url, reqBody, started, store, rawFetch, err }) {
+  const name = err?.name || '';
+  await writeUsageRow(
+    store.env,
+    {
+      worker: store.worker || null,
+      job: jobName(store),
+      user_id: UUID.test(String(store.userId || '')) ? store.userId : null,
+      provider,
+      model: modelFromRequest(provider, url, reqBody),
+      input_tokens: 0,
+      cached_input_tokens: 0,
+      cache_write_tokens: 0,
+      output_tokens: 0,
+      thinking_tokens: 0,
+      cost_usd: null,
+      latency_ms: Date.now() - started,
+      status: 0,
+      ok: false,
+      batch: false,
+      run_id: store.runId || null,
+      meta: {
+        failed: name === 'AbortError' || name === 'TimeoutError' ? 'timed out' : 'threw',
+        error: String(err?.message || err).slice(0, 200),
+      },
+    },
+    rawFetch,
+  );
+}
+
 let installed = false;
 
 export function installAiUsageLogging() {
@@ -377,7 +412,30 @@ export function installAiUsageLogging() {
     const provider = providerFor(url);
     if (!provider) return rawFetch(input, init);
     const started = Date.now();
-    const res = await rawFetch(input, init);
+    let res;
+    try {
+      res = await rawFetch(input, init);
+    } catch (err) {
+      try {
+        const store = aiContext.getStore() || globalThis.__aiUsageFallbackStore;
+        if (store?.env?.SUPABASE_URL) {
+          const reqBody = typeof init?.body === 'string' ? init.body : null;
+          const work = recordFailure({
+            provider,
+            url,
+            reqBody,
+            started,
+            store,
+            rawFetch,
+            err,
+          }).catch(() => {});
+          if (store.ctx && typeof store.ctx.waitUntil === 'function') store.ctx.waitUntil(work);
+        }
+      } catch {
+        // logging must never affect the call
+      }
+      throw err;
+    }
     try {
       const store = aiContext.getStore() || globalThis.__aiUsageFallbackStore;
       if (store?.env?.SUPABASE_URL) {
