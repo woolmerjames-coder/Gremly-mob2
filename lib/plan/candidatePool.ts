@@ -22,6 +22,7 @@ import type { HabitAdaptationRow } from '../store/useGremlyStore';
 import type { TimeBlockPreferences } from '../capacity/capacityTypes';
 import { weeklyTarget } from '../brief/behind';
 import { behindInWeek, pausedOn } from '../week/habitWeek';
+import { isBreakHabit } from '../../workers/shared/habitWeek';
 import type { DcoClaim, DcoReach } from '../brief/dco';
 import { todoDayWords } from './dayItems';
 import { weekdayOf } from '../wrapup/day';
@@ -109,13 +110,10 @@ function plannableTodo(t: Todo, input: PoolInput): boolean {
 }
 
 /**
- * A habit they are breaking. It has nothing to do at a time, so it is never a
- * pick or a plan entry: Today keeps it in sight (Stay mindful) and the evening
- * wrap up checks in on it.
+ * A habit they are breaking: never a pick or a plan entry. The one rule for
+ * it is shared with the workers (workers/shared/habitWeek.js).
  */
-export function isBreakHabit(h: { subtype?: unknown } | null | undefined): boolean {
-  return h?.subtype === 'break_habit';
-}
+export { isBreakHabit };
 
 function plannableHabit(h: Habit, input: PoolInput): boolean {
   if (h.archived) return false;

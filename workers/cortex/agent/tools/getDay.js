@@ -28,7 +28,7 @@ import { calendarSelects, meetingsFrom } from '../../../shared/calendar.js';
 import { scheduleOf, scheduleLabel } from '../../../shared/changes/check.js';
 import { buildDayRecord } from '../../../inngest-jobs/brief/dayRecord.js';
 import { isDay, weeklyDayOf } from '../../../shared/week.js';
-import { easeOn, rowOfEase, weekAround } from '../../../shared/habitWeek.js';
+import { easeOn, isBreakHabit, rowOfEase, weekAround } from '../../../shared/habitWeek.js';
 import { day, obj } from './schema.js';
 import { addDays, clock, dayWords, trim, weekdayOf } from './words.js';
 
@@ -51,6 +51,13 @@ const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
  */
 export function habitOnDay(h, date, logged, plannedHere = false, weeklyDay = 0, ease = null) {
   if (ease?.mode === 'pause') return null;
+  // A habit they are breaking has nothing to do on a day and no time to do it
+  // at: it is one they keep clear of every day it runs, never a thing to do.
+  if (isBreakHabit(h)) {
+    if (h.start_date && String(h.start_date).slice(0, 10) > date) return null;
+    if (h.end_date && String(h.end_date).slice(0, 10) < date) return null;
+    return { breaking: true, done: logged.includes(date) };
+  }
   const on = habitStanding(h, date, logged, plannedHere, weeklyDay);
   return on && ease?.mode === 'lighter' ? { ...on, lighter: ease.note || '' } : on;
 }
@@ -110,7 +117,7 @@ function habitSelects(d, u, first, last, bounds, weeklyDay) {
   const since = weekStart < monthStart ? weekStart : monthStart;
   return [
     d.select(
-      `habits?owner_id=eq.${u}&archived=eq.false&select=id,name,title,frequency,cadence,target_per_period,days_active,start_date,end_date&limit=200`,
+      `habits?owner_id=eq.${u}&archived=eq.false&select=id,name,title,subtype,frequency,cadence,target_per_period,days_active,start_date,end_date&limit=200`,
     ),
     d.select(
       `habit_progress?owner_id=eq.${u}&occurred_day=gte.${since}&occurred_day=lte.${last}&select=habit_id,occurred_day&limit=3000`,
@@ -355,7 +362,9 @@ function renderDay(r, ctx) {
       `Habits: ${r.habits
         .map(
           (h) =>
-            `${trim(h.title, 50)} (id ${h.id}) ${h.schedule}, ${h.done ? 'done that day' : 'not done that day'}${h.progress ? `, ${h.progress}${h.met ? ', already met' : ''}` : ''}${plannedWords(h.planned, ctx.today)}${lighterWords(h.lighter)}`,
+            h.breaking
+              ? `${trim(h.title, 50)} (id ${h.id}) a habit they are breaking, with nothing to do or plan, ${h.done ? 'checked in as kept clear that day' : 'no check in that day'}`
+              : `${trim(h.title, 50)} (id ${h.id}) ${h.schedule}, ${h.done ? 'done that day' : 'not done that day'}${h.progress ? `, ${h.progress}${h.met ? ', already met' : ''}` : ''}${plannedWords(h.planned, ctx.today)}${lighterWords(h.lighter)}`,
         )
         .join('; ')}`,
     );

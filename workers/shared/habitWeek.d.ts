@@ -18,6 +18,8 @@ export interface HabitShape {
   quiet_until: string | null;
 }
 
+/** A habit they are breaking: never a thing to do, a pick, a plan entry or a calendar block. */
+export declare function isBreakHabit(h: { subtype?: unknown } | null | undefined): boolean;
 export declare function habitShape(h: Row | null | undefined): HabitShape;
 export declare function plannedOn(plans: Row[] | null | undefined, day: string): Set<string>;
 export declare function checkInOpen(

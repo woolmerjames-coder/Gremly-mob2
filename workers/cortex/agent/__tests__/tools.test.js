@@ -239,6 +239,14 @@ describe('get_day', () => {
     expect(habitOnDay({ ...daily, start_date: '2026-10-05' }, TODAY, [])).toBeNull();
   });
 
+  it('reads a habit they are breaking as one kept clear of, never as something to do', () => {
+    const breaking = { subtype: 'break_habit', cadence: 'weekly', days_active: [1, 3, 5] };
+    // every day it runs, weekdays or not, and with no schedule or progress to do
+    expect(habitOnDay(breaking, TODAY, [TODAY])).toEqual({ breaking: true, done: true });
+    expect(habitOnDay(breaking, '2026-10-03', [])).toEqual({ breaking: true, done: false });
+    expect(habitOnDay({ ...breaking, end_date: '2026-10-01' }, TODAY, [])).toBeNull();
+  });
+
   it('reads today: the calendar in their time, todos with ids, what is past its day, habits', async () => {
     const db = fakeDb({
       synced_calendar_events: [

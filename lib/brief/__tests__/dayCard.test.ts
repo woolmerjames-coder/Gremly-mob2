@@ -164,4 +164,14 @@ describe('what is locked in for a day', () => {
     // a pause that is over holds nothing
     expect(ids([{ ...paused[0], period_end: '2026-10-06' }])).toEqual(['run', 'read']);
   });
+
+  it('never has a habit they are breaking on the day, whatever time it was given', () => {
+    const withBreaking = [
+      ...habits,
+      { id: 'sugar', name: 'No sugar', subtype: 'break_habit', scheduled_start_iso: at(9) },
+    ] as any;
+    expect(
+      plannedForDay([], withBreaking, '2026-10-07').map((p: { id: string }) => p.id),
+    ).toEqual(['run', 'read']);
+  });
 });

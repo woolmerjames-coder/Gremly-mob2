@@ -22,6 +22,7 @@ import { buildDayRecord, type DayRecord, type DayThreadMeta } from './dayRecord'
 import { useTodayThread } from './todayThread';
 import { habitsOnDay, todosDueOn } from '../plan/dayItems';
 import { pausedOn, plannedOn, weekAround } from '../week/habitWeek';
+import { isBreakHabit } from '../../workers/shared/habitWeek';
 import {
   habitsLine,
   isCancelledMeeting,
@@ -139,7 +140,10 @@ export function plannedForDay(
     });
   };
   todos.forEach((t) => !t.archived && !t.completed_at && add(t, 'todo'));
-  habits.forEach((h) => !h.archived && !pausedOn(eases, h.id, date) && add(h, 'habit'));
+  // a habit they are breaking has no time to do it at, so it is never on the day's plan
+  habits.forEach(
+    (h) => !h.archived && !isBreakHabit(h) && !pausedOn(eases, h.id, date) && add(h, 'habit'),
+  );
   return out.sort((a, b) => a.start - b.start);
 }
 
@@ -182,8 +186,14 @@ export function useDayCard(date: string): DayCardData {
     () => (isToday ? todosDueToday : todosDueOn(todos, date)),
     [isToday, todosDueToday, todos, date],
   );
+  // A habit they are breaking is never one of the day's habits to do: Due
+  // today, the card's count and the pick sheet leave it out. Today keeps it in
+  // sight (Stay mindful) and the evening wrap up checks in on it.
   const habitsToday = useMemo(
-    () => (isToday ? habitsDueToday : habitsOnDay(habits, date, habitAdaptations)),
+    () =>
+      (isToday ? habitsDueToday : habitsOnDay(habits, date, habitAdaptations)).filter(
+        (h) => !isBreakHabit(h),
+      ),
     [isToday, habitsDueToday, habits, date, habitAdaptations],
   );
 
@@ -211,11 +221,12 @@ export function useDayCard(date: string): DayCardData {
       const target = weeklyTarget(h);
       return { habit: h, done: done.get(h.id) ?? 0, target, behind: false };
     });
+    // behind is for a habit with something to do: never one they are breaking
     const behindList = habitsBehindThisWeek(active, done, {
       today: date,
       weeklyDay,
       eases: habitAdaptations,
-    });
+    }).filter((h) => !isBreakHabit(h));
     const behindIds = new Set(behindList.map((h) => h.id));
     weeks.forEach((w) => (w.behind = behindIds.has(w.habit.id)));
     return { habitWeeks: weeks, behind: behindList };

@@ -20,7 +20,14 @@ import { readThreadReaction } from './reaction';
 import { sweepCounts } from '../notifications/sweepCount';
 import { buildDayRecord } from './dayRecord';
 import { briefOffersReview, cycleOf, weeklyDayOf } from '../../shared/week.js';
-import { easeOn, habitToCheckIn, pausedOn, plannedOn, weekAround } from '../../shared/habitWeek.js';
+import {
+  easeOn,
+  habitToCheckIn,
+  isBreakHabit,
+  pausedOn,
+  plannedOn,
+  weekAround,
+} from '../../shared/habitWeek.js';
 import { weekSettings } from '../week/settings';
 
 export const PLAN_DAY_START = 8 * 60;
@@ -246,7 +253,7 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
   const habitView = active.map((h) => {
     const target = weeklyTarget(h);
     const n = done.get(h.id) || 0;
-    const daily = (h.cadence || 'daily') === 'daily' && h.subtype !== 'break_habit';
+    const daily = (h.cadence || 'daily') === 'daily' && !isBreakHabit(h);
     const scheduledToday =
       Array.isArray(h.days_active) && h.days_active.length
         ? h.days_active.includes(weekday)
@@ -268,10 +275,16 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
       lighter: ease?.mode === 'lighter' ? ease.note : null,
     };
   });
-  // a habit paused today is left alone: it is not one of the habits for today
+  // a habit they are breaking: nothing to do on a day, so never one to plan or do
+  const breakingIds = new Set((habits || []).filter(isBreakHabit).map((h) => h.id));
+  // a habit paused today is left alone: it is not one of the habits for today;
+  // nor is one they are breaking, which has nothing to do on a day even when
+  // it has weekdays set or was planned on one
   const habitsForToday = habitView.filter(
     (h) =>
-      !pausedOn(eases, h.id, today) && (h.daily || h.behind || h.scheduledToday || h.plannedToday),
+      !pausedOn(eases, h.id, today) &&
+      !breakingIds.has(h.id) &&
+      (h.daily || h.behind || h.scheduledToday || h.plannedToday),
   );
   // the one habit planned for today that the brief checks in on; none when
   // their pauses could not be read
@@ -312,9 +325,6 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
   const reach = brief.reach || null;
   // what could go in a plan: a habit they are breaking has nothing to do at a
   // time, so it is never one (the app leaves it out of the plan too)
-  const breakingIds = new Set(
-    (habits || []).filter((h) => h.subtype === 'break_habit').map((h) => h.id),
-  );
   const candidates =
     todosDue.length + habitsForToday.filter((h) => !breakingIds.has(h.id)).length + (reach ? 1 : 0);
   // A plan already locked in for today (Plan tomorrow, the evening before)

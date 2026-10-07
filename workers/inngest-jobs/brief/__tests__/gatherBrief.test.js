@@ -113,7 +113,7 @@ describe('their week, for the brief', () => {
     expect(g.candidates).toBe(2);
   });
 
-  it('does not count a habit they are breaking as something to plan, or as planned', async () => {
+  it('does not count a habit they are breaking as one for today, something to plan, or planned', async () => {
     const { g } = await gather(
       rows({
         habits: [
@@ -129,8 +129,9 @@ describe('their week, for the brief', () => {
         ],
       }),
     );
-    // it falls on today (a Monday), and is still not a candidate for the plan
-    expect(g.habitsForToday.map((h) => h.id)).toEqual(['h1', 'b1']);
+    // it falls on today (a Monday) and has a time, and is still nothing to do:
+    // not one of the habits for today, and not a candidate for the plan
+    expect(g.habitsForToday.map((h) => h.id)).toEqual(['h1']);
     expect(g.candidates).toBe(1);
     expect(g.planned).toEqual([]);
   });

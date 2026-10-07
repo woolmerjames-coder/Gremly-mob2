@@ -50,6 +50,16 @@ const dayOf = (v) => {
 };
 
 /**
+ * A habit they are breaking. It has nothing to do on a day and no time to do
+ * it at, so it is never a thing to do, a pick, a plan entry or a block on a
+ * calendar: Today keeps it in sight (Stay mindful) and the evening wrap up
+ * checks in on it. The one rule for it, in the workers and in the app.
+ */
+export function isBreakHabit(h) {
+  return h?.subtype === 'break_habit';
+}
+
+/**
  * A habit as these rules read it. quiet_until is read from the habit's views,
  * or from a column of that name when the row was selected that way.
  */
@@ -62,7 +72,7 @@ export function habitShape(h) {
     days_active: Array.isArray(h?.days_active)
       ? h.days_active.filter((d) => Number.isInteger(d))
       : [],
-    breaking: h?.subtype === 'break_habit',
+    breaking: isBreakHabit(h),
     archived: h?.archived === true,
     start_date: dayOf(h?.start_date),
     end_date: dayOf(h?.end_date),
@@ -140,7 +150,7 @@ export function dayOfWeek(today, weeklyDay) {
  * a daily or monthly habit, or one they are breaking.
  */
 export function weeklyTarget(habit) {
-  if (!habit || habit.subtype === 'break_habit') return null;
+  if (!habit || isBreakHabit(habit)) return null;
   if ((habit.cadence || 'daily') !== 'weekly') return null;
   const t =
     habit.target_per_period ??
