@@ -12,7 +12,8 @@
  *
  * Keys come from the environment: SHADOW_SUPABASE_KEY (a key for the
  * shadow_reader role, which may only read), OPENAI_API_KEY,
- * GEMINI_TEST_API_KEY and, for weekly jobs, ANTHROPIC_API_KEY. Results are
+ * GEMINI_TEST_API_KEY and, for weekly jobs, ANTHROPIC_API_KEY; any
+ * CONTEXT_MODEL_<JOB> (provider:model) tries another model. Results are
  * written under "Claude outputs/shadow" in this checkout (SHADOW_OUT to
  * change it), which git ignores: real data never goes into the repo.
  */
@@ -77,6 +78,8 @@ if (keyRole(APIKEY) !== 'anon' && !APIKEY.startsWith('sb_publishable_'))
 const record = { reads: [], writes: [], calls: [], usage: [], effects: [] };
 const env = {
   ...workerVars(join(ROOT, 'workers/inngest-jobs/wrangler.toml')),
+  // a model to try in place of the one that ships, as CONTEXT_MODEL_<JOB>=provider:model
+  ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('CONTEXT_MODEL_'))),
   SUPABASE_URL,
   SUPABASE_SERVICE_KEY: KEY,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
@@ -307,6 +310,9 @@ function pickMorning(dco, built) {
     input_chars: built?.inputChars ?? null,
     failed: built?.problems ? built.problems.length : (built?.failed ?? null),
     problems: built?.problems ? built.problems.map((p) => p.field) : null,
+    // what the check did (data fabric stage 3), with the words of each try
+    check: built?.check || null,
+    lines: built?.kept ? built.kept.map((k) => ({ field: k.key, text: k.text, refs: k.refs })) : null,
   };
 }
 

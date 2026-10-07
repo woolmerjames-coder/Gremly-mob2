@@ -201,12 +201,6 @@ export function dayMeaning(dco) {
       `- Away: ${away.label}${away.through ? `, until ${weekdayName(away.through)} ${away.through}` : ''}`,
     );
   }
-  const moment = dco.life_moment;
-  if (moment && typeof moment === 'object' && (moment.what || moment.label)) {
-    lines.push(`- In their life right now: ${moment.what || moment.label}`);
-  } else if (typeof moment === 'string' && moment.trim()) {
-    lines.push(`- In their life right now: ${moment.trim()}`);
-  }
   if (dco.voice_note) lines.push(`- How Gremly's brief is pitching today: ${dco.voice_note}`);
   return lines.length
     ? `WHAT TODAY IS ABOUT (Gremly's picture of their day)\n${lines.join('\n')}`
