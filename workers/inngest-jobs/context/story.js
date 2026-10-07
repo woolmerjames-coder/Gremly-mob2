@@ -13,6 +13,7 @@ import { db, userTimezone, localDate, relativeDay, personIdentity } from './db';
 import { anthropicJsonParams, modelFor } from './llm';
 import { recentCorrections } from './corrections';
 import { invalidateChatCache } from './cache';
+import { passageRow, recordPassages } from '../../shared/passageRefs.js';
 
 export const STORY_PROMPT_VERSION = 'story-2026-10-01c';
 
@@ -323,6 +324,7 @@ export function storyRows(userId, output, refsSnapshot, { runId, model, today })
     }
     // Every row carries the same keys: PostgREST bulk inserts require it.
     rows.push({
+      id: crypto.randomUUID(),
       user_id: userId,
       kind: row.kind,
       pattern_kind: row.pattern_kind ?? null,
@@ -440,6 +442,26 @@ export async function applyStory(
   await d.update(
     `story_items?user_id=eq.${userId}&state=eq.current&or=(run_id.is.null,run_id.neq.${runId})`,
     { state: 'superseded', updated_at: nowIso },
+  );
+  // What each item was written from (workers/shared/passageRefs.js)
+  applied.passages = await recordPassages(
+    d,
+    rows.flatMap((r) =>
+      ['title', 'body'].map((field) =>
+        passageRow({
+          userId,
+          surface: 'story',
+          table: 'story_items',
+          id: r.id,
+          field,
+          factIds: r.fact_ids,
+          writer: 'story',
+          model: r.model,
+          promptVersion: STORY_PROMPT_VERSION,
+          at: nowIso,
+        }),
+      ),
+    ),
   );
 
   // Compact copy for the Life Map: what chat and the app already read. With no

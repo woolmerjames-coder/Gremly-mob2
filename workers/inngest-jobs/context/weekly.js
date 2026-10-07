@@ -38,6 +38,7 @@ import { loadStory, storyLines } from './story';
 import { invalidateChatCache } from './cache';
 import { batchUsageRow, writeUsageRow } from '../../shared/aiUsage';
 import { stateWords } from '../../shared/factTiming.js';
+import { passageRow, recordPassages } from '../../shared/passageRefs.js';
 
 export const WEEKLY_PROMPT_VERSION = 'weekly-2026-10-01d';
 
@@ -760,6 +761,13 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
     ),
   ];
   const sources = new Map(worldRows.map((r) => [r.id, r]));
+  // What this run writes from what: each passage with the facts it cites
+  const passages = [];
+  const factIdsOf = (list) =>
+    (list || [])
+      .map((r) => refs.get(r))
+      .filter((f) => f && f.type === 'fact')
+      .map((f) => f.id);
   for (const { id, w, lived, cardOk } of worldUpdates) {
     const src = sources.get(id) || {};
     const patch = {
@@ -784,6 +792,21 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
         summary_updated_at: nowIso,
       });
     await d.update(`worlds?id=eq.${id}&owner_id=eq.${userId}`, patch);
+    // the card line rests on the facts it cites (workers/shared/passageRefs.js)
+    if (patch.card_subtitle)
+      passages.push(
+        passageRow({
+          userId,
+          surface: 'world',
+          table: 'worlds',
+          id,
+          field: 'card_subtitle',
+          factIds: factIdsOf(w.card_fact_refs),
+          writer: 'weekly',
+          promptVersion: WEEKLY_PROMPT_VERSION,
+          at: nowIso,
+        }),
+      );
   }
 
   // Chapters: the words, stage label and priorities, never the person's own edits.
@@ -874,6 +897,22 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
         });
       }
       await d.update(`chapters?id=eq.${id}&owner_id=eq.${userId}`, patch);
+      // a chapter's words rest on the facts it cites
+      for (const field of ['title', 'card_subtitle', 'summary', 'epigraph'])
+        if (patch[field])
+          passages.push(
+            passageRow({
+              userId,
+              surface: 'chapter',
+              table: 'chapters',
+              id,
+              field,
+              factIds: factIdsOf(c.card_fact_refs),
+              writer: 'weekly',
+              promptVersion: WEEKLY_PROMPT_VERSION,
+              at: nowIso,
+            }),
+          );
     }
   }
 
@@ -887,10 +926,44 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
         status: 'open',
         about_fact_id: f?.type === 'fact' ? f.id : null,
         run_id: runId,
+        prompt_version: WEEKLY_PROMPT_VERSION,
       },
     ]);
     applied.questions++;
   }
+
+  // Each Life Map thread rests on the facts in its evidence. Its place in the
+  // map moves from week to week, so the map's old records go first.
+  if (lifeMapOk) {
+    const lmId =
+      current?.id || (await d.select(`user_life_map?user_id=eq.${userId}&select=id`))[0]?.id;
+    if (lmId) {
+      await d.remove(
+        `passage_refs?user_id=eq.${userId}&row_table=eq.user_life_map&row_id=eq.${lmId}`,
+      );
+      domains.forEach((dm, di) =>
+        dm.threads.forEach((t, ti) => {
+          for (const field of ['summary', 'recent_update'])
+            if (t[field])
+              passages.push(
+                passageRow({
+                  userId,
+                  surface: 'life_map',
+                  table: 'user_life_map',
+                  id: lmId,
+                  field: `domains.${di}.threads.${ti}.${field}`,
+                  factIds: (t.evidence || []).map((e) => e.fact_id),
+                  writer: 'weekly',
+                  promptVersion: WEEKLY_PROMPT_VERSION,
+                  at: nowIso,
+                }),
+              );
+        }),
+      );
+    }
+  }
+  applied.passages = await recordPassages(d, passages);
+
   await invalidateChatCache(env, userId);
   return { applied, worldsSummary, previous };
 }

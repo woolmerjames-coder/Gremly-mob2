@@ -12,6 +12,7 @@
  *   the daily pictures and the weekly summaries
  *   Gremly's words on Worlds and Chapters (never words the person wrote)
  *   his summaries of chats, on items and on chats
+ *   what each of his sentences was written from (passage_refs)
  *
  * Reading starts again from now, so what is forgotten is not read back in.
  */
@@ -37,6 +38,7 @@ export async function forgetPerson(env, userId) {
   out.told = count(await d.remove(`user_profile_overrides?${u}&select=id`));
   out.daily_pictures = count(await d.remove(`user_daily_state?${u}&select=id`));
   out.weekly_summaries = count(await d.remove(`weekly_summaries?${u}&select=id`));
+  out.passages = count(await d.remove(`passage_refs?${u}&select=id`));
   out.profile = count(
     await d.update(`user_profiles?${u}`, {
       profile_text: null,

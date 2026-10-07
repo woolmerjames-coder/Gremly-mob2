@@ -46,6 +46,7 @@ describe('Forget Everything', () => {
         'user_profile_overrides',
         'user_daily_state',
         'weekly_summaries',
+        'passage_refs',
       ]),
     );
     for (const c of calls.filter((x) => x.op !== 'upsert'))
