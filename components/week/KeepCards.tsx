@@ -311,6 +311,95 @@ export function OverfullCard({
   );
 }
 
+/**
+ * A todo that matters most this week and is on no day of it: Gremly says so,
+ * and offers to put it on the day with room for it, to split it into parts
+ * that each fit a day, or to leave it for later. With neither to offer, the
+ * board is theirs to make room on.
+ */
+export function FitCard({
+  id,
+  line,
+  dayLabel,
+  splitLabel,
+  partsLine,
+  disabled,
+  onDay,
+  onSplit,
+  onOpen,
+  onLeave,
+}: {
+  id: string;
+  /** Gremly's line: the todo, and that it is on no day */
+  line: string;
+  /** "Put it on Saturday", when a day has room for it whole */
+  dayLabel: string | null;
+  /** "Split it in two", when it can be split to fit, with the parts and their days under it */
+  splitLabel: string | null;
+  partsLine: string;
+  disabled?: boolean;
+  onDay: () => void;
+  onSplit: () => void;
+  onOpen: () => void;
+  onLeave: () => void;
+}) {
+  return (
+    <View style={styles.wrap} testID={`week-fit-${id}`}>
+      <Said text={line} />
+      <View style={[styles.card, styles.overCard]}>
+        {dayLabel ? (
+          <TouchableOpacity
+            style={[weekStyles.main, disabled && weekStyles.off]}
+            onPress={onDay}
+            disabled={disabled}
+            accessibilityRole="button"
+            testID="week-fit-day"
+          >
+            <Text style={weekStyles.mainText}>{dayLabel}</Text>
+          </TouchableOpacity>
+        ) : null}
+        {splitLabel ? (
+          <>
+            <TouchableOpacity
+              style={[dayLabel ? weekStyles.second : weekStyles.main, disabled && weekStyles.off]}
+              onPress={onSplit}
+              disabled={disabled}
+              accessibilityRole="button"
+              testID="week-fit-split"
+            >
+              <Text style={dayLabel ? weekStyles.secondText : weekStyles.mainText}>
+                {splitLabel}
+              </Text>
+            </TouchableOpacity>
+            <Text style={weekStyles.hint}>{partsLine}</Text>
+          </>
+        ) : null}
+        {!dayLabel && !splitLabel ? <Text style={styles.noneText}>{WEEK_COPY.fitNone}</Text> : null}
+        <View style={weekStyles.pair}>
+          <TouchableOpacity
+            style={[weekStyles.second, weekStyles.grow, disabled && weekStyles.off]}
+            onPress={onOpen}
+            disabled={disabled}
+            accessibilityRole="button"
+            testID="week-fit-open"
+          >
+            <Text style={weekStyles.secondText}>{WEEK_COPY.fitOpen}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[weekStyles.second, weekStyles.grow, disabled && weekStyles.off]}
+            onPress={onLeave}
+            disabled={disabled}
+            accessibilityRole="button"
+            testID="week-fit-leave"
+          >
+            <Text style={weekStyles.secondText}>{WEEK_COPY.fitLeave}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   wrap: { gap: 10 },
   said: { alignSelf: 'flex-start', maxWidth: 340, gap: 6 },

@@ -30,6 +30,7 @@ export type {
 export {
   EASE_OPS,
   fieldDef,
+  NAME_LIMIT,
   OPS,
   TYPES,
   WEEK_LIMITS,

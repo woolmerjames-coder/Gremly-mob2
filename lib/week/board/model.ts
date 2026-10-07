@@ -89,7 +89,10 @@ export interface BoardTodo {
    * the review, or one they put it on by hand on the board.
    */
   theirs: boolean;
-  /** They put it on this day by hand on the board, and nothing of that is saved yet */
+  /**
+   * They put it where it is by hand on the board, on this day or off until
+   * the day it comes back, and nothing of that is saved yet
+   */
   byHand: boolean;
   /** Its hard date, when it has one */
   by: string | null;
@@ -433,7 +436,10 @@ export function boardOf(p: BoardInput): Board {
       todo.day = ownDay;
       todo.theirs = true;
       todo.byHand = true;
-    } else if (ownBack && isDay(ownBack) && ownBack > today) todo.backOn = ownBack;
+    } else if (ownBack && isDay(ownBack) && ownBack > today) {
+      todo.backOn = ownBack;
+      todo.byHand = true;
+    }
     // then what is saved: a day of its own that is kept, here or elsewhere
     else if (spot.spot === 'fixed' && !free) {
       todo.day = spot.day;
@@ -859,7 +865,8 @@ export function withoutMoves(
 /**
  * Where the board's step stands: the question about their own days (keep),
  * picking which of them to keep (pick), an over-full day to look at
- * (overfull), or the board itself.
+ * (overfull), a todo that matters most and is on no day (unfitted), or the
+ * board itself.
  *
  * The question is asked once, when they have many todos on days of their own
  * (KEEP_ASK_FROM); with fewer they are kept without asking, and so they are
@@ -868,23 +875,101 @@ export function withoutMoves(
  * been dealt with (answers.relieved): the ones they kept there, and the ones
  * they put there by hand on the board, whatever they said of their days.
  * Keeping their days never means keeping an over-full day without a word.
+ *
+ * Last, once Gremly's spread for these answers is on the board (ready): each
+ * todo that is one of the things that matter most this week and is on no day
+ * of it is taken in turn (unfitted), until each has been dealt with
+ * (answers.fitted). What matters most never goes to Later without a word.
  */
 export type BoardStage =
   | { stage: 'keep' }
   | { stage: 'pick' }
   | { stage: 'overfull'; day: string }
+  | { stage: 'unfitted'; id: string }
   | { stage: 'board' };
 
 export function boardStage(
   board: Board,
   answers: WeekAnswers | null | undefined,
-  open: { asking?: boolean; picking?: boolean } = {},
+  /** ready: the spread for these answers is on the board, so what it left off the days is known */
+  open: { asking?: boolean; picking?: boolean; ready?: boolean } = {},
 ): BoardStage {
   if (open.picking) return { stage: 'pick' };
   const unasked = answers?.keep === undefined && !answers?.guessed;
   if (open.asking || (unasked && board.theirs.length >= KEEP_ASK_FROM)) return { stage: 'keep' };
   const over = board.days.find((d) => d.over > 0 && !answers?.relieved?.[d.day]);
-  return over ? { stage: 'overfull', day: over.day } : { stage: 'board' };
+  if (over) return { stage: 'overfull', day: over.day };
+  const off = open.ready
+    ? unfitted(board, answers).find((u) => !answers?.fitted?.[u.todo.id])
+    : null;
+  return off ? { stage: 'unfitted', id: off.todo.id } : { stage: 'board' };
+}
+
+// ── What matters most, on no day ────────────────────────────────────────────
+
+/** The shortest part a todo is split into, and the most parts. */
+export const PART_MIN = 30;
+export const PARTS_MAX = 4;
+
+/** A todo that is one of the things that matter most this week and is on no day of it. */
+export interface Unfitted {
+  todo: BoardTodo;
+  /** Some day has room for it as the board stands: it is on no day, though it would fit one */
+  fits: boolean;
+  /**
+   * The day it can go on whole: one with room for it as the board stands,
+   * else the day with the most room once what Gremly placed there gives way.
+   * Null when no day can hold it.
+   */
+  day: string | null;
+  /** It in parts, each with the day it goes on; null when it cannot be split to fit */
+  parts: { minutes: number; day: string }[] | null;
+}
+
+/**
+ * The todos that matter most this week (the ones their priorities cover) and
+ * are on no day of the week: put off by the spread, or still put off from
+ * before the review. One they put off themselves on the board is their own
+ * choice and is not among them.
+ *
+ * For each, what the board can offer, worked out from minutes alone. A day's
+ * room for it is what the day gives, less its habits and everything on it
+ * that is not Gremly's: what he placed gives way to what matters most
+ * (boardOf). A todo with a hard date inside the week is only offered days up
+ * to that date. It is split into the fewest equal parts, of half an hour or
+ * more, that each fit a day of their own, the earliest days first.
+ */
+export function unfitted(board: Board, answers: WeekAnswers | null | undefined): Unfitted[] {
+  const priorityIds = new Set((answers?.priorities ?? []).flatMap((x) => x.item_ids ?? []));
+  const inWeek = (day: string | null) => !!day && board.days.some((d) => d.day === day);
+  return board.later
+    .filter((t) => priorityIds.has(t.id) && !t.byHand)
+    .sort((a, b) => b.minutes - a.minutes || a.id.localeCompare(b.id))
+    .map((todo) => {
+      const days = board.days.filter((d) => !inWeek(todo.by) || d.day <= (todo.by as string));
+      const room = (d: BoardDay) => d.minutes - d.habitMinutes - d.ownMinutes;
+      const asIs = days.find((d) => d.left >= todo.minutes);
+      const most = days.reduce<BoardDay | null>(
+        (best, d) => (room(d) >= todo.minutes && (!best || room(d) > room(best)) ? d : best),
+        null,
+      );
+      let parts: Unfitted['parts'] = null;
+      const mostParts = Math.min(PARTS_MAX, Math.floor(todo.minutes / PART_MIN));
+      for (let n = 2; n <= mostParts && !parts; n++) {
+        // equal parts to the next five minutes, the last taking what is left
+        const each = Math.ceil(todo.minutes / n / 5) * 5;
+        const on = days.filter((d) => room(d) >= each).slice(0, n);
+        // a last part shorter than the shortest is no part: more parts will not do either
+        if (todo.minutes - each * (n - 1) < PART_MIN) break;
+        if (on.length === n) {
+          parts = on.map((d, i) => ({
+            minutes: i < n - 1 ? each : todo.minutes - each * (n - 1),
+            day: d.day,
+          }));
+        }
+      }
+      return { todo, fits: !!asIs, day: (asIs ?? most)?.day ?? null, parts };
+    });
 }
 
 /**

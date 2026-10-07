@@ -8,6 +8,7 @@
  * the drafts) comes from the weekly read; these are only the fixed sentences
  * around it.
  */
+import { NAME_LIMIT } from '../../changes/model';
 import { weekdayOf, type ReviewKind, type WeekHours } from '../model';
 
 export const DAY_NAMES = [
@@ -266,6 +267,12 @@ export const WEEK_COPY = {
   takeMoves: 'Move these',
   changeMyself: "I'll change it myself",
   leaveIt: 'Leave it',
+  // a todo that matters most this week and is on no day of it
+  fitLeave: 'Leave it for later',
+  fitOpen: 'Open my week',
+  fitUndo: 'Undo',
+  fitNone:
+    'No day has room for it, whole or in parts. You can make room for it on the board, or leave it for later.',
 
   // Your week: the week they planned, read back, and changed by hand
   weekIntention: 'YOUR INTENTION',
@@ -661,6 +668,58 @@ export function stillLine(still: number): string {
 /** The board's title when it is opened to change one over-full day by hand. */
 export function changeDayTitle(day: string): string {
   return `Change ${DAY_NAMES[weekdayOf(day)]}`;
+}
+
+/** Gremly's line for a todo that matters most this week and is on no day of it. */
+export function unfittedLine(title: string, minutes: number, fits: boolean): string {
+  const lead = `“${title}” is one of the things that matter most this week`;
+  return fits
+    ? `${lead}, and it is on no day yet.`
+    : `${lead}, and at ${minsLabel(minutes)} it fits on no day as the week stands.`;
+}
+
+/** The button that puts it whole on the day with room for it. */
+export function fitDayButton(day: string): string {
+  return `Put it on ${DAY_NAMES[weekdayOf(day)]}`;
+}
+
+/** The button that splits it into parts that each fit a day. */
+export function fitSplitButton(parts: number): string {
+  return `Split it in ${countWord(parts)}`;
+}
+
+/** The parts a split would make, under its button: "1h 30m on Tuesday and 1h 30m on Thursday". */
+export function fitPartsLine(parts: { minutes: number; day: string }[]): string {
+  const each = parts.map((p) => `${minsLabel(p.minutes)} on ${DAY_NAMES[weekdayOf(p.day)]}`);
+  return each.length > 1
+    ? `${each.slice(0, -1).join(', ')} and ${each[each.length - 1]}`
+    : (each[0] ?? '');
+}
+
+/**
+ * The name of one part of a todo that was split: "Write the report (part 1 of
+ * 2)". A name already as long as a name can be is cut to leave room for which
+ * part it is.
+ */
+export function partTitle(title: string, part: number, of: number): string {
+  const which = ` (part ${part} of ${of})`;
+  return `${title.slice(0, NAME_LIMIT - which.length).trim()}${which}`;
+}
+
+/** What they chose for a todo that was on no day, as their answer under the card. */
+export function fittedText(f: {
+  how: 'day' | 'split' | 'left';
+  title: string;
+  day?: string;
+  parts?: number;
+}): string {
+  if (f.how === 'day') {
+    return f.day
+      ? `Put “${f.title}” on ${DAY_NAMES[weekdayOf(f.day)]}`
+      : `Put “${f.title}” on a day`;
+  }
+  if (f.how === 'split') return `Split “${f.title}” in ${countWord(f.parts ?? 2)}`;
+  return `Leave “${f.title}” for later`;
 }
 
 /** What they chose for an over-full day, as their answer under the card. */

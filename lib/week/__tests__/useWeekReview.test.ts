@@ -21,7 +21,7 @@ import {
 } from '../../repo/weekReviewRepo';
 import { callWeekRead, callWeekSpread } from '../../cortex/CortexClient';
 import { saveBoard } from '../board/save';
-import { applyChange } from '../../changes/apply';
+import { applyChange, applyChanges } from '../../changes/apply';
 import { intentionNote } from '../../changes/week';
 import {
   ID,
@@ -59,7 +59,7 @@ jest.mock('../../cortex/CortexClient', () => ({
 }));
 // the board's own writes are tested with the store (lib/week/board/__tests__/save.test.ts)
 jest.mock('../board/save', () => ({ saveBoard: jest.fn() }));
-jest.mock('../../changes/apply', () => ({ applyChange: jest.fn() }));
+jest.mock('../../changes/apply', () => ({ applyChange: jest.fn(), applyChanges: jest.fn() }));
 jest.mock('../../changes/week', () => ({ intentionNote: jest.fn() }));
 jest.mock('../../changes/words', () => ({
   rowWords: (c: { title: string }) => `${c.title}: put off until next week`,
@@ -2700,6 +2700,172 @@ describe('the week’s board', () => {
     await h.go(() => r().board.keep('all'));
     expect(useWeekSession.getState().moves.placed).toEqual({ 'own-0': SAT });
     expect(rows['row-1'].answers.board.placed).toEqual({ 'own-0': SAT });
+  });
+
+  // ── what matters most, on no day ──
+  // The talk is what the week is for, and Gremly's spread put it off. With two
+  // hours on a normal day and four on a day off, three hours fit Saturday
+  // (beside the swim) and five fit no day.
+  const TALK = 'talk';
+  async function withTalk(minutes: number) {
+    mockStore.todos = [
+      ...TODOS.map((t) => ({ ...t })),
+      {
+        id: TALK,
+        name: 'Write the talk',
+        time_estimate_minutes: minutes,
+        created_at: '2026-09-25T09:00:00Z',
+      },
+    ];
+    mockStore.habits = HABITS;
+    (callWeekSpread as jest.Mock).mockImplementation(async () => ({
+      ok: true,
+      data: {
+        on: useWeekSession.getState().on,
+        spread: spreadNow({
+          later: [
+            { id: ID.fair, back_on: '2026-10-13' },
+            { id: TALK, back_on: '2026-10-14' },
+          ],
+        }),
+      },
+    }));
+    const h = await started({
+      status: 'started',
+      answers: {
+        step: 'board',
+        hours: { normal_day: 2, busy_day: 1, weekend_day: 4 },
+        busy_days: [THU],
+        priorities: [{ text: 'The talk', item_ids: [TALK] }],
+      },
+    });
+    await tick(h);
+    return h;
+  }
+
+  it('looks at a todo that matters most and is on no day before the week is finished, and puts it on the day with room', async () => {
+    const h = await withTalk(180);
+    const r = () => h.hook.result.current;
+    // Done on the board closes it on the todo's card: nothing is saved yet
+    await h.go(() => r().board.open());
+    await h.go(() => r().board.done());
+    expect(saveBoard).not.toHaveBeenCalled();
+    expect(useWeekSession.getState().boardOpen).toBe(false);
+    await h.go(() => r().board.fit(TALK, 'day'));
+    // theirs from here on, as a move of their own on the board
+    expect(useWeekSession.getState().moves.placed).toEqual({ [TALK]: SAT });
+    expect(rows['row-1'].answers.board.placed).toEqual({ [TALK]: SAT });
+    expect(rows['row-1'].answers.fitted).toEqual({
+      [TALK]: { how: 'day', title: 'Write the talk', day: SAT, order: 1 },
+    });
+    expect(applyChanges).not.toHaveBeenCalled();
+    // Their own move stands over the spread, so nothing is asked for again:
+    // what Gremly placed on that day gives way on the board itself. The week
+    // can be finished.
+    await tick(h, 20000);
+    expect(callWeekSpread).toHaveBeenCalledTimes(1);
+    await h.go(() => r().board.open());
+    await h.go(() => r().board.done());
+    expect(saveBoard).toHaveBeenCalledTimes(1);
+  });
+
+  it('splits one that fits no day into parts that each fit, and takes the split back with Undo', async () => {
+    const undo = jest.fn(async () => undefined);
+    (applyChanges as jest.Mock).mockImplementation(async (changes: any[]) => ({
+      outcomes: changes.map((c, i) => ({
+        cid: c.cid,
+        ok: true,
+        summary: '',
+        revert: jest.fn(),
+        ...(i > 0 ? { createdId: `${TALK}-${i + 1}` } : {}),
+      })),
+      revertAll: undo,
+    }));
+    const h = await withTalk(300);
+    const r = () => h.hook.result.current;
+    // five hours fit no day whole: there is no day to put it on
+    await h.go(() => r().board.fit(TALK, 'day'));
+    expect(rows['row-1'].answers.fitted).toBeUndefined();
+    await h.go(() => r().board.fit(TALK, 'split'));
+    // written at once: the todo becomes its first part, and the second is a new todo
+    const changes = (applyChanges as jest.Mock).mock.calls[0][0];
+    expect(changes).toMatchObject([
+      {
+        op: 'change',
+        type: 'todo',
+        id: TALK,
+        fields: { name: 'Write the talk (part 1 of 2)', length: 150 },
+      },
+      { op: 'add', type: 'todo', fields: { name: 'Write the talk (part 2 of 2)', length: 150 } },
+    ]);
+    // each part on its day, the new part among what matters most, and the week spread again
+    expect(useWeekSession.getState().moves.placed).toEqual({
+      [TALK]: SAT,
+      [`${TALK}-2`]: NEXT_SUN,
+    });
+    expect(rows['row-1'].answers).toMatchObject({
+      fitted: {
+        [TALK]: { how: 'split', title: 'Write the talk', parts: 2, made: [`${TALK}-2`], order: 1 },
+      },
+      priorities: [{ text: 'The talk', item_ids: [TALK, `${TALK}-2`] }],
+      touched: 1,
+    });
+    expect(useWeekSession.getState().undoable).toEqual({ [`fit:${TALK}`]: true });
+    // Undo: the split is taken back, and the todo is where the spread had it
+    await h.go(() => r().board.unfit());
+    expect(undo).toHaveBeenCalledTimes(1);
+    expect(rows['row-1'].answers).toMatchObject({
+      fitted: {},
+      priorities: [{ text: 'The talk', item_ids: [TALK] }],
+      touched: 2,
+    });
+    expect(useWeekSession.getState().moves.placed).toEqual({});
+    expect(useWeekSession.getState().undoable).toEqual({});
+  });
+
+  it('takes a split back whole when a part cannot be made, and leaves the card as it was', async () => {
+    const undo = jest.fn(async () => undefined);
+    (applyChanges as jest.Mock).mockImplementation(async (changes: any[]) => ({
+      outcomes: [
+        { cid: changes[0].cid, ok: true, summary: '', revert: jest.fn() },
+        { cid: changes[1].cid, ok: false, reason: 'failed', message: 'offline' },
+      ],
+      revertAll: undo,
+    }));
+    const h = await withTalk(300);
+    await h.go((r) => r.board.fit(TALK, 'split'));
+    expect(undo).toHaveBeenCalledTimes(1);
+    expect(rows['row-1'].answers.fitted).toBeUndefined();
+    expect(useWeekSession.getState().moves.placed ?? {}).toEqual({});
+  });
+
+  it('leaves it for later when they say so, and the week can be finished', async () => {
+    const h = await withTalk(180);
+    const r = () => h.hook.result.current;
+    await h.go(() => r().board.fit(TALK, 'left'));
+    expect(rows['row-1'].answers.fitted).toEqual({
+      [TALK]: { how: 'left', title: 'Write the talk', order: 1 },
+    });
+    // nothing moved, so nothing is spread again
+    await tick(h, 20000);
+    expect(callWeekSpread).toHaveBeenCalledTimes(1);
+    await h.go(() => r().board.open());
+    await h.go(() => r().board.done());
+    expect(saveBoard).toHaveBeenCalledTimes(1);
+    expect(rows['row-1'].status).toBe('done');
+  });
+
+  it('takes the last choice back, so the card for that todo comes back', async () => {
+    const h = await withTalk(180);
+    const r = () => h.hook.result.current;
+    await h.go(() => r().board.fit(TALK, 'day'));
+    await h.go(() => r().board.unfit());
+    expect(rows['row-1'].answers.fitted).toEqual({});
+    expect(useWeekSession.getState().moves.placed).toEqual({});
+    // not finished behind its back: Done closes on its card again
+    await h.go(() => r().board.open());
+    await h.go(() => r().board.done());
+    expect(saveBoard).not.toHaveBeenCalled();
   });
 });
 

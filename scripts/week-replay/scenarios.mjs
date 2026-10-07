@@ -762,7 +762,9 @@ function calendarLife() {
     calendar: 'none',
     specific: true,
     deliverables: [marks.id],
-    // found on 9 October 2026 and not yet put right: the same before and after the read's change
+    // Found on 9 October 2026, the same before and after the read's change.
+    // The spread still does it; the app's board now says so before the week
+    // is finished, and offers a day or a split (lib/week/board/model.ts unfitted).
     spreadMiss:
       'the spread leaves his three hour priority, the marks, off every day in 4 runs of 5, though a day off has room for it',
     expect: (read) => [

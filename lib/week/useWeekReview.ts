@@ -32,8 +32,9 @@ import type { OfferButton, WeekCardKind, WeekCardMeta } from '../brief/types';
 import { briefMetaOf, dayPartAt, visibleThreadMessages } from '../brief/messages';
 import { ampm, clock } from '../brief/dayCard';
 import { minutesOfDay } from '../brief/time';
-import { applyChange } from '../changes/apply';
-import { checkWeekChange, type Change } from '../changes/model';
+import { applyChange, applyChanges } from '../changes/apply';
+import { checkChange, checkWeekChange, type Change } from '../changes/model';
+import { contextFor, snapshotOf } from '../changes/snapshot';
 import { intentionNote } from '../changes/week';
 import { rowWords } from '../changes/words';
 import { callWeekRead, callWeekSpread, type WeekTurnContext } from '../cortex/CortexClient';
@@ -76,6 +77,7 @@ import {
   reliefFor,
   ownMoves,
   toggleHabitDay,
+  unfitted,
   withoutMoves,
   workingPicture,
 } from './board/model';
@@ -138,7 +140,7 @@ import {
   type ChatStep,
   type ReviewOn,
 } from './review/state';
-import { WEEK_COPY, boardIntro, dayName, doneTiles } from './review/words';
+import { WEEK_COPY, boardIntro, dayName, doneTiles, partTitle } from './review/words';
 import { useThisWeek } from './thisWeek';
 
 const STEP_PAUSE_MS = 350;
@@ -389,6 +391,15 @@ export interface WeekReview {
      * open the board on it to change it by hand (changed), or leave it (left)
      */
     relieve: (day: string, how: 'moved' | 'changed' | 'left') => Promise<void>;
+    /**
+     * A todo that matters most and is on no day: put it on the day with room
+     * for it (day), split it into parts that each fit a day (split), or leave
+     * it for later (left). A split is written at once: the todo becomes its
+     * first part, and each other part is a new todo.
+     */
+    fit: (todoId: string, how: 'day' | 'split' | 'left') => Promise<void>;
+    /** Take back the last of those choices, so its card comes back */
+    unfit: () => Promise<void>;
     done: () => Promise<void>;
     /** Take back everything Done wrote, and go back to the board */
     undo: () => Promise<void>;
@@ -1891,6 +1902,165 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
           await markRelieved(day, how, moves);
           setMoves(moves);
         }),
+      fit: (todoId: string, how: 'day' | 'split' | 'left') =>
+        run(async () => {
+          if (!onBoard()) return;
+          const now = session();
+          const b = currentBoard();
+          const offer = b ? unfitted(b, now.row?.answers).find((u) => u.todo.id === todoId) : null;
+          if (!b || !offer) return;
+          const title = offer.todo.title;
+          let moves = now.moves;
+          let made: string[] = [];
+          let revert: (() => Promise<void>) | null = null;
+          if (how === 'day') {
+            if (!offer.day) return;
+            // theirs from here on: what Gremly placed on that day gives way to it
+            moves = moveTodo(b, moves, todoId, offer.day);
+          }
+          if (how === 'split') {
+            const parts = offer.parts;
+            if (!parts) return;
+            // The split is written at once, through the change model: the todo
+            // becomes its first part, and each other part is a new todo with
+            // the same hard date and the same place in their life.
+            const snap = snapshotOf('todo', todoId);
+            const beside = {
+              ...(offer.todo.by ? { deadline: offer.todo.by } : {}),
+              ...(snap?.world_ids?.length ? { worlds: snap.world_ids } : {}),
+              ...(snap?.chapter_ids?.length ? { chapters: snap.chapter_ids } : {}),
+            };
+            const raws = parts.map((p, i) => {
+              const name = partTitle(title, i + 1, parts.length);
+              return i === 0
+                ? {
+                    cid: `fit-${todoId}-1`,
+                    op: 'change',
+                    type: 'todo',
+                    id: todoId,
+                    fields: { name, length: p.minutes },
+                  }
+                : {
+                    cid: `fit-${todoId}-${i + 1}`,
+                    op: 'add',
+                    type: 'todo',
+                    fields: { name, length: p.minutes, ...beside },
+                  };
+            });
+            const changes: Change[] = [];
+            for (const raw of raws) {
+              const checked = checkChange(raw, contextFor(raw));
+              if (!checked.ok) throw new Error(`It could not be split: ${checked.reason}`);
+              changes.push(checked.change);
+            }
+            const res = await applyChanges(changes, { source: 'thread' });
+            const failed = res.outcomes.find((o) => !o.ok);
+            if (failed && !failed.ok) {
+              // split whole or not at all
+              await res
+                .revertAll()
+                .catch((err: unknown) =>
+                  console.warn('[Week] a split failed part way and could not be taken back:', err),
+                );
+              throw new Error(failed.message);
+            }
+            made = res.outcomes.slice(1).flatMap((o) => (o.ok && o.createdId ? [o.createdId] : []));
+            revert = res.revertAll;
+            // each part on its day, as moves of their own, unsaved like the rest of the board
+            const placed = { ...(moves.placed ?? {}) };
+            const later = { ...(moves.later ?? {}) };
+            [todoId, ...made].forEach((id, i) => {
+              placed[id] = parts[i].day;
+              delete later[id];
+            });
+            moves = { ...moves, placed, later };
+          }
+          try {
+            await saveRow((x) => {
+              const fitted = x.answers.fitted ?? {};
+              const order = Math.max(0, ...Object.values(fitted).map((f) => f.order)) + 1;
+              return {
+                answers: {
+                  ...x.answers,
+                  board: moves,
+                  fitted: {
+                    ...fitted,
+                    [todoId]: {
+                      how,
+                      title,
+                      ...(how === 'day' && offer.day ? { day: offer.day } : {}),
+                      ...(how === 'split' ? { parts: made.length + 1, made } : {}),
+                      order,
+                    },
+                  },
+                  ...(made.length
+                    ? {
+                        // the parts matter as much as the todo they came from,
+                        // and are new todos: a spread made before them is made again
+                        priorities: (x.answers.priorities ?? []).map((p) =>
+                          (p.item_ids ?? []).includes(todoId)
+                            ? { ...p, item_ids: [...(p.item_ids ?? []), ...made] }
+                            : p,
+                        ),
+                        touched: (x.answers.touched ?? 0) + 1,
+                      }
+                    : {}),
+                },
+              };
+            });
+          } catch (err) {
+            // the row does not say it was split, so the card would offer it
+            // again: the split is taken back, and the step fails as a whole
+            if (revert) {
+              await revert().catch((undo: unknown) =>
+                console.warn(
+                  '[Week] a split was made, the review could not be saved, and it could not be taken back:',
+                  undo,
+                ),
+              );
+            }
+            throw err;
+          }
+          if (revert) holdUndo(`fit:${todoId}`, revert);
+          setMoves(moves);
+        }),
+      unfit: () =>
+        run(async () => {
+          if (!onBoard()) return;
+          const now = session();
+          const last = Object.entries(now.row?.answers.fitted ?? {}).sort(
+            (a, b) => b[1].order - a[1].order,
+          )[0];
+          if (!last) return;
+          const [todoId, f] = last;
+          const made = f.made ?? [];
+          // a split is taken back only while this sitting still holds its Undo
+          if (f.how === 'split' && !(await runUndo(`fit:${todoId}`))) return;
+          // the todo goes back to where the spread has it, and its card comes back
+          const moves =
+            f.how === 'left' ? now.moves : withoutMoves(now.moves, { todos: [todoId, ...made] });
+          await saveRow((x) => {
+            const fitted = { ...(x.answers.fitted ?? {}) };
+            delete fitted[todoId];
+            return {
+              answers: {
+                ...x.answers,
+                board: moves,
+                fitted,
+                ...(made.length
+                  ? {
+                      priorities: (x.answers.priorities ?? []).map((p) => ({
+                        ...p,
+                        item_ids: (p.item_ids ?? []).filter((id) => !made.includes(id)),
+                      })),
+                      touched: (x.answers.touched ?? 0) + 1,
+                    }
+                  : {}),
+              },
+            };
+          });
+          setMoves(moves);
+        }),
       done: () =>
         run(async () => {
           if (!onBoard()) return;
@@ -1907,7 +2077,13 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
           // is finished: the board closes on that day's card, with their
           // moves kept.
           const now = session();
-          const at = boardStage(b, now.row?.answers, { asking: now.asking, picking: now.picking });
+          // Nor does what matters most go to Later without a word: a todo of
+          // their priorities that is on no day is looked at first too.
+          const at = boardStage(b, now.row?.answers, {
+            asking: now.asking,
+            picking: now.picking,
+            ready: true,
+          });
           if (at.stage !== 'board') {
             patchSession({ boardOpen: false, boardDay: null, relieving: null });
             await keepMoves();

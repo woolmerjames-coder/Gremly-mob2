@@ -138,6 +138,25 @@ export interface WeekAnswers {
    */
   relieved?: Record<string, 'moved' | 'changed' | 'left'>;
   /**
+   * The todos that matter most and were on no day of the week, once dealt
+   * with on the board's card, by todo id: put on a day with room (day), split
+   * into parts that each fit a day (split, with how many parts and the ids of
+   * the todos made for the parts after the first), or left for later (left).
+   * title is the todo's name when it was dealt with, and order says which was
+   * dealt with last, for the card's Undo.
+   */
+  fitted?: Record<
+    string,
+    {
+      how: 'day' | 'split' | 'left';
+      title: string;
+      day?: string;
+      parts?: number;
+      made?: string[];
+      order: number;
+    }
+  >;
+  /**
    * What saving the board came to, for the week in short, and the plan itself
    * (days): the todos and the habits on each day, by id, so the week can be
    * read back as what was planned against what got done (lib/week/yourWeek.ts)

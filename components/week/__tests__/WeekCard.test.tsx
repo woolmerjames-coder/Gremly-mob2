@@ -103,6 +103,8 @@ function fakeReview(live = true): WeekReview {
       keepDone: jest.fn(),
       askKeep: jest.fn(),
       relieve: jest.fn(),
+      fit: jest.fn(),
+      unfit: jest.fn(),
       done: jest.fn(),
       undo: jest.fn(),
     },
@@ -460,6 +462,63 @@ describe('their own days, on the board’s step', () => {
     // the answer about their days can be opened again
     fireEvent.press(getByTestId('week-keep-change'));
     expect(review.board.askKeep).toHaveBeenCalledTimes(1);
+  });
+
+  it('then takes a todo that matters most and is on no day, with a day or a split to put it on one', () => {
+    // five hours fit no day whole: Saturday and Sunday have four each
+    const talk = { id: 'talk', name: 'Write the talk', time_estimate_minutes: 300 };
+    const matters = { priorities: [{ text: 'The talk', item_ids: ['talk'] }] };
+    const row = onBoard({ keep: 'none', ...matters }, null);
+    mockStore.todos = [talk];
+    const later = [{ id: 'talk', back_on: '2026-10-13' }];
+    act(() =>
+      setReview({ ...row, spread: { ...row.spread, later } } as any, reviewWith(SUN, 0, row), null),
+    );
+    const { getByText, getByTestId, queryByTestId, review, unmount } = show();
+    expect(
+      getByText(
+        '“Write the talk” is one of the things that matter most this week, and at 5h it fits on no day as the week stands.',
+      ),
+    ).toBeTruthy();
+    // no day holds it whole; in two parts it goes on the two days off
+    expect(queryByTestId('week-fit-day')).toBeNull();
+    expect(getByText('Split it in two')).toBeTruthy();
+    expect(getByText('2h 30m on Saturday and 2h 30m on Sunday')).toBeTruthy();
+    expect(queryByTestId('week-board-card')).toBeNull();
+    fireEvent.press(getByTestId('week-fit-split'));
+    expect(review.board.fit).toHaveBeenLastCalledWith('talk', 'split');
+    fireEvent.press(getByTestId('week-fit-leave'));
+    expect(review.board.fit).toHaveBeenLastCalledWith('talk', 'left');
+    fireEvent.press(getByTestId('week-fit-open'));
+    expect(review.board.open).toHaveBeenCalledTimes(1);
+    unmount();
+
+    // three hours fit a day off as the board stands: it is on no day yet, and Saturday is offered
+    mockStore.todos = [{ ...talk, time_estimate_minutes: 180 }];
+    const fits = show();
+    expect(
+      fits.getByText(
+        '“Write the talk” is one of the things that matter most this week, and it is on no day yet.',
+      ),
+    ).toBeTruthy();
+    fireEvent.press(fits.getByText('Put it on Saturday'));
+    expect(fits.review.board.fit).toHaveBeenLastCalledWith('talk', 'day');
+    fits.unmount();
+
+    // dealt with: what they chose stays above the board's card, and the last can be taken back
+    const fitted = { talk: { how: 'day', title: 'Write the talk', day: '2026-10-10', order: 1 } };
+    act(() =>
+      setReview(
+        { ...row, answers: { ...row.answers, fitted }, spread: { ...row.spread, later } } as any,
+        reviewWith(SUN, 0, row),
+        null,
+      ),
+    );
+    const done = show();
+    expect(done.getByText('Put “Write the talk” on Saturday')).toBeTruthy();
+    expect(done.getByTestId('week-board-card')).toBeTruthy();
+    fireEvent.press(done.getByTestId('week-fit-undo'));
+    expect(done.review.board.unfit).toHaveBeenCalledTimes(1);
   });
 
   it('says the suggestions are on their way until the spread is in, and that there are none when the call failed', () => {

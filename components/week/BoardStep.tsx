@@ -4,11 +4,13 @@
  * last step puts in the thread, and WeekBoardSheet is the board itself, which
  * the screen mounts once so it stays open whatever the thread is doing.
  *
- * The step's card stands for three things in turn (lib/week/board/model.ts
+ * The step's card stands for four things in turn (lib/week/board/model.ts
  * boardStage): Gremly's question about the days they gave their todos
  * themselves, when there are many; then each day their kept todos overfill,
- * one at a time, with the moves Gremly suggests for it; then the board. What
- * they chose along the way stays above it, as their own answers.
+ * one at a time, with the moves Gremly suggests for it; then each todo that
+ * matters most this week and is on no day, with a day or a split to put it
+ * on one; then the board. What they chose along the way stays above it, as
+ * their own answers.
  */
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -19,6 +21,7 @@ import {
   keepLoad,
   placedBy,
   reliefFor,
+  unfitted,
   type BoardStage,
 } from '../../lib/week/board/model';
 import { useBoard, useRelief, useSpreadStale } from '../../lib/week/board/now';
@@ -29,6 +32,10 @@ import {
   WEEK_COPY,
   boardIntro,
   changeDayTitle,
+  fitDayButton,
+  fitPartsLine,
+  fitSplitButton,
+  fittedText,
   intentionQuote,
   keepQuestion,
   keptText,
@@ -36,9 +43,10 @@ import {
   relievedText,
   shortDay,
   spanLabel,
+  unfittedLine,
 } from '../../lib/week/review/words';
 import { BoardCard } from './BoardCard';
-import { KeepPick, KeepQuestion, OverfullCard } from './KeepCards';
+import { FitCard, KeepPick, KeepQuestion, OverfullCard } from './KeepCards';
 import { WeekBoard } from './WeekBoard';
 import { weekStyles } from './weekStyles';
 
@@ -65,10 +73,14 @@ export function BoardStep({
   const asking = useWeekSession((s) => s.asking);
   const picking = useWeekSession((s) => s.picking);
   const freedDraft = useWeekSession((s) => s.freedDraft);
+  const undoable = useWeekSession((s) => s.undoable);
   const today = getDateService().ritualDay();
 
+  // Gremly's spread for these answers is on the board: only then is it known
+  // what he left off the days.
+  const ready = !failed && !fitting && spread && !stale;
   const at: BoardStage =
-    live && board ? boardStage(board, answers, { asking, picking }) : { stage: 'board' };
+    live && board ? boardStage(board, answers, { asking, picking, ready }) : { stage: 'board' };
   // what they chose so far, as their own answers above the card
   const trail: string[] = [];
   if (board && answers) {
@@ -81,6 +93,18 @@ export function BoardStep({
     }
   }
   const canChange = live && !!answers?.keep && at.stage !== 'keep' && at.stage !== 'pick';
+  // what they chose for each todo that mattered most and was on no day, in
+  // the order they chose; the last can be taken back
+  const fitted = Object.entries(answers?.fitted ?? {}).sort((a, b) => a[1].order - b[1].order);
+  if (board) for (const [, f] of fitted) trail.push(fittedText(f));
+  const lastFit = fitted[fitted.length - 1];
+  const canUnfit =
+    live &&
+    !!lastFit &&
+    at.stage !== 'keep' &&
+    at.stage !== 'pick' &&
+    // a split was written when it was chosen: it is taken back only while its Undo is held
+    (lastFit[1].how !== 'split' || !!undoable[`fit:${lastFit[0]}`]);
 
   let body: React.ReactNode;
   if (board && at.stage === 'keep') {
@@ -139,6 +163,23 @@ export function BoardStep({
         onLeave={() => void review.board.relieve(day, 'left')}
       />
     );
+  } else if (board && at.stage === 'unfitted') {
+    const offer = unfitted(board, answers).find((u) => u.todo.id === at.id);
+    const id = at.id;
+    body = offer ? (
+      <FitCard
+        id={id}
+        line={unfittedLine(offer.todo.title, offer.todo.minutes, offer.fits)}
+        dayLabel={offer.day ? fitDayButton(offer.day) : null}
+        splitLabel={offer.parts ? fitSplitButton(offer.parts.length) : null}
+        partsLine={offer.parts ? fitPartsLine(offer.parts) : ''}
+        disabled={disabled}
+        onDay={() => void review.board.fit(id, 'day')}
+        onSplit={() => void review.board.fit(id, 'split')}
+        onOpen={review.board.open}
+        onLeave={() => void review.board.fit(id, 'left')}
+      />
+    ) : null;
   } else {
     // Until Gremly's spread for these answers is in, the card says he is
     // fitting the week: one made for other answers is about to be made again.
@@ -206,6 +247,17 @@ export function BoardStep({
               testID="week-keep-change"
             >
               <Text style={weekStyles.linkText}>{WEEK_COPY.change}</Text>
+            </TouchableOpacity>
+          ) : null}
+          {canUnfit ? (
+            <TouchableOpacity
+              style={styles.change}
+              onPress={() => void review.board.unfit()}
+              disabled={disabled}
+              accessibilityRole="button"
+              testID="week-fit-undo"
+            >
+              <Text style={weekStyles.linkText}>{WEEK_COPY.fitUndo}</Text>
             </TouchableOpacity>
           ) : null}
         </View>
