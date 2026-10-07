@@ -159,7 +159,7 @@ export function renderPlanInput(req, ctx) {
   if (ctx.dayShape) L.push(`THE DAY, AS THE CONTEXT READS IT: ${trim(ctx.dayShape, 240)}`);
   if (ctx.claims?.length)
     L.push(
-      `WHAT HAS A REAL CLAIM ON TODAY: ${ctx.claims.map((c) => `${trim(c.title, 80)}: ${trim(c.why, 120)}`).join('; ')}`,
+      `WHAT HAS A REAL CLAIM ON TODAY: ${ctx.claims.map((c) => (c.why ? `${trim(c.title, 80)}: ${trim(c.why, 120)}` : trim(c.title, 80))).join('; ')}`,
     );
   if (ctx.reach) L.push(`WHY THE SUGGESTION IS WORTH DOING TODAY: ${trim(ctx.reach.why, 200)}`);
   if (ctx.reaction) L.push(ctx.reaction);

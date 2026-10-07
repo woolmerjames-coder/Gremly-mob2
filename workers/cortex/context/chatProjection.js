@@ -130,7 +130,6 @@ export async function getDailyFocusForChat(userId, env) {
     const dco = data[0].dco;
     const focusData = {
       date: data[0].date,
-      lifeMoment: dco?.life_moment || dco?.daily_focus?.life_moment || null,
       tone: dco?.tone || dco?.daily_focus?.tone || null,
       dayType: dco?.day_type || dco?.daily_focus?.day_type || null,
       todayFocus: dco?.today_focus || dco?.daily_focus?.today_focus || [],
@@ -139,8 +138,6 @@ export async function getDailyFocusForChat(userId, env) {
       namedAnchors: dco?.named_anchors || dco?.daily_focus?.named_anchors || [],
       activeToday: dco?.active_today || null,
       briefHeadline: dco?.brief_headline || null,
-      weekRecap: dco?.week_recap || [],
-      weekMoodArc: dco?.week_mood_arc || null,
       cancelledCalendarIds: dco?.cancelled_calendar_ids || [],
     };
 
@@ -250,7 +247,6 @@ function formatDailyFocusForChat(focus) {
 
   const parts = ['=== CURRENT LIFE CONTEXT (generated daily) ==='];
 
-  if (focus.lifeMoment) parts.push(`Life moment: ${focus.lifeMoment}`);
   if (focus.tone) parts.push(`Tone today: ${focus.tone}`);
   if (focus.briefHeadline) parts.push(`Today's headline: "${focus.briefHeadline}"`);
 
@@ -266,24 +262,6 @@ function formatDailyFocusForChat(focus) {
   const people = (focus.namedAnchors || []).filter((a) => a.type === 'person').map((a) => a.label);
   if (people.length > 0) {
     parts.push(`Named people: ${people.join(', ')}`);
-  }
-
-  // Week recap — concrete events from earlier this week
-  if (focus.weekRecap && focus.weekRecap.length > 0) {
-    parts.push('');
-    parts.push('=== THIS WEEK SO FAR ===');
-    const sorted = [...focus.weekRecap].sort((a, b) =>
-      a.date < b.date ? -1 : a.date > b.date ? 1 : 0,
-    );
-    for (const entry of sorted) {
-      parts.push(`  ${entry.date}: ${entry.event}`);
-    }
-    if (focus.weekMoodArc) {
-      parts.push(`Mood this week: ${focus.weekMoodArc}`);
-    }
-    parts.push(
-      "Reference this when the user asks about their week, recent events, or what they've been up to. These are concrete things that happened.",
-    );
   }
 
   parts.push('');

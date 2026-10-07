@@ -7,7 +7,7 @@ const SENTENCE_END = /[.!?](\s|$)/g;
 // Times such as 11:00, 9am or 3:30pm; any other number is a count
 const TIMES = /\b\d{1,2}(:\d{2})?\s*(am|pm|a\.m\.|p\.m\.)|\b\d{1,2}:\d{2}\b/gi;
 const hasCount = (text) => /\d/.test(text.replace(TIMES, ''));
-const REF = /\b[cthr]\d+\b/;
+const REF = /\b[ctdhpraswfmkebno]\d+\b/;
 
 export function checkBrief(g, offer, out) {
   const results = [];
@@ -25,15 +25,15 @@ export function checkBrief(g, offer, out) {
   add('fail', 'No refs in the text', withRefs.length === 0, withRefs.join(' | '));
   add(
     'fail',
-    'Every line passed the ID check',
+    'Every line passed the check',
     out.dropped.length === 0,
-    out.dropped.map((d) => `dropped "${d.text}" (refs ${d.bad.join(', ')})`).join('; '),
+    out.dropped.map((d) => `left out "${d.text}" (${d.bad.join('; ')})`).join('; '),
   );
   add(
     'fail',
-    offer.kind === 'none' ? 'Signs off' : 'Offer present and passed the ID check',
+    offer.kind === 'none' ? 'Signs off' : 'Offer present and passed the check',
     (offer.kind === 'none' ? true : !!out.offer) && !out.offerDropped,
-    out.offerDropped ? `bad refs ${out.offerDropped.bad.join(', ')}` : '',
+    out.offerDropped ? out.offerDropped.bad.join('; ') : '',
   );
   for (const words of g.forbid || []) {
     const hit = texts.filter((t) => t.toLowerCase().includes(words.toLowerCase()));

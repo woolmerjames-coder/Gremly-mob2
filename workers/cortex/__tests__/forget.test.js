@@ -47,6 +47,7 @@ describe('Forget Everything', () => {
         'user_daily_state',
         'weekly_summaries',
         'passage_refs',
+        'check_runs',
         'life_people',
       ]),
     );

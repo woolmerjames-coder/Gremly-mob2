@@ -15,6 +15,7 @@ import { gatherBrief, minutesIn } from './data';
 import { decideOffer, questionButtons } from './offer';
 import { writeBrief, BRIEF_PROMPT_VERSION } from './writer';
 import { readLastWrap } from './reaction';
+import { checkRunRow } from '../../shared/check/index.js';
 import {
   appendMessages,
   ensureThread,
@@ -41,7 +42,7 @@ export function fallbackOffer(kind, part = 'morning') {
 
 /**
  * Gremly's opening line when the writer could not be used (both models
- * failed, or every line failed the ID check). Fixed words, so the brief still
+ * failed, or every line failed the check). Fixed words, so the brief still
  * arrives: this line, the day card and the offer.
  */
 export function fallbackLine(part, returnDay) {
@@ -118,8 +119,9 @@ export async function writeDailyBrief(env, userId, { reason = 'scheduled', at = 
       questionLine: g.question && !g.ret ? out?.questionLine || g.question.question : null,
       questionChoices: out?.questionChoices ?? [],
       catchUp: out?.catchUp ?? null,
+      check: out?.check ?? null,
     };
-    writerError = writerError || 'no lines passed the ID check';
+    writerError = writerError || 'no lines passed the check';
   }
 
   const existing = await threadMessages(env, thread.id);
@@ -220,9 +222,25 @@ export async function writeDailyBrief(env, userId, { reason = 'scheduled', at = 
     // set when the fixed words were used instead of the writer's
     error: writerError,
   });
+  // what the check did, so the share left out can be watched; the brief never
+  // waits on its log
+  if (out.check) {
+    await db(env)
+      .insertQuiet('check_runs', [
+        checkRunRow({
+          userId,
+          job: 'brief',
+          day: g.ritualDay,
+          counts: out.check.counts,
+          details: out.check.details,
+          model: out.model,
+        }),
+      ])
+      .catch((err) => console.warn(`[DailyBrief] could not log the check: ${err.message}`));
+  }
   if (out.dropped.length || out.offerDropped) {
     console.warn(
-      `[ALERT][DailyBrief] ID check dropped ${out.dropped.length} line(s)${out.offerDropped ? ' and the offer' : ''} for ${userId}`,
+      `[ALERT][DailyBrief] the check left out ${out.dropped.length} line(s)${out.offerDropped ? ' and the offer' : ''} for ${userId}`,
       JSON.stringify({ dropped: out.dropped, offer: out.offerDropped }).slice(0, 1500),
     );
   }

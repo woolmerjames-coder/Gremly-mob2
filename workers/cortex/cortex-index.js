@@ -2131,7 +2131,6 @@ async function getDailyFocusForChat(userId, env, timezone = 'UTC', day = null) {
     const dco = rows?.[0]?.dco;
     if (!dco) return null;
     return {
-      lifeMoment: dco.life_moment || null,
       briefHeadline: dco.brief_headline || null,
       namedAnchors: dco.named_anchors || [],
       todayFocus: dco.today_focus || [],
@@ -2183,7 +2182,6 @@ async function fetchPlannerProjection(userId, timezone, env) {
     if (dco) {
       if (dco.day_type) parts.push(`Day type: ${dco.day_type}`);
       if (dco.tone) parts.push(`Today's tone: ${dco.tone}`);
-      if (dco.life_moment) parts.push(`Life moment: ${dco.life_moment}`);
       // fix: lead_story was rendering as [object Object] — it is {domain, thread, detail, why_today}, not a string
       if (dco.lead_story) {
         const ls = dco.lead_story;
@@ -4327,16 +4325,7 @@ After the user confirms and locks in a habit, check the existing habits listed i
         let preParse = null;
         try {
           const lifeMap = await getLifeMapForChat(authenticatedUserId, env);
-          const theirDay = await personNow(env, authenticatedUserId, userTimezone).catch(
-            () => null,
-          );
-          const dailyFocus = await getDailyFocusForChat(
-            authenticatedUserId,
-            env,
-            userTimezone,
-            theirDay?.today,
-          );
-          const compressedLifeMap = compressLifeMapForHabits(lifeMap, dailyFocus);
+          const compressedLifeMap = compressLifeMapForHabits(lifeMap);
 
           preParse = await habitPreParse(
             lastUserMsg,
@@ -6309,23 +6298,17 @@ Return ONLY valid JSON:
       }
 
       /**
-       * Compress Life Map + Daily Focus into a short context string for habit builder.
+       * Compress the Life Map into a short context string for habit builder.
        * Used by pre-parse (under 500 chars) and could be used by other lightweight contexts.
        *
        * Pulls:
-       * 1. Life moment from daily focus (NOT from Life Map — it doesn't have current_moment)
-       * 2. Active domain names from Life Map
-       * 3. High-importance active thread summaries (first sentence only)
+       * 1. Active domain names from Life Map
+       * 2. High-importance active thread summaries (first sentence only)
        */
-      function compressLifeMapForHabits(lifeMap, dailyFocus) {
+      function compressLifeMapForHabits(lifeMap) {
         const parts = [];
 
-        // 1. Life moment from daily focus
-        if (dailyFocus?.lifeMoment) {
-          parts.push(dailyFocus.lifeMoment);
-        }
-
-        // 2. Active domain names
+        // 1. Active domain names
         if (lifeMap?.domains) {
           const activeDomains = lifeMap.domains
             .filter((d) => d.attention !== 'background')
@@ -6334,7 +6317,7 @@ Return ONLY valid JSON:
             parts.push('Active domains: ' + activeDomains.join(', '));
           }
 
-          // 3. High-importance active thread summaries (first sentence only)
+          // 2. High-importance active thread summaries (first sentence only)
           const highThreads = [];
           for (const domain of lifeMap.domains) {
             if (domain.attention === 'background') continue;
