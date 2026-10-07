@@ -178,6 +178,26 @@ export function backToPlanStep(
   });
 }
 
+/**
+ * Back to back or with some space, asked once more after a message typed
+ * past it: the same question and buttons, with what they picked still on it.
+ */
+export function backToSpacingStep(offer: {
+  id: string;
+  content: string;
+  meta: BriefOfferMeta;
+}): BriefStep {
+  const rest: Partial<BriefOfferMeta> = { ...offer.meta };
+  delete rest.held;
+  delete rest.chosen;
+  delete rest.type;
+  delete rest.revealed_from;
+  return offerStep(offer.content, {
+    ...(rest as Omit<BriefOfferMeta, 'type'>),
+    brought_back_from: offer.id,
+  });
+}
+
 /** Return day, Catch me up: the counts, then Sweep first or Just today. */
 export function afterCatchUp(offer: BriefOfferMeta, part: DayPart): BriefStep[] {
   return [

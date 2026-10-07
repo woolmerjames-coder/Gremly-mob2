@@ -2,7 +2,12 @@ import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
 
 import { PickSheet } from '../PickSheet';
-import { pickButtonWords, pickItemsOf, timeLeftWords } from '../../../lib/plan/pickItems';
+import {
+  pickButtonWords,
+  pickItemsOf,
+  roomWords,
+  timeLeftWords,
+} from '../../../lib/plan/pickItems';
 
 const items = pickItemsOf(
   {
@@ -82,6 +87,33 @@ describe('the pick sheet', () => {
     expect(onConfirm.mock.calls[0][0].map((x: any) => x.id)).toEqual(['taxes', 'tap']);
   });
 
+  it('counts the gaps the plan keeps when it is told how the picks sit in the day', () => {
+    // two hours free. Each pick takes its own time and the 15 minutes after it
+    const room = jest.fn((picks: { minutes: number }[]) => {
+      const used = picks.reduce((a, p) => a + p.minutes + 15, 0);
+      if (used <= 120) return { fit: 'spaced' as const, left: 120 - used, over: 0 };
+      const bare = picks.reduce((a, p) => a + p.minutes, 0);
+      return bare <= 120
+        ? { fit: 'tight' as const, left: 0, over: 0 }
+        : { fit: 'over' as const, left: 0, over: picks[picks.length - 1].minutes };
+    });
+    const { r } = sheet({ room });
+    expect(r.getByText('2h left')).toBeTruthy();
+    fireEvent.press(r.getByTestId('pick-taxes'));
+    // an hour picked leaves 45 minutes, not an hour: its gap is counted
+    expect(r.getByText('1h picked')).toBeTruthy();
+    expect(r.getByText('45m left')).toBeTruthy();
+    fireEvent.press(r.getByTestId('pick-tap'));
+    // 1h 45m of picks in 2h: only with no gaps between them
+    expect(r.getByText('1h 45m picked')).toBeTruthy();
+    expect(r.getByText('Only fits back to back')).toBeTruthy();
+    fireEvent.press(r.getByTestId('pick-logos'));
+    expect(r.getByText("30m won't fit")).toBeTruthy();
+    expect(room).toHaveBeenLastCalledWith(
+      expect.arrayContaining([expect.objectContaining({ id: 'logos' })]),
+    );
+  });
+
   it('opens on the tab it was last left on', () => {
     const { r } = sheet();
     fireEvent.press(r.getByTestId('pick-tab-habits'));
@@ -129,6 +161,31 @@ describe('the pick sheet', () => {
       picked: '1h 30m picked',
       left: '30m over',
       over: true,
+    });
+  });
+  it('words how the picks sit in the day', () => {
+    expect(roomWords(0, { fit: 'spaced', left: 90, over: 0 })).toEqual({
+      picked: 'Nothing picked yet',
+      left: '1h 30m left',
+      over: false,
+      fill: 0,
+    });
+    expect(roomWords(60, { fit: 'spaced', left: 60, over: 0 })).toMatchObject({
+      picked: '1h picked',
+      left: '1h left',
+      fill: 0.5,
+    });
+    expect(roomWords(105, { fit: 'tight', left: 0, over: 0 })).toEqual({
+      picked: '1h 45m picked',
+      left: 'Only fits back to back',
+      over: false,
+      fill: 1,
+    });
+    expect(roomWords(135, { fit: 'over', left: 0, over: 30 })).toEqual({
+      picked: '2h 15m picked',
+      left: "30m won't fit",
+      over: true,
+      fill: 1,
     });
   });
 });

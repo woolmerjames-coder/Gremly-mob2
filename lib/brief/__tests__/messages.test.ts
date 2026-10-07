@@ -150,6 +150,40 @@ describe('the plan offer that comes back', () => {
     msg('line', 'assistant', { type: 'brief-text', part: 'morning', ids: [], week: true }),
   ];
 
+  it('is back to back or with some space too, when a message was typed past it', () => {
+    // what they picked rides on the question: it must not be lost to a typed message
+    const SPACING = {
+      type: 'brief-offer',
+      kind: 'plan_spacing',
+      plan_day: '2026-10-05',
+      picks: [{ id: 'oat', title: 'Buy Oat Milk' }],
+      buttons: [
+        { id: 'plan_tight', label: 'Back to back', action: 'plan_spacing', value: 'tight' },
+        { id: 'plan_spaced', label: 'With some space', action: 'plan_spacing', value: 'spaced' },
+      ],
+    };
+    const thread = [
+      msg('ask', 'assistant', SPACING),
+      msg('typed', 'user', null),
+      msg('reply', 'assistant', null),
+    ];
+    expect(planOfferToBringBack(thread)?.id).toBe('ask');
+    // not while it is still the live question, once answered, or a second time
+    expect(planOfferToBringBack([thread[0]])).toBeNull();
+    expect(
+      planOfferToBringBack([
+        msg('ask', 'assistant', { ...SPACING, chosen: { id: 'plan_tight', at: 'now' } }),
+        ...thread.slice(1),
+      ]),
+    ).toBeNull();
+    expect(
+      planOfferToBringBack([
+        msg('ask', 'assistant', { ...SPACING, brought_back_from: 'first' }),
+        ...thread.slice(1),
+      ]),
+    ).toBeNull();
+  });
+
   it('is the plan offer once the weekly review they chose on it has ended', () => {
     const thread = [msg('offer', 'assistant', weekChosen), ...review];
     expect(planOfferToBringBack(thread, true)?.id).toBe('offer');

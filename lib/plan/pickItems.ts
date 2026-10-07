@@ -7,7 +7,7 @@
 import type { Habit, Todo } from '../types';
 import type { HabitWeek } from '../brief/useDayCard';
 import { isBreakHabit } from './candidatePool';
-import { duration } from './planFlow';
+import { duration, type PickRoom } from './planFlow';
 
 export type PickTab = 'todos' | 'habits';
 
@@ -103,6 +103,31 @@ export function timeLeftWords(
     picked: picked ? `${duration(picked)} picked` : 'Nothing picked yet',
     left: left >= 0 ? `${duration(left)} left` : `${duration(-left)} over`,
     over: left < 0,
+  };
+}
+
+/**
+ * The same line from how the picks sit in the day (planFlow.ts planRoom): the
+ * time left counts the gaps the plan keeps between things, and it says when
+ * the picks fit only with no gaps, or when some have no place at all.
+ */
+export function roomWords(
+  picked: number,
+  room: PickRoom,
+): { picked: string; left: string; over: boolean; fill: number } {
+  const head = picked ? `${duration(picked)} picked` : 'Nothing picked yet';
+  if (room.fit === 'over') {
+    return { picked: head, left: `${duration(room.over)} won't fit`, over: true, fill: 1 };
+  }
+  if (room.fit === 'tight') {
+    return { picked: head, left: 'Only fits back to back', over: false, fill: 1 };
+  }
+  const all = picked + room.left;
+  return {
+    picked: head,
+    left: `${duration(room.left)} left`,
+    over: false,
+    fill: all > 0 ? picked / all : 0,
   };
 }
 

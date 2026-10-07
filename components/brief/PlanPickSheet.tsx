@@ -11,16 +11,19 @@ import { pickButtonWords, pickItemsOf, type PickItem } from '../../lib/plan/pick
 import { dueWords } from '../../lib/plan/dayItems';
 import { duration, planDay } from '../../lib/plan/planFlow';
 import { getDateService } from '../../lib/date/DateService';
+import type { PickRoom } from '../../lib/plan/planFlow';
 import type { PickSession } from '../../lib/plan/usePlanFlow';
 
 type Props = {
   session: PickSession;
+  /** How picks would sit in the day being planned (usePlanFlow pickRoom) */
+  room?: (picks: PickItem[]) => PickRoom | null;
   onConfirm: (picks: PickItem[]) => void;
   onAsk: () => void;
   onClose: () => void;
 };
 
-export function PlanPickSheet({ session, onConfirm, onAsk, onClose }: Props) {
+export function PlanPickSheet({ session, room, onConfirm, onAsk, onClose }: Props) {
   const data = useDayCard(session.day);
   const ds = getDateService();
   const items = useMemo(() => pickItemsOf(data, dueWords(data.date, ds.today())), [data, ds]);
@@ -50,6 +53,7 @@ export function PlanPickSheet({ session, onConfirm, onAsk, onClose }: Props) {
       visible
       title={day.today ? 'Plan your day' : `Plan ${day.word}`}
       free={session.free}
+      room={room}
       todos={items.todos}
       habits={items.habits}
       suggested={suggested}

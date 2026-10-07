@@ -575,6 +575,69 @@ describe('their week on the brief’s offer', () => {
     expect(onPlanWeek).toHaveBeenCalledTimes(1);
   });
 
+  it('hands back to back or with some space to the planner, after their reply', async () => {
+    const onPlanSpacing = jest.fn();
+    const ask = msg(
+      'ask',
+      'assistant',
+      {
+        type: 'brief-offer',
+        kind: 'plan_spacing',
+        plan_day: '2026-10-08',
+        picks: [{ id: 'oat', title: 'Buy Oat Milk' }],
+        buttons: [],
+      },
+      'Those only fit today back to back.',
+    );
+    const { hook, added, patched } = setup([ask], { date: '2026-10-08', onPlanSpacing });
+    const button = {
+      id: 'plan_tight',
+      label: 'Back to back',
+      action: 'plan_spacing',
+      value: 'tight',
+    };
+    await act(async () => {
+      await hook.result.current.handleOfferButton(ask, button as any);
+    });
+    expect(patched[0]).toMatchObject({ id: 'ask', patch: { chosen: { id: 'plan_tight' } } });
+    expect(added.map((a) => [a.role, a.content])).toEqual([['user', 'Back to back']]);
+    expect(onPlanSpacing).toHaveBeenCalledWith(ask, button);
+    // answered once: a second tap on it does nothing
+    const answered = msg(
+      'ask',
+      'assistant',
+      { ...(ask.metadata_json as any), chosen: { id: 'plan_tight', at: 'now' } },
+      ask.content,
+    );
+    await act(async () => {
+      await hook.result.current.handleOfferButton(answered, button as any);
+    });
+    expect(onPlanSpacing).toHaveBeenCalledTimes(1);
+  });
+
+  it('hands what to do with picks that did not fit to the planner, after their reply', async () => {
+    const onPlanUnfit = jest.fn();
+    const ask = msg(
+      'unfit',
+      'assistant',
+      {
+        type: 'brief-offer',
+        kind: 'plan_unfit',
+        plan_day: '2026-10-08',
+        unfit: [{ id: 'oat', title: 'Buy Oat Milk' }],
+        buttons: [],
+      },
+      'Want it tomorrow instead, or put off for later?',
+    );
+    const { hook, added } = setup([ask], { date: '2026-10-08', onPlanUnfit });
+    const button = { id: 'unfit_later', label: 'Later', action: 'plan_unfit', value: 'later' };
+    await act(async () => {
+      await hook.result.current.handleOfferButton(ask, button as any);
+    });
+    expect(added.map((a) => [a.role, a.content])).toEqual([['user', 'Later']]);
+    expect(onPlanUnfit).toHaveBeenCalledWith(ask, button);
+  });
+
   it('takes a message typed under the check in as their answer to it', async () => {
     stillOn();
     const { hook, patched } = setup([RIDING], { date: '2026-10-08' });
@@ -719,6 +782,43 @@ describe('their week on the brief’s offer', () => {
       checkin: { habit_id: 'h1', title: 'Strength' },
     });
     expect(shown.meta.held).toBeUndefined();
+  });
+
+  it('asks back to back or with some space again after a message typed past it, picks and all', async () => {
+    const ask = msg(
+      'ask',
+      'assistant',
+      {
+        type: 'brief-offer',
+        kind: 'plan_spacing',
+        plan_day: '2026-10-08',
+        plan_from: 795,
+        picks: [{ id: 'oat', title: 'Buy Oat Milk', minutes: 15, chosen: true }],
+        buttons: [
+          { id: 'plan_tight', label: 'Back to back', action: 'plan_spacing', value: 'tight' },
+          { id: 'plan_spaced', label: 'With some space', action: 'plan_spacing', value: 'spaced' },
+        ],
+      },
+      'Those only fit today back to back. Want them back to back, or with some space between them?',
+    );
+    const { hook, added } = setup([ask, said('u1', 'What is on tomorrow?')], {
+      date: '2026-10-08',
+    });
+    await act(async () => {
+      await hook.result.current.continueBrief();
+    });
+    expect(added).toHaveLength(1);
+    // the same question, not the plan offer's words
+    expect(added[0].content).toBe(ask.content);
+    expect(added[0].meta).toMatchObject({
+      kind: 'plan_spacing',
+      brought_back_from: 'ask',
+      plan_day: '2026-10-08',
+      plan_from: 795,
+      picks: [{ id: 'oat', title: 'Buy Oat Milk', minutes: 15, chosen: true }],
+    });
+    expect(added[0].meta.buttons.map((b: any) => b.value)).toEqual(['tight', 'spaced']);
+    expect(added[0].meta.chosen).toBeUndefined();
   });
 
   it('brings the plan offer back as itself, never as the check in', async () => {

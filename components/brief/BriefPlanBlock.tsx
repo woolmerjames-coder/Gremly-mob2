@@ -5,15 +5,16 @@
  * busy time can be added for the plan to work around.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { PlanCard } from './PlanCard';
 import { PickSheet } from './PickSheet';
 import { PlanTimeSheet } from './PlanTimeSheet';
 import { useDayCard } from '../../lib/brief/useDayCard';
 import type { BriefPlanMeta } from '../../lib/brief/types';
-import { pickButtonWords, pickItemsOf } from '../../lib/plan/pickItems';
+import { pickButtonWords, pickItemsOf, type PickItem } from '../../lib/plan/pickItems';
 import { dueWords } from '../../lib/plan/dayItems';
 import { freeMinutes } from '../../lib/plan/slotFitter';
+import { addRoomFor } from '../../lib/plan/usePlanFlow';
 import { getDateService } from '../../lib/date/DateService';
 
 type Props = {
@@ -44,6 +45,8 @@ export function BriefPlanBlock({ meta, onAdd, onRetime, onAddBusy, ...rest }: Pr
     () => pickItemsOf(data, dueWords(data.date, getDateService().today())),
     [data],
   );
+  // how picks would sit in this plan, worked out only while the sheet is open
+  const room = useCallback((picks: PickItem[]) => addRoomFor(meta, picks), [meta]);
   const from = meta.from ?? 0;
   const free = freeMinutes(data.record.busy, meta.items, from, Math.max(from, data.record.planEnd));
   return (
@@ -91,6 +94,7 @@ export function BriefPlanBlock({ meta, onAdd, onRetime, onAddBusy, ...rest }: Pr
         visible={adding}
         title="Add to the plan"
         free={free}
+        room={room}
         todos={items.todos}
         habits={items.habits}
         inPlan={inPlan}

@@ -160,7 +160,11 @@ export function planOfferToBringBack(
     const forWeek = afterWeek && chose === PLAN_WEEK_BUTTON;
     if (!forWeek && (chose || meta.brought_back_from)) return null;
     if (meta.kind === 'question') return null;
-    return meta.buttons.some((b) => b.action === 'plan') ? visible[i] : null;
+    // back to back or with some space is a plan offer too: what they picked
+    // rides on it, and typing past it must not lose that
+    return meta.buttons.some((b) => b.action === 'plan' || b.action === 'plan_spacing')
+      ? visible[i]
+      : null;
   }
   return null;
 }

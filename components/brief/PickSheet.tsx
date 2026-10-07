@@ -23,10 +23,12 @@ import { BRIEF } from './briefStyles';
 import {
   lastPickTab,
   rememberPickTab,
+  roomWords,
   timeLeftWords,
   type PickItem,
   type PickTab,
 } from '../../lib/plan/pickItems';
+import type { PickRoom } from '../../lib/plan/planFlow';
 
 /** A suggestion from Gremly: the row and why */
 export type Suggestion = PickItem & { reason?: string | null };
@@ -34,8 +36,13 @@ export type Suggestion = PickItem & { reason?: string | null };
 export type PickSheetProps = {
   visible: boolean;
   title: string;
-  /** Free minutes the picks fill */
+  /** Free minutes the picks fill, when how they sit in the day is not given (room) */
   free: number;
+  /**
+   * How the picks sit in the day, placed as the plan would place them: the
+   * time left then counts the gaps between things. Null when it is not known.
+   */
+  room?: (picks: PickItem[]) => PickRoom | null;
   todos: PickItem[];
   habits: PickItem[];
   /** Gremly's suggestions, shown on top: null while Gremly is choosing */
@@ -55,6 +62,7 @@ export function PickSheet({
   visible,
   title,
   free,
+  room,
   todos,
   habits,
   suggested,
@@ -81,8 +89,19 @@ export function PickSheet({
   const shownIds = useMemo(() => new Set((suggested ?? []).map((s) => s.id)), [suggested]);
   const rest = (tab === 'todos' ? todos : habits).filter((x) => !shownIds.has(x.id));
   const minutes = [...picked.values()].reduce((a, x) => a + x.minutes, 0);
-  const words = timeLeftWords(free, minutes);
-  const fill = free > 0 ? Math.min(1, minutes / free) : minutes ? 1 : 0;
+  // worked out while the sheet is open, and again when Gremly's suggestions
+  // arrive: a pick that is one of them takes the length and window Gremly gave it
+  const sits = useMemo(
+    () => (visible ? (room?.([...picked.values()]) ?? null) : null),
+    // room reads the suggestions where they are kept, so their arrival is named here
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [visible, room, picked, suggested],
+  );
+  const plain = timeLeftWords(free, minutes);
+  const words = sits
+    ? roomWords(minutes, sits)
+    : { ...plain, fill: free > 0 ? Math.min(1, minutes / free) : minutes ? 1 : 0 };
+  const fill = words.fill;
 
   const toggle = (x: PickItem) =>
     setPicked((m) => {

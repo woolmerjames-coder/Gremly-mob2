@@ -89,6 +89,10 @@ export type OfferKind =
   | 'plan_edit'
   // Gremly asks what to put first before it plans (nothing was picked)
   | 'plan_ask'
+  // what they picked only fits back to back: back to back, or with some space
+  | 'plan_spacing'
+  // what they picked and did not fit: another day, later, or left
+  | 'plan_unfit'
   | 'none'
   // the evening wrap up
   | 'wrap_up'
@@ -117,6 +121,8 @@ export type OfferAction =
   | 'leave_plan' // leave the plan as it is
   | 'reach_yes' // add the reach item to today and plan
   | 'plan_edit' // a suggested change under the plan (value: the change)
+  | 'plan_spacing' // the picks only fit back to back (value: tight or spaced)
+  | 'plan_unfit' // todos picked that did not fit (value: tomorrow, later or leave)
   | 'thanks' // "Thanks, Gremly": Gremly says any time
   // the evening wrap up (lib/wrapup); 'sweep' opens the cards there too
   | 'sweep_skip' // move it all to tomorrow: one of the weekly skips
@@ -180,6 +186,13 @@ export interface BriefOfferMeta extends BriefMetaBase {
   brought_back_from?: string;
   /** After Sweep: what was kept for today, so the plan holds it */
   kept_ids?: string[];
+  /**
+   * plan_spacing: what they picked, kept on the message so the answer makes
+   * the plan the same after the app has been closed
+   */
+  picks?: UnplacedItem[];
+  /** plan_unfit: the todos they picked that did not fit, which the buttons act on */
+  unfit?: { id: string; title: string }[];
   /** A quiet line under the buttons */
   hint?: string;
   /**
@@ -258,6 +271,12 @@ export interface BriefPlanMeta extends BriefMetaBase {
   from?: number;
   /** Item ids in the picker's order (placing order when re-fitting) */
   order?: string[];
+  /**
+   * The gap kept between items and either side of meetings, in minutes. Left
+   * out, it is the usual 15. A plan they asked for back to back has 0, and
+   * keeps it each time it is fitted again (lib/plan/planFlow.ts placePlan).
+   */
+  buffer?: number;
 }
 
 /** One line such as "Swept 7 things, 3 kept for today". */

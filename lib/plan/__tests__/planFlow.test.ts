@@ -15,7 +15,18 @@ import {
   planHeading,
   refitKeeping,
   placePlan,
+  planRoom,
   planSummary,
+  spacingAskText,
+  spacingButtons,
+  unfitAskText,
+  unfitButtons,
+  unfitLaterText,
+  unfitLeftText,
+  unfitMovedText,
+  unfitStayedText,
+  dayAfter,
+  dayAfterWord,
   suggestions,
   unplacedText,
   whatCanWait,
@@ -257,6 +268,138 @@ describe('fitting a plan again after a change', () => {
       SETS_OFF,
     );
     expect(none).toEqual(fitPlan(entries, [], 540, SETS_OFF));
+  });
+});
+
+describe('the gaps between things', () => {
+  // the meeting ends at 1:15pm (795); Social posts 30 minutes, the oat milk 15
+  const two = ENTRIES.slice(0, 2);
+
+  it('keeps 15 minutes either side of everything unless the plan is back to back', () => {
+    const spaced = placePlan(two, { busy: MEETINGS, from: 795 });
+    expect(spaced.items.map((x) => [x.id, x.start, x.end])).toEqual([
+      ['social', 810, 840],
+      ['oat', 855, 870],
+    ]);
+    expect('buffer' in spaced).toBe(false);
+    const tight = placePlan(two, { busy: MEETINGS, from: 795, buffer: 0 });
+    expect(tight.items.map((x) => [x.id, x.start, x.end])).toEqual([
+      ['social', 795, 825],
+      ['oat', 825, 840],
+    ]);
+    // the plan says it is back to back, so each later fit keeps to it
+    expect(tight.buffer).toBe(0);
+    expect(fitPlan(two, MEETINGS, 795, 1320, 0).buffer).toBe(0);
+    expect(refitKeeping(two, tight.items, MEETINGS, 795, 1320, [], 0, 0).items).toEqual(
+      tight.items,
+    );
+  });
+
+  it('says how picks sit in the day: with their gaps, only back to back, or not at all', () => {
+    const at = (dayEnd: number) => planRoom(two, { busy: MEETINGS, from: 795, dayEnd });
+    // until 3pm: both in with their gaps, and 15 minutes after the last one's gap
+    expect(at(900)).toEqual({ fit: 'spaced', left: 15, over: 0 });
+    // until 2:30pm exactly: they fit with their gaps and nothing is left
+    expect(at(870)).toEqual({ fit: 'spaced', left: 0, over: 0 });
+    // until 2:25pm: only with no gaps
+    expect(at(865)).toEqual({ fit: 'tight', left: 0, over: 0 });
+    // until 1:50pm: not back to back either, and the plan with gaps leaves Social posts out
+    expect(at(830)).toEqual({ fit: 'over', left: 0, over: 30 });
+    // nothing picked: the day's room, less the gap after the meeting
+    expect(planRoom([], { busy: MEETINGS, from: 795, dayEnd: 900 })).toEqual({
+      fit: 'spaced',
+      left: 90,
+      over: 0,
+    });
+    // one thing alone is never "back to back": hard up against the meeting is no good gap
+    const one = ENTRIES.slice(0, 1);
+    expect(planRoom(one, { busy: MEETINGS, from: 795, dayEnd: 830 })).toEqual({
+      fit: 'over',
+      left: 0,
+      over: 30,
+    });
+    // a plan already back to back has no tighter way to offer
+    expect(planRoom(two, { busy: MEETINGS, from: 795, dayEnd: 830, buffer: 0 })).toEqual({
+      fit: 'over',
+      left: 0,
+      over: 15,
+    });
+  });
+
+  it('asks back to back or with some space, in the words of the day', () => {
+    expect(spacingAskText(planDay('2026-09-30', '2026-09-30'))).toBe(
+      'Those only fit today back to back. Want them back to back, or with some space between them?',
+    );
+    expect(spacingAskText(planDay('2026-10-01', '2026-09-30'))).toMatch(/only fit tomorrow back/);
+    expect(spacingButtons().map((b) => [b.label, b.action, b.value])).toEqual([
+      ['Back to back', 'plan_spacing', 'tight'],
+      ['With some space', 'plan_spacing', 'spaced'],
+    ]);
+  });
+
+  it('says what did not fit and offers the todos among it another day or Later', () => {
+    const oat = { id: 'oat', title: 'Buy Oat Milk', kind: 'todo' as const };
+    const tap = { id: 'tap', title: 'Fix the tap', kind: 'todo' as const };
+    const run = { id: 'run', title: 'Run', kind: 'habit' as const };
+    const today = { day: 'today', next: 'tomorrow', later: true };
+    expect(unfitAskText([oat], [oat], today)).toBe(
+      "I couldn't find a good gap for Buy Oat Milk today, so it's not in the plan. Want it tomorrow instead, or put off for later?",
+    );
+    expect(unfitAskText([oat, tap], [oat, tap], today)).toBe(
+      "I couldn't find good gaps for Buy Oat Milk and Fix the tap today, so they're not in the plan. Want them tomorrow instead, or put off for later?",
+    );
+    // Later is asked about only when it is one of the buttons
+    expect(unfitAskText([oat], [oat], { ...today, later: false })).toBe(
+      "I couldn't find a good gap for Buy Oat Milk today, so it's not in the plan. Want it tomorrow instead?",
+    );
+    // a plan for another day says that day, and the day after it
+    expect(unfitAskText([run, oat], [oat], { day: 'tomorrow', next: 'Friday', later: true })).toBe(
+      "I couldn't find good gaps for Run and Buy Oat Milk tomorrow, so they're not in the plan. Want Buy Oat Milk Friday instead, or put off for later?",
+    );
+    expect(unplacedText([oat])).toBe(
+      "I couldn't find a good gap for Buy Oat Milk today, so it's not in the plan.",
+    );
+    expect(unplacedText([oat], 'tomorrow')).toBe(
+      "I couldn't find a good gap for Buy Oat Milk tomorrow, so it's not in the plan.",
+    );
+    expect(unfitButtons(1, 'tomorrow', true).map((b) => [b.label, b.action, b.value])).toEqual([
+      ['Move to tomorrow', 'plan_unfit', 'tomorrow'],
+      ['Later', 'plan_unfit', 'later'],
+      ['Leave it', 'plan_unfit', 'leave'],
+    ]);
+    expect(unfitButtons(2, 'Friday', false).map((b) => b.label)).toEqual([
+      'Move to Friday',
+      'Leave them',
+    ]);
+    expect(unfitMovedText(['Buy Oat Milk'], 'tomorrow')).toBe(
+      'Done, Buy Oat Milk is on tomorrow now.',
+    );
+    expect(unfitMovedText(['Buy Oat Milk', 'Fix the tap'], 'Friday')).toBe(
+      'Done, Buy Oat Milk and Fix the tap are on Friday now.',
+    );
+    expect(
+      unfitLaterText([
+        { title: 'Buy Oat Milk', day: 'Mon 5' },
+        { title: 'Fix the tap', day: 'Tue 6' },
+      ]),
+    ).toBe('Done. Buy Oat Milk comes back Mon 5 and Fix the tap comes back Tue 6.');
+    expect(unfitStayedText(['Fix the tap'])).toBe('Fix the tap stayed where it was.');
+    expect(unfitStayedText(['Fix the tap', 'Run'])).toBe(
+      'Fix the tap and Run stayed where they were.',
+    );
+    expect(unfitLeftText(1)).toBe("Sure, I've left it where it is.");
+    expect(unfitLeftText(2)).toBe("Sure, I've left them where they are.");
+  });
+
+  it('names the day after the plan as they would say it', () => {
+    expect(dayAfter('2026-09-30')).toBe('2026-10-01');
+    expect(dayAfter('2026-12-31')).toBe('2027-01-01');
+    // a plan for today, a Wednesday: the day after is tomorrow
+    expect(dayAfterWord('2026-09-30', '2026-09-30')).toBe('tomorrow');
+    // a plan for tomorrow: the day after it goes by its weekday
+    expect(dayAfterWord('2026-10-01', '2026-09-30')).toBe('Friday');
+    // after midnight, before their day ends, tomorrow would be misread
+    expect(dayAfterWord('2026-09-30', '2026-09-30', true)).toBe('Thursday');
   });
 });
 

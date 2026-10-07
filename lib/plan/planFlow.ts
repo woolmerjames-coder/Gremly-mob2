@@ -6,7 +6,14 @@
 
 import type { BriefPlanMeta, OfferButton, PlanItem, UnplacedItem } from '../brief/types';
 import type { Candidate } from './candidatePool';
-import { fitSlots, freeMinutes, PLAN_DAY_END, type Busy } from './slotFitter';
+import {
+  BUFFER_MINUTES,
+  fitSlots,
+  freeMinutes,
+  PLAN_DAY_END,
+  roomLeft,
+  type Busy,
+} from './slotFitter';
 
 /** A time the person named may go as late as midnight, past the end of planning */
 const LATEST = 24 * 60;
@@ -93,7 +100,15 @@ export interface PlaceOptions {
   placed?: PlanItem[];
   /** Items the change itself moves or takes out: placed afresh */
   touched?: Iterable<string>;
+  /**
+   * The gap kept between items and either side of meetings: 15 minutes when
+   * left out, none for a plan they asked for back to back (BriefPlanMeta.buffer)
+   */
+  buffer?: number;
 }
+
+/** What placing a plan gives: the parts of the plan message it sets. */
+export type PlanFit = Pick<BriefPlanMeta, 'items' | 'unplaced' | 'order' | 'from' | 'buffer'>;
 
 /**
  * Place a plan's items and describe the result as a plan message. Items claim
@@ -108,12 +123,13 @@ export interface PlaceOptions {
  * plan would otherwise end; when a meeting or something already in the plan is
  * there, it goes at the first free time after. It is never before now. Nothing
  * else goes before `from` or after `dayEnd`.
+ *
+ * The gap between things is the plan's own (opts.buffer). A plan made back to
+ * back says so in what comes back, so every later fit of it keeps to that.
  */
-export function placePlan(
-  entries: PlanEntry[],
-  opts: PlaceOptions,
-): Pick<BriefPlanMeta, 'items' | 'unplaced' | 'order' | 'from'> {
+export function placePlan(entries: PlanEntry[], opts: PlaceOptions): PlanFit {
   const { busy, from } = opts;
+  const buffer = opts.buffer ?? BUFFER_MINUTES;
   const dayEnd = opts.dayEnd ?? PLAN_DAY_END;
   const floor = opts.now ?? 0;
   const pins = opts.pins ?? new Map<string, number>();
@@ -158,7 +174,7 @@ export function placePlan(
       const fit = c.named
         ? // a named time: there when it is free, with no gap needed around it
           fitSlots(one, [...busy, ...others], floor, LATEST, 0)
-        : fitSlots(one, [...busy, ...others], from, dayEnd);
+        : fitSlots(one, [...busy, ...others], from, dayEnd, buffer);
       if (fit.placed.length) {
         spot = fit.placed[0];
         break;
@@ -192,7 +208,13 @@ export function placePlan(
     });
   }
   items.sort((a, b) => a.start - b.start || a.id.localeCompare(b.id));
-  return { from, order: claims.map((c) => c.e.id), items, unplaced };
+  return {
+    from,
+    order: claims.map((c) => c.e.id),
+    items,
+    unplaced,
+    ...(buffer !== BUFFER_MINUTES ? { buffer } : {}),
+  };
 }
 
 /** Place a new plan: what the person picked first, then the rest in order. */
@@ -201,8 +223,50 @@ export function fitPlan(
   busy: Busy[],
   from: number,
   dayEnd: number = PLAN_DAY_END,
-): Pick<BriefPlanMeta, 'items' | 'unplaced' | 'order' | 'from'> {
-  return placePlan(entries, { busy, from, dayEnd });
+  buffer?: number,
+): PlanFit {
+  return placePlan(entries, { busy, from, dayEnd, buffer });
+}
+
+/**
+ * How picks sit in the day, for the pick sheet: the time still free once they
+ * are in with the gaps kept, or that they only fit with no gaps, or that some
+ * have no place either way. Worked out by placing them as the plan would, so
+ * the sheet and the plan it makes never disagree.
+ */
+export interface PickRoom {
+  /** spaced: all fit with the gaps. tight: all fit only back to back. over: some fit neither way. */
+  fit: 'spaced' | 'tight' | 'over';
+  /** Minutes still free for more, with the gaps kept (0 unless spaced) */
+  left: number;
+  /**
+   * over: minutes of what the plan will leave out. Back to back would not
+   * hold everything either, so the plan is made with its gaps, and this is
+   * what has no place in that plan.
+   */
+  over: number;
+}
+
+export function planRoom(entries: PlanEntry[], opts: PlaceOptions): PickRoom {
+  const gap = opts.buffer ?? BUFFER_MINUTES;
+  const dayEnd = opts.dayEnd ?? PLAN_DAY_END;
+  const spaced = placePlan(entries, { ...opts, buffer: gap });
+  if (!spaced.unplaced.length) {
+    return {
+      fit: 'spaced',
+      left: roomLeft(opts.busy, spaced.items, opts.from, Math.max(opts.from, dayEnd), gap),
+      over: 0,
+    };
+  }
+  // Back to back is a way to fit several things: one thing alone that only
+  // fits hard up against a meeting has no good gap, as it always has not.
+  const tight = gap > 0 && entries.length > 1 ? placePlan(entries, { ...opts, buffer: 0 }) : spaced;
+  if (!tight.unplaced.length) return { fit: 'tight', left: 0, over: 0 };
+  return {
+    fit: 'over',
+    left: 0,
+    over: spaced.unplaced.reduce((a, u) => a + (u.minutes ?? DEFAULT_MINUTES), 0),
+  };
 }
 
 /**
@@ -218,8 +282,9 @@ export function refitKeeping(
   dayEnd: number = PLAN_DAY_END,
   touched: Iterable<string> = [],
   now: number = 0,
-): Pick<BriefPlanMeta, 'items' | 'unplaced' | 'order' | 'from'> {
-  return placePlan(entries, { busy, from, dayEnd, placed, touched, now });
+  buffer?: number,
+): PlanFit {
+  return placePlan(entries, { busy, from, dayEnd, placed, touched, now, buffer });
 }
 
 /** Apply one change. A move with no time asks for later than where it is now. */
@@ -420,7 +485,99 @@ export const PLAN_COPY = {
   thanks: 'Any time.',
   keptReason: 'Kept for today',
   yourPicks: "Here's the day with what you picked, around everything that's fixed.",
+  backToBack: "Back to back it is. Here's how it lays out.",
+  withSpace: "With some space, then. Here's what fits.",
+  unfitFailed: "That didn't save, so nothing has moved.",
+  dayGone: "That day has gone, so there's nothing left of it to plan.",
 };
+
+// ── when the picks only fit back to back ────────────────────────────────────
+
+/** Gremly's question when everything picked fits only with no gaps between. */
+export function spacingAskText(d: PlanDay): string {
+  return `Those only fit ${d.word} back to back. Want them back to back, or with some space between them?`;
+}
+
+export function spacingButtons(): OfferButton[] {
+  return [
+    { id: 'plan_tight', label: 'Back to back', action: 'plan_spacing', value: 'tight' },
+    { id: 'plan_spaced', label: 'With some space', action: 'plan_spacing', value: 'spaced' },
+  ];
+}
+
+// ── what they picked and did not fit ────────────────────────────────────────
+
+/** The day after a plan's day, as they would say it now: "tomorrow", or its weekday. */
+export function dayAfterWord(planDate: string, today: string, late = false): string {
+  return planDay(dayAfter(planDate), today, late).word;
+}
+
+/** The day after a day. */
+export function dayAfter(day: string): string {
+  const at = Date.UTC(+day.slice(0, 4), +day.slice(5, 7) - 1, +day.slice(8, 10));
+  return new Date(at + 864e5).toISOString().slice(0, 10);
+}
+
+/**
+ * Gremly's line when something they picked did not fit, with the offer for
+ * the todos among it: another day, and put off for later when that is one of
+ * the buttons (unfitButtons).
+ * @param todos the todos that did not fit, which the buttons act on
+ * @param p.day the plan's day ("today"); p.next the day after it ("tomorrow")
+ */
+export function unfitAskText(
+  unplaced: UnplacedItem[],
+  todos: UnplacedItem[],
+  p: { day: string; next: string; later: boolean },
+): string {
+  const said = unplacedText(unplaced, p.day) ?? '';
+  const all = todos.length === unplaced.length;
+  const what = all ? (todos.length === 1 ? 'it' : 'them') : namesOf(todos.map((t) => t.title));
+  return `${said} Want ${what} ${p.next} instead${p.later ? ', or put off for later' : ''}?`;
+}
+
+/**
+ * The buttons under it. Later is there only when every one of the todos can
+ * still be put off (lib/sweep/cardDays.ts laterOffered).
+ */
+export function unfitButtons(count: number, word: string, later: boolean): OfferButton[] {
+  return [
+    { id: 'unfit_tomorrow', label: `Move to ${word}`, action: 'plan_unfit', value: 'tomorrow' },
+    ...(later
+      ? [{ id: 'unfit_later', label: 'Later', action: 'plan_unfit' as const, value: 'later' }]
+      : []),
+    {
+      id: 'unfit_leave',
+      label: count === 1 ? 'Leave it' : 'Leave them',
+      action: 'plan_unfit',
+      value: 'leave',
+    },
+  ];
+}
+
+/** Gremly's line once they are moved to the next day. */
+export function unfitMovedText(titles: string[], word: string): string {
+  return titles.length === 1
+    ? `Done, ${titles[0]} is on ${word} now.`
+    : `Done, ${namesOf(titles)} are on ${word} now.`;
+}
+
+/** Gremly's line once they are put off, each with the day it comes back. */
+export function unfitLaterText(back: { title: string; day: string }[]): string {
+  return `Done. ${namesOf(back.map((b) => `${b.title} comes back ${b.day}`))}.`;
+}
+
+/** Added to either line when some of them could not be moved. */
+export function unfitStayedText(titles: string[]): string {
+  return titles.length === 1
+    ? `${titles[0]} stayed where it was.`
+    : `${namesOf(titles)} stayed where they were.`;
+}
+
+/** Gremly's line when they are left where they are. */
+export function unfitLeftText(count: number): string {
+  return count === 1 ? "Sure, I've left it where it is." : "Sure, I've left them where they are.";
+}
 
 /** Gremly's line after a change. */
 export function changeText(
@@ -444,13 +601,13 @@ export function changeText(
   return wasSet ? text + PLAN_COPY.again : text;
 }
 
-/** Gremly's line when something chosen did not fit. */
-export function unplacedText(unplaced: UnplacedItem[]): string | null {
+/** Gremly's line when something chosen did not fit. day: the plan's day, as they would say it. */
+export function unplacedText(unplaced: UnplacedItem[], day = 'today'): string | null {
   if (!unplaced.length) return null;
   const names = namesOf(unplaced.map((u) => u.title));
   return unplaced.length === 1
-    ? `I couldn't find a good gap for ${names} today, so it's not in the plan.`
-    : `I couldn't find good gaps for ${names} today, so they're not in the plan.`;
+    ? `I couldn't find a good gap for ${names} ${day}, so it's not in the plan.`
+    : `I couldn't find good gaps for ${names} ${day}, so they're not in the plan.`;
 }
 
 /** Gremly's line after a plan is said yes to. */

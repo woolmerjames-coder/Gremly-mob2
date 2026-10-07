@@ -51,6 +51,7 @@ import {
   afterNotToday,
   afterSkip,
   backToPlanStep,
+  backToSpacingStep,
   gremlyStep,
   replyStep,
   BRIEF_COPY,
@@ -84,6 +85,10 @@ export interface BriefOffersDeps {
   onPlanEdit?: (offer: SpaceChatMessage, button: OfferButton) => void;
   /** After Sweep: add what was kept to the plan already there (button value: the ids) */
   onAddKept?: (ids: string[]) => void;
+  /** Back to back, or with some space: the picks only fit the day with no gaps */
+  onPlanSpacing?: (offer: SpaceChatMessage, button: OfferButton) => void;
+  /** Another day, Later or left: the todos they picked that did not fit */
+  onPlanUnfit?: (offer: SpaceChatMessage, button: OfferButton) => void;
   /** Plan my week: the weekly review starts in the thread */
   onPlanWeek?: () => void;
   /** The first reply of the day (feeding) */
@@ -279,6 +284,16 @@ export function useBriefOffers(deps: BriefOffersDeps): BriefOffers {
           return run(async () => {
             await reply(message, replyStep(button, offer.brief_id), button.id);
             d.onPlanWeek?.();
+          });
+        case 'plan_spacing':
+          return run(async () => {
+            await reply(message, replyStep(button, offer.brief_id), button.id);
+            d.onPlanSpacing?.(message, button);
+          });
+        case 'plan_unfit':
+          return run(async () => {
+            await reply(message, replyStep(button, offer.brief_id), button.id);
+            d.onPlanUnfit?.(message, button);
           });
         case 'habit_keep':
         case 'habit_move':
@@ -485,7 +500,11 @@ export function useBriefOffers(deps: BriefOffersDeps): BriefOffers {
         const meta = briefMetaOf(offer);
         if (!offer || meta?.type !== 'brief-offer') return;
         await pause();
-        await save([backToPlanStep({ id: offer.id, meta }, nowMinutes())]);
+        await save([
+          meta.kind === 'plan_spacing'
+            ? backToSpacingStep({ id: offer.id, content: offer.content, meta })
+            : backToPlanStep({ id: offer.id, meta }, nowMinutes()),
+        ]);
       }),
     [pause, reveal, run, save],
   );

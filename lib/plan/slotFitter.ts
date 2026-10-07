@@ -93,6 +93,27 @@ export function fitSlots(
   return { placed, unplaced };
 }
 
+/**
+ * Minutes still free for something more in [from, to], with the gap kept
+ * either side of every meeting and everything placed. This is the room the
+ * fitter itself has: what freeMinutes counts and the gaps it would leave.
+ */
+export function roomLeft(
+  busy: Busy[],
+  placed: Placed[],
+  from: number,
+  to: number,
+  gap: number = BUFFER_MINUTES,
+): number {
+  const wide = (b: Busy): Busy => ({ start: b.start - gap, end: b.end + gap });
+  return freeMinutes(
+    busy.filter((b) => b.end > b.start).map(wide),
+    placed.map((p) => ({ id: p.id, ...wide(p) })),
+    from,
+    to,
+  );
+}
+
 /** Minutes of free time in [from, to] once meetings and the plan are taken out. */
 export function freeMinutes(busy: Busy[], placed: Placed[], from: number, to: number): number {
   const blocks = [...busy, ...placed]

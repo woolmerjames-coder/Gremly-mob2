@@ -368,6 +368,18 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       if (op) void planFlowRef.current.applySuggestion(op);
     },
     onAddKept: (ids) => void planFlowRef.current.addKept(ids),
+    // back to back or with some space, and what to do with picks that did not fit
+    onPlanSpacing: (offerMsg, button) => {
+      const meta = briefMetaOf(offerMsg);
+      void planFlowRef.current.planSpacing(
+        meta?.type === 'brief-offer' ? meta : null,
+        button.value,
+      );
+    },
+    onPlanUnfit: (offerMsg, button) => {
+      const meta = briefMetaOf(offerMsg);
+      void planFlowRef.current.moveUnfit(meta?.type === 'brief-offer' ? meta : null, button.value);
+    },
     // Plan my week, beside the brief's offer: they have said yes, so the review goes straight in
     onPlanWeek: () => openWeekReviewRef.current({ startNow: true }),
   });
@@ -2380,6 +2392,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       {isDailyThread && planFlow.pickSession ? (
         <PlanPickSheet
           session={planFlow.pickSession}
+          room={planFlow.pickRoom}
           onConfirm={(picks) => void planFlowRef.current.planPicked(picks)}
           onAsk={() => void planFlowRef.current.askFirst()}
           onClose={() => planFlowRef.current.closePicks()}
