@@ -494,11 +494,13 @@ describe('recall', () => {
       '- fact | current | Alex might be moving to the Lisbon office. | how Gremly knows: their answer when Gremly asked "How is work going these days?", on Tue 29 Sep 2026; their words: "Might be moving to the Lisbon office in the new year"',
     );
     expect(r.text).toContain('- story | shift | A year of change: Work shifted a lot this year.');
-    expect(r.text.split('\n')[1]).not.toContain('how Gremly knows');
-    // the model is told the source is there to use
-    expect(TOOLS.find((t) => t.name === 'recall').description).toContain(
-      'a fact with how Gremly knows it',
+    expect(r.text.split('\n')[2]).not.toContain('how Gremly knows');
+    // what a source is for is said with the result, above what was found
+    expect(r.text.split('\n')[0]).toBe(
+      'On record (when they ask how Gremly knows something, a fact says it on its own line: tell them the day, where they said it and what they said. When no line says it, Gremly cannot tell where it came from and may have got it wrong, and it is never from anyone else):',
     );
+    // and not in the description, which the agent is sent on every turn
+    expect(TOOLS.find((t) => t.name === 'recall').description).not.toContain('how Gremly knows');
   });
 });
 

@@ -1427,17 +1427,31 @@ describe("where Gremly's question came from", () => {
     expect(warn).toHaveBeenCalled();
   });
 
-  it('tells the agent what is on record and how Gremly knows it', () => {
-    expect(
-      questionSourceContext(QUESTION, FACT, {
-        today: '2026-10-03',
-        timezone: 'America/Los_Angeles',
-      }),
-    ).toBe(
-      `WHERE GREMLY'S QUESTION CAME FROM\nGremly asked "${QUESTION}" because of this on record about them: "${FACT.statement}"\nHow Gremly knows it: their answer when Gremly asked "How is work going these days?", on Tue 29 Sep 2026; their words: "Busy but good. Might be moving to the Lisbon office in the new year, we will see"\nThis is the record itself, read just now. When they ask where the question came from, answer from it; it needs no lookup.`,
+  it('tells the agent how Gremly knows it, and that it is for the one case of being asked', () => {
+    const block = questionSourceContext(QUESTION, FACT, {
+      today: '2026-10-03',
+      timezone: 'America/Los_Angeles',
+    });
+    expect(block).toBe(
+      `IF THEY ASK WHERE GREMLY'S QUESTION CAME FROM\nGremly asked "${QUESTION}" because of their answer when Gremly asked "How is work going these days?", on Tue 29 Sep 2026; their words: "Busy but good. Might be moving to the Lisbon office in the new year, we will see".\nThis is the record itself, read just now, and it is here for one case only: when their message asks where the question came from, or how Gremly knew, rather than answering it. Then it is not an answer: tell them plainly and warmly from this, the day, where they said it and what they said, with no lookup. When their message answers the question, leave this out of your reply and handle the answer as above.`,
     );
     expect(questionSourceContext(QUESTION, null)).toBe('');
     expect(questionSourceContext('', FACT)).toBe('');
+  });
+
+  it('gives the fact as Gremly wrote it when their own words were not kept', () => {
+    const block = questionSourceContext(
+      QUESTION,
+      { ...FACT, source_quote: null },
+      { today: '2026-10-03', timezone: 'America/Los_Angeles' },
+    );
+    expect(block).toContain(
+      `on Tue 29 Sep 2026. On record from it: "${FACT.statement}"\nThis is the record itself`,
+    );
+    // a fact whose source is not known is still said, as what is on record
+    expect(questionSourceContext(QUESTION, { statement: FACT.statement })).toContain(
+      `Gremly asked "${QUESTION}" because of this on record about them: "${FACT.statement}"\nThis is the record itself`,
+    );
   });
 
   it('comes last in what the agent knows about today, and only when there is one', () => {
@@ -1447,17 +1461,19 @@ describe("where Gremly's question came from", () => {
     expect(all.endsWith(block)).toBe(true);
     expect(all.indexOf("THEIR MESSAGE ANSWERS GREMLY'S QUESTION")).toBeLessThan(all.indexOf(block));
     expect(dayContext(req, null, readWrap(WRAP))).not.toContain(
-      "WHERE GREMLY'S QUESTION CAME FROM",
+      "IF THEY ASK WHERE GREMLY'S QUESTION CAME FROM",
     );
   });
 
-  it('a message that asks about the question is not its answer', () => {
-    expect(wrapContext(readWrap(WRAP))).toContain(
-      'When their message asks about the question itself rather than answering it, it is not the answer: answer what they asked, with no card.',
-    );
+  it("leaves the wrap up's own words about an answer exactly as they were", () => {
+    // what to do when they ask about the question is said with its source, not here:
+    // a line here took the card off a plain answer
+    const text = wrapContext(readWrap(WRAP));
+    expect(text).not.toContain('it is not the answer');
+    expect(text.endsWith('with your reply, in this step.')).toBe(true);
   });
 
-  it('reaches the model with the message, with the rule for saying how Gremly knows', async () => {
+  it('reaches the model with the message, and changes nothing about who Gremly is in the thread', async () => {
     const m = scripted(reply('You told me on Tuesday, when I asked how work was going.'));
     const db = dbWith([{ question: QUESTION, about_fact_id: FACT_ID }]);
     const r = await runBriefTurn({
@@ -1480,12 +1496,12 @@ describe("where Gremly's question came from", () => {
     });
     expect(r).toMatchObject({ engine: 'agent', stopped: 'answer' });
     const sent = JSON.stringify(m.seen[0]);
-    expect(sent).toContain("WHERE GREMLY'S QUESTION CAME FROM");
+    expect(sent).toContain("IF THEY ASK WHERE GREMLY'S QUESTION CAME FROM");
     expect(sent).toContain('on Tue 29 Sep 2026');
     expect(sent).toContain('Might be moving to the Lisbon office in the new year');
-    // the rule is part of who Gremly is in the thread, so it is there on every turn
-    expect(m.seen[0].system).toContain(SOURCE_RULES_AGENT);
-    expect(briefPersona({ first_name: 'Alex' })).toContain(SOURCE_RULES_AGENT);
+    // no standing rule in the thread: it cost the card on a plain answer (careRules.js)
+    expect(m.seen[0].system).not.toContain('HOW GREMLY KNOWS WHAT IT KNOWS');
+    expect(briefPersona({ first_name: 'Alex' })).not.toContain(SOURCE_RULES_AGENT);
   });
 
   it('a turn with no question in play asks the database nothing more', async () => {
@@ -1505,6 +1521,8 @@ describe("where Gremly's question came from", () => {
       },
     });
     expect(db.seen.filter((x) => String(x).startsWith('gremly_questions'))).toEqual([]);
-    expect(JSON.stringify(m.seen[0])).not.toContain("WHERE GREMLY'S QUESTION CAME FROM");
+    const sent = JSON.stringify(m.seen[0]);
+    expect(sent).not.toContain("WHERE GREMLY'S QUESTION CAME FROM");
+    expect(sent).not.toContain('HOW GREMLY KNOWS');
   });
 });

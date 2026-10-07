@@ -21,6 +21,22 @@ const CLAIMS = [
   /\b(it['’]s|that['’]s|they['’]re|is|are)\s+now\s+(added|moved|updated|changed|cancell?ed|removed|saved|booked|scheduled|in)\b/i,
 ];
 
+// The same verbs said about Gremly's own reading, not about one of their items:
+// where it took something from, or a mistake it made. A reply that says how
+// Gremly knows something, or owns getting it wrong, uses them, and is no claim
+// that a change was made. They are taken out before the claims are looked for.
+const NOT_A_CHANGE = [
+  /\bI(?:['’]ve| have)?\s+(?:took|taken)\s+(?:that|this|it)\s+(?:from|to mean|as)\b/gi,
+  /\bI(?:['’]ve| have)?\s+(?:\w+\s+)?made\s+(?:that|this|it|something)\s+up\b/gi,
+  /\bI(?:['’]ve| have)?\s+(?:\w+\s+)?made\s+an?\s+(?:\w+\s+)?(?:mistake|error|assumption|guess|leap)\b/gi,
+];
+
+/** Whether a reply says a change is already made. */
+export function claimsDone(reply) {
+  const said = NOT_A_CHANGE.reduce((text, re) => text.replace(re, ' '), String(reply || ''));
+  return CLAIMS.some((re) => re.test(said));
+}
+
 export function checkTurn(s, out) {
   const checks = [];
   const add = (level, name, ok, detail = '') => checks.push({ level, name, ok: !!ok, detail });
@@ -136,7 +152,7 @@ export function checkTurn(s, out) {
   add(
     'fail',
     'Reply claims nothing as done',
-    !out.reply_claimed && !CLAIMS.some((re) => re.test(reply)),
+    !out.reply_claimed && !claimsDone(reply),
     reply,
   );
   add('fail', 'Reply is short', reply.split(/(?<=[.!?])\s+/).filter(Boolean).length <= 3, reply);
