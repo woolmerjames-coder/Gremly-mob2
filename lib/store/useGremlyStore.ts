@@ -3277,10 +3277,21 @@ export const useGremlyStore = create<GremlyState>()(
             !!(prevTodo as Record<string, unknown> | undefined)?.resurface_at;
           const updates = (leavesLater ? { ...given, resurface_at: null } : given) as Partial<Todo>;
 
+          // The store keeps a todo's notes where the database does, in body.
+          // The overlay's Save sends them as details, which is renamed to body
+          // only on the way to the database, so the store's body stayed as it
+          // was: reopening showed the old notes, and a change from the item's
+          // chat then wrote the old notes, plus what it added, over the edit.
+          const local = { ...(updates as Record<string, unknown>) };
+          if ('details' in local) {
+            local.body = local.details;
+            delete local.details;
+          }
+
           // 1. OPTIMISTIC UPDATE
           set((state) => ({
             todos: state.todos.map((t) =>
-              t.id === id ? { ...t, ...updates, updated_at: now } : t,
+              t.id === id ? ({ ...t, ...local, updated_at: now } as Todo) : t,
             ),
           }));
 

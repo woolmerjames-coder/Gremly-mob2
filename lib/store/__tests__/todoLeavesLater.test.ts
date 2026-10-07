@@ -75,3 +75,32 @@ describe('a todo given a day', () => {
     expect('resurface_at' in mockUpdates[2]).toBe(false);
   });
 });
+
+describe('a todo whose notes are saved from its editor', () => {
+  it('holds them in body straight away, where the rest of the app reads them', async () => {
+    useGremlyStore.setState({
+      todos: [{ id: 'notes', name: 'Book the hotel', body: 'Old notes' }] as never,
+    });
+    // the overlay's Save sends the notes as details
+    await useGremlyStore.getState().updateTodo('notes', { details: 'New notes' } as never);
+    expect(todoNow('notes').body).toBe('New notes');
+    expect('details' in todoNow('notes')).toBe(false);
+    // the database gets them in body, as before
+    expect(mockUpdates[0]).toMatchObject({ body: 'New notes' });
+    expect('details' in mockUpdates[0]).toBe(false);
+  });
+
+  it('puts the old notes back when the save fails', async () => {
+    useGremlyStore.setState({
+      todos: [{ id: 'notes', name: 'Book the hotel', body: 'Old notes' }] as never,
+    });
+    (supabase.from as jest.Mock).mockImplementation(() => ({
+      update: () => ({ eq: async () => ({ error: { message: 'offline' } }) }),
+    }));
+    await expect(
+      useGremlyStore.getState().updateTodo('notes', { details: 'New notes' } as never),
+    ).rejects.toBeTruthy();
+    expect(todoNow('notes').body).toBe('Old notes');
+  });
+});
+
