@@ -20,6 +20,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 import type { ClassifierOutput } from './worldsClassifier';
+import { oldWorldsFieldsStopped, withoutOldFields } from '../shared/worldsFields.js';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -30,6 +31,10 @@ export interface WriterEnv {
   // Worlds headline. The classifier then only adds structure (new worlds,
   // chapters, life contexts) and velocity.
   CONTEXT_PIPELINE?: string;
+  // 'stop' once the Worlds build says the old screens are gone: then no
+  // suggested row is made and the old fields are not written
+  // (shared/worldsFields.js, data fabric stage 4a)
+  WORLDS_OLD_FIELDS?: string;
 }
 
 /**
@@ -178,6 +183,10 @@ export async function writeClassifierOutput(
     errors: [],
   };
 
+  // Once the old Worlds fields stop, the classifier makes no suggested World,
+  // Chapter or life context, and writes none of the old fields
+  const stopOld = oldWorldsFieldsStopped(env);
+
   // ── Step 1: load existing state ───────────────────────────────
   const [worldsRes, chaptersRes, lcRes] = await Promise.all([
     db
@@ -290,7 +299,7 @@ export async function writeClassifierOutput(
   }
 
   // ── Step 2: insert new worlds ─────────────────────────────────
-  for (const candidate of output.new_world_candidates) {
+  for (const candidate of stopOld ? [] : output.new_world_candidates) {
     if (candidate.confidence < 0.5) continue;
     const key = candidate.proposed_name.toLowerCase().trim();
     if (existingWorlds.has(key)) {
@@ -340,7 +349,7 @@ export async function writeClassifierOutput(
   }
 
   // ── Step 3: insert new chapters ───────────────────────────────
-  for (const candidate of output.new_chapter_candidates) {
+  for (const candidate of stopOld ? [] : output.new_chapter_candidates) {
     if (candidate.confidence < 0.5) continue;
     const primaryWorldId = existingWorlds.get(candidate.primary_world_name.toLowerCase().trim());
     if (primaryWorldId === undefined) {
@@ -433,7 +442,7 @@ export async function writeClassifierOutput(
   }
 
   // ── Step 4: insert new life_contexts ──────────────────────────
-  for (const candidate of output.new_life_context_candidates) {
+  for (const candidate of stopOld ? [] : output.new_life_context_candidates) {
     if (candidate.confidence < 0.5) continue;
     const key = `${candidate.proposed_name.toLowerCase().trim()}::${candidate.kind}`;
     if (existingLifeContexts.has(key)) {
@@ -607,7 +616,7 @@ export async function writeClassifierOutput(
       // Defense-in-depth: for open chapters, guard against concurrent user-close races
       let query = db
         .from('chapters')
-        .update(patch)
+        .update(withoutOldFields('chapters', patch, env))
         .eq('id', update.chapter_id)
         .eq('owner_id', ownerId);
       if (closedAt === null && !update.close_chapter) {
@@ -644,7 +653,7 @@ export async function writeClassifierOutput(
       updated_at: now(),
     };
     const synthesisOwnsText = env.CONTEXT_PIPELINE === 'on';
-    if (vu.recommend_dormant && !synthesisOwnsText) {
+    if (vu.recommend_dormant && !synthesisOwnsText && !stopOld) {
       patch.phase = 'dormant';
     }
     const worldProt = synthesisOwnsText
@@ -676,7 +685,7 @@ export async function writeClassifierOutput(
     }
     const { error: vuError } = await db
       .from('worlds')
-      .update(patch)
+      .update(withoutOldFields('worlds', patch, env))
       .eq('id', vu.world_id)
       .eq('owner_id', ownerId);
     if (vuError) {

@@ -200,3 +200,36 @@ describe('what the weekly pass records', () => {
     ).toBe(false);
   });
 });
+
+describe('the old Worlds fields (shared/worldsFields.js)', () => {
+  const run = async (env) => {
+    const calls = fakeDb();
+    await applyWeekly(env, USER, output, refsSnapshot, {
+      shadow: false,
+      runId: 'run',
+      today: '2026-10-08',
+    });
+    return calls.filter((c) => c.op === 'update');
+  };
+
+  it('kept, the phase and priorities are written as before', async () => {
+    const updates = await run({});
+    const world = updates.find((c) => c.path.startsWith('worlds?id=eq.world-1'));
+    expect(world.patch).toHaveProperty('phase', 'active');
+    expect(world.patch).toHaveProperty('key_priorities');
+    const chapter = updates.find((c) => c.path.startsWith('chapters?id=eq.chapter-1'));
+    expect(chapter.patch).toHaveProperty('key_priorities');
+  });
+
+  it('stopped, no phase or priorities are written, and the words still are', async () => {
+    const updates = await run({ WORLDS_OLD_FIELDS: 'stop' });
+    const world = updates.find((c) => c.path.startsWith('worlds?id=eq.world-1'));
+    expect(world.patch).not.toHaveProperty('phase');
+    expect(world.patch).not.toHaveProperty('key_priorities');
+    expect(world.patch).toHaveProperty('card_subtitle', 'Training for the half');
+    const chapter = updates.find((c) => c.path.startsWith('chapters?id=eq.chapter-1'));
+    for (const k of ['key_priorities', 'key_priorities_source', 'current_phase_key', 'phase_labels'])
+      expect(chapter.patch).not.toHaveProperty(k);
+    expect(chapter.patch).toHaveProperty('card_subtitle', 'Building up to race day');
+  });
+});

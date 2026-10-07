@@ -28,6 +28,11 @@ CONTEXT_PIPELINE = "on"
 # (comma-separated user ids). James, Tina and Dave were the accounts checked first;
 # since 1 Oct 2026 the pipeline is on for everyone, new people included.
 CONTEXT_LIVE_USERS = "05a3c53d-b242-4b5f-a0db-83004c8e3892,c64ec85f-735c-4d5c-859a-1ac6630aebb3,c7674834-114b-4f6d-ac57-4d18aec8393b"
+# The stop switch for the old Worlds fields (workers/shared/worldsFields.js,
+# section A of docs/worlds/FOR_THE_PIPELINE.md): "keep" writes them as before;
+# "stop", once the Worlds build says the old screens are gone, stops the weekly
+# pass, the Sunday classifier and filing from writing them.
+WORLDS_OLD_FIELDS = "keep"
 
 # Add secrets via CLI:
 # npx wrangler secret put SUPABASE_URL

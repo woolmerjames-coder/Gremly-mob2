@@ -39,6 +39,7 @@ import { invalidateChatCache } from './cache';
 import { batchUsageRow, writeUsageRow } from '../../shared/aiUsage';
 import { stateWords } from '../../shared/factTiming.js';
 import { passageRow, recordPassages } from '../../shared/passageRefs.js';
+import { oldWorldsFieldsStopped, withoutOldFields } from '../../shared/worldsFields.js';
 
 export const WEEKLY_PROMPT_VERSION = 'weekly-2026-10-01d';
 
@@ -791,7 +792,10 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
         summary_source: 'synthesis',
         summary_updated_at: nowIso,
       });
-    await d.update(`worlds?id=eq.${id}&owner_id=eq.${userId}`, patch);
+    // once the old Worlds fields stop (shared/worldsFields.js), neither the
+    // phase nor the priorities are written: a World is there or hidden
+    if (oldWorldsFieldsStopped(env)) delete patch.phase;
+    await d.update(`worlds?id=eq.${id}&owner_id=eq.${userId}`, withoutOldFields('worlds', patch, env));
     // the card line rests on the facts it cites (workers/shared/passageRefs.js)
     if (patch.card_subtitle)
       passages.push(
@@ -896,7 +900,11 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
           phase_labels_updated_at: nowIso,
         });
       }
-      await d.update(`chapters?id=eq.${id}&owner_id=eq.${userId}`, patch);
+      // the priorities and the stage stop with the old Worlds fields (shared/worldsFields.js)
+      await d.update(
+        `chapters?id=eq.${id}&owner_id=eq.${userId}`,
+        withoutOldFields('chapters', patch, env),
+      );
       // a chapter's words rest on the facts it cites; a field it cleared rests on nothing
       for (const field of ['title', 'card_subtitle', 'summary', 'epigraph']) {
         if (field in patch && !patch[field])

@@ -28,6 +28,8 @@ export interface ProcessWindowEnv {
   CONTEXT_PIPELINE?: string;
   CONTEXT_LIVE_USERS?: string;
   WORLDS_CLASSIFIER_MODEL?: string;
+  /** The stop switch for the old Worlds fields (shared/worldsFields.js) */
+  WORLDS_OLD_FIELDS?: string;
 }
 
 /** The context pipeline mode for one person: people on the live list get 'on' early. */
@@ -202,6 +204,7 @@ export async function processWorldsWindow(params: {
     SUPABASE_URL: env.SUPABASE_URL,
     SUPABASE_SERVICE_KEY: env.SUPABASE_SERVICE_KEY,
     CONTEXT_PIPELINE: contextModeFor(env, ownerId),
+    WORLDS_OLD_FIELDS: env.WORLDS_OLD_FIELDS,
   });
 
   return {
