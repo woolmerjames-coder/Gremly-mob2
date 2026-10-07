@@ -30,6 +30,7 @@ export const READ_ONLY_RPCS = new Set([
   'ledger_users_due',
   'person_identity',
   'recall_life',
+  'recall_life_now',
   'usage_rollup',
   'user_activity_days',
 ]);
@@ -46,8 +47,10 @@ export const CUT_COLUMN = {
   habit_plans: 'created_at',
   habit_progress: 'occurred_at',
   habits: 'created_at',
+  item_changes: 'at',
   journal_pages: 'created_at',
   life_fact_changes: 'created_at',
+  life_fact_sources: 'created_at',
   life_facts: 'created_at',
   notes: 'created_at',
   scope_chat_messages: 'created_at',

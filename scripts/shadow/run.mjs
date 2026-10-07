@@ -5,6 +5,7 @@
  *   scripts/shadow/run.sh morning    --user <uuid> --day YYYY-MM-DD [--at HH:MM]
  *   scripts/shadow/run.sh story-copy --user <uuid> [--at ISO]
  *   scripts/shadow/run.sh correction --correction <uuid> [--said "other words"]
+ *   scripts/shadow/run.sh ledger --user <uuid> [--from ISO] [--to ISO]
  *   scripts/shadow/run.sh ... --code <dir>   run another tree's code (run.sh)
  *
  * Keys come from the environment: SHADOW_SUPABASE_KEY (a key for the
@@ -29,6 +30,8 @@ import { buildDcoV4, writeDco } from '../../workers/inngest-jobs/context/daily.j
 // a namespace import, so a tree without the story copy (main before stage 0) still bundles
 import * as story from '../../workers/inngest-jobs/context/story.js';
 import { applyCorrection } from '../../workers/inngest-jobs/context/corrections.js';
+import { readWindow } from '../../workers/inngest-jobs/context/reader.js';
+import { userTimezone } from '../../workers/shared/db.js';
 import { localStartIso } from '../../workers/shared/calendar.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -128,6 +131,26 @@ const JOBS = {
     };
   },
 
+  // The reader over a window of a past or recent day: what the reader of this
+  // tree would make of it, new facts, updates, sources, questions and stamps
+  async ledger() {
+    const userId = flag('--user');
+    if (!userId) fail('ledger needs --user');
+    const to = flag('--to') || new Date().toISOString();
+    const from = flag('--from') || new Date(Date.parse(to) - 864e5).toISOString();
+    return {
+      at: new Date(Date.parse(to) + 1000).toISOString(),
+      userId,
+      run: async () => {
+        const tz = await userTimezone(env, userId);
+        return readWindow(env, userId, tz, from, to, `shadow-ledger-${userId.slice(0, 8)}`, {
+          runSince: from,
+        });
+      },
+      summarise: (totals) => ({ from, to, totals, ...ledgerWrites(record) }),
+    };
+  },
+
   async 'story-copy'() {
     const userId = flag('--user');
     if (!userId) fail('story-copy needs --user');
@@ -186,6 +209,32 @@ const JOBS = {
     };
   },
 };
+
+/** What a ledger read would have written, from the writes the guard kept aside. */
+function ledgerWrites(rec) {
+  const rows = (table, method) =>
+    rec.writes
+      .filter((w) => w.table === table && w.method === method)
+      .flatMap((w) => (Array.isArray(w.body) ? w.body : [w.body]))
+      .filter(Boolean);
+  const sources = rows('life_fact_sources', 'POST');
+  return {
+    new_facts: rows('life_facts', 'POST').map((f) => ({
+      statement: f.statement,
+      date: f.about_date,
+      state: f.state,
+      private: f.private,
+      from: f.source_table,
+    })),
+    fact_updates: rows('life_facts', 'PATCH')
+      .filter((u) => u.state)
+      .map((u) => ({ to: u.state, reason: u.state_reason })),
+    sources: sources.length,
+    about_items: sources.filter((x) => x.role === 'about').length,
+    questions: rows('gremly_questions', 'POST').map((q) => q.question),
+    calendar: rows('synced_calendar_events', 'PATCH').map((x) => (x.cancelled_at ? 'cancelled' : 'on again')),
+  };
+}
 
 function pickMorning(dco, built) {
   if (!dco) return null;

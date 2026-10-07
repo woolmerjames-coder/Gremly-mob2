@@ -29,6 +29,7 @@ or with an apikey that is not the public anon key.
     scripts/shadow/run.sh morning    --user <uuid> --day 2026-10-05 [--at 04:30]
     scripts/shadow/run.sh story-copy --user <uuid>
     scripts/shadow/run.sh correction --correction <uuid>
+    scripts/shadow/run.sh ledger     --user <uuid> [--from ISO] [--to ISO]
 
 `--said` replays a correction with other words in place of what was said, to
 see what a correction would do to passages a past one has already fixed.
