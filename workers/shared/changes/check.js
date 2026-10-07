@@ -19,13 +19,13 @@
  *
  * The week's own operations (WEEK_OPS in fields.js) are checked here too, by
  * checkWeekChange, against the person's week on the context (ctx.week): the
- * days they act on, the week's hours and busy days, its intention, and the
- * weekly day. They come with what they need by name: back_on for 'later',
- * days for 'habit_days', shape for 'week_shape', intention, milestone, and
- * weekday for 'weekly_day'. With no week on the context they are dropped.
- * What comes back says which week it is for where that matters (week_start on
- * the shape, the intention and a milestone), and can be checked again as it
- * is, like any other change.
+ * days they act on, the week's hours and busy days, what matters most in it,
+ * its intention, and the weekly day. They come with what they need by name:
+ * back_on for 'later', days for 'habit_days', shape for 'week_shape',
+ * priority, intention, milestone, and weekday for 'weekly_day'. With no week
+ * on the context they are dropped. What comes back says which week it is for
+ * where that matters (week_start on the shape, a priority, the intention and
+ * a milestone), and can be checked again as it is, like any other change.
  *
  * What comes back adds:
  * - title: the item's name as it reads now (or the new name for an add)
@@ -511,12 +511,14 @@ function readSteps(steps, today, date) {
  * @param {object} raw the change as proposed
  * @param {{today?: string, item?: object|null, week?: {first: string, last: string,
  *   week_start?: string, hours?: object|null, busy_days?: string[], has_review?: boolean,
- *   intention?: {id?: string|null, text: string}|null, weekly_day?: number}|null}} ctx
+ *   intention?: {id?: string|null, text: string}|null, priorities?: string[]|null,
+ *   weekly_day?: number}|null}} ctx
  *   week: the days the week's changes act on (first to last), the first day of
  *   the week they belong to, the week's shape and intention as they stand,
- *   whether the week has a review to keep its shape and check ins on, and the
- *   weekly day. A habit's snapshot carries planned_days, the days it is
- *   planned on now.
+ *   what matters most in it as it stands (null from an app build that cannot
+ *   keep a new one), whether the week has a review to keep its shape and
+ *   check ins on, and the weekly day. A habit's snapshot carries
+ *   planned_days, the days it is planned on now.
  * @returns {{ok: true, change: object} | {ok: false, reason: string}}
  */
 export function checkWeekChange(raw, ctx = {}) {
@@ -653,6 +655,37 @@ export function checkWeekChange(raw, ctx = {}) {
           from: w.first,
           shape,
           before,
+        },
+      };
+    }
+    case 'priority': {
+      // what matters most is kept on the week's review, so there has to be one
+      if (!w.has_review) return { ok: false, reason: 'no_review' };
+      // An app build that cannot keep a new one does not say what matters
+      // most now, and is never handed a change it cannot apply.
+      if (!Array.isArray(w.priorities)) return { ok: false, reason: 'no_priorities' };
+      const text = normText(raw.priority ?? raw.fields?.text, WEEK_LIMITS.priority);
+      if (!text) return { ok: false, reason: 'bad_value:priority' };
+      const was = w.priorities
+        .filter((p) => typeof p === 'string')
+        .map((p) => p.trim())
+        .filter(Boolean);
+      // the same words are the same priority, however they are capitalised
+      if (was.some((p) => p.toLowerCase() === text.toLowerCase()))
+        return { ok: false, reason: 'no_change' };
+      // a week keeps a few things as mattering most, and one more would not be one of them
+      if (was.length >= WEEK_LIMITS.priorities) return { ok: false, reason: 'priorities_full' };
+      return {
+        ok: true,
+        change: {
+          ...base,
+          type: null,
+          id: null,
+          title: text,
+          week_start: weekStart,
+          fields: { text },
+          // what mattered most when it was offered, so the app can tell when that has changed
+          before: { priorities: was },
         },
       };
     }
@@ -843,7 +876,7 @@ export function checkEase(raw, ctx = {}) {
 }
 
 /** The week's changes a card holds one of: a second is a conflict. */
-const ONE_PER_CARD = ['week_shape', 'intention', 'weekly_day'];
+const ONE_PER_CARD = ['week_shape', 'priority', 'intention', 'weekly_day'];
 
 // ── A card ──────────────────────────────────────────────────────────────────
 

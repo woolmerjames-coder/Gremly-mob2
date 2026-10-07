@@ -11,6 +11,11 @@
  * after the card is applied. On an open card the tick is then the box alone.
  * A row with no item to open (a set time, the week's shape, an item that is
  * not made yet) is one tick, words and all, as before.
+ *
+ * A milestone is one change with several steps. Each step is a row of its
+ * own, with its own tick, under one line that says what the steps are
+ * towards, so a step can be left out and the rest set up. Once it is set up,
+ * a step to do opens the todo it made.
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -28,12 +33,21 @@ import type { SpaceChatMessage } from '../../lib/types';
 import { nameLookup } from '../../lib/changes/apply';
 import type { Change, ItemType } from '../../lib/changes/model';
 import { findItem } from '../../lib/changes/snapshot';
-import { rowWords } from '../../lib/changes/words';
+import { stepCid } from '../../lib/changes/rows';
+import { milestoneHeadWords, rowWords, stepRowWords } from '../../lib/changes/words';
 import { BRIEF } from './briefStyles';
 
 /** The item a row is about, when there is one to open. */
 export type ChangeRowItem = { id: string; type: ItemType; title: string };
-export type ChangeRow = { cid: string; label: string; item?: ChangeRowItem };
+export type ChangeRow = {
+  cid: string;
+  label: string;
+  item?: ChangeRowItem;
+  /** A step of a milestone: the change it is one part of, which is what Apply reports on */
+  of?: string;
+  /** A step of a milestone: what the steps are towards, said once above the first of them shown */
+  head?: string;
+};
 
 const ITEM_TYPES: readonly string[] = ['todo', 'habit', 'note'];
 
@@ -80,11 +94,31 @@ export function rowsOf(meta: BriefChangesMeta): ChangeRow[] {
     }));
   }
   const names = nameLookup();
-  return meta.card.map((c) => ({
-    cid: c.cid,
-    label: rowWords(c, { relative: false, names }),
-    item: itemOfChange(c, meta),
-  }));
+  const fixed = { relative: false };
+  return meta.card.flatMap((c): ChangeRow[] => {
+    if (c.op === 'milestone' && c.milestone?.steps.length) {
+      const head = milestoneHeadWords(c, fixed);
+      return c.milestone.steps.map((s, i) => {
+        const cid = stepCid(c.cid, i);
+        return {
+          cid,
+          of: c.cid,
+          head,
+          label: stepRowWords(s, fixed),
+          // once it is set up, a step to do is a todo that can be opened
+          item: s.kind === 'todo' ? itemFor('todo', meta.created?.[cid]) : undefined,
+        };
+      });
+    }
+    return [{ cid: c.cid, label: rowWords(c, { ...fixed, names }), item: itemOfChange(c, meta) }];
+  });
+}
+
+/** The line above a row: what a milestone's steps are towards, before the first of them shown. */
+function headOf(rows: ChangeRow[], i: number): string | null {
+  const row = rows[i];
+  if (!row.head) return null;
+  return i > 0 && rows[i - 1].of === row.of ? null : row.head;
 }
 
 /** The apply button: Accept for one row, Accept all for every row of several, else how many. */
@@ -190,44 +224,51 @@ export function ChangeCard({
   if (meta.status === 'applied') {
     const done = new Set(meta.applied ?? []);
     const failed = new Set(meta.failed ?? []);
-    const shown = rows.filter((c) => done.has(c.cid) || failed.has(c.cid));
+    const left = new Set(meta.unticked ?? []);
+    // a step is reported on with its milestone, and a step left out was never part of it
+    const of = (c: ChangeRow) => c.of ?? c.cid;
+    const shown = rows.filter(
+      (c) => (done.has(of(c)) || failed.has(of(c))) && !(c.of && left.has(c.cid)),
+    );
     return (
       <View style={styles.card} testID="changes-applied">
         <Text style={styles.title}>Changed</Text>
-        {shown.map((c) => {
+        {shown.map((c, i) => {
           const item = onOpenItem ? c.item : undefined;
-          const mark = done.has(c.cid) ? (
+          const head = headOf(shown, i);
+          const mark = done.has(of(c)) ? (
             <Check size={16} color={BRIEF.moss} strokeWidth={2.5} />
           ) : (
             <CircleSlash size={16} color={BRIEF.warn} strokeWidth={2} />
           );
-          const shown = failed.has(c.cid) ? `${c.label} (could not be saved)` : c.label;
+          const label = failed.has(of(c)) ? `${c.label} (could not be saved)` : c.label;
           const words = (
-            <Text style={[styles.label, failed.has(c.cid) && styles.failed]}>{shown}</Text>
+            <Text style={[styles.label, failed.has(of(c)) && styles.failed]}>{label}</Text>
           );
-          if (!item) {
-            return (
-              <View key={c.cid} style={styles.row}>
-                {mark}
-                {words}
-              </View>
-            );
-          }
           return (
-            <Pressable
-              key={c.cid}
-              style={styles.row}
-              onPress={() => open(item)}
-              disabled={!interactive}
-              accessibilityRole="button"
-              accessibilityLabel={shown}
-              accessibilityHint={openHint(item)}
-              testID={`change-open-${c.cid}`}
-            >
-              {mark}
-              {words}
-              <ChevronRight size={16} color={BRIEF.faint} strokeWidth={2} />
-            </Pressable>
+            <React.Fragment key={c.cid}>
+              {head ? <Text style={styles.head}>{head}</Text> : null}
+              {!item ? (
+                <View style={styles.row}>
+                  {mark}
+                  {words}
+                </View>
+              ) : (
+                <Pressable
+                  style={styles.row}
+                  onPress={() => open(item)}
+                  disabled={!interactive}
+                  accessibilityRole="button"
+                  accessibilityLabel={label}
+                  accessibilityHint={openHint(item)}
+                  testID={`change-open-${c.cid}`}
+                >
+                  {mark}
+                  {words}
+                  <ChevronRight size={16} color={BRIEF.faint} strokeWidth={2} />
+                </Pressable>
+              )}
+            </React.Fragment>
           );
         })}
         {onUndo && done.size > 0 ? (
@@ -252,9 +293,10 @@ export function ChangeCard({
   return (
     <View style={styles.card} testID="changes-open">
       <Text style={styles.title}>Here's what I'll change</Text>
-      {rows.map((c) => {
+      {rows.map((c, i) => {
         const on = !unticked.includes(c.cid);
         const item = onOpenItem ? c.item : undefined;
+        const head = headOf(rows, i);
         const box = on ? (
           <SquareCheck size={18} color={BRIEF.moss} strokeWidth={2} />
         ) : (
@@ -270,31 +312,37 @@ export function ChangeCard({
         };
         if (!item) {
           return (
-            <Pressable key={c.cid} style={styles.row} {...tick}>
-              {box}
-              <Text style={[styles.label, !on && styles.off]}>{c.label}</Text>
-            </Pressable>
+            <React.Fragment key={c.cid}>
+              {head ? <Text style={styles.head}>{head}</Text> : null}
+              <Pressable style={styles.row} {...tick}>
+                {box}
+                <Text style={[styles.label, !on && styles.off]}>{c.label}</Text>
+              </Pressable>
+            </React.Fragment>
           );
         }
         // the box is the tick; the words open the item
         return (
-          <View key={c.cid} style={styles.row}>
-            <Pressable style={styles.box} hitSlop={TICK_SLOP} {...tick}>
-              {box}
-            </Pressable>
-            <Pressable
-              style={styles.open}
-              onPress={() => open(item)}
-              disabled={!interactive}
-              accessibilityRole="button"
-              accessibilityLabel={c.label}
-              accessibilityHint={openHint(item)}
-              testID={`change-open-${c.cid}`}
-            >
-              <Text style={[styles.label, !on && styles.off]}>{c.label}</Text>
-              <ChevronRight size={16} color={BRIEF.faint} strokeWidth={2} />
-            </Pressable>
-          </View>
+          <React.Fragment key={c.cid}>
+            {head ? <Text style={styles.head}>{head}</Text> : null}
+            <View style={styles.row}>
+              <Pressable style={styles.box} hitSlop={TICK_SLOP} {...tick}>
+                {box}
+              </Pressable>
+              <Pressable
+                style={styles.open}
+                onPress={() => open(item)}
+                disabled={!interactive}
+                accessibilityRole="button"
+                accessibilityLabel={c.label}
+                accessibilityHint={openHint(item)}
+                testID={`change-open-${c.cid}`}
+              >
+                <Text style={[styles.label, !on && styles.off]}>{c.label}</Text>
+                <ChevronRight size={16} color={BRIEF.faint} strokeWidth={2} />
+              </Pressable>
+            </View>
+          </React.Fragment>
         );
       })}
       <View style={styles.actions}>
@@ -343,6 +391,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   title: { fontFamily: 'Inter-SemiBold', fontSize: 16, color: BRIEF.mossInk },
+  // what the rows under it are steps towards
+  head: { fontFamily: 'Inter-SemiBold', fontSize: 13, color: BRIEF.moss, marginTop: 4 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
   // room of its own to tap, inside the row, so the tick is not a small target
   box: { paddingVertical: 8, paddingRight: 6 },

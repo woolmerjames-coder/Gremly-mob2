@@ -37,7 +37,15 @@ export interface ApplyOptions {
 }
 
 export type Outcome =
-  | { cid: string; ok: true; summary: string; revert: () => Promise<void>; createdId?: string }
+  | {
+      cid: string;
+      ok: true;
+      summary: string;
+      revert: () => Promise<void>;
+      createdId?: string;
+      /** What each of the change's own rows made, by row: the todo of each step of a milestone */
+      createdParts?: Record<string, string>;
+    }
   | { cid: string; ok: false; reason: 'stale' | 'gone' | 'failed'; message: string };
 
 type Item = Record<string, any>;
@@ -234,12 +242,17 @@ function carried(from: ItemType, to: ItemType, item: Item): Record<string, unkno
 async function applyOne(change: Change, opts: ApplyOptions): Promise<Outcome> {
   const type = change.type as ItemType;
   const s = store();
-  const ok = (revert: () => Promise<void>, createdId?: string): Outcome => ({
+  const ok = (
+    revert: () => Promise<void>,
+    createdId?: string,
+    createdParts?: Record<string, string>,
+  ): Outcome => ({
     cid: change.cid,
     ok: true,
     summary: doneWords(change, { names: nameLookup() }),
     revert,
     ...(createdId ? { createdId } : {}),
+    ...(createdParts && Object.keys(createdParts).length ? { createdParts } : {}),
   });
 
   switch (change.op) {
@@ -322,12 +335,13 @@ async function applyOne(change: Change, opts: ApplyOptions): Promise<Outcome> {
     case 'later':
     case 'habit_days':
     case 'week_shape':
+    case 'priority':
     case 'intention':
     case 'milestone':
     case 'weekly_day': {
       const r = await applyWeekChange(change);
       if (!r.ok) return { cid: change.cid, ...r };
-      return ok(r.revert, r.createdId);
+      return ok(r.revert, r.createdId, r.createdParts);
     }
     // a habit paused, given a lighter version, or set back to usual
     case 'ease': {

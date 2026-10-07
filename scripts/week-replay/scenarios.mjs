@@ -9,8 +9,22 @@
  * Wednesday start that plans only Wednesday to Sunday, and a health world,
  * graded for discretion by a judge model.
  *
+ * And one for what the review of 6 October 2026 got wrong: a calendar that
+ * holds a life as well as a working week, a long list beside one piece of work
+ * the week turns on, and dated todos that are one piece of work each.
+ *
  * A scenario's own checks (expect) look at what was returned as structure,
- * dates and counts, never at its words.
+ * dates and counts, never at its words. What a scenario says of itself
+ * (checks.mjs, run.mjs reads these):
+ *   calendar      'none' when nothing on the calendar is a meeting, so Gremly calls
+ *                 none of it one; 'mixed' when only some of it is, so Gremly never
+ *                 counts or describes it all as meetings
+ *   specific      one particular thing is where the week could go wrong, so the
+ *                 size of the list as a whole is not the challenge (a judge reads it)
+ *   deliverables  the dated todos that are deliverables needing work before them;
+ *                 every other todo is one piece of work, and never gets a milestone
+ *   spreadMiss    what the spread is known to get wrong for this person: the
+ *                 spread's replay (spread.mjs) names it and runs them only by name
  */
 
 import { addDays, spanDays } from '../../workers/shared/week.js';
@@ -74,7 +88,10 @@ const calendar = (first, last, byDay = {}) => ({
   connected: true,
   days: spanDays(first, last).map((day) => ({
     day,
-    meetings: (byDay[day]?.meetings || []).map(([start, end, title]) => ({ start, end, title })),
+    // an entry with an id is one the read can name as a moment that is coming up
+    meetings: (byDay[day]?.meetings || [])
+      .map(([start, end, title, id]) => ({ start, end, title, ...(id ? { id } : {}) }))
+      .sort((a, b) => a.start - b.start),
     all_day: byDay[day]?.all_day || [],
   })),
 });
@@ -165,6 +182,12 @@ function heavyBacklog() {
     id: 'heavy-backlog',
     about: 'More open todos than the read lists, many old, some moved over and over',
     g,
+    // the spreads for Lantern Press are what the week turns on, not the length of the list
+    specific: true,
+    // two work calls among school pick ups, an appointment and a parents' evening
+    calendar: 'mixed',
+    // a costume is made over days
+    deliverables: [todos.find((t) => t.title === 'Costume for the school play').id],
     expect: (read) => [
       check('Something needs them', read.needs_you.length >= 1, `${read.needs_you.length} needs you`),
       check('A priority covers todos', read.priority_options.some((p) => p.item_ids.length), ''),
@@ -296,6 +319,9 @@ function noCalendarScenario() {
     id: 'no-calendar',
     about: 'No calendar connected, and the hours set last week to start from',
     g,
+    specific: true,
+    // an assembly is planned over days
+    deliverables: [g.todos.find((t) => t.title === 'Plan the harvest assembly').id],
     expect: (read) => [
       check('A free hours guess comes back', !!read.free_hours_guess, ''),
       check(
@@ -386,6 +412,10 @@ function fullCalendar() {
     id: 'full-calendar',
     about: 'Monday to Thursday booked from nine to half past five, Friday away',
     g,
+    // a lunch and a gym class sit among the meetings
+    calendar: 'mixed',
+    specific: true,
+    deliverables: [g.todos.find((t) => t.title === 'Draft the quarterly review deck').id],
     expect: (read) => [
       check('Busy days are named', read.busy_days.length >= 2, read.busy_days.join(', ') || 'none'),
       check(
@@ -451,6 +481,8 @@ function backAfterAMonth() {
     id: 'back-after-a-month',
     about: 'Nothing done and no habit logged for a month, with days that went by',
     g,
+    // her calendar is her shifts
+    calendar: 'none',
     expect: (read) => [
       check(
         'Habits are built back, not planned at their full target',
@@ -528,6 +560,9 @@ function wednesdayStart() {
     id: 'wednesday-start',
     about: 'A review opened on Wednesday plans only Wednesday to Sunday',
     g,
+    // his calendar is the cafe's opening hours and a tasting
+    calendar: 'none',
+    specific: true,
     // A day outside the five left is dropped by the worker's own check, so it
     // shows as a drop, which every scenario fails on. What is looked at here
     // is that the week is not planned as if it were a whole one.
@@ -599,7 +634,252 @@ function healthWorld() {
     about: 'Health shapes the week and is never named in what Gremly writes',
     g,
     judge: true,
+    calendar: 'none',
+    deliverables: [g.todos.find((t) => t.title === 'Draft the Hallam year end accounts').id],
     expect: () => [],
+  };
+}
+
+// ── A calendar that holds a life ────────────────────────────────────────────
+// Kofi is head of music at a secondary school and conducts a community choir.
+// His calendar is his timetable, with two moments of his own among the
+// lessons. His list is long, most of it on the days being planned, and one
+// piece of work is what the week turns on: the Year 11 coursework marks. Three
+// of his dated todos are one piece of work each, and the winter concert is the
+// one thing ahead that needs preparing for.
+function calendarLife() {
+  const m = maker('kofi');
+  const concert = m.dated('event', 'Winter concert', '2026-11-05', { time: '19:00' });
+  const DINNER = 'kofi-entry-dinner';
+  const FINAL = 'kofi-entry-final';
+  let n = 0;
+  const lesson = (start, end, title) => [start, end, title, `kofi-entry-${++n}`];
+  const school = (extra = []) => ({
+    meetings: [
+      lesson(at(8, 40), at(9), 'Tutor group'),
+      lesson(at(9), at(10), 'Year 8 music'),
+      lesson(at(10), at(11), 'Year 10 music'),
+      lesson(at(11, 20), at(12, 20), 'Year 11 music'),
+      lesson(at(13, 10), at(14, 10), 'Year 7 music'),
+      lesson(at(14, 10), at(15, 10), 'Year 9 music'),
+      ...extra,
+    ],
+  });
+  const days = ['2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09', '2026-10-10', '2026-10-11'];
+  let i = 0;
+  // most of the list sits on the days being planned, a handful on each
+  const onDay = (title, o = {}) => m.todo(title, { day: days[i++ % 5], added: '2026-09-21', ...o });
+  const old = (title, o = {}) => m.todo(title, { added: '2026-04-13', moved: 11, ...o });
+  const marks = m.todo('Enter the Year 11 coursework marks', { min: 180, by: '2026-10-16', added: '2026-09-14', moved: 4 });
+  const minibus = m.todo('Book the minibus for the concert', { min: 15, by: '2026-10-21', added: '2026-09-25' });
+  const insurance = m.todo('Renew the car insurance', { min: 20, by: '2026-10-27', added: '2026-09-20', moved: 2 });
+  const programmes = m.todo('Order the concert programmes', { min: 20, by: '2026-10-30', added: '2026-09-28' });
+  const todos = [
+    marks,
+    m.todo('Moderate the Year 11 compositions', { min: 240, day: '2026-10-07', added: '2026-09-14', moved: 5 }),
+    m.todo('Listen to the last six Year 11 recordings', { min: 120, day: '2026-10-06', added: '2026-09-21', moved: 3 }),
+    minibus,
+    insurance,
+    programmes,
+    onDay('Mark the Year 9 listening tests', { min: 60 }),
+    onDay('Write the Year 8 homework sheet', { min: 30 }),
+    onDay('Restring the two class guitars', { min: 40, moved: 3 }),
+    onDay('Print the choir parts for the carol service', { min: 20 }),
+    onDay('Email the parents about concert tickets', { min: 20 }),
+    onDay('Tune the practice room piano', { min: 30, moved: 2 }),
+    onDay('Update the seating plan for the orchestra', { min: 25 }),
+    onDay('Choose the Year 7 class song', { min: 15 }),
+    onDay('Photocopy the theory booklets', { min: 15 }),
+    onDay('Reply to the head about the music budget', { min: 20, moved: 2 }),
+    onDay('Book the hall for the dress rehearsal', { min: 10 }),
+    onDay('Mark the Year 10 composition drafts', { min: 90, moved: 2 }),
+    onDay('Order new drum sticks', { min: 10 }),
+    onDay('Tidy the instrument store', { min: 45, moved: 4 }),
+    onDay('Write the choir newsletter', { min: 30 }),
+    onDay('Send the rehearsal dates to the brass players', { min: 10 }),
+    onDay('Fix the music stand trolley', { min: 20, moved: 3 }),
+    onDay('Check the microphones for the concert', { min: 30 }),
+    onDay('Plan the Year 9 samba lesson', { min: 40 }),
+    onDay('Fill in the trip risk assessment', { min: 30, moved: 2 }),
+    onDay('Ring the piano tuner', { min: 10 }),
+    onDay('Write the cover work for Friday period two', { min: 20 }),
+    onDay('Sort the sheet music cupboard', { min: 60, moved: 6 }),
+    onDay('Buy a card for Ama', { min: 10 }),
+    onDay('Wash the football kit for Kwame', { min: 15 }),
+    old('Unpack the boxes in the spare room', { min: 90 }),
+    old('Put up the shelves in the hall', { min: 60 }),
+    old('Take the old sofa to the tip', { min: 45, moved: 13 }),
+    old('Register with the new dentist', { min: 15, moved: 12 }),
+    old('Change the address on the driving licence', { min: 15, moved: 14 }),
+    old('Hang the pictures', { min: 40 }),
+    old('Find the piano removal quote', { min: 20, moved: 10 }),
+    old('Paint the bedroom', { min: 240, moved: 10 }),
+    old('Fix the bathroom extractor fan', { min: 60, moved: 12 }),
+    old('Sort the old phone contracts', { min: 30, moved: 10 }),
+    old('Scan the degree certificates', { min: 15 }),
+    old('Back up the choir recordings', { min: 30, moved: 10 }),
+  ];
+  const g = {
+    ...WEEK,
+    person: person('Kofi'),
+    worlds: [
+      { name: 'School', phase: 'active', summary: 'Head of music at a secondary school. The Year 11 coursework marks go to the exams officer on 16 October, and the winter concert is on 5 November.', priorities: ['Year 11 coursework marks in on time', 'A winter concert the students are proud of'] },
+      { name: 'Community choir', phase: 'active', summary: 'Conducts a community choir on Thursday evenings, with a carol service in December.', priorities: [] },
+      { name: 'Family', phase: 'active', summary: 'His sister Ama finishes her degree this month, and his nephew Kwame plays football on Saturdays.', priorities: ['Be there for Ama and Kwame'] },
+      { name: 'Home', phase: 'dormant', summary: 'A flat he moved into in the spring and has not finished unpacking.', priorities: [] },
+    ],
+    chapters: [],
+    todos,
+    done: ['Mark the Year 7 rhythm tests', 'Book the brass tutor', 'Order the concert posters', 'Pay the choir hall hire'].map((title) => ({ title })),
+    habits: [
+      m.habit('Piano practice', { target: 4, min: 30, last: 2, before: 7 }),
+      m.habit('Run', { target: 2, min: 30, last: 1, before: 4 }),
+    ],
+    dated: [
+      concert,
+      m.dated('note', 'Year 11 coursework marks due to the exams officer', '2026-10-16'),
+      m.dated('note', 'Half term starts', '2026-10-26'),
+    ],
+    calendar: calendar(WEEK.first, WEEK.last, {
+      '2026-10-05': school([lesson(at(12, 20), at(13, 10), 'Lunch duty')]),
+      '2026-10-06': school([lesson(at(15, 30), at(17), 'Orchestra rehearsal')]),
+      '2026-10-07': school([lesson(at(12, 20), at(13, 10), 'Lunch duty')]),
+      '2026-10-08': school([lesson(at(19, 30), at(21, 30), 'Community choir')]),
+      '2026-10-09': school([[at(19), at(22), "Dinner for Ama's graduation", DINNER]]),
+      '2026-10-10': { meetings: [[at(14), at(16), "Kwame's cup final", FINAL]] },
+    }),
+    last_review: null,
+  };
+  const ordinary = new Set(
+    g.calendar.days.flatMap((d) => d.meetings.map((x) => x.id)).filter((id) => id !== DINNER && id !== FINAL),
+  );
+  // a calendar moment is named by its id; a read that cannot name it gives its day alone
+  const has = (read, id, day) => read.coming_up.some((c) => c.item?.id === id || (c.when === day && !c.item));
+  return {
+    id: 'calendar-life',
+    about: 'A timetable with two moments of his own in it, a long list, and marks due next week',
+    g,
+    calendar: 'none',
+    specific: true,
+    deliverables: [marks.id],
+    // Found on 9 October 2026, the same before and after the read's change.
+    // The spread still does it; the app's board now says so before the week
+    // is finished, and offers a day or a split (lib/week/board/model.ts unfitted).
+    spreadMiss:
+      'the spread leaves his three hour priority, the marks, off every day in 4 runs of 5, though a day off has room for it',
+    expect: (read) => [
+      check('The graduation dinner is coming up', has(read, DINNER, '2026-10-09'), read.coming_up.map((c) => `${c.when.slice(5)} ${c.what}`).join('; ')),
+      check('The cup final is coming up', has(read, FINAL, '2026-10-10'), ''),
+      check(
+        'No lesson or rehearsal is coming up',
+        !read.coming_up.some((c) => ordinary.has(c.item?.id)),
+        read.coming_up.filter((c) => ordinary.has(c.item?.id)).map((c) => c.what).join('; '),
+      ),
+      check('A milestone leads up to the winter concert', read.milestones.some((x) => x.about.id === concert.id), read.milestones.map((x) => x.about.title).join('; ') || 'no milestones', 'warn'),
+    ],
+  };
+}
+
+// ── A long list on the days being planned ───────────────────────────────────
+// Halima runs a small bookshop. Most of her open todos sit on the days being
+// planned, many of them old and moved again and again, and her calendar holds
+// about twelve hours of school runs, supplier calls and a book club. Nothing
+// in her worlds says what matters most, so the length of the list is the easy
+// thing to call the challenge. Two dated pieces of work in the next fortnight
+// are what the week should turn on. The cottage is one todo, however far off.
+function longList() {
+  const m = maker('halima');
+  const days = ['2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09', '2026-10-10'];
+  let i = 0;
+  const onDay = (title, o = {}) => m.todo(title, { day: days[i++ % 6], added: '2026-09-07', ...o });
+  const stale = (title, o = {}) => onDay(title, { added: '2026-03-16', moved: 11, ...o });
+  const stocktake = m.todo('Finish the stocktake for the insurer', { min: 180, by: '2026-10-18', day: '2026-10-08', added: '2026-05-11', moved: 12 });
+  const cottage = m.todo('Book the cottage for the new year trip', { by: '2026-11-01', added: '2026-08-24', moved: 3 });
+  const evening = m.dated('event', 'Author evening with Noor Rahimi', '2026-10-22', { time: '18:30' });
+  const todos = [
+    stocktake,
+    m.todo('Fill in the fire safety forms', { min: 120, by: '2026-10-20', day: '2026-10-09', added: '2026-04-20', moved: 10 }),
+    m.todo('Send the VAT figures to the bookkeeper', { min: 45, by: '2026-10-08', day: '2026-10-07', added: '2026-09-28', moved: 2 }),
+    m.todo('Plan the December window display', { min: 60, day: '2026-10-10', added: '2026-09-21' }),
+    cottage,
+    stale('Chase the unpaid school invoice', { min: 15, moved: 14 }),
+    stale('Reprice the second hand shelves', { min: 90, moved: 13 }),
+    stale('Fix the till receipt printer', { min: 30, moved: 12 }),
+    stale('Clear the stock room floor', { min: 60, moved: 15 }),
+    stale('Update the shop website hours', { min: 15, moved: 10 }),
+    stale('Return the damaged delivery', { min: 20, moved: 12 }),
+    stale('Write the staff handbook page on returns', { min: 45, moved: 10 }),
+    stale('Order new carrier bags', { min: 10, moved: 11 }),
+    stale('Sort the loyalty card list', { min: 40, moved: 13 }),
+    stale('Mend the reading corner lamp', { min: 20, moved: 10 }),
+    stale('Reply to the school librarian', { min: 15, moved: 12 }),
+    stale('Photograph the signed editions', { min: 30, moved: 10 }),
+    stale('Cancel the old card reader contract', { min: 20, moved: 16 }),
+    stale('Clean the shop awning', { min: 40, moved: 11 }),
+    stale('Label the poetry section', { min: 30, moved: 10 }),
+    stale('File the supplier statements', { min: 30, moved: 12 }),
+    stale('Find a new window cleaner', { min: 15, moved: 10 }),
+    stale('Renew the music licence', { min: 15, moved: 13 }),
+    stale('Tidy the staff kitchen', { min: 20, moved: 10 }),
+    stale('Back up the till', { min: 15, moved: 12 }),
+    stale('Take the old shelving to the tip', { min: 45, moved: 14 }),
+    stale('Write up the summer sales figures', { min: 60, moved: 10 }),
+    stale('Replace the door bell battery', { min: 5, moved: 11 }),
+    onDay('Order the book club title for November', { min: 15 }),
+    onDay('Put up the half term posters', { min: 20 }),
+    onDay('Email the publisher rep about proofs', { min: 15, moved: 2 }),
+    onDay('Do the staff rota', { min: 30 }),
+    onDay('Wrap the school order', { min: 40 }),
+    onDay('Pick the staff picks for October', { min: 20 }),
+    onDay('Buy a present for Laila', { min: 30 }),
+    onDay("Book Idris's swimming lessons", { min: 10, moved: 3 }),
+    onDay('Take the cat to be weighed', { min: 30 }),
+    m.todo('Read the proof of the spring lead title', { min: 180, added: '2026-09-14', moved: 4 }),
+    m.todo('Look into a second till', { min: 45, added: '2026-06-01', moved: 6 }),
+    m.todo('Ask about the flat above the shop', { min: 20, added: '2026-07-13', moved: 5 }),
+  ];
+  const run = [at(8, 30), at(9), 'School run'];
+  const g = {
+    ...WEEK,
+    person: person('Halima'),
+    worlds: [
+      { name: 'The bookshop', phase: 'active', summary: 'Owns and runs a small independent bookshop with two part time staff.', priorities: [] },
+      { name: 'Family', phase: 'active', summary: 'One son, Idris, at primary school. Her friend Laila turns forty this month.', priorities: [] },
+      { name: 'Home', phase: 'active', summary: 'A terraced house near the shop.', priorities: [] },
+    ],
+    chapters: [],
+    todos,
+    done: ['Order the Christmas catalogue titles', 'Pay the staff', 'Bank the takings', 'Change the window for autumn'].map((title) => ({ title })),
+    habits: [
+      m.habit('Read for an hour', { target: 3, min: 60, last: 1, before: 5 }),
+      m.habit('Swim', { target: 2, min: 45, last: 1, before: 3 }),
+    ],
+    dated: [
+      evening,
+      m.dated('note', "Laila's 40th in Leeds", '2026-10-24'),
+      m.dated('note', 'Half term starts', '2026-10-26'),
+    ],
+    calendar: calendar(WEEK.first, WEEK.last, {
+      '2026-10-05': { meetings: [run, [at(10), at(11), 'Call with the wholesaler'], [at(15, 15), at(15, 45), 'School pick up']] },
+      '2026-10-06': { meetings: [run, [at(11), at(12), 'Publisher rep visit'], [at(15, 15), at(15, 45), 'School pick up'], [at(19), at(20, 30), 'Shop book club']] },
+      '2026-10-07': { meetings: [run, [at(14), at(15), 'Staff meeting'], [at(15, 15), at(15, 45), 'School pick up']] },
+      '2026-10-08': { meetings: [run, [at(15, 15), at(15, 45), 'School pick up'], [at(16), at(17), "Idris's swimming lesson"]] },
+      '2026-10-09': { meetings: [run, [at(10), at(11, 30), 'School order delivery'], [at(15, 15), at(15, 45), 'School pick up']] },
+      '2026-10-10': { meetings: [[at(10), at(11), 'Story time at the shop']] },
+    }),
+    last_review: null,
+  };
+  return {
+    id: 'long-list',
+    about: 'Most of a long, old list sits on the days being planned, with two dated pieces of work in it',
+    g,
+    calendar: 'mixed',
+    specific: true,
+    // a stocktake is done over days; the forms and the cottage are one piece of work each
+    deliverables: [stocktake.id],
+    expect: (read) => [
+      check('A milestone leads up to the author evening', read.milestones.some((x) => x.about.id === evening.id), read.milestones.map((x) => x.about.title).join('; ') || 'no milestones', 'warn'),
+    ],
   };
 }
 
@@ -612,4 +892,6 @@ export const SCENARIOS = [
   backAfterAMonth(),
   wednesdayStart(),
   healthWorld(),
+  calendarLife(),
+  longList(),
 ];

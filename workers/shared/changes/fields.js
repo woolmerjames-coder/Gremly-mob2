@@ -48,8 +48,9 @@ export const OPS = {
  * The week's own operations (the weekly review). Each changes the person's
  * week rather than a field of one item: a todo put off with the day it comes
  * back, the days a habit is planned on, the week's busy days and free hours,
- * the week's intention, the steps towards something big, and the day the
- * review happens on. They are kept apart from OPS on purpose: every surface's
+ * something added to what matters most in it, the week's intention, the steps
+ * towards something big, and the day the review happens on. They are kept
+ * apart from OPS on purpose: every surface's
  * tool list is built from OPS, and the week's operations are offered only
  * where the person's week is known (today's thread, when the app sends it).
  * The checks are checkWeekChange in check.js; the app applies them in
@@ -60,6 +61,7 @@ export const WEEK_OPS = {
   habit_days: 'choose the days a habit is planned on in the week',
   week_shape:
     'set which days of the week are busy, and how many hours they have free on each kind of day',
+  priority: 'add something to what matters most to them this week',
   intention: 'set their intention for the week',
   milestone:
     'set up the steps towards something big that is more than a week away, with todos to do and check ins for Gremly to hold',
@@ -85,6 +87,10 @@ export const STEP_KINDS = ['todo', 'check_in'];
 export const WEEK_LIMITS = {
   /** An intention is one short line */
   intention: 200,
+  /** Something that matters most this week is a few words */
+  priority: 120,
+  /** A week keeps this many things as mattering most (the review's card takes as many) */
+  priorities: 3,
   /** What a milestone is for */
   goal: 120,
   /** The most steps one milestone is set up with */

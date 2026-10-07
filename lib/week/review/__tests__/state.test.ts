@@ -6,17 +6,21 @@
 import { reviewOn, reviewWith } from '../../model';
 import {
   FALLBACK_HOURS,
+  MAX_PRIORITIES,
   asksAboutDay,
   dateKey,
   daysPlanned,
   draftFor,
   gremlyPicks,
+  guessedPriorities,
   hoursTotal,
   intentionOf,
+  intentionSuggestions,
   isPast,
   isWeekend,
   milestonesShown,
   prioritiesOf,
+  priorityOptions,
   rekeyed,
   settledFor,
   settledText,
@@ -27,6 +31,7 @@ import {
   weekButton,
   weekCardToday,
   weekTurnContext,
+  withCardMilestones,
   easedFor,
 } from '../state';
 import { ID, MON, SAT, SUN, THU, TUE, WED, WEEK_START, madeUpRead, madeUpRow } from './madeUpWeek';
@@ -116,6 +121,89 @@ describe('the milestones a card shows', () => {
   });
 });
 
+describe('the line Gremly suggests as the intention', () => {
+  const read = madeUpRead();
+  const chose = (...texts: string[]) => ({
+    priorities: texts.map((text) => ({ text, item_ids: [] })),
+  });
+
+  it('is the one that goes with what they chose as mattering most, in their order', () => {
+    expect(intentionSuggestions(read, chose('Sort the boiler', 'Get the reports started'))).toEqual(
+      ['Fewer things, finished.', 'Start the reports before Thursday.'],
+    );
+    // one of theirs with no line of its own gives none, and the others still do
+    expect(intentionSuggestions(read, chose('Two swims', 'Clear the marking'))).toEqual([
+      'Leave school by five twice.',
+    ]);
+  });
+
+  it('is one of Gremly’s picks’ when nothing they chose has a line', () => {
+    const picks = ['Start the reports before Thursday.', 'Leave school by five twice.'];
+    expect(intentionSuggestions(read, chose())).toEqual(picks);
+    expect(intentionSuggestions(read, null)).toEqual(picks);
+    // in their own words, or with no line of its own: the read knows no line for it
+    expect(intentionSuggestions(read, chose('Sleep', 'Two swims'))).toEqual(picks);
+  });
+
+  it('comes from the three drafts of a read made before each priority had a line', () => {
+    const old = madeUpRead({
+      priority_options: read.priority_options.map(({ intention: _line, ...o }) => o),
+    });
+    expect(intentionSuggestions(old, chose('Sort the boiler'))).toEqual([
+      'Start the reports before Thursday.',
+      'Leave school by five twice.',
+      'Fewer things, finished.',
+    ]);
+    expect(intentionSuggestions(null, null)).toEqual([]);
+    expect(
+      intentionSuggestions(madeUpRead({ priority_options: [], intention_drafts: [] }), null),
+    ).toEqual([]);
+  });
+});
+
+describe('the milestones set up from a card in the thread', () => {
+  const steps = [
+    { title: 'Draft the outline', by: WED, kind: 'todo' },
+    { title: 'Rehearse once', by: SAT, kind: 'todo' },
+  ];
+  const talk = (n: number): any => ({
+    cid: 'c1',
+    op: 'milestone',
+    type: null,
+    id: null,
+    title: 'Conference talk',
+    milestone: { goal: 'Conference talk', date: '2026-10-20', steps: steps.slice(0, n) },
+  });
+  const own = { about: ID.reports, goal: 'Reports handed in', steps: 3 };
+
+  it('are kept beside the ones set up from the review’s own card, with the steps the card applied', () => {
+    expect(withCardMilestones([own], [talk(2)], 'added')).toEqual([
+      own,
+      { about: 'card:2026-10-20:Conference talk', goal: 'Conference talk', steps: 2 },
+    ]);
+    // a change that is no milestone, or one with no step left, adds nothing
+    const later: any = { cid: 'c2', op: 'later', type: 'todo', id: ID.boiler, title: 'Boiler' };
+    expect(withCardMilestones([own], [later, talk(0)], 'added')).toEqual([own]);
+  });
+
+  it('add up when two cards set up steps for one goal and date, and each takes back its own', () => {
+    const both = withCardMilestones(
+      withCardMilestones([own], [talk(2)], 'added'),
+      [talk(1)],
+      'added',
+    );
+    expect(both[1]).toMatchObject({ steps: 3 });
+    const one = withCardMilestones(both, [talk(2)], 'undone');
+    expect(one).toEqual([
+      own,
+      { about: 'card:2026-10-20:Conference talk', goal: 'Conference talk', steps: 1 },
+    ]);
+    expect(withCardMilestones(one, [talk(1)], 'undone')).toEqual([own]);
+    // an undo of a card that set none up here changes nothing
+    expect(withCardMilestones([own], [talk(1)], 'undone')).toEqual([own]);
+  });
+});
+
 describe('what the cards start from', () => {
   it('is Gremly’s guess the first time, with nothing picked', () => {
     const d = draftFor(madeUpRow(), DAYS);
@@ -152,8 +240,8 @@ describe('what the cards start from', () => {
     expect(d.hours).toEqual({ normal_day: 1.5, busy_day: 0, weekend_day: 3 });
     expect(d.busy).toEqual([WED]);
     expect(d.datesOut).toEqual([`note:${ID.fair}`]);
-    // one of Gremly's drafts: picked, not typed
-    expect(d.intention).toEqual({ pick: 1, own: '' });
+    // the intention they kept is the words in the field, whoever first wrote them
+    expect(d.intention).toEqual({ pick: null, own: 'Leave school by five twice.' });
     const own = draftFor(madeUpRow({ answers: { intention: 'Sleep more' } }), DAYS);
     expect(own.intention).toEqual({ pick: null, own: 'Sleep more' });
   });
@@ -166,9 +254,8 @@ describe('what the cards start from', () => {
 
   it('reads the intention, the priorities and Gremly’s picks from the read', () => {
     const read = madeUpRead();
-    expect(intentionOf(read, { pick: 0, own: '' })).toBe('Start the reports before Thursday.');
-    expect(intentionOf(read, { pick: 0, own: '  My own  ' })).toBe('My own');
-    expect(intentionOf(read, { pick: null, own: '' })).toBe('');
+    expect(intentionOf({ pick: 0, own: '  My own  ' })).toBe('My own');
+    expect(intentionOf({ pick: null, own: '' })).toBe('');
     expect(prioritiesOf(read, [2, 0])).toEqual([
       { text: 'Sort the boiler', item_ids: [ID.boiler] },
       { text: 'Get the reports started', item_ids: [ID.reports] },
@@ -176,6 +263,44 @@ describe('what the cards start from', () => {
     // never more than three, and nothing the read does not have
     expect(prioritiesOf(read, [0, 1, 2, 3, 9])).toHaveLength(3);
     expect(gremlyPicks(read)).toEqual([0, 1]);
+  });
+
+  it('keeps what they added to what matters most themselves beside the read’s options', () => {
+    const read = madeUpRead();
+    const n = read.priority_options.length;
+    // one of the read's, and one in their own words through Gremly
+    const answers = {
+      priorities: [
+        { text: 'Sort the boiler', item_ids: [ID.boiler] },
+        { text: 'The stock audit', item_ids: [] },
+      ],
+    };
+    const options = priorityOptions(read, answers);
+    // the read's options first, as they were, so the card's picks keep their places
+    expect(options.slice(0, n).map((o) => o.text)).toEqual(
+      read.priority_options.map((o) => o.text),
+    );
+    expect(options.slice(0, n).every((o) => !o.own)).toBe(true);
+    expect(options[n]).toEqual({ text: 'The stock audit', item_ids: [], star: false, own: true });
+    expect(options).toHaveLength(n + 1);
+    expect(priorityOptions(read, null)).toHaveLength(n);
+    // the card starts with both picked, and settling it keeps both
+    const d = draftFor(madeUpRow({ answers }), DAYS);
+    expect(d.priorities).toEqual([2, n]);
+    expect(prioritiesOf(read, d.priorities, answers)).toEqual(answers.priorities);
+    // left off the card, theirs is let go like any other
+    expect(prioritiesOf(read, [2], answers)).toEqual([answers.priorities[0]]);
+    // Just plan it takes theirs first, then Gremly's picks, and never more than three
+    expect(guessedPriorities(read, answers).map((p) => p.text)).toEqual([
+      'The stock audit',
+      'Get the reports started',
+      'Clear the marking',
+    ]);
+    expect(guessedPriorities(read, null).map((p) => p.text)).toEqual([
+      'Get the reports started',
+      'Clear the marking',
+    ]);
+    expect(MAX_PRIORITIES).toBe(3);
   });
 
   it('keys a deadline by the item it is, or by its place when it is not one of theirs', () => {
@@ -351,9 +476,17 @@ describe('what Gremly is told about their week', () => {
       hours: null,
       busy_days: [],
       intention: null,
+      // sent even when empty: the list itself says this build can keep a new priority
+      priorities: [],
       eased: [],
     });
     expect(weekTurnContext(base).review).toBeNull();
+    // what matters most as the week's review has it, in its own words
+    const chosen = madeUpRow({
+      status: 'done',
+      answers: { priorities: [{ text: 'The stock audit', item_ids: [] }] },
+    });
+    expect(weekTurnContext({ ...base, thisWeek: chosen }).priorities).toEqual(['The stock audit']);
     // the extra is used once the week's row is the extra's
     const extra = madeUpRow({ kind: 'extra', status: 'done' });
     expect(weekTurnContext({ ...base, today: WED, thisWeek: extra }).extra_used).toBe(true);

@@ -8,6 +8,11 @@
  * A model decides which facts and passages the correction is about and writes
  * the replacement wording. Code applies exactly what it returns, to the ids it
  * was shown, and nothing else.
+ *
+ * An answer to one of Gremly's questions arrives the same way. The model also
+ * says whether their words answer the question at all: when they ask something
+ * back, or speak of something else, the question stays open for another day
+ * instead of being closed with words that were never its answer.
  */
 
 import { CARE_RULES, WRITING_RULES, personBlock } from '../careRules';
@@ -18,12 +23,13 @@ import { invalidateChatCache } from './cache';
 import { peopleAfterCorrection } from './people';
 import { personNow } from '../../shared/day.js';
 
-export const CORRECTION_PROMPT_VERSION = 'correction-2026-09-30';
+export const CORRECTION_PROMPT_VERSION = 'correction-2026-10-07';
 
 const CORRECTION_SCHEMA = {
   type: 'object',
   properties: {
     understood: { type: 'string' },
+    answers_question: { type: 'boolean' },
     corrected_facts: {
       type: 'array',
       items: {
@@ -75,8 +81,19 @@ const CORRECTION_SCHEMA = {
     },
     retire_anchor_refs: { type: 'array', items: { type: 'string' } },
   },
-  required: ['understood', 'corrected_facts', 'changed_facts', 'happened_facts', 'private_fact_refs', 'new_facts', 'rewrites', 'retire_anchor_refs'],
+  required: ['understood', 'answers_question', 'corrected_facts', 'changed_facts', 'happened_facts', 'private_fact_refs', 'new_facts', 'rewrites', 'retire_anchor_refs'],
 };
+
+/**
+ * What their words do to the question of Gremly's they were a reply to:
+ * 'answered' when the model read them as its answer, 'open' when it did not,
+ * so the question can be asked another day. Null when there is no question, or
+ * it is already answered.
+ */
+export function questionOutcome(question, output) {
+  if (!question || question.status === 'answered') return null;
+  return output?.answers_question === false ? 'open' : 'answered';
+}
 
 function systemPrompt(today, person) {
   return `The person has told Gremly something that changes what it holds about their life: that something is wrong, that something has changed or already happened, an answer to one of Gremly's questions, or that something should be kept private. Your job is to apply it everywhere, exactly and only where it applies.
@@ -92,7 +109,8 @@ WHAT TO DO
 - Mark every fact in the ledger that their correction contradicts as corrected. Do not mark facts it does not touch.
 - When they say something has changed rather than that it was wrong, mark the old fact as changed instead, so it stays in their history as what was planned, and record the new version as a new fact.
 - When they say something has happened or is done, mark that fact as happened.
-- When they answer one of Gremly's questions, apply the answer the same way: confirm, change, correct or add facts as the answer says.
+- When what they said is given as their answer to one of Gremly's questions, first decide whether it answers it, and say so in answers_question. It answers the question when it tells Gremly what the question was asking, in whole or in part, or tells Gremly the question is wrong, no longer applies or is not one they want to be asked. It does not answer the question when it only asks Gremly something back, or speaks of something else and leaves what was asked as unknown as it was. When there is no question, answers_question is true.
+- When it answers the question, apply the answer the same way: confirm, change, correct or add facts as the answer says. When it does not, the question tells you nothing new about their life: apply only what their own words say, which may be nothing.
 - When they ask for something to be kept private, mark the facts it concerns as private. Private things stay off notifications, headlines and card lines, and appear only where the person opens things on purpose, in their own words. So rewrite only the passages marked glanceable that name it, and leave every other passage as it is; nothing about it was wrong.
 - If they stated what is true, record it as a new fact in their words.
 - For each passage of Gremly-written text that repeats or relies on the wrong or outdated claim, write a replacement that removes it and reads naturally, keeping everything else in the passage as it was. If nothing would be left worth saying, return null for that passage so it is cleared. Leave untouched any passage the correction does not concern; do not list it.
@@ -570,9 +588,17 @@ ${anchorLines.join('\n') || '(none)'}`;
     await d.update(`worlds?id=eq.${worldId}&owner_id=eq.${userId}`, body);
   }
 
-  if (question && question.status !== 'answered') {
+  // Their words close the question only when they answer it. Asked something
+  // back, or about something else, the question stays as it was, open for
+  // another day, the way it does when they skip it.
+  const outcome = questionOutcome(question, output);
+  // kept with the correction, so a question left open can be traced to why
+  if (question) result.answers_question = output.answers_question !== false;
+  if (outcome === 'answered') {
     await d.update(`gremly_questions?id=eq.${question.id}&user_id=eq.${userId}`, { status: 'answered', answer: trim(correction.said, 1000), answered_at: nowIso });
     result.question_answered = question.id;
+  } else if (outcome === 'open') {
+    result.question_left_open = question.id;
   }
 
   // Chat reads the corrected versions from its very next message.

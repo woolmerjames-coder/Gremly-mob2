@@ -21,6 +21,11 @@
  * had to drop, and a day left over with things on it that could have moved,
  * are the other measures of the model.
  *
+ * One person filled a day by hand on the board after saying rearrange it all
+ * (board): those todos are theirs again, the day is over-full like any other,
+ * and the week's spread, run beside the suggestions as the worker runs it,
+ * must put nothing of its own on that day.
+ *
  * Nobody here is real. Keys come from .audit-keys.local
  * (scripts/chat-audit/keys.mjs). Output goes to
  * scripts/week-replay/out/<time>/relief.json (gitignored).
@@ -38,7 +43,7 @@ import {
   renderRelief,
   runWeekRelief,
 } from '../../workers/inngest-jobs/week/relief.js';
-import { spreadFrame } from '../../workers/inngest-jobs/week/spread.js';
+import { runWeekSpread, spreadFrame } from '../../workers/inngest-jobs/week/spread.js';
 import { minutesOf, spanDays } from '../../workers/shared/week.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -255,7 +260,66 @@ function healthDay() {
   };
 }
 
-const ALL = [meetingDay(), partySaturday(), twoDays(), healthDay()];
+// Ines gives a talk on Thursday morning. In the review she said rearrange it
+// all, and then put her own things on Wednesday by hand on the board: the
+// four for the talk, and two jobs that have nothing to do with it. Nothing on
+// the board is saved yet, so they come as her moves (board), and no todo here
+// has a day of its own.
+function filledByHand() {
+  const uid = (n) => `${String(n).repeat(8)}-2222-4222-8222-222222222222`;
+  const T = {
+    slides: uid(1),
+    notes: uid(2),
+    handout: uid(3),
+    rehearse: uid(4),
+    bike: uid(5),
+    books: uid(6),
+    fence: uid(7),
+    present: uid(8),
+    boots: uid(9),
+  };
+  const g = {
+    ...WEEK,
+    person: person('Ines'),
+    worlds: [
+      { name: 'Work', phase: 'active', summary: 'A talk to the regional team on Thursday morning, the first she has given there.', priorities: ['The talk on Thursday'] },
+      { name: 'Home', phase: 'active', summary: 'Small jobs that pile up in a busy week.', priorities: [] },
+    ],
+    chapters: [],
+    todos: [
+      todo(T.slides, "Finish the slides for Thursday's talk", { min: 45 }),
+      todo(T.notes, 'Write the speaker notes for the talk', { min: 30 }),
+      todo(T.handout, 'Print the handout for the talk', { min: 15 }),
+      todo(T.rehearse, 'Rehearse the talk out loud', { min: 30 }),
+      todo(T.bike, 'Take the bike in for a service', { min: 45, moved: 2 }),
+      todo(T.books, 'Return the library books', { min: 30 }),
+      todo(T.fence, 'Get a quote for the fence', { min: 20, moved: 1 }),
+      todo(T.present, "Order a present for Dad's birthday", { min: 20, by: '2026-10-16' }),
+      todo(T.boots, 'Clean the walking boots', { min: 15 }),
+    ],
+    done: [{ title: 'Book the room for the talk' }],
+    habits: [habit(uid('a'), 'Swim', { planned: [TUE, SAT] })],
+    dated: [],
+    calendar: calendar({ [THU]: [[at(9, 30), at(10, 30), 'Talk to the regional team']] }),
+    last_review: null,
+  };
+  return {
+    id: 'filled-by-hand',
+    about: 'They said rearrange it all, then put six of their own on Wednesday by hand: over three hours on a two hour day',
+    g,
+    answers: { hours, busy_days: [], keep: 'none', priorities: [{ text: 'The talk on Thursday', item_ids: [T.slides] }] },
+    board: {
+      placed: [T.slides, T.notes, T.handout, T.rehearse, T.bike, T.books].map((id) => ({ id, day: WED })),
+    },
+    // the day they filled: it must be named as over-full, and the spread must leave it alone
+    filled: [WED],
+    // for Thursday morning's talk: never on Thursday or after
+    before: { [T.slides]: WED, [T.notes]: WED, [T.handout]: WED, [T.rehearse]: WED },
+    stay: [T.slides, T.notes, T.handout, T.rehearse],
+  };
+}
+
+const ALL = [meetingDay(), partySaturday(), twoDays(), healthDay(), filledByHand()];
 
 const check = (name, ok, detail = '', level = 'fail') => ({ name, ok: !!ok, detail, level });
 
@@ -267,6 +331,16 @@ export function checkRun(s, frame, out) {
   const movable = new Map(overfullDays(s.g, frame).map((d) => [d.day, d.movable.length]));
   const checks = [
     check('There is an over-full day to relieve', out.days.length > 0, `${out.days.length} days`),
+    // a day they filled by hand on the board is theirs, whatever they said of their own days
+    ...(s.filled
+      ? [
+          check(
+            'A day they filled by hand on the board is over-full like any other',
+            s.filled.every((day) => out.days.some((d) => d.day === day && d.over > 0)),
+            `over-full: ${out.days.map((d) => d.day).join(', ') || 'none'}`,
+          ),
+        ]
+      : []),
     // moves were offered for a day and none of them held: the model's slip
     check(
       'No day lost every move it was offered',
@@ -355,8 +429,33 @@ if (only) scenarios = scenarios.filter((s) => only.split(',').includes(s.id));
 if (flag('--input')) {
   const s = ALL.find((x) => x.id === flag('--input'));
   if (!s) throw new Error(`no scenario ${flag('--input')}`);
-  console.log(renderRelief(s.g, spreadFrame(s.g, rowOf(s))).text);
+  console.log(renderRelief(s.g, spreadFrame(s.g, rowOf(s), s.board)).text);
   process.exit(0);
+}
+
+/**
+ * The spread made beside the suggestions, for a person with moves of their
+ * own on the board: nothing of its own may be on a day they filled past its
+ * room. The worker's check takes off anything the model put there (spilled),
+ * so the model is measured by that, and the result by what is on the day.
+ */
+async function spreadChecks(env, s) {
+  const run = await runWeekSpread(env, s.g, rowOf(s), { board: s.board, effort });
+  const on = run.place.filter((p) => s.filled.includes(p.day));
+  const title = (id) => s.g.todos.find((t) => t.id === id)?.title || id;
+  return [
+    check(
+      'The spread puts nothing of its own on a day they filled past its room',
+      !on.length,
+      on.map((p) => `${title(p.id)} on ${p.day}`).join('; '),
+    ),
+    check(
+      'The model placed nothing there for the check to take off',
+      run.counts.spilled === 0,
+      `${run.counts.spilled} taken off a full day`,
+      'warn',
+    ),
+  ];
 }
 
 async function runOne(s) {
@@ -367,8 +466,10 @@ async function runOne(s) {
     CONTEXT_MODEL_WEEKRELIEF: model,
     // no other model steps in: each run is judged on its own model
     CONTEXT_MODEL_WEEKRELIEFFALLBACK: model,
+    CONTEXT_MODEL_WEEKSPREAD: model,
+    CONTEXT_MODEL_WEEKSPREADFALLBACK: model,
   };
-  const frame = spreadFrame(s.g, rowOf(s));
+  const frame = spreadFrame(s.g, rowOf(s), s.board);
   const started = Date.now();
   try {
     const run = await runWeekRelief(env, s.g, frame, { effort });
@@ -379,6 +480,7 @@ async function runOne(s) {
     };
     const ms = Date.now() - started;
     const checks = checkRun(s, frame, out);
+    if (s.board && s.filled) checks.push(...(await spreadChecks(env, s)));
     if (s.judge && judgeKey !== 'none') checks.push(...(await judgeLines(out)));
     return { ms, out, checks };
   } catch (err) {

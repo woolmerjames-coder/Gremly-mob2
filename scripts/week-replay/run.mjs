@@ -12,7 +12,9 @@
  *
  * The checks look at structure, ids, dates and numbers (checks.mjs). The
  * health scenario is also read by a judge model from another family, which
- * says whether Gremly named a condition, a treatment or a medication.
+ * says whether Gremly named a condition, a treatment or a medication, and so
+ * is the challenge of a person whose week turns on one particular thing,
+ * which should not be the length of their list.
  *
  * Keys come from .audit-keys.local (scripts/chat-audit/keys.mjs). Output goes
  * to scripts/week-replay/out/<time>/results.json (gitignored).
@@ -24,7 +26,7 @@ import { fileURLToPath } from 'node:url';
 import { keys } from '../chat-audit/keys.mjs';
 import { SCENARIOS } from './scenarios.mjs';
 import { checkRun, wordsOf } from './checks.mjs';
-import { JUDGES, JUDGE_SYSTEM, callJudge } from './judge.mjs';
+import { JUDGES, JUDGE_CHALLENGE, JUDGE_SYSTEM, callJudge } from './judge.mjs';
 import {
   renderRead,
   runWeekRead,
@@ -84,6 +86,24 @@ async function judgeHealth(s, out) {
   ];
 }
 
+/** For a person whose week turns on one particular thing: is that the challenge, or the list as a whole? */
+async function judgeChallenge(s, out) {
+  const j = JUDGES[judgeKey];
+  if (!j) return [];
+  const c = out.read.challenge;
+  const user = `WHAT GREMLY WAS TOLD\n${out.input}\n\nTHE CHALLENGE GREMLY WROTE\nHeadline: ${c.headline}\nWhy: ${c.why}`;
+  const v = await callJudge(j, JUDGE_CHALLENGE, user);
+  if (!v) return [{ level: 'fail', name: `The judge (${j.model}) answered`, ok: false, detail: '' }];
+  return [
+    {
+      level: 'fail',
+      name: `The challenge is something particular, not the whole list (judge ${j.model})`,
+      ok: v.about_the_whole_list === false,
+      detail: `${c.headline}${v.note ? ` · ${v.note}` : ''}`,
+    },
+  ];
+}
+
 // ── The runs ────────────────────────────────────────────────────────────────
 
 async function runOne(s) {
@@ -102,6 +122,7 @@ async function runOne(s) {
     const ms = Date.now() - started;
     const checks = checkRun(s, out);
     if (s.judge && judgeKey !== 'none') checks.push(...(await judgeHealth(s, out)));
+    if (s.specific && judgeKey !== 'none') checks.push(...(await judgeChallenge(s, out)));
     return { provider, ms, out, checks };
   } catch (err) {
     return { provider, ms: Date.now() - started, error: String(err?.message || err) };
@@ -143,11 +164,28 @@ const done = await pool(jobs, 4, async (s) => {
     for (const w of wordsOf(r.out.read)) console.log(`      ${w.where}: ${w.text}`);
     const x = r.out.read;
     console.log(
-      `      picks ${x.priority_options.filter((p) => p.gremly_pick).length} of ${x.priority_options.length} · hours ${JSON.stringify(x.free_hours_guess && { n: x.free_hours_guess.normal_day, b: x.free_hours_guess.busy_day, w: x.free_hours_guess.weekend_day })} · busy ${x.busy_days.join(', ') || 'none'} · habits ${x.habit_days.map((h) => `${h.habit_id.split('-').pop()}:${h.days.map((d) => d.slice(8)).join('/')}`).join(' ') || 'none'} · milestones ${x.milestones.map((m) => `${m.date} (${m.steps.map((st) => `${st.by.slice(5)} ${st.kind}`).join(', ')})`).join('; ') || 'none'}`,
+      `      milestones for: ${x.milestones.map((m) => `${m.about.type} "${m.about.title}"`).join('; ') || 'none'}\n      picks ${x.priority_options.filter((p) => p.gremly_pick).length} of ${x.priority_options.length} · hours ${JSON.stringify(x.free_hours_guess && { n: x.free_hours_guess.normal_day, b: x.free_hours_guess.busy_day, w: x.free_hours_guess.weekend_day })} · busy ${x.busy_days.join(', ') || 'none'} · habits ${x.habit_days.map((h) => `${h.habit_id.split('-').pop()}:${h.days.map((d) => d.slice(8)).join('/')}`).join(' ') || 'none'} · milestones ${x.milestones.map((m) => `${m.date} (${m.steps.map((st) => `${st.by.slice(5)} ${st.kind}`).join(', ')})`).join('; ') || 'none'}`,
     );
   }
   return { id: s.id, ...r };
 });
+
+// each rule that was broken, with how many of the runs it was looked at in broke it
+const tally = new Map();
+for (const d of done) {
+  for (const c of d.checks || []) {
+    if (c.level !== 'fail') continue;
+    const t = tally.get(c.name) || { broken: 0, of: 0 };
+    t.of += 1;
+    if (!c.ok) t.broken += 1;
+    tally.set(c.name, t);
+  }
+}
+const broken = [...tally].filter(([, t]) => t.broken);
+if (broken.length) {
+  console.log('\nBroken rules (runs that broke it, of the runs it was looked at in):');
+  for (const [name, t] of broken) console.log(`  ${t.broken} of ${t.of} · ${name}`);
+}
 
 const pass = done.filter((d) => !d.error && d.checks.every((c) => c.level !== 'fail' || c.ok)).length;
 const ms = done.map((d) => d.ms).sort((a, b) => a - b);

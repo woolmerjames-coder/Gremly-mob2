@@ -57,7 +57,7 @@ export interface Change {
   plan?: PlanChange;
   /** week_shape: the busy days and hours it sets */
   shape?: WeekShape;
-  /** week_shape, intention and milestone: the first day of the week it is for */
+  /** week_shape, priority, intention and milestone: the first day of the week it is for */
   week_start?: string;
   /** week_shape: the first day its busy days were stated for; busy days before it stay as they are */
   from?: string;
@@ -86,6 +86,11 @@ export interface WeekCheckContext {
   /** The week has a review, which keeps its shape and its check ins */
   has_review?: boolean;
   intention?: { id?: string | null; text: string } | null;
+  /**
+   * What matters most to them this week as it stands, each in its own words.
+   * Null from an app build that cannot keep a new one, which is then never offered one.
+   */
+  priorities?: string[] | null;
   /** 0 Sunday to 6 Saturday */
   weekly_day?: number;
 }

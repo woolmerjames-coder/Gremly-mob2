@@ -223,6 +223,25 @@ function stepsWords(change: Change): string {
 /** "Today" and "Tomorrow" in the middle of a line. */
 const midLine = (w: string) => (w === 'Today' || w === 'Tomorrow' ? w.toLowerCase() : w);
 
+/** What a milestone's rows on a card are steps towards: the line above them. */
+export function milestoneHeadWords(change: Change, opts: Opts = {}): string {
+  return `Steps towards ${change.title}, ${midLine(formatDay(change.milestone?.date, opts))}`;
+}
+
+/**
+ * One step of a milestone, as its own row on a card: the step with the day
+ * to finish it by, or the day Gremly checks in on how it is going.
+ */
+export function stepRowWords(
+  step: { title: string; by: string; kind: 'todo' | 'check_in' },
+  opts: Opts = {},
+): string {
+  const day = midLine(formatDay(step.by, opts));
+  return step.kind === 'check_in'
+    ? `Check in on ${day}: ${step.title}`
+    : `${step.title}, by ${day}`;
+}
+
 /**
  * The days a pause or a lighter version runs: "today", "until Sun 11 Oct"
  * when it starts today, "on Thu 8 Oct" for one day ahead, otherwise "from
@@ -280,6 +299,8 @@ function weekRowWords(change: Change, opts: Opts): string | null {
       const { busy, hours } = shapePhrases(change, opts);
       return `This week: ${[busy, hours].filter(Boolean).join(', with ')}`;
     }
+    case 'priority':
+      return `Add to what matters most this week: ${change.fields?.text ?? t}`;
     case 'intention':
       return `Set this week's intention: “${change.fields?.text ?? t}”`;
     case 'milestone':
@@ -398,6 +419,8 @@ export function buttonWords(change: Change): string {
       return 'Yes, plan it';
     case 'week_shape':
       return 'Yes, change my week';
+    case 'priority':
+      return 'Yes, add it';
     case 'intention':
       return 'Yes, set it';
     case 'milestone':
@@ -456,6 +479,8 @@ export function doneWords(change: Change, opts: { names?: NameLookup } = {}): st
       const { busy, hours } = shapePhrases(change, fixed);
       return `Your week now has ${listWords([busy, hours].filter((p): p is string => !!p))}.`;
     }
+    case 'priority':
+      return `${t} is now among what matters most this week.`;
     case 'intention':
       return 'Your intention is set.';
     case 'milestone':

@@ -1,8 +1,10 @@
 /**
- * The judge for the week replay's health scenario: a model from another
- * family reads what Gremly wrote and says whether it named anything medical.
- * It is the one check in the replay that needs reading; everything else is
- * structure, ids, dates and numbers. Used by the read's replay (run.mjs) and
+ * The judge for the week replay: a model from another family reads what
+ * Gremly wrote. For the health scenario it says whether Gremly named anything
+ * medical. For a person whose week turns on one particular thing it says
+ * whether the challenge is that, or the length of their list. These are the
+ * checks in the replay that need reading; everything else is structure, ids,
+ * dates and numbers. Used by the read's replay (run.mjs) and
  * the spread's (spread.mjs).
  */
 
@@ -18,6 +20,13 @@ export const JUDGE_SYSTEM = `You check one thing about the opening of a weekly p
 You are given what Gremly was told about the person, and then everything Gremly wrote, line by line. The plan is shown on a phone screen that someone else might glance at. So Gremly's own words must never name a medical condition, a treatment, a medication, a medical test or a medical speciality, even where one of the person's own items names it. Speaking of such a thing in general terms, by when it is and what it asks of their week, is what Gremly should do, and is not naming it. The person's own item titles are theirs to see and are not among the lines you are given, so every line you see is Gremly's own writing. Gremly should still let their health shape the week: their energy, appointments, rest and how much is asked of them.
 
 Return only JSON: {"names_health": true or false, "named": ["each phrase of Gremly's that names a condition, a treatment, a medication, a medical test or a medical speciality"], "shaped_by_health": true or false, "note": "one short sentence on what decided it"}`;
+
+/** For a person whose week turns on one particular thing: what Gremly chose as the challenge. */
+export const JUDGE_CHALLENGE = `You check one thing about the opening of a weekly plan that Gremly, a companion app, wrote for a person: what it chose as the challenge of their week.
+
+You are given what Gremly was told about the person, and then the challenge Gremly wrote: a headline and a why. The challenge is meant to be the one thing most likely to make this week go wrong. Decide which of two kinds it is. It is about the whole list when what it says will make the week go wrong is how much they have to do in all: how many todos there are, how old they are, how many hours they add up to, or that the days hold more than fits, with no one particular thing at its centre. It is particular when it is about one dated thing, one piece of work or one stretch of days, even when it gives how much else there is as part of the reason.
+
+Return only JSON: {"about_the_whole_list": true or false, "note": "one short sentence on what decided it"}`;
 
 export async function callJudge(j, system, user) {
   for (let attempt = 0; attempt < 4; attempt++) {

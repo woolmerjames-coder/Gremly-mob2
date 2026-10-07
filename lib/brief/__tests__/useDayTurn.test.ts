@@ -664,6 +664,35 @@ describe('the agent', () => {
     expect(
       cardOutcomeWords({ type: 'brief-changes', status: 'open', changes: [], card } as any),
     ).toBeNull();
+    // a milestone is accepted as the steps they kept, and a step unticked is one they left out
+    const talk = {
+      cid: 'c3',
+      op: 'milestone',
+      type: null,
+      id: null,
+      title: 'Conference talk',
+      milestone: {
+        goal: 'Conference talk',
+        date: '2026-10-20',
+        steps: [
+          { title: 'Draft the outline', by: '2026-10-08', kind: 'todo' },
+          { title: 'How is the draft going?', by: '2026-10-12', kind: 'check_in' },
+          { title: 'Rehearse once', by: '2026-10-16', kind: 'todo' },
+        ],
+      },
+    };
+    expect(
+      cardOutcomeWords({
+        type: 'brief-changes',
+        status: 'applied',
+        changes: [],
+        card: [talk],
+        applied: ['c3'],
+        unticked: ['c3.3'],
+      } as any),
+    ).toBe(
+      "(On Gremly's card they accepted: Set up Conference talk for Tue 20 Oct: 1 step to do and 1 check in. They left out: Rehearse once, by Fri 16 Oct (a step towards Conference talk).)",
+    );
     const said = {
       id: 'u1',
       role: 'user',
@@ -1065,5 +1094,66 @@ describe('their week, and the weekly review', () => {
       await hook.result.current.undo(cardMessage);
     });
     expect(onUndone).toHaveBeenCalledTimes(1);
+    expect(onUndone.mock.calls[0][0]).toEqual([card[0]]);
+  });
+
+  it('sets up the steps of a milestone still ticked, and tells the review of those alone', async () => {
+    const talk = {
+      cid: 'c1',
+      op: 'milestone',
+      type: null,
+      id: null,
+      title: 'Conference talk',
+      milestone: {
+        goal: 'Conference talk',
+        date: '2026-10-20',
+        steps: [
+          { title: 'Draft the outline', by: '2026-10-08', kind: 'todo' },
+          { title: 'How is the draft going?', by: '2026-10-12', kind: 'check_in' },
+          { title: 'Rehearse once', by: '2026-10-16', kind: 'todo' },
+        ],
+      },
+    };
+    (applyCardChanges as jest.Mock).mockResolvedValue({
+      done: ['c1'],
+      created: { 'c1.1': 'made-1' },
+      failed: [],
+      plan: { add: [], remove: [], pin: [] },
+      frameChanged: false,
+      revert: async () => undefined,
+    });
+    const onApplied = jest.fn();
+    const onUndone = jest.fn();
+    const { hook, messages } = harness(undefined, { onApplied, onUndone });
+    const cardMessage = {
+      id: 'card-2',
+      role: 'system',
+      content: '',
+      metadata_json: { type: 'brief-changes', changes: [], card: [talk], status: 'open' },
+    } as unknown as SpaceChatMessage;
+    messages.push(cardMessage);
+    await act(async () => {
+      await hook.result.current.apply(cardMessage, ['c1.2', 'c1.3']);
+    });
+    const kept = [
+      {
+        ...talk,
+        milestone: {
+          ...talk.milestone,
+          steps: [{ title: 'Draft the outline', by: '2026-10-08', kind: 'todo', row: 'c1.1' }],
+        },
+      },
+    ];
+    expect((applyCardChanges as jest.Mock).mock.calls.slice(-1)[0][0]).toEqual(kept);
+    expect(onApplied.mock.calls[0][0]).toEqual(kept);
+    expect(cardMessage.metadata_json).toMatchObject({
+      status: 'applied',
+      unticked: ['c1.2', 'c1.3'],
+      created: { 'c1.1': 'made-1' },
+    });
+    await act(async () => {
+      await hook.result.current.undo(cardMessage);
+    });
+    expect(onUndone.mock.calls[0][0]).toEqual(kept);
   });
 });

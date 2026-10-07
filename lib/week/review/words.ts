@@ -8,6 +8,7 @@
  * the drafts) comes from the weekly read; these are only the fixed sentences
  * around it.
  */
+import { NAME_LIMIT } from '../../changes/model';
 import { weekdayOf, type ReviewKind, type WeekHours } from '../model';
 
 export const DAY_NAMES = [
@@ -165,8 +166,11 @@ export const WEEK_COPY = {
   markBusy: 'Mark busy days above',
   shapeDone: "That's the shape",
 
-  intentionIntro: 'One line to hold onto this week? Here are a few, or write your own.',
-  ownWords: 'Or in your own words',
+  intentionIntro:
+    'One line to hold onto this week? Put it in your own words, or I can suggest one.',
+  ownWords: 'In your own words',
+  suggestOne: 'Suggest one',
+  skipIntention: 'Skip',
   keepThis: 'Keep this one',
   noIntention: 'No intention this week',
 
@@ -214,6 +218,10 @@ export const WEEK_COPY = {
   tabLater: 'Later',
   moveTo: 'Move it to',
   later: 'Later',
+  // a todo's done tick on the board, as a screen reader says it, and the ones ticked in Later
+  tickDone: 'Mark as done',
+  tickUndo: 'Mark as not done',
+  tickedHere: 'Done',
   gremlyPick: "Gremly's pick",
   busyNote: "A busy day, so I've kept it light",
   closeTray: 'Close',
@@ -259,6 +267,12 @@ export const WEEK_COPY = {
   takeMoves: 'Move these',
   changeMyself: "I'll change it myself",
   leaveIt: 'Leave it',
+  // a todo that matters most this week and is on no day of it
+  fitLeave: 'Leave it for later',
+  fitOpen: 'Open my week',
+  fitUndo: 'Undo',
+  fitNone:
+    'No day has room for it, whole or in parts. You can make room for it on the board, or leave it for later.',
 
   // Your week: the week they planned, read back, and changed by hand
   weekIntention: 'YOUR INTENTION',
@@ -282,7 +296,11 @@ export const WEEK_COPY = {
   changeUndoFailed: "I couldn't take all of that back. Have a look at your week.",
 } as const;
 
-/** The reasons under a needs you question: taps that go to Gremly as their words. */
+/**
+ * The reasons under a needs you question when its card has no answers of its
+ * own (a read made before each card had them): taps that go to Gremly as
+ * their words.
+ */
 export const TALK_REASONS = [
   'Feels too big',
   'Not sure it matters',
@@ -299,12 +317,12 @@ export function openerLine(o: {
   part: DayPartName;
 }): string {
   if (o.kind === 'brought_forward')
-    return "Want to plan next week a day early? I'll take a fresh look at everything first. Got ten minutes?";
+    return "Want to plan next week a day early? I'll take a fresh look at everything first. Got a few minutes?";
   if (o.kind === 'extra')
-    return "Want to plan the rest of this week together? I'll take a fresh look at everything first. Got ten minutes?";
+    return "Want to plan the rest of this week together? I'll take a fresh look at everything first. Got a few minutes?";
   if (o.since === 0)
-    return `${dayName(o.weekday)} ${o.part}, the best time to look at the week together. Got ten minutes?`;
-  return "The week has started, and there's still time to plan the rest of it together. Got ten minutes?";
+    return `${dayName(o.weekday)} ${o.part}, the best time to look at the week together. Got a few minutes?`;
+  return "The week has started, and there's still time to plan the rest of it together. Got a few minutes?";
 }
 
 /** Gremly's line after Not this week. */
@@ -650,6 +668,58 @@ export function stillLine(still: number): string {
 /** The board's title when it is opened to change one over-full day by hand. */
 export function changeDayTitle(day: string): string {
   return `Change ${DAY_NAMES[weekdayOf(day)]}`;
+}
+
+/** Gremly's line for a todo that matters most this week and is on no day of it. */
+export function unfittedLine(title: string, minutes: number, fits: boolean): string {
+  const lead = `“${title}” is one of the things that matter most this week`;
+  return fits
+    ? `${lead}, and it is on no day yet.`
+    : `${lead}, and at ${minsLabel(minutes)} it fits on no day as the week stands.`;
+}
+
+/** The button that puts it whole on the day with room for it. */
+export function fitDayButton(day: string): string {
+  return `Put it on ${DAY_NAMES[weekdayOf(day)]}`;
+}
+
+/** The button that splits it into parts that each fit a day. */
+export function fitSplitButton(parts: number): string {
+  return `Split it in ${countWord(parts)}`;
+}
+
+/** The parts a split would make, under its button: "1h 30m on Tuesday and 1h 30m on Thursday". */
+export function fitPartsLine(parts: { minutes: number; day: string }[]): string {
+  const each = parts.map((p) => `${minsLabel(p.minutes)} on ${DAY_NAMES[weekdayOf(p.day)]}`);
+  return each.length > 1
+    ? `${each.slice(0, -1).join(', ')} and ${each[each.length - 1]}`
+    : (each[0] ?? '');
+}
+
+/**
+ * The name of one part of a todo that was split: "Write the report (part 1 of
+ * 2)". A name already as long as a name can be is cut to leave room for which
+ * part it is.
+ */
+export function partTitle(title: string, part: number, of: number): string {
+  const which = ` (part ${part} of ${of})`;
+  return `${title.slice(0, NAME_LIMIT - which.length).trim()}${which}`;
+}
+
+/** What they chose for a todo that was on no day, as their answer under the card. */
+export function fittedText(f: {
+  how: 'day' | 'split' | 'left';
+  title: string;
+  day?: string;
+  parts?: number;
+}): string {
+  if (f.how === 'day') {
+    return f.day
+      ? `Put “${f.title}” on ${DAY_NAMES[weekdayOf(f.day)]}`
+      : `Put “${f.title}” on a day`;
+  }
+  if (f.how === 'split') return `Split “${f.title}” in ${countWord(f.parts ?? 2)}`;
+  return `Leave “${f.title}” for later`;
 }
 
 /** What they chose for an over-full day, as their answer under the card. */

@@ -12,9 +12,11 @@ import {
   WEEK_READ_VERSION,
   bookedMinutes,
   checkRead,
+  dayLoads,
   figuresOf,
   habitAllowance,
   habitSentence,
+  hoursWords,
   lengthWords,
   monthsBefore,
   readSystem,
@@ -133,7 +135,7 @@ function gathered(over = {}) {
         meetings:
           i === 0
             ? [
-                { title: 'Standup', start: 540, end: 570 },
+                { id: 'entry-standup', title: 'Standup', start: 540, end: 570 },
                 { title: 'Review', start: 560, end: 620 },
               ]
             : [],
@@ -162,13 +164,20 @@ function reply(over = {}) {
       { about: 'd1', when: '2026-10-09', what: 'Dinner on Friday' },
     ],
     priority_options: [
-      { text: 'Start the report', why: 'It is due soon.', gremly_pick: true, item_ids: ['t2'] },
-      { text: 'Book the venue', why: 'It is on Tuesday.', gremly_pick: false, item_ids: ['t1'] },
-    ],
-    intention_drafts: [
-      'I will start the report early.',
-      'I will keep evenings free.',
-      'I will ask for help.',
+      {
+        text: 'Start the report',
+        why: 'It is due soon.',
+        gremly_pick: true,
+        item_ids: ['t2'],
+        intention: 'I will start before it feels urgent.',
+      },
+      {
+        text: 'Book the venue',
+        why: 'It is on Tuesday.',
+        gremly_pick: false,
+        item_ids: ['t1'],
+        intention: 'I will settle things early.',
+      },
     ],
     free_hours_guess: {
       normal_day: 2,
@@ -193,6 +202,7 @@ function reply(over = {}) {
         title: 'The report',
         stuck_because: 'It keeps moving.',
         question: 'What is the first page?',
+        answers: ['The summary', 'The figures', 'I do not know yet'],
       },
     ],
     habit_days: [
@@ -492,15 +502,73 @@ describe('what the model reads', () => {
     );
   });
 
+  it('gives what already sits on each day being planned, worked out, so a day is never added up by the model', () => {
+    const todo = (id, due_day, minutes) => ({
+      id,
+      title: id,
+      minutes,
+      created: '2026-09-01',
+      moved: 0,
+      due_day,
+      deadline: null,
+      back_on: null,
+    });
+    const todos = [
+      todo('a', '2026-10-05', 45),
+      todo('b', '2026-10-05', 60),
+      // no length: half an hour, as the board counts it
+      todo('c', '2026-10-05', null),
+      todo('d', '2026-10-08', 60),
+      // a day outside the days being planned, and no day at all
+      todo('e', '2026-10-20', 90),
+      todo('f', null, 30),
+    ];
+    expect(dayLoads(todos, ['2026-10-05', '2026-10-06', '2026-10-08'])).toEqual([
+      { day: '2026-10-05', todos: 3, minutes: 135 },
+      { day: '2026-10-06', todos: 0, minutes: 0 },
+      { day: '2026-10-08', todos: 1, minutes: 60 },
+    ]);
+    expect([135, 60, 20, 390].map(hoursWords)).toEqual([
+      '2.5 hours',
+      '1 hour',
+      '0.5 hours',
+      '6.5 hours',
+    ]);
+    const text = renderRead(gathered({ todos })).text;
+    expect(text).toContain(
+      'ON EACH DAY BEING PLANNED (the todos that have that day, worked out exactly, one with no length counted as half an hour): Monday 2026-10-05: 3 todos, 2.5 hours; Tuesday 2026-10-06: none;',
+    );
+    expect(text).toContain('Thursday 2026-10-08: 1 todo, 1 hour;');
+    // with nothing on any of the days there is nothing to say
+    expect(renderRead(gathered({ todos: [todo('f', null, 30)] })).text).not.toContain(
+      'ON EACH DAY BEING PLANNED',
+    );
+  });
+
   it('gives the calendar with booked time worked out, or says none is connected', () => {
     expect(r.text).toContain(
-      'Monday 2026-10-05: 2 meetings, 1 hour 20 minutes booked: 9am to 9:30am Standup; 9:20am to 10:20am Review.',
+      'Monday 2026-10-05: 2 entries, 1 hour 20 minutes booked: c1 9am to 9:30am Standup; c2 9:20am to 10:20am Review.',
     );
     expect(r.text).toContain('Friday 2026-10-09: nothing booked. All day: Offsite.');
-    expect(r.text).toContain('Across those days: 2 meetings, 1 hour 20 minutes booked.');
+    expect(r.text).toContain('Across those days: 2 entries, 1 hour 20 minutes booked.');
     expect(renderRead(gathered({ calendar: { connected: false, days: [] } })).text).toContain(
-      'THE CALENDAR: none is connected, so their meetings are not known.',
+      'THE CALENDAR: none is connected, so what is on their calendar is not known.',
     );
+  });
+
+  it('never calls what is on their calendar meetings, and gives each entry an id', () => {
+    expect(r.text).not.toMatch(/meeting/i);
+    expect(readSystem({ first_name: 'Ana' }).fixed).toContain(
+      'Never count them or describe them as meetings.',
+    );
+    expect([...r.refs.calendar]).toEqual([
+      ['c1', { type: 'synced_event', id: 'entry-standup', title: 'Standup', date: '2026-10-05' }],
+      ['c2', { type: 'synced_event', id: null, title: 'Review', date: '2026-10-05' }],
+    ]);
+    // an entry on a day that has gone by is no moment still to come
+    const late = renderRead(gathered({ today: '2026-10-06' }));
+    expect(late.text).toContain('c1 9am to 9:30am Standup');
+    expect(late.refs.calendar.size).toBe(0);
   });
 
   it('gives last week from its review, when there was one', () => {
@@ -607,6 +675,7 @@ describe('what comes back', () => {
     expect(read.challenge.headline).toBe('The report needs a start');
     expect(read.priority_options.map((p) => p.item_ids)).toEqual([['todo-a'], ['todo-b']]);
     expect(read.needs_you[0].item_ids).toEqual(['todo-a']);
+    expect(read.needs_you[0].answers).toEqual(['The summary', 'The figures', 'I do not know yet']);
     expect(read.habit_days).toEqual([
       {
         habit_id: 'habit-run',
@@ -643,11 +712,80 @@ describe('what comes back', () => {
     expect(read.busy_days).toEqual(['2026-10-05']);
   });
 
+  it('takes a moment that is on their calendar, with its day from the calendar', () => {
+    const { read, dropped } = check(
+      reply({
+        coming_up: [
+          // the model's own date for an entry is not used
+          { about: 'c1', when: '2026-10-07', what: 'Standup with the new team' },
+          // an entry with no id of its own is a moment all the same, with no item to open
+          { about: 'c2', when: '', what: 'The review' },
+          { about: 'c9', when: '2026-10-08', what: 'An entry it was not given' },
+        ],
+      }),
+    );
+    expect(read.coming_up).toEqual([
+      {
+        when: '2026-10-05',
+        what: 'Standup with the new team',
+        item: { type: 'synced_event', id: 'entry-standup' },
+      },
+      { when: '2026-10-05', what: 'The review', item: null },
+      { when: '2026-10-08', what: 'An entry it was not given', item: null },
+    ]);
+    expect(dropped.map((d) => `${d.what}:${d.why}`)).toEqual(['coming_up:unknown_id']);
+    // a milestone never leads up to an entry on the days being planned
+    const m = check(reply({ milestones: [{ ...reply().milestones[0], about: 'c1' }] }));
+    expect(m.read.milestones).toEqual([]);
+    expect(m.dropped.map((d) => `${d.what}:${d.why}`)).toEqual(['milestone:no_dated_thing']);
+  });
+
+  it('keeps the answers to tap under a needs you question: each once, short, four at most', () => {
+    const card = reply().needs_you[0];
+    const { read, dropped } = check(
+      reply({
+        needs_you: [
+          {
+            ...card,
+            answers: [
+              'The summary',
+              '  ',
+              'The summary',
+              'An answer that goes on for far longer than anyone could tap on a phone',
+              'The figures',
+              'Someone else has it',
+              'Not this week',
+              'One too many',
+            ],
+          },
+          // a read that gives none still has the card: the app has answers of its own for it
+          { ...card, item_ids: ['t1'], title: 'Book the venue', answers: undefined },
+        ],
+      }),
+    );
+    expect(read.needs_you.map((n) => n.answers)).toEqual([
+      ['The summary', 'The figures', 'Someone else has it', 'Not this week'],
+      [],
+    ]);
+    expect(dropped.map((d) => `${d.what}:${d.why}`)).toEqual([
+      'needs_you_answer:empty',
+      'needs_you_answer:twice',
+      'needs_you_answer:too_long',
+      'needs_you_answer:too_many',
+    ]);
+  });
+
   it('drops an id it was never given, and counts it', () => {
     const { read, dropped } = check(
       reply({
         priority_options: [
-          { text: 'Start', why: '', gremly_pick: true, item_ids: ['t2', 't99', 'todo-a'] },
+          {
+            text: 'Start',
+            why: '',
+            gremly_pick: true,
+            item_ids: ['t2', 't99', 'todo-a'],
+            intention: 'I will begin.',
+          },
         ],
         needs_you: [{ item_ids: ['t42'], title: 'Mystery', stuck_because: 'x', question: 'y' }],
         habit_days: [{ habit_id: 'h9', days: ['2026-10-06'], reason: '' }],
@@ -665,13 +803,18 @@ describe('what comes back', () => {
     ]);
   });
 
-  it('keeps to the limits: five options, three picks, four figures, three drafts', () => {
-    const option = (i) => ({ text: `Option ${i}`, why: '', gremly_pick: true, item_ids: [] });
+  it('keeps to the limits: five options, three picks, four figures', () => {
+    const option = (i) => ({
+      text: `Option ${i}`,
+      why: '',
+      gremly_pick: true,
+      item_ids: [],
+      intention: `Line ${i}.`,
+    });
     const { read, dropped } = check(
       reply({
         priority_options: [1, 2, 3, 4, 5, 6].map(option),
         evidence: [1, 2, 3, 4, 5].map((n) => ({ figure: `${n}`, label: 'things' })),
-        intention_drafts: ['One.', 'Two.', 'Three.', 'Four.'],
       }),
     );
     expect(read.priority_options).toHaveLength(READ_LIMITS.priorities);
@@ -683,14 +826,47 @@ describe('what comes back', () => {
       false,
     ]);
     expect(read.evidence).toHaveLength(READ_LIMITS.evidence);
-    expect(read.intention_drafts).toEqual(['One.', 'Two.', 'Three.']);
     expect(dropped.filter((d) => d.why === 'too_many').map((d) => d.what)).toEqual([
       'evidence',
       'priority_pick',
       'priority_pick',
       'priority',
-      'intention',
     ]);
+  });
+
+  it('keeps the line to hold onto with each priority, and gives an older app three of them as drafts', () => {
+    const option = (text, pick, intention) => ({
+      text,
+      why: '',
+      gremly_pick: pick,
+      item_ids: [],
+      intention,
+    });
+    const { read, dropped } = check(
+      reply({
+        priority_options: [
+          option('Tidy the desk', false, 'I will leave things as I want to find them.'),
+          option('Start the report', true, 'I will start before it feels urgent.'),
+          option('Rest', true, '   '),
+          option('Call home', true, 'I will start before it feels urgent.'),
+          option('See friends', false, 'I will say yes to one evening out.'),
+        ],
+      }),
+    );
+    expect(read.priority_options.map((p) => p.intention)).toEqual([
+      'I will leave things as I want to find them.',
+      'I will start before it feels urgent.',
+      '',
+      'I will start before it feels urgent.',
+      'I will say yes to one evening out.',
+    ]);
+    // Gremly's picks first, each line once, three at most
+    expect(read.intention_drafts).toEqual([
+      'I will start before it feels urgent.',
+      'I will leave things as I want to find them.',
+      'I will say yes to one evening out.',
+    ]);
+    expect(dropped.map((d) => `${d.what}:${d.why}`)).toEqual(['intention:empty']);
   });
 
   it('takes a coming up date from the data, and only one that is ahead and within six weeks', () => {

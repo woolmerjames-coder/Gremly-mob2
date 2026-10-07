@@ -283,6 +283,44 @@ describe('the read for a review', () => {
     expect(patch).not.toHaveProperty('status');
   });
 
+  it('is made for the days from tomorrow when the app says the review was opened in the evening', async () => {
+    const row = {
+      id: 'row-1',
+      week_start: '2026-10-05',
+      kind: 'weekly',
+      status: 'done',
+      read: READ,
+    };
+    const d = fakeDb({ row });
+    db.mockReturnValue(d);
+    const deps = made();
+    // Wednesday 7 October in Los Angeles, and the app's board starts on Thursday
+    const r = await ensureWeekRead({}, USER, {
+      today: '2026-10-07',
+      first: '2026-10-08',
+      at: new Date('2026-10-08T02:00:00Z'),
+      deps,
+    });
+    expect(r.on).toMatchObject({ kind: 'extra', span_start: '2026-10-08', span_end: '2026-10-11' });
+    expect(deps.gather.mock.calls[0][2]).toMatchObject({
+      today: '2026-10-07',
+      first: '2026-10-08',
+      last: '2026-10-11',
+    });
+    expect(d.update.mock.calls[0][1]).toMatchObject({ kind: 'extra', span_start: '2026-10-08' });
+    // nothing but tomorrow is taken as the first day
+    for (const first of ['2026-10-09', '2026-10-06', 'soon']) {
+      db.mockReturnValue(fakeDb({ row }));
+      const again = await ensureWeekRead({}, USER, {
+        today: '2026-10-07',
+        first,
+        at: new Date('2026-10-08T02:00:00Z'),
+        deps: made(),
+      });
+      expect(again.on.span_start).toBe('2026-10-07');
+    }
+  });
+
   it('makes a week that was only ready or skipped ready again', async () => {
     for (const status of ['ready', 'skipped']) {
       const d = fakeDb({
@@ -766,6 +804,19 @@ describe('the spread for a review', () => {
     expect(r.on).toMatchObject({ kind: 'weekly', resumed: true });
     expect(deps.gather.mock.calls[0][2]).toMatchObject({
       first: '2026-10-07',
+      last: '2026-10-11',
+    });
+    // opened in the evening, the app's board starts tomorrow, and so does the spread
+    const evening = spreadDeps();
+    await ensureWeekSpread({}, USER, {
+      today: '2026-10-07',
+      first: '2026-10-08',
+      at: new Date('2026-10-08T02:00:00Z'),
+      deps: evening,
+    });
+    expect(evening.gather.mock.calls[0][2]).toMatchObject({
+      today: '2026-10-07',
+      first: '2026-10-08',
       last: '2026-10-11',
     });
   });

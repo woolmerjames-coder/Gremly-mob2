@@ -26,6 +26,10 @@ import {
 } from '../flow';
 import {
   TALK_REASONS,
+  fitDayButton,
+  fitPartsLine,
+  fitSplitButton,
+  fittedText,
   WEEK_COPY,
   addToDay,
   ageLabel,
@@ -51,6 +55,7 @@ import {
   needsYouIntro,
   openerLine,
   overfullLine,
+  partTitle,
   prioritiesButton,
   relievedText,
   roomLine,
@@ -60,12 +65,13 @@ import {
   skippedLine,
   spanLabel,
   stepWhen,
+  unfittedLine,
   stillLine,
   todoStateLabel,
   weekDayLabel,
   whenLabel,
 } from '../words';
-import { MON, SUN, THU, WED, WEEK_START, madeUpRead } from './madeUpWeek';
+import { MON, SAT, SUN, THU, TUE, WED, WEEK_START, madeUpRead } from './madeUpWeek';
 
 const opener = (over = {}) => ({
   kind: 'weekly' as const,
@@ -162,7 +168,7 @@ describe('the opening', () => {
     });
     expect(offer.role).toBe('assistant');
     expect(offer.content).toBe(
-      'Sunday evening, the best time to look at the week together. Got ten minutes?',
+      'Sunday evening, the best time to look at the week together. Got a few minutes?',
     );
     expect(offer.meta).toMatchObject({ type: 'brief-offer', kind: 'week_open' });
     expect((offer.meta as any).buttons).toEqual([
@@ -174,7 +180,7 @@ describe('the opening', () => {
   it('says what it is by the day it is opened on', () => {
     // their own weekly day, whichever it is, at whatever time
     expect(openerLine({ kind: 'weekly', since: 0, weekday: 3, part: 'morning' })).toBe(
-      'Wednesday morning, the best time to look at the week together. Got ten minutes?',
+      'Wednesday morning, the best time to look at the week together. Got a few minutes?',
     );
     // a day or two after it
     expect(openerLine({ kind: 'weekly', since: 2, weekday: 2, part: 'evening' })).toContain(
@@ -277,6 +283,22 @@ describe('each step', () => {
     expect((ask.meta as any).buttons.map((b: any) => [b.action, b.value])).toEqual(
       TALK_REASONS.map((r) => ['week_reason', r]),
     );
+  });
+
+  it('gives a needs you card its own answers to tap, which fit its question', () => {
+    const own = ['I need a quote first', 'I do not know who to call', 'It can wait'];
+    const [, ask] = talkMsgs('Sort the boiler', 'What is in the way of booking it?', own);
+    expect((ask.meta as any).buttons).toEqual(
+      own.map((label, i) => ({
+        id: `week_reason_${i}`,
+        label,
+        action: 'week_reason',
+        value: label,
+      })),
+    );
+    // one answer is no choice: the general reasons stand in
+    const [, thin] = talkMsgs('Sort the boiler', 'What is in the way?', ['It can wait']);
+    expect((thin.meta as any).buttons.map((b: any) => b.label)).toEqual(TALK_REASONS);
   });
 
   it('marks what they typed as the review’s own message', () => {
@@ -627,5 +649,47 @@ describe('their own days in words', () => {
     expect(relievedText(WED, 'moved')).toBe('Move these off Wednesday');
     expect(relievedText(WED, 'changed')).toBe('I changed Wednesday myself');
     expect(relievedText(WED, 'left')).toBe('Leave Wednesday as it is');
+  });
+
+  it('says a todo that matters most is on no day, and what can be done about it', () => {
+    expect(unfittedLine('Write the talk', 300, false)).toBe(
+      '“Write the talk” is one of the things that matter most this week, and at 5h it fits on no day as the week stands.',
+    );
+    expect(unfittedLine('Write the talk', 180, true)).toBe(
+      '“Write the talk” is one of the things that matter most this week, and it is on no day yet.',
+    );
+    expect(fitDayButton(SAT)).toBe('Put it on Saturday');
+    expect(fitSplitButton(2)).toBe('Split it in two');
+    expect(fitSplitButton(3)).toBe('Split it in three');
+    expect(
+      fitPartsLine([
+        { minutes: 150, day: SAT },
+        { minutes: 150, day: SUN },
+      ]),
+    ).toBe('2h 30m on Saturday and 2h 30m on Sunday');
+    expect(
+      fitPartsLine([
+        { minutes: 35, day: MON },
+        { minutes: 35, day: TUE },
+        { minutes: 30, day: WED },
+      ]),
+    ).toBe('35m on Monday, 35m on Tuesday and 30m on Wednesday');
+    // their answers, above the board's card
+    expect(fittedText({ how: 'day', title: 'Write the talk', day: SAT })).toBe(
+      'Put “Write the talk” on Saturday',
+    );
+    expect(fittedText({ how: 'split', title: 'Write the talk', parts: 2 })).toBe(
+      'Split “Write the talk” in two',
+    );
+    expect(fittedText({ how: 'left', title: 'Write the talk' })).toBe(
+      'Leave “Write the talk” for later',
+    );
+  });
+
+  it('names the parts of a split, and leaves room for which part in a name at its longest', () => {
+    expect(partTitle('Write the talk', 1, 2)).toBe('Write the talk (part 1 of 2)');
+    const long = partTitle('x'.repeat(200), 2, 3);
+    expect(long).toHaveLength(200);
+    expect(long.endsWith(' (part 2 of 3)')).toBe(true);
   });
 });

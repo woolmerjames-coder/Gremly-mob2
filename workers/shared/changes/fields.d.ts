@@ -41,6 +41,7 @@ export type WeekOp =
   | 'later'
   | 'habit_days'
   | 'week_shape'
+  | 'priority'
   | 'intention'
   | 'milestone'
   | 'weekly_day';
@@ -49,7 +50,13 @@ export declare const WEEK_OPS: Record<WeekOp, string>;
 export type EaseOp = 'ease';
 export declare const EASE_OPS: Record<EaseOp, string>;
 export declare const STEP_KINDS: Array<'todo' | 'check_in'>;
-export declare const WEEK_LIMITS: { intention: number; goal: number; steps: number };
+export declare const WEEK_LIMITS: {
+  intention: number;
+  priority: number;
+  priorities: number;
+  goal: number;
+  steps: number;
+};
 export declare const NAME_LIMIT: number;
 export declare const FIELDS_VERSION: number;
 export declare const GROUPS: Record<FieldGroup, string>;

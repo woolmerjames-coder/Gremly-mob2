@@ -255,7 +255,7 @@ function changeSchema({ plan, week, ease }) {
     type: strEnum(
       ['todo', 'habit', 'note'],
       week
-        ? "the kind of item; left out for plan and for the week's shape, intention, milestone and weekly day"
+        ? "the kind of item; left out for plan and for the week's shape, priority, intention, milestone and weekly day"
         : plan
           ? 'the kind of item; left out for plan'
           : 'the kind of item',
@@ -275,6 +275,9 @@ function changeSchema({ plan, week, ease }) {
   if (week) {
     props.back_on = day('for later, the day the todo comes back to them');
     props.shape = SHAPE;
+    props.priority = str(
+      'for priority, the thing that matters most to them this week, in a few of their own words',
+    );
     props.intention = str('for intention, their intention for the week, one short line');
     props.milestone = MILESTONE;
     props.weekday = int('for weekly_day, the day of the week, 0 Sunday to 6 Saturday');
@@ -296,6 +299,7 @@ Their week changes too, with these operations. The days they act on, the week's 
 - later puts a todo off for now: it leaves its day and comes back to them on back_on, a day still to come and within four weeks. Choose a day when there is likely to be room or before it matters, and bring several back on different days.
 - habit_days sets the days a habit is planned on in the week. Give every day it should be on as days, because the list takes the place of the days it was on; an empty list takes it off the week. Moving a habit to another day of this week, or off one of its days, is habit_days: it changes where the habit sits in this week and leaves how often it repeats as it is. A habit's schedule changes only when they say the routine itself is different from now on.
 - week_shape sets which days of the week are busy and the hours they have free for their own things. busy_days is every busy day, in place of the ones before. hours is in half hours, for a normal day, a busy day and a day off, and only the ones that change.
+- priority adds one thing to what matters most to them this week, beside the ones already there. It is what the week is for, in a few of their words, and it needs no item behind it.
 - intention sets their intention for the week: one short line in the first person, in their words when they gave them.
 - milestone sets up something big with a date more than a week away: what it is for, its date, and two to four steps in order, each with the day to finish it by, and whether it is a todo for them to do or a check_in, a moment Gremly asks how it is going. Only for something that has a date.
 - weekly_day moves the day of the week their weekly review happens on, given as weekday.`;
@@ -344,6 +348,10 @@ const HINTS = {
   no_review:
     'their week has no review to keep that on yet; offer_week puts the button to plan their week under your reply',
   bad_shape: 'the shape needs busy_days, hours or both',
+  no_priorities:
+    'their app cannot keep a new priority from here yet; say what you understood, and that what matters most is chosen on its card in the review',
+  priorities_full:
+    'the week already holds as many things as it keeps as mattering most; say so, and ask which one this should take the place of before offering anything',
   bad_milestone: 'a milestone needs what it is for and the date it is for',
   milestone_not_ahead: 'a milestone is for a date still to come',
   milestone_needs_steps: 'a milestone needs at least one step',
@@ -369,6 +377,7 @@ const WEEK_VALUES = {
   until: 'ease.until is a day, YYYY-MM-DD',
   back_on: 'back_on is a day, YYYY-MM-DD',
   hours: 'hours are in half hours, from none up to sixteen',
+  priority: 'a priority is a few words, one short line',
   intention: 'the intention is one short line',
   weekday: 'weekday is a whole number, 0 Sunday to 6 Saturday',
 };
@@ -508,6 +517,7 @@ export function toWeekChange(c, i) {
   if (c.op === 'later') out.back_on = c.back_on;
   if (c.op === 'habit_days') out.days = c.days;
   if (c.op === 'week_shape') out.shape = c.shape;
+  if (c.op === 'priority') out.priority = c.priority;
   if (c.op === 'intention') out.intention = c.intention;
   if (c.op === 'milestone') out.milestone = c.milestone;
   if (c.op === 'weekly_day') out.weekday = c.weekday;
@@ -612,6 +622,8 @@ function weekWords(c, ctx) {
       }
       return `week_shape: ${parts.join('; ')}`;
     }
+    case 'priority':
+      return `priority: “${trim(c.fields.text, 120)}” added to what matters most this week`;
     case 'intention':
       return `intention: “${trim(c.fields.text, 120)}”`;
     case 'milestone': {
@@ -665,8 +677,9 @@ export function easeCheckOf(week) {
 
 /**
  * The person's week as the week's changes are checked against it
- * (checkWeekChange): the days they act on, the shape and the intention as they
- * stand, and the weekly day, from what the thread sent (ctx.week).
+ * (checkWeekChange): the days they act on, the shape, what matters most and
+ * the intention as they stand, and the weekly day, from what the thread sent
+ * (ctx.week).
  */
 export function weekCheckOf(week) {
   if (!week) return null;
@@ -678,6 +691,8 @@ export function weekCheckOf(week) {
     busy_days: week.busy_days || [],
     has_review: !!week.has_review,
     intention: week.intention || null,
+    // null from an app build that cannot keep a new priority: it is never offered one
+    priorities: Array.isArray(week.priorities) ? week.priorities : null,
     weekly_day: week.weekly_day,
   };
 }

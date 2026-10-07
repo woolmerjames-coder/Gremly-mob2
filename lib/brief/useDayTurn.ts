@@ -28,7 +28,8 @@ import {
 } from '../cortex/CortexClient';
 import type { Change } from '../changes/model';
 import { patchDailyThreadMeta } from '../repo/dailyThreadRepo';
-import { rowWords } from '../changes/words';
+import { rowWords, stepRowWords } from '../changes/words';
+import { stepsLeftOut, withoutUnticked } from '../changes/rows';
 import { useTodayThread } from './todayThread';
 import { useGremlyStore } from '../store/useGremlyStore';
 import { selectHabitsDueToday } from '../store/selectors';
@@ -86,7 +87,7 @@ export interface DayTurnDeps {
   /** A card's changes were applied: the weekly review keeps what was decided */
   onApplied?: (changes: Change[]) => void | Promise<void>;
   /** A card's changes were taken back with its Undo: the weekly review plans from the items as they are */
-  onUndone?: () => void | Promise<void>;
+  onUndone?: (changes: Change[]) => void | Promise<void>;
 }
 
 /** How one turn is run: for the wrap up, its message is already in the thread and it carries on itself. */
@@ -222,8 +223,22 @@ export function cardOutcomeWords(meta: BriefChangesMeta): string | null {
     return `(They accepted Gremly's card, then undid it: ${list(rows)}.)`;
   if (meta.status !== 'applied') return null;
   const applied = new Set(meta.applied ?? []);
-  const took = rows.filter((r) => applied.has(r.cid));
-  const left = rows.filter((r) => !applied.has(r.cid));
+  // A milestone is accepted as the steps they kept ticked, and a step they
+  // unticked is one they left out, said as the step it is.
+  const off = meta.unticked ?? [];
+  const took = meta.card?.length
+    ? withoutUnticked(meta.card, off)
+        .filter((c) => applied.has(c.cid))
+        .map((c) => ({ label: rowWords(c, { relative: false }) }))
+    : rows.filter((r) => applied.has(r.cid));
+  const left = [
+    ...rows.filter((r) => !applied.has(r.cid)),
+    ...stepsLeftOut(meta.card ?? [], off)
+      .filter((x) => applied.has(x.change.cid))
+      .map((x) => ({
+        label: `${stepRowWords(x.step, { relative: false })} (a step towards ${x.change.title})`,
+      })),
+  ];
   const parts = [];
   if (took.length) parts.push(`On Gremly's card they accepted: ${list(took)}.`);
   if (left.length) parts.push(`They left out: ${list(left)}.`);
@@ -631,12 +646,11 @@ export function useDayTurn(deps: DayTurnDeps) {
       };
       d.plan.pauseSync();
       try {
-        // the agent's card is in the change model's shape; the day turn's in its own kinds
+        // the agent's card is in the change model's shape; the day turn's in its own kinds.
+        // A milestone's steps are rows of their own: it keeps the ones still ticked.
+        const rows = meta.card?.length ? withoutUnticked(meta.card, unticked) : [];
         const res = meta.card?.length
-          ? await applyCardChanges(
-              meta.card.filter((c) => !unticked.includes(c.cid)),
-              ctx,
-            )
+          ? await applyCardChanges(rows, ctx)
           : await applyDayChanges(
               meta.changes.filter((c) => !unticked.includes(c.cid)),
               ctx,
@@ -666,7 +680,7 @@ export function useDayTurn(deps: DayTurnDeps) {
         if (res.failed.length) await say(DAY_TURN_COPY.someFailed);
         // what went through, for the ritual that is keeping track (the weekly review)
         if (res.done.length && meta.card?.length && d.onApplied) {
-          const went = meta.card.filter((c) => res.done.includes(c.cid));
+          const went = rows.filter((c) => res.done.includes(c.cid));
           await Promise.resolve(d.onApplied(went)).catch((err) =>
             console.warn('[DayTurn] the ritual could not take the applied changes:', err),
           );
@@ -732,7 +746,11 @@ export function useDayTurn(deps: DayTurnDeps) {
         setUndoable((u) => u.filter((x) => x !== message.id));
         await d.patchMessageMetadata(message.id, { status: 'undone' });
         if (meta.card?.length && d.onUndone) {
-          await Promise.resolve(d.onUndone()).catch((err) =>
+          // what had gone through, as it was applied, for the ritual to take back
+          const went = withoutUnticked(meta.card, meta.unticked ?? []).filter((c) =>
+            (meta.applied ?? []).includes(c.cid),
+          );
+          await Promise.resolve(d.onUndone(went)).catch((err) =>
             console.warn('[DayTurn] the ritual could not take the undone changes:', err),
           );
         }

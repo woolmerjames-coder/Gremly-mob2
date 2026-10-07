@@ -54,14 +54,28 @@ export interface WeekRead {
   /** item is the dated thing the moment is, when it is one of theirs */
   coming_up: { when: string; what: string; item: { type: string; id: string } | null }[];
   /** Up to five, at most three of them Gremly's picks; item_ids are todos */
-  priority_options: { text: string; why: string; gremly_pick: boolean; item_ids: string[] }[];
+  /** intention is the line to hold onto if this is what the week is for; a read made before 9 October 2026 has none */
+  priority_options: {
+    text: string;
+    why: string;
+    gremly_pick: boolean;
+    item_ids: string[];
+    intention?: string;
+  }[];
   intention_drafts: string[];
   /** Hours for their own things on each kind of day, in half hours; null when none could be used */
   free_hours_guess: (WeekHours & { reason: string }) | null;
   busy_days: string[];
   /** Each ready to go on a card as a milestone change; about is the dated thing it leads up to */
   milestones: (Milestone & { about: { type: string; id: string; title: string } })[];
-  needs_you: { item_ids: string[]; title: string; stuck_because: string; question: string }[];
+  /** answers are the ones to tap under the question, its own; a read made before 9 October 2026 has none */
+  needs_you: {
+    item_ids: string[];
+    title: string;
+    stuck_because: string;
+    question: string;
+    answers?: string[];
+  }[];
   habit_days: { habit_id: string; days: string[]; reason: string }[];
   /** How many times the check had to drop or put right something the model returned */
   dropped: number;
@@ -123,6 +137,25 @@ export interface WeekAnswers {
    * Gremly's taken (moved), changed by hand on the board, or left as it is
    */
   relieved?: Record<string, 'moved' | 'changed' | 'left'>;
+  /**
+   * The todos that matter most and were on no day of the week, once dealt
+   * with on the board's card, by todo id: put on a day with room (day), split
+   * into parts that each fit a day (split, with how many parts and the ids of
+   * the todos made for the parts after the first), or left for later (left).
+   * title is the todo's name when it was dealt with, and order says which was
+   * dealt with last, for the card's Undo.
+   */
+  fitted?: Record<
+    string,
+    {
+      how: 'day' | 'split' | 'left';
+      title: string;
+      day?: string;
+      parts?: number;
+      made?: string[];
+      order: number;
+    }
+  >;
   /**
    * What saving the board came to, for the week in short, and the plan itself
    * (days): the todos and the habits on each day, by id, so the week can be

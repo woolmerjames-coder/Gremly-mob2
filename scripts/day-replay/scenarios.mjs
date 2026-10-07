@@ -48,6 +48,35 @@ const SAT_ITEMS = [
 const NO_CHANGE_TALK =
   "(doesn'?t|does not|won'?t) change|changes? nothing|no changes?\\b|nothing (needs|has) to (change|move)|nothing needs (changing|moving)|(items|plans) (need|as they are)|need changing";
 
+// a reply that says Gremly cannot tell where something it holds came from
+const NO_SOURCE_TALK =
+  "can(no|['’])?t (tell|say|see|find)|not sure (where|how)|no (record|idea)|may have got|nothing (on record|in (your|my) records)|(do not|don['’]?t) (know|have) (where|how|anything|any|a record)";
+
+// a reply that says they told Gremly something, when nothing on record shows they did
+const YOU_SAID_TALK = 'you (told|said|mentioned|wrote|added|saved)';
+
+// Gremly's question about a move at work, and the fact it was written about:
+// their own answer to an earlier question, with the day and their words
+const LISBON_QUESTION = 'Did the move to the Lisbon office get confirmed, or are you still waiting to hear?';
+const LISBON_ASKED = [
+  {
+    question: LISBON_QUESTION,
+    fact: {
+      statement: 'Alex said work is busy but good, and that a move to the Lisbon office might be coming.',
+      about_date: '2026-09-29',
+      state: 'current',
+      private: false,
+      said_by: 'user',
+      source_table: 'user_corrections',
+      source_kind: 'question',
+      source_question: 'How is work going these days?',
+      source_quote: 'Busy but good. Might be moving to the Lisbon office in the new year, we will see',
+      // Tuesday 29 September, late evening in Los Angeles
+      observed_at: '2026-09-30T05:10:00Z',
+    },
+  },
+];
+
 // a Monday morning with a long list due today (built on 5 October, made-up items)
 const MONDAY_ITEMS = [
   { id: 'workback', kind: 'todo', title: 'Build a launch work-back schedule', due_day: '2026-10-05', minutes: 45, note: 'in the plan' },
@@ -366,6 +395,121 @@ export const SCENARIOS = [
       maxChanges: 1,
       notSaidLike: [NO_CHANGE_TALK],
     },
+  },
+  {
+    id: 'wrap-asks-how-gremly-knows',
+    title: "The wrap up's question met with how did you know",
+    // No memories here on purpose: a lookup finds nothing, as it does for a fact
+    // since corrected or replaced, and what Gremly was told with the message
+    // still has to be believed.
+    look: 'Tells them where it came from: their own answer on Tuesday 29 September when Gremly asked how work was going, close to their words. Never says it cannot tell. Nothing on the card.',
+    today: '2026-10-03',
+    at: '20:55',
+    text: 'How did you know about the Lisbon move?',
+    wrap: { step: 'questions', decisions: [], answering: { question: LISBON_QUESTION } },
+    asked: LISBON_ASKED,
+    items: SAT_ITEMS,
+    meetings: [],
+    record: { travel: null, blocks: [] },
+    plan: null,
+    // the day they said it is named (a warning when it is not)
+    expect: { aboutDay: true, maxChanges: 0, notSaidLike: [NO_SOURCE_TALK], mentions: ['29'] },
+  },
+  {
+    id: 'wrap-answer-with-source',
+    title: "The wrap up's question answered, with where the question came from on record",
+    look: 'Takes the answer in as before: a warm line, nothing about where the question came from, nothing on the card.',
+    today: '2026-10-03',
+    at: '20:55',
+    text: 'Still waiting, should hear next week',
+    wrap: { step: 'questions', decisions: [], answering: { question: LISBON_QUESTION } },
+    asked: LISBON_ASKED,
+    items: SAT_ITEMS,
+    meetings: [],
+    record: { travel: null, blocks: [] },
+    plan: null,
+    expect: { aboutDay: true, maxChanges: 0, notSaidLike: [NO_CHANGE_TALK] },
+  },
+  {
+    id: 'brief-asks-how-gremly-knows',
+    title: "The brief's question met with where did you get that",
+    look: 'Tells them where it came from: their journal on Saturday 12 September, close to their words. Never says it cannot tell. Nothing on the card.',
+    today: '2026-10-03',
+    at: '08:10',
+    text: 'Where did you get the half marathon from?',
+    question: 'Is the half marathon on 25 October still the plan?',
+    asked: [
+      {
+        question: 'Is the half marathon on 25 October still the plan?',
+        fact: {
+          statement: 'Alex signed up for the Bay half marathon on 25 October.',
+          about_date: '2026-10-25',
+          state: 'planned',
+          private: false,
+          said_by: 'user',
+          source_table: 'notes',
+          source_kind: 'journal',
+          source_question: null,
+          source_quote: 'Signed up for the Bay half today. 25 October, no backing out now',
+          observed_at: '2026-09-12T19:30:00Z',
+        },
+      },
+    ],
+    items: SAT_ITEMS,
+    meetings: [],
+    record: { travel: null, blocks: [] },
+    plan: null,
+    expect: { aboutDay: true, maxChanges: 0, notSaidLike: [NO_SOURCE_TALK], mentions: ['12'] },
+  },
+  {
+    id: 'asks-how-gremly-knows-recall',
+    title: 'How do you know, about something Gremly said earlier in the thread',
+    look: 'Looks it up, then tells them where it came from: a todo they added on Sunday 27 September. Never says it cannot tell. Nothing on the card.',
+    today: '2026-10-03',
+    at: '09:20',
+    text: "How do you know it's Jo's birthday on Friday?",
+    history: [
+      { role: 'assistant', content: "Morning Alex. With Jo's birthday dinner on Friday, today is a good day to sort the booking." },
+    ],
+    memories: [
+      {
+        source: 'fact',
+        id: '20000000-0000-4000-8000-000000000001',
+        title: 'Jo',
+        body: "Jo's birthday dinner is on Friday 9 October.",
+        about_date: '2026-10-09',
+        state: 'planned',
+        private: false,
+        rank: 0.4,
+        said_by: 'app_record',
+        source_table: 'todos',
+        source_kind: null,
+        source_question: null,
+        source_quote: "Book Jo's birthday dinner for Friday 9th",
+        observed_at: '2026-09-27T17:05:00Z',
+      },
+    ],
+    items: SAT_ITEMS,
+    meetings: [],
+    record: { travel: null, blocks: [] },
+    plan: null,
+    expect: { aboutDay: true, maxChanges: 0, tools: ['recall'], notSaidLike: [NO_SOURCE_TALK], mentions: ['27'] },
+  },
+  {
+    id: 'asks-how-gremly-knows-nothing-on-record',
+    title: 'How do you know, about something no record shows',
+    // "Reply claims nothing as done" reads "I made a mistake" as a change made, and can fail here on an honest reply
+    look: 'Looks, finds nothing, and says so plainly without defending it or making up where it came from. Nothing on the card.',
+    today: '2026-10-03',
+    at: '09:20',
+    text: 'What interview? How do you know about an interview?',
+    history: [{ role: 'assistant', content: 'Morning Alex. Hope the interview went well yesterday.' }],
+    memories: [],
+    items: SAT_ITEMS,
+    meetings: [],
+    record: { travel: null, blocks: [] },
+    plan: null,
+    expect: { aboutDay: true, maxChanges: 0, notSaidLike: [YOU_SAID_TALK] },
   },
   {
     id: 'present-before-anniversary',

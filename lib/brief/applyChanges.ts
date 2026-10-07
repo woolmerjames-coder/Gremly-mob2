@@ -175,6 +175,8 @@ export async function applyCardChanges(changes: Change[], ctx: CardContext): Pro
         created.set(o.cid, o.createdId);
         out.created[o.cid] = o.createdId;
       }
+      // what each of its own rows made: the todo of each step of a milestone
+      Object.assign(out.created, o.createdParts ?? {});
     } else {
       console.warn('[BriefTurn] could not apply', o.cid, o.message);
       out.failed.push(o.cid);

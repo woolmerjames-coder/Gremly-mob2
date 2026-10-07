@@ -6,7 +6,7 @@
  */
 import React from 'react';
 import { fireEvent, render } from '@testing-library/react-native';
-import { KeepPick, KeepQuestion, OverfullCard, type DayLoad } from '../KeepCards';
+import { FitCard, KeepPick, KeepQuestion, OverfullCard, type DayLoad } from '../KeepCards';
 
 jest.mock('lucide-react-native', () => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -183,5 +183,51 @@ describe('the card for an over-full day', () => {
     fireEvent.press(getByTestId('week-overfull-leave'));
     expect(onTake).not.toHaveBeenCalled();
     expect(onLeave).not.toHaveBeenCalled();
+  });
+});
+
+describe('the card for a todo that matters most and is on no day', () => {
+  function card(over: Record<string, unknown> = {}) {
+    const spies = { onDay: jest.fn(), onSplit: jest.fn(), onOpen: jest.fn(), onLeave: jest.fn() };
+    const screen = render(
+      <FitCard
+        id="talk"
+        line="“Write the talk” is one of the things that matter most this week, and at 5h it fits on no day as the week stands."
+        dayLabel="Put it on Saturday"
+        splitLabel="Split it in two"
+        partsLine="2h 30m on Saturday and 2h 30m on Sunday"
+        {...spies}
+        {...over}
+      />,
+    );
+    return { ...screen, ...spies };
+  }
+
+  it('says so, and offers the day with room, the split with its parts, the board or later', () => {
+    const { getByText, getByTestId, queryByText, onDay, onSplit, onOpen, onLeave } = card();
+    expect(getByText(/fits on no day as the week stands/)).toBeTruthy();
+    expect(getByText('2h 30m on Saturday and 2h 30m on Sunday')).toBeTruthy();
+    expect(queryByText(/No day has room for it/)).toBeNull();
+    fireEvent.press(getByText('Put it on Saturday'));
+    fireEvent.press(getByText('Split it in two'));
+    fireEvent.press(getByTestId('week-fit-open'));
+    fireEvent.press(getByText('Leave it for later'));
+    expect(onDay).toHaveBeenCalledTimes(1);
+    expect(onSplit).toHaveBeenCalledTimes(1);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onLeave).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers only what there is: a split alone, or the board when nothing fits', () => {
+    const split = card({ dayLabel: null });
+    expect(split.queryByTestId('week-fit-day')).toBeNull();
+    expect(split.getByTestId('week-fit-split')).toBeTruthy();
+    split.unmount();
+    const none = card({ dayLabel: null, splitLabel: null, partsLine: '' });
+    expect(none.queryByTestId('week-fit-day')).toBeNull();
+    expect(none.queryByTestId('week-fit-split')).toBeNull();
+    expect(none.getByText(/No day has room for it, whole or in parts/)).toBeTruthy();
+    expect(none.getByTestId('week-fit-open')).toBeTruthy();
+    expect(none.getByTestId('week-fit-leave')).toBeTruthy();
   });
 });

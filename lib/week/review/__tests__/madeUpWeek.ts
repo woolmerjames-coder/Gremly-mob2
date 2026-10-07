@@ -55,21 +55,26 @@ export function madeUpRead(over: Partial<WeekRead> = {}): WeekRead {
         why: 'They are due on the 23rd.',
         gremly_pick: true,
         item_ids: [ID.reports],
+        // the line to hold onto if this is what the week is for
+        intention: 'Start the reports before Thursday.',
       },
       {
         text: 'Clear the marking',
         why: 'It has moved twice.',
         gremly_pick: true,
         item_ids: [ID.marking],
+        intention: 'Leave school by five twice.',
       },
       {
         text: 'Sort the boiler',
         why: 'It is getting colder.',
         gremly_pick: false,
         item_ids: [ID.boiler],
+        intention: 'Fewer things, finished.',
       },
       { text: 'Two swims', why: 'One last week.', gremly_pick: false, item_ids: [] },
     ],
+    // the same lines, as an app build from before each priority had its own reads them
     intention_drafts: [
       'Start the reports before Thursday.',
       'Leave school by five twice.',
@@ -106,6 +111,8 @@ export function madeUpRead(over: Partial<WeekRead> = {}): WeekRead {
         title: 'The Year 9 marking',
         stuck_because: 'It keeps slipping to the weekend.',
         question: 'What would make this one easier?',
+        // this card's own answers to tap; the boiler's has none, as a read made before them
+        answers: ['A set hour after school', 'Doing one class at a time', 'Someone to mark with'],
       },
     ],
     habit_days: [{ habit_id: ID.swim, days: [MON, SAT], reason: 'The pool is quiet then.' }],
