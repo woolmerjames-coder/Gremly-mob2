@@ -215,6 +215,7 @@ import { personNow } from '../shared/day.js';
 import { GREMLY_CORE_PERSONA } from './corePersona.js';
 import { HABIT_BUILDER_PROMPT } from './habitBuilderPrompt.js';
 import { writeWrapWords, WRAP_WORDS_VERSION } from './wrap/words.js';
+import { writeAgeWords, AGE_WORDS_VERSION } from './age/words.js';
 import { clock } from './agent/tools/words.js';
 import { minutesIn } from '../shared/calendar.js';
 import { weeklyDayOf } from '../shared/week.js';
@@ -4113,6 +4114,28 @@ After the user confirms and locks in a habit, check the existing habits listed i
         } catch (err) {
           console.warn('[WrapWords] Failed:', String(err?.message || err).slice(0, 200));
           return j({ words: null });
+        }
+      }
+
+      // What got me here: the line on the age up page, written from the three
+      // fed days that earned the age. The app shows its fallback when this
+      // has nothing or is late.
+      if (type === 'age-words') {
+        const access = await checkUserAccess(authenticatedUserId, env);
+        if (!access.hasAccess) {
+          return denyAccessResponse(access.reason);
+        }
+        try {
+          const out = await writeAgeWords({
+            env,
+            userId: authenticatedUserId,
+            tz: userTimezone,
+            body,
+          });
+          return j(out ? { ...out, version: AGE_WORDS_VERSION } : { line: null });
+        } catch (err) {
+          console.warn('[AgeWords] Failed:', String(err?.message || err).slice(0, 200));
+          return j({ line: null });
         }
       }
 

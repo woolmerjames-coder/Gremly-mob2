@@ -68,6 +68,7 @@ import { setWeeklyDayNow } from '../week/weeklyDayNow';
 import { easePlan, type EaseMode } from '../../workers/shared/habitWeek';
 import celebrationController from '../../app/features/celebration/CelebrationController';
 import { fedDayFor } from '../speech/momentWords';
+import { requestAgeWords } from '../cortex/ageWords';
 import {
   calendarClient,
   type CalendarEvent,
@@ -660,6 +661,8 @@ export interface GremlyState {
   fedDaysCount: number;
   /** Every day Gremly has been fed, as YYYY-MM-DD ritual days, for the record on the age up page */
   fedDays: string[];
+  /** The last What got me here line and the age it was written for, so the moment can be replayed */
+  lastAgeUpLine: { age: number; line: string } | null;
   /** Current tier name derived from gremlyAge */
   currentTierName: string;
   /** Consecutive unfed days, resets on any fed day */
@@ -1290,6 +1293,7 @@ const initialState = {
   feedingGaugeLastUpdatedAt: null as string | null,
   fedDaysCount: 0,
   fedDays: [] as string[],
+  lastAgeUpLine: null as { age: number; line: string } | null,
   currentTierName: 'Hatchling',
   unfedStreakDays: 0,
   lastFedAt: null as string | null,
@@ -2601,6 +2605,13 @@ export const useGremlyStore = create<GremlyState>()(
               set({ todayFeedingAgeUpShownAt: nowTimestamp() });
               celebrationController.confirmAgeUp(newAge);
               void get().loadFedDays();
+              // What got me here, written from the three days; the card shows
+              // its fallback until this lands, and keeps it if this never does
+              void requestAgeWords(newAge).then((line) => {
+                if (!line) return;
+                set({ lastAgeUpLine: { age: newAge, line } });
+                celebrationController.setCardLine(line);
+              });
             }
 
             return { newValue: newGaugeValue, justFed };
@@ -10694,6 +10705,7 @@ export const useGremlyStore = create<GremlyState>()(
           todayFeedingAgeUpShownAt: state.todayFeedingAgeUpShownAt,
           fedDaysCount: state.fedDaysCount,
           fedDays: state.fedDays,
+          lastAgeUpLine: state.lastAgeUpLine,
           currentTierName: state.currentTierName,
           unfedStreakDays: state.unfedStreakDays,
           lastFedAt: state.lastFedAt,
