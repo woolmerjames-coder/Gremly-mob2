@@ -13,7 +13,17 @@ import { sourceWords } from '../../../shared/factSource.js';
 const PRIVATE_HINT =
   ' [private: use it only when it bears on what they are talking about, in their own words, and never open with it]';
 
-const DESCRIPTION = `Search what Gremly remembers about the person's life: facts they have told it, their story, and the Chapters of their life. Use it when the conversation touches their past, the people in it, or plans and events that may be on record, and before saying Gremly doesn't know something about them. Words are matched by their stems, any of them; search again with other words when nothing fits. Each memory comes with its date and whether it still holds, and a fact with how Gremly knows it: where it came from, the day, and their own words when they are kept.${PRIVATE_HINT}`;
+// The description is as it was before a fact carried its source, on purpose:
+// it is part of what the agent is sent on every turn, and one clause added to
+// it took the card off a plain answer to Gremly's question 7 times in 40,
+// against once in 40 as it was (the day replay, 7 October). What to do with a
+// fact's source is said with the result instead, where it is read only when
+// something was looked up.
+const DESCRIPTION = `Search what Gremly remembers about the person's life: facts they have told it, their story, and the Chapters of their life. Use it when the conversation touches their past, the people in it, or plans and events that may be on record, and before saying Gremly doesn't know something about them. Words are matched by their stems, any of them; search again with other words when nothing fits. Each memory comes with its date and whether it still holds.${PRIVATE_HINT}`;
+
+/** Said above what recall found: what a fact's source is for. */
+const HOW_HINT =
+  'On record (when they ask how Gremly knows something, a fact says it on its own line: tell them the day, where they said it and what they said. When no line says it, Gremly cannot tell where it came from and may have got it wrong, and it is never from anyone else):';
 
 export const recall = {
   name: 'recall',
@@ -39,7 +49,7 @@ export const recall = {
 
   render({ memories }, ctx) {
     if (!memories.length) return 'Nothing on record matched. Try other words.';
-    return memories
+    const lines = memories
       .map((m) => {
         const parts = [
           m.source,
@@ -56,5 +66,6 @@ export const recall = {
         return `- ${parts.join(' | ')}${m.private ? PRIVATE_HINT : ''}`;
       })
       .join('\n');
+    return `${HOW_HINT}\n${lines}`;
   },
 };

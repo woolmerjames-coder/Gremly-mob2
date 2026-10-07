@@ -23,7 +23,9 @@
 // A question of Gremly's that is in play (the brief's open one, or the one the
 // wrap up says a message answers) comes with where it came from: the fact it
 // was written about and how Gremly knows that fact (questionSource), so a
-// person who asks how Gremly knew is told, truthfully.
+// person who asks how Gremly knew is told, truthfully. What to do with it is
+// said with it, and nowhere else: on a turn with no such question, the agent
+// is sent word for word what it was sent before any of this.
 //
 // Once the answer is sent, the message reaches Gremly's memory as a chat
 // message does: a correction goes to the context pipeline straight away
@@ -34,7 +36,6 @@ import {
   CARE_RULES,
   CHAT_WRITING_RULES,
   PRIVATE_RULES,
-  SOURCE_RULES_AGENT,
   personBlock,
 } from '../../inngest-jobs/careRules.js';
 import { readTurnRequest } from '../../inngest-jobs/brief/dayTurn.js';
@@ -60,7 +61,7 @@ import { dayEndHourOf } from '../../shared/day.js';
 import { sourceWords } from '../../shared/factSource.js';
 import { checkForCorrection } from '../context/corrections.js';
 
-export const BRIEF_AGENT_VERSION = `brief-2026-10-09d/${AGENT_PROMPT_VERSION}`;
+export const BRIEF_AGENT_VERSION = `brief-2026-10-09e/${AGENT_PROMPT_VERSION}`;
 
 // the planning day ends here when nothing earlier ends it, as in the day turn
 const DAY_END = 22 * 60;
@@ -187,7 +188,6 @@ export function briefPersona(person) {
     `VOICE
 Warm, lively and brief, like a friend who knows their day and is glad to be part of it. Share in what today means to them: when it is about something or someone that matters to them, be openly glad with them, in your own words, and see what they are doing today in its light. Gremly has a playful spark; let it show whenever the moment allows. Suggest, never instruct. Reply in one to three short sentences of plain chat text, with no headings, lists, bold or emoji. Say what you would change in your own words, as an offer. Say plainly what cannot be done here and why. Ask a question only when you need the answer to act or to understand them, never to offer more. Never invent an item, a time, a day or a fact.`,
     PRIVATE_RULES,
-    SOURCE_RULES_AGENT,
     CHAT_WRITING_RULES,
     personBlock(person),
   ].join('\n\n');
@@ -336,11 +336,6 @@ export function wrapContext(wrap, week = null) {
       '',
       "THEIR MESSAGE ANSWERS GREMLY'S QUESTION",
       `Gremly asked: "${a.question}"${about}. Their message is the answer. Take it in as a friend would, in one or two short sentences. ${first} ${same}, the reply is the whole turn: no card, and no remark that nothing changes. ${differs} is still as it was, because saving the answer to what Gremly knows about them changes no item: put the change to it on the card with propose_changes, with your reply, in this step${alone}.`,
-      // A message that asks about the question is not its answer (the day
-      // replay, 7 October: told only that the message is the answer, the model
-      // apologised for asking and said it could not tell where the question
-      // came from, or made a source up).
-      'When their message asks about the question itself rather than answering it, it is not the answer: answer what they asked, with no card.',
     );
   }
   return L.join('\n');
@@ -867,19 +862,29 @@ export async function questionSource(ctx, userId, question) {
 }
 
 /**
- * Where the question in play came from, for the agent: what is on record
- * about them that it was written about, and how Gremly knows that. '' when
- * there is no question or no source.
+ * Where the question in play came from, for the agent: how Gremly knows the
+ * fact it was written about, and what that is for. '' when there is no
+ * question or no source.
+ *
+ * Everything about it is said here, with the record, and only on a turn that
+ * has one (the day replay, 7 October). Said as a standing rule in who Gremly
+ * is, and as a line in the wrap up's own words, it cost the card on a plain
+ * answer: with the item wrong and the answer given, the change went on the
+ * card 96 times in 130, against 125 in 130 before, and 12 times in 40 once
+ * this record was beside it. Said here, for the one case it is for, 39 in 40.
+ * And called the record itself: left to look the fact up again, Luna believed
+ * an empty lookup over what it had been given.
  */
 export function questionSourceContext(question, fact, { today = null, timezone = 'UTC' } = {}) {
   const asked = sameWords(question);
   const statement = sameWords(fact?.statement);
   if (!asked || !statement) return '';
   const how = sourceWords(fact, { today, timezone, quote: 240 });
-  // Said to be the record itself (the day replay, 7 October): without that,
-  // Luna looked the fact up again on most turns, and when the lookup came back
-  // empty it believed the lookup, and said it could not tell, 4 times in 20.
-  return `WHERE GREMLY'S QUESTION CAME FROM\nGremly asked "${asked}" because of this on record about them: "${statement}"${how ? `\nHow Gremly knows it: ${how}` : ''}\nThis is the record itself, read just now. When they ask where the question came from, answer from it; it needs no lookup.`;
+  // their own words say it best; the fact as Gremly wrote it stands in when none were kept
+  const from = how
+    ? `Gremly asked "${asked}" because of ${how}.${fact.source_quote ? '' : ` On record from it: "${statement}"`}`
+    : `Gremly asked "${asked}" because of this on record about them: "${statement}"`;
+  return `IF THEY ASK WHERE GREMLY'S QUESTION CAME FROM\n${from}\nThis is the record itself, read just now, and it is here for one case only: when their message asks where the question came from, or how Gremly knew, rather than answering it. Then it is not an answer: tell them plainly and warmly from this, the day, where they said it and what they said, with no lookup. When their message answers the question, leave this out of your reply and handle the answer as above.`;
 }
 
 /** What Gremly knows about today, with their latest message: what the day is about, the day itself, the wrap up or the weekly review when one is under way, and where the question in play came from. */

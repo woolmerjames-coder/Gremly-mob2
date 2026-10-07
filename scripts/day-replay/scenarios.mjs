@@ -50,7 +50,7 @@ const NO_CHANGE_TALK =
 
 // a reply that says Gremly cannot tell where something it holds came from
 const NO_SOURCE_TALK =
-  "can(no|['’])?t (tell|say|see|find)|not sure (where|how)|no (record|idea)|may have got|nothing (on record|in (your|my) records)|(do not|don['’]?t) (know|have) (where|how|anything|any|a record)";
+  "can(no|['’])?t (tell|say|see|find)|not sure (where|how)|no (record|idea)|nothing (on record|in (your|my) records)|(do not|don['’]?t) (know|have) (where|how|anything|any|a record)";
 
 // a reply that says they told Gremly something, when nothing on record shows they did
 const YOU_SAID_TALK = 'you (told|said|mentioned|wrote|added|saved)';
@@ -342,6 +342,46 @@ export const SCENARIOS = [
         item: { id: 'vetvisit', kind: 'todo', title: 'Take Bella to the vet', when: 'Fri 9 Oct' },
       },
     },
+    items: [...SAT_ITEMS, VET_VISIT],
+    meetings: [],
+    record: { travel: null, blocks: [] },
+    plan: null,
+    expect: { aboutDay: true, changes: [{ kinds: ['move_day'], id: 'vetvisit', day: '2026-10-12' }], maxChanges: 1 },
+  },
+  {
+    id: 'wrap-answer-fixes-item-with-source',
+    title: "The wrap up's question answered, the item is wrong, and where the question came from is on record",
+    // The usual case in the app: most of Gremly's questions are written about a fact,
+    // so where the question came from is beside the answer. The card must not go missing for it.
+    look: 'As without the source: takes the answer in, and puts the vet visit on Monday on the card. Says nothing about where the question came from.',
+    today: '2026-10-03',
+    at: '20:50',
+    text: 'Monday',
+    wrap: {
+      step: 'questions',
+      decisions: [],
+      answering: {
+        question: "Is Bella's vet visit on Friday 9 October or Monday 12 October?",
+        item: { id: 'vetvisit', kind: 'todo', title: 'Take Bella to the vet', when: 'Fri 9 Oct' },
+      },
+    },
+    asked: [
+      {
+        question: "Is Bella's vet visit on Friday 9 October or Monday 12 October?",
+        fact: {
+          statement: "Alex wrote that Bella's vet visit had been moved to Monday 12 October.",
+          about_date: '2026-10-12',
+          state: 'planned',
+          private: false,
+          said_by: 'user',
+          source_table: 'notes',
+          source_kind: 'journal',
+          source_question: null,
+          source_quote: 'Vet rang, Bella is now Monday the 12th',
+          observed_at: '2026-10-01T18:00:00Z',
+        },
+      },
+    ],
     items: [...SAT_ITEMS, VET_VISIT],
     meetings: [],
     record: { travel: null, blocks: [] },

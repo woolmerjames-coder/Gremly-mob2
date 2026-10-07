@@ -1823,18 +1823,28 @@ to 53 at about 3.2s, but its replies were sloppier), and Gemini caching.
   source, and never says it came from anyone else. Every fact reaches the
   model with its source (`workers/shared/factSource.js`, read from
   `public.fact_sources` and `recall_life`; migration
-  `20261007120000_memory_sources.sql`, which James runs before the workers
-  deploy). In today's thread the question in play comes with the fact it was
-  written about (`questionSource` in `agent/brief.js`); the app sends the
-  question's words and not its id, so the row is found by its words. The rule
-  is `SOURCE_RULES` and `SOURCE_RULES_AGENT` in `careRules.js`, two wordings,
-  each the one that held up on its own replay. A reply to one of Gremly's
-  questions that asks something back is not its answer: the corrections job
-  decides (`answers_question`) and the question stays open. Replays: the five
-  "how gremly knows" scenarios in `scripts/day-replay/scenarios.mjs` and the
-  two in `scripts/chat-replay/scenarios.mjs`. Still open: the app shows "Saved
-  your answer" after any typed reply to a question, because it does not wait
-  for that decision; and `gemini-3-flash-preview` (chats about an item or a
+  `20261007120000_memory_sources.sql`, applied). In today's thread the
+  question in play comes with the fact it was written about (`questionSource`
+  in `agent/brief.js`); the app sends the question's words and not its id, so
+  the row is found by its words. Where the rule lives matters. Ask Gremly's
+  writer and its agent lane carry it in who Gremly is (`SOURCE_RULES` and
+  `SOURCE_RULES_AGENT` in `careRules.js`). Today's thread carries none: there
+  a standing rule, a line in the wrap up's words and a clause in recall's
+  description each took the card off a plain answer to one of Gremly's
+  questions (96 in 130 against 125 in 130, and 12 in 40 with the source beside
+  it), so what to do with a source is said with the source itself, in the
+  block for the question in play and above what recall finds. On a turn with
+  no such question the agent is sent word for word what it was sent before.
+  Change any of this only with `wrap-answer-fixes-item` and
+  `wrap-answer-fixes-item-with-source` run 40 times each beside the tree
+  before the change: both sit on a knife edge and two runs say nothing. A
+  reply to one of Gremly's questions that asks something back is not its
+  answer: the corrections job decides (`answers_question`) and the question
+  stays open. Replays: the six "how gremly knows" scenarios in
+  `scripts/day-replay/scenarios.mjs` and the two in
+  `scripts/chat-replay/scenarios.mjs`. Still open: the app shows "Saved your
+  answer" after any typed reply to a question, because it does not wait for
+  that decision; and `gemini-3-flash-preview` (chats about an item or a
   World) still names a note that is not there now and then when nothing at
   all is on record (1 in 20 on the probe, 3 in 20 before).
 - The weekly review after its first week on device (James, 7 Oct). A day

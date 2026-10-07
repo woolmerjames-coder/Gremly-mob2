@@ -22,14 +22,18 @@ export const PRIVATE_RULES = `PRIVATE
  * that talks with the person. What the model is told about a fact's source is
  * written by workers/shared/factSource.js.
  *
- * Two wordings, each the one that held up on its own replay (7 October). The
- * agent (today's thread, Ask Gremly's agent lane) can look a record up, and is
- * told to look only when the source is not already in front of it: told to
- * look first, Luna believed an empty lookup over the record it had been given.
- * A writer that answers from what it is given (the quick lane, a chat about an
- * item or a World) keeps the plainer wording: told that nothing more could be
- * looked up, gemini-3-flash-preview named a note that was not there more
- * often, not less.
+ * Two wordings, each the one that held up on its own replay (7 October). Ask
+ * Gremly's agent lane can look a record up, and is told to look only when the
+ * source is not already in front of it: told to look first, Luna believed an
+ * empty lookup over the record it had been given. A writer that answers from
+ * what it is given (the quick lane, a chat about an item or a World) keeps the
+ * plainer wording: told that nothing more could be looked up,
+ * gemini-3-flash-preview named a note that was not there more often, not less.
+ *
+ * Today's thread carries neither. There the rule cost the card on a plain
+ * answer to one of Gremly's questions, so what to do with a source is said
+ * with the source itself (agent/brief.js questionSourceContext, and the
+ * result of recall).
  */
 const SOURCE_LINE = `- A fact on record about them says how Gremly knows it: where it came from, the day, and their own words when they are kept. That line, in what you know right now or in what a lookup returns, is the only thing that can tell you where something came from.`;
 const SOURCE_TOLD = `tell them plainly and warmly: the day, where they said it, and what they said, close to their own words. This is the one time to talk about Gremly's records rather than their life.`;
