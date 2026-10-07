@@ -25,8 +25,24 @@ import {
 import { jsonCall, modelFor } from './llm';
 import { minutesIn } from '../../shared/calendar.js';
 import { personDay, personNow } from '../../shared/day.js';
+import { stateWords } from '../../shared/factTiming.js';
+import {
+  answerRecord,
+  calendarRecord,
+  changeRecord,
+  chatRecord,
+  completedRecord,
+  deletedRecord,
+  habitRecord,
+  milestoneRecord,
+  noteRecord,
+  overrideRecord,
+  reviewRecord,
+  splitRecord,
+  todoRecord,
+} from './records';
 
-export const READER_PROMPT_VERSION = 'reader-2026-10-05';
+export const READER_PROMPT_VERSION = 'reader-2026-10-07';
 
 const MAX_RECORDS_PER_CALL = 60;
 const MAX_CHARS_PER_CALL = 30000;
@@ -50,6 +66,7 @@ export const READER_SCHEMA = {
           source_ref: { type: 'string' },
           quote: { type: 'string' },
           private: { type: 'boolean' },
+          about_item: { type: 'boolean' },
         },
         required: [
           'statement',
@@ -60,6 +77,7 @@ export const READER_SCHEMA = {
           'source_ref',
           'quote',
           'private',
+          'about_item',
         ],
       },
     },
@@ -112,8 +130,19 @@ export const READER_SCHEMA = {
         required: ['question'],
       },
     },
+    calendar: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          ref: { type: 'string' },
+          cancelled: { type: 'boolean' },
+        },
+        required: ['ref', 'cancelled'],
+      },
+    },
   },
-  required: ['new_facts', 'fact_updates', 'confirmations', 'questions'],
+  required: ['new_facts', 'fact_updates', 'confirmations', 'questions', 'calendar'],
 };
 
 function readerSystemPrompt(today, person) {
@@ -137,6 +166,19 @@ EVIDENCE
 - Lines marked as Gremly's are context to help you read the person's reply. They are never evidence: nothing Gremly said becomes a fact unless the person's own words state it.
 - Resolve relative dates against the day of the record they appear in, not today's date. A record made after midnight but before their day ended belongs to the day before the clock's date, as its line says: it speaks from that day, so what it says happened this evening or night happened on that day, its relative days count from it, and a time of day it names for later is after they have slept, on the clock's date. If a date cannot be pinned down, leave it empty and mark the confidence as unknown.
 
+RECORDS THAT CHANGED OR WENT
+- A record marked as changed was made before and has changed since. It is shown as it stands now, with what changed and the ledger facts already taken from it. Add a fact only for what it now says that the ledger does not hold. When what it now says adds to or alters one of those facts, update that fact instead of adding a second one. When the change adds nothing, return nothing for it.
+- A record marked as deleted cannot be shown; the ledger facts taken from it are listed. Deleting can be tidying, so change one of those facts only when the ledger or the other records show it no longer holds.
+- A record split into parts is one record. Read the parts together.
+
+ITEMS
+- Todos, habits, calendar entries and events are items the person keeps. Mark a new fact as about the item when it states the item itself: what it is, its day, whether it is done. A fact that comes from something said in the record, or that the item only points to, is not about the item.
+- A fact about an item takes its date, and whether it is done, archived or cancelled, from the item, so a move or a done mark needs no update to the fact. An item put away before it was done says nothing certain about the plan: judge from the reason it was put away and the other records whether the plan still holds, update the fact when it does not, and mark it unconfirmed when you cannot tell.
+- The ledger shows which facts are about an item and how that item stands now.
+
+CALENDAR
+- For each calendar entry among the records, judge whether it has been cancelled and will not happen, from the entry and what the other records show. List in calendar each entry you judge cancelled, and each entry marked cancelled earlier that the records now show is going ahead. Leave every other entry out.
+
 KEEPING THE LEDGER TRUE
 - A plan is planned until a later record shows what happened. When a record shows a planned thing happened, moved, changed or fell through, update that fact and cite the record. If the details changed, give the replacement.
 - When a record restates an existing fact, confirm it instead of adding a duplicate.
@@ -147,6 +189,7 @@ KEEPING THE LEDGER TRUE
 
 ${PRIVATE_RULES}
 - Mark each new fact private or not by that meaning. Keep a private detail in a fact of its own, so the rest of what the record says stays open.
+- Every fact from a record the person marked private is private.
 
 ${WRITING_RULES}
 
@@ -160,24 +203,103 @@ function trim(text, n) {
   return s.length > n ? `${s.slice(0, n)}…` : s;
 }
 
-/** Load every record for a user in [since, until), oldest first. */
-export async function loadRecords(env, userId, sinceIso, untilIso) {
+const READ_TABLES = ['notes', 'todos', 'habits', 'synced_calendar_events', 'weekly_reviews'];
+const ROW_SELECT = {
+  notes:
+    'id,title,body,subtype,journal_subtype,date,target_date,end_date,event_time,mood,views,list_items,origin,archived,archived_reason,created_at',
+  todos:
+    'id,title,body,notes,due_day,due_date,scheduled_date,target_date,status,completed_at,archived,archived_reason,resurface_at,sweep_reschedule_count,views,list_items,created_at',
+  habits: 'id,name,title,frequency,why_string,notes,archived,archived_reason,created_at',
+  synced_calendar_events:
+    'id,title,location,start_at,end_at,is_all_day,archived,cancelled_at,created_at',
+  weekly_reviews: 'id,week_start,status,answers,read,created_at,updated_at',
+};
+// Gremly's own saves of a chat (Save from chat) are his reading of it, not the
+// person's words: the chat itself is read
+const NOT_GREMLYS = 'or=(origin.is.null,origin.neq.chat_save)';
+
+async function rowsByIds(d, table, ids) {
+  const out = [];
+  for (let i = 0; i < ids.length; i += 80) {
+    const chunk = ids.slice(i, i + 80);
+    out.push(
+      ...(await d.select(`${table}?id=in.(${chunk.join(',')})&select=${ROW_SELECT[table]}`)),
+    );
+  }
+  return out;
+}
+
+/**
+ * The changes in (since, until] to items made before the read began, from the
+ * change log: one entry an item, with every field that changed and its first
+ * and last dates. Items made after the read began are read as new, as they
+ * stand, so their changes are left out here.
+ */
+export function gatherChanges(logRows) {
+  const byRow = new Map();
+  for (const c of logRows) {
+    const key = `${c.table_name}:${c.row_id}`;
+    const cur = byRow.get(key) || {
+      table: c.table_name,
+      row_id: c.row_id,
+      at: c.at,
+      op: c.op,
+      fields: new Set(),
+      dates: {},
+    };
+    cur.at = c.at > cur.at ? c.at : cur.at;
+    if (c.op === 'delete') cur.op = 'delete';
+    else if (cur.op !== 'delete' && c.op === 'insert') cur.op = 'insert';
+    for (const f of c.fields || []) cur.fields.add(f);
+    for (const [f, pair] of Object.entries(c.dates || {})) {
+      if (!Array.isArray(pair)) continue;
+      cur.dates[f] = cur.dates[f] ? [cur.dates[f][0], pair[1]] : pair;
+    }
+    byRow.set(key, cur);
+  }
+  return [...byRow.values()];
+}
+
+/** The ledger facts taken from each record, by "table:id". Facts set aside are left out. */
+async function factsFrom(d, userId, refs) {
+  const out = new Map();
+  for (let i = 0; i < refs.length; i += 60) {
+    const chunk = refs.slice(i, i + 60);
+    const ids = [...new Set(chunk.map((r) => r.id))];
+    const rows = await d.select(
+      `life_fact_sources?user_id=eq.${userId}&source_id=in.(${ids.join(',')})&select=fact_id,source_table,source_id,life_facts!inner(state)&life_facts.state=not.in.(superseded,corrected)&limit=2000`,
+    );
+    for (const r of rows) {
+      const key = `${r.source_table}:${r.source_id}`;
+      if (!out.has(key)) out.set(key, []);
+      out.get(key).push(r.fact_id);
+    }
+  }
+  return out;
+}
+
+/**
+ * Load every record for a user in (since, until], oldest first: what was made
+ * in it, and what changed in it to things made before runSince (the start of
+ * this read, so a row made earlier in the same read is not read twice).
+ */
+export async function loadRecords(env, userId, sinceIso, untilIso, { runSince = sinceIso } = {}) {
   const d = db(env);
   const w = (col) =>
     `&${col}=gt.${encodeURIComponent(sinceIso)}&${col}=lte.${encodeURIComponent(untilIso)}`;
-  const [created, completed, notes, habits, milestones, chats, calendar, overrides, answers] =
+  const [created, completed, notes, habits, milestones, chats, calendar, overrides, answers, log] =
     await Promise.all([
       d.select(
-        `todos?owner_id=eq.${userId}${w('created_at')}&select=id,title,body,notes,due_day,due_date,target_date,created_at,status&order=created_at.asc&limit=5000`,
+        `todos?owner_id=eq.${userId}&${NOT_GREMLYS}${w('created_at')}&select=${ROW_SELECT.todos}&order=created_at.asc&limit=5000`,
       ),
       d.select(
-        `todos?owner_id=eq.${userId}${w('completed_at')}&select=id,title,completed_at&order=completed_at.asc&limit=5000`,
+        `todos?owner_id=eq.${userId}${w('completed_at')}&select=id,title,completed_at,views&order=completed_at.asc&limit=5000`,
       ),
       d.select(
-        `notes?owner_id=eq.${userId}&external_source=is.null${w('created_at')}&select=id,title,body,subtype,journal_subtype,date,target_date,end_date,mood,created_at&order=created_at.asc&limit=5000`,
+        `notes?owner_id=eq.${userId}&external_source=is.null&${NOT_GREMLYS}${w('created_at')}&select=${ROW_SELECT.notes}&order=created_at.asc&limit=5000`,
       ),
       d.select(
-        `habits?owner_id=eq.${userId}${w('created_at')}&select=id,name,title,frequency,why_string,created_at&order=created_at.asc&limit=1000`,
+        `habits?owner_id=eq.${userId}&${NOT_GREMLYS}${w('created_at')}&select=id,name,title,frequency,why_string,created_at&order=created_at.asc&limit=1000`,
       ),
       d.select(
         `space_milestones?owner_id=eq.${userId}${w('created_at')}&select=id,title,name,date,note,completed,completed_at,created_at&order=created_at.asc&limit=1000`,
@@ -187,7 +309,7 @@ export async function loadRecords(env, userId, sinceIso, untilIso) {
         `scope_chat_messages?user_id=eq.${userId}&role=eq.user&or=(metadata_json.is.null,metadata_json->>type.is.null,metadata_json->>type.neq.brief-reply)${w('created_at')}&select=id,chat_id,content,created_at&order=created_at.asc&limit=5000`,
       ),
       d.select(
-        `synced_calendar_events?owner_id=eq.${userId}&archived=eq.false${w('created_at')}&select=id,title,location,start_at,end_at,is_all_day,created_at&order=created_at.asc&limit=5000`,
+        `synced_calendar_events?owner_id=eq.${userId}&archived=eq.false${w('created_at')}&select=${ROW_SELECT.synced_calendar_events}&order=created_at.asc&limit=5000`,
       ),
       d.select(
         `user_profile_overrides?user_id=eq.${userId}${w('created_at')}&select=id,action,fact_text,created_at&order=created_at.asc&limit=500`,
@@ -195,8 +317,81 @@ export async function loadRecords(env, userId, sinceIso, untilIso) {
       d.select(
         `gremly_questions?user_id=eq.${userId}&status=eq.answered${w('answered_at')}&select=id,question,answer,answered_at&order=answered_at.asc&limit=500`,
       ),
+      d.select(
+        `item_changes?owner_id=eq.${userId}&by=in.(person,calendar)&table_name=in.(${READ_TABLES.join(',')})${w('at')}&select=table_name,row_id,op,fields,dates,at&order=at.asc&limit=5000`,
+      ),
     ]);
-  return { created, completed, notes, habits, milestones, chats, calendar, overrides, answers };
+
+  // what changed, as it stands now
+  const changes = gatherChanges(log);
+  const deleted = changes.filter((c) => c.op === 'delete' && c.table !== 'weekly_reviews');
+  const updated = changes.filter((c) => c.op !== 'delete');
+  const current = new Map();
+  for (const table of READ_TABLES) {
+    const ids = updated.filter((c) => c.table === table).map((c) => c.row_id);
+    if (!ids.length) continue;
+    for (const r of await rowsByIds(d, table, ids)) current.set(`${table}:${r.id}`, r);
+  }
+  const changed = [];
+  const reviews = [];
+  for (const c of updated) {
+    const row = current.get(`${c.table}:${c.row_id}`);
+    if (!row) continue;
+    if (c.table === 'weekly_reviews') {
+      if (['started', 'done'].includes(row.status)) reviews.push({ row, at: c.at });
+      continue;
+    }
+    // made in this read: read as new, as it stands
+    if (row.created_at > runSince) continue;
+    changed.push({ change: c, row });
+  }
+
+  // the facts already taken from each changed or deleted record
+  const refs = [
+    ...changed.map((x) => ({ id: x.change.row_id })),
+    ...deleted.map((c) => ({ id: c.row_id })),
+  ];
+  const facts = refs.length ? await factsFrom(d, userId, refs) : new Map();
+  for (const x of changed) x.factIds = facts.get(`${x.change.table}:${x.change.row_id}`) || [];
+  for (const c of deleted) c.factIds = facts.get(`${c.table}:${c.row_id}`) || [];
+
+  // titles for the items a weekly review names
+  const reviewIds = new Set();
+  for (const { row } of reviews) {
+    const a = row.answers || {};
+    for (const p of a.priorities || []) for (const id of p.item_ids || []) reviewIds.add(id);
+    for (const k of a.dates_out || []) {
+      const [type, id] = String(k).split(':');
+      if (type !== 'when' && id) reviewIds.add(id);
+    }
+  }
+  const titles = new Map();
+  if (reviewIds.size) {
+    const ids = [...reviewIds].filter((id) => /^[0-9a-f-]{36}$/i.test(id));
+    for (const table of ['todos', 'habits', 'notes']) {
+      if (!ids.length) break;
+      const rows = await d.select(
+        `${table}?id=in.(${ids.join(',')})&select=id,${table === 'habits' ? 'name' : 'title'}`,
+      );
+      for (const r of rows) titles.set(r.id, r.title || r.name);
+    }
+  }
+
+  return {
+    created,
+    completed,
+    notes,
+    habits,
+    milestones,
+    chats,
+    calendar,
+    overrides,
+    answers,
+    changed,
+    deleted,
+    reviews,
+    titles,
+  };
 }
 
 /**
@@ -240,98 +435,39 @@ async function priorGremlyLines(env, chatRows) {
   return prior;
 }
 
-/** Turn raw rows into dated, labelled records with short refs. */
-export async function buildRecordList(env, tz, rows) {
+/** Turn raw rows into dated, labelled records, each a whole record or one of its parts. */
+export async function buildRecordList(env, tz, rows, { priorLines = priorGremlyLines } = {}) {
   const items = [];
-  const push = (table, id, at, text) => items.push({ table, id, at, text });
-  for (const t of rows.created) {
-    const due = t.due_day || t.target_date || (t.due_date ? t.due_date.slice(0, 10) : null);
-    const extra = trim([t.body, t.notes].filter(Boolean).join(' '), 400);
-    push(
-      'todos',
-      t.id,
-      t.created_at,
-      `Added a todo: "${trim(t.title, 200)}"${due ? ` (due ${due})` : ''}${extra ? `. Details: ${extra}` : ''}`,
-    );
+  const push = (rec) => {
+    if (rec) items.push(...splitRecord(rec));
+  };
+  for (const t of rows.created || []) push(todoRecord(t));
+  for (const t of rows.completed || []) push(completedRecord(t));
+  for (const n of rows.notes || []) push(noteRecord(n));
+  for (const h of rows.habits || []) push(habitRecord(h));
+  for (const m of rows.milestones || []) push(milestoneRecord(m));
+  for (const c of rows.calendar || []) {
+    const rec = calendarRecord(c, tz);
+    if (c.cancelled_at) rec.text += ' (marked cancelled earlier)';
+    push(rec);
   }
-  for (const t of rows.completed) {
-    push('todos', t.id, t.completed_at, `Completed the todo: "${trim(t.title, 200)}"`);
+  for (const o of rows.overrides || []) push(overrideRecord(o));
+  for (const a of rows.answers || []) push(answerRecord(a));
+  for (const x of rows.changed || []) {
+    const rec = changeRecord(x.change, x.row, tz);
+    if (!rec) continue;
+    if (x.change.table === 'synced_calendar_events' && x.row?.cancelled_at)
+      rec.text += ' (marked cancelled earlier)';
+    push({ ...rec, factIds: x.factIds || [] });
   }
-  for (const n of rows.notes) {
-    const kind =
-      n.subtype === 'journal'
-        ? 'Wrote a journal entry'
-        : n.subtype === 'event'
-          ? 'Added an event'
-          : n.subtype === 'idea'
-            ? 'Noted an idea'
-            : 'Wrote a note';
-    const when =
-      n.subtype === 'event' && (n.target_date || n.date)
-        ? ` (on ${n.target_date || n.date}${n.end_date ? ` to ${n.end_date}` : ''})`
-        : '';
-    const mood = Array.isArray(n.mood) && n.mood.length ? ` Mood: ${n.mood.join(', ')}.` : '';
-    const body = trim(n.body, n.subtype === 'journal' ? 1500 : 600);
-    push(
-      'notes',
-      n.id,
-      n.created_at,
-      `${kind}${when}: "${trim(n.title, 160)}"${body ? `. ${body}` : ''}${mood}`,
-    );
+  for (const c of rows.deleted || []) {
+    // nothing left to read when no fact rests on it (or code already set those aside)
+    if (c.factIds?.length) push({ ...deletedRecord(c), factIds: c.factIds });
   }
-  for (const h of rows.habits) {
-    push(
-      'habits',
-      h.id,
-      h.created_at,
-      `Started tracking a habit: "${trim(h.name || h.title, 160)}"${h.frequency ? ` (${h.frequency})` : ''}${h.why_string ? `. Why: ${trim(h.why_string, 200)}` : ''}`,
-    );
-  }
-  for (const m of rows.milestones) {
-    push(
-      'space_milestones',
-      m.id,
-      m.created_at,
-      `Set a milestone: "${trim(m.title || m.name, 160)}"${m.date ? ` dated ${m.date}` : ''}${m.completed ? ' (marked done)' : ''}${m.note ? `. ${trim(m.note, 200)}` : ''}`,
-    );
-  }
-  for (const c of rows.calendar) {
-    const start = c.is_all_day ? c.start_at?.slice(0, 10) : localDateTime(tz, c.start_at);
-    const end = c.is_all_day ? c.end_at?.slice(0, 10) : localDateTime(tz, c.end_at);
-    push(
-      'synced_calendar_events',
-      c.id,
-      c.created_at,
-      `Calendar entry: "${trim(c.title, 160)}" from ${start} to ${end}${c.location ? ` at ${trim(c.location, 80)}` : ''}`,
-    );
-  }
-  for (const o of rows.overrides) {
-    push(
-      'user_profile_overrides',
-      o.id,
-      o.created_at,
-      `Told Gremly about themselves (${o.action}): "${trim(o.fact_text, 300)}"`,
-    );
-  }
-  for (const a of rows.answers) {
-    push(
-      'gremly_questions',
-      a.id,
-      a.answered_at,
-      `Answered Gremly's question "${trim(a.question, 200)}" with: "${trim(a.answer, 300)}"`,
-    );
-  }
-  const prior = await priorGremlyLines(env, rows.chats);
-  for (const m of rows.chats) {
-    const g = prior.get(m.id);
-    push(
-      'scope_chat_messages',
-      m.id,
-      m.created_at,
-      `${g ? `[Gremly had said, context only: "${trim(g, 240)}"] ` : ''}Said in chat: "${trim(m.content, 700)}"`,
-    );
-  }
-  items.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+  for (const r of rows.reviews || []) push(reviewRecord(r.row, rows.titles, r.at));
+  const prior = await priorLines(env, rows.chats || []);
+  for (const m of rows.chats || []) push(chatRecord(m, prior.get(m.id)));
+  items.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : (a.part || 0) - (b.part || 0)));
   return items;
 }
 
@@ -355,21 +491,35 @@ export function chunkRecords(items) {
   return chunks;
 }
 
-/** The facts worth showing alongside a chunk: still open, or recently confirmed. */
-export async function loadOpenFacts(env, userId, aroundIso) {
+const FACT_SELECT =
+  'id,statement,subject,about_date,about_date_end,state,observed_at,private,item_table,item_done,item_archived,item_cancelled,item_gone';
+
+/**
+ * The facts worth showing alongside a chunk: still open, or recently
+ * confirmed, and every fact taken from a record in it that changed or went.
+ * Each with its item's dates and how the item stands now (life_facts_now).
+ */
+export async function loadOpenFacts(env, userId, aroundIso, extraIds = []) {
   const d = db(env);
   const lo = new Date(Date.parse(aroundIso) - 120 * 864e5).toISOString().slice(0, 10);
-  const [dated, recent] = await Promise.all([
+  const [dated, recent, extra] = await Promise.all([
     d.select(
-      `life_facts?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&about_date=gte.${lo}&select=id,statement,subject,about_date,about_date_end,state,observed_at,private&order=about_date.asc&limit=${MAX_OPEN_FACTS}`,
+      `life_facts_now?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&about_date=gte.${lo}&select=${FACT_SELECT}&order=about_date.asc&limit=${MAX_OPEN_FACTS}`,
     ),
     d.select(
-      `life_facts?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=id,statement,subject,about_date,about_date_end,state,observed_at,private&order=last_confirmed_at.desc&limit=${MAX_OPEN_FACTS}`,
+      `life_facts_now?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=${FACT_SELECT}&order=last_confirmed_at.desc&limit=${MAX_OPEN_FACTS}`,
     ),
+    extraIds.length
+      ? d.select(
+          `life_facts_now?user_id=eq.${userId}&id=in.(${extraIds.join(',')})&select=${FACT_SELECT}`,
+        )
+      : [],
   ]);
   const byId = new Map();
-  for (const f of [...dated, ...recent]) if (!byId.has(f.id)) byId.set(f.id, f);
-  return [...byId.values()].slice(0, MAX_OPEN_FACTS);
+  // the facts of a changed or deleted record first, so none is left out
+  for (const f of [...extra, ...dated, ...recent]) if (!byId.has(f.id)) byId.set(f.id, f);
+  const keep = [...byId.values()];
+  return keep.slice(0, Math.max(MAX_OPEN_FACTS, extra.length));
 }
 
 // A day, or the day of a date with a time (the model sometimes adds the time)
@@ -409,6 +559,7 @@ async function rollbackRun(d, userId, runId) {
     });
   }
   if (changes.length) await d.remove(`life_fact_changes?user_id=eq.${userId}&run_id=eq.${rid}`);
+  await d.remove(`life_fact_sources?user_id=eq.${userId}&run_id=eq.${rid}`);
   await d.remove(`gremly_questions?user_id=eq.${userId}&run_id=eq.${rid}&status=eq.open`);
   await d.remove(`life_facts?user_id=eq.${userId}&run_id=eq.${rid}`);
 }
@@ -426,7 +577,34 @@ export function readerToday(tz, at, dayEndHour) {
  * new records, with the refs each line carries. Pure, for readChunk and the
  * replay (scripts/reader-replay).
  */
+const ITEM_WORDS = {
+  todos: 'a todo',
+  notes: 'an event',
+  synced_calendar_events: 'a calendar entry',
+  space_milestones: 'a milestone',
+  habits: 'a habit',
+};
+
+/** How a fact stands, for the ledger list: its state, a passed date, its item now. */
+function factStanding(f, today) {
+  const item = f.item_table
+    ? ` | about ${ITEM_WORDS[f.item_table] || 'an item'}${f.item_gone ? ', which is gone' : ''}${f.item_done ? ', done' : ''}${f.item_cancelled ? ', cancelled' : ''}${f.item_archived ? ', archived' : ''}`
+    : '';
+  return `${stateWords(f, today)}${f.private ? ' [private]' : ''}${item}`;
+}
+
 export function readerRequest({ today, person, chunk, openFacts, tz, dayEndHour = 0 }) {
+  const factRef = new Map();
+  const refOfFact = new Map();
+  const factLines = openFacts.map((f, i) => {
+    const ref = `f${i + 1}`;
+    factRef.set(ref, f);
+    refOfFact.set(f.id, ref);
+    const when = f.about_date
+      ? `${f.about_date}${f.about_date_end ? ` to ${f.about_date_end}` : ''} (${relativeDay(f.about_date, today)})`
+      : 'no date';
+    return `${ref} | ${factStanding(f, today)} | ${when} | ${f.statement}`;
+  });
   const recRef = new Map();
   const recordLines = chunk.map((r, i) => {
     const ref = `r${i + 1}`;
@@ -438,22 +616,18 @@ export function readerRequest({ today, person, chunk, openFacts, tz, dayEndHour 
       day !== clock.slice(0, 10)
         ? `, after midnight, so still ${weekdayName(day)} ${day} for them`
         : '';
-    return `${ref} | ${clock}${late} (${relativeDay(day, today)}) | ${r.text}`;
-  });
-  const factRef = new Map();
-  const factLines = openFacts.map((f, i) => {
-    const ref = `f${i + 1}`;
-    factRef.set(ref, f);
-    const when = f.about_date
-      ? `${f.about_date}${f.about_date_end ? ` to ${f.about_date_end}` : ''} (${relativeDay(f.about_date, today)})`
-      : 'no date';
-    return `${ref} | ${f.state}${f.private ? ' [private]' : ''} | ${when} | ${f.statement}`;
+    const mark = r.kind === 'changed' ? '[changed] ' : r.kind === 'deleted' ? '[deleted] ' : '';
+    const from = (r.factIds || []).map((id) => refOfFact.get(id)).filter(Boolean);
+    const facts = r.kind
+      ? ` | ledger facts from it: ${from.length ? from.join(', ') : 'none'}`
+      : '';
+    return `${ref} | ${clock}${late} (${relativeDay(day, today)}) | ${mark}${r.text}${facts}`;
   });
 
   const user = `FACTS THE LEDGER ALREADY HOLDS (ref | state | date | statement):
 ${factLines.length ? factLines.join('\n') : '(none yet)'}
 
-NEW RECORDS, OLDEST FIRST (ref | when it happened | record):
+RECORDS, OLDEST FIRST (ref | when it happened | record):
 ${recordLines.join('\n')}`;
   return { system: readerSystemPrompt(today, person), user, recRef, factRef };
 }
@@ -469,10 +643,13 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
   // Each chunk writes under its own run id. If Inngest retries the step, the
   // rows a failed attempt left behind are removed first, so a retry never
   // duplicates facts or questions.
-  const runId = `${baseRunId}:${chunk[0].at}`;
+  // the first record names the chunk, its part too, so two chunks never share a run id
+  const first = chunk[0];
+  const runId = `${baseRunId}:${first.at}:${first.id}${first.part ? `#${first.part}` : ''}`;
   await rollbackRun(d, userId, runId);
+  const fromRecords = [...new Set(chunk.flatMap((r) => r.factIds || []))];
   const [openFacts, person] = await Promise.all([
-    loadOpenFacts(env, userId, chunk[0].at),
+    loadOpenFacts(env, userId, chunk[0].at, fromRecords),
     personIdentity(env, userId),
   ]);
   const { system, user, recRef, factRef } = readerRequest({
@@ -514,6 +691,18 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
       .trim()}|${date || ''}`;
   const seen = new Set(openFacts.map((f) => sameKey(f.statement, f.about_date)));
   const newRows = [];
+  // where each fact comes from: the record, and whether the fact is about the item itself
+  const sourceRows = [];
+  const sourceOf = (factId, src, quote, about) => ({
+    fact_id: factId,
+    user_id: userId,
+    source_table: src.table,
+    source_id: src.id,
+    role: about ? 'about' : 'said_in',
+    quote: quote ? trim(quote, 300) : null,
+    seen_at: src.at,
+    run_id: runId,
+  });
   for (const f of output.new_facts || []) {
     const src = recRef.get(f.source_ref);
     if (!src || !f.statement) {
@@ -526,7 +715,10 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
       continue;
     }
     seen.add(key);
+    const id = crypto.randomUUID();
+    sourceRows.push(sourceOf(id, src, f.quote, f.about_item === true));
     newRows.push({
+      id,
       user_id: userId,
       statement: trim(f.statement, 400),
       subject: f.subject ? trim(f.subject, 80) : null,
@@ -543,7 +735,8 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
       source_table: src.table,
       source_id: src.id,
       source_quote: f.quote ? trim(f.quote, 300) : null,
-      private: !!f.private,
+      // a record the person marked private makes only private facts
+      private: !!f.private || src.private === true,
       observed_at: src.at,
       last_confirmed_at: src.at,
       run_id: runId,
@@ -565,15 +758,17 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
     }
     let replacementId = null;
     if (u.replacement_statement) {
+      const repId = crypto.randomUUID();
       const [rep] = await d.insert('life_facts', [
         {
+          id: repId,
           user_id: userId,
           statement: trim(u.replacement_statement, 400),
           subject: fact.subject,
           about_date: validDate(u.replacement_about_date),
           about_date_end: validDate(u.replacement_about_date_end),
           date_confidence: validDate(u.replacement_about_date) ? 'exact' : 'unknown',
-          private: !!fact.private,
+          private: !!fact.private || src.private === true,
           state: ['current', 'planned', 'happened'].includes(u.replacement_state)
             ? u.replacement_state
             : 'current',
@@ -587,6 +782,7 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
         },
       ]);
       replacementId = rep?.id || null;
+      if (replacementId) sourceRows.push(sourceOf(replacementId, src, null, false));
     }
     // A fact with a replacement is no longer the true version, whatever the
     // model called it: it changed, and points at the fact that replaces it.
@@ -623,6 +819,7 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
       last_confirmed_at: src.at,
       updated_at: nowIso,
     });
+    sourceRows.push(sourceOf(fact.id, src, null, false));
     counts.confirmed++;
   }
 
@@ -656,6 +853,26 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
     counts.questions++;
   }
 
+  if (sourceRows.length) {
+    await d.insertIgnore('life_fact_sources', sourceRows, 'fact_id,source_table,source_id');
+    counts.sources = sourceRows.length;
+  }
+
+  // Calendar entries the reader judged cancelled, or on again: code stamps the entry
+  for (const c of output.calendar || []) {
+    const src = recRef.get(c.ref);
+    if (!src || src.table !== 'synced_calendar_events') {
+      counts.rejected++;
+      continue;
+    }
+    await d.update(`synced_calendar_events?id=eq.${src.id}&owner_id=eq.${userId}`, {
+      cancelled_at: c.cancelled ? nowIso : null,
+      cancelled_run: runId,
+    });
+    counts[c.cancelled ? 'cancelled' : 'uncancelled'] =
+      (counts[c.cancelled ? 'cancelled' : 'uncancelled'] || 0) + 1;
+  }
+
   return counts;
 }
 
@@ -666,23 +883,85 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
  */
 export async function planWindows(env, userId, sinceIso, untilIso) {
   const tz = await userTimezone(env, userId);
-  const rows = await loadRecords(env, userId, sinceIso, untilIso);
+  const rows = await loadRecords(env, userId, sinceIso, untilIso, { runSince: sinceIso });
   const items = await buildRecordList(env, tz, rows);
   const chunks = chunkRecords(items);
   const windows = [];
   let from = sinceIso;
   for (const c of chunks) {
     const to = c[c.length - 1].at;
+    // a record split in parts keeps its parts in one window
+    if (windows.length && to === windows[windows.length - 1].to) {
+      windows[windows.length - 1].n += c.length;
+      continue;
+    }
     windows.push({ from, to, n: c.length });
     from = to;
   }
   return { tz, windows, total: items.length };
 }
 
+/**
+ * The facts that rested only on a note or journal entry the person deleted
+ * are set aside, with the reason "source deleted". A fact that rests on other
+ * records too is left for the reader, beside the deletion. A deleted todo or
+ * habit sets nothing aside: tidying away is not forgetting (James's call of
+ * 6 Oct), so the reader sees it and decides.
+ */
+export async function retireDeleted(env, userId, deleted, runId) {
+  const d = db(env);
+  const notes = (deleted || []).filter((c) => c.table === 'notes' && c.factIds?.length);
+  if (!notes.length) return { retired: 0 };
+  const factIds = [...new Set(notes.flatMap((c) => c.factIds))];
+  const sources = await d.select(
+    `life_fact_sources?user_id=eq.${userId}&fact_id=in.(${factIds.join(',')})&select=fact_id,source_table,source_id`,
+  );
+  const gone = new Set(notes.map((c) => `notes:${c.row_id}`));
+  const lone = factIds.filter((id) =>
+    sources
+      .filter((s) => s.fact_id === id)
+      .every((s) => gone.has(`${s.source_table}:${s.source_id}`)),
+  );
+  if (!lone.length) return { retired: 0 };
+  const facts = await d.select(
+    `life_facts?user_id=eq.${userId}&id=in.(${lone.join(',')})&state=not.in.(superseded,corrected)&select=id,state,source_table,source_id`,
+  );
+  const reason = 'source deleted';
+  for (const f of facts) {
+    await d.update(`life_facts?id=eq.${f.id}&user_id=eq.${userId}`, {
+      state: 'superseded',
+      state_reason: reason,
+      updated_at: new Date().toISOString(),
+    });
+    const from = notes.find((c) => c.factIds.includes(f.id));
+    await d.insertQuiet('life_fact_changes', [
+      {
+        fact_id: f.id,
+        user_id: userId,
+        from_state: f.state,
+        to_state: 'superseded',
+        reason,
+        source_table: 'notes',
+        source_id: from?.row_id || f.source_id,
+        run_id: runId,
+      },
+    ]);
+  }
+  for (const c of notes) c.factIds = c.factIds.filter((id) => !facts.some((f) => f.id === id));
+  return { retired: facts.length };
+}
+
 /** Read one window of records (from, to] and write the results. */
-export async function readWindow(env, userId, tz, fromIso, toIso, runId) {
-  const rows = await loadRecords(env, userId, fromIso, toIso);
-  const items = await buildRecordList(env, tz, rows);
+export async function readWindow(
+  env,
+  userId,
+  tz,
+  fromIso,
+  toIso,
+  runId,
+  { runSince = fromIso } = {},
+) {
+  const rows = await loadRecords(env, userId, fromIso, toIso, { runSince });
   const totals = {
     records: 0,
     facts_added: 0,
@@ -691,9 +970,13 @@ export async function readWindow(env, userId, tz, fromIso, toIso, runId) {
     questions: 0,
     rejected: 0,
   };
+  // what rested only on a deleted note goes first, by code; the rest is the reader's
+  const { retired } = await retireDeleted(env, userId, rows.deleted, `${runId}:deleted:${toIso}`);
+  if (retired) totals.retired = retired;
+  const items = await buildRecordList(env, tz, rows);
   for (const chunk of chunkRecords(items)) {
     const c = await readChunk(env, userId, tz, chunk, runId);
-    for (const k of Object.keys(totals)) totals[k] += c[k] || 0;
+    for (const k of Object.keys(c)) totals[k] = (totals[k] || 0) + (c[k] || 0);
   }
   return totals;
 }

@@ -123,7 +123,9 @@ export function createContextFunctions(inngest) {
               await advanceCursor(env, userId, plan.until, { backfilled: !!event.data?.backfill });
             return { records: 0, skipped: 1 };
           }
-          const r = await readWindow(env, userId, plan.tz, from, w.to, runId);
+          const r = await readWindow(env, userId, plan.tz, from, w.to, runId, {
+            runSince: plan.since,
+          });
           await advanceCursor(env, userId, last ? plan.until : w.to, {
             backfilled: last && !!event.data?.backfill,
           });
