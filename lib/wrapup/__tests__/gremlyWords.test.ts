@@ -13,6 +13,7 @@ import type { SweepRecord } from '../../changes/sweep';
 import type { WrapNow } from '../day';
 import {
   cardTitles,
+  chosenQuestions,
   outcomeWords,
   questionsIntroOf,
   saidTonight,
@@ -158,6 +159,21 @@ describe('what he has said tonight', () => {
       '2026-10-05T03:00:00Z',
     );
     expect(said).toEqual(['A full day.', 'Everything has a place.']);
+  });
+
+  it('keeps the answers a question about someone was written with, or none', () => {
+    const fact = { id: 'q1', kind: 'fact', question: 'A?', choices: [] } as any;
+    const person = { id: 'q2', kind: 'person', question: 'Who?', choices: [] } as any;
+    const res = {
+      ask: [
+        { id: 'q1', question: 'A?', choices: ['Yes', 'No'] },
+        { id: 'q2', question: 'Who?', choices: ['Tom', 'Sam'] },
+      ],
+    };
+    expect(chosenQuestions(res, [fact, person])?.map((q) => q.choices)).toEqual([
+      ['Yes', 'No'],
+      [],
+    ]);
   });
 
   it('takes the line before his questions only when he chose every one', () => {

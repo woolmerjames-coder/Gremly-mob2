@@ -21,6 +21,7 @@ import { jsonCall, modelFor } from './llm';
 import { refreshLifeMapStory } from './story';
 import { invalidateChatCache } from './cache';
 import { peopleAfterCorrection } from './people';
+import { answerPersonQuestion, writePersonQuestion, tomorrowFor } from './peopleQuestions';
 import { personNow } from '../../shared/day.js';
 
 export const CORRECTION_PROMPT_VERSION = 'correction-2026-10-07';
@@ -306,6 +307,15 @@ export async function applyCorrection(env, correctionId, runId) {
   // are removed (states it set to corrected stay corrected, which is right).
   await d.remove(`life_facts?user_id=eq.${userId}&run_id=eq.${encodeURIComponent(runId)}`);
   await d.remove(`life_fact_changes?user_id=eq.${userId}&run_id=eq.${encodeURIComponent(runId)}`);
+  // An answer to a question about someone in their life is read on its own:
+  // it merges, declines or fills in a person, and changes nothing else
+  // (context/peopleQuestions.js, data fabric stage 4c)
+  if (correction.surface === 'question' && /^[0-9a-f-]{36}$/i.test(correction.target_ref?.id || '')) {
+    const [asked] = await d.select(
+      `gremly_questions?id=eq.${correction.target_ref.id}&user_id=eq.${userId}&kind=eq.person&select=id,question,status,kind,proposed_change`,
+    );
+    if (asked?.kind === 'person') return applyPersonAnswer(env, { correction, question: asked });
+  }
   const tz = await userTimezone(env, userId);
   // their day, so a correction after midnight still reaches the day they are in
   const { today } = await personNow(env, userId, tz);
@@ -607,6 +617,51 @@ ${anchorLines.join('\n') || '(none)'}`;
     status: 'applied',
     applied_at: nowIso,
     fact_ids: correctedIds.length ? correctedIds : correction.fact_ids,
+    result,
+  });
+  return result;
+}
+
+/**
+ * Apply an answer to a question about someone in their life, and close the
+ * question when the answer answers it. Once it is answered, the next question
+ * about someone may be written, held until tomorrow so two are never asked
+ * back to back.
+ */
+async function applyPersonAnswer(env, { correction, question }) {
+  const d = db(env);
+  const userId = correction.user_id;
+  const nowIso = new Date().toISOString();
+  const result = { person_question: question.id };
+  if (question.status !== 'answered') {
+    Object.assign(
+      result,
+      await answerPersonQuestion(env, { userId, question, said: correction.said }),
+    );
+    if (result.answers) {
+      await d.update(`gremly_questions?id=eq.${question.id}&user_id=eq.${userId}`, {
+        status: 'answered',
+        answer: trim(correction.said, 1000),
+        answered_at: nowIso,
+      });
+      result.question_answered = question.id;
+      try {
+        result.next = await writePersonQuestion(env, userId, {
+          holdUntil: await tomorrowFor(env, userId),
+        });
+      } catch (err) {
+        console.warn(
+          `[ALERT][People] the next question about someone could not be written for ${userId}: ${err?.message || err}`,
+        );
+      }
+    } else {
+      result.question_left_open = question.id;
+    }
+  }
+  await invalidateChatCache(env, userId);
+  await d.update(`user_corrections?id=eq.${correction.id}`, {
+    status: 'applied',
+    applied_at: nowIso,
     result,
   });
   return result;

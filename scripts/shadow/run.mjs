@@ -13,6 +13,9 @@
  *   scripts/shadow/run.sh memories --user <uuid> [--chapter <uuid>] [--limit n]
  *   scripts/shadow/run.sh first-worlds --user <uuid>
  *   scripts/shadow/run.sh up-next --user <uuid>
+ *   scripts/shadow/run.sh people-check --user <uuid> [--limit n]
+ *   scripts/shadow/run.sh person-question --user <uuid>
+ *   scripts/shadow/run.sh chapter-questions --user <uuid>
  *   scripts/shadow/run.sh ... --code <dir>   run another tree's code (run.sh)
  *
  * Keys come from the environment: SHADOW_SUPABASE_KEY (a key for the
@@ -53,6 +56,8 @@ import * as stage4b from '../../workers/inngest-jobs/context/words.js';
 import * as stage4bMemory from '../../workers/inngest-jobs/context/memory.js';
 import * as stage4bFirst from '../../workers/inngest-jobs/context/firstWorlds.js';
 import * as upNextMod from '../../workers/shared/upNext.js';
+import * as stage4cPeople from '../../workers/inngest-jobs/context/peopleQuestions.js';
+import * as stage4cChapters from '../../workers/inngest-jobs/context/chapterQuestions.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '../..');
@@ -381,6 +386,91 @@ const JOBS = {
         return { today, up_next: await upNextMod.loadUpNext(db(env), userId, today) };
       },
       summarise: (out) => ({ ...out, words: out?.up_next ? upNextMod.upNextWords(out.up_next) : null }),
+    };
+  },
+
+  // Data fabric stage 4c, read only: the check on who someone is over every
+  // person record, and the question about someone that would be asked
+  async 'people-check'() {
+    const userId = flag('--user');
+    if (!userId) fail('people-check needs --user');
+    return {
+      at: flag('--at') || new Date().toISOString(),
+      userId,
+      run: async () => {
+        if (typeof people.recheckPeople !== 'function') fail('This tree has no check on who someone is.');
+        return people.recheckPeople(env, userId, {
+          person: await personIdentity(env, userId),
+          shadow: true,
+          onlyUnchecked: false,
+          limit: Number(flag('--limit') || 150),
+        });
+      },
+      summarise: (out) => out,
+    };
+  },
+
+  async 'person-question'() {
+    const userId = flag('--user');
+    if (!userId) fail('person-question needs --user');
+    return {
+      at: flag('--at') || new Date().toISOString(),
+      userId,
+      run: async () => {
+        if (typeof stage4cPeople.writePersonQuestion !== 'function') fail('This tree has no people questions.');
+        const { candidates } = await stage4cPeople.loadPersonCandidates(env, userId);
+        const out = await stage4cPeople.writePersonQuestion(env, userId, { dryRun: true });
+        return {
+          ...out,
+          candidates: candidates.map((c) => ({
+            type: c.type,
+            weight: c.weight,
+            who: c.type === 'same' ? [c.kept.name || c.kept.relationship, c.merged.name || c.merged.relationship] : c.person.name || c.person.relationship,
+          })),
+        };
+      },
+      summarise: (out) => ({
+        written: out?.written,
+        skipped: out?.skipped || null,
+        why: out?.why || null,
+        question: out?.row?.question || null,
+        choices: out?.row?.choices || null,
+        about: out?.row?.proposed_change || null,
+        candidates: out?.candidates,
+      }),
+    };
+  },
+
+  // The day's Chapter questions, as they would be raised with the switch on:
+  // the welcome back, the close questions due, and at most one suggestion
+  async 'chapter-questions'() {
+    const userId = flag('--user');
+    if (!userId) fail('chapter-questions needs --user');
+    return {
+      at: flag('--at') || new Date().toISOString(),
+      userId,
+      run: async () => {
+        if (typeof stage4cChapters.chapterQuestionsForDay !== 'function') fail('This tree has no Chapter questions.');
+        return stage4cChapters.chapterQuestionsForDay(env, userId, { dryRun: true });
+      },
+      summarise: (out) => {
+        const rowOf = (r) => ({
+          kind: r.kind,
+          question: r.question,
+          choices: r.choices,
+          about: r.proposed_change,
+          rests_on: r.rests_on?.length ?? null,
+        });
+        return {
+          today: out?.today,
+          away: out?.away,
+          welcome_back: out?.welcome_back,
+          skipped: out?.skipped || null,
+          welcome: out?.welcome ? { ...out.welcome, rows: (out.welcome.rows || []).map(rowOf) } : null,
+          close: out?.close ? { ...out.close, rows: (out.close.rows || []).map(rowOf) } : null,
+          suggest: out?.suggest ? { ...out.suggest, row: out.suggest.row ? rowOf(out.suggest.row) : null } : null,
+        };
+      },
     };
   },
 

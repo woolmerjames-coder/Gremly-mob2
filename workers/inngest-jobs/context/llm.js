@@ -36,6 +36,13 @@ export const MODELS = {
   memoryFallback: { provider: 'google', model: 'gemini-3.8-flash' },
   firstWorlds: { provider: 'openai', model: 'gpt-6-luna' },
   firstWorldsFallback: { provider: 'google', model: 'gemini-3.8-flash' },
+  // questions about the people in their life, and reading their answers
+  // (peopleQuestions.js, data fabric stage 4c), and Gremly's questions about
+  // Chapters (chapterQuestions.js), on the replay's choice
+  personQuestion: { provider: 'openai', model: 'gpt-6-luna' },
+  personQuestionFallback: { provider: 'google', model: 'gemini-3.8-flash' },
+  chapterQuestion: { provider: 'openai', model: 'gpt-6-luna' },
+  chapterQuestionFallback: { provider: 'google', model: 'gemini-3.8-flash' },
   rewrite: { provider: 'google', model: 'gemini-3.8-flash' },
   rewriteFallback: { provider: 'openai', model: 'gpt-6-luna' },
   weekly: { provider: 'anthropic', model: 'claude-sonnet-5-5' },

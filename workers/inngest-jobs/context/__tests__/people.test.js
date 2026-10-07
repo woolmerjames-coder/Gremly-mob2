@@ -15,6 +15,7 @@ import {
   undoMerge,
   fillFacts,
 } from '../people.js';
+import { memoryDb } from './memoryDb.js';
 
 let n = 0;
 const newId = () => `new-${++n}`;
@@ -351,60 +352,6 @@ describe('writing', () => {
     expect(await peopleAfterCorrection(d, 'u', [])).toEqual({ cleared: 0, removed: 0 });
   });
 });
-
-/** A small in-memory database, enough for a merge and its undo. */
-function memoryDb(tables) {
-  const parse = (path) => {
-    const [table, q = ''] = path.split('?');
-    const filters = q
-      .split('&')
-      .filter((p) => p && !p.startsWith('select='))
-      .map((p) => {
-        const [col, rest] = p.split('=');
-        const op = rest.slice(0, rest.indexOf('.'));
-        const val = decodeURIComponent(rest.slice(rest.indexOf('.') + 1));
-        return { col, op, val };
-      });
-    const match = (row) =>
-      filters.every(({ col, op, val }) => {
-        if (op === 'eq') return String(row[col]) === val;
-        if (op === 'in')
-          return val
-            .replace(/^\(|\)$/g, '')
-            .split(',')
-            .includes(String(row[col]));
-        if (op === 'is') return val === 'null' ? row[col] == null : true;
-        return true;
-      });
-    return { table, match };
-  };
-  return {
-    tables,
-    select: async (path) => {
-      const { table, match } = parse(path);
-      return (tables[table] || []).filter(match).map((r) => ({ ...r }));
-    },
-    update: async (path, patch) => {
-      const { table, match } = parse(path);
-      const rows = (tables[table] || []).filter(match);
-      rows.forEach((r) => Object.assign(r, patch));
-      return rows;
-    },
-    remove: async (path) => {
-      const { table, match } = parse(path);
-      const gone = (tables[table] || []).filter(match);
-      tables[table] = (tables[table] || []).filter((r) => !match(r));
-      return gone;
-    },
-    insertIgnore: async (table, rows, on) => {
-      const keys = on.split(',');
-      tables[table] = tables[table] || [];
-      for (const r of rows)
-        if (!tables[table].some((x) => keys.every((k) => x[k] === r[k])))
-          tables[table].push({ ...r });
-    },
-  };
-}
 
 describe('a merge the person said yes to', () => {
   const start = () =>

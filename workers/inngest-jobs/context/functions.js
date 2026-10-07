@@ -18,7 +18,7 @@ import { weekSettings } from '../week/settings';
 import { planWindows, readWindow, readCursor, advanceCursor } from './reader';
 import { applyCorrection } from './corrections';
 import { giveKinds, usersLackingKinds } from './kinds';
-import { fillPeople, usersWithFacts } from './people';
+import { fillPeople, usersWithFacts, recheckPeople } from './people';
 import { invalidateChatCache } from './cache';
 import { reviewQuestions } from './questions';
 import { buildDcoV4, writeDco } from './daily';
@@ -41,6 +41,9 @@ import { writeUsageRow } from '../../shared/aiUsage';
 import { writeWords } from './words';
 import { writeMemory, chaptersWantingMemory } from './memory';
 import { makeFirstWorlds, firstWorldsEvents, filedTotals } from './firstWorlds';
+import { writePersonQuestion } from './peopleQuestions';
+import { chapterQuestionsForDay, chapterQuestionEvents } from './chapterQuestions';
+import { chapterQuestionsOn } from '../../shared/questionRules.js';
 
 /**
  * The pipeline mode, for one person when a user id is given. People listed in
@@ -655,6 +658,66 @@ export function createContextFunctions(inngest, { backfill = null } = {}) {
     },
   );
 
+  // ── People: the weekly check and question (data fabric 4c) ──────────────
+  // In the weekly pipe after the words and the memories: who someone is, and
+  // names, made before the check existed are checked against the person's
+  // words, once each; then one question about someone may be written, when
+  // one is worth asking and none is open.
+  const people = inngest.createFunction(
+    {
+      id: 'context-people',
+      name: 'Context: check the people records, and ask about one',
+      concurrency: [{ key: 'event.data.user_id', limit: 1 }, { limit: 3 }],
+      retries: 1,
+    },
+    { event: 'app/people.weekly' },
+    async ({ event, step, env }) => {
+      const userId = event.data?.user_id;
+      if (!userId) throw new Error('user_id is required');
+      const mode = contextMode(env, userId);
+      if (mode === 'off') return { skipped: 'pipeline off' };
+      const shadow = mode !== 'on';
+      const checked = await step.run('check', async () => {
+        try {
+          return await recheckPeople(env, userId, {
+            person: await personIdentity(env, userId),
+            shadow,
+          });
+        } catch (err) {
+          console.warn(
+            `[ALERT][People] the people records of ${userId} could not be checked: ${err?.message || err}`,
+          );
+          return { error: String(err?.message || err).slice(0, 200) };
+        }
+      });
+      const asked = await step.run('ask', () =>
+        writePersonQuestion(env, userId, { dryRun: shadow }),
+      );
+      return { user_id: userId, checked, asked };
+    },
+  );
+
+  // ── Chapter questions: closing, suggesting, the welcome back (4c) ───────
+  // Once a day, early in the person's morning, while CHAPTER_QUESTIONS is on.
+  // Built and replayed, and left off until the Worlds build can act on an
+  // answer (context/chapterQuestions.js).
+  const chapterQuestions = inngest.createFunction(
+    {
+      id: 'context-chapter-questions',
+      name: "Context: the day's questions about Chapters",
+      concurrency: [{ key: 'event.data.user_id', limit: 1 }, { limit: 3 }],
+      retries: 1,
+    },
+    { event: 'app/chapters.questions' },
+    async ({ event, step, env }) => {
+      const userId = event.data?.user_id;
+      if (!userId) throw new Error('user_id is required');
+      if (contextMode(env, userId) !== 'on' || !chapterQuestionsOn(env))
+        return { skipped: 'Chapter questions are off' };
+      return step.run('ask', () => chapterQuestionsForDay(env, userId));
+    },
+  );
+
   // ── First Worlds: a new person's first Worlds (data fabric 4b) ──────────
   // Started by the hourly dispatcher and by a drop filed while the person has
   // none. Makes them, files what the person has, and writes their words.
@@ -721,11 +784,14 @@ export function createContextFunctions(inngest, { backfill = null } = {}) {
       catchUp,
       words,
       memories,
+      people,
+      chapterQuestions,
       firstWorlds,
     ],
     weekly,
     words,
     memories,
+    people,
   };
 }
 
@@ -752,6 +818,12 @@ export async function hourlyContextEvents(env) {
       name: 'app/correction.apply',
       data: { correction_id: c.id, user_id: c.user_id },
     });
+  // the day's Chapter questions, while they are on (context/chapterQuestions.js)
+  try {
+    events.push(...(await chapterQuestionEvents(env)));
+  } catch (err) {
+    console.warn(`[ALERT][ChapterQuestions] could not list who to ask today: ${err.message}`);
+  }
   // first Worlds for anyone active with none who is due them (context/firstWorlds.js)
   try {
     events.push(...(await firstWorldsEvents(env)));

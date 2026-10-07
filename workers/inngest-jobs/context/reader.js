@@ -35,6 +35,7 @@ import {
   peopleLines,
   planPeople,
   writePeople,
+  checkPlan,
 } from './people';
 import {
   answerRecord,
@@ -762,6 +763,8 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
   const newRows = [];
   // the people each new fact is about, as the model gave them
   const factPeople = [];
+  // the whole record each new fact comes from, for the check on who someone is
+  const recordOf = new Map();
   // where each fact comes from: the record, and whether the fact is about the item itself
   const sourceRows = [];
   const sourceOf = (factId, src, quote, about) => ({
@@ -788,6 +791,7 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
     }
     seen.add(key);
     const id = crypto.randomUUID();
+    recordOf.set(id, src.text || null);
     sourceRows.push(sourceOf(id, src, f.quote, f.about_item === true));
     factPeople.push({ factId: id, people: f.people || [] });
     newRows.push({
@@ -822,21 +826,24 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
     await d.insertQuiet('life_facts', newRows);
     counts.facts_added = newRows.length;
   }
-  // The people each new fact is about, and any two known people that may be one
-  Object.assign(
-    counts,
-    await writePeople(
-      d,
+  // The people each new fact is about, and any two known people that may be
+  // one, with who each is and their name checked against the person's own
+  // words, the whole record each comes from, before they are written (data
+  // fabric stage 4c)
+  const quoteOf = new Map(newRows.map((r) => [r.id, r.source_quote]));
+  const peoplePlan = await checkPlan(
+    env,
+    planPeople({
+      known: personRef,
+      facts: factPeople,
+      same: output.same_people,
       userId,
-      planPeople({
-        known: personRef,
-        facts: factPeople,
-        same: output.same_people,
-        userId,
-        runId,
-      }),
-    ),
+      runId,
+      refs: [...recRef.keys(), ...factRef.keys()],
+    }),
+    { person, wordsOf: (id) => recordOf.get(id) || quoteOf.get(id) || null },
   );
+  Object.assign(counts, await writePeople(d, userId, peoplePlan));
 
   // Updates to existing facts
   for (const u of output.fact_updates || []) {

@@ -12,7 +12,10 @@
  * marriage, her husband, and a misspelt name. It passes when the two Sams are
  * never one record, the brother is Sam only once the person has said so, who
  * someone is comes only from a record that states it and never refers to the
- * person, and nothing is ever merged. Every name and record is made up.
+ * person, and nothing is ever merged. Each plan goes through the check on who
+ * someone is before it is kept, as the reader does (data fabric stage 4c),
+ * and the run also passes only when the check keeps the brother and the
+ * sister, whom the records state. Every name and record is made up.
  * OPENAI_API_KEY and GEMINI_TEST_API_KEY come from the environment.
  */
 
@@ -25,7 +28,13 @@ import {
   READER_SCHEMA,
   READER_PROMPT_VERSION,
 } from '../../workers/inngest-jobs/context/reader.js';
-import { planPeople, PEOPLE_PROMPT_VERSION } from '../../workers/inngest-jobs/context/people.js';
+import {
+  planPeople,
+  checkPlan,
+  whoEntries,
+  PEOPLE_PROMPT_VERSION,
+  WHO_CHECK_VERSION,
+} from '../../workers/inngest-jobs/context/people.js';
 import { jsonCall, modelFor } from '../../workers/inngest-jobs/context/llm.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -82,14 +91,29 @@ async function runOnce() {
         effort: 'low',
         thinking: 'low',
       });
+      const quotes = new Map();
       const facts = (output.new_facts || [])
         .filter((f) => recRef.has(f.source_ref))
         .map((f) => {
           const id = `fact-${++ids}`;
           store.facts.set(id, { id, statement: f.statement, record: rec.key });
+          quotes.set(id, f.quote || null);
           return { factId: id, people: f.people || [] };
         });
-      const plan = planPeople({ known: personRef, facts, same: output.same_people, userId: 'alex', runId: rec.key, newId: () => `person-${++ids}` });
+      // checked against the person's own words before it is kept, as the reader does
+      // the whole record each fact comes from, as the reader gives the check
+      const wordsOf = (id) => (quotes.has(id) ? rec.r.text : null);
+      const planned = planPeople({ known: personRef, facts, same: output.same_people, userId: 'alex', runId: rec.key, refs: [...recRef.keys()], newId: () => `person-${++ids}` });
+      const asked = whoEntries(planned, wordsOf);
+      const plan = await checkPlan(env, planned, { person: PERSON, wordsOf });
+      store.cleared = (store.cleared || 0) + (plan.who_cleared || 0) + (plan.names_cleared || 0) + (plan.dropped || 0);
+      // what the check took away, with the words it was given, for the report
+      const kept = new Map([...plan.creates.map((c) => [c.id, c]), ...[...plan.updates].map(([id, u]) => [id, u])]);
+      for (const e of asked) {
+        const k = kept.get(e.id) || {};
+        if (e.name && k.name !== e.name) (store.clearedLines ||= []).push(`${rec.key}: name "${e.name}" from ${e.nameWords ? `"${e.nameWords}"` : 'no words'}`);
+        if (e.relationship && k.relationship !== e.relationship) (store.clearedLines ||= []).push(`${rec.key}: who "${e.relationship}" from ${e.whoWords ? `"${e.whoWords}"` : 'no words'}`);
+      }
       // as writePeople would leave the database
       for (const c of plan.creates) store.people.set(c.id, { ...c, names: [], created_at: rec.r.at });
       for (const [id, patch] of plan.updates) {
@@ -146,10 +170,17 @@ function check(run) {
     { name: 'who someone is never refers to the person', ok: ownName.length === 0, detail: ownName.map((p) => p.relationship).join('; ') || 'none' },
     { name: 'nothing is merged, only proposed', ok: store.merges.every((m) => m.status === 'proposed'), detail: `${store.merges.length} proposed` },
     { name: 'most records tie their facts to someone', ok: tiedSomewhere >= RECORDS.length - 2, detail: `${tiedSomewhere} of ${RECORDS.length}` },
+    {
+      name: 'the check keeps the brother and the sister, whom the records state',
+      ok:
+        [...store.people.values()].some((p) => /brother/i.test(p.relationship || '')) &&
+        [...store.people.values()].some((p) => /sister/i.test(p.relationship || '') && !/husband/i.test(p.relationship || '')),
+      detail: `${store.cleared || 0} cleared by the check${store.clearedLines?.length ? `: ${store.clearedLines.join('; ')}` : ''}`,
+    },
   ];
 }
 
-console.log(`${READER_PROMPT_VERSION}, ${PEOPLE_PROMPT_VERSION}: ${RECORDS.length} records, ${repeat} runs`);
+console.log(`${READER_PROMPT_VERSION}, ${PEOPLE_PROMPT_VERSION}, ${WHO_CHECK_VERSION}: ${RECORDS.length} records, ${repeat} runs`);
 const runs = await Promise.all(Array.from({ length: repeat }, runOnce));
 let passed = 0;
 runs.forEach((run, i) => {

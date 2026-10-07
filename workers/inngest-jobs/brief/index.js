@@ -144,7 +144,9 @@ export async function writeDailyBrief(env, userId, { reason = 'scheduled', at = 
   const asking = g.question && !g.ret;
   if (asking) {
     let choices = g.question.choices || [];
-    if (!choices.length && out.questionChoices.length) {
+    // a question about someone with no answers to tap is answered in their own
+    // words, as its writer chose (context/peopleQuestions.js)
+    if (!choices.length && out.questionChoices.length && g.question.kind !== 'person') {
       choices = out.questionChoices.slice(0, 4);
       await db(env)
         .update(`gremly_questions?id=eq.${g.question.id}`, { choices })

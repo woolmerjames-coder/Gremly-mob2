@@ -47,7 +47,7 @@ import {
   problemWords,
 } from '../../shared/check/index.js';
 import { passageRow, recordPassages } from '../../shared/passageRefs.js';
-import { askableQuestions } from '../../shared/questionRules.js';
+import { askableQuestions, welcomeBackOf } from '../../shared/questionRules.js';
 import { loadUpNext } from '../../shared/upNext.js';
 
 export const DCO_PROMPT_VERSION = 'dco-v4-2026-10-08h';
@@ -216,7 +216,7 @@ export async function gatherDay(env, userId, tz, today) {
       `life_fact_changes?user_id=eq.${userId}&created_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -7)))}&select=fact_id,from_state,to_state,reason,created_at&order=created_at.desc&limit=40`,
     ),
     d.select(
-      `gremly_questions?user_id=eq.${userId}&status=in.(open,asked)&select=id,question,choices,created_at,asked_at,hold_until,fact:life_facts(private,health)&order=created_at.asc&limit=20`,
+      `gremly_questions?user_id=eq.${userId}&status=in.(open,asked)&select=id,kind,set_id,question,choices,created_at,asked_at,hold_until,fact:life_facts(private,health)&order=created_at.asc&limit=20`,
     ),
     d.rpc('absence_snapshot', { p_user: userId }),
     d.rpc('usage_rollup', { p_user: userId, p_grain: 'week', p_periods: 5 }),
@@ -618,12 +618,18 @@ export function renderDay(g, tz) {
   // about a private fact, which is for conversation, or about health, which is
   // private here too (careRules.js); none held until a later day; and one put
   // to them in the last few days, and skipped or left, waits
-  const qLines = askableQuestions(g.questions, { day: today })
+  // A welcome back's questions travel as one set, which the picture points to
+  // (welcome_back), so none is asked on its own here
+  const qLines = askableQuestions(
+    (g.questions || []).filter((q) => q.kind !== 'while_away'),
+    { day: today },
+  )
     .slice(0, 10)
     .map((q) => {
       const ref = addRef('q', {
         type: 'question',
         id: q.id,
+        kind: q.kind || null,
         question: q.question,
         choices: Array.isArray(q.choices) ? q.choices : [],
       });
@@ -1333,6 +1339,8 @@ export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
     absence: g.absence,
     // the open Chapter with the nearest date, worked out in code (shared/upNext.js)
     up_next: upNextNow,
+    // the welcome back set, when there is one (context/chapterQuestions.js)
+    welcome_back: welcomeBackOf(g.questions),
     // Calendar entries the reader found cancelled that are still on the
     // calendar, today and the next few days (synced_calendar_events.cancelled_at).
     // The brief and the app's day card leave these out of the day.

@@ -309,13 +309,14 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
   let question = brief.question || null;
   if (question?.id) {
     const [q] = await d.select(
-      `gremly_questions?id=eq.${question.id}&select=id,question,status,choices`,
+      `gremly_questions?id=eq.${question.id}&select=id,kind,question,status,choices`,
     );
     // Answered or retired since the DCO was built: not asked again
     question =
       q && ['open', 'asked'].includes(q.status)
         ? {
             id: q.id,
+            kind: q.kind || null,
             question: question.question || q.question,
             choices: Array.isArray(q.choices) ? q.choices : [],
           }

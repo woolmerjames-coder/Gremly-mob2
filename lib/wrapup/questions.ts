@@ -19,6 +19,8 @@ import { WRAP_COPY } from './words';
 
 export interface WrapQuestion {
   id: string;
+  /** What it asks about: a fact, a Chapter, or someone in their life ('person') */
+  kind?: string | null;
   question: string;
   choices: string[];
   created_at: string;
@@ -47,14 +49,17 @@ export async function fetchWrapQuestions(): Promise<WrapQuestion[]> {
   const { data, error } = await supabase
     .from('gremly_questions')
     .select(
-      'id,question,choices,created_at,asked_at,hold_until,record_table,record_id,fact:life_facts(private,health)',
+      'id,kind,question,choices,created_at,asked_at,hold_until,record_table,record_id,fact:life_facts(private,health)',
     )
     .in('status', ['open', 'asked'])
     .order('created_at', { ascending: true })
     .limit(20);
   if (error) throw error;
-  return ((data ?? []) as Record<string, any>[]).map((q) => ({
+  // a welcome back's questions travel together, as the brief asks them, never one by one here
+  const rows = ((data ?? []) as Record<string, any>[]).filter((q) => q.kind !== 'while_away');
+  return rows.map((q) => ({
     id: q.id,
+    kind: q.kind ?? null,
     question: String(q.question || '').trim(),
     choices: Array.isArray(q.choices)
       ? q.choices.filter((c: unknown) => typeof c === 'string')

@@ -4233,6 +4233,7 @@ const inngestHandler = serve({
       classifier: worldsWeeklyRun,
       words: contextFunctions.words,
       memories: contextFunctions.memories,
+      people: contextFunctions.people,
     }),
     ...createBriefFunctions(inngest),
     ...createNotificationFunctions(inngest),

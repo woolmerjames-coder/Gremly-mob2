@@ -347,7 +347,7 @@ export async function ensureWeekSpread(env, userId, p = {}) {
 
 export function createWeekFunctions(
   inngest,
-  { synthesis, classifier = null, words = null, memories = null },
+  { synthesis, classifier = null, words = null, memories = null, people = null },
 ) {
   const dispatch = inngest.createFunction(
     { id: 'weekly-pipe-dispatch', name: 'Weekly pipe: start the pipes due now' },
@@ -447,11 +447,14 @@ export function createWeekFunctions(
       if (!skipped && kept && !kept.made) skipped = 'another read was kept first';
       // Then the words under each World and open Chapter, from what the week
       // filed, and a memory for each closed Chapter that has none (data fabric
-      // stage 4b). After the read, so the read never waits on them.
+      // stage 4b), then the people records checked and one question about
+      // someone, when one is worth asking (stage 4c). After the read, so the
+      // read never waits on them.
       const after = {};
       for (const [name, fn] of [
         ['words', words],
         ['memories', memories],
+        ['people', people],
       ]) {
         if (!fn) continue;
         try {
@@ -467,7 +470,13 @@ export function createWeekFunctions(
                   left_out: r?.left_out ?? null,
                   failed: r?.failed ?? null,
                 }
-              : { chapters: r?.chapters ?? null };
+              : name === 'memories'
+                ? { chapters: r?.chapters ?? null }
+                : {
+                    checked: r?.checked?.checked ?? null,
+                    who_cleared: r?.checked?.who_cleared ?? null,
+                    asked: r?.asked?.written ?? null,
+                  };
         } catch (err) {
           after[name] = { error: String(err?.message || err).slice(0, 200) };
           console.warn(

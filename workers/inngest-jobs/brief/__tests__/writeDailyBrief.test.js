@@ -140,6 +140,38 @@ describe('writing the brief', () => {
     expect(question.content).toBe('Is the haircut Friday?');
   });
 
+  it("gives a question with no answers the writer's answers, but not one about someone", async () => {
+    const asked = (kind) => ({
+      model: 'gemini',
+      lines: [{ text: 'A clear day.', ids: [] }],
+      dropped: [],
+      offer: null,
+      offerDropped: null,
+      questionLine: 'What is your brother called?',
+      questionChoices: ['Tom', 'Sam'],
+      catchUp: null,
+      kind,
+    });
+    for (const [kind, want] of [
+      ['fact', ['Tom', 'Sam']],
+      ['person', []],
+    ]) {
+      appendMessages.mockClear();
+      gatherBrief.mockResolvedValue(
+        day({
+          question: { id: 'q1', kind, question: 'What is your brother called?', choices: [] },
+        }),
+      );
+      writeBrief.mockResolvedValue(asked(kind));
+      await writeDailyBrief({}, 'user-1', { reason: 'scheduled' });
+      const q = written().find((r) => r.metadata_json.kind === 'question');
+      const answers = q.metadata_json.buttons
+        .filter((b) => b.action === 'answer')
+        .map((b) => b.label);
+      expect(answers).toEqual(want);
+    }
+  });
+
   describe('their week', () => {
     const wrote = (over = {}) => ({
       model: 'gemini',

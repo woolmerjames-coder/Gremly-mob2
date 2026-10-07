@@ -79,6 +79,20 @@ function clean(text, n = 80) {
 const lower = (s) => String(s || '').toLowerCase();
 
 /**
+ * Whether text the model gave as a name or as who someone is holds one of the
+ * refs code made for the prompt (p1, n1, f3 and the like). Those are code's
+ * own labels for the model, never words about anyone, so a name or a who that
+ * holds one is refused. Compares against the refs alone; it never reads what
+ * the words mean.
+ */
+export function mentionsRef(text, refs) {
+  if (!text || !refs?.size) return false;
+  return lower(text)
+    .split(/[^a-z0-9]+/)
+    .some((t) => t && refs.has(t));
+}
+
+/**
  * This person's known people, newest first, with every name each has been
  * called. Someone they hid is still someone: hidden is about what is shown,
  * so the reader still knows them and does not make them again.
@@ -122,9 +136,29 @@ export function planPeople({
   same = [],
   userId,
   runId,
+  refs = [],
   newId = () => crypto.randomUUID(),
 }) {
-  const plan = { creates: [], updates: new Map(), names: [], ties: [], merges: [], rejected: 0 };
+  const plan = {
+    creates: [],
+    updates: new Map(),
+    names: [],
+    ties: [],
+    merges: [],
+    rejected: 0,
+    refused_refs: 0,
+  };
+  // every ref the prompt or the answer used: the known people's, the new ones
+  // the model made, and any the caller gave (records, facts)
+  const refSet = new Set(
+    [
+      ...known.keys(),
+      ...(facts || []).flatMap((f) => (f.people || []).map((e) => e?.new_ref)),
+      ...refs,
+    ]
+      .filter(Boolean)
+      .map(lower),
+  );
   const state = new Map(); // person id -> what this plan has made of them so far
   const view = (p) => {
     if (!state.has(p.id))
@@ -141,8 +175,16 @@ export function planPeople({
 
   for (const f of facts || []) {
     for (const [i, e] of (f.people || []).entries()) {
-      const name = clean(e?.name);
-      const relationship = clean(e?.relationship, 60);
+      let name = clean(e?.name);
+      let relationship = clean(e?.relationship, 60);
+      if (mentionsRef(name, refSet)) {
+        name = null;
+        plan.refused_refs++;
+      }
+      if (mentionsRef(relationship, refSet)) {
+        relationship = null;
+        plan.refused_refs++;
+      }
       let p;
       if (e?.ref) {
         const k = known.get(e.ref);
@@ -169,6 +211,8 @@ export function planPeople({
             run_id: runId,
             name_by: 'gremly',
             relationship_by: 'gremly',
+            // set by the check; every row carries it, so one insert holds them all
+            who_checked_at: null,
           };
           plan.creates.push(created);
           fresh.set(key, created);
@@ -297,7 +341,397 @@ export async function writePeople(d, userId, plan) {
     people_ties: plan.ties.length,
     people_merges_proposed: plan.merges.length,
     people_rejected: plan.rejected,
+    people_refused_refs: plan.refused_refs || 0,
+    people_who_cleared: plan.who_cleared || 0,
+    people_names_cleared: plan.names_cleared || 0,
+    people_dropped: plan.dropped || 0,
   };
+}
+
+// ── The check on who someone is (data fabric stage 4c) ─────────────────────
+
+export const WHO_CHECK_VERSION = 'who-check-2026-10-07h';
+
+const WHO_CHECK_RULES = `CHECKING WHO SOMEONE IS
+- Gremly keeps records of the people in a person's life. For each record you are given the name Gremly would call them by and who Gremly would say they are to the person, each with the person's own words it comes from.
+- who_holds is true only when the person's own words given for it themselves state that this person is that to them, or to the someone else the words name. Words state it when they say it outright, when the person calls someone by a word that itself says who they are to them, or when they say where the person knows someone from and the who says no more than that. Words that only mention someone, or leave who they are to be guessed from a name, an activity, an occasion or their being there, do not state it. When no words are kept for it, it does not hold. Anything in it that is not plain words about people, such as a code or a label, never holds.
+- Who someone is is shown to the person, so a who that refers to the person by their name never holds, even when their words state the rest of it.
+- name_holds is true only when the name is what this person is called, as the person's words use it. A word that says who someone is to the person, such as a family tie or a role in their life, is never a name, even when the person calls them by it, and nor is a group they belong to.
+- Only the person's own words count. Anything in them marked as Gremly's is there for context and states nothing.
+- Answer null only for a name or a who the record does not have.
+- Judge only from the words given, never from what you might expect.`;
+
+const WHO_CHECK_SCHEMA = {
+  type: 'object',
+  properties: {
+    checks: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          ref: { type: 'string' },
+          who_holds: { type: 'boolean', nullable: true },
+          name_holds: { type: 'boolean', nullable: true },
+        },
+        required: ['ref', 'who_holds', 'name_holds'],
+      },
+    },
+  },
+  required: ['checks'],
+};
+
+/** Records checked in one call, so every answer fits what the model may write. */
+const CHECK_BATCH = 40;
+// a whole record, so the words that state a name or who are never cut away
+const WORDS_CHARS = 12000;
+
+/**
+ * Check names and who someone is against the person's own words, a batch of
+ * records to a call. entries: [{ id, name, nameWords, relationship, whoWords }].
+ * @returns Map of id to { who_holds, name_holds }, for the ids it answered,
+ * each true, false, or null when the record has none or the check gave no
+ * answer for it. What a null means is for the caller to say.
+ */
+export async function checkWho(env, { person = null, entries }) {
+  const list = (entries || []).filter((e) => e && (e.name || e.relationship));
+  const verdicts = new Map();
+  for (let i = 0; i < list.length; i += CHECK_BATCH) {
+    const batch = list.slice(i, i + CHECK_BATCH);
+    const refs = new Map();
+    const quoted = (words) => {
+      const text = clean(words, WORDS_CHARS);
+      return text ? `"${text}"` : 'none kept';
+    };
+    const lines = batch.map((e, j) => {
+      const ref = `r${j + 1}`;
+      refs.set(ref, e);
+      const name = e.name
+        ? `name "${clean(e.name)}", from their words ${quoted(e.nameWords)}`
+        : 'no name';
+      const who = e.relationship
+        ? `who "${clean(e.relationship, 60)}", from their words ${quoted(e.whoWords)}`
+        : 'no who';
+      return `${ref} | ${name} | ${who}`;
+    });
+    let output;
+    try {
+      ({ output } = await jsonCall(env, {
+        primary: modelFor(env, 'check'),
+        fallback: modelFor(env, 'checkFallback'),
+        system: {
+          fixed: `You check Gremly's records of the people in someone's life.\n\n${WHO_CHECK_RULES}`,
+          varying: personBlock(person),
+        },
+        user: `RECORDS (ref | name and the words it comes from | who and the words it comes from):\n${lines.join('\n')}`,
+        schema: WHO_CHECK_SCHEMA,
+        maxTokens: 4000,
+        effort: 'low',
+        thinking: 'low',
+      }));
+    } catch (err) {
+      // these records get no answer, and are left unchecked; the rest go on
+      console.warn(
+        `[ALERT][People] who someone is could not be checked for ${batch.length} records, left unchecked: ${err?.message || err}`,
+      );
+      continue;
+    }
+    for (const c of output?.checks || []) {
+      const e = refs.get(c?.ref);
+      if (!e || verdicts.has(e.id)) continue;
+      verdicts.set(e.id, {
+        who_holds: e.relationship && typeof c.who_holds === 'boolean' ? c.who_holds : null,
+        name_holds: e.name && typeof c.name_holds === 'boolean' ? c.name_holds : null,
+      });
+    }
+  }
+  return verdicts;
+}
+
+/**
+ * What a plan gives each person it makes or changes, with the facts it comes
+ * from, for checkWho. Pure. wordsOf(factId) gives the person's own words kept
+ * with a fact, or null.
+ */
+export function whoEntries(plan, wordsOf) {
+  const nameFact = (id, name) =>
+    plan.names.find((n) => n.person_id === id && lower(n.name) === lower(name))?.fact_id || null;
+  const out = [];
+  for (const c of plan.creates)
+    out.push({
+      id: c.id,
+      name: c.name || null,
+      nameWords: c.name ? wordsOf(nameFact(c.id, c.name)) : null,
+      relationship: c.relationship || null,
+      whoWords: c.relationship ? wordsOf(c.relationship_fact_id) : null,
+    });
+  for (const [id, patch] of plan.updates) {
+    if (!patch.name && !patch.relationship) continue;
+    out.push({
+      id,
+      name: patch.name || null,
+      nameWords: patch.name ? wordsOf(nameFact(id, patch.name)) : null,
+      relationship: patch.relationship || null,
+      whoWords: patch.relationship ? wordsOf(patch.relationship_fact_id) : null,
+    });
+  }
+  return out.filter((e) => e.name || e.relationship);
+}
+
+/**
+ * Apply the check to a plan before it is written: who someone is, or a name,
+ * that the person's words do not state is not written. Blank is better than
+ * wrong. Someone new left with neither is not made, and their ties and any
+ * merge proposed for them go with them; the facts stay. A new record the
+ * check answered for is marked checked. Changes the plan; returns it.
+ */
+export function applyWhoCheck(plan, verdicts, at = new Date().toISOString()) {
+  const dropName = (id, name) => {
+    plan.names = plan.names.filter((n) => !(n.person_id === id && lower(n.name) === lower(name)));
+    plan.names_cleared = (plan.names_cleared || 0) + 1;
+  };
+  const dropped = new Set();
+  for (const c of plan.creates) {
+    const v = verdicts.get(c.id);
+    if (!v) continue;
+    // something new is kept only when the check says it holds
+    if (c.relationship && v.who_holds !== true) {
+      c.relationship = null;
+      c.relationship_fact_id = null;
+      plan.who_cleared = (plan.who_cleared || 0) + 1;
+    }
+    if (c.name && v.name_holds !== true) {
+      dropName(c.id, c.name);
+      c.name = null;
+    }
+    c.who_checked_at = at;
+    if (!c.name && !c.relationship) dropped.add(c.id);
+  }
+  for (const [id, patch] of plan.updates) {
+    const v = verdicts.get(id);
+    if (!v) continue;
+    if (patch.relationship && v.who_holds !== true) {
+      delete patch.relationship;
+      delete patch.relationship_fact_id;
+      plan.who_cleared = (plan.who_cleared || 0) + 1;
+    }
+    if (patch.name && v.name_holds !== true) {
+      dropName(id, patch.name);
+      delete patch.name;
+    }
+    if (!Object.keys(patch).length) plan.updates.delete(id);
+  }
+  if (dropped.size) {
+    plan.creates = plan.creates.filter((c) => !dropped.has(c.id));
+    plan.ties = plan.ties.filter((t) => !dropped.has(t.person_id));
+    plan.names = plan.names.filter((n) => !dropped.has(n.person_id));
+    plan.merges = plan.merges.filter((m) => !dropped.has(m.kept_id) && !dropped.has(m.merged_id));
+    plan.dropped = (plan.dropped || 0) + dropped.size;
+  }
+  return plan;
+}
+
+/**
+ * Check a plan against the person's words before it is written. A check that
+ * cannot be made leaves the plan as it is, unchecked, for the weekly pipe to
+ * check later (recheckPeople), and says so.
+ */
+export async function checkPlan(env, plan, { person = null, wordsOf }) {
+  const entries = whoEntries(plan, wordsOf);
+  if (!entries.length) return plan;
+  try {
+    const verdicts = await checkWho(env, { person, entries });
+    const unanswered = entries.filter((e) => !verdicts.has(e.id)).length;
+    if (unanswered) plan.unchecked = unanswered;
+    return applyWhoCheck(plan, verdicts);
+  } catch (err) {
+    console.warn(
+      `[ALERT][People] who someone is could not be checked, left for the weekly check: ${err?.message || err}`,
+    );
+    plan.unchecked = entries.length;
+    return plan;
+  }
+}
+
+/**
+ * Check the records made before the check existed, or left unchecked: each
+ * once. What the person wrote is theirs and is not checked. Who someone is,
+ * or a name, that their words do not state is cleared; one the check gives no
+ * answer for is left, unchecked, for the next run. A record left with neither
+ * goes, with its ties (the facts stay), only when nothing on it is the
+ * person's: not hidden by them, in no merge they decided, in no Chapter they
+ * put them in, and no record was merged into it. Otherwise it stays as it is
+ * and is raised. In shadow nothing is written and what would change is
+ * returned.
+ */
+export async function recheckPeople(
+  env,
+  userId,
+  { person = null, shadow = false, limit = 150, onlyUnchecked = true } = {},
+) {
+  const d = db(env);
+  // the shadow runner can check every record, checked or not, read only
+  const which = onlyUnchecked || !shadow ? '&who_checked_at=is.null' : '';
+  const rows =
+    (await d.select(
+      `life_people?user_id=eq.${userId}&merged_into=is.null${which}&select=id,name,name_by,relationship,relationship_by,relationship_fact_id,hidden_at&order=created_at.asc&limit=${limit}`,
+    )) || [];
+  const out = {
+    records: rows.length,
+    checked: 0,
+    who_cleared: 0,
+    names_cleared: 0,
+    removed: 0,
+    shadow,
+  };
+  if (!rows.length) return out;
+  const ids = rows.map((r) => r.id);
+  const names = [];
+  for (const chunk of batches(ids))
+    names.push(
+      ...((await d.select(
+        `life_person_names?user_id=eq.${userId}&person_id=in.(${chunk.join(',')})&select=person_id,name,fact_id`,
+      )) || []),
+    );
+  const nameFact = (r) =>
+    names.find((n) => n.person_id === r.id && lower(n.name) === lower(r.name))?.fact_id || null;
+  const factIds = [
+    ...new Set(rows.flatMap((r) => [r.relationship_fact_id, nameFact(r)]).filter(Boolean)),
+  ];
+  // every quote kept for a fact, from each record it was read in, so the
+  // words are not only the one quote kept with the fact
+  const quotes = new Map();
+  const addQuote = (id, q) => {
+    const t = clean(q, WORDS_CHARS);
+    if (t && !(quotes.get(id) || []).includes(t)) quotes.set(id, [...(quotes.get(id) || []), t]);
+  };
+  for (const chunk of batches(factIds)) {
+    for (const f of (await d.select(
+      `life_facts?user_id=eq.${userId}&id=in.(${chunk.join(',')})&select=id,source_quote`,
+    )) || [])
+      addQuote(f.id, f.source_quote);
+    for (const s of (await d.select(
+      `life_fact_sources?user_id=eq.${userId}&fact_id=in.(${chunk.join(',')})&quote=not.is.null&select=fact_id,quote`,
+    )) || [])
+      addQuote(s.fact_id, s.quote);
+  }
+  const wordsOf = (id) => (id && quotes.get(id)?.length ? quotes.get(id).join(' ... ') : null);
+  const gremlys = (r) => ({
+    name: r.name && r.name_by === 'gremly' ? r.name : null,
+    relationship: r.relationship && r.relationship_by === 'gremly' ? r.relationship : null,
+  });
+  const entries = rows
+    .map((r) => {
+      const g = gremlys(r);
+      return {
+        id: r.id,
+        name: g.name,
+        nameWords: g.name ? wordsOf(nameFact(r)) : null,
+        relationship: g.relationship,
+        whoWords: g.relationship ? wordsOf(r.relationship_fact_id) : null,
+      };
+    })
+    .filter((e) => e.name || e.relationship);
+  const verdicts = await checkWho(env, { person, entries });
+  const at = new Date().toISOString();
+  const changes = [];
+  for (const r of rows) {
+    const g = gremlys(r);
+    const v = verdicts.get(r.id);
+    // nothing of Gremly's to check: theirs, and checked
+    if (!g.name && !g.relationship) {
+      if (!shadow)
+        await d.update(`life_people?id=eq.${r.id}&user_id=eq.${userId}`, { who_checked_at: at });
+      continue;
+    }
+    // not answered for everything Gremly holds: left unchecked, for the next run
+    if (!v || (g.name && v.name_holds === null) || (g.relationship && v.who_holds === null))
+      continue;
+    out.checked++;
+    const whoFails = !!g.relationship && v.who_holds === false;
+    const nameFails = !!g.name && v.name_holds === false;
+    const keepsName = nameFails ? null : r.name;
+    const keepsWho = whoFails ? null : r.relationship;
+    const change = {
+      id: r.id,
+      name: r.name,
+      relationship: r.relationship,
+      who_fails: whoFails,
+      name_fails: nameFails,
+    };
+    if (whoFails) out.who_cleared++;
+    if (nameFails) out.names_cleared++;
+    if (!keepsName && !keepsWho) {
+      const theirs = await personsOwn(d, userId, r);
+      if (theirs) {
+        // a record cannot be left with neither, and this one cannot go: it
+        // stays as it is, checked, and is raised once
+        out.kept_theirs = (out.kept_theirs || 0) + 1;
+        changes.push({ ...change, kept: theirs });
+        console.warn(
+          `[ALERT][People] ${r.id} holds nothing the person's words state, but ${theirs}: left as it is`,
+        );
+        if (!shadow)
+          await d.update(`life_people?id=eq.${r.id}&user_id=eq.${userId}`, { who_checked_at: at });
+        continue;
+      }
+      changes.push({ ...change, removed: true });
+      if (shadow) {
+        out.removed++;
+        continue;
+      }
+      const gone = await d.remove(
+        `life_people?id=eq.${r.id}&user_id=eq.${userId}&name_by=eq.gremly&relationship_by=eq.gremly&hidden_at=is.null`,
+      );
+      // counted only where the database removed it
+      if (Array.isArray(gone) && gone.length) out.removed++;
+      else
+        console.warn(
+          `[ALERT][People] ${r.id} holds nothing the person's words state, and could not be removed`,
+        );
+      continue;
+    }
+    if (whoFails || nameFails) changes.push(change);
+    if (shadow) continue;
+    const patch = { who_checked_at: at };
+    if (whoFails) Object.assign(patch, { relationship: null, relationship_fact_id: null });
+    if (nameFails) patch.name = null;
+    // the order of the people the reader knows moves only when one changes
+    if (whoFails || nameFails) patch.updated_at = at;
+    await d.update(
+      `life_people?id=eq.${r.id}&user_id=eq.${userId}${whoFails ? '&relationship_by=eq.gremly' : ''}${nameFails ? '&name_by=eq.gremly' : ''}`,
+      patch,
+    );
+    if (nameFails)
+      await d.remove(
+        `life_person_names?person_id=eq.${r.id}&user_id=eq.${userId}&name=eq.${encodeURIComponent(r.name)}&by=eq.gremly`,
+      );
+  }
+  if (shadow) out.changes = changes;
+  return out;
+}
+
+/**
+ * What on a record is the person's, so it may not go: their hiding it, a
+ * field they wrote, a merge they decided, a Chapter they put them in, or a
+ * record merged into it.
+ * Null when there is nothing.
+ */
+async function personsOwn(d, userId, r) {
+  if (r.hidden_at) return 'they hid it';
+  if (r.name_by === 'person' || r.relationship_by === 'person') return 'they wrote part of it';
+  const [merges, chapters, into] = await Promise.all([
+    d.select(
+      `person_merges?user_id=eq.${userId}&or=(kept_id.eq.${r.id},merged_id.eq.${r.id})&status=neq.proposed&select=id&limit=1`,
+    ),
+    d.select(
+      `chapter_people?user_id=eq.${userId}&person_id=eq.${r.id}&written_by=eq.person&select=chapter_id&limit=1`,
+    ),
+    d.select(`life_people?user_id=eq.${userId}&merged_into=eq.${r.id}&select=id&limit=1`),
+  ]);
+  if ((into || []).length) return 'another record was merged into it';
+  if ((merges || []).length) return 'it is in a merge they decided';
+  if ((chapters || []).length) return 'they put them in a Chapter';
+  return null;
 }
 
 /**
@@ -603,13 +1037,19 @@ export async function fillPeople(
     out.calls++;
     const { facts: judged, unsourced } = fillFacts(output.facts, factRef);
     out.people_who_without_words += unsourced;
-    const plan = planPeople({
-      known: personRef,
-      facts: judged,
-      same: output.same_people,
-      userId,
-      runId,
-    });
+    const quoteOf = new Map(batch.map((f) => [f.id, f.source_quote || null]));
+    const plan = await checkPlan(
+      env,
+      planPeople({
+        known: personRef,
+        facts: judged,
+        same: output.same_people,
+        userId,
+        runId,
+        refs: [...factRef.keys()],
+      }),
+      { person, wordsOf: (id) => quoteOf.get(id) || null },
+    );
     if (shadow) {
       // the people as this batch leaves them, for the next batch and for reading
       for (const c of plan.creates) found.people.set(c.id, { ...c, names: [] });
@@ -665,6 +1105,10 @@ function countsOf(plan) {
     people_ties: plan.ties.length,
     people_merges_proposed: plan.merges.length,
     people_rejected: plan.rejected,
+    people_refused_refs: plan.refused_refs || 0,
+    people_who_cleared: plan.who_cleared || 0,
+    people_names_cleared: plan.names_cleared || 0,
+    people_dropped: plan.dropped || 0,
   };
 }
 

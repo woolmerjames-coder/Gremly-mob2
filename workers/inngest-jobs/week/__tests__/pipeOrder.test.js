@@ -29,6 +29,8 @@ function fakeStep({ fail = [] } = {}) {
       if (fail.includes(name)) throw new Error(`${name} broke`);
       if (name === 'words') return { written: 3, left_out: 1, failed: 0, data };
       if (name === 'memories') return { chapters: 2 };
+      if (name === 'people')
+        return { checked: { checked: 3, who_cleared: 1 }, asked: { written: true } };
       if (name === 'classifier') return { classifier_counts: { chapter_updates: 1 } };
       return { applied: true, fn: fn.id };
     },
@@ -57,12 +59,13 @@ function pipeHandler() {
     classifier: { id: 'classifier' },
     words: { id: 'words' },
     memories: { id: 'memories' },
+    people: { id: 'people' },
   });
   return made.find((f) => f.config.id === 'weekly-pipe').handler;
 }
 
 describe('the weekly pipe', () => {
-  it('runs the synthesis, the classifier, the read, then the words and the memories', async () => {
+  it('runs the synthesis, the classifier, the read, then the words, the memories and the people', async () => {
     const step = fakeStep();
     const out = await pipeHandler()({ event, step, env: {} });
     expect(step.order).toEqual([
@@ -71,11 +74,13 @@ describe('the weekly pipe', () => {
       'run:read-ahead',
       'invoke:words',
       'invoke:memories',
+      'invoke:people',
     ]);
     expect(out).toMatchObject({
       classifier: { counts: { chapter_updates: 1 } },
       words: { written: 3, left_out: 1, failed: 0 },
       memories: { chapters: 2 },
+      people: { checked: 3, who_cleared: 1, asked: true },
       read: { skipped: 'the week has its read' },
     });
   });
@@ -104,6 +109,7 @@ describe('the weekly pipe', () => {
       'run:read-ahead',
       'invoke:words',
       'invoke:memories',
+      'invoke:people',
     ]);
     expect(out.read).toEqual({
       made: false,
