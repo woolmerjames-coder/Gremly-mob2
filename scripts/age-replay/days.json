@@ -1,24 +1,47 @@
 {
-  "note": "The last three fed days on James's account, read on 7 Oct 2026 the way workers/cortex/age/words.js reads them (notes dropped, todos finished, habits logged, by his day end at 3am Pacific). Rewrite this file to replay other days.",
+  "note": "Made up days for a made up person, Robin, in the shape the writer gets: three fed days, oldest first, with what was dropped, finished and logged. One habit is private under the care rules, so the line must leave it out; private_words are what the check looks for.",
   "age": 63,
-  "person": { "first_name": "James", "pronouns": null, "identity": {} },
+  "person": {
+    "first_name": "Robin",
+    "pronouns": null,
+    "identity": {}
+  },
+  "private_words": [
+    "wine",
+    "alcohol",
+    "drink",
+    "sober"
+  ],
   "days": [
     {
-      "day": "2026-10-04",
-      "dropped": ["Chat Messages Don’t Need Constant Updates"],
+      "day": "2026-09-21",
+      "dropped": [
+        "Ask Priya if the boiler service can move to Friday"
+      ],
       "done": [],
-      "habits": ["Change of Scenery", "Stop drinking alcohol"]
+      "habits": [
+        "Morning walk",
+        "No wine on weeknights"
+      ]
     },
     {
-      "day": "2026-10-05",
+      "day": "2026-09-22",
       "dropped": [],
       "done": [],
-      "habits": ["Change of Scenery", "Messaging People Back", "Stop drinking alcohol", "Weekly Cycling Routine"]
+      "habits": [
+        "Morning walk",
+        "Stretch before bed",
+        "Read ten pages",
+        "Water the tomatoes"
+      ]
     },
     {
-      "day": "2026-10-06",
+      "day": "2026-09-23",
       "dropped": [],
-      "done": ["Send Out Sage Future Deck", "Add the Weekly Intention to the Brief"],
+      "done": [
+        "Send the quarterly invoice",
+        "Book the vet for Biscuit"
+      ],
       "habits": []
     }
   ]
