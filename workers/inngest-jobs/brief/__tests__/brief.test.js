@@ -25,7 +25,7 @@ import {
   sweptWhen,
 } from '../writer';
 import { summariseThread, summariseWrap } from '../reaction';
-import { dueForBrief, fallbackOffer } from '../index';
+import { dueBriefs, dueForBrief, fallbackOffer, MORNING_ACTIVE_DAYS } from '../index';
 
 jest.mock('../../context/daily', () => ({ buildDcoV4: jest.fn(), writeDco: jest.fn() }));
 
@@ -216,6 +216,27 @@ describe('when a brief is due', () => {
     expect(dueForBrief(pref, new Date('2026-10-01T18:59:00Z'))).toBe('2026-10-01'); // 11:59
     expect(dueForBrief(pref, new Date('2026-10-01T19:00:00Z'))).toBeNull(); // noon
     expect(dueForBrief({}, new Date('2026-10-01T14:45:00Z'))).toBe('2026-10-01');
+  });
+});
+
+describe('who gets a brief made ahead', () => {
+  const prefs = new Map([
+    ['a', { timezone: 'America/Los_Angeles', morning_time: '08:00' }],
+    ['b', { timezone: 'America/Los_Angeles', morning_time: '08:00' }],
+    ['c', { timezone: 'Europe/London', morning_time: '08:00' }],
+  ]);
+  const at = new Date('2026-10-01T15:00:00Z'); // 8:00 in Los Angeles, 16:00 in London
+
+  it('makes the morning work ahead only for people active in the last week', () => {
+    expect(MORNING_ACTIVE_DAYS).toBe(7);
+    expect(dueBriefs(['a', 'b', 'c'], ['a', 'c'], prefs, at)).toEqual([
+      { user_id: 'a', day: '2026-10-01' },
+    ]);
+  });
+
+  it('makes nothing ahead for someone with settings who has not used the app', () => {
+    expect(dueBriefs(['b'], [], prefs, at)).toEqual([]);
+    expect(dueBriefs(['b'], undefined, prefs, at)).toEqual([]);
   });
 });
 

@@ -239,6 +239,28 @@ export async function writeDailyBrief(env, userId, { reason = 'scheduled', at = 
   };
 }
 
+/**
+ * The morning work (the daily picture and the brief) is made ahead only for
+ * people who used the app in the last week. Anyone else gets both made fresh
+ * when they next open the app (todaysDco in data.js).
+ */
+export const MORNING_ACTIVE_DAYS = 7;
+
+/**
+ * Who is due a brief now: people with settings who used the app in the last
+ * week, 20 minutes before their morning time, until noon. Ids and dates only.
+ */
+export function dueBriefs(ownerIds, activeIds, prefsByUser, at = new Date()) {
+  const active = new Set(activeIds || []);
+  const out = [];
+  for (const id of ownerIds || []) {
+    if (!active.has(id)) continue;
+    const day = dueForBrief(prefsByUser.get(id) || {}, at);
+    if (day) out.push({ user_id: id, day });
+  }
+  return out;
+}
+
 /** Who is due their brief now: 20 minutes before their morning time, until noon. */
 export function dueForBrief(pref, at = new Date()) {
   const tz = pref.timezone || 'America/Los_Angeles';
@@ -258,18 +280,15 @@ export function createBriefFunctions(inngest) {
       const due = await step.run('who-is-due', async () => {
         const d = db(env);
         const on = await d.select('cortex_preferences?select=owner_id&limit=5000');
-        const ids = (on || []).map((r) => r.owner_id);
+        const active = await d.rpc('get_active_people', { active_days: MORNING_ACTIVE_DAYS });
+        const activeIds = (active || []).map((r) => r.user_id);
+        const ids = (on || []).map((r) => r.owner_id).filter((id) => activeIds.includes(id));
         if (!ids.length) return [];
         const prefs = await d.select(
           `notification_preferences?user_id=in.(${ids.join(',')})&select=user_id,timezone,morning_time`,
         );
         const byUser = new Map((prefs || []).map((p) => [p.user_id, p]));
-        const out = [];
-        for (const id of ids) {
-          const day = dueForBrief(byUser.get(id) || {});
-          if (day) out.push({ user_id: id, day });
-        }
-        return out;
+        return dueBriefs(ids, activeIds, byUser);
       });
       if (due.length) {
         await step.sendEvent(

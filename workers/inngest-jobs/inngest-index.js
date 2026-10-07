@@ -32,7 +32,7 @@ import { createBackfillPriorityKind } from './backfillPriorityKind';
 import { aiContext, installAiUsageLogging } from '../shared/aiUsage';
 import { CARE_RULES } from './careRules';
 import { createContextFunctions, hourlyContextEvents, contextMode } from './context/functions';
-import { createBriefFunctions, handleBriefApi } from './brief';
+import { createBriefFunctions, handleBriefApi, MORNING_ACTIVE_DAYS } from './brief';
 import { createWeekFunctions, handleWeekReadApi, handleWeekSpreadApi } from './week';
 import { REVIEW_UNREAD, reviewAheadStatus, summaryPushData } from './week/summaryPush';
 import { addDays as dayPlus, cycleOf, isDay as isRealDay } from '../shared/week.js';
@@ -292,7 +292,8 @@ const dcoDispatcher = inngest.createFunction(
       return exactCount + approxCount + unknownCount;
     });
 
-    // Step 2: Everyone active in the last 30 days, with the date of their last real DCO.
+    // Step 2: Everyone active in the last week, with the date of their last real DCO.
+    // Anyone else gets theirs made fresh when they next open the app (brief/data.js).
     // Activity covers chats, sweeps and habit check-ins as well as new items.
     const allUsers = await step.run('get-users-for-dco', async () => {
       const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/get_users_for_dco`, {
@@ -302,7 +303,7 @@ const dcoDispatcher = inngest.createFunction(
           Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ active_days: 30 }),
+        body: JSON.stringify({ active_days: MORNING_ACTIVE_DAYS }),
       });
 
       if (!res.ok) {
