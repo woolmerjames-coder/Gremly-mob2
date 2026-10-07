@@ -279,6 +279,22 @@ describe('each step', () => {
     );
   });
 
+  it('gives a needs you card its own answers to tap, which fit its question', () => {
+    const own = ['I need a quote first', 'I do not know who to call', 'It can wait'];
+    const [, ask] = talkMsgs('Sort the boiler', 'What is in the way of booking it?', own);
+    expect((ask.meta as any).buttons).toEqual(
+      own.map((label, i) => ({
+        id: `week_reason_${i}`,
+        label,
+        action: 'week_reason',
+        value: label,
+      })),
+    );
+    // one answer is no choice: the general reasons stand in
+    const [, thin] = talkMsgs('Sort the boiler', 'What is in the way?', ['It can wait']);
+    expect((thin.meta as any).buttons.map((b: any) => b.label)).toEqual(TALK_REASONS);
+  });
+
   it('marks what they typed as the review’s own message', () => {
     expect(typed('I am away on Friday')).toEqual({
       role: 'user',

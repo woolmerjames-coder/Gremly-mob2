@@ -1630,7 +1630,7 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
           const one = r?.read?.needs_you?.[index];
           if (!r || !one || !editable('needs_you')) return;
           patchSession({ talking: index, hold: null });
-          await save(talkMsgs(one.title, one.question));
+          await save(talkMsgs(one.title, one.question, one.answers));
         }),
       done: () => run(() => settle('needs_you', (a) => a)),
     }),

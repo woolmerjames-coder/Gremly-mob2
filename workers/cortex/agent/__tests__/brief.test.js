@@ -1158,6 +1158,8 @@ describe("the person's week, when the app sends it", () => {
       expect(text).toContain('THEY OPENED ONE TO TALK IT THROUGH');
       expect(text).toContain(`"Sort out the accountant" (todos ${MUM})`);
       expect(text).toContain('Gremly asked: "What is the first small step?"');
+      // talking one through ends with something to say yes to
+      expect(text).toContain('End your reply with one concrete offer on the card');
     });
 
     it('once it is finished, keeps what was settled and stops carrying on', () => {

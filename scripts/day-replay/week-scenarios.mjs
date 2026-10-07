@@ -89,6 +89,15 @@ function review(step, under = {}, over = {}) {
   };
 }
 
+/** One of the needs you cards talked through: the reply comes with something on the card to say yes to. */
+const endsWithAnOffer = (changes) => [
+  {
+    name: 'Ends with a concrete offer on the card',
+    ok: changes.length >= 1,
+    detail: `${changes.length} on the card`,
+  },
+];
+
 // Work that is not among their items, on days they name. Nobody here is real.
 const UNSEEN = "Most of this week is the stock audit at work. It'll swallow Tuesday, Wednesday and Thursday";
 
@@ -379,7 +388,76 @@ export const WEEK_SCENARIOS = [
         question: 'What is the first small step?',
       },
     }),
-    expect: { aboutDay: true, structureOnly: true, forbid: ['cancel', 'complete'], maxChanges: 2 },
+    expect: {
+      aboutDay: true,
+      structureOnly: true,
+      forbid: ['cancel', 'complete'],
+      maxChanges: 2,
+      check: endsWithAnOffer,
+    },
+  },
+  // Talking one through ends with something to say yes to (James, 9 October):
+  // their answer to Gremly's question, as typed or as one of the card's
+  // answers tapped, comes back with a change on the card.
+  {
+    ...base,
+    id: 'week-talk-answer-tapped',
+    title: 'In the review: an answer tapped under the question',
+    look: 'The garage todo they opened: a way to do it a bit at a time is on the card.',
+    text: 'Doing it a bit at a time',
+    week: review('needs_you', {
+      about: {
+        title: 'Clear out the garage',
+        item_ids: ['garage'],
+        stuck_because: 'It takes two hours and has been moved five times',
+        question: 'What would make this one easier to start?',
+      },
+    }),
+    expect: {
+      aboutDay: true,
+      structureOnly: true,
+      forbid: ['cancel', 'complete'],
+      maxChanges: 3,
+      check: endsWithAnOffer,
+    },
+  },
+  {
+    ...base,
+    id: 'week-talk-waiting-on-something',
+    title: 'In the review: what is in the way is something else to do first',
+    look: 'The passport todo they opened: what has to come first is offered, or a day that fits it.',
+    text: 'I need new photos before I can send it off',
+    week: review('needs_you', {
+      about: {
+        title: 'Renew passport',
+        item_ids: ['passport'],
+        stuck_because: 'It has been moved four times',
+        question: 'What is in the way of renewing it?',
+      },
+    }),
+    expect: {
+      aboutDay: true,
+      structureOnly: true,
+      forbid: ['cancel', 'complete'],
+      maxChanges: 3,
+      check: endsWithAnOffer,
+    },
+  },
+  {
+    ...base,
+    id: 'week-talk-no-longer-matters',
+    title: 'In the review: they say it no longer matters',
+    look: 'The plants todo they opened: letting it go, or putting it off, is on the card.',
+    text: "Honestly I don't think it matters any more",
+    week: review('needs_you', {
+      about: {
+        title: 'Repot the plants',
+        item_ids: ['plants'],
+        stuck_because: 'It has been on the list since the spring',
+        question: 'Is this still something you want to do?',
+      },
+    }),
+    expect: { aboutDay: true, structureOnly: true, maxChanges: 2, check: endsWithAnOffer },
   },
   {
     ...base,

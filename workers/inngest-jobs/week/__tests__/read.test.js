@@ -133,7 +133,7 @@ function gathered(over = {}) {
         meetings:
           i === 0
             ? [
-                { title: 'Standup', start: 540, end: 570 },
+                { id: 'entry-standup', title: 'Standup', start: 540, end: 570 },
                 { title: 'Review', start: 560, end: 620 },
               ]
             : [],
@@ -193,6 +193,7 @@ function reply(over = {}) {
         title: 'The report',
         stuck_because: 'It keeps moving.',
         question: 'What is the first page?',
+        answers: ['The summary', 'The figures', 'I do not know yet'],
       },
     ],
     habit_days: [
@@ -494,13 +495,28 @@ describe('what the model reads', () => {
 
   it('gives the calendar with booked time worked out, or says none is connected', () => {
     expect(r.text).toContain(
-      'Monday 2026-10-05: 2 meetings, 1 hour 20 minutes booked: 9am to 9:30am Standup; 9:20am to 10:20am Review.',
+      'Monday 2026-10-05: 2 entries, 1 hour 20 minutes booked: c1 9am to 9:30am Standup; c2 9:20am to 10:20am Review.',
     );
     expect(r.text).toContain('Friday 2026-10-09: nothing booked. All day: Offsite.');
-    expect(r.text).toContain('Across those days: 2 meetings, 1 hour 20 minutes booked.');
+    expect(r.text).toContain('Across those days: 2 entries, 1 hour 20 minutes booked.');
     expect(renderRead(gathered({ calendar: { connected: false, days: [] } })).text).toContain(
-      'THE CALENDAR: none is connected, so their meetings are not known.',
+      'THE CALENDAR: none is connected, so what is on their calendar is not known.',
     );
+  });
+
+  it('never calls what is on their calendar meetings, and gives each entry an id', () => {
+    expect(r.text).not.toMatch(/meeting/i);
+    expect(readSystem({ first_name: 'Ana' }).fixed).toContain(
+      'Never count them or describe them as meetings.',
+    );
+    expect([...r.refs.calendar]).toEqual([
+      ['c1', { type: 'synced_event', id: 'entry-standup', title: 'Standup', date: '2026-10-05' }],
+      ['c2', { type: 'synced_event', id: null, title: 'Review', date: '2026-10-05' }],
+    ]);
+    // an entry on a day that has gone by is no moment still to come
+    const late = renderRead(gathered({ today: '2026-10-06' }));
+    expect(late.text).toContain('c1 9am to 9:30am Standup');
+    expect(late.refs.calendar.size).toBe(0);
   });
 
   it('gives last week from its review, when there was one', () => {
@@ -607,6 +623,7 @@ describe('what comes back', () => {
     expect(read.challenge.headline).toBe('The report needs a start');
     expect(read.priority_options.map((p) => p.item_ids)).toEqual([['todo-a'], ['todo-b']]);
     expect(read.needs_you[0].item_ids).toEqual(['todo-a']);
+    expect(read.needs_you[0].answers).toEqual(['The summary', 'The figures', 'I do not know yet']);
     expect(read.habit_days).toEqual([
       {
         habit_id: 'habit-run',
@@ -641,6 +658,69 @@ describe('what comes back', () => {
       reason: 'A guess from your calendar.',
     });
     expect(read.busy_days).toEqual(['2026-10-05']);
+  });
+
+  it('takes a moment that is on their calendar, with its day from the calendar', () => {
+    const { read, dropped } = check(
+      reply({
+        coming_up: [
+          // the model's own date for an entry is not used
+          { about: 'c1', when: '2026-10-07', what: 'Standup with the new team' },
+          // an entry with no id of its own is a moment all the same, with no item to open
+          { about: 'c2', when: '', what: 'The review' },
+          { about: 'c9', when: '2026-10-08', what: 'An entry it was not given' },
+        ],
+      }),
+    );
+    expect(read.coming_up).toEqual([
+      {
+        when: '2026-10-05',
+        what: 'Standup with the new team',
+        item: { type: 'synced_event', id: 'entry-standup' },
+      },
+      { when: '2026-10-05', what: 'The review', item: null },
+      { when: '2026-10-08', what: 'An entry it was not given', item: null },
+    ]);
+    expect(dropped.map((d) => `${d.what}:${d.why}`)).toEqual(['coming_up:unknown_id']);
+    // a milestone never leads up to an entry on the days being planned
+    const m = check(reply({ milestones: [{ ...reply().milestones[0], about: 'c1' }] }));
+    expect(m.read.milestones).toEqual([]);
+    expect(m.dropped.map((d) => `${d.what}:${d.why}`)).toEqual(['milestone:no_dated_thing']);
+  });
+
+  it('keeps the answers to tap under a needs you question: each once, short, four at most', () => {
+    const card = reply().needs_you[0];
+    const { read, dropped } = check(
+      reply({
+        needs_you: [
+          {
+            ...card,
+            answers: [
+              'The summary',
+              '  ',
+              'The summary',
+              'An answer that goes on for far longer than anyone could tap on a phone',
+              'The figures',
+              'Someone else has it',
+              'Not this week',
+              'One too many',
+            ],
+          },
+          // a read that gives none still has the card: the app has answers of its own for it
+          { ...card, item_ids: ['t1'], title: 'Book the venue', answers: undefined },
+        ],
+      }),
+    );
+    expect(read.needs_you.map((n) => n.answers)).toEqual([
+      ['The summary', 'The figures', 'Someone else has it', 'Not this week'],
+      [],
+    ]);
+    expect(dropped.map((d) => `${d.what}:${d.why}`)).toEqual([
+      'needs_you_answer:empty',
+      'needs_you_answer:twice',
+      'needs_you_answer:too_long',
+      'needs_you_answer:too_many',
+    ]);
   });
 
   it('drops an id it was never given, and counts it', () => {

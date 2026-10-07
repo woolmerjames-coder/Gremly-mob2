@@ -61,7 +61,14 @@ export interface WeekRead {
   busy_days: string[];
   /** Each ready to go on a card as a milestone change; about is the dated thing it leads up to */
   milestones: (Milestone & { about: { type: string; id: string; title: string } })[];
-  needs_you: { item_ids: string[]; title: string; stuck_because: string; question: string }[];
+  /** answers are the ones to tap under the question, its own; a read made before 9 October 2026 has none */
+  needs_you: {
+    item_ids: string[];
+    title: string;
+    stuck_because: string;
+    question: string;
+    answers?: string[];
+  }[];
   habit_days: { habit_id: string; days: string[]; reason: string }[];
   /** How many times the check had to drop or put right something the model returned */
   dropped: number;

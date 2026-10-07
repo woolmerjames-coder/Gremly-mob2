@@ -954,6 +954,21 @@ describe('one of the needs you cards, talked through', () => {
     expect(h.last().metadata_json).toMatchObject({ card: 'needs_you' });
   });
 
+  it('gives a card its own answers to tap, and sends the one tapped as their words', async () => {
+    const h = await started({ status: 'started', answers: { step: 'needs_you' } });
+    const r = () => h.hook.result.current;
+    await h.go(() => r().needsYou.talk(1));
+    const asked = h.last().metadata_json as any;
+    expect(asked.kind).toBe('week_reasons');
+    expect(asked.buttons.map((b: any) => b.label)).toEqual([
+      'A set hour after school',
+      'Doing one class at a time',
+      'Someone to mark with',
+    ]);
+    await h.tap('week_reason');
+    expect(h.deps.tellGremly).toHaveBeenCalledWith('A set hour after school');
+  });
+
   it('follows an intention changed on Gremly’s card', async () => {
     const h = await started({
       status: 'started',

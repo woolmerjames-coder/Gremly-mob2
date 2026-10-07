@@ -53,7 +53,7 @@ import { AGENT_PROMPT_VERSION, isLate } from './prompt.js';
 import { dayEndHourOf } from '../../shared/day.js';
 import { checkForCorrection } from '../context/corrections.js';
 
-export const BRIEF_AGENT_VERSION = `brief-2026-10-09a/${AGENT_PROMPT_VERSION}`;
+export const BRIEF_AGENT_VERSION = `brief-2026-10-09b/${AGENT_PROMPT_VERSION}`;
 
 // the planning day ends here when nothing earlier ends it, as in the day turn
 const DAY_END = 22 * 60;
@@ -790,10 +790,12 @@ export function weekContext(week) {
     }
     if (u.about) {
       const a = u.about;
+      // Talking one through ends with something to say yes to (James, 9
+      // October): before this a reply could stop at another question.
       L.push(
         '',
         'THEY OPENED ONE TO TALK IT THROUGH',
-        `"${a.title}"${a.item_ids.length ? ` (todos ${a.item_ids.join(', ')})` : ''}${a.stuck_because ? `. Why it seems stuck: ${a.stuck_because}` : ''}${a.question ? `. Gremly asked: "${a.question}"` : ''}. Their message is about this. Help them get it unstuck the way a friend would, and when what they say settles what should happen to it, offer that change.`,
+        `"${a.title}"${a.item_ids.length ? ` (todos ${a.item_ids.join(', ')})` : ''}${a.stuck_because ? `. Why it seems stuck: ${a.stuck_because}` : ''}${a.question ? `. Gremly asked: "${a.question}"` : ''}. Their message is about this: it is their answer to what Gremly asked. Help them get it unstuck the way a friend would, and do not leave it at talk or at another question. End your reply with one concrete offer on the card: the change to these todos, or the one new todo, that moves it on from what they just told you. When what they said could go more than one way, offer the likeliest and say the other in a few words.`,
       );
     }
   }

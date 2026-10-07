@@ -286,7 +286,11 @@ export const WEEK_COPY = {
   changeUndoFailed: "I couldn't take all of that back. Have a look at your week.",
 } as const;
 
-/** The reasons under a needs you question: taps that go to Gremly as their words. */
+/**
+ * The reasons under a needs you question when its card has no answers of its
+ * own (a read made before each card had them): taps that go to Gremly as
+ * their words.
+ */
 export const TALK_REASONS = [
   'Feels too big',
   'Not sure it matters',

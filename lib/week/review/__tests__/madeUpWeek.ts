@@ -106,6 +106,8 @@ export function madeUpRead(over: Partial<WeekRead> = {}): WeekRead {
         title: 'The Year 9 marking',
         stuck_because: 'It keeps slipping to the weekend.',
         question: 'What would make this one easier?',
+        // this card's own answers to tap; the boiler's has none, as a read made before them
+        answers: ['A set hour after school', 'Doing one class at a time', 'Someone to mark with'],
       },
     ],
     habit_days: [{ habit_id: ID.swim, days: [MON, SAT], reason: 'The pool is quiet then.' }],

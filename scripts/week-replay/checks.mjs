@@ -38,6 +38,7 @@ export function wordsOf(read) {
     add('needs you', n.title);
     add('needs you why', n.stuck_because);
     add('needs you question', n.question);
+    for (const a of n.answers || []) add('needs you answer', a);
   }
   for (const h of read.habit_days || []) add('habit reason', h.reason);
   return out;
@@ -55,8 +56,27 @@ export function figuresGiven(input) {
     .replace(/\b\d{4}-\d{2}-\d{2}\b/g, ' ')
     .replace(/\b\d{1,2}(?::\d{2})?(?:am|pm)\b/g, ' ')
     .replace(/\b\d{1,2}:\d{2}\b/g, ' ')
-    .replace(/\b[thd]\d+\b/g, ' ');
+    .replace(/\b[thdc]\d+\b/g, ' ');
   return new Set((plain.match(/\d+(?:\.\d+)?/g) || []).map(Number));
+}
+
+/**
+ * How much of a needs you title is made of its todos' own words: the share of
+ * its longer words that one of those todos' names has too, by how each word
+ * starts, so a word in another form still counts. A measure for the replay
+ * alone, to compare one prompt with another.
+ */
+const starts = (text) =>
+  String(text || '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length > 3)
+    .map((w) => w.slice(0, 4));
+export function ownWords(title, itemTitles) {
+  const mine = starts(title);
+  if (!mine.length) return 1;
+  const theirs = new Set(itemTitles.flatMap(starts));
+  return mine.filter((w) => theirs.has(w)).length / mine.length;
 }
 
 export function checkRun(s, out) {
@@ -101,7 +121,7 @@ export function checkRun(s, out) {
   add('fail', 'No dashes', !dashed.length, dashed.map((w) => `${w.where}: ${w.text}`).join(' | '));
 
   // the short ids are for the id fields: none belongs in what the person reads
-  const withIds = wordsOf(read).filter((w) => /\b[thd]\d+\b/.test(w.text));
+  const withIds = wordsOf(read).filter((w) => /\b[thdc]\d+\b/.test(w.text));
   add(
     'fail',
     'No id in what Gremly wrote',
@@ -188,6 +208,56 @@ export function checkRun(s, out) {
     read.needs_you.length <= READ_LIMITS.needs_you &&
       read.needs_you.every((n) => n.stuck_because && n.question),
     `${read.needs_you.length}`,
+  );
+
+  // each needs you card has answers of its own to tap (one too long to tap shows as a drop)
+  const noAnswers = read.needs_you.filter(
+    (n) => !Array.isArray(n.answers) || n.answers.length < 2 || n.answers.length > READ_LIMITS.answers,
+  );
+  add(
+    'fail',
+    'Every needs you has two to four answers to tap',
+    !noAnswers.length,
+    noAnswers.map((n) => `${n.title}: ${(n.answers || []).join(' / ') || 'none'}`).join('; '),
+  );
+
+  // A needs you title is in its todos' own words. Where health is in it the
+  // title is in general terms instead, which the judge reads.
+  if (!s.judge) {
+    const name = new Map(g.todos.map((t) => [t.id, t.title]));
+    const renamed = read.needs_you
+      .map((n) => ({ n, share: ownWords(n.title, n.item_ids.map((id) => name.get(id) || '')) }))
+      .filter((x) => x.share < 0.6);
+    add(
+      'fail',
+      "Needs you titles are in the todos' own words",
+      !renamed.length,
+      renamed.map((x) => `${x.n.title} (${Math.round(x.share * 100)}%)`).join('; '),
+    );
+  }
+
+  // What is on a calendar is not all meetings. Where none of it is, Gremly
+  // calls none of it one; where only some is, never counts or describes it
+  // all as meetings (one entry that is a meeting may still be called one).
+  if (s.calendar) {
+    const all = s.calendar === 'none' ? /\bmeetings?\b/i : /\bmeetings\b|\bmeeting\s+(?:time|hours?|heavy)\b/i;
+    const meetings = wordsOf(read).filter((w) => all.test(w.text));
+    add(
+      'fail',
+      'Does not call what is on their calendar meetings',
+      !meetings.length,
+      meetings.map((w) => `${w.where}: ${w.text}`).join(' | '),
+    );
+  }
+
+  // a milestone is for something that needs preparing for, never one todo
+  const deliverables = new Set(s.deliverables || []);
+  const forOne = read.milestones.filter((m) => m.about.type === 'todo' && !deliverables.has(m.about.id));
+  add(
+    'fail',
+    'No milestone leads up to a single todo',
+    !forOne.length,
+    forOne.map((m) => m.about.title).join('; '),
   );
 
   // the coming up list is dated moments still ahead, in order (the code sorts and bounds it)
