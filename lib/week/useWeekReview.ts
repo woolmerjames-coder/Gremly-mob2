@@ -54,6 +54,7 @@ import {
   addDays,
   cycleOf,
   extraUsed,
+  planFrom,
   readServes,
   reliefBasis,
   reviewOn,
@@ -193,16 +194,25 @@ function nowPart() {
   return dayPartAt(Math.floor(minutesOfDay() / 60));
 }
 
+/**
+ * The first day a review opened now plans from: today, or tomorrow once it is
+ * evening for them (workers/shared/week.js planFrom).
+ */
+function fromNow(today: string): string {
+  return planFrom(today, getDateService().minutesIntoDay());
+}
+
 /** The review of another week than the one today's date gives: what it is, from its own row. */
 function onFor(today: string, weeklyDay: number, row: WeekReviewRow): ReviewOn {
-  const byDate = reviewWith(today, weeklyDay, row);
+  const byDate = reviewWith(today, weeklyDay, row, fromNow(today));
   if (byDate.week_start === row.week_start) return byDate;
   return {
     kind: row.kind,
     promoted: false,
     fresh: false,
     week_start: row.week_start,
-    span_start: today > row.span_start ? today : row.span_start,
+    // from today, or from tomorrow in the evening, when its own first day has gone by
+    span_start: fromNow(today) > row.span_start ? fromNow(today) : row.span_start,
     span_end: addDays(row.week_start, 6),
   };
 }
@@ -343,6 +353,11 @@ export interface WeekReview {
     close: () => void;
     /** A todo to a day, or to Later */
     move: (todoId: string, to: string | 'later') => void;
+    /**
+     * A todo ticked done on the board, or its tick taken back. Unlike a move
+     * it is saved at once: it is done, whatever becomes of the week.
+     */
+    tick: (todoId: string, done: boolean) => void;
     toggleHabit: (habitId: string, day: string) => void;
     /**
      * Pause a habit for the days being planned, give it a lighter version
@@ -584,7 +599,12 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
     askedBasis.current = askedFor.spread;
     patchSession({ fitting: true, spreadFailed: false });
     try {
-      const res = await callWeekSpread({ date: day, board: ownMoves(now.moves) });
+      // the first day being planned goes with it, so the spread is made for the days this board has
+      const res = await callWeekSpread({
+        date: day,
+        first: now.on.span_start,
+        board: ownMoves(now.moves),
+      });
       if (mine !== spreadAsk.current) return;
       if (res.ok) {
         spreadMade(r.id, res.data.spread, askedFor);
@@ -713,7 +733,8 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
     patchSession({ loading: true });
     try {
       const day = today();
-      const res = await callWeekRead({ date: day });
+      // In the evening the review plans from tomorrow: the read is made for those days.
+      const res = await callWeekRead({ date: day, first: fromNow(day) });
       if (res.ok) {
         setReview(res.data.review, res.data.on as ReviewOn);
         useThisWeek.getState().setReview(res.data.review);
@@ -751,7 +772,9 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
     // never read: their weekly day here would be a default, and the wrong week could be opened
     if (!loaded) throw new Error('Their weekly day and this week could not be read.');
     const day = today();
-    const byDate = reviewOn(day, weeklyDay);
+    // opened in the evening, it plans from tomorrow: today is as good as over
+    const from = fromNow(day);
+    const byDate = reviewOn(day, weeklyDay, from);
     const target =
       cycleRow && cycleRow.week_start === byDate.week_start
         ? cycleRow
@@ -763,7 +786,7 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
       day,
       byDate,
       target,
-      on: reviewWith(day, weeklyDay, target),
+      on: reviewWith(day, weeklyDay, target, from),
     };
   }, []);
 
@@ -1702,6 +1725,15 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
         if (!b) return;
         setMoves(moveTodo(b, session().moves, todoId, to));
         keepMovesSoon();
+      },
+      tick: (todoId: string, done: boolean) => {
+        if (!onBoard()) return;
+        const st = store();
+        // The store puts the todo back as it was when the write fails, and the
+        // board then shows it as it is saved.
+        Promise.resolve(done ? st.completeTodo(todoId) : st.uncompleteTodo(todoId)).catch(
+          (err: unknown) => console.warn('[Week] a tick on the board could not be saved:', err),
+        );
       },
       toggleHabit: (habitId: string, day: string) => {
         const b = onBoard() ? currentBoard() : null;

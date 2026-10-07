@@ -2561,7 +2561,8 @@ export interface WeekReadResponse {
  *   call counts as lost (pings come every eight seconds)
  */
 export async function callWeekRead(
-  req: { date: string },
+  /** first: the first day the review plans from, when it is opened in the evening and that is tomorrow */
+  req: { date: string; first?: string | null },
   opts: { timeoutMs?: number; quietMs?: number } = {},
 ): Promise<CortexClientResult<WeekReadResponse>> {
   const baseUrl = readCortexUrl();
@@ -2572,7 +2573,7 @@ export async function callWeekRead(
   return askOnce<WeekReadResponse>(
     baseUrl,
     token,
-    { type: 'week-read', date: req.date },
+    { type: 'week-read', date: req.date, first: req.first ?? null },
     {
       timeoutMs: opts.timeoutMs ?? 120000,
       quietMs: opts.quietMs ?? 30000,
@@ -2610,6 +2611,8 @@ export interface WeekSpreadResponse {
 export async function callWeekSpread(
   req: {
     date: string;
+    /** The first day being planned as the app has it: tomorrow for a review opened in the evening */
+    first?: string | null;
     board?: {
       placed: { id: string; day: string }[];
       later: { id: string; back_on: string }[];
@@ -2628,7 +2631,7 @@ export async function callWeekSpread(
   return askOnce<WeekSpreadResponse>(
     baseUrl,
     token,
-    { type: 'week-spread', date: req.date, board: req.board ?? null },
+    { type: 'week-spread', date: req.date, first: req.first ?? null, board: req.board ?? null },
     {
       timeoutMs: opts.timeoutMs ?? 90000,
       quietMs: opts.quietMs ?? 30000,

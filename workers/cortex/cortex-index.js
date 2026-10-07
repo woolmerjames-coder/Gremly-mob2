@@ -7780,6 +7780,8 @@ ${assistantMessage.substring(0, 2000)}
                 user_id: authenticatedUserId,
                 // the app's day; inngest-jobs takes it when it is a real day near the person's own
                 date: typeof body.date === 'string' ? body.date.slice(0, 10) : null,
+                // the first day it plans from: tomorrow for a review opened in the evening
+                first: typeof body.first === 'string' ? body.first.slice(0, 10) : null,
               }),
             }).catch((err) => {
               console.error('[WeekRead] could not reach inngest-jobs', err?.message || err);
@@ -7815,6 +7817,8 @@ ${assistantMessage.substring(0, 2000)}
               body: JSON.stringify({
                 user_id: authenticatedUserId,
                 date: typeof body.date === 'string' ? body.date.slice(0, 10) : null,
+                // the first day being planned as the app's board has it
+                first: typeof body.first === 'string' ? body.first.slice(0, 10) : null,
                 // ids and days only; inngest-jobs reads it again and leaves out anything else
                 board: body.board && typeof body.board === 'object' ? body.board : null,
               }),

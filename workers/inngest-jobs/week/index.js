@@ -140,9 +140,13 @@ export function readEffort(_on) {
  *
  * @param {object} env
  * @param {string} userId
- * @param {{today?: string, ahead?: boolean, needsReview?: boolean, at?: Date, deps?: {run?: Function, gather?: Function}}} [p]
+ * @param {{today?: string, first?: string, ahead?: boolean, needsReview?: boolean, at?: Date, deps?: {run?: Function, gather?: Function}}} [p]
  *   today is the app's day, or the weekly day the pipe is for; it is taken
  *   when it is within a day of the person's day as worked out here.
+ *   first is the first day the review plans from as the app has it: tomorrow
+ *   for a review opened in the evening (workers/shared/week.js reviewOn takes
+ *   nothing else). The app says so, and the read and the spread follow, so
+ *   all three plan the same days.
  *   needsReview turns the four week rule on or off for one call (it is
  *   READ_AHEAD_NEEDS_REVIEW when not given)
  * @returns {Promise<{on: object, review: object|null, read: object|null, skipped?: string}>}
@@ -155,7 +159,7 @@ export async function prepareWeekRead(env, userId, p = {}) {
   const mine = await personToday(env, userId, tz, at);
   const today = isDay(p.today) && Math.abs(daysBetween(mine, p.today)) <= 1 ? p.today : mine;
   const row = await rowOf(d, userId, reviewOn(today, settings.weekly_day).week_start);
-  const on = reviewWith(today, settings.weekly_day, row);
+  const on = reviewWith(today, settings.weekly_day, row, p.first);
   if (readServes(on, row)) return { on, review: row, read: null };
 
   if (p.ahead) {
@@ -279,7 +283,8 @@ export async function ensureWeekRead(env, userId, p = {}) {
  *
  * @param {object} env
  * @param {string} userId
- * @param {{today?: string, board?: object, at?: Date, deps?: {run?: Function, gather?: Function}}} [p]
+ * @param {{today?: string, first?: string, board?: object, at?: Date, deps?: {run?: Function, gather?: Function}}} [p]
+ *   first is the first day being planned as the app's board has it (prepareWeekRead)
  * @returns {Promise<{on: object, spread: object}>}
  */
 export async function ensureWeekSpread(env, userId, p = {}) {
@@ -289,7 +294,7 @@ export async function ensureWeekSpread(env, userId, p = {}) {
   const mine = await personToday(env, userId, tz, at);
   const today = isDay(p.today) && Math.abs(daysBetween(mine, p.today)) <= 1 ? p.today : mine;
   const row = await rowOf(d, userId, reviewOn(today, settings.weekly_day).week_start);
-  const on = reviewWith(today, settings.weekly_day, row);
+  const on = reviewWith(today, settings.weekly_day, row, p.first);
   if (!row || !row.read || typeof row.read !== 'object') {
     throw new Error('there is no review with a read to spread');
   }
@@ -423,7 +428,7 @@ export function createWeekFunctions(inngest, { synthesis }) {
 }
 
 /**
- * POST /api/week-read { user_id, date } (admin key checked upstream). Making a
+ * POST /api/week-read { user_id, date, first } (admin key checked upstream). Making a
  * read takes most of a minute, so the work is also handed to the worker's own
  * lifetime (ctx.waitUntil): if the phone stops waiting, the work carries on
  * for as long as the worker is allowed to, and a read that gets finished is
@@ -434,7 +439,7 @@ export async function handleWeekReadApi(request, env, corsResponse, ctx) {
     const body = await request.json().catch(() => ({}));
     const userId = typeof body.user_id === 'string' ? body.user_id : null;
     if (!userId || !UUID.test(userId)) return corsResponse({ error: 'user_id is required' }, 400);
-    const work = ensureWeekRead(env, userId, { today: body.date });
+    const work = ensureWeekRead(env, userId, { today: body.date, first: body.first });
     ctx?.waitUntil?.(work.catch(() => undefined));
     const r = await work;
     return corsResponse({ made: r.made, on: r.on, review: r.review });
@@ -445,7 +450,7 @@ export async function handleWeekReadApi(request, env, corsResponse, ctx) {
 }
 
 /**
- * POST /api/week-spread { user_id, date, board } (admin key checked
+ * POST /api/week-spread { user_id, date, first, board } (admin key checked
  * upstream). A spread takes about twenty seconds, so like the read its work is
  * handed to the worker's own lifetime: one that gets finished is kept on the
  * week's row whether or not the phone is still waiting.
@@ -455,7 +460,11 @@ export async function handleWeekSpreadApi(request, env, corsResponse, ctx) {
     const body = await request.json().catch(() => ({}));
     const userId = typeof body.user_id === 'string' ? body.user_id : null;
     if (!userId || !UUID.test(userId)) return corsResponse({ error: 'user_id is required' }, 400);
-    const work = ensureWeekSpread(env, userId, { today: body.date, board: body.board });
+    const work = ensureWeekSpread(env, userId, {
+      today: body.date,
+      first: body.first,
+      board: body.board,
+    });
     ctx?.waitUntil?.(work.catch(() => undefined));
     const r = await work;
     return corsResponse({ on: r.on, spread: r.spread });

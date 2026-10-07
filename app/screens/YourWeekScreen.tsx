@@ -285,6 +285,13 @@ export default function YourWeekScreen() {
         onMove={(id, to) => {
           if (board) setMoves((m) => moveTodo(board, m, id, to));
         }}
+        // a tick is saved at once, whatever becomes of the moves: the todo is done
+        onTick={(id, ticked) => {
+          const st = useGremlyStore.getState() as any;
+          Promise.resolve(ticked ? st.completeTodo(id) : st.uncompleteTodo(id)).catch(
+            (err: unknown) => console.warn('[YourWeek] a tick could not be saved:', err),
+          );
+        }}
         onToggleHabit={(id, day) => {
           if (board) setMoves((m) => toggleHabitDay(board, m, id, day));
         }}

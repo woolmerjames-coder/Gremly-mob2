@@ -317,7 +317,11 @@ describe('opening the review', () => {
       "me: Let's do it",
       'gremly: Give me a minute to look at everything.',
     ]);
-    expect((callWeekRead as jest.Mock).mock.calls[0][0]).toEqual({ date: '2026-10-04' });
+    // the week Sunday's review plans starts tomorrow, in the evening as at any hour
+    expect((callWeekRead as jest.Mock).mock.calls[0][0]).toEqual({
+      date: '2026-10-04',
+      first: '2026-10-05',
+    });
     rows['row-1'] = madeUpRow();
     await act(async () => {
       finish({
@@ -987,7 +991,7 @@ describe('picking a review up later', () => {
 
   it('on a later day puts every card so far back in the new thread, with the same read', async () => {
     rows['row-1'] = madeUpRow(part as any);
-    at(7); // Wednesday: by the date this would be the extra
+    at(7, 10); // Wednesday morning: by the date this would be the extra
     const h = harness();
     await h.go((r) => r.open());
     expect(callWeekRead).not.toHaveBeenCalled();
@@ -1012,6 +1016,30 @@ describe('picking a review up later', () => {
     });
     // busy days already gone are not on the card
     expect(useWeekSession.getState().draft?.busy).toEqual([THU]);
+  });
+
+  it('in the evening plans from tomorrow: today is as good as over', async () => {
+    rows['row-1'] = madeUpRow(part as any);
+    at(7, 19); // Wednesday, seven in the evening
+    const h = harness();
+    await h.go((r) => r.open());
+    expect(useWeekSession.getState().on).toMatchObject({
+      kind: 'weekly',
+      resumed: true,
+      span_start: THU,
+      span_end: '2026-10-11',
+    });
+    // Gremly is told the same days
+    expect(h.hook.result.current.context()?.under_way).toMatchObject({
+      first: THU,
+      last: '2026-10-11',
+    });
+    // one minute before five it is still the afternoon, and today is planned
+    resetWeekSession();
+    at(7, 16, 59);
+    const earlier = harness();
+    await earlier.go((r) => r.open());
+    expect(useWeekSession.getState().on).toMatchObject({ span_start: WED });
   });
 
   it('in the thread that holds it adds nothing when its card is still the last thing there', async () => {
@@ -1109,7 +1137,8 @@ describe('once the week is planned', () => {
     });
     await h.tap('week_start');
     expect(h.thread()[3]).toBe(`me: ${WEEK_COPY.planAgain}`);
-    expect(callWeekRead).toHaveBeenCalledWith({ date: WED });
+    // asked in the morning: the fresh read is made for the days from today
+    expect(callWeekRead).toHaveBeenCalledWith({ date: WED, first: WED });
     // under way again from the fresh read, as the week's one extra
     expect(rows['row-1']).toMatchObject({ status: 'started', kind: 'extra' });
     // what they settled is where the cards start; what was said of the old read is gone
@@ -1218,7 +1247,7 @@ describe('once the week is planned', () => {
       };
     });
     await h.tap('week_start');
-    expect(callWeekRead).toHaveBeenCalledWith({ date: SAT });
+    expect(callWeekRead).toHaveBeenCalledWith({ date: SAT, first: SAT });
     expect(rows['row-2'].status).toBe('started');
     // this week's finished review is untouched
     expect(rows['row-1'].status).toBe('done');
@@ -1696,6 +1725,8 @@ describe('the week’s board', () => {
     expect(callWeekSpread).toHaveBeenCalledTimes(1);
     expect((callWeekSpread as jest.Mock).mock.calls[0][0]).toEqual({
       date: SUN,
+      // the first day being planned, as this board has it
+      first: MON,
       board: { placed: [], later: [], habit_days: [], habit_ease: [] },
     });
     expect(useWeekSession.getState()).toMatchObject({ fitting: false, spreadFailed: false });
@@ -1798,6 +1829,34 @@ describe('the week’s board', () => {
     // no todo, habit day or plan is saved by any of it
     expect(saveBoard).not.toHaveBeenCalled();
     expect(rows['row-1'].status).toBe('started');
+  });
+
+  it('saves a done tick on the board at once, and takes it back the same way', async () => {
+    mockStore.completeTodo = jest.fn(async () => undefined);
+    mockStore.uncompleteTodo = jest.fn(async () => undefined);
+    const h = await onBoard();
+    const r = () => h.hook.result.current;
+    await h.go(() => r().board.open());
+    await h.go(() => r().board.tick(ID.boiler, true));
+    expect(mockStore.completeTodo).toHaveBeenCalledWith(ID.boiler);
+    await h.go(() => r().board.tick(ID.boiler, false));
+    expect(mockStore.uncompleteTodo).toHaveBeenCalledWith(ID.boiler);
+    // a tick is no move, and it does not ask for the week to be spread again
+    expect(useWeekSession.getState().moves.placed ?? {}).toEqual({});
+    await tick(h, 5000);
+    expect(callWeekSpread).toHaveBeenCalledTimes(1);
+    // one that cannot be saved is said in the log, and nothing is thrown at the board
+    mockStore.completeTodo = jest.fn(async () => {
+      throw new Error('offline');
+    });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    await h.go(() => r().board.tick(ID.boiler, true));
+    await tick(h);
+    expect(warn).toHaveBeenCalledWith(
+      '[Week] a tick on the board could not be saved:',
+      expect.any(Error),
+    );
+    warn.mockRestore();
   });
 
   it('writes the whole week on Done, ends the review, and can take it all back', async () => {

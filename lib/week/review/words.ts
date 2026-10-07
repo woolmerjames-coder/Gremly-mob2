@@ -214,6 +214,10 @@ export const WEEK_COPY = {
   tabLater: 'Later',
   moveTo: 'Move it to',
   later: 'Later',
+  // a todo's done tick on the board, as a screen reader says it, and the ones ticked in Later
+  tickDone: 'Mark as done',
+  tickUndo: 'Mark as not done',
+  tickedHere: 'Done',
   gremlyPick: "Gremly's pick",
   busyNote: "A busy day, so I've kept it light",
   closeTray: 'Close',

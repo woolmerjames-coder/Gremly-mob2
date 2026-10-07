@@ -18,6 +18,7 @@ import {
   isDay,
   minutesOf,
   normHours,
+  planFrom,
   readServes,
   reviewOn,
   reviewWith,
@@ -143,6 +144,27 @@ describe('what a review plans, by the day it starts', () => {
     });
   });
 
+  it('opened in the evening, plans from tomorrow: today is as good as over', () => {
+    const THU = '2026-10-08';
+    // evening begins at five; the small hours before their day ends run on past 24 hours
+    expect(planFrom(TUE, 16 * 60 + 59)).toBe(TUE);
+    expect(planFrom(TUE, 17 * 60)).toBe(WED);
+    expect(planFrom(TUE, 25 * 60 + 30)).toBe(WED);
+    expect(planFrom(TUE, NaN)).toBe(TUE);
+    // Tuesday is in the weekly window, Wednesday is the extra: each plans from the next day
+    expect(reviewOn(TUE, 0, WED)).toEqual({ ...reviewOn(TUE, 0), span_start: WED });
+    expect(reviewOn(WED, 0, THU)).toEqual({ ...reviewOn(WED, 0), span_start: THU });
+    // Friday evening still has the weekend to plan
+    expect(reviewOn(FRI, 0, SAT)).toMatchObject({ span_start: SAT, span_end: '2026-10-11' });
+    // the weekly day and the day before plan a week that starts tomorrow or later anyway
+    expect(reviewOn(SUN, 0, MON)).toEqual(reviewOn(SUN, 0));
+    expect(reviewOn(SAT, 0, '2026-10-11')).toEqual(reviewOn(SAT, 0));
+    // nothing but tomorrow is taken
+    for (const from of [TUE, THU, MON, 'soon', null, undefined]) {
+      expect(reviewOn(TUE, 0, from)).toEqual(reviewOn(TUE, 0));
+    }
+  });
+
   it('keeps to the same rules for another weekly day', () => {
     expect(reviewOn(WED, 3)).toMatchObject({ kind: 'weekly', span_start: '2026-10-08' });
     expect(reviewOn(FRI, 3)).toMatchObject({ kind: 'weekly', span_start: FRI });
@@ -256,6 +278,12 @@ describe('a review opened again', () => {
     expect(on.span_end).toBe('2026-10-11');
     expect(readServes(on, row)).toBe(true);
     expect(extraUsed(row)).toBe(false);
+  });
+
+  it('carries on a review opened again in the evening from the next day', () => {
+    const row = { week_start: week, status: 'started', kind: 'weekly', read };
+    const on = reviewWith(WED, 0, row, '2026-10-08');
+    expect(on).toMatchObject({ kind: 'weekly', resumed: true, span_start: '2026-10-08' });
   });
 
   it('carries on a week brought forward the same way', () => {

@@ -10,6 +10,12 @@
  * was tapped: nothing is saved until Done. To the approved prototype (Weekly
  * sweep prototype, "Plan your week").
  *
+ * Every todo on it has a done tick, on its day and in Later. A tick is the
+ * one thing here that is saved at once: the todo is done, whatever becomes of
+ * the week. The board holds only what is open, so a todo ticked while the
+ * sheet is open stays in sight where it was, struck through, and its tick
+ * can be taken back there.
+ *
  * The arrow in its header is the way back without finishing. The prototype
  * has only Done there; on a phone with no back button that left no way to
  * the thread, to ask Gremly something, short of finishing the week.
@@ -31,7 +37,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AlignJustify, ChevronLeft, Feather, Pause, Plus } from 'lucide-react-native';
+import { AlignJustify, Check, ChevronLeft, Feather, Pause, Plus } from 'lucide-react-native';
 import type { Board, BoardDay, BoardHabit, BoardTodo } from '../../lib/week/board/model';
 import { EASE_NOTE_MAX } from '../../lib/week/habitWeek';
 import {
@@ -80,6 +86,8 @@ export interface WeekBoardProps {
   saving?: boolean;
   onRetry?: () => void;
   onMove: (todoId: string, to: string | 'later') => void;
+  /** A todo's tick was tapped: it is done, or (done false) its tick was taken back */
+  onTick: (todoId: string, done: boolean) => void;
   onToggleHabit: (habitId: string, day: string) => void;
   /**
    * Pause a habit for the days being planned, give it a lighter version for
@@ -222,6 +230,23 @@ function HabitEase({
   );
 }
 
+/** A todo's done tick: empty while it is open, filled once it is ticked here. */
+function Tick({ todo, done, onPress }: { todo: BoardTodo; done: boolean; onPress: () => void }) {
+  return (
+    <TouchableOpacity
+      style={[styles.tick, todo.step && styles.tickStep, done && styles.tickDone]}
+      onPress={onPress}
+      hitSlop={10}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: done }}
+      accessibilityLabel={`${done ? WEEK_COPY.tickUndo : WEEK_COPY.tickDone}: ${todo.title}`}
+      testID={`week-board-tick-${todo.id}`}
+    >
+      {done ? <Check size={13} color={WEEK.linen} strokeWidth={3.2} /> : null}
+    </TouchableOpacity>
+  );
+}
+
 function Age({ todo, today, pill }: { todo: BoardTodo; today: string; pill?: boolean }) {
   const age = ageLabel(todo, today);
   if (!age.show) return null;
@@ -239,6 +264,8 @@ export function WeekBoard(p: WeekBoardProps) {
   const [openTodo, setOpenTodo] = useState<string | null>(null);
   const [openLater, setOpenLater] = useState<string | null>(null);
   const [tray, setTray] = useState(false);
+  // the todos ticked done since the sheet was opened, each with where it was (null: in Later)
+  const [ticked, setTicked] = useState<{ todo: BoardTodo; day: string | null }[]>([]);
   // each opening starts on the days, on the first of them
   useEffect(() => {
     if (!p.visible) return;
@@ -247,6 +274,7 @@ export function WeekBoard(p: WeekBoardProps) {
     setOpenTodo(null);
     setOpenLater(null);
     setTray(false);
+    setTicked([]);
     // only on opening: the day it opens on is not followed after that
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.visible]);
@@ -270,6 +298,29 @@ export function WeekBoard(p: WeekBoardProps) {
     p.onMove(id, to);
     setOpenTodo(null);
     setOpenLater(null);
+  };
+  // One the board holds is open: a tick that could not be saved, or was taken
+  // back, shows as open again whatever was tapped here.
+  const openIds = useMemo(
+    () =>
+      new Set(
+        [...days.flatMap((d) => d.todos), ...(board?.later ?? []), ...(board?.loose ?? [])].map(
+          (t) => t.id,
+        ),
+      ),
+    [days, board?.later, board?.loose],
+  );
+  const doneHere = ticked.filter((x) => !openIds.has(x.todo.id));
+  const doneLater = doneHere.filter((x) => x.day === null);
+  const tick = (todo: BoardTodo, from: string | null) => {
+    setTicked((list) => [...list.filter((x) => x.todo.id !== todo.id), { todo, day: from }]);
+    setOpenTodo(null);
+    setOpenLater(null);
+    p.onTick(todo.id, true);
+  };
+  const untick = (id: string) => {
+    setTicked((list) => list.filter((x) => x.todo.id !== id));
+    p.onTick(id, false);
   };
 
   const totals = board?.totals;
@@ -474,36 +525,40 @@ export function WeekBoard(p: WeekBoardProps) {
                     ))}
                   </View>
                 ) : null}
-                {!picked.todos.length && !picked.habits.length ? (
+                {!picked.todos.length &&
+                !picked.habits.length &&
+                !doneHere.some((x) => x.day === picked.day) ? (
                   <Text style={weekStyles.hint}>{WEEK_COPY.nothingOnDay}</Text>
                 ) : null}
                 {picked.todos.map((t) => {
                   const open = openTodo === t.id;
                   return (
                     <View key={t.id} style={styles.todo}>
-                      <TouchableOpacity
-                        style={styles.todoRow}
-                        onPress={() => setOpenTodo(open ? null : t.id)}
-                        accessibilityRole="button"
-                        accessibilityState={{ expanded: open }}
-                        testID={`week-board-todo-${t.id}`}
-                      >
-                        <View style={[styles.todoDot, t.step && styles.todoDotStep]} />
-                        <View style={styles.todoWords}>
-                          <Text style={styles.todoTitle}>{t.title}</Text>
-                          <View style={styles.todoMeta}>
-                            <Text style={styles.todoMins}>{minsLabel(t.minutes)}</Text>
-                            <Age todo={t} today={p.today} pill />
-                            {t.gremly ? (
-                              <Text style={styles.pick}>{WEEK_COPY.gremlyPick}</Text>
-                            ) : null}
-                            {p.ownTag && t.theirs ? (
-                              <Text style={styles.own}>{WEEK_COPY.yourDay}</Text>
-                            ) : null}
+                      <View style={styles.todoRow}>
+                        <Tick todo={t} done={false} onPress={() => tick(t, picked.day)} />
+                        <TouchableOpacity
+                          style={styles.todoTap}
+                          onPress={() => setOpenTodo(open ? null : t.id)}
+                          accessibilityRole="button"
+                          accessibilityState={{ expanded: open }}
+                          testID={`week-board-todo-${t.id}`}
+                        >
+                          <View style={styles.todoWords}>
+                            <Text style={styles.todoTitle}>{t.title}</Text>
+                            <View style={styles.todoMeta}>
+                              <Text style={styles.todoMins}>{minsLabel(t.minutes)}</Text>
+                              <Age todo={t} today={p.today} pill />
+                              {t.gremly ? (
+                                <Text style={styles.pick}>{WEEK_COPY.gremlyPick}</Text>
+                              ) : null}
+                              {p.ownTag && t.theirs ? (
+                                <Text style={styles.own}>{WEEK_COPY.yourDay}</Text>
+                              ) : null}
+                            </View>
                           </View>
-                        </View>
-                        <AlignJustify size={16} color={WEEK.faint} strokeWidth={2.4} />
-                      </TouchableOpacity>
+                          <AlignJustify size={16} color={WEEK.faint} strokeWidth={2.4} />
+                        </TouchableOpacity>
+                      </View>
                       {open ? (
                         <View style={styles.moveWrap}>
                           <Text style={weekStyles.hint}>{WEEK_COPY.moveTo}</Text>
@@ -513,6 +568,19 @@ export function WeekBoard(p: WeekBoardProps) {
                     </View>
                   );
                 })}
+                {/* ticked done here: still in sight, so the tick can be taken back */}
+                {doneHere
+                  .filter((x) => x.day === picked.day)
+                  .map(({ todo: t }) => (
+                    <View key={t.id} style={styles.todo} testID={`week-board-done-${t.id}`}>
+                      <View style={styles.todoRow}>
+                        <Tick todo={t} done onPress={() => untick(t.id)} />
+                        <Text style={[styles.todoTitle, styles.titleDone, weekStyles.grow]}>
+                          {t.title}
+                        </Text>
+                      </View>
+                    </View>
+                  ))}
                 <TouchableOpacity
                   style={styles.add}
                   onPress={() => setTray(!tray)}
@@ -650,23 +718,26 @@ export function WeekBoard(p: WeekBoardProps) {
                     const open = openLater === t.id;
                     return (
                       <View key={t.id} style={styles.laterItem}>
-                        <TouchableOpacity
-                          style={styles.laterRow}
-                          onPress={() => setOpenLater(open ? null : t.id)}
-                          accessibilityRole="button"
-                          accessibilityState={{ expanded: open }}
-                          testID={`week-board-later-${t.id}`}
-                        >
-                          <View style={styles.laterWords}>
-                            <Text style={styles.laterTitle}>{t.title}</Text>
-                            <Text style={[styles.age, ageLabel(t, p.today).old && styles.ageOld]}>
-                              {ageLabel(t, p.today).text || WEEK_COPY.addedThisMonth}
+                        <View style={styles.laterRow}>
+                          <Tick todo={t} done={false} onPress={() => tick(t, null)} />
+                          <TouchableOpacity
+                            style={styles.laterTap}
+                            onPress={() => setOpenLater(open ? null : t.id)}
+                            accessibilityRole="button"
+                            accessibilityState={{ expanded: open }}
+                            testID={`week-board-later-${t.id}`}
+                          >
+                            <View style={styles.laterWords}>
+                              <Text style={styles.laterTitle}>{t.title}</Text>
+                              <Text style={[styles.age, ageLabel(t, p.today).old && styles.ageOld]}>
+                                {ageLabel(t, p.today).text || WEEK_COPY.addedThisMonth}
+                              </Text>
+                            </View>
+                            <Text style={[styles.back, !t.backOn && styles.noDay]}>
+                              {t.backOn ? backLabel(t.backOn, p.today) : WEEK_COPY.noDayYet}
                             </Text>
-                          </View>
-                          <Text style={[styles.back, !t.backOn && styles.noDay]}>
-                            {t.backOn ? backLabel(t.backOn, p.today) : WEEK_COPY.noDayYet}
-                          </Text>
-                        </TouchableOpacity>
+                          </TouchableOpacity>
+                        </View>
                         {open ? (
                           <MoveChips days={days} at="later" onPick={(to) => move(t.id, to)} />
                         ) : null}
@@ -675,6 +746,20 @@ export function WeekBoard(p: WeekBoardProps) {
                   })}
                 </View>
               ))}
+              {/* ticked done here: still in sight, so the tick can be taken back */}
+              {doneLater.length ? (
+                <View style={styles.laterCard} testID="week-board-later-done">
+                  <Text style={styles.groupName}>{WEEK_COPY.tickedHere}</Text>
+                  {doneLater.map(({ todo: t }) => (
+                    <View key={t.id} style={styles.laterRow} testID={`week-board-done-${t.id}`}>
+                      <Tick todo={t} done onPress={() => untick(t.id)} />
+                      <Text style={[styles.laterTitle, styles.titleDone, weekStyles.grow]}>
+                        {t.title}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
             </>
           ) : null}
         </ScrollView>
@@ -806,8 +891,21 @@ const styles = StyleSheet.create({
   habitChipText: { fontFamily: 'Inter-SemiBold', fontSize: 13, color: WEEK.ink },
   todo: { gap: 8, borderTopWidth: 1, borderTopColor: '#F1ECE3', paddingTop: 10 },
   todoRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  todoDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: WEEK.green },
-  todoDotStep: { backgroundColor: WEEK.amberDeep },
+  // the rest of a row beside its tick: a tap opens where it can move to
+  todoTap: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  // the done tick: green, and amber for a step towards something bigger
+  tick: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1.8,
+    borderColor: WEEK.green,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tickStep: { borderColor: WEEK.amberDeep },
+  tickDone: { borderColor: WEEK.green, backgroundColor: WEEK.green },
+  titleDone: { color: WEEK.muted, textDecorationLine: 'line-through' },
   todoWords: { flex: 1, minWidth: 0, gap: 3 },
   todoTitle: { fontFamily: 'Inter-SemiBold', fontSize: 14, lineHeight: 18, color: WEEK.ink },
   todoMeta: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
@@ -977,6 +1075,7 @@ const styles = StyleSheet.create({
   laterCard: { backgroundColor: WEEK.white, borderRadius: 18, padding: 12, gap: 8 },
   laterItem: { gap: 6 },
   laterRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 44 },
+  laterTap: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8 },
   laterWords: { flex: 1, gap: 2 },
   laterTitle: { fontFamily: 'Inter-SemiBold', fontSize: 13, color: WEEK.ink },
   back: {
