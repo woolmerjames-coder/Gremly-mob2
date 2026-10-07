@@ -106,6 +106,24 @@ function trim(text, n) {
   return s.length > n ? `${s.slice(0, n)}…` : s;
 }
 
+/**
+ * A World's or Chapter's field the person wrote themselves. A correction never
+ * writes over it: their words stay theirs, and they can change them on the
+ * screen.
+ */
+export function isTheirs(row, field) {
+  return row?.[`${field}_source`] === 'user';
+}
+
+/**
+ * What a correction writes into a World's or Chapter's field: the new words and
+ * when. Who wrote the field is left as it was, so Gremly's words stay marked as
+ * his and the next writer can refresh them.
+ */
+export function correctedField(field, text, nowIso) {
+  return { [field]: text, [`${field}_updated_at`]: nowIso };
+}
+
 /** Collect every Gremly-written passage that could carry the wrong claim. */
 async function loadPassages(env, userId, today) {
   const d = db(env);
@@ -113,9 +131,9 @@ async function loadPassages(env, userId, today) {
     d.select(`user_daily_state?user_id=eq.${userId}&date=gte.${today}&select=id,date,dco`),
     d.select(`user_life_map?user_id=eq.${userId}&select=id,life_map`),
     d.select(`user_profiles?user_id=eq.${userId}&select=user_id,profile_text`),
-    d.select(`worlds?owner_id=eq.${userId}&phase=in.(candidate,active,evolving,dormant)&select=id,display_name,name,card_subtitle,summary,key_priorities`),
+    d.select(`worlds?owner_id=eq.${userId}&phase=in.(candidate,active,evolving,dormant)&select=id,display_name,name,card_subtitle,card_subtitle_source,summary,summary_source,key_priorities`),
     d.select(`user_temporal_anchors?user_id=eq.${userId}&status=eq.active&select=id,title,description,resolved_date,source_message`),
-    d.select(`chapters?owner_id=eq.${userId}&select=id,title,card_subtitle,summary,epigraph&limit=80`),
+    d.select(`chapters?owner_id=eq.${userId}&select=id,title,card_subtitle,card_subtitle_source,summary,summary_source,epigraph,epigraph_source&limit=80`),
     d.select(`story_items?user_id=eq.${userId}&state=eq.current&select=id,kind,title,body,fact_ids&limit=200`),
   ]);
 
@@ -162,17 +180,17 @@ async function loadPassages(env, userId, today) {
   if (prof?.profile_text) add('profile', { user_id: prof.user_id, field: 'profile_text' }, prof.profile_text);
 
   for (const w of worlds) {
-    add('world', { id: w.id, field: 'card_subtitle' }, w.card_subtitle);
-    add('world', { id: w.id, field: 'summary' }, w.summary);
+    if (!isTheirs(w, 'card_subtitle')) add('world', { id: w.id, field: 'card_subtitle' }, w.card_subtitle);
+    if (!isTheirs(w, 'summary')) add('world', { id: w.id, field: 'summary' }, w.summary);
     (Array.isArray(w.key_priorities) ? w.key_priorities : []).forEach((k, i) =>
       add('world', { id: w.id, field: 'key_priorities', index: i }, typeof k === 'string' ? k : k?.text),
     );
   }
 
   for (const c of chapters || []) {
-    add('chapter', { id: c.id, field: 'card_subtitle' }, c.card_subtitle);
-    add('chapter', { id: c.id, field: 'summary' }, c.summary);
-    add('chapter', { id: c.id, field: 'epigraph' }, c.epigraph);
+    for (const field of ['card_subtitle', 'summary', 'epigraph']) {
+      if (!isTheirs(c, field)) add('chapter', { id: c.id, field }, c[field]);
+    }
   }
   for (const s of storyItems || []) {
     add('story', { id: s.id, field: 'title' }, s.title);
@@ -457,7 +475,7 @@ ${anchorLines.join('\n') || '(none)'}`;
   for (const [chapterId, patch] of chapterPatches) {
     const body = { updated_at: nowIso };
     for (const field of ['card_subtitle', 'summary', 'epigraph']) {
-      if (field in patch) Object.assign(body, { [field]: patch[field], [`${field}_source`]: 'user', [`${field}_updated_at`]: nowIso });
+      if (field in patch) Object.assign(body, correctedField(field, patch[field], nowIso));
     }
     await d.update(`chapters?id=eq.${chapterId}&owner_id=eq.${userId}`, body);
   }
@@ -540,15 +558,8 @@ ${anchorLines.join('\n') || '(none)'}`;
   }
   for (const [worldId, patch] of worldPatches) {
     const body = { updated_at: nowIso };
-    if ('card_subtitle' in patch) {
-      body.card_subtitle = patch.card_subtitle;
-      body.card_subtitle_source = 'user';
-      body.card_subtitle_updated_at = nowIso;
-    }
-    if ('summary' in patch) {
-      body.summary = patch.summary;
-      body.summary_source = 'user';
-      body.summary_updated_at = nowIso;
+    for (const field of ['card_subtitle', 'summary']) {
+      if (field in patch) Object.assign(body, correctedField(field, patch[field], nowIso));
     }
     if ('key_priorities' in patch) body.key_priorities = patch.key_priorities.filter((x) => x != null);
     await d.update(`worlds?id=eq.${worldId}&owner_id=eq.${userId}`, body);
