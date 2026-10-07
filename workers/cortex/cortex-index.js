@@ -247,6 +247,7 @@ import {
   evidenceGrounded,
   NO_EXTRACTION_MODES,
 } from './chatPrompts.js';
+import { forgetPerson } from './context/forget.js';
 
 async function getCachedDomainNames(userId, env) {
   if (!userId || !env.CONTEXT_CACHE) return [];
@@ -3377,6 +3378,7 @@ const cortexHandler = {
         'week-read',
         'week-spread',
         'notification-test',
+        'forget-me',
       ]);
       const AUTH_REQUIRED_LANES = new Set([
         'space_chat',
@@ -7599,6 +7601,21 @@ ${assistantMessage.substring(0, 2000)}
           hasList,
           latency_ms: latency,
         });
+      }
+
+      // =========================
+      // === FORGET EVERYTHING ===
+      // On What Gremly knows, after they said yes: Gremly forgets what he
+      // learned about the signed in person (context/forget.js).
+      // =========================
+      if (type === 'forget-me') {
+        try {
+          const forgotten = await forgetPerson(env, authenticatedUserId);
+          return j({ ok: true, forgotten });
+        } catch (err) {
+          console.error('[forget-me] failed:', err);
+          return j({ error: 'could not forget' }, 500);
+        }
       }
 
       // =========================

@@ -2118,6 +2118,33 @@ export async function callNotRight(input: {
 }
 
 /**
+ * Forget Everything (What Gremly knows), after the person said yes: Gremly
+ * forgets what he learned about them (workers/cortex/context/forget.js). The
+ * reply says how much of each kind was forgotten.
+ */
+export async function callForgetMe(): Promise<
+  CortexClientResult<{ ok?: boolean; forgotten?: Record<string, number> }>
+> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return { ok: false, error: '[cortex] Missing EXPO_PUBLIC_CORTEX_URL' };
+  const token = await getSessionToken();
+  if (!token) return { ok: false, error: 'not signed in' };
+  try {
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ type: 'forget-me' }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.error)
+      return { ok: false, error: String(data?.error || res.status), status: res.status };
+    return { ok: true, data };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
+/**
  * Daily brief in Chat: ask for today's brief to be written now. Used on the
  * first open when the morning job has not written one, and once a day for a
  * fresh brief when the lines were written for an earlier part of the day.

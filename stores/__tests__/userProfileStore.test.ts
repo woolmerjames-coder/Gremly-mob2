@@ -25,6 +25,12 @@ jest.mock('../../lib/supabase/client', () => ({
   },
 }));
 
+// Forget Everything goes through Cortex (workers/cortex/context/forget.js)
+const mockForgetMe = jest.fn();
+jest.mock('../../lib/cortex/CortexClient', () => ({
+  callForgetMe: () => mockForgetMe(),
+}));
+
 // Helper to build chainable mock
 function buildChainableMock(data: unknown, error: unknown = null) {
   return {
@@ -353,65 +359,48 @@ describe('userProfileStore', () => {
   });
 
   describe('forgetEverything', () => {
-    it('clears profile and overrides from state', async () => {
-      useUserProfileStore.setState({
-        profile: {
-          profileText: 'Test',
-          facts: ['fact1', 'fact2'],
-          generatedAt: '2026-01-15T00:00:00Z',
-          relationshipStartedAt: '2025-11-01T00:00:00Z',
-          overridesApplied: 1,
-          identity: {},
-        },
-        overrides: [{ id: '1', action: 'add' as const, fact_text: 'test', created_at: 'now' }],
-      });
-
-      mockFrom.mockImplementation(() => ({
-        delete: jest.fn().mockReturnValue({
-          eq: jest.fn().mockResolvedValue({ data: null, error: null }),
-        }),
-      }));
-
-      await act(async () => {
-        await useUserProfileStore.getState().forgetEverything();
-      });
-
-      const { profile, overrides, isLoading } = useUserProfileStore.getState();
-
-      expect(profile).toBeNull();
-      expect(overrides).toEqual([]);
-      expect(isLoading).toBe(false);
+    const before = () => ({
+      profile: {
+        profileText: 'Test',
+        facts: ['fact1', 'fact2'],
+        generatedAt: '2026-01-15T00:00:00Z',
+        relationshipStartedAt: '2025-11-01T00:00:00Z',
+        overridesApplied: 1,
+        identity: { name: 'Alex' },
+      },
+      overrides: [{ id: '1', action: 'add' as const, fact_text: 'test', created_at: 'now' }],
     });
 
-    it('calls delete on both tables', async () => {
-      useUserProfileStore.setState({
-        profile: {
-          profileText: 'Test',
-          facts: [],
-          generatedAt: null,
-          relationshipStartedAt: null,
-          overridesApplied: 0,
-          identity: {},
-        },
-        overrides: [],
-      });
-
-      const deletedTables: string[] = [];
-      mockFrom.mockImplementation((table: string) => {
-        deletedTables.push(table);
-        return {
-          delete: jest.fn().mockReturnValue({
-            eq: jest.fn().mockResolvedValue({ data: null, error: null }),
-          }),
-        };
-      });
+    it('asks Cortex to forget, then clears what Gremly wrote and keeps who they are', async () => {
+      useUserProfileStore.setState(before());
+      mockForgetMe.mockResolvedValue({ ok: true, data: { ok: true, forgotten: { facts: 3 } } });
 
       await act(async () => {
         await useUserProfileStore.getState().forgetEverything();
       });
 
-      expect(deletedTables).toContain('user_profiles');
-      expect(deletedTables).toContain('user_profile_overrides');
+      const { profile, overrides, isLoading, error } = useUserProfileStore.getState();
+      expect(mockForgetMe).toHaveBeenCalledTimes(1);
+      expect(profile?.profileText).toBeNull();
+      expect(profile?.facts).toEqual([]);
+      expect(profile?.identity).toEqual({ name: 'Alex' });
+      expect(overrides).toEqual([]);
+      expect(isLoading).toBe(false);
+      expect(error).toBeNull();
+    });
+
+    it('changes nothing on screen when the forget fails, and says so', async () => {
+      useUserProfileStore.setState({ ...before(), error: null });
+      mockForgetMe.mockResolvedValue({ ok: false, error: 'could not forget' });
+
+      await act(async () => {
+        await useUserProfileStore.getState().forgetEverything();
+      });
+
+      const { profile, overrides, error } = useUserProfileStore.getState();
+      expect(profile?.profileText).toBe('Test');
+      expect(overrides).toHaveLength(1);
+      expect(error).toBe('Failed to reset profile');
     });
   });
 
