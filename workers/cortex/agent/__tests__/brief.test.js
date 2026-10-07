@@ -592,7 +592,28 @@ describe('a message typed while the evening wrap up is under way', () => {
     expect(text).toContain(
       `Gremly asked: "Is Bella's vet visit on Friday or Monday?", about their todo "Take Bella to the vet" (id ${VET}), Fri 9 Oct.`,
     );
-    expect(text).toContain('put it on the card with propose_changes, with your reply');
+    // the case that changes nothing comes first, and is the whole turn
+    expect(text).toContain('Then see whether that item already agrees with the answer.');
+    expect(text).toContain(
+      'When it does, the reply is the whole turn: no card, and no remark that nothing changes.',
+    );
+    // else the change goes on the card in this step, to that item alone
+    expect(text).toContain(
+      'put the change to it on the card with propose_changes, with your reply, in this step, and change that item alone, since an item that goes with it stays as it is until they ask.',
+    );
+    // that the answer is saved is not said as if the matter were closed
+    expect(text).toContain('saving the answer to what Gremly knows about them changes no item');
+    expect(text).not.toContain('already saved');
+    // a question about their life names no item, so no item is singled out
+    const life = wrapContext(
+      readWrap({ step: 'questions', decisions: [], answering: { question: 'Friday or Monday?' } }),
+    );
+    expect(life).toContain('Then see whether any of their items disagrees with the answer.');
+    expect(life).toContain('When none does, the reply is the whole turn');
+    expect(life).toContain(
+      'When one does, it is still as it was, because saving the answer to what Gremly knows about them changes no item: put the change to it on the card with propose_changes, with your reply, in this step.',
+    );
+    expect(life).not.toContain('change that item alone');
   });
 
   it('is nothing when no wrap up is under way, and comes after the day', () => {

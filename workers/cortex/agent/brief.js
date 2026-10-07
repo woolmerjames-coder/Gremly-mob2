@@ -53,7 +53,7 @@ import { AGENT_PROMPT_VERSION, isLate } from './prompt.js';
 import { dayEndHourOf } from '../../shared/day.js';
 import { checkForCorrection } from '../context/corrections.js';
 
-export const BRIEF_AGENT_VERSION = `brief-2026-10-08a/${AGENT_PROMPT_VERSION}`;
+export const BRIEF_AGENT_VERSION = `brief-2026-10-08b/${AGENT_PROMPT_VERSION}`;
 
 // the planning day ends here when nothing earlier ends it, as in the day turn
 const DAY_END = 22 * 60;
@@ -299,10 +299,25 @@ export function wrapContext(wrap, week = null) {
     const about = a.item
       ? `, about their ${a.item.kind} "${a.item.title}" (id ${a.item.id})${a.item.when ? `, ${a.item.when}` : ''}`
       : '';
+    // What this says on purpose (the day replay, 7 October). The answer being
+    // saved changes no item: said as "already saved to what Gremly knows",
+    // the model took the matter as closed and put no card up, 8 times in 30
+    // with the week on. The change is to the item asked about alone: it moved
+    // a todo that goes with it as well, 4 or 5 times in 30. And the case that
+    // changes nothing comes first: put after the card rule, the model went to
+    // the card to find out, and proposed the day the item already had.
+    const first = a.item
+      ? 'Then see whether that item already agrees with the answer.'
+      : 'Then see whether any of their items disagrees with the answer.';
+    const same = a.item ? 'When it does' : 'When none does';
+    const differs = a.item ? 'When it does not, the item' : 'When one does, it';
+    const alone = a.item
+      ? ', and change that item alone, since an item that goes with it stays as it is until they ask'
+      : '';
     L.push(
       '',
       "THEIR MESSAGE ANSWERS GREMLY'S QUESTION",
-      `Gremly asked: "${a.question}"${about}. Their message is the answer, and it is already saved to what Gremly knows. Take it in as a friend would, in one or two short sentences. When the answer means one of their items is wrong or needs to change, offer that change: put it on the card with propose_changes, with your reply, in this step; when it changes nothing, put nothing on the card, and take the answer in without remarking that nothing changes.`,
+      `Gremly asked: "${a.question}"${about}. Their message is the answer. Take it in as a friend would, in one or two short sentences. ${first} ${same}, the reply is the whole turn: no card, and no remark that nothing changes. ${differs} is still as it was, because saving the answer to what Gremly knows about them changes no item: put the change to it on the card with propose_changes, with your reply, in this step${alone}.`,
     );
   }
   return L.join('\n');
