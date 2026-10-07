@@ -1,6 +1,8 @@
 /**
  * NowQuickAddModal - Modal for quick adding items to Today's Focus
- * Large bottom sheet with MindDrop header, input, submit button, and manual add link
+ * Large bottom sheet with a line saying where the item goes, input, submit button,
+ * and manual add link. What is typed goes through the same drop process as Mind
+ * Drop (useMindDropSubmit, from the screen that mounts this).
  *
  * Uses fire-and-forget pattern: closes immediately on submit, pipeline runs in background.
  */
@@ -14,16 +16,11 @@ import {
   Platform,
   Keyboard,
   View,
-  Image,
   PanResponder,
   Animated,
 } from 'react-native';
 import { Box, Text } from '../../ui';
 import { makeStyles } from '../../design/makeStyles';
-
-// MindDrop header asset
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const MINDDROP_HEADER = require('../../assets/minddrop_header-removebg.png');
 
 interface NowQuickAddModalProps {
   visible: boolean;
@@ -49,22 +46,12 @@ const useStyles = makeStyles((t) => ({
     ...t.elevation.lg,
   },
   headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: t.spacing[2],
+    marginBottom: t.spacing[3],
   },
-  mindDropLogo: {
-    width: 160,
-    height: 40,
-  },
-  headerSubtitle: {
-    fontSize: t.typography.size.sm,
+  headerTitle: {
+    fontSize: t.typography.size.md,
     fontFamily: t.typography.fontFamily.medium,
-    color: t.colors.subtle,
-    textAlign: 'right',
-    flexShrink: 1,
-    marginLeft: t.spacing[2],
+    color: t.colors.text,
   },
   inputContainer: {
     marginBottom: t.spacing[4],
@@ -232,8 +219,13 @@ export function NowQuickAddModal({
           >
             <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
               <View style={styles.headerRow}>
-                <Image source={MINDDROP_HEADER} style={styles.mindDropLogo} resizeMode="contain" />
-                <Text style={styles.headerSubtitle} numberOfLines={1} ellipsizeMode="tail">
+                <Text
+                  style={styles.headerTitle}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                  accessibilityRole="header"
+                  testID="quick-add-title"
+                >
                   Adding to Today's Focus
                 </Text>
               </View>
