@@ -101,9 +101,10 @@ export function isTimeBlockPast(block: TimeBlock): boolean {
 }
 
 /**
- * Infer time window from item name, explicit time window, or due time.
- * Looks for keywords like "Morning", "Evening" in the name.
- * Returns a normalized time window string.
+ * An item's time window from what it holds: its own time window, else the
+ * hour of its due time, else 'any'. The words in its name are never read for
+ * it: a name that says "dinner" or "morning" is the person's own words, not a
+ * time they set.
  */
 export function inferTimeWindow(item: {
   name: string;
@@ -125,29 +126,7 @@ export function inferTimeWindow(item: {
     }
   }
 
-  // 3. Infer from name (case-insensitive)
-  const nameLower = item.name.toLowerCase();
-
-  if (nameLower.includes('morning') || nameLower.includes('breakfast')) {
-    return 'morning';
-  }
-  if (
-    nameLower.includes('afternoon') ||
-    nameLower.includes('lunch') ||
-    nameLower.includes('midday') ||
-    nameLower.includes('noon')
-  ) {
-    return 'afternoon';
-  }
-  if (
-    nameLower.includes('evening') ||
-    nameLower.includes('night') ||
-    nameLower.includes('dinner')
-  ) {
-    return 'evening';
-  }
-
-  // 4. Default to 'any' for daily/anytime items
+  // 3. Nothing it holds says when: any time of day
   return 'any';
 }
 

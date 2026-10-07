@@ -219,32 +219,14 @@ const TIME_WINDOW_PRIORITY: Record<string, number> = {
 };
 
 /**
- * Infer time window from item name if not explicitly set
- * Looks for keywords like "Morning", "Evening", "Daily" in the name
+ * An item's own time window, or 'any' when it has none. The words in its name
+ * are never read for it: with nothing else to go on, an item goes under
+ * Anytime.
  */
 function inferTimeWindow(item: NowActiveItem): string {
-  // If explicitly set, use it
   if (item.timeWindow && item.timeWindow !== 'any') {
     return item.timeWindow;
   }
-
-  // Infer from name (case-insensitive)
-  const nameLower = item.name.toLowerCase();
-
-  if (nameLower.includes('morning')) {
-    return 'morning';
-  }
-  if (nameLower.includes('evening') || nameLower.includes('night')) {
-    return 'evening';
-  }
-  if (nameLower.includes('afternoon')) {
-    return 'afternoon';
-  }
-  if (nameLower.includes('midday') || nameLower.includes('noon') || nameLower.includes('lunch')) {
-    return 'midday';
-  }
-
-  // Default to 'any' for daily/anytime items
   return 'any';
 }
 

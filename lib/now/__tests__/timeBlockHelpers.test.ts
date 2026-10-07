@@ -201,22 +201,10 @@ describe('timeBlockHelpers', () => {
       expect(inferTimeWindow({ name: 'Task', dueTime: '20:00' })).toBe('evening');
     });
 
-    it('infers morning from name keywords', () => {
-      expect(inferTimeWindow({ name: 'Morning meditation' })).toBe('morning');
-      expect(inferTimeWindow({ name: 'Have breakfast' })).toBe('morning');
-    });
-
-    it('infers afternoon from name keywords', () => {
-      expect(inferTimeWindow({ name: 'Afternoon walk' })).toBe('afternoon');
-      expect(inferTimeWindow({ name: 'Lunch with team' })).toBe('afternoon');
-      expect(inferTimeWindow({ name: 'Midday break' })).toBe('afternoon');
-      expect(inferTimeWindow({ name: 'Noon meeting' })).toBe('afternoon');
-    });
-
-    it('infers evening from name keywords', () => {
-      expect(inferTimeWindow({ name: 'Evening jog' })).toBe('evening');
-      expect(inferTimeWindow({ name: 'Night reading' })).toBe('evening');
-      expect(inferTimeWindow({ name: 'Dinner with friends' })).toBe('evening');
+    it('never reads the words in the name', () => {
+      expect(inferTimeWindow({ name: 'Morning meditation' })).toBe('any');
+      expect(inferTimeWindow({ name: 'Lunch with team' })).toBe('any');
+      expect(inferTimeWindow({ name: 'Dinner with friends' })).toBe('any');
     });
 
     it('returns "any" when no inference possible', () => {
@@ -234,7 +222,7 @@ describe('timeBlockHelpers', () => {
       ).toBe('morning');
     });
 
-    it('prioritizes dueTime over name inference', () => {
+    it('goes by dueTime whatever the name says', () => {
       expect(
         inferTimeWindow({
           name: 'Evening task',
