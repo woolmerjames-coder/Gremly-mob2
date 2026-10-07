@@ -1501,6 +1501,30 @@ What comes after this batch:
   workers can go out before the app update.
 - James tests on device; device feedback on batch 4 is still to come.
 
+**Closing fixes (7 October, in the reviewing chat).** Four commits on top of
+545b81c8, from the fix batch's notes, and nothing else changed:
+
+- 74b0a11a: `updateTodo` holds a todo's notes in `body` in the store too
+  (the overlay's Save sends `details`), so reopening shows the saved notes
+  and a chat add can no longer write the old notes over the edit.
+- 06952701: Today's last fallback no longer reads words in an item's name
+  (`inferTimeWindow` in `NowScreenV1.tsx` and `timeBlockHelpers.ts`); with
+  nothing it holds to go on, an item goes under Anytime.
+- 0f93a1cf: the habit days change refuses a break habit (`days_breaking`).
+- 11d35560: one rule, `isBreakHabit` in `workers/shared/habitWeek.js`, used
+  by both sides. A break habit is out of the day card's habits for today
+  (Due today and "N today"), its behind and planned lists, the brief
+  writer's habits for today, the calendar's blocks, and `get_day`, which now
+  reads subtype and says it is one they are breaking, with whether they
+  checked in as kept clear. The brief no longer names break habits at all;
+  Today's Stay mindful and the wrap up check in keep them in sight.
+
+Checked: tsc clean, all 745 jest files pass, day replay 57 of 59, chat 69 of
+72, brief corpus 18 of 18. `ease-usual` in the chat replay passes about one
+run in three today, on 545b81c8 as on these commits (6 runs each, side by
+side): "back to usual" from a message is weak and worth a look later; the
+habit screen's Back to usual button does not depend on the model.
+
 **Step 11, focused model audit.** After chat and Sweep, a smaller audit of
 only the places that could be better, from replays and real use: a stronger
 model for harder jobs where it earns its cost, `none` thinking on a bigger
