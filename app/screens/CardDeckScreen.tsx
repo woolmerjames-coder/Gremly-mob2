@@ -1448,11 +1448,11 @@ export default function CardDeckScreen({ navigation: navProp }: Props) {
 
   const canCreate = useCanCreate();
 
-  // Suppress the global age-up modal while the cards are on screen.
-  // One earned while the cards are open is queued, and shown once they close.
+  // The age up waits while the cards are on screen. One earned while they are
+  // open plays once they close. A fed day still rises over the cards and falls.
   useEffect(() => {
-    celebrationController.suppressAgeUpCelebration(true);
-    return () => celebrationController.suppressAgeUpCelebration(false);
+    celebrationController.holdAgeUp(true);
+    return () => celebrationController.holdAgeUp(false);
   }, []);
 
   const [step, setStep] = useState<number>(1);

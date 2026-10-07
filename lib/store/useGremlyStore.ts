@@ -42,7 +42,6 @@ import type { FeedingContribution, AIMode } from '../types/soulDocument';
 import type { UserTrainingData } from '../training/trainingReadiness';
 import { calculateTrainingReadiness } from '../training/trainingReadiness';
 import {
-  getTierForAge,
   getDropValue,
   FED_THRESHOLD,
   FED_DAYS_PER_AGE_UP,
@@ -68,6 +67,7 @@ import { DEFAULT_WEEKLY_DAY, weeklyDayOf } from '../../workers/shared/week';
 import { setWeeklyDayNow } from '../week/weeklyDayNow';
 import { easePlan, type EaseMode } from '../../workers/shared/habitWeek';
 import celebrationController from '../../app/features/celebration/CelebrationController';
+import { fedDayFor } from '../speech/momentWords';
 import {
   calendarClient,
   type CalendarEvent,
@@ -658,6 +658,8 @@ export interface GremlyState {
   feedingGaugeLastUpdatedAt: string | null;
   /** 0, 1, or 2 - fed days accumulated toward next age-up, resets to 0 after age-up */
   fedDaysCount: number;
+  /** Every day Gremly has been fed, as YYYY-MM-DD ritual days, for the record on the age up page */
+  fedDays: string[];
   /** Current tier name derived from gremlyAge */
   currentTierName: string;
   /** Consecutive unfed days, resets on any fed day */
@@ -750,6 +752,8 @@ export interface GremlyState {
   refreshRitualProgress: () => Promise<void>;
   /** Fetch last 7 days of feeding status from Supabase */
   fetchFeedingHistory: () => Promise<void>;
+  /** The list of fed days, read at app open and again after an age up */
+  loadFedDays: () => Promise<void>;
   /** Fetch lifetime stats for paywall display */
   fetchLifetimeStats: () => Promise<{ daysFed: number; thoughtsCount: number }>;
 
@@ -1285,6 +1289,7 @@ const initialState = {
   feedingContributions: [] as FeedingContribution[],
   feedingGaugeLastUpdatedAt: null as string | null,
   fedDaysCount: 0,
+  fedDays: [] as string[],
   currentTierName: 'Hatchling',
   unfedStreakDays: 0,
   lastFedAt: null as string | null,
@@ -1833,6 +1838,9 @@ export const useGremlyStore = create<GremlyState>()(
               isInitialized: true,
               lastSyncedAt: getDateService().now(),
             });
+
+            // The fed days, for the record on the age up page; never blocks the open
+            void get().loadFedDays();
 
             // Snapshot lifecycle fields into separate cache for offline rehydration
             set((state) => ({
@@ -2518,6 +2526,7 @@ export const useGremlyStore = create<GremlyState>()(
               return { newValue: get().feedingGaugeValue, justFed: false };
             }
 
+            const fedDaysBefore = get().fedDaysCount;
             const newGaugeValue: number = row.new_gauge_value ?? get().feedingGaugeValue;
             const justFed: boolean = row.just_fed ?? false;
             const newFedDaysCount: number = row.new_fed_days_count ?? get().fedDaysCount;
@@ -2574,28 +2583,24 @@ export const useGremlyStore = create<GremlyState>()(
                 );
             }
 
-            // Fed celebration: only fire if the UI hasn't already shown one
-            // (CatchAllNotepad fires from optimistic preview)
+            // The fed moment, when nothing started it from a preview (the wrap
+            // up, the brief, a plan said yes to). fedDaysBefore is the count
+            // before this crossing, so the day reads right on an age up.
             if (justFed && !get().todayFedCelebrationShownAt) {
               set({ todayFedCelebrationShownAt: nowTimestamp() });
-              celebrationController.showFedCelebration(newFedDaysCount);
+              celebrationController.startMoment({
+                day: fedDayFor(fedDaysBefore),
+                age: get().gremlyAge,
+              });
             }
 
-            // Age-up celebration: always fires from here (the store),
-            // since only the server can confirm the age actually changed.
+            // The age up: only the server can confirm the age changed. The
+            // controller takes it from the charge if a day 3 moment is
+            // running, or plays it on its own once the moment is over.
             if (didAgeUp && !get().todayFeedingAgeUpShownAt) {
               set({ todayFeedingAgeUpShownAt: nowTimestamp() });
-
-              const previousAge = newAge - 1;
-              const oldTier = getTierForAge(previousAge);
-              const newTierObj = getTierForAge(newAge);
-              const isTierTransition = oldTier.name !== newTierObj.name;
-
-              celebrationController.showAgeUpCelebration(newAge, {
-                tierName: newTierObj.name,
-                isTierTransition,
-                previousTierName: isTierTransition ? oldTier.name : undefined,
-              });
+              celebrationController.confirmAgeUp(newAge);
+              void get().loadFedDays();
             }
 
             return { newValue: newGaugeValue, justFed };
@@ -2693,6 +2698,16 @@ export const useGremlyStore = create<GremlyState>()(
             pendingGaugePreviews: pendingGaugePreviews + 1,
           });
 
+          // The fed moment starts on the optimistic fill, not on the network.
+          // The server confirms the age for day 3 through addGaugeContribution.
+          if (justCrossedFed && !get().todayFedCelebrationShownAt) {
+            set({ todayFedCelebrationShownAt: nowTimestamp() });
+            celebrationController.startMoment({
+              day: fedDayFor(get().fedDaysCount),
+              age: get().gremlyAge,
+            });
+          }
+
           if (__DEV__) {
             console.log('[GremlyStore] Optimistic gauge preview', {
               dropNumber,
@@ -2728,6 +2743,32 @@ export const useGremlyStore = create<GremlyState>()(
             feedingGaugeValue: (ritualProgress?.feeding_gauge_value as number) ?? 0,
             isFedToday: (ritualProgress?.is_fed as boolean) ?? false,
           });
+        },
+
+        loadFedDays: async () => {
+          const { userId } = get();
+          if (!userId) return;
+          try {
+            const { data, error } = await supabase
+              .from('daily_ritual_progress')
+              .select('ritual_day')
+              .eq('owner_id', userId)
+              .eq('is_fed', true)
+              .order('ritual_day', { ascending: true })
+              .limit(2000);
+            if (error) {
+              console.warn('[GremlyStore] loadFedDays failed:', error.message);
+              return;
+            }
+            const days = (data ?? [])
+              .map((r) =>
+                String((r as { ritual_day: string | null }).ritual_day ?? '').slice(0, 10),
+              )
+              .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d));
+            set({ fedDays: days });
+          } catch (err) {
+            console.warn('[GremlyStore] loadFedDays error:', err);
+          }
         },
 
         fetchFeedingHistory: async () => {
@@ -10652,6 +10693,7 @@ export const useGremlyStore = create<GremlyState>()(
           todayFedCelebrationShownAt: state.todayFedCelebrationShownAt,
           todayFeedingAgeUpShownAt: state.todayFeedingAgeUpShownAt,
           fedDaysCount: state.fedDaysCount,
+          fedDays: state.fedDays,
           currentTierName: state.currentTierName,
           unfedStreakDays: state.unfedStreakDays,
           lastFedAt: state.lastFedAt,

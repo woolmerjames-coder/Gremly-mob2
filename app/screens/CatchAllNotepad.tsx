@@ -123,8 +123,6 @@ import {
   getReturnSpeech,
   getEmptyStateSpeech,
   getFirstVisitSpeech,
-  getPostAgeUpSpeech,
-  getFedCelebrationSpeech,
   type SpeechContext,
 } from '../../lib/speech/gremlySpeech';
 import { getFollowUpMessage } from '../../lib/speech/followUpMessages';
@@ -148,7 +146,8 @@ import {
   getNextTrainingModal,
 } from '../../lib/training/trainingFlow';
 import GaugeExplanationModal from '../components/training/GaugeExplanationModal';
-import FirstFedModal from '../components/training/FirstFedModal';
+import { LadderCaption } from '../features/celebration/LadderCaption';
+import { MORNING_LINE } from '../../lib/speech/momentWords';
 import SweepUnlockModal from '../components/training/SweepUnlockModal';
 import TrainingMeter from '../components/training/TrainingMeter';
 
@@ -1369,7 +1368,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     variant: 'default' | 'celebration';
   } | null>(null);
   const [showGaugeModal, setShowGaugeModal] = useState(false);
-  const [showFirstFedModal, setShowFirstFedModal] = useState(false);
   const [showSweepUnlockModal, setShowSweepUnlockModal] = useState(false);
   const [showTrainingMeter, setShowTrainingMeter] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -1479,12 +1477,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     [feedingGaugeValue, isFedToday, storeLastDropTime, briefHeadline, dco, lastSweepCompletedAt],
   );
 
-  // Subscribe to post-age-up celebration events
+  // Gremly's bubble once a fed moment has gone, and after an age up
   useEffect(() => {
     const unsubscribe = celebrationController.subscribe((payload) => {
-      if (payload.kind === 'post_age_up' && payload.age) {
-        const speech = getPostAgeUpSpeech(payload.age);
-        showGremlySpeech(speech.message, speech.duration, 'celebration');
+      if (payload.kind !== 'moment' || !payload.moment) return;
+      const m = payload.moment;
+      if (m.phase === 'bubble' || (m.phase === 'end' && m.agesUp && m.nextAge !== null)) {
+        showGremlySpeech(m.bubble, 6000, 'celebration');
       }
     });
     return unsubscribe;
@@ -1515,9 +1514,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       return () => clearTimeout(timer);
     }
 
-    // Returning user: same pattern
+    // Returning user: same pattern. On the morning of a third fed day he
+    // says so, instead of the usual greeting.
     hasShownGreetingRef.current = true;
     const timer = setTimeout(() => {
+      const { fedDaysCount: banked, isFedToday: fedNow } = useGremlyStore.getState();
+      if (banked >= 2 && !fedNow) {
+        showGremlySpeech(MORNING_LINE, 8000);
+        return;
+      }
       const ctx = buildSpeechContext('greeting');
       const greeting = getGreetingSpeechV2(ctx);
       if (greeting) {
@@ -2867,35 +2872,21 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           hasSeenFirstFedModal,
         });
 
-        // Still handle fed celebration if this drop crossed the threshold
+        // The fed moment itself starts in the store, on the gauge preview.
+        // The first fed day still marks Day 1 of training as done.
         if (result.justCrossedFed) {
-          if (!hasSeenFirstFedModal) {
-            setTimeout(() => setShowFirstFedModal(true), 2500);
-          } else {
-            celebrationController.showFedCelebration(useGremlyStore.getState().fedDaysCount + 1);
-          }
-          // Mark fed celebration as shown so store path doesn't double-fire
-          useGremlyStore.setState({ todayFedCelebrationShownAt: nowTimestamp() });
+          celebrateFed();
+          if (!hasSeenFirstFedModal) markFirstFedModalSeen();
         }
 
         // Skip all generic speech below
       } else if (result.justCrossedFed) {
         if (isTrainingMode && !hasSeenFirstFedModal) {
           advanceTrainingDropStep();
-          setGremlySpeech(null); // clear "Last one" speech
-
-          celebrateFed();
-          setTimeout(() => setShowFirstFedModal(true), 3500);
-        } else {
-          celebrateFed();
-
-          // Show celebration speech instead of FedToast when user is on MindDrop
-          const fedDaysCount = useGremlyStore.getState().fedDaysCount;
-          const fedSpeech = getFedCelebrationSpeech(fedDaysCount);
-          showGremlySpeech(fedSpeech.message, fedSpeech.duration, 'celebration');
+          markFirstFedModalSeen();
         }
-        // Mark fed celebration as shown so store path doesn't double-fire
-        useGremlyStore.setState({ todayFedCelebrationShownAt: nowTimestamp() });
+        setGremlySpeech(null); // the moment's words take over the bubble
+        celebrateFed();
       } else {
         celebrate();
         // Post-drop speech is now handled by the drop:reaction_ready event listener
@@ -2916,6 +2907,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     trainingDropStep,
     hasSeenGaugeExplanation,
     hasSeenFirstFedModal,
+    markFirstFedModalSeen,
     actionableDropsToday,
     storeLastDropTime,
     dco,
@@ -3531,6 +3523,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               </View>
             </Animated.View>
           </Pressable>
+          {/* The count toward the next age, all day on a fed day */}
+          {chatMode ? null : <LadderCaption />}
         </View>
       )}
 
@@ -3619,16 +3613,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             const combined = reaction ? reaction + '\n\n' + nextPrompt.message : nextPrompt.message;
             setTimeout(() => setGremlySpeech({ message: combined, variant: 'default' }), 300);
           }
-        }}
-      />
-
-      <FirstFedModal
-        visible={showFirstFedModal}
-        onDismiss={() => {
-          setShowFirstFedModal(false);
-          markFirstFedModalSeen();
-          // Immediately show sweep unlock modal
-          setTimeout(() => setShowSweepUnlockModal(true), 300);
         }}
       />
 

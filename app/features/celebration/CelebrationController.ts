@@ -144,6 +144,9 @@ class CelebrationController {
   private reducedMotion = false;
   /** The written card line, when it arrives before or during a moment */
   private cardLine: string | null = null;
+  /** While the cards are on screen the age up waits; the fed moment still plays */
+  private ageUpHeld = false;
+  private heldAgeUp: { age: number; nextAge: number } | null = null;
 
   // Microcopy pool (rotate to avoid repetition)
   private microMessages = [
@@ -340,6 +343,21 @@ class CelebrationController {
   }
 
   /**
+   * The Gremly home hosts the wash under its box and tells the root layer
+   * where the box starts (y in window points). Null when no host is on
+   * screen, and the root layer does the whole rise itself.
+   */
+  private washHostTop: number | null = null;
+
+  setWashHost(top: number | null): void {
+    this.washHostTop = top;
+  }
+
+  getWashHostTop(): number | null {
+    return this.washHostTop;
+  }
+
+  /**
    * A fed day starts here, the instant the gauge crosses full on the
    * optimistic preview. Day 3 runs on into the age up once confirmAgeUp has
    * been called; it waits at the charge for at most AGE_HOLD_MS for that.
@@ -407,6 +425,23 @@ class CelebrationController {
    */
   confirmAgeUp(nextAge: number): void {
     const m = this.moment;
+    if (this.ageUpHeld) {
+      // the cards are open: the fed moment finishes as a fed day and the age up waits
+      this.heldAgeUp = { age: nextAge - 1, nextAge };
+      if (m && m.phase !== 'end' && m.agesUp) {
+        m.agesUp = false;
+        m.bubble = getFedBubble(3);
+        if (this.waitingForAge) {
+          this.waitingForAge = false;
+          if (this.holdTimer) {
+            clearTimeout(this.holdTimer);
+            this.holdTimer = undefined;
+          }
+          this.scheduleFedTail(0, 150, 350);
+        }
+      }
+      return;
+    }
     if (m && m.phase !== 'end' && m.day === 3 && m.agesUp) {
       m.nextAge = nextAge;
       m.ageLine = getAgeLine(nextAge);
@@ -428,6 +463,20 @@ class CelebrationController {
       return;
     }
     this.startAgeUp({ age: nextAge - 1, nextAge });
+  }
+
+  /**
+   * Hold the age up while a focused flow (the card deck) is on screen. One
+   * earned meanwhile plays on its own once the hold lifts; a fed moment is
+   * never held, it only rises over the flow and falls again.
+   */
+  holdAgeUp(hold: boolean): void {
+    this.ageUpHeld = hold;
+    if (!hold && this.heldAgeUp) {
+      const queued = this.heldAgeUp;
+      this.heldAgeUp = null;
+      this.at(400, () => this.startAgeUp(queued));
+    }
   }
 
   /** The age up on its own, from the charge beat, with the cover rising from the bottom. */

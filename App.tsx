@@ -36,7 +36,7 @@ import { configurePurchases } from './lib/subscriptions/purchases';
 // import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 // import type { RootStackParamList } from './navigation/RootNavigator';
 import celebrationController from './app/features/celebration/CelebrationController';
-import AgeUpCelebrationModal from './components/ritual/AgeUpCelebrationModal';
+import { MomentLayer } from './app/features/celebration/MomentLayer';
 import GraduationFlow from './app/screens/GraduationFlow';
 import { GlobalEventPopup } from './components/calendar/GlobalEventPopup';
 import { GlobalEventTimePicker } from './components/calendar/GlobalEventTimePicker';
@@ -107,18 +107,6 @@ function App() {
   const isInitialized = useGremlyStore((s) => s.isInitialized);
   const [showReadonlyIntro, setShowReadonlyIntro] = useState(false);
 
-  // Age-up celebration state - rendered at root level to work over navigation modals
-  const [ageUpState, setAgeUpState] = useState<{
-    visible: boolean;
-    age: number;
-    tierName?: string;
-    isTierTransition?: boolean;
-    previousTierName?: string;
-  }>({
-    visible: false,
-    age: 0,
-  });
-
   const navigationRef = useRef<any>(null);
 
   // Show read-only intro sheet once after entering read-only state
@@ -174,41 +162,12 @@ function App() {
     };
   }, []);
 
-  // Subscribe to age-up celebration events
+  // The keyboard goes when the age up takes the screen, so nothing is hidden behind it
   useEffect(() => {
-    const unsubscribe = celebrationController.subscribe((payload) => {
-      if (payload.kind === 'age_up' && payload.age !== undefined) {
-        if (__DEV__) {
-          console.log('[App] Age-up celebration received, showing modal for age:', payload.age);
-        }
-        // Always dismiss keyboard first (no-op if not visible).
-        // Short delay lets the keyboard animate away so the modal isn't obscured.
-        Keyboard.dismiss();
-        setTimeout(() => {
-          setAgeUpState({
-            visible: true,
-            age: payload.age!,
-            tierName: payload.tierName,
-            isTierTransition: payload.isTierTransition ?? false,
-            previousTierName: payload.previousTierName,
-          });
-        }, 300);
-      }
+    return celebrationController.subscribe((payload) => {
+      if (payload.kind === 'moment' && payload.moment?.phase === 'charge') Keyboard.dismiss();
     });
-    return unsubscribe;
   }, []);
-
-  const handleAgeUpDismiss = useCallback(() => {
-    const dismissedAge = ageUpState.age;
-    setAgeUpState({ visible: false, age: 0 });
-    // Trigger post-age-up Gremly speech after a short delay
-    // so the modal exit animation completes first
-    if (dismissedAge > 0) {
-      setTimeout(() => {
-        celebrationController.showPostAgeUpSpeech(dismissedAge);
-      }, 600);
-    }
-  }, [ageUpState.age]);
 
   // Derive app readiness from fonts (no setState needed)
   const appIsReady = fontsLoaded || fontsError;
@@ -379,15 +338,8 @@ function App() {
                               <GlobalEventTimePicker />
                               {/* Notifications: the one ask */}
                               <NotificationAskSheet />
-                              {/* Age-up celebration modal - always mounted, visibility controlled by prop */}
-                              <AgeUpCelebrationModal
-                                visible={ageUpState.visible}
-                                newAge={ageUpState.age}
-                                tierName={ageUpState.tierName}
-                                isTierTransition={ageUpState.isTierTransition}
-                                previousTierName={ageUpState.previousTierName}
-                                onDismiss={handleAgeUpDismiss}
-                              />
+                              {/* The fed moment and the age up, over the tab bar */}
+                              <MomentLayer />
 
                               {/* Graduation ceremony overlay */}
                               <GraduationFlow
